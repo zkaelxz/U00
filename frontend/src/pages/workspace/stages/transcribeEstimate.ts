@@ -106,3 +106,61 @@ export function diarizeEstimate(durationSeconds: number | null): string {
   if (!durationSeconds || durationSeconds <= 0) return 'Takes approx. a minute to a few minutes, depending on audio length.'
   return `Takes approx. ${range(durationSeconds, DIARIZE)}.`
 }
+
+// --- Live ETA for a running transcription ---------------------------------
+
+export interface EtaSample {
+  t: number // seconds, any fixed origin
+  p: number // progress 0..1
+}
+
+// Wait this long after the first percent before saying anything: earlier
+// readings swing too much to be worth showing.
+export const ETA_MIN_SECONDS = 30
+const ETA_MIN_PROGRESS = 0.01
+const ETA_MAX_SPREAD = 2
+
+// Seconds left, or null when it shouldn't be shown. `samples` run from the
+// first reported percent (p > 0) of one stage; each is extrapolated on its own
+// (time since the first percent, over the progress made since then) and the
+// median of the recent ones is shown, so one slow poll doesn't move it. Hidden
+// when those readings disagree by more than 2x or progress has stopped.
+export function liveEtaSeconds(samples: EtaSample[], now: number): number | null {
+  if (samples.length < 2) return null
+  const first = samples[0]
+  const last = samples[samples.length - 1]
+  if (first.p <= 0 || now - first.t < ETA_MIN_SECONDS) return null
+  if (last.p - first.p < ETA_MIN_PROGRESS || last.p >= 1) return null
+  const sinceChange = samples.find((s) => s.p === last.p)!.t
+  const stalledFor = now - sinceChange
+  if (stalledFor > Math.max(60, (now - first.t) * 0.25)) return null
+  const left: number[] = []
+  for (const s of samples) {
+    if (s.t - first.t < 10 || s.p - first.p < ETA_MIN_PROGRESS) continue
+    left.push(((s.t - first.t) * (1 - s.p)) / (s.p - first.p) - (now - s.t))
+  }
+  const recent = left.slice(-5)
+  if (recent.length < 2) return null
+  const positive = recent.map((v) => Math.max(v, 60))
+  if (Math.max(...positive) / Math.min(...positive) > ETA_MAX_SPREAD) return null
+  const sorted = [...positive].sort((a, b) => a - b)
+  return sorted[Math.floor(sorted.length / 2)]
+}
+
+// "about 12 min left".
+export function formatLeft(seconds: number): string {
+  return seconds < 90 ? 'about 1 min left' : `${roughDuration(seconds)} left`
+}
+
+// The job says when a stage has no percent of its own (model load, separation
+// model, Qwen3-ASR before its first batch): no ETA is extrapolated there.
+export function isNoPercentStage(message: string): boolean {
+  return /no progress is available|no percent/i.test(message)
+}
+
+// Qwen3-ASR runs report "(step 1 of 2)" / "(step 2 of 2)": each step has its
+// own clock, so samples never mix across them.
+export function etaStage(message: string): string {
+  const m = /step (\d) of \d/i.exec(message)
+  return m ? m[1] : '0'
+}
