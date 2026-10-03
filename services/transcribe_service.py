@@ -145,6 +145,14 @@ def _audio_duration_seconds(path) -> Optional[float]:
         return None
 
 
+# A running job never reports 100%: only completion does. When Qwen3-ASR
+# re-transcribes after Whisper, Whisper's stage fills 0..QWEN_SPLIT and
+# Qwen3's batches fill QWEN_SPLIT..RUNNING_MAX; otherwise Whisper's stage
+# fills 0..RUNNING_MAX.
+RUNNING_MAX = 0.99
+QWEN_SPLIT = 0.85
+
+
 def _raise_if_job_cancelled(job_id):
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
@@ -704,6 +712,10 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
             return
 
+        qwen_run = transcript_mode == "whisper" and asr_backend_choice == "qwen3_asr" and not moss_run
+        stage_max = QWEN_SPLIT if qwen_run else RUNNING_MAX
+        step_label = " (step 1 of 2)" if qwen_run else ""
+
         if moss_run:
             # Step 104 (experimental): one pass that also labels speakers;
             # replaces Whisper for this run, only when chosen explicitly.
@@ -740,7 +752,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 segments = core_module.transcribe_with_groq(
                     audio_path, source_language, groq_api_key,
                     progress_cb=lambda frac: background_jobs.update_progress(
-                        job_id, frac, f"Transcribing via Groq's cloud API... {frac * 100:.0f}%"))
+                        job_id, min(frac, 1.0) * stage_max,
+                        f"Transcribing via Groq's cloud API{step_label}... {frac * 100:.0f}%"))
             except core_module.GroqTranscriptionError as exc:
                 background_jobs.set_result(job_id, {"failed_reason": "groq", "detail": str(exc)})
                 return
@@ -777,7 +790,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                     progress_cb=lambda frac: (
                         _raise_if_job_cancelled(job_id),
                         background_jobs.update_progress(
-                            job_id, frac, f"Transcribing... {frac * 100:.0f}%{device_suffix}")),
+                            job_id, min(frac, 1.0) * stage_max,
+                            f"Transcribing{step_label}... {frac * 100:.0f}%{device_suffix}")),
                     fast_mode=whisper_fast_mode)
             except core_module.ModelDownloadError as exc:
                 background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
@@ -793,7 +807,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         if realign_long_segments and not moss_run and not background_jobs.is_cancel_requested(job_id):
             import word_align
             try:
-                with background_jobs.stage_ticker(job_id, "Splitting long merged lines", frac=1.0):
+                with background_jobs.stage_ticker(job_id, "Splitting long merged lines", frac=stage_max):
                     segments = word_align.realign_oversized_segments(
                         segments, audio_path, source_language, chinese_script=chinese_script)
             except word_align.WordAlignError as exc:
@@ -809,13 +823,25 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                     return
                 # Timing stays Whisper's VAD segments; only the text is replaced
                 # (asr_backend.py's module docstring explains why).
-                background_jobs.update_progress(
-                    job_id, 1.0, "Re-transcribing with Qwen3-ASR (timing kept from Whisper)...")
+                qwen_ticker = background_jobs.stage_ticker(
+                    job_id, "Re-transcribing with Qwen3-ASR (step 2 of 2; no percent until "
+                            "the first batch finishes)", frac=QWEN_SPLIT).start()
+
+                def _qwen_progress(frac):
+                    # The first finished batch ends the no-percent phase; the
+                    # ticker would otherwise overwrite the message.
+                    qwen_ticker.stop()
+                    _raise_if_job_cancelled(job_id)
+                    background_jobs.update_progress(
+                        job_id, QWEN_SPLIT + min(max(frac, 0.0), 1.0) * (RUNNING_MAX - QWEN_SPLIT),
+                        f"Re-transcribing with Qwen3-ASR (step 2 of 2)... {frac * 100:.0f}%")
+
                 try:
                     import asr_backend
                     segments = asr_backend.Qwen3ASRBackend().transcribe(
                         audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu,
-                        batch_size=asr_options_service.get_qwen_asr_batch_size())
+                        batch_size=asr_options_service.get_qwen_asr_batch_size(),
+                        progress_cb=_qwen_progress)
                 except ImportError as exc:
                     background_jobs.set_result(job_id, {
                         "failed_reason": "dependency_missing",
@@ -830,6 +856,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                     background_jobs.set_result(
                         job_id, {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))})
                     return
+                finally:
+                    qwen_ticker.stop()
                 raw_backend, raw_model = "qwen3_asr", "Qwen3-ASR"
             lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                           speaker=seg.get("speaker") or None)
@@ -838,14 +866,14 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 segments, _audio_duration_seconds(audio_path),
                 qwen3_asr=raw_backend == "qwen3_asr")
         else:
-            background_jobs.update_progress(job_id, 1.0, "Aligning transcript to audio timing...")
+            background_jobs.update_progress(job_id, RUNNING_MAX, "Aligning transcript to audio timing...")
             user_lines = split_user_transcript(transcript_text)
             if alignment_method == "qwen3_forced_align":
                 if background_jobs.is_cancel_requested(job_id):
                     background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
                     return
                 background_jobs.update_progress(
-                    job_id, 1.0, "Aligning with Qwen3-ForcedAligner (true forced alignment)...")
+                    job_id, RUNNING_MAX, "Aligning with Qwen3-ForcedAligner (true forced alignment)...")
                 try:
                     import forced_align
                     lines = forced_align.align_with_qwen3(

@@ -834,7 +834,7 @@ class TestQwen3Backends:
 
         class FakeQwen3ASR:
             def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
-                           batch_size=1):
+                           batch_size=1, progress_cb=None):
                 calls.append((language, whisper_segments, use_gpu, batch_size))
                 return [{"start": s["start"], "end": s["end"], "text": "qwen text"}
                         for s in whisper_segments]
@@ -857,6 +857,63 @@ class TestQwen3Backends:
         assert (raw["backend"], raw["model"]) == ("qwen3_asr", "Qwen3-ASR")
         assert any("Qwen3-ASR" in m for m in messages)
         assert background_jobs.get_status(job_id)["result"]["asr_backend"] == "qwen3_asr"
+        _clear(job_id)
+
+    def test_progress_never_hits_100_before_done_and_never_goes_back(
+            self, isolated_db, monkeypatch):
+        """Whisper fills 0-85%, the Qwen3 step 85-99% (no percent until its
+        first batch), and only completion reports 100%."""
+        import asr_backend
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        seen = []
+        real_update = background_jobs.update_progress
+
+        def record(j, f, m=""):
+            seen.append((f, m))
+            real_update(j, f, m)
+        monkeypatch.setattr(background_jobs, "update_progress", record)
+
+        def fake_whisper(*a, progress_cb=None, **k):
+            for f in (0.25, 1.0):
+                progress_cb(f)
+            return [{"start": 0.0, "end": 1.5, "text": "w"}, {"start": 2.0, "end": 3.0, "text": "w2"}]
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", fake_whisper)
+
+        class FakeQwen3ASR:
+            def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
+                           batch_size=1, progress_cb=None):
+                progress_cb(0.5)
+                progress_cb(1.0)
+                return [{"start": s["start"], "end": s["end"], "text": "q"} for s in whisper_segments]
+        monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", FakeQwen3ASR)
+
+        job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr")
+
+        fracs = [f for f, m in seen if m]
+        assert max(fracs) < 1.0
+        whisper_fracs = [f for f, m in seen if m.startswith("Transcribing (step 1 of 2)")]
+        assert whisper_fracs and max(whisper_fracs) == pytest.approx(0.85)
+        qwen_fracs = [f for f, m in seen if "step 2 of 2)... " in m]
+        assert qwen_fracs and min(qwen_fracs) > 0.85 and max(qwen_fracs) <= 0.99
+        # Monotonic from the first Whisper percent onward (the ticker's own
+        # no-percent message holds the value at the split).
+        later = [f for f, m in seen if m.startswith(("Transcribing", "Re-transcribing"))]
+        assert later == sorted(later)
+        _clear(job_id)
+
+    def test_whisper_only_run_stays_below_100_until_done(self, isolated_db, monkeypatch):
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        seen = []
+        real_update = background_jobs.update_progress
+        monkeypatch.setattr(background_jobs, "update_progress",
+                            lambda j, f, m="": (seen.append(f), real_update(j, f, m)))
+
+        def fake_whisper(*a, progress_cb=None, **k):
+            progress_cb(1.0)
+            return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", fake_whisper)
+        job_id = self._run(did, ddir, "whisper")
+        assert max(seen) < 1.0
         _clear(job_id)
 
     def test_song_with_one_whisper_segment_gives_one_qwen3_line_and_warns(
