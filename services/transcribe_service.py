@@ -572,6 +572,10 @@ def stored_whisper_size(drama: dict) -> str:
     return size
 
 
+def _separation_device_label(kind: str) -> str:
+    return {"gpu": "on GPU", "cpu": "on CPU (slow)"}.get(kind, "")
+
+
 def _model_loading_message(whisper_size: str, cached: bool) -> str:
     if cached:
         return f"Loading Whisper model {whisper_size}..."
@@ -658,14 +662,33 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     else:
         if separate_vocals_first:
             import audio_preprocess
-            background_jobs.update_progress(job_id, 0.0, "Separating vocals from background music...")
             vocals_path = os.path.join(os.path.dirname(audio_path), "vocals.wav")
+            sep = {"ticker": None, "device": ""}
+
+            def _sep_message(frac):
+                where = f" {sep['device']}" if sep["device"] else ""
+                return f"Separating vocals{where}, {frac * 100:.0f}%"
+
+            def _sep_event(event, value):
+                if sep["ticker"]:
+                    sep["ticker"].stop()
+                    sep["ticker"] = None
+                if event == "loading":
+                    # The model download/load cannot report progress.
+                    sep["ticker"] = background_jobs.stage_ticker(
+                        job_id, "Loading the vocal separation model (downloads on first use)").start()
+                elif event == "device":
+                    sep["device"] = _separation_device_label(value)
+                    background_jobs.update_progress(job_id, 0.0, _sep_message(0.0))
+
+            background_jobs.update_progress(job_id, 0.0, "Separating vocals from background music...")
             try:
                 audio_path = audio_preprocess.separate_vocals(
                     audio_path, vocals_path, backend=separation_backend,
                     progress_cb=lambda frac: background_jobs.update_progress(
-                        job_id, frac, f"Removing background music... {frac * 100:.0f}%"),
-                    cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id))
+                        job_id, frac, _sep_message(frac)),
+                    cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
+                    use_gpu=use_gpu, event_cb=_sep_event)
             except audio_preprocess.VocalSeparationCancelled:
                 background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
                 return
@@ -673,6 +696,9 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 background_jobs.set_result(
                     job_id, {"failed_reason": "vocal_separation", "detail": str(exc)})
                 return
+            finally:
+                if sep["ticker"]:
+                    sep["ticker"].stop()
 
         if background_jobs.is_cancel_requested(job_id):
             background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
@@ -726,19 +752,20 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 local_model_path = settings_service.get_whisper_model_path()
                 model_cached = bool(local_model_path) or core_module.is_whisper_model_cached(
                     whisper_size)
-                background_jobs.update_progress(job_id, 0.0, _model_loading_message(
-                    whisper_size, model_cached))
                 # Loaded here (cached in core, so transcribe_for_timing reuses
                 # it) so the download/load phase and the device actually
                 # chosen are visible instead of "Starting..." for minutes.
-                core_module.load_whisper_model(whisper_size, use_gpu=use_gpu,
-                                               local_model_path=local_model_path)
+                with background_jobs.stage_ticker(job_id, _model_loading_message(
+                        whisper_size, model_cached)):
+                    core_module.load_whisper_model(whisper_size, use_gpu=use_gpu,
+                                                   local_model_path=local_model_path)
                 device_msg = core_module.describe_whisper_device(
                     core_module.get_whisper_device_info(whisper_size, use_gpu=use_gpu,
                                                         local_model_path=local_model_path))
                 device_suffix = f" ({device_msg})" if device_msg else ""
                 background_jobs.update_progress(
-                    job_id, 0.0, f"Transcribing...{device_suffix}")
+                    job_id, 0.0, f"Transcribing... starting; the percent appears once "
+                                 f"the first lines are found{device_suffix}")
                 segments = transcribe_for_timing(
                     audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
                     local_model_path=local_model_path, hf_token=None,
@@ -759,10 +786,10 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
 
         if realign_long_segments and not moss_run and not background_jobs.is_cancel_requested(job_id):
             import word_align
-            background_jobs.update_progress(job_id, 1.0, "Splitting long merged lines...")
             try:
-                segments = word_align.realign_oversized_segments(
-                    segments, audio_path, source_language, chinese_script=chinese_script)
+                with background_jobs.stage_ticker(job_id, "Splitting long merged lines", frac=1.0):
+                    segments = word_align.realign_oversized_segments(
+                        segments, audio_path, source_language, chinese_script=chinese_script)
             except word_align.WordAlignError as exc:
                 word_align_error = str(exc)
 

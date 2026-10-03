@@ -52,8 +52,10 @@ def _install_fake_demucs(monkeypatch, stems=("drums", "bass", "other", "vocals")
     captured = {"separate_paths": []}
 
     class FakeSeparator:
-        def __init__(self, model="htdemucs"):
+        def __init__(self, model="htdemucs", device="cuda"):
             captured["model"] = model
+            captured["device"] = device
+            self._device = device
             self.samplerate = 8000
 
         def separate_audio_file(self, path):
@@ -154,6 +156,41 @@ class TestSeparateVocalsDemucs:
         _write_wav(in_path, seconds=0.5)
         with pytest.raises(audio_preprocess.VocalSeparationError, match="vocals stem"):
             audio_preprocess.separate_vocals_demucs(in_path, str(tmp_path / "vocals.wav"))
+
+    def _stub_demucs(self, monkeypatch):
+        """Fake demucs plus a no-op chunk loop: device reporting needs no audio."""
+        captured = {}
+
+        class FakeSeparator:
+            def __init__(self, model="htdemucs", device="cuda"):
+                captured["device"] = device
+                self._device = device
+
+        fake_api = types.ModuleType("demucs.api")
+        fake_api.Separator = FakeSeparator
+        fake_api.save_audio = lambda *a, **k: None
+        fake_demucs = types.ModuleType("demucs")
+        fake_demucs.api = fake_api
+        monkeypatch.setitem(sys.modules, "demucs", fake_demucs)
+        monkeypatch.setitem(sys.modules, "demucs.api", fake_api)
+        monkeypatch.setattr(audio_preprocess, "_separate_vocals_chunked", lambda *a, **k: None)
+        return captured
+
+    def test_demucs_reports_loading_then_device(self, monkeypatch, tmp_path):
+        self._stub_demucs(monkeypatch)
+        events = []
+        audio_preprocess.separate_vocals_demucs(
+            "in.wav", str(tmp_path / "v.wav"), event_cb=lambda e, v: events.append((e, v)))
+        assert events == [("loading", "demucs"), ("device", "gpu")]
+
+    def test_demucs_use_gpu_false_forces_cpu_and_says_so(self, monkeypatch, tmp_path):
+        captured = self._stub_demucs(monkeypatch)
+        events = []
+        audio_preprocess.separate_vocals_demucs(
+            "in.wav", str(tmp_path / "v.wav"), use_gpu=False,
+            event_cb=lambda e, v: events.append((e, v)))
+        assert captured["device"] == "cpu"
+        assert ("device", "cpu") in events
 
     def test_separate_vocals_demucs_constructs_its_separator_exactly_once(self, monkeypatch, tmp_path):
         """A per-chunk model reload would be a real performance
@@ -348,11 +385,11 @@ class TestSeparateVocalsCancelNeverFallsBackToTheOtherBackend:
     def test_a_cancel_from_the_first_backend_is_not_retried_on_the_second(self, monkeypatch):
         calls = []
 
-        def _cancelling_backend(audio_path, out_path, progress_cb=None, cancel_check_cb=None):
+        def _cancelling_backend(audio_path, out_path, progress_cb=None, cancel_check_cb=None, **_):
             calls.append("audio_separator")
             raise audio_preprocess.VocalSeparationCancelled("stopped")
 
-        def _should_never_run(audio_path, out_path, progress_cb=None, cancel_check_cb=None):
+        def _should_never_run(audio_path, out_path, progress_cb=None, cancel_check_cb=None, **_):
             calls.append("demucs")
             raise audio_preprocess.VocalSeparationError("should never be reached")
 

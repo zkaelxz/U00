@@ -26,6 +26,11 @@ Open (lead session merges once CI is green):
 - WP5 is merged except the owner's real-PC checks and network steps: forward router port 443, a domain/DDNS name, the firewall rule `enable-remote` prints, and the Google client values plus `BAIHE_PUBLIC_URL` in `.env`.
 - Step 141 build (after its spec).
 
+Source browser-tier status (owner-reported 2026-10; static fetch returned an empty SPA shell, the browser tier was never run for these):
+- Miaoqumh, GoDaManhua/Baozimh (godamh.com), Kuaikan, Zero-Sum Online: browser-tier support unverified; the adapters' "no browser needed" notes were not confirmed against the live site.
+- Bilibili Manga: chapter import reads the browser-rendered page only; unverified for the `mc<comic>/<episode>` reader (needs a real-site check, signed in for locked chapters).
+- Piaotian: Cloudflare challenge on plain requests; stopped by design, not bypassed. Use a saved page from your own browser.
+
 Deferred: Step 108 (adapter interfaces), and the `db.py` and `api/schemas.py` splits.
 
 Deferred until a need arises (owner decision 2026-09-30):
