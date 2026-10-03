@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { CapabilityRoute, EngineRouteStatus, EngineRouting } from '../../types/engineRouting'
 import {
   choiceFromSelect,
+  engineRows,
+  keysSetCount,
   replaceCapability,
   replaceEngine,
   selectValue,
@@ -105,5 +107,38 @@ describe('engine routing view', () => {
     expect(r3.engines.map((e) => e.status)).toEqual(['untested', 'working'])
     expect(workingCount(r3)).toBe(1)
     expect(r.capabilities[0].engine).toBe('gemini') // not mutated
+  })
+})
+
+describe('merged engines and keys list', () => {
+  const routing: EngineRouting = {
+    capabilities: [],
+    engines: [
+      eng({ engine: 'claude' }),
+      eng({ engine: 'ollama', tags: ['local', 'translate'], needs_key: false }),
+      eng({ engine: 'fake', tags: [], needs_key: false }),
+    ],
+  }
+  const keys = { claude: false, groq: true, hf_token: false, ollama_url: true }
+
+  it('lists routed engines first, then keys no engine uses, never the server addresses', () => {
+    const rows = engineRows(routing, keys)
+    expect(rows.map((r) => r.engine)).toEqual(['claude', 'ollama', 'fake', 'groq', 'hf_token'])
+    expect(rows.map((r) => r.keyState)).toEqual(['missing', 'none', 'none', 'set', 'missing'])
+    expect(rows.map((r) => r.writable)).toEqual([true, false, false, true, true])
+    expect(rows.map((r) => r.cost)).toEqual(['Paid', 'Free · runs on this PC', 'Free', 'Paid', 'Free'])
+    expect(rows[3].status).toBeNull()
+  })
+
+  it('takes key state from the settings overview so a saved key shows at once', () => {
+    expect(engineRows(routing, { ...keys, claude: true })[0].keyState).toBe('set')
+  })
+
+  it('still lists the keys while routing is loading or failed', () => {
+    expect(engineRows(null, keys).map((r) => r.engine)).toEqual(['claude', 'groq', 'hf_token'])
+  })
+
+  it('counts only engines that take a key', () => {
+    expect(keysSetCount(engineRows(routing, keys))).toEqual({ set: 1, total: 3 })
   })
 })
