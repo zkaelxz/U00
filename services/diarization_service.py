@@ -40,6 +40,57 @@ def _drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
     return path if os.path.exists(path) else None
 
 
+def speaker_time_summary(drama_id: int) -> Optional[dict]:
+    """Share of speech per speaker from the saved diarization turns, or None
+    when none are saved. Per speaker: label, seconds, percent (of the speakers'
+    summed seconds, so overlapping speech counts for each speaker and the
+    percents add to 100) and turns, biggest first. uncovered_seconds is the
+    drama's audio not inside any turn (overlaps merged), None if the audio
+    length is unknown. Raises NotFoundError for an unknown drama."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    turns = diarize.load_turns(db.drama_dir(drama_id))
+    if not turns:
+        return None
+    per, spans = {}, []
+    for t in turns:
+        try:
+            start, end = float(t["start"]), float(t["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        entry = per.setdefault(str(t.get("speaker") or "?"), {"seconds": 0.0, "turns": 0})
+        entry["seconds"] += end - start
+        entry["turns"] += 1
+        spans.append((start, end))
+    if not per:
+        return None
+    total = sum(e["seconds"] for e in per.values())
+    covered, cur_s, cur_e = 0.0, None, None
+    for start, end in sorted(spans):
+        if cur_e is None or start > cur_e:
+            if cur_e is not None:
+                covered += cur_e - cur_s
+            cur_s, cur_e = start, end
+        else:
+            cur_e = max(cur_e, end)
+    covered += cur_e - cur_s
+    uncovered = None
+    audio_path = _drama_audio_path(drama_id, drama)
+    if audio_path:
+        from services import transcribe_service  # imports this module, so not at the top
+        duration = transcribe_service._audio_duration_seconds(audio_path)
+        if duration:
+            uncovered = round(max(0.0, duration - covered), 1)
+    speakers = [{"label": k, "seconds": round(v["seconds"], 1),
+                 "percent": round(100 * v["seconds"] / total, 1), "turns": v["turns"]}
+                for k, v in sorted(per.items(), key=lambda kv: -kv[1]["seconds"])]
+    return {"speakers": speakers, "total_speech_seconds": round(total, 1),
+            "uncovered_seconds": uncovered}
+
+
 def get_diarization_config(drama_id: int) -> dict:
     """Read-only Diarize-stage summary for one drama: whether an HF token
     is configured, the expected-speaker-count default from the last real
@@ -68,6 +119,7 @@ def get_diarization_config(drama_id: int) -> dict:
         # client can ask before a run with overwrite_manual replaces them.
         "manual_speaker_count": sum(1 for r in db.load_lines(drama_id)
                                     if r.get("speaker_manual")),
+        "speaker_summary": speaker_time_summary(drama_id),
     }
 
 
