@@ -17,7 +17,7 @@ NNNN is the chapter's place in the series' reading order, so files sort in
 reading order. Names come from the site, so they are reduced to safe file
 names (no separators, reserved characters or Windows device names) and the
 final path is checked to stay inside the save folder. A chapter whose file
-already exists is skipped, so saving again only adds what's missing. A file
+already exists (with at least one image) is skipped, so saving again only adds what's missing. A file
 is written to a `.part` beside it and renamed into place only when complete,
 so a cancelled or failed chapter never leaves a half CBZ behind.
 
@@ -212,6 +212,16 @@ def write_cbz(path: str, images, series: str, title: str, number: int, language:
         raise
 
 
+def _has_images(path: str) -> bool:
+    """True when the CBZ at `path` holds at least one image. A leftover file
+    with none (or an unreadable one) counts as missing so it is fetched again."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return any(n.lower().endswith(IMAGE_EXTS) for n in zf.namelist())
+    except (OSError, zipfile.BadZipFile, ValueError):
+        return False
+
+
 def _row(ch, outcome: str, **extra) -> dict:
     return {"chapter_id": str(ch.chapter_id), "title": _scrub(ch.title or ""),
             "outcome": outcome, **extra}
@@ -258,12 +268,15 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
         number = numbers[str(ch.chapter_id)]
         try:
             path = chapter_path(root, label, series_title, series_id, number, ch.title or ch.chapter_id)
-            if os.path.exists(path):
+            if os.path.exists(path) and _has_images(path):
                 rows.append(_row(ch, "skipped"))
                 continue
             ladder.check_terms(name, adapter.capabilities())
             progress((i - 1) / total, f"Chapter {i} / {total} -- loading pages")
             pages = adapter.get_pages(ch)
+            if not pages:
+                raise SourceError("The site returned no pages for this chapter.",
+                                  FailureReason.LAYOUT_CHANGED)
             if len(pages) > MAX_CHAPTER_PAGES:
                 raise SourceError("This chapter has too many pages to save.")
             images = []
