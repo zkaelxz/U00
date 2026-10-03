@@ -92,7 +92,8 @@ class TestJobResults:
         assert d("running", None, None) == (None, None)
 
     def test_transcribe_warnings_are_partial(self):
-        for key in ("gpu_fallback", "word_align_error", "forced_align_error"):
+        for key in ("gpu_fallback", "word_align_error", "forced_align_error",
+                    "coverage_warning"):
             result = jobs_service.project_result({"line_count": 5, key: "boom"})
             assert result[key] == "boom"
             outcome, message = jobs_service.derive_outcome("done", None, result)

@@ -98,6 +98,53 @@ _DEFAULT_TUNING = {
 }
 
 
+# Below this much audio a low figure says little (a short clip can be one line).
+COVERAGE_MIN_AUDIO_SECONDS = 30.0
+COVERAGE_WARN_FRACTION = 0.15
+
+
+def audio_coverage_fraction(segments, audio_seconds) -> Optional[float]:
+    """Share (0-1) of the audio covered by segments that have text, overlaps
+    counted once; None when the audio length is unknown."""
+    if not audio_seconds or audio_seconds <= 0:
+        return None
+    spans = sorted((max(0.0, float(s["start"])), min(float(s["end"]), audio_seconds))
+                   for s in segments if (s.get("text") or "").strip())
+    covered, cur_end = 0.0, 0.0
+    for start, end in spans:
+        start = max(start, cur_end)
+        if end > start:
+            covered += end - start
+            cur_end = end
+    return min(covered / audio_seconds, 1.0)
+
+
+def coverage_warning(segments, audio_seconds, qwen3_asr: bool = False) -> Optional[str]:
+    """A sentence when transcribed lines cover very little of a long enough
+    audio file (speech missed, e.g. singing or music the speech detector
+    skipped), else None."""
+    fraction = audio_coverage_fraction(segments, audio_seconds)
+    if fraction is None or audio_seconds < COVERAGE_MIN_AUDIO_SECONDS \
+            or fraction >= COVERAGE_WARN_FRACTION:
+        return None
+    msg = (f"Only {fraction * 100:.0f}% of the audio has text: try another engine, "
+           "turn vocal separation on, or check the language.")
+    if qwen3_asr:
+        msg += (" Qwen3-ASR only re-transcribes the speech Whisper found, "
+                "so it cannot add lines Whisper missed.")
+    return msg
+
+
+def _audio_duration_seconds(path) -> Optional[float]:
+    """Best-effort audio length via ffprobe; None when it can't be read."""
+    try:
+        import media_inspect
+        info = media_inspect.run_ffprobe(path, timeout=30)
+        return float((info.get("format") or {}).get("duration") or 0.0) or None
+    except Exception:
+        return None
+
+
 def _raise_if_job_cancelled(job_id):
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
@@ -588,6 +635,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     gpu_fallback_msg = []
     word_align_error = None
     forced_align_error = None
+    coverage_msg = None
     device_msg = ""
     device_suffix = ""
     moss_run = transcript_mode == "whisper" and asr_backend_choice == "moss_td"
@@ -786,6 +834,9 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                           speaker=seg.get("speaker") or None)
                      for i, seg in enumerate(segments) if seg["text"].strip()]
+            coverage_msg = coverage_warning(
+                segments, _audio_duration_seconds(audio_path),
+                qwen3_asr=raw_backend == "qwen3_asr")
         else:
             background_jobs.update_progress(job_id, 1.0, "Aligning transcript to audio timing...")
             user_lines = split_user_transcript(transcript_text)
@@ -874,6 +925,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                              and alignment_method == "qwen3_forced_align"
                              and not forced_align_error else "whisper_diff"),
         "forced_align_error": forced_align_error,
+        "coverage_warning": coverage_msg,
         "diarize_started": diarize_started,
         **({"partial": True, "errors": [
             "MOSS stopped at its output limit; the end of the audio may be missing."]}
