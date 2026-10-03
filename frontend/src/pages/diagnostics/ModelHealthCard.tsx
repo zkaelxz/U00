@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { checkModelProviders, clearModelOverride, getModelStatus, setModelOverride, setOfferProviderModels, switchPresetModel, type ModelStatus, type ModelStatusItem } from '../../api/models'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
-import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
@@ -137,27 +136,25 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
   const { attention, others } = status ? splitModelItems(status.items) : { attention: [], others: [] }
   const checks = status ? engineCheckLines(status.engines_checked) : []
 
+  const problems = status ? status.warnings : 0
+  const summary = status ? `${badge?.text ?? ''} · ${lastCheckedLine(status.checked_at)}` : 'Loading…'
+
   return (
-    <Card
-      title="Model health"
-      meta={<span data-testid="model-health-checked">{status ? lastCheckedLine(status.checked_at) : 'Loading…'}</span>}
-      className="model-health"
-      aria-label="Model health"
-      actions={
-        <>
-          {badge && (
-            <span data-testid="model-health-badge">
-              <Badge tone={badge.tone}>{badge.text}</Badge>
-            </span>
-          )}
-          {canAct && (
-            <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy !== null} onClick={check}>
-              {busy === 'check' ? 'Checking…' : 'Check providers now'}
-            </button>
-          )}
-        </>
-      }
-    >
+    <Section title="Model health" storageKey="diagnostics.modelHealth" summary={summary} defaultOpen={problems > 0}>
+      <div className="model-health" aria-label="Model health">
+      <div className="actions">
+        {badge && (
+          <span data-testid="model-health-badge">
+            <Badge tone={badge.tone}>{badge.text}</Badge>
+          </span>
+        )}
+        <span className="muted" data-testid="model-health-checked">{status ? lastCheckedLine(status.checked_at) : 'Loading…'}</span>
+        {canAct && (
+          <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy !== null} onClick={check}>
+            {busy === 'check' ? 'Checking…' : 'Check providers now'}
+          </button>
+        )}
+      </div>
       {loadError && (
         <p className="error" role="alert">
           {loadError}
@@ -268,7 +265,8 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
           {error}
         </p>
       )}
-    </Card>
+      </div>
+    </Section>
   )
 }
 
