@@ -41,7 +41,7 @@ test('a refused option is flagged on the phone without sideways scroll', async (
   await page.goto('/#/drama/1/source')
   await page.getByLabel('Transcript text').fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
-  await expect(page.getByLabel('Alignment method')).toHaveAttribute('aria-invalid', 'true')
+  await expect(page.getByLabel('Alignment method', { exact: true })).toHaveAttribute('aria-invalid', 'true')
   await expectNoHorizontalOverflow(page)
   await shot(page, 'transcribe-field-error-phone')
 })

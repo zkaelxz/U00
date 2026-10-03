@@ -32,7 +32,7 @@ test('a refused option is highlighted on its field, with the reason beside it', 
   await page.getByLabel('Transcript text').fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
 
-  const field = page.getByLabel('Alignment method')
+  const field = page.getByLabel('Alignment method', { exact: true })
   await expect(field).toBeVisible() // Advanced was folded: it is opened for you
   await expect(field).toHaveAttribute('aria-invalid', 'true')
   await expect(page.locator('.field-error', { hasText: 'Qwen3 forced alignment needs a transcript' })).toBeVisible()
@@ -51,8 +51,8 @@ test('forced alignment is disabled with a reason when there is no supplied trans
     await route.fulfill({ response: resp, json: { ...(await resp.json()), transcript_mode: 'whisper', alignment_method: 'whisper_diff' } })
   })
   await page.goto('/#/drama/1/source')
-  await page.getByLabel('Alignment method').waitFor({ state: 'attached' })
-  await expect(page.getByLabel('Alignment method').locator('option[value="qwen3_forced_align"]')).toBeDisabled()
+  await page.getByLabel('Alignment method', { exact: true }).waitFor({ state: 'attached' })
+  await expect(page.getByLabel('Alignment method', { exact: true }).locator('option[value="qwen3_forced_align"]')).toBeDisabled()
   await expect(page.getByText('for raw audio, pick Whisper or Qwen3-ASR')).toBeAttached()
 })
 
