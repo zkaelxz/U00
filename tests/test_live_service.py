@@ -190,7 +190,7 @@ def test_dir_removed_on_cancel_while_running(live):
 def test_dir_removed_on_cancel_while_queued(live, monkeypatch):
     monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: True)
     monkeypatch.setattr(background_jobs, "_gpu_slot_available_locked", lambda *a: False)
-    sid = _start()
+    sid = _start(use_gpu=True)
     out_dir = live_service._sessions[sid]["dir"]
     assert background_jobs.get_status(sid)["status"] == "queued"
     live_service.stop_session(sid)
@@ -215,9 +215,13 @@ def test_use_gpu_reaches_pipeline(live, monkeypatch, tmp_path):
     live_service.stop_session(sid)
 
 
-def test_job_is_gpu_touching(live):
-    sid = _start()
+def test_job_is_gpu_touching_only_when_gpu_is_on(live):
+    sid = _start(use_gpu=True)
     assert background_jobs.get_status(sid)["gpu_touching"] is True
+    live_service.stop_session(sid)
+    assert _terminal(sid)
+    sid = _start()
+    assert background_jobs.get_status(sid)["gpu_touching"] is False
 
 
 # --- live_translate fixes ---------------------------------------------------

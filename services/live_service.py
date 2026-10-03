@@ -240,7 +240,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url, protocol_whitelist=FFMPEG_PROTOCOL_WHITELIST,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
-            gpu_touching=True, description="Live capture (local Whisper)")
+            gpu_touching=bool(use_gpu), description="Live capture (local Whisper)")
     except Exception:
         _remove_dir(session_id)
         with _lock:
