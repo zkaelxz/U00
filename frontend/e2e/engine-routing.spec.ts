@@ -27,7 +27,7 @@ test('choose an engine for a task, see it persist, and test the offline engine',
   await expect(page.getByTestId('task-llm.instructions').getByText('default', { exact: true })).toBeVisible()
 
   // An engine that needs a key and has none can't be tested (the e2e server has no keys).
-  await expect(page.getByTestId('engine-claude').getByText('No key')).toBeVisible()
+  await expect(page.getByTestId('engine-claude').getByText('Missing')).toBeVisible()
   await expect(card(page).getByRole('button', { name: 'Test Claude' })).toBeDisabled()
 
   // The offline test engine is free and needs no network.
@@ -68,7 +68,7 @@ test('a refused change rolls the choice back and says it is PC only', async ({ p
   await expect(card(page).getByText('This only works on the main PC.')).toBeVisible()
   await expect(task(page)).toHaveValue('')
   // The 403 switched the tab to remote: the controls are disabled with a note.
-  await expect(card(page).getByText('Choosing and testing engines is PC only.')).toBeVisible()
+  await expect(card(page).getByText('Choosing engines, testing and setting keys is PC only.')).toBeVisible()
   await expect(task(page)).toBeDisabled()
   await expect(card(page).getByRole('button', { name: 'Test Fake' })).toBeDisabled()
   await page.evaluate(() => sessionStorage.removeItem('baihe.pcOnly'))

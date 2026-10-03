@@ -1,6 +1,8 @@
 // Pure display and state logic for Settings > "Which engine does what"
 // (EngineRoutingCard.tsx). Kept free of React so it is unit-testable.
 import type { BadgeTone } from '../../components/labels'
+import { humanize } from '../../components/labels'
+import { keyRows } from '../settingsKeys'
 import type { CapabilityRoute, EngineRouteStatus, EngineRouting, EngineStatus } from '../../types/engineRouting'
 
 const STATUS_BADGES: Record<EngineStatus, { label: string; tone: BadgeTone }> = {
@@ -42,7 +44,7 @@ export function testedText(iso: string | null | undefined, now: number = Date.no
 /** Why Test can't run for this engine right now, or null when it can. */
 export function testBlockedReason(e: EngineRouteStatus): string | null {
   if (e.test_blocked) return e.test_blocked
-  return e.status === 'not_configured' ? 'Add a key in API keys first.' : null
+  return e.status === 'not_configured' ? 'Set its key first.' : null
 }
 
 // The <select> value: '' is the "Use default" option (sent as null).
@@ -79,3 +81,60 @@ export const unsetOptionLabel = (c: CapabilityRoute, engineLabel: (e: string) =>
   c.unset_label ?? `Use default (${engineLabel(c.default_engine)})`
 
 export const unsetBadge = (c: CapabilityRoute): string => (c.unset_label ? 'off' : 'default')
+
+export type KeyState = 'set' | 'missing' | 'none'
+
+/** One row of the merged "Engines and keys" list. `status` is null for a key that no routed engine uses (Groq, Hugging Face) or while routing is still loading. */
+export interface EngineRow {
+  engine: string
+  label: string
+  status: EngineRouteStatus | null
+  keyState: KeyState
+  writable: boolean
+  cost: string
+}
+
+// Keys with no routed engine behind them.
+const KEY_ONLY_COST: Record<string, string> = { groq: 'Paid', hf_token: 'Free' }
+
+export function costText(e: EngineRouteStatus): string {
+  if (e.tags.includes('local')) return 'Free · runs on this PC'
+  return e.needs_key ? 'Paid' : 'Free'
+}
+
+/**
+ * Every routed engine in routing order, then the keys no routed engine uses.
+ * Key state comes from the settings overview (it updates the moment a key is
+ * saved); before routing loads, only the key rows show.
+ */
+export function engineRows(routing: EngineRouting | null, engineKeys: Record<string, boolean>): EngineRow[] {
+  const keyed = keyRows(engineKeys)
+  const routed: EngineRow[] = (routing?.engines ?? []).map((e) => {
+    const configured = engineKeys[e.engine] ?? e.key_configured
+    return {
+      engine: e.engine,
+      label: humanize('engine', e.engine),
+      status: e,
+      keyState: e.needs_key ? (configured ? 'set' : 'missing') : 'none',
+      writable: e.needs_key && keyed.some((k) => k.engine === e.engine && k.writable),
+      cost: costText(e),
+    }
+  })
+  const seen = new Set(routed.map((r) => r.engine))
+  const extra: EngineRow[] = keyed
+    .filter((k) => !seen.has(k.engine))
+    .map((k) => ({
+      engine: k.engine,
+      label: k.label,
+      status: null,
+      keyState: engineKeys[k.engine] ? 'set' : 'missing',
+      writable: k.writable,
+      cost: KEY_ONLY_COST[k.engine] ?? '',
+    }))
+  return [...routed, ...extra]
+}
+
+export function keysSetCount(rows: EngineRow[]): { set: number; total: number } {
+  const keyed = rows.filter((r) => r.keyState !== 'none')
+  return { set: keyed.filter((r) => r.keyState === 'set').length, total: keyed.length }
+}

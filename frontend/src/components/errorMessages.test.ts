@@ -16,7 +16,7 @@ describe('summarizeEngineFailure', () => {
   })
   it('classifies keys, rate limits and timeouts', () => {
     expect(summarizeEngineFailure('claude', 'HTTPError: 401 Unauthorized', 'Claude').summary).toBe(
-      'Claude rejected the key. Check it in API keys, then test again.',
+      'Claude rejected the key. Check its key under Engines and keys, then test again.',
     )
     expect(summarizeEngineFailure('gemini', '403 Forbidden').kind).toBe('key_rejected')
     expect(summarizeEngineFailure('gemini', '429 quota exceeded').kind).toBe('rate_limited')

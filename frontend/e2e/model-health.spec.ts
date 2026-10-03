@@ -100,7 +100,7 @@ test('Check providers now shows the check time and per-engine errors; a second c
   await c.getByRole('button', { name: 'Check providers now' }).click()
   await expect(c.getByTestId('model-health-checked')).toHaveText('Providers last checked 2026-09-30 14:03 UTC')
   const lines = c.getByRole('list', { name: 'Last provider check' }).locator('li')
-  await expect(lines).toHaveText([/^Gemini: Gemini rejected the key\. Check it in API keys, then test again\.\s*Details/, 'Claude: 12 models listed'])
+  await expect(lines).toHaveText([/^Gemini: Gemini rejected the key\. Check its key under Engines and keys, then test again\.\s*Details/, 'Claude: 12 models listed'])
   await expect(c.getByTestId('model-health-notice')).toHaveText('Checked. The list below is up to date.')
 
   await c.getByRole('button', { name: 'Check providers now' }).click()
