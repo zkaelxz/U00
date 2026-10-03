@@ -98,7 +98,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
   const comic = kind === 'comic'
 
   const ocrSection = (
-    <Section storageKey="source.novel.ocr" defaultOpen={comic} title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrLabel(ocrBackend)}` : ocrLabel(ocrBackend)}>
+    <Section storageKey="source.novel.ocr" title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrLabel(ocrBackend)}` : ocrLabel(ocrBackend)}>
           <Field label="Page images" help="PNG or JPG pages in reading order (up to 200). The text is read in the background and added using the Mode above.">
             <input
               type="file"

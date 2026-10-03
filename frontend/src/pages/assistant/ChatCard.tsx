@@ -543,7 +543,7 @@ function EngineSection({ settings, engine, model, onEngine, onModel, onSettings 
   }
 
   return (
-    <Section title="Engine" summary={summary} storageKey="assistant.engine">
+    <Section title="Engine" defaultOpen summary={summary} storageKey="assistant.engine">
       <div className="assistant-engine">
         <Field label="Engine" help="Which AI answers. The default, Ollama, runs on this PC; a cloud engine needs your OK to receive code and logs.">
           <select

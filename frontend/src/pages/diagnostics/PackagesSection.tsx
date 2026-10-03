@@ -228,7 +228,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     )
 
   return (
-    <Section title="Packages" storageKey="diagnostics.packages" summary={`${deps.installed.length} installed, ${deps.missing.length} missing.`}>
+    <Section title="Packages" defaultOpen storageKey="diagnostics.packages" summary={`${deps.installed.length} installed, ${deps.missing.length} missing.`}>
       <div ref={openRef} data-testid="dependency-panel" className="diag-stack">
         <p>
           {deps.installed.length} installed, {deps.missing.length} missing.

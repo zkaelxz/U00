@@ -499,7 +499,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       )}
 
       {lineCount !== null && (
-      <Section storageKey="source.transcribe" title="Transcribe settings" defaultOpen={lineCount === 0}>
+      <Section storageKey="source.transcribe" title="Transcribe settings">
       <div className="source-grid">
         <Field label="Source language">
           <select value={language} onChange={(e) => setLanguage(e.target.value)}>

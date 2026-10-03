@@ -461,6 +461,7 @@ button.toggle {
 button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--toggle-off) 85%, var(--text)); border-color: color-mix(in srgb, var(--toggle-off) 85%, var(--text)); }
 button.toggle[aria-checked='true'] { background: var(--toggle-on); border-color: var(--toggle-on); }
 button.toggle[aria-checked='true']:hover:not(:disabled) { background: color-mix(in srgb, var(--toggle-on) 85%, var(--text)); border-color: color-mix(in srgb, var(--toggle-on) 85%, var(--text)); }
+input[type='checkbox'], input[type='radio'] { accent-color: var(--toggle-on); }
 /* The check shows the state without relying on colour alone. */
 button.toggle[aria-checked='true']::before {
   content: '';

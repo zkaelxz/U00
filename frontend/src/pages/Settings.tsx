@@ -190,7 +190,7 @@ export default function SettingsPage() {
               </div>
             </Card>
           </Fold>
-          <Fold id="engines" signals={signals} summary="API keys and which engine does what" defaultOpen>
+          <Fold id="engines" signals={signals} summary="API keys and which engine does what">
             <ApiKeysCard
               settings={settings}
               onKey={(r) => {

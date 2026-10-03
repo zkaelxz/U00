@@ -15,6 +15,12 @@
  *                "baihe.section.<storageKey>"; omit to not remember
  *   openSignal   optional number; each time it changes the section opens (lets a
  *                button elsewhere reveal it), without taking control of the state
+ *   group        optional accordion id: sections on a page sharing a group are
+ *                exclusive. Opening one (by hand, openSignal or defaultOpen after
+ *                mount) closes the others in the group; closing is always allowed.
+ *                Bodies stay mounted (it is still a <details>), so form state
+ *                survives. The remembered state of the ones closed this way is
+ *                written too, so only the last opened one is remembered open.
  *   onToggle     optional; called with the new open state when the viewer
  *                opens or closes it (e.g. to load the body on first open)
  *   children     the body
@@ -22,7 +28,8 @@
  * localStorage may throw or be missing (private window, blocked site data);
  * every access is wrapped, and the section then just uses defaultOpen.
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { announceOpen, joinGroup } from './sectionGroup'
 import { readSectionOpen, writeSectionOpen, type StorageLike } from './sectionStorage'
 
 function browserStorage(): StorageLike | null {
@@ -41,13 +48,35 @@ type SectionProps = {
   storageKey?: string
   onToggle?: (open: boolean) => void
   openSignal?: number
+  group?: string
   children: ReactNode
 }
 
-export function Section({ title, summary, count, defaultOpen = false, storageKey, onToggle, openSignal, children }: SectionProps) {
+export function Section({ title, summary, count, defaultOpen = false, storageKey, onToggle, openSignal, group, children }: SectionProps) {
   const [open, setOpen] = useState(() =>
     storageKey ? readSectionOpen(browserStorage(), storageKey, defaultOpen) : defaultOpen,
   )
+
+  const id = useId()
+  const openRef = useRef(open)
+  openRef.current = open
+  const mounted = useRef(false)
+  // Announce each open after the first render so the others in the group close.
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true
+      return
+    }
+    if (open && group) announceOpen(group, id)
+  }, [open, group, id])
+  useEffect(() => {
+    if (!group) return
+    return joinGroup(group, id, () => {
+      if (!openRef.current) return
+      setOpen(false)
+      if (storageKey) writeSectionOpen(browserStorage(), storageKey, false)
+    })
+  }, [group, id, storageKey])
 
   const [seenSignal, setSeenSignal] = useState(openSignal)
   if (seenSignal !== openSignal) {
