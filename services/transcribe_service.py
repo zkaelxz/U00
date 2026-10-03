@@ -759,6 +759,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                         whisper_size, model_cached)):
                     core_module.load_whisper_model(whisper_size, use_gpu=use_gpu,
                                                    local_model_path=local_model_path)
+                _raise_if_job_cancelled(job_id)
                 device_msg = core_module.describe_whisper_device(
                     core_module.get_whisper_device_info(whisper_size, use_gpu=use_gpu,
                                                         local_model_path=local_model_path))
@@ -773,12 +774,17 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                     beam_size=beam_size,
                     min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
                     on_gpu_fallback=lambda exc: gpu_fallback_msg.append(core_module._short_reason(exc)),
-                    progress_cb=lambda frac: background_jobs.update_progress(
-                        job_id, frac, f"Transcribing... {frac * 100:.0f}%{device_suffix}"),
+                    progress_cb=lambda frac: (
+                        _raise_if_job_cancelled(job_id),
+                        background_jobs.update_progress(
+                            job_id, frac, f"Transcribing... {frac * 100:.0f}%{device_suffix}")),
                     fast_mode=whisper_fast_mode)
             except core_module.ModelDownloadError as exc:
                 background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
                 return
+            except background_jobs.JobCancelled:
+                core_module.release_gpu_models()   # hand the VRAM back on a cancel too
+                raise
 
         if not segments:
             background_jobs.set_result(job_id, {"failed_reason": "empty"})
@@ -864,6 +870,12 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "aligned_transcript"
 
     core_module.release_gpu_models()
+
+    # Every stage above can end with a cancel that arrived mid-call: never
+    # replace the drama's lines after one.
+    if background_jobs.is_cancel_requested(job_id):
+        background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+        return
 
     # Step 25 item 2's same safety rule, ported here: never let an empty
     # result silently wipe out an already-populated drama.

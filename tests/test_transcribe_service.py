@@ -1175,3 +1175,52 @@ class TestCoverageWarning:
         assert transcribe_service.coverage_warning(self.SEGS, 40.0) is None
         assert transcribe_service.coverage_warning(self.SEGS, 20.0) is None
         assert transcribe_service.coverage_warning(self.SEGS, None) is None
+
+
+class TestCancelReachesWhisper:
+    """Owner report: Cancel did nothing on a running transcription. The
+    Whisper path never checked the cancel flag: a cancel during the
+    transcription was ignored and the drama's lines were replaced anyway."""
+
+    def test_a_cancel_during_whisper_keeps_the_existing_lines(self, isolated_db, monkeypatch):
+        from core import Line
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="旧的")])
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+
+        def whisper(*a, **k):
+            background_jobs._jobs[job_id]["cancel_requested"] = True
+            return [{"start": 0.0, "end": 1.0, "text": "新的"}]
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", whisper)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None)
+
+        assert background_jobs.get_status(job_id)["result"] == {"failed_reason": "cancelled"}
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧的"]
+        _clear(job_id)
+
+    def test_a_cancel_stops_whisper_at_its_next_segment(self, isolated_db, monkeypatch):
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        seen = []
+
+        def whisper(*a, progress_cb=None, **k):
+            for i in range(100):
+                seen.append(i)
+                if i == 3:
+                    background_jobs._jobs[job_id]["cancel_requested"] = True
+                progress_cb(i / 100)
+            return [{"start": 0.0, "end": 1.0, "text": "新的"}]
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", whisper)
+
+        with pytest.raises(background_jobs.JobCancelled):
+            transcribe_service._run_transcribe_and_apply_job(
+                job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+                "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None)
+        assert seen == [0, 1, 2, 3]
+        assert isolated_db.load_lines(did) == []
+        _clear(job_id)

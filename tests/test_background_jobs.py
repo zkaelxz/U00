@@ -1915,3 +1915,107 @@ class TestSwallowedFailuresAreVisible:
         log = _log_text()
         assert "could not kill process tree 999999" in log
         assert "could not kill process 999999" in log
+
+
+class TestCancelIsVisibleAndQueuedJobsStopAtOnce:
+    """Owner report: Cancel "did nothing" in the Jobs panel. A queued job
+    stayed queued (and would still run once promoted), and a running one
+    kept showing its old progress text until it reached a checkpoint."""
+
+    def setup_method(self):
+        self._library_state = _isolate_library()
+        bg.set_gpu_limit_enabled(True)
+
+    def teardown_method(self):
+        bg.set_gpu_limit_enabled(True)
+        _restore_library(*self._library_state)
+
+    def test_cancelling_a_queued_job_ends_it_at_once_and_it_never_runs(self):
+        release = threading.Event()
+        started = threading.Event()
+
+        def slow():
+            started.set()
+            release.wait(timeout=5.0)
+
+        ran = []
+        try:
+            assert bg.start_job("cq_a", slow, gpu_touching=True)
+            started.wait(timeout=2.0)
+            assert bg.start_job("cq_b", lambda: ran.append(1), gpu_touching=True)
+            assert bg.get_status("cq_b")["status"] == "queued"
+            bg.request_cancel("cq_b")
+            assert bg.get_status("cq_b")["status"] == "cancelled"
+            assert db.get_job_record("cq_b")["status"] == "cancelled"
+        finally:
+            release.set()
+            _wait("cq_a")
+        assert bg.wait_for_job_threads(5.0)
+        assert ran == []
+        assert bg.get_status("cq_b")["status"] == "cancelled"
+        bg.clear_job("cq_a")
+        bg.clear_job("cq_b")
+
+    def test_a_running_job_says_cancelling_until_it_stops(self):
+        release = threading.Event()
+        started = threading.Event()
+
+        def work():
+            started.set()
+            release.wait(timeout=5.0)
+            # A late progress write from a worker that hasn't noticed yet
+            # must not hide that a cancel is on its way.
+            bg.update_progress("cr_a", 0.5, "Transcribing... 50%")
+            if bg.is_cancel_requested("cr_a"):
+                raise bg.JobCancelled("cr_a")
+
+        assert bg.start_job("cr_a", work)
+        started.wait(timeout=2.0)
+        bg.request_cancel("cr_a")
+        assert bg.get_status("cr_a")["message"] == bg.CANCELLING_MESSAGE
+        assert db.get_job_record("cr_a")["message"] == bg.CANCELLING_MESSAGE
+        release.set()
+        assert _wait_for(lambda: bg.get_status("cr_a")["status"] == "cancelled")
+        assert bg.get_status("cr_a")["message"] == bg.CANCELLING_MESSAGE
+        assert bg.wait_for_job_threads(5.0)
+        bg.clear_job("cr_a")
+
+
+class TestDeadWorkerIsReconciled:
+    """A running job whose worker thread is gone must not stay "running"
+    forever (owner report: a transcription still Running long after it had
+    stopped)."""
+
+    def test_a_running_job_whose_thread_died_is_marked_interrupted(self, monkeypatch):
+        release = threading.Event()
+        assert bg.start_job("dw_a", lambda: release.wait(5.0))
+        try:
+            dead = threading.Thread(target=lambda: None)
+            dead.start()
+            dead.join()
+            with bg._lock:
+                # as if the runner thread had vanished without a word
+                bg._workers["dw_a"] = (bg._jobs["dw_a"], dead)
+            assert bg.reconcile_dead_workers() == ["dw_a"]
+            status = bg.get_status("dw_a")
+            assert status["status"] == "error"
+            assert status["error"] == bg.WORKER_LOST_MESSAGE
+            assert db.get_job_record("dw_a")["status"] == "error"
+        finally:
+            release.set()
+            assert bg.wait_for_job_threads(5.0)
+        # The real runner finishing later can't turn it back into "done".
+        assert bg.get_status("dw_a")["status"] == "error"
+        bg.clear_job("dw_a")
+
+    def test_a_live_worker_is_left_alone(self):
+        release = threading.Event()
+        assert bg.start_job("dw_b", lambda: release.wait(5.0))
+        try:
+            assert bg.reconcile_dead_workers() == []
+            assert bg.get_status("dw_b")["status"] == "running"
+        finally:
+            release.set()
+            assert bg.wait_for_job_threads(5.0)
+        assert bg.get_status("dw_b")["status"] == "done"
+        bg.clear_job("dw_b")

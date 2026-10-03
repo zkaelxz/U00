@@ -1,5 +1,5 @@
 /*
- * Cogwheel at the end of the main navigation: Settings and the pages behind
+ * Cogwheel in the header's right-hand icon group: Settings and the pages behind
  * it (Admin for admins, Diagnostics, the Assistant in Developer Mode). They
  * are used rarely, so they sit in one menu instead of five more links.
  */
