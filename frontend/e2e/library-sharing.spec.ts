@@ -27,7 +27,6 @@ test('owner sees Private/Shared on their own items and can change them', async (
   // The series control (on Library tools) shows the server's 409 as is.
   await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
-  await tools.locator('summary', { hasText: 'Series' }).click()
   await tools.getByRole('button', { name: 'Make private: Saga' }).click()
   await expect(tools.getByRole('alert')).toHaveText(CONFLICT)
   await expect(tools.getByText('Shared', { exact: true })).toBeVisible()

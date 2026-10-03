@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSection } from './diagnosticsInstallsMocks'
 
 import { guardWrites, mockDiagnostics } from './diagnosticsConsolidateMocks'
 
@@ -20,7 +21,7 @@ test('Setup with models, speaker detection and a task fit a phone with 44px targ
   await expect(setup).toHaveJSProperty('open', true) // a problem
   await expect(setup.getByRole('list', { name: 'Whisper (faster-whisper) downloads' })).toBeVisible()
   await expect(setup.getByRole('button', { name: 'Check access online' })).toBeVisible()
-  await page.locator('summary', { hasText: /^Packages/ }).click()
+  await openSection(page, /^Packages/)
   await page.getByTestId('install-tasks').locator('details.section > summary').first().click()
   await page.getByTestId('task-details-hardsub_ocr').locator('summary').click()
   await noSideways(page)

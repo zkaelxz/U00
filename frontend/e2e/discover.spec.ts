@@ -4,8 +4,11 @@ import { mockDiscover, openTab, posts } from './discoverMocks'
 
 // Desktop: the Discover page (#/discover). Every /api/discover call is mocked (discoverMocks.ts).
 
-const openSection = (page: Page, title: string) =>
-  page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).click()
+// Some sections now start open; click only a closed one, as a user would.
+const openSection = async (page: Page, title: string) => {
+  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+}
 
 test('nav entry, empty catalogue loads starter titles, search and filters', async ({ page }) => {
   const s = await mockDiscover(page, { titles: [] })

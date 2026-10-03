@@ -343,6 +343,7 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
     <Section
       storageKey="dub.voices"
       title="Voices and cloning"
+      defaultOpen
       count={entries?.length}
       summary={
         warnings.size

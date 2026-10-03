@@ -64,7 +64,6 @@ test('Benchmark Lab on a phone: run cards, stacked Arena, 44px targets, no sidew
   const sets = page.getByRole('region', { name: 'Golden sets' })
   await sets.getByRole('button', { name: `Show cases in ${setName} (Application)` }).click()
   await expect(sets.getByRole('region', { name: `Cases in ${setName}` }).locator('li')).toHaveCount(2)
-  await sets.locator('summary', { hasText: 'Import golden set' }).click()
   await noSideways(page)
 
   // Tick both runs by tapping their row labels, compare.
