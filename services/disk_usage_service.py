@@ -366,6 +366,13 @@ def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
     unreadable (so clear refuses it)."""
     m = _Measured(len(path))
     stack = [(path, parts)]
+    try:
+        root_dev = os.lstat(path).st_dev
+    except FileNotFoundError:
+        root_dev = None
+    except OSError:
+        m.unreadable = True
+        return m
     while stack and not budget.hit:
         cur, cur_parts = stack.pop()
         try:
@@ -400,7 +407,10 @@ def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
                 except OSError:
                     m.unreadable = True
                     continue
-                link = _is_link_stat(st)
+                # A folder on another volume (a POSIX mount point) is refused
+                # like a Windows junction: Clear must never move or delete
+                # what lives on a different disk.
+                link = _is_link_stat(st) or (stat.S_ISDIR(st.st_mode) and root_dev is not None and st.st_dev != root_dev)
                 if link:
                     m.has_link = True
                 if stat.S_ISDIR(st.st_mode) and not link:
@@ -1210,11 +1220,14 @@ def _remove_children_fd(dirfd: int, depth: int) -> None:
     except PermissionError:
         os.fchmod(dirfd, stat.S_IRWXU)
         names = os.listdir(dirfd)
+    here = os.fstat(dirfd).st_dev
     for name in names:
         if name in ("", ".", "..") or "/" in name:
             raise OSError("unexpected name")
         st = os.stat(name, dir_fd=dirfd, follow_symlinks=False)
         if stat.S_ISDIR(st.st_mode):
+            if st.st_dev != here:
+                raise OSError("folder on another volume")
             fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dirfd)
             try:
                 seen = os.fstat(fd)
