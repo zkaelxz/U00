@@ -276,3 +276,57 @@ def test_a_failed_save_is_reported_and_the_chapters_stay_announced(fakes, root, 
     assert summary["new"] == 2 and summary["saved"] == ["Series T"]
     assert summary["errors"]["Series T"].startswith("Saving as CBZ: 1 chapter(s) not saved")
     assert store.known_chapter_ids("comicx", "s1") == {"c1", "c2", "c10"}
+
+
+def test_a_failed_auto_save_is_retried_on_the_next_check(fakes, root, monkeypatch):
+    fail = {"c2": SourceError("site down", FailureReason.SERVER_ERROR)}
+    fakes["comicx"] = _make("comicx", comic=True, fail=fail)
+    monkeypatch.setattr(registry, "is_enabled", lambda name: True)
+    _track("comicx")
+    store.set_tracked_save("comicx", "s1", True)
+    chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
+    folder = os.path.join(root, "Comicx", "Series T [s1]")
+    assert os.listdir(folder) == ["0003 第10章.cbz"]
+    assert store.save_pending_ids(store.list_tracked_series()[0]) == ["c2"]
+    # No new chapters now, but the one that failed is saved this time.
+    fail.clear()
+    summary = chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
+    assert summary["new"] == 0 and summary["saved"] == ["Series T"] and summary["errors"] == {}
+    assert sorted(os.listdir(folder)) == ["0002 第2章.cbz", "0003 第10章.cbz"]
+    assert store.save_pending_ids(store.list_tracked_series()[0]) == []
+    # Nothing owed: a later check fetches no pages.
+    fakes["comicx"].calls.clear()
+    chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
+    assert fakes["comicx"].calls == []
+
+
+def test_turning_auto_save_off_drops_the_retries(fakes, root):
+    fakes["comicx"] = _make("comicx", comic=True)
+    _track("comicx")
+    store.set_tracked_save("comicx", "s1", True)
+    store.set_save_pending("comicx", "s1", ["c2", "c2", "c10"])
+    assert store.save_pending_ids(store.list_tracked_series()[0]) == ["c2", "c10"]
+    store.set_tracked_save("comicx", "s1", False)
+    assert store.save_pending_ids(store.list_tracked_series()[0]) == []
+
+
+def test_a_page_that_is_not_an_image_is_never_saved(client, fakes, root):
+    Fake = _make("comicx", comic=True)
+    Fake.download_page = lambda self, page: (b"<html>Too many requests</html>", ".webp")
+    fakes["comicx"] = Fake
+    client.post("/api/sources/comicx/save", json={"series_id": "s1", "chapter_ids": ["c1"]})
+    from tests.test_api_sources_import import _result
+    _, body = _result(client, "sources_save")
+    [row] = body["result"]["chapters"]
+    assert row["outcome"] == "failed" and "isn't an image" in row["error"]
+    assert not os.path.exists(root) or not any(f for _, _, fs in os.walk(root) for f in fs)
+
+
+def test_image_ext_reads_the_signature():
+    assert saves.image_ext(png(4, 4)) == ".png"
+    assert saves.image_ext(b"\xff\xd8\xff\xe0rest") == ".jpg"
+    assert saves.image_ext(b"RIFF\x00\x00\x00\x00WEBPVP8 ") == ".webp"
+    assert saves.image_ext(b"GIF89a....") == ".gif"
+    assert saves.image_ext(b"\x00\x00\x00\x1cftypavif") == ".avif"
+    for bad in (b"<!DOCTYPE html>", b"", b"RIFF\x00\x00\x00\x00WAVE", None):
+        assert saves.image_ext(bad) == ""

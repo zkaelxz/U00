@@ -91,9 +91,11 @@ def set_tracked_drama(source: str, series_id: str, drama_id, principal=None) -> 
 def set_tracked_save(source: str, series_id: str, save_cbz: bool, principal=None) -> list:
     """Turns saving a tracked comic series' new chapters as CBZ files on or
     off (the check saves them into the save folder; no drama is involved).
-    404 unknown source or untracked series; 400 a source without pages."""
+    404 unknown source, untracked series, or one linked to a drama the
+    principal can't edit (as relinking it); 400 a source without pages."""
     cls = _require_source(source)
     series_id = _series_id(series_id)
+    _require_link_editable(source, series_id, principal)
     if not cls().supports("get_pages"):
         raise UnsupportedOperationError("Only comic sources can save chapters as CBZ files.",
                                         details={"reason": "NOT_SUPPORTED"})

@@ -160,7 +160,7 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
             continue
         summary["checked"] += 1
         summary["new"] += len(new)
-        if new and row.get("save_cbz"):
+        if row.get("save_cbz"):
             _save_new(adapter, row, new, summary)
         if new and auto_queue and row.get("drama_id"):
             from .pipeline import start_import
@@ -177,21 +177,28 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
 
 
 def _save_new(adapter, row, new, summary):
-    """Saves a series' new chapters as CBZ files. A failure is reported in
+    """Saves a series' new chapters as CBZ files, plus the ones an earlier
+    check failed to save: the chapters are marked known before this runs,
+    so a failed save is kept in `save_pending` and retried each check until
+    it is saved (or the site no longer lists it). A failure is reported in
     the summary like a check error; the chapters stay announced either way."""
     from services.sources_save_service import save_series_chapters
+    ids = list(dict.fromkeys(store.save_pending_ids(row) + [str(c.chapter_id) for c in new]))
+    if not ids:
+        return
     try:
-        rows, _ = save_series_chapters(adapter, row["source"], row["series_id"],
-                                       [c.chapter_id for c in new])
+        rows, _ = save_series_chapters(adapter, row["source"], row["series_id"], ids)
     except Exception as e:
+        store.set_save_pending(row["source"], row["series_id"], ids)
         summary["errors"][row["title"]] = f"Saving as CBZ: {redact_for_storage(str(e))[:300]}"
         return
     failed = [r for r in rows if r["outcome"] in ("failed", "not_attempted")]
+    store.set_save_pending(row["source"], row["series_id"], [r["chapter_id"] for r in failed])
     if any(r["outcome"] == "saved" for r in rows):
         summary["saved"].append(row["title"])
     if failed:
-        summary["errors"][row["title"]] = (f"Saving as CBZ: {len(failed)} chapter(s) not saved"
-                                           f" ({failed[0].get('error') or 'failed'})")
+        summary["errors"][row["title"]] = (f"Saving as CBZ: {len(failed)} chapter(s) not saved, "
+                                           f"retried next check ({failed[0].get('error') or 'failed'})")
 
 
 def check_due(now: float = None) -> bool:
