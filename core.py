@@ -718,8 +718,12 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         duration = getattr(info, "duration", None) or 0
         result = []
         for s in segments:
-            start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
-            result.append({"start": start, "end": end, "text": s.text.strip()})
+            text = s.text.strip()
+            # A segment with no letter, digit or CJK character (a lone "[" from
+            # a cut-off sound tag, "...", a dash) is not a subtitle.
+            if any(ch.isalnum() for ch in text):
+                start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
+                result.append({"start": start, "end": end, "text": text})
             if progress_cb:
                 progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
         if filter_hallucination_repeats:
