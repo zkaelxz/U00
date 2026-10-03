@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// The header theme button: Match this device / Light / Dark / Sepia. The
+// The header theme button: Match this device / Light / Dark / Sepia / OLED black. The
 // choice is per browser (localStorage), so nothing is sent to the API.
 
 const bg = (page: Page) => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
@@ -76,7 +76,7 @@ test('the menu is keyboard operable and closes with Escape', async ({ page }) =>
   await page.keyboard.press('Enter')
   await expect(btn).toHaveAttribute('aria-expanded', 'true')
   const menu = page.getByRole('menu', { name: 'Theme' })
-  await expect(menu.getByRole('menuitemradio')).toHaveCount(4)
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(5)
   // The current theme is focused and checked.
   await expect(page.getByRole('menuitemradio', { name: 'Match this device' })).toBeFocused()
   await expect(page.getByRole('menuitemradio', { name: 'Match this device' })).toHaveAttribute('aria-checked', 'true')
@@ -107,4 +107,24 @@ test('Settings has no theme select; the header button is the only control', asyn
   await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toHaveCount(0)
   await pick(page, 'Sepia')
   await expect(html(page)).toHaveAttribute('data-theme', 'sepia')
+})
+
+test('OLED black sets a true-black page and is remembered', async ({ page }) => {
+  await page.goto('/#/library')
+  await pick(page, 'OLED black')
+  await expect(html(page)).toHaveAttribute('data-theme', 'oled')
+  expect(await bg(page)).toBe('rgb(0, 0, 0)')
+  await expect(button(page)).toHaveAccessibleName('Theme: OLED black. Change theme')
+  await page.waitForFunction(() => localStorage.getItem('baihe.theme') === 'oled')
+  await page.reload()
+  await expect(html(page)).toHaveAttribute('data-theme', 'oled')
+  expect(await bg(page)).toBe('rgb(0, 0, 0)')
+})
+
+test('an unknown stored theme falls back to the system look', async ({ page }) => {
+  await page.goto('/#/library')
+  await page.evaluate(() => localStorage.setItem('baihe.theme', 'amoled'))
+  await page.reload()
+  await expect(html(page)).not.toHaveAttribute('data-theme', /.*/)
+  await expect(button(page)).toHaveAccessibleName('Theme: Match this device. Change theme')
 })
