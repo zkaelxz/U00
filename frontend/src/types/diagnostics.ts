@@ -151,7 +151,7 @@ export interface DiagnosticsInstallTask {
   required_missing?: string[]
   // Missing required + recommended: what "Install for this task" installs.
   to_install: string[]
-  // Missing optional extras, installed one by one from Missing packages.
+  // Missing optional extras, installed one by one from its task row.
   optional_missing?: string[]
   approx_mb: number
 }

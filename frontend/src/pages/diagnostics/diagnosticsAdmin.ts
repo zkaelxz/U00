@@ -7,7 +7,7 @@ import type { BadgeTone } from '../../components/labels'
 import { PC_ONLY_FORBIDDEN, describeError, safeDetail } from '../../components/errorMessages'
 import { humanize } from '../../components/labels'
 import type {
-  DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsModelFolder, DiagnosticsPyannoteReadiness,
+  DiagnosticsHfCacheEntry, DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsModelFolder, DiagnosticsPyannoteReadiness,
   DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
 } from '../../types/diagnostics'
@@ -177,6 +177,48 @@ export const hasModelCache = (c: DiagnosticsModelCache | null) =>
 export const MODEL_FOLDER_LABELS: Record<DiagnosticsModelFolder, string> = {
   torch: 'PyTorch hub',
   audio_separator: 'Vocal separation',
+}
+
+// Downloaded weights have no link to an engine in the API, so a Hugging Face repo is matched to
+// its engine by name. Engines listed here are known to download weights; unmatched repos stay
+// in their own "Other downloaded models" group instead of being guessed at.
+const ENGINE_REPO_HINTS: Record<string, RegExp> = {
+  'Whisper (faster-whisper)': /whisper/i,
+  'Qwen3-ASR': /qwen/i,
+  'SenseVoice (FunASR)': /sensevoice|funasr|funaudio/i,
+  'F5-TTS': /f5-?tts/i,
+  OmniVoice: /omnivoice/i,
+  Chatterbox: /chatterbox/i,
+  TADA: /tada/i,
+  'manga-ocr': /manga-?ocr/i,
+}
+
+/** A "repo" engine (not a pip package) lists its Hugging Face repos, comma separated, as its version. */
+const exactRepos = (e: ModelEngineVersion): string[] =>
+  e.package === null && e.version?.includes('/') ? e.version.split(',').map((r) => r.trim()) : []
+
+export type EngineModelRow = {
+  engine: ModelEngineVersion
+  cached: DiagnosticsHfCacheEntry[]
+  // The engine downloads weights but none are cached (and it is installed): "not downloaded".
+  notDownloaded: boolean
+}
+
+/**
+ * One row per model engine with the Hugging Face downloads that belong to it, plus the
+ * downloads that match no engine. Every cached revision lands in exactly one place.
+ */
+export function reconcileModels(engines: ModelEngineVersion[], hf: DiagnosticsHfCacheEntry[]) {
+  const left = [...hf]
+  const rows: EngineModelRow[] = engines.map((engine) => {
+    const repos = exactRepos(engine)
+    const hint = ENGINE_REPO_HINTS[engine.name]
+    const takes = (e: DiagnosticsHfCacheEntry) => repos.includes(e.repo_id) || (!!hint && hint.test(e.repo_id))
+    const cached = left.filter(takes)
+    for (const c of cached) left.splice(left.indexOf(c), 1)
+    return { engine, cached, notDownloaded: engine.installed && cached.length === 0 && (repos.length > 0 || !!hint) }
+  })
+  return { rows, other: left }
 }
 
 /** "12.4 GB · 7 models · 2 voices · 3 model files". */
