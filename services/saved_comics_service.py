@@ -24,7 +24,7 @@ from services import sources_save_service as saves
 from services.service_errors import InvalidInputError, NotFoundError
 
 MAX_NAME_LEN = 255
-MAX_PAGES = 2000
+MAX_PAGES = saves.MAX_CHAPTER_PAGES
 MAX_PAGE_BYTES = 64 * 1024 * 1024
 _MEDIA_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
                 ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif"}
@@ -41,14 +41,17 @@ def _natural(name: str):
 def _component(value, what: str) -> str:
     text = value if isinstance(value, str) else ""
     if (not text or len(text) > MAX_NAME_LEN or text in (".", "..") or text.startswith(".")
-            or any(c in text for c in "/\\\0") or any(ord(c) < 32 for c in text)):
+            or any(c in text for c in "/\\:\0") or any(ord(c) < 32 for c in text)):
         raise InvalidInputError(f"{what} is not a saved {what}.")
     return text
 
 
 def _inside(root: str, path: str) -> bool:
     real_root = os.path.realpath(root)
-    return os.path.commonpath([real_root, os.path.realpath(path)]) == real_root
+    try:
+        return os.path.commonpath([real_root, os.path.realpath(path)]) == real_root
+    except ValueError:
+        return False
 
 
 def _series_dir(root: str, source: str, series: str) -> str:

@@ -65,6 +65,30 @@ def test_saving_again_skips_existing_files(client, fakes, root):
     assert calls == ["c1", "c2"]
 
 
+def test_a_disk_error_shows_the_reason_but_never_the_file_path(client, fakes, root, monkeypatch):
+    fakes["comicx"] = _make("comicx", comic=True)
+
+    def boom(path, *a, **k):
+        raise PermissionError(13, "Access is denied", path)
+
+    monkeypatch.setattr(save, "write_cbz", boom)
+    _start(client, "comicx", ["c1"])
+    r, body = _result(client, JOB)
+    row = body["result"]["chapters"][0]
+    assert row["outcome"] == "failed" and "Access is denied" in row["error"]
+    assert "Series T" not in r.text and root not in r.text and ".cbz" not in row["error"]
+
+
+def test_a_chapter_with_too_many_pages_is_not_saved(client, fakes, root, monkeypatch):
+    fakes["comicx"] = _make("comicx", comic=True)
+    monkeypatch.setattr(save, "MAX_CHAPTER_PAGES", 1)
+    _start(client, "comicx", ["c1"])
+    _, body = _result(client, JOB)
+    row = body["result"]["chapters"][0]
+    assert row["outcome"] == "failed" and "too many pages" in row["error"]
+    assert _files(root) == []
+
+
 def test_failed_chapter_leaves_no_partial_file(client, fakes, root):
     err = SourceError("site down", FailureReason.SERVER_ERROR)
     fakes["comicx"] = _make("comicx", comic=True, fail={"c2": err})

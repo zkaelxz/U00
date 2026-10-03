@@ -180,6 +180,8 @@ def test_a_damaged_file_is_not_found(client, root):
     {"source": "MangaK", "series": "Test Camp", "chapter": "a\\b"},
     {"source": "MangaK", "series": "Test Camp", "chapter": ".hidden"},
     {"source": "MangaK", "series": "Test Camp", "chapter": "x\x00y"},
+    {"source": "D:Users", "series": "anna", "chapter": "0001 Chapter 1"},
+    {"source": "MangaK", "series": "C:..", "chapter": "0001 Chapter 1"},
 ])
 def test_names_that_are_not_one_plain_component_are_refused(client, root, params):
     _library(root)
@@ -187,6 +189,16 @@ def test_names_that_are_not_one_plain_component_are_refused(client, root, params
     assert r.status_code in (404, 422) and root not in r.text
     r = client.get("/api/saved-comics/page", params={**params, "page": 1})
     assert r.status_code in (404, 422)
+
+
+def test_a_path_on_another_drive_counts_as_outside_not_as_an_error(monkeypatch):
+    from services import saved_comics_service as svc
+
+    def other_drive(paths):
+        raise ValueError("Paths don't have the same drive")
+
+    monkeypatch.setattr(svc.os.path, "commonpath", other_drive)
+    assert svc._inside("/saved", "/saved/x") is False
 
 
 def test_a_link_out_of_the_save_folder_is_refused(client, root, tmp_path):
