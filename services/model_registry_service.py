@@ -46,7 +46,7 @@ from services.service_errors import (ConflictError, InvalidInputError, NotFoundE
 
 REGISTRY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_registry.json")
 STATUSES = ("current", "legacy", "deprecated", "retired")
-CHECK_CACHE_KEY = "model_registry_provider_check"
+CHECK_CACHE_KEY = translate_engines.PROVIDER_CHECK_CACHE_KEY
 CHECK_MIN_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 15
 MAX_MODELS_PER_ENGINE = 2000
@@ -67,6 +67,10 @@ _PROVIDER_LISTS = {
                  "headers": lambda key: {"Authorization": f"Bearer {key}"},
                  "extract": lambda body: [m.get("id") for m in body.get("data", [])],
                  "more": lambda body: False},
+    "openai": {"url": "https://api.openai.com/v1/models",
+               "headers": lambda key: {"Authorization": f"Bearer {key}"},
+               "extract": lambda body: [m.get("id") for m in body.get("data", [])],
+               "more": lambda body: False},
 }
 
 _check_lock = threading.Lock()
@@ -148,11 +152,11 @@ def _cached_check() -> dict:
 # Opt-in "offer_provider_models": ids from the cached provider check that the
 # app doesn't list itself. Same-provider prefix and a safe slug; obvious
 # non-text-generation models are skipped.
-_EXTRA_PREFIX = {"claude": "claude-", "gemini": "gemini-", "deepseek": "deepseek-"}
+_EXTRA_PREFIX = {"claude": "claude-", "gemini": "gemini-", "deepseek": "deepseek-", "openai": "gpt-"}
 _EXTRA_ID = re.compile(r"^[a-z][a-z0-9]*-[a-z0-9][a-z0-9._-]{0,78}$")
 _NON_CHAT_WORDS = ("embed", "imagen", "veo", "tts", "image", "aqa", "live", "audio",
                    "moderation", "transcribe", "robotics")
-_PROVIDER_NAMES = {"claude": "Claude", "gemini": "Gemini", "deepseek": "DeepSeek"}
+_PROVIDER_NAMES = {"claude": "Claude", "gemini": "Gemini", "deepseek": "DeepSeek", "openai": "OpenAI"}
 
 
 def extra_models(engine: str) -> list:
@@ -169,6 +173,8 @@ def _listed_extras(engine: str) -> list:
     prefix = _EXTRA_PREFIX.get(engine)
     if prefix is None:
         return []
+    if engine == "openai":
+        return translate_engines.openai_listed_extra_models()
     provider = (_cached_check().get("engines") or {}).get(engine) or {}
     if not provider.get("ok"):
         return []

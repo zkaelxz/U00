@@ -180,3 +180,29 @@ def test_every_offered_model_is_priced_and_accepted():
     for model in te.OPENAI_MODELS:
         assert model in te.PRICING_PER_MILLION_TOKENS
         assert te.get_engine("openai", KEY, model).model == model
+
+
+def _listed_by_openai(models):
+    db.set_app_setting(te.PROVIDER_CHECK_CACHE_KEY, json.dumps(
+        {"checked_at": "2026-10-01T00:00:00", "engines": {"openai": {"ok": True, "models": models}}}))
+
+
+def test_a_gpt5_or_later_model_openai_listed_is_accepted_and_priced_at_the_highest_rate(isolated_db):
+    _listed_by_openai(["gpt-6-luna", "gpt-4", "o3", "gpt-5-codex", "gpt-5-pro"])
+    assert te.openai_listed_extra_models() == ["gpt-6-luna"]
+    assert te.get_engine("openai", KEY, "gpt-6-luna").model == "gpt-6-luna"
+    top = max(te.PRICING_PER_MILLION_TOKENS[m]["output"] for m in te.OPENAI_MODELS)
+    assert te.estimate_cost("gpt-6-luna", 0, 1_000_000) == pytest.approx(top)
+
+
+@pytest.mark.parametrize("model", ["gpt-4", "o3", "gpt-5-codex", "gpt-5-pro", "gpt-9-unlisted"])
+def test_listing_does_not_make_older_or_non_chat_or_unlisted_models_usable(isolated_db, model):
+    _listed_by_openai(["gpt-6-luna", "gpt-4", "o3", "gpt-5-codex", "gpt-5-pro"])
+    with pytest.raises(InvalidInputError):
+        te.get_engine("openai", KEY, model)
+
+
+def test_a_failed_check_adds_nothing(isolated_db):
+    db.set_app_setting(te.PROVIDER_CHECK_CACHE_KEY, json.dumps(
+        {"engines": {"openai": {"ok": False, "models": ["gpt-6-luna"]}}}))
+    assert te.openai_listed_extra_models() == []

@@ -329,6 +329,19 @@ class TestOfferProviderModels:
         assert len(self._models("gemini")["models"]) == len(translate_engines.GEMINI_MODELS) + 1
         assert self._models("deepseek")["models"] == ["deepseek-v4-flash", "deepseek-v5"]
 
+    def test_openai_offers_only_listed_gpt5_and_later_chat_models(self, isolated_db):
+        db.set_app_setting("offer_provider_models", True)
+        listed = ["gpt-5-mini", "gpt-6-luna", "gpt-5.6-luna", "gpt-4", "gpt-4o", "o3",
+                  "gpt-5-codex", "gpt-5-pro", "gpt-realtime-2", "gpt-5-mini-tts",
+                  "gpt-image-2", "whisper-1", "text-embedding-4", "gpt-6-Bad Id"]
+        db.set_app_setting(svc.CHECK_CACHE_KEY, json.dumps({
+            "checked_at": "2026-10-01T00:00:00", "engines": {"openai": {"ok": True, "models": listed}}}))
+        o = self._models("openai")
+        assert o["models"] == list(translate_engines.OPENAI_MODELS) + ["gpt-6-luna", "gpt-5.6-luna"]
+        assert "highest OpenAI rate" in o["model_labels"]["gpt-6-luna"]
+        assert svc._override_error("openai", "gpt-6-luna") is None
+        assert svc._override_error("openai", "gpt-4") is not None
+
     def test_never_calls_network(self, isolated_db, monkeypatch):
         import requests
         db.set_app_setting("offer_provider_models", True)

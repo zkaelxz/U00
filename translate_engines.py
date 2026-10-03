@@ -58,6 +58,39 @@ OPENAI_MODELS = {
     "gpt-5": "GPT-5 -- highest quality, most expensive",
 }
 
+# Newer OpenAI models the provider itself lists (the manual model check in
+# services/model_registry_service) can be used without an edit here. Only the
+# GPT-5-and-later chat models: older ids (gpt-4, o-series) cost far more than
+# the highest rate estimate_cost falls back to, and the others are not
+# Chat Completions models.
+PROVIDER_CHECK_CACHE_KEY = "model_registry_provider_check"
+_OPENAI_EXTRA_RE = re.compile(r"gpt-(?:[5-9]|[1-9][0-9])[a-z0-9._-]{0,60}")
+_OPENAI_EXCLUDED_WORDS = re.compile(
+    r"(?:^|[-.])(?:pro|codex|realtime|search|research|instruct|audio|image|tts|"
+    r"transcribe|embedding|moderation|diarize)(?:[-.]|$)")
+
+
+def is_openai_extra_model(model) -> bool:
+    return (isinstance(model, str) and bool(_OPENAI_EXTRA_RE.fullmatch(model))
+            and not _OPENAI_EXCLUDED_WORDS.search(model))
+
+
+def openai_listed_extra_models() -> list:
+    """GPT-5+ chat models OpenAI listed in the last manual check that the app
+    does not list itself; [] when no check has succeeded. Reads the cached
+    answer only, never the network."""
+    try:
+        import db
+        raw = db.get_app_setting(PROVIDER_CHECK_CACHE_KEY)
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        provider = (data.get("engines") or {}).get("openai") or {}
+        models = provider.get("models") if provider.get("ok") else []
+    except Exception:
+        return []
+    return [m for m in dict.fromkeys(models or [])
+            if is_openai_extra_model(m) and m not in OPENAI_MODELS]
+
+
 PRICING_PER_MILLION_TOKENS = {
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
     "claude-sonnet-5": {"input": 2.0, "output": 10.0},
@@ -1303,8 +1336,9 @@ class OpenAIEngine:
     def __init__(self, api_key: str, model: str = "gpt-5-mini", url: str = OPENAI_CHAT_URL):
         # OpenAI accepts models (o-series, gpt-4) priced well above anything in
         # PRICING_PER_MILLION_TOKENS; a client-chosen name that reached here would
-        # be costed too low (or at $0) and slip past the spending caps.
-        if model not in OPENAI_MODELS:
+        # be costed too low (or at $0) and slip past the spending caps. Only the
+        # built-in list and GPT-5+ models OpenAI itself listed are taken.
+        if model not in OPENAI_MODELS and model not in openai_listed_extra_models():
             from services.service_errors import InvalidInputError
             raise InvalidInputError("That model isn't offered for this engine.")
         self.api_key = api_key
