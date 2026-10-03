@@ -237,6 +237,10 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
   })
   // New chapters looks for an earlier "Check now" run on load: none here
   // (sourcesAccessMocks.ts overrides this).
+  // Save as CBZ (sourcesImportMocks.ts mocks a run): nothing stored here.
+  await page.route(/\/api\/sources\/jobs\/sources_save\/result$/, (route) =>
+    route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'not_found', message: 'No such job.' } }) }),
+  )
   await page.route(/\/api\/sources\/jobs\/sources_chapter_check\/result$/, (route) => {
     record(route)
     return notFound(route)

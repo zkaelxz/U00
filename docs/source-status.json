@@ -113,6 +113,16 @@
         "www.piaotia.com",
         "ptwxz.com"
       ]
+    },
+    "mangak": {
+      "status": "caveat",
+      "last_verified": "2026-10-03",
+      "reason": "Search, series, the full chapter list, page list and an image download run live against mangak.io 2026-10-03; no import run through the app. **Terms: the ToS (section 4) forbid \"automated tools, bots, or scrapers\"** (recorded, not enforced; shipped by owner decision 2026-10-03). The site says it hosts content \"sourced from third-party providers\".",
+      "notes": "",
+      "hosts": [
+        "mangak.io",
+        "api.mangak.io"
+      ]
     }
   },
   "generic": {

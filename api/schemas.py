@@ -2163,6 +2163,8 @@ class TrackedSeries(BaseModel):
     drama_id: Optional[int] = None
     last_checked: Optional[float] = None
     last_check_error: Optional[str] = None
+    # New chapters are also saved as CBZ files (comic sources).
+    save_cbz: bool = False
 
 
 class SourceNotification(BaseModel):
@@ -3503,6 +3505,14 @@ class SourcesChapterImportRequest(BaseModel):
     drama_id: int = Field(ge=1)
 
 
+class SourcesChapterSaveRequest(BaseModel):
+    """Chapter ids of one comic series to save as CBZ files on this PC
+    (services/sources_save_service.py). Ids only, like an import."""
+    model_config = ConfigDict(extra="forbid")
+    series_id: str = Field(min_length=1, max_length=200)
+    chapter_ids: List[StrictStr] = Field(min_length=1, max_length=200)
+
+
 # ---------------------------------------------------------------------------
 # Sources S-5 paste-a-URL preview and novel import
 # (services/sources_url_service.py, services/sources_import_service.py).
@@ -4088,6 +4098,14 @@ class SourceTrackedDramaRequest(BaseModel):
     source: str = Field(min_length=1, max_length=60)
     series_id: str = Field(min_length=1, max_length=200)
     drama_id: Optional[int] = Field(None, ge=1)
+
+
+class SourceTrackedSaveRequest(BaseModel):
+    """Whether a tracked comic series' new chapters are saved as CBZ files."""
+    model_config = ConfigDict(extra="forbid")
+    source: str = Field(min_length=1, max_length=60)
+    series_id: str = Field(min_length=1, max_length=200)
+    save_cbz: StrictBool
 
 
 class SourcesProxyRequest(BaseModel):

@@ -498,6 +498,7 @@ export function checkSummary(r: CheckResult): string {
   const parts = [`Checked ${r.checked} series`]
   parts.push(r.new ? `${r.new} new chapter${r.new === 1 ? '' : 's'}` : 'no new chapters')
   if (r.queued.length) parts.push(`importing into ${r.queued.length} drama${r.queued.length === 1 ? '' : 's'}`)
+  if (r.saved?.length) parts.push(`saved ${r.saved.length} series as CBZ`)
   const failed = Object.keys(r.errors).length
   if (failed) parts.push(`${failed} failed`)
   return parts.join(' · ') + '.'
