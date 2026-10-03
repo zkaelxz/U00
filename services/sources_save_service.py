@@ -50,7 +50,7 @@ from services.sources_search_service import (SAVE_JOB_ID, _enabled_source, _erro
                                              _JobFailed, _series_id, _start)
 from sources import chapter_order, ladder, registry
 from sources.http import Cancelled
-from sources.models import ChallengeDetected, SourceError, TermsProhibited
+from sources.models import ChallengeDetected, FailureReason, SourceError, TermsProhibited
 
 SAVE_DIRNAME = "saved_comics"
 SETTING = "comic_save"
@@ -159,6 +159,23 @@ def _comic_info(series: str, title: str, number: int, language: str) -> str:
             "</ComicInfo>\n")
 
 
+def image_ext(data) -> str:
+    """The extension for image bytes, from their signature; "" when the
+    bytes aren't a page image (an HTML error page sent with a 200, say)."""
+    head = bytes(data[:16]) if isinstance(data, (bytes, bytearray)) else b""
+    if head.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return ".webp"
+    if head[4:8] == b"ftyp" and head[8:12] in (b"avif", b"avis"):
+        return ".avif"
+    return ""
+
+
 def write_cbz(path: str, images, series: str, title: str, number: int, language: str = ""):
     """`images` are (bytes, ext) in reading order. Written to `<path>.part`
     and renamed into place, so `path` only ever holds a whole CBZ."""
@@ -237,7 +254,13 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
             for j, page in enumerate(pages, start=1):
                 progress(((i - 1) + j / max(len(pages), 1)) / total,
                          f"Chapter {i} / {total} -- page {j} / {len(pages)}")
-                images.append(adapter.download_page(page))
+                data, _ = adapter.download_page(page)
+                ext = image_ext(data)
+                if not ext:
+                    # Checked before writing: a saved chapter is never re-fetched.
+                    raise SourceError(f"Page {j} isn't an image (the site sent something else, "
+                                      "such as an error page).", FailureReason.HTTP_ERROR)
+                images.append((data, ext))
             write_cbz(path, images, series_title, ch.title or ch.chapter_id, number, language)
             rows.append(_row(ch, "saved", pages=len(images)))
         except ChallengeDetected as e:

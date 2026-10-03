@@ -178,6 +178,15 @@ class TestPages:
         assert t.calls[0]["headers"]["Referer"] == "https://mangak.io/"
 
 
+    def test_a_page_that_is_not_an_image_is_refused(self):
+        url = "https://rx.qvzrc.example.invalid/r/p/1.webp"
+        a, t = _adapter({url: Response(200, {"Content-Type": "text/html; charset=utf-8"},
+                                       b"<html>blocked</html>", "")})
+        with pytest.raises(SourceError) as e:
+            a.download_page(PageRef("mangak", "chapter-2", 0, url))
+        assert "not an image" in str(e.value)
+
+
 class TestParseUrl:
     def test_series_and_chapter_urls(self):
         a, t = _adapter({})
