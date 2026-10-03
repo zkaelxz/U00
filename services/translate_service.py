@@ -142,6 +142,9 @@ def translate(text: str, engine_name: str, source_language: str, target_language
             text, engine, source_language, target_language)
     except translate_engines.UnsupportedDirectionError as exc:
         raise UnsupportedOperationError(str(exc)) from exc
+    except translate_engines.OllamaUnavailableError as exc:
+        raise DependencyUnavailableError(
+            translate_engines.redact_secrets(exc.message), details={"reason": exc.reason}) from None
 
     db.save_translate_history(source_language, target_language, engine_name, text, translated_text,
                               user_id=None if principal is None else principal.get("user_id"))

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { summarizeEngineFailure } from './errorMessages'
+import { ApiError } from '../api/client'
+import { describeError, summarizeEngineFailure } from './errorMessages'
 
 
 describe('summarizeEngineFailure', () => {
@@ -26,5 +27,17 @@ describe('summarizeEngineFailure', () => {
     expect(summarizeEngineFailure('claude', 'Max retries exceeded').kind).toBe('unreachable')
     expect(summarizeEngineFailure('claude', 'weird', 'Claude')).toEqual({ kind: 'other', summary: 'The Claude test failed.' })
     expect(summarizeEngineFailure('claude', null).kind).toBe('other')
+  })
+})
+
+describe('describeError for Ollama failures', () => {
+  it('shows the server sentence as the title instead of the generic text', () => {
+    const msg = "Ollama isn't running. Start it, or pick another translator in Settings."
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: msg, details: { reason: 'ollama_unreachable' } })
+    expect(describeError(err)).toEqual({ title: msg, detail: null })
+  })
+  it('keeps the generic text for other dependency errors', () => {
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: 'No claude key is configured.' })
+    expect(describeError(err).title).toMatch(/not installed or not reachable/)
   })
 })

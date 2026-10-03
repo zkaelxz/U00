@@ -180,3 +180,79 @@ def test_list_engines_gemini_label_reflects_free_tier_setting(isolated_db, tmp_p
     assert label() == translate_engines.ENGINE_NOTES["gemini"]
     settings_service.set_settings({"gemini_free_tier": True}, env_path)
     assert label() == translate_engines.GEMINI_FREE_TIER_NOTE
+
+
+class TestOllamaUnavailable:
+    """An unreachable or model-less Ollama is a typed 503 with a plain
+    sentence and a stable reason -- never the URL or requests' own text."""
+
+    URL = "http://192.168.7.9:11434"
+
+    def _fail_with(self, monkeypatch, exc=None, status=None):
+        import requests
+
+        def fake_post(url, json=None, timeout=None):
+            assert timeout
+            if exc is not None:
+                raise exc
+            resp = requests.Response()
+            resp.status_code = status
+            resp.url = url
+            return resp
+        monkeypatch.setattr("requests.post", fake_post)
+
+    def _call(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_service.settings_service, "resolve_key",
+                            lambda name, *a, **k: self.URL if name == "ollama_url" else "local")
+        return translate_service.translate("你好", "ollama", "zh", "en", model="qwen3:8b")
+
+    @pytest.mark.parametrize("make, reason", [
+        (lambda r: r.ConnectionError(f"HTTPConnectionPool(host='192.168.7.9', port=11434): refused {TestOllamaUnavailable.URL}"), "ollama_unreachable"),
+        (lambda r: r.ConnectTimeout(f"timed out {TestOllamaUnavailable.URL}"), "ollama_unreachable"),
+        (lambda r: r.ReadTimeout("read timed out"), "ollama_timeout"),
+    ])
+    def test_connection_failures_map_to_a_plain_error(self, isolated_db, monkeypatch, make, reason):
+        import requests
+        self._fail_with(monkeypatch, exc=make(requests))
+        with pytest.raises(DependencyUnavailableError) as info:
+            self._call(isolated_db, monkeypatch)
+        assert info.value.details == {"reason": reason}
+        assert "192.168" not in info.value.message and "11434" not in info.value.message
+        assert "http" not in info.value.message.lower()
+
+    def test_unreachable_message_is_the_plain_sentence(self, isolated_db, monkeypatch):
+        import requests
+        self._fail_with(monkeypatch, exc=requests.ConnectionError("refused"))
+        with pytest.raises(DependencyUnavailableError, match="Ollama isn't running. Start it, or pick another translator in Settings."):
+            self._call(isolated_db, monkeypatch)
+
+    def test_a_model_that_is_not_pulled_names_the_model(self, isolated_db, monkeypatch):
+        self._fail_with(monkeypatch, status=404)
+        with pytest.raises(DependencyUnavailableError) as info:
+            self._call(isolated_db, monkeypatch)
+        assert info.value.details == {"reason": "ollama_model_missing"}
+        assert "qwen3:8b" in info.value.message and "192.168" not in info.value.message
+
+    def test_other_http_errors_are_left_alone(self, isolated_db, monkeypatch):
+        import requests
+        self._fail_with(monkeypatch, status=500)
+        with pytest.raises(requests.HTTPError):
+            self._call(isolated_db, monkeypatch)
+
+    def test_the_api_body_has_no_url(self, isolated_db, monkeypatch):
+        import requests
+        from fastapi.testclient import TestClient
+        from api.server import create_app
+        from api.api_config import ApiSettings
+        self._fail_with(monkeypatch, exc=requests.ConnectionError(self.URL))
+        monkeypatch.setattr(translate_service.settings_service, "resolve_key",
+                            lambda name, *a, **k: self.URL if name == "ollama_url" else "local")
+        client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                            headers={"X-Baihe-Local": "1"})
+        resp = client.post("/api/translate", json={
+            "text": "你好", "engine": "ollama", "source_language": "zh", "target_language": "en"})
+        assert resp.status_code == 503
+        err = resp.json()["error"]
+        assert err["code"] == "dependency_unavailable"
+        assert err["details"] == {"reason": "ollama_unreachable"}
+        assert "192.168" not in resp.text and "11434" not in resp.text
