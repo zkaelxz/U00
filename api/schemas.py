@@ -450,6 +450,8 @@ class TranscribeConfig(BaseModel):
     asr_backend_choice: str
     whisper_size: str
     whisper_model_cached: bool
+    # False when faster-whisper isn't installed, so a run can't start.
+    whisper_installed: bool = True
     beam_size: int
     min_silence_ms: int
     vad_threshold: float

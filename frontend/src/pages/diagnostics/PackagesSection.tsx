@@ -25,7 +25,7 @@ import { UpgradeTestResult } from './UpgradeTest'
 import { testConfirmLabel } from './upgradeTestText'
 import { useServerJobStatus } from './useServerJobStatus'
 import {
-  belowMinText, firstHint, groupTasks, minVersionText, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
+  belowMinText, firstHint, groupTasks, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
   sortTasksNeedingInstall, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskResultText, taskStatus,
   taskTone,
   type TaskRunResult,
@@ -88,6 +88,13 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   const engines = installableEngines(overview.model_engine_versions, Object.keys(overview.dependencies))
   // Missing packages no task installs (a package that isn't on PyPI, one that ships with the app).
   const inTask = new Set((presets?.tasks ?? []).flatMap((t) => t.packages))
+  // Transcription is the one missing thing a fresh install can't do without.
+  const noTranscription = missingTranscription(presets)
+  const noTranscriptionRef = useRef<HTMLDivElement>(null)
+  const wantsTranscription = noTranscription !== null && window.location.hash.includes('install=transcription')
+  useEffect(() => {
+    if (wantsTranscription) noTranscriptionRef.current?.scrollIntoView({ block: 'center' })
+  }, [wantsTranscription])
   const hasTasks = !!presets && presets.tasks.length > 0
   const leftover = deps.missing.filter((d) => !inTask.has(d.name) && d.tier !== 'required' && d.tier !== 'dev')
   const blocked = installBlockedReason(jobsActive, busy)
@@ -199,6 +206,25 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     }
   }
 
+  const taskRow = (t: DiagnosticsInstallTask) => presets && (
+  <TaskRow key={t.id} task={t} packages={presets.packages} torchInstalled={torchInstalled}
+    installOne={(n) => action('install', n)}
+    action={local && t.to_install.length > 0 && (
+      <ConfirmButton
+        name={t.label}
+        label="Install for this task…"
+        ariaLabel={`Install for ${t.label}`}
+        verb="install"
+        tone="primary"
+        confirmLabel={taskConfirmLabel(t)}
+        disabled={!!blocked}
+        describedBy={running ? runningId : blocked ? reasonId : undefined}
+        busy={!!busy && taskRunning === t.id}
+        onConfirm={() => void runTask(t)}
+      />
+    )} />
+  )
+
   const action = (kind: Kind, name: string, target?: string) =>
     local && (
       <ConfirmButton
@@ -244,32 +270,22 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
           {running ?? ''}
         </p>
         {outcome && <OutcomeBlock outcome={outcome} onRecheck={changed} />}
+        {noTranscription && presets && (
+          <div className="diag-stack" data-testid="transcription-missing" role="group" aria-labelledby={`${tasksId}-tr`} ref={noTranscriptionRef}>
+            <h4 id={`${tasksId}-tr`}>Transcription isn't installed yet</h4>
+            <p className="muted">Needed to turn audio or video into subtitles. This is the same install as Install by task below.</p>
+            <ul aria-label="Transcription" className="pkg-list task-list">{taskRow(noTranscription)}</ul>
+          </div>
+        )}
         {presets && presets.tasks.length > 0 && (
           <div className="diag-stack" data-testid="install-tasks" role="group" aria-labelledby={tasksId}>
             <h4 id={tasksId}>Install by task</h4>
             <p className="muted">Pick what you want to do; only the packages it needs are installed.</p>
-            {groupTasks(sortTasksNeedingInstall(presets.tasks)).map((g) => (
+            {groupTasks(sortTasksNeedingInstall(presets.tasks.filter((t) => t !== noTranscription))).map((g) => (
               <Section key={g.group} title={g.group} count={g.tasks.length} storageKey={`diagnostics.tasks.${g.group}`}
                 summary={taskGroupSummary(g.tasks)}>
                 <ul aria-label={`${g.group} tasks`} className="pkg-list task-list">
-                  {g.tasks.map((t) => (
-                    <TaskRow key={t.id} task={t} packages={presets.packages} torchInstalled={torchInstalled}
-                      installOne={(n) => action('install', n)}
-                      action={local && t.to_install.length > 0 && (
-                        <ConfirmButton
-                          name={t.label}
-                          label="Install for this task…"
-                          ariaLabel={`Install for ${t.label}`}
-                          verb="install"
-                          tone="primary"
-                          confirmLabel={taskConfirmLabel(t)}
-                          disabled={!!blocked}
-                          describedBy={running ? runningId : blocked ? reasonId : undefined}
-                          busy={!!busy && taskRunning === t.id}
-                          onConfirm={() => void runTask(t)}
-                        />
-                      )} />
-                  ))}
+                  {g.tasks.map(taskRow)}
                 </ul>
               </Section>
             ))}
