@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test'
 
 import { expect, test } from './fixtures'
+import { openTranscribeOptions } from './sourceHelpers'
 
 // Offline paths only: the run/job endpoints are mocked, so nothing is
 // transcribed. Reads and the upload pre-check hit the real seeded API.
@@ -30,6 +31,7 @@ async function mockRun(page: Page, dramaId: number) {
 
 // Advanced options are collapsed by default (and remembered once opened).
 async function openAdvanced(page: Page) {
+  await openTranscribeOptions(page)
   const details = page.locator('.section-title', { hasText: /^Advanced$/ }).locator('xpath=ancestor::details[1]')
   await expect(details).toBeVisible()
   if ((await details.getAttribute('open')) === null) await details.locator(':scope > summary').click()
@@ -240,6 +242,7 @@ test('the primary action is Transcribe, options are collapsed and changed option
   await expect(page.getByTestId('settings-summary')).toContainText('Chinese')
   // Collapsed: the tuning fields are not visible until Advanced is opened.
   await expect(page.getByLabel('Beam size', { exact: true })).toBeHidden()
+  await openTranscribeOptions(page)
   await expect(region.locator('details.section > summary').filter({ hasText: 'Advanced' }).first()).toContainText('defaults')
   await openAdvanced(page)
   await page.getByLabel('Beam size', { exact: true }).fill('7')

@@ -99,6 +99,8 @@ _DEFAULT_TUNING = {
 }
 
 
+CPU_DEFAULT_WHISPER_SIZE = "medium"
+
 # Below this much audio a low figure says little (a short clip can be one line).
 COVERAGE_MIN_AUDIO_SECONDS = 30.0
 COVERAGE_WARN_FRACTION = 0.15
@@ -556,6 +558,16 @@ def _allowed_whisper_sizes() -> frozenset:
     return frozenset(core_module.WHISPER_MODELS) | frozenset(_MODEL_DOWNLOAD_SIZES)
 
 
+def default_whisper_size() -> str:
+    """The model used when a drama has none saved: large-v3 with the GPU on,
+    medium without it. large-v3 on a CPU is many times slower than the clip
+    and a ~3 GB download; medium is about half the size and still usable for
+    Chinese, Japanese and Korean. A model the user saved is never replaced."""
+    if settings_service.get_use_gpu():
+        return _DEFAULT_TUNING["whisper_size"]
+    return CPU_DEFAULT_WHISPER_SIZE
+
+
 def stored_whisper_size(drama: dict) -> str:
     """The drama's saved whisper_size, or the default when it is empty or
     not one of _allowed_whisper_sizes() (e.g. a value planted in the DB by
@@ -564,13 +576,13 @@ def stored_whisper_size(drama: dict) -> str:
     (without the value) when it falls back."""
     size = drama.get("whisper_size")
     if not size:
-        return _DEFAULT_TUNING["whisper_size"]
+        return default_whisper_size()
     if size not in _allowed_whisper_sizes():
         import applog
         applog.get_logger().warning(
             f"drama {drama.get('id')}: stored whisper_size is not a known model size; "
-            f"using the default {_DEFAULT_TUNING['whisper_size']}")
-        return _DEFAULT_TUNING["whisper_size"]
+            f"using the default {default_whisper_size()}")
+        return default_whisper_size()
     return size
 
 
