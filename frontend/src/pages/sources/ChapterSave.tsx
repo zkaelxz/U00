@@ -1,12 +1,14 @@
 /*
  * "Save N chapters as CBZ" for the open comic series: the ticked chapters
- * are written as CBZ files into the saved_comics folder in the app's data
- * folder on the PC, without a drama. One save runs at a time (job
+ * are written as CBZ files into the save folder on the PC (the saved_comics
+ * folder in the app's data folder, or one picked under Saved manga), without
+ * a drama; they are read in the app under Saved manga. One save runs at a time (job
  * sources_save); the server answers per chapter (saved / already saved /
  * failed / not found) and never returns a path. A finished result is shown
  * only for a run started here: the job id is shared by every series.
  */
 import { SAVE_JOB_ID, startChapterSave } from '../../api/sourcesImport'
+import { OpenFolderButton } from '../manga/SaveFolder'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import type { SeriesChapter } from '../../types/sources'
@@ -47,7 +49,12 @@ export function ChapterSave({ source, seriesId, display, chapters, selected, bus
             Cancel
           </button>
         ) : (
-          <span className="muted">Saved to the saved_comics folder in the app’s data folder on the PC.</span>
+          <>
+            <span className="muted">
+              Saved to the manga folder on the PC. <a href="#/manga">Read saved manga</a>
+            </span>
+            <OpenFolderButton size="sm" />
+          </>
         )}
       </div>
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />

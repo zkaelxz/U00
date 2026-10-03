@@ -97,7 +97,7 @@ def set_save_folder(folder) -> dict:
     if len(folder) > MAX_FOLDER_LEN or any(ord(c) < 32 for c in folder):
         raise InvalidInputError("That folder path is not valid.")
     if not os.path.isabs(folder):
-        raise InvalidInputError("Use a full folder path (for example D:\\Manga).")
+        raise InvalidInputError("Use the full path of the folder, starting with its drive.")
     if not os.path.isdir(folder):
         raise InvalidInputError("That folder does not exist on this PC.")
     db.set_app_setting(SETTING, {"folder": os.path.realpath(folder)})

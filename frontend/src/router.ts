@@ -18,6 +18,10 @@ export type Route =
   | { name: 'assistant' }
   | { name: 'read'; id: number; page: number | null }
   | { name: 'comic'; id: number; page: number | null }
+  // Chapters saved as CBZ files: the list, one series, one chapter's pages.
+  | { name: 'manga' }
+  | { name: 'manga-series'; source: string; series: string }
+  | { name: 'manga-read'; source: string; series: string; chapter: string; page: number | null }
 
 export const DEFAULT_STAGE = 'source'
 
@@ -47,6 +51,24 @@ export function parseRoute(hash: string): Route {
     const page = p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null
     return { name: head, id: Number(a), page }
   }
+  if (head === 'manga') {
+    // "#/manga/<source>/<series>[/<chapter>][?page=N]", each name %-encoded.
+    let names: string[]
+    try {
+      names = parts.slice(1).map(decodeURIComponent)
+    } catch {
+      return { name: 'library' }
+    }
+    if (names.some((n) => !n)) return { name: 'library' }
+    if (names.length === 0) return { name: 'manga' }
+    if (names.length === 2) return { name: 'manga-series', source: names[0], series: names[1] }
+    if (names.length === 3) {
+      const p = new URLSearchParams(qs).get('page')
+      const page = p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null
+      return { name: 'manga-read', source: names[0], series: names[1], chapter: names[2], page }
+    }
+    return { name: 'library' }
+  }
   if (head === 'drama' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length <= 3) {
     let stage: string | null = null
     if (b) {
@@ -64,6 +86,11 @@ export function parseRoute(hash: string): Route {
 export function routeHref(r: Route): string {
   if (r.name === 'drama') return r.stage === null ? `#/drama/${r.id}` : `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
+  if (r.name === 'manga-series') return `#/manga/${encodeURIComponent(r.source)}/${encodeURIComponent(r.series)}`
+  if (r.name === 'manga-read') {
+    const base = `#/manga/${[r.source, r.series, r.chapter].map(encodeURIComponent).join('/')}`
+    return r.page ? `${base}?page=${r.page}` : base
+  }
   if (r.name === 'benchmark' && r.compare) return `#/benchmark?compare=${r.compare}`
   return `#/${r.name}`
 }
