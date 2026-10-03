@@ -141,12 +141,15 @@ def test_call_llm_json_path_uses_the_header_and_reports_usage(posts):
     assert seen == [(10, 5)]
 
 
-def test_cost_estimate_uses_the_price_table_and_unlisted_models_use_the_highest_rate():
+def test_cost_estimate_uses_the_price_table_and_unlisted_models_use_the_ceiling_or_highest_rate():
     listed = te.estimate_cost("gpt-5-mini", 1_000_000, 1_000_000)
     assert listed == pytest.approx(0.25 + 2.0)
-    unlisted = te.estimate_cost("gpt-9-future", 1_000_000, 0)
-    assert unlisted == pytest.approx(max(r["input"] for m, r in te.PRICING_PER_MILLION_TOKENS.items()
-                                         if m.startswith("gpt-")))
+    # An unpriced GPT-5+ id gets the explicit ceiling (newer releases can cost
+    # more than gpt-5); any other unpriced gpt- id gets the family's highest rate.
+    assert te.estimate_cost("gpt-9-future", 1_000_000, 0) == pytest.approx(
+        te.OPENAI_EXTRA_MODEL_CEILING["input"])
+    assert te.estimate_cost("gpt-4", 1_000_000, 0) == pytest.approx(
+        max(r["input"] for m, r in te.PRICING_PER_MILLION_TOKENS.items() if m.startswith("gpt-")))
 
 
 def test_translate_refuses_when_no_key(isolated_db, tmp_path, monkeypatch):
@@ -187,12 +190,23 @@ def _listed_by_openai(models):
         {"checked_at": "2026-10-01T00:00:00", "engines": {"openai": {"ok": True, "models": models}}}))
 
 
-def test_a_gpt5_or_later_model_openai_listed_is_accepted_and_priced_at_the_highest_rate(isolated_db):
+def test_a_gpt5_or_later_model_openai_listed_is_accepted_and_costed_at_the_ceiling_above_every_built_in_rate(isolated_db):
     _listed_by_openai(["gpt-6-luna", "gpt-4", "o3", "gpt-5-codex", "gpt-5-pro"])
     assert te.openai_listed_extra_models() == ["gpt-6-luna"]
     assert te.get_engine("openai", KEY, "gpt-6-luna").model == "gpt-6-luna"
-    top = max(te.PRICING_PER_MILLION_TOKENS[m]["output"] for m in te.OPENAI_MODELS)
-    assert te.estimate_cost("gpt-6-luna", 0, 1_000_000) == pytest.approx(top)
+    ceiling = te.OPENAI_EXTRA_MODEL_CEILING
+    for m in te.OPENAI_MODELS:
+        assert ceiling["input"] > te.PRICING_PER_MILLION_TOKENS[m]["input"]
+        assert ceiling["output"] > te.PRICING_PER_MILLION_TOKENS[m]["output"]
+    assert te.estimate_cost("gpt-6-luna", 0, 1_000_000) == pytest.approx(ceiling["output"])
+    assert te.estimate_cost("gpt-6-luna", 1_000_000, 0) == pytest.approx(ceiling["input"])
+
+
+def test_a_malformed_provider_cache_adds_nothing_instead_of_crashing(isolated_db):
+    for models in (5, True, [{"a": 1}], [["x"]], {"gpt-6-luna": 1}):
+        db.set_app_setting(te.PROVIDER_CHECK_CACHE_KEY, json.dumps(
+            {"engines": {"openai": {"ok": True, "models": models}}}))
+        assert te.openai_listed_extra_models() == []
 
 
 @pytest.mark.parametrize("model", ["gpt-4", "o3", "gpt-5-codex", "gpt-5-pro", "gpt-9-unlisted"])

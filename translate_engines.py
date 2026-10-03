@@ -61,9 +61,11 @@ OPENAI_MODELS = {
 # Newer OpenAI models the provider itself lists (the manual model check in
 # services/model_registry_service) can be used without an edit here. Only the
 # GPT-5-and-later chat models: older ids (gpt-4, o-series) cost far more than
-# the highest rate estimate_cost falls back to, and the others are not
-# Chat Completions models.
+# any rate estimate_cost could fall back to, and the others are not Chat
+# Completions models. Newer GPT-5.x releases can also cost more than gpt-5,
+# so an unpriced one is costed at OPENAI_EXTRA_MODEL_CEILING instead.
 PROVIDER_CHECK_CACHE_KEY = "model_registry_provider_check"
+OPENAI_EXTRA_MODEL_CEILING = {"input": 5.0, "output": 40.0}
 _OPENAI_EXTRA_RE = re.compile(r"gpt-(?:[5-9]|[1-9][0-9])[a-z0-9._-]{0,60}")
 _OPENAI_EXCLUDED_WORDS = re.compile(
     r"(?:^|[-.])(?:pro|codex|realtime|search|research|instruct|audio|image|tts|"
@@ -85,10 +87,12 @@ def openai_listed_extra_models() -> list:
         data = json.loads(raw) if isinstance(raw, str) else raw
         provider = (data.get("engines") or {}).get("openai") or {}
         models = provider.get("models") if provider.get("ok") else []
+        if not isinstance(models, list):
+            return []
+        return [m for m in dict.fromkeys(models)
+                if is_openai_extra_model(m) and m not in OPENAI_MODELS]
     except Exception:
         return []
-    return [m for m in dict.fromkeys(models or [])
-            if is_openai_extra_model(m) and m not in OPENAI_MODELS]
 
 
 PRICING_PER_MILLION_TOKENS = {
@@ -146,6 +150,8 @@ _PRICED_FAMILY_PREFIXES = ("claude-", "gemini-", "deepseek-", "gpt-")
 
 
 def _highest_family_rates(model: str):
+    if is_openai_extra_model(model):
+        return dict(OPENAI_EXTRA_MODEL_CEILING)
     prefix = next((p for p in _PRICED_FAMILY_PREFIXES if model.startswith(p)), None)
     family = [r for m, r in PRICING_PER_MILLION_TOKENS.items() if prefix and m.startswith(prefix)]
     if not family:

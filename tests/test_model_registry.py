@@ -338,7 +338,7 @@ class TestOfferProviderModels:
             "checked_at": "2026-10-01T00:00:00", "engines": {"openai": {"ok": True, "models": listed}}}))
         o = self._models("openai")
         assert o["models"] == list(translate_engines.OPENAI_MODELS) + ["gpt-6-luna", "gpt-5.6-luna"]
-        assert "highest OpenAI rate" in o["model_labels"]["gpt-6-luna"]
+        assert "high ceiling" in o["model_labels"]["gpt-6-luna"]
         assert svc._override_error("openai", "gpt-6-luna") is None
         assert svc._override_error("openai", "gpt-4") is not None
 

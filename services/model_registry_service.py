@@ -192,6 +192,8 @@ def extra_model_label(engine: str, model: str) -> str:
     name = _PROVIDER_NAMES.get(engine, engine)
     if model in translate_engines.PRICING_PER_MILLION_TOKENS:
         return f"{model} -- listed by {name}"
+    if engine == "openai":
+        return f"{model} -- newly listed (cost estimated at a high ceiling, not its real price)"
     return f"{model} -- newly listed (cost estimated at highest {name} rate)"
 
 
