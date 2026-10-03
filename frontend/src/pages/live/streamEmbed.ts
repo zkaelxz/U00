@@ -87,7 +87,15 @@ export function parseYouTubeInfo(data: unknown): PlayerInfo | null {
   const vd = info.videoData
   const isLive = vd && typeof vd === 'object' && typeof (vd as { isLive?: unknown }).isLive === 'boolean'
     ? (vd as { isLive: boolean }).isLive : undefined
-  return { currentTime: num(info.currentTime), duration: num(info.duration), ...(isLive === undefined ? {} : { isLive }) }
+  // Only fields the message carries: the player sends what changed, and an
+  // absent field must not erase one remembered from an earlier message.
+  const currentTime = num(info.currentTime)
+  const duration = num(info.duration)
+  return {
+    ...(currentTime === undefined ? {} : { currentTime }),
+    ...(duration === undefined ? {} : { duration }),
+    ...(isLive === undefined ? {} : { isLive }),
+  }
 }
 
 export type DelayPlan = { kind: 'seek'; to: number } | { kind: 'wait' } | { kind: 'unsupported' }

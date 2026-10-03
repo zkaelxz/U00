@@ -70,6 +70,14 @@ describe('parseYouTubeInfo', () => {
   })
 })
 
+describe('parseYouTubeInfo partial messages', () => {
+  it('leaves out fields the message does not carry, so a merge keeps the earlier value', () => {
+    const got = parseYouTubeInfo({ event: 'infoDelivery', info: { currentTime: 9 } })
+    expect(Object.keys(got ?? {})).toEqual(['currentTime'])
+    expect({ duration: 300, ...got }).toEqual({ duration: 300, currentTime: 9 })
+  })
+})
+
 describe('planDelay', () => {
   it('seeks to duration minus delay', () => {
     expect(planDelay({ duration: 300 }, 15, 0)).toEqual({ kind: 'seek', to: 285 })
