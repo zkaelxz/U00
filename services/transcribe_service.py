@@ -70,6 +70,7 @@ from typing import Optional
 import background_jobs
 import core as core_module
 import db
+import diagnostics
 import raw_transcript
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from services import asr_options_service, diarization_service, settings_service, source_service
@@ -235,6 +236,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "asr_backend_choice": drama.get("asr_backend_choice") or "whisper",
         "whisper_size": whisper_size,
         "whisper_model_cached": core_module.is_whisper_model_cached(whisper_size),
+        "whisper_installed": diagnostics.check_dependency("faster_whisper"),
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
