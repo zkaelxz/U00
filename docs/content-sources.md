@@ -313,6 +313,21 @@ work".
 | Reference | Read directly from the live site. No code ported. |
 | Tests | `tests/test_sources_piaotian.py` (small invented GBK fixtures shaped like the live pages; no network). |
 
+## MangaK — `sources/adapters/mangak.py`
+
+| | |
+|---|---|
+| URL patterns | `mangak.io/<slug>` (series), `mangak.io/<slug>/<chapter-slug>` (chapter). Site pages (`/search`, `/genres`, `/terms-of-service` and the like) are not treated as series. |
+| Content type / language | manga, manhwa, manhua; en (English translations) |
+| Status | **Read against the live site 2026-10-03** (plain GETs, no cookies, no login): search, a 152-chapter series, its full chapter list, an 18-page chapter and one image download, all through the adapter. **No import has been run through the app.** |
+| Access tier | `STATIC_HTTP` only. A Next.js site whose pages embed their data as JSON in `<script id="__NEXT_DATA__">`; nothing needs JavaScript. |
+| Extraction | **Search:** `/search?q=<query>&page=<n>`, `pageProps.ssrItems`. **Series:** `/<slug>`, `pageProps.initialManga` (its `id` and `cv`). **Chapters:** `api.mangak.io/titles/<id>/chapters?cv=<cv>`, JSON `data.chapters`, sorted by the site's own `number` (the series page only embeds the newest 50). **Pages:** `/<slug>/<chapter-slug>`, `pageProps.initialChapter.pages[].url`. **Images:** webp on CDN hosts (`rx.qvzr*.org`); they answer 403 without a `mangak.io` Referer, which the adapter sends. |
+| Failures | 404 -> "doesn't exist". A missing `__NEXT_DATA__`, missing keys, an empty chapter list or a chapter with no images -> `LayoutChanged`. A series or chapter slug that isn't a plain slug (letters, digits, `-`, `_`) is refused before it reaches a URL or a file name. |
+| Adult works | The site flags some works `isAdult` but serves them without a switch, so there is no toggle; search results carry the flag in `extra["adult"]`. |
+| Terms | robots.txt: `mangak.io/robots.txt` and `api.mangak.io/robots.txt` both answer 404 (2026-10-03), so no rules and no crawl delay. **The terms of service (https://mangak.io/terms-of-service, titled MangaBuddy, "Last updated: March 2025") forbid automated access:** section 4 "You agree not to: ... Use automated tools, bots, or scrapers to access the service". Section 2 says the site hosts nothing itself and that content is "sourced from third-party providers and publicly available sources"; series summaries name official English publishers. Recorded as `EXPLICITLY_RESTRICTED` in `capabilities()`; enforcement is off app-wide, so the adapter works, but the finding is shown. |
+| Reference | `Yui007/mangak-downloader` (MIT), endpoints and field names only, all re-checked live. No code ported. (`Dyslexic-churchschool477/mangak-downloader` is a malware fork of it; never use it.) |
+| Tests | `tests/test_sources_mangak.py` (small invented fixtures shaped like the live pages; no network). |
+
 ## Generic "paste a URL" import (no adapter)
 
 | | |
