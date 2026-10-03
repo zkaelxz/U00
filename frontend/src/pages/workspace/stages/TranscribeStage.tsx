@@ -12,6 +12,7 @@ import {
   updateTranscribeConfig,
   uploadAndTranscribe,
 } from '../../../api/workspace'
+import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanizeValue } from '../../../components/labels'
@@ -447,6 +448,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   const whisperRun = !!cf && (config?.transcript_mode === 'whisper'
     ? cf.asr_backend_choice === 'whisper'
     : config?.transcript_mode === 'have_transcript' && cf.alignment_method === 'whisper_diff')
+  // Undefined (an older server) counts as installed.
+  const notInstalled = whisperRun && config?.whisper_installed === false
   const estimate = cf && whisperRun && !file && hasMedia
     ? transcribeEstimate({
         audioSeconds: duration,
@@ -470,7 +473,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           type="button"
           className="primary"
           disabled={busy || !cf || !!needed}
-          aria-describedby={needed && !busy ? 'transcribe-needed' : undefined}
+          aria-describedby={[notInstalled && 'transcribe-not-installed', needed && !busy && 'transcribe-needed'].filter(Boolean).join(' ') || undefined}
           onClick={transcribe}
         >
           Transcribe
@@ -480,6 +483,17 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           <span className="muted" role="note" data-testid="separation-note">Vocal separation adds time, a lot on CPU.</span>
         )}
       </div>
+      {notInstalled && (
+        <div className="source-needed" id="transcribe-not-installed" role="note">
+          <span>
+            <strong>Transcription isn't installed yet.</strong> It turns audio or video into subtitles and is a
+            large download. Install it from Diagnostics (you'll see the size and confirm first).
+          </span>
+          <ButtonLink variant="primary" size="sm" className="button-link" href="#/diagnostics?install=transcription">
+            Install transcription
+          </ButtonLink>
+        </div>
+      )}
       {needed && !busy && (
         <div className="source-needed" id="transcribe-needed" role="note">
           <span>Still needed: {needed}.</span>

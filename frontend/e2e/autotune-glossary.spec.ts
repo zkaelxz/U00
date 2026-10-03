@@ -8,6 +8,9 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 
 test.use({ viewport: { width: 1280, height: 800 } })
 
+// What the server answers when no run is held in this app session.
+const IDLE = { job_id: '', status: 'idle', progress: 0, message: '', results: null, best_candidate_ms: null, proposals: null, run_id: null }
+
 const SHOTS = process.env.SHOT_DIR
 
 // Some mocks proxy to the real API (route.fetch); let in-flight ones drop.
@@ -71,7 +74,7 @@ test.describe('Auto-tune min silence', () => {
         state = 'running'
         return route.fulfill({ json: { job_id: 'autotune_1', candidates: [300, 800, 1500] } })
       }
-      if (state === 'none') return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'none' } } })
+      if (state === 'none') return route.fulfill({ json: IDLE })
       if (state === 'running') {
         return route.fulfill({
           json: { job_id: 'autotune_1', status: 'running', progress: 0.33, message: 'Testing candidate 2 of 3 (800ms)...', results: null, best_candidate_ms: null },
@@ -159,7 +162,7 @@ test.describe('Glossary from novel', () => {
     await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
       route.request().method() === 'POST'
         ? route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } })
-        : route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'none' } } }),
+        : route.fulfill({ json: IDLE }),
     )
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
@@ -180,7 +183,7 @@ test.describe('Glossary from novel', () => {
         state = 'running'
         return route.fulfill({ json: { job_id: 'novelglossary_1', engine: 'claude', paired: false } })
       }
-      if (state === 'none') return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'none' } } })
+      if (state === 'none') return route.fulfill({ json: IDLE })
       if (state === 'running') {
         return route.fulfill({ json: { job_id: 'novelglossary_1', status: 'running', progress: 0.42, message: '', proposals: null, run_id: 'run-1' } })
       }

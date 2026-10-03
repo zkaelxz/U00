@@ -71,6 +71,7 @@ class TestGetTranscribeConfig:
             "whisper_size": core_module.DEFAULT_WHISPER_SIZE,
             "whisper_model_cached": core_module.is_whisper_model_cached(core_module.DEFAULT_WHISPER_SIZE),
             "measured_speed": None,
+            "whisper_installed": result["whisper_installed"],
             "beam_size": 5,
             "min_silence_ms": 300,
             "vad_threshold": 0.5,
@@ -84,6 +85,15 @@ class TestGetTranscribeConfig:
             "hardsub_interval_sec": 1.0,
             "auto_initial_prompt": "",
         }
+
+    @pytest.mark.parametrize("installed", [True, False])
+    def test_reports_whether_faster_whisper_is_installed(self, isolated_db, monkeypatch, installed):
+        import diagnostics
+        seen = []
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: seen.append(name) or installed)
+        did = isolated_db.create_drama(title_en="D")
+        assert transcribe_service.get_transcribe_config(did)["whisper_installed"] is installed
+        assert seen == ["faster_whisper"]
 
     def test_reflects_persisted_values(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")

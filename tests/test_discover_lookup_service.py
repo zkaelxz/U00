@@ -161,6 +161,14 @@ def test_bulk_extract_per_url_status_and_partial_failure(monkeypatch, paid):
     assert KEY not in json.dumps(svc.bulk_extract_result())
 
 
+def test_results_are_idle_before_any_run():
+    idle = {"job_id": "", "status": "idle", "progress": 0.0, "message": "", "result": None}
+    background_jobs.clear_job(svc.BULK_JOB_ID)
+    background_jobs.clear_job(svc.NAV_JOB_ID)
+    assert svc.bulk_extract_result() == idle
+    assert svc.navigation_help_result() == idle
+
+
 def test_bulk_extract_limits(paid):
     with pytest.raises(InvalidInputError):
         svc.bulk_extract([f"https://a.example/{i}" for i in range(11)], "", "claude")

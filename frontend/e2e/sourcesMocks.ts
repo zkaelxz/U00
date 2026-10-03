@@ -108,7 +108,7 @@ function sourceDetail(summary: (typeof SOURCES)[number]) {
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
-const notFound = (route: Route) => json(route, { error: { code: 'not_found', message: 'No such Sources job.' } }, 404)
+const idle = (route: Route) => json(route, { job_id: '', status: 'idle', progress: 0, message: '', result: null })
 
 export interface MockState {
   calls: { method: string; path: string; body: unknown }[]
@@ -209,13 +209,13 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
   })
   await page.route(/\/api\/sources\/jobs\/sources_search\/result$/, (route) => {
     record(route)
-    if (s.search === 'none') return notFound(route)
+    if (s.search === 'none') return idle(route)
     if (s.search === 'running') return json(route, { job_id: 'sources_search', status: 'running', progress: 0.1, message: null, result: null })
     return json(route, { job_id: 'sources_search', status: 'done', progress: 1, message: null, result: s.searchBody })
   })
   await page.route(/\/api\/sources\/jobs\/sources_series_[^/]+\/result$/, (route) => {
     record(route)
-    if (s.series === 'none') return notFound(route)
+    if (s.series === 'none') return idle(route)
     if (s.series === 'running') {
       if (!s.seriesHold) s.series = 'done' // the next poll finishes
       return json(route, {
@@ -233,24 +233,24 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
   // (sourcesImportMocks.ts overrides this for the import flows).
   await page.route(/\/api\/sources\/jobs\/sources_url_preview\/result$/, (route) => {
     record(route)
-    return notFound(route)
+    return idle(route)
   })
   // New chapters looks for an earlier "Check now" run on load: none here
   // (sourcesAccessMocks.ts overrides this).
   // Save as CBZ (sourcesImportMocks.ts mocks a run): nothing stored here.
   await page.route(/\/api\/sources\/jobs\/sources_save\/result$/, (route) =>
-    route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'not_found', message: 'No such job.' } }) }),
+    idle(route),
   )
   await page.route(/\/api\/sources\/jobs\/sources_chapter_check\/result$/, (route) => {
     record(route)
-    return notFound(route)
+    return idle(route)
   })
   // The site check (SO02) and identify media (SO08) look for an earlier run
   // on mount, and Source settings lists recent pasted-link imports (SO16):
   // none here (sourcesToolsMocks.ts overrides these).
   await page.route(/\/api\/sources\/jobs\/sources_url_(preflight|identify)\/result$/, (route) => {
     record(route)
-    return notFound(route)
+    return idle(route)
   })
   await page.route(/\/api\/sources\/url\/extractions(\?.*)?$/, (route) => {
     record(route)
