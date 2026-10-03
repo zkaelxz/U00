@@ -685,6 +685,70 @@ class TestExternalGpuLoadGuard:
         bg.clear_job("gpu_ext_c")
 
 
+class TestExternalGpuWaitMessage:
+    """A job held back by another program's GPU use says so, with numbers
+    only (no process names, paths or command lines)."""
+
+    def setup_method(self):
+        self._library_state = _isolate_library()
+        bg.set_gpu_limit_enabled(True)
+
+    def teardown_method(self):
+        bg.set_gpu_limit_enabled(True)
+        _restore_library(*self._library_state)
+
+    def test_queued_message_names_external_use_and_the_fix(self, monkeypatch):
+        load = {"utilization_percent": 20.0, "memory_used_mb": 9216.0,
+                "memory_total_mb": 10240.0, "memory_free_mb": 1024.0 - 1}
+        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: load)
+        bg.start_job("gpu_wait_a", lambda: None, gpu_touching=True)
+        status = bg.get_status("gpu_wait_a")
+        assert status["status"] == "queued"
+        assert status["message"].startswith("Waiting for the GPU: another program is using it")
+        assert "9.0 GB of 10.0 GB in use" in status["message"]
+        assert "Close GPU-heavy apps" in status["message"] and "Settings" in status["message"]
+        bg.clear_job("gpu_wait_a")
+
+    def test_message_goes_back_to_generic_when_load_is_not_external(self, monkeypatch):
+        load = {"utilization_percent": 5.0, "memory_used_mb": 100.0,
+                "memory_total_mb": 10240.0, "memory_free_mb": 10140.0}
+        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: load)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: True)
+        bg.start_job("gpu_wait_b", lambda: None, gpu_touching=True)
+        assert bg.get_status("gpu_wait_b")["message"] == bg.GPU_WAIT_MESSAGE
+        bg.clear_job("gpu_wait_b")
+
+
+class TestStallDetection:
+    def test_running_job_with_old_progress_is_flagged_without_changing_state(self):
+        job = {"status": "running", "progress_at": 1000.0, "started_at": 900.0}
+        assert bg.job_may_be_stalled(job, now=1000.0 + bg.JOB_STALL_SECONDS - 1) is False
+        assert bg.job_may_be_stalled(job, now=1000.0 + bg.JOB_STALL_SECONDS + 1) is True
+        assert job["status"] == "running"
+
+    def test_stage_without_progress_gets_the_longer_allowance(self):
+        job = {"status": "running", "progress_at": 1000.0, "can_report_progress": False}
+        assert bg.job_may_be_stalled(job, now=1000.0 + bg.JOB_STALL_SECONDS + 1) is False
+        assert bg.job_may_be_stalled(
+            job, now=1000.0 + bg.JOB_STALL_NO_PROGRESS_SECONDS + 1) is True
+
+    def test_only_running_jobs_can_be_stalled(self):
+        assert bg.job_may_be_stalled({"status": "done", "progress_at": 1.0}, now=1e9) is False
+
+    def test_stage_ticker_shows_elapsed_and_note_but_is_not_progress(self):
+        bg._jobs["tick_a"] = {"status": "running", "progress": 0.0, "message": "",
+                              "error": None, "cancel_requested": False, "result": None}
+        with bg.stage_ticker("tick_a", "Loading model...", interval=0.05):
+            first = bg._jobs["tick_a"]["progress_at"]
+            time.sleep(0.2)
+            msg = bg._jobs["tick_a"]["message"]
+            assert msg.startswith("Loading model (elapsed ")
+            assert "no progress is available" in msg
+            assert bg._jobs["tick_a"]["progress_at"] == first
+            assert bg._jobs["tick_a"]["can_report_progress"] is False
+        bg.clear_job("tick_a")
+
+
 class TestGpuParallelSlots:
     """gpu_max_parallel lets more than one GPU job run when nvidia-smi shows
     enough free VRAM; never more than the cap, and one at a time when free

@@ -359,7 +359,7 @@ class TestRunTranscribeAndApplyJob:
             "large-v3", 5, 300, 0.5, False, "auto", False, False, False, None, None, None,
             use_gpu=True)
 
-        assert messages[0] == "Loading Whisper model large-v3 (downloading on first use, ~3 GB)"
+        assert messages[0].startswith("Loading Whisper model large-v3 (downloading on first use, ~3 GB) (elapsed ")
         assert "GPU unavailable (RuntimeError: no cublas64_12.dll); using CPU" in messages[1]
         result = background_jobs.get_status(job_id)["result"]
         assert result["device"] == "GPU unavailable (RuntimeError: no cublas64_12.dll); using CPU"
@@ -566,6 +566,57 @@ class TestRunTranscribeAndApplyJob:
             "medium", 5, 300, 0.5, True, "auto", False, False, False, None, None, None)
 
         assert background_jobs.get_status(job_id)["result"]["failed_reason"] == "vocal_separation"
+        _clear(job_id)
+
+    def test_vocal_separation_status_names_stage_device_and_percent(self, isolated_db, monkeypatch):
+        import audio_preprocess
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        seen = []
+
+        def fake_separate(in_path, out_path, backend="auto", progress_cb=None,
+                          cancel_check_cb=None, use_gpu=None, event_cb=None):
+            event_cb("loading", "demucs")
+            seen.append(background_jobs.get_status(job_id)["message"])
+            event_cb("device", "cpu")
+            seen.append(background_jobs.get_status(job_id)["message"])
+            progress_cb(0.4)
+            seen.append(background_jobs.get_status(job_id)["message"])
+            seen.append(use_gpu)
+            return out_path
+        monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, True, "auto", False, False, False, None, None, None,
+            use_gpu=False)
+
+        assert seen[0].startswith("Loading the vocal separation model")
+        assert "no progress is available" in seen[0]
+        assert seen[1] == "Separating vocals on CPU (slow), 0%"
+        assert seen[2] == "Separating vocals on CPU (slow), 40%"
+        assert seen[3] is False
+        _clear(job_id)
+
+    def test_model_load_stage_says_no_progress_is_available(self, isolated_db, monkeypatch):
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        seen = []
+        monkeypatch.setattr(transcribe_service.core_module, "load_whisper_model",
+                            lambda *a, **k: seen.append(background_jobs.get_status(job_id)["message"]))
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None)
+
+        assert seen and seen[0].startswith("Loading Whisper model medium")
+        assert "elapsed" in seen[0] and "no progress is available" in seen[0]
         _clear(job_id)
 
     def test_realign_error_is_reported_but_lines_still_saved(self, isolated_db, monkeypatch):

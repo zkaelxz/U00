@@ -465,7 +465,7 @@ def cmd_align(args):
         if cfg["separate_vocals_first"]:
             audio_path = audio_preprocess.separate_vocals(
                 audio_path, os.path.join(os.path.dirname(audio_path), "vocals.wav"),
-                backend=cfg["separation_backend"])
+                backend=cfg["separation_backend"], use_gpu=use_gpu)
         segments = transcribe_for_timing(
             audio_path, whisper_size, language=language, use_gpu=use_gpu,
             local_model_path=settings_service.get_whisper_model_path(),

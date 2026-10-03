@@ -379,6 +379,10 @@ def _with_live_progress(record: dict) -> dict:
         out["progress"] = progress
     if live.get("message"):
         out["message"] = live.get("message")
+    if background_jobs.job_may_be_stalled(live):
+        out["stalled"] = True
+        out["message"] = ((out.get("message") or "").rstrip()
+                          + " No update for a while: this job may be stalled.")
     return out
 
 
@@ -402,6 +406,7 @@ def _redact(record: dict) -> dict:
     out["outcome_message"] = (_redact_text(message)[:_MAX_STR]
                               if message else None)
     out["stale"] = is_stale(record)
+    out["stalled"] = bool(record.get("stalled"))
     return out
 
 

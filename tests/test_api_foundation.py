@@ -333,6 +333,24 @@ class TestJobsEndpoint:
         body = client.get("/api/jobs/j1").json()
         assert body["status"] == "done"
 
+    def test_running_job_without_recent_progress_is_flagged_stalled(self, client, isolated_db):
+        import time
+        import background_jobs
+        isolated_db.save_job_record("stall1", status="running", progress=0.2, message="Transcribing")
+        old = time.time() - background_jobs.JOB_STALL_SECONDS - 60
+        background_jobs._jobs["stall1"] = {
+            "status": "running", "progress": 0.2, "message": "Transcribing", "error": None,
+            "started_at": old, "progress_at": old, "cancel_requested": False, "result": None}
+        try:
+            body = client.get("/api/jobs/stall1").json()
+            assert body["status"] == "running" and body["stalled"] is True
+            assert "may be stalled" in body["message"]
+            background_jobs._jobs["stall1"]["progress_at"] = time.time()
+            body = client.get("/api/jobs/stall1").json()
+            assert body["stalled"] is False and "stalled" not in body["message"]
+        finally:
+            background_jobs.clear_job("stall1")
+
     def test_unknown_job_is_404(self, client, isolated_db):
         resp = client.get("/api/jobs/nope")
         assert resp.status_code == 404

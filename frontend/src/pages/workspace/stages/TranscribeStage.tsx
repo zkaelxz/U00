@@ -420,9 +420,9 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         <input type="number" step={step} value={cf[key]} onChange={(e) => setC(key, e.target.value)} />
       </Field>
     )
-  const toggle = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'use_groq') =>
+  const toggle = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'use_groq', help?: string) =>
     cf && (
-      <Field label={label}>
+      <Field label={label} help={help}>
         <Toggle checked={cf[key]} onChange={(v) => setC(key, v)} />
       </Field>
     )
@@ -636,7 +636,11 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             </Field>
           </details>
           <div className="setting-list">
-            {toggle('Separate vocals first', 'separate_vocals_first')}
+            {toggle(
+              'Separate vocals first',
+              'separate_vocals_first',
+              'Removes background music before transcribing. Fast on a GPU; on the CPU it adds a long wait (often many times the clip length). The job shows its progress and whether it runs on GPU or CPU.',
+            )}
             {toggle('Realign long segments', 'realign_long_segments')}
             {toggle('Whisper fast mode', 'whisper_fast_mode')}
             {toggle('Use Groq', 'use_groq')}

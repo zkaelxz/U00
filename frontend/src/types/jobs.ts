@@ -23,6 +23,8 @@ export interface JobRecord {
   // Queued/running on record but not heartbeated for 15 minutes (judged on
   // the server's clock): left behind by a process that died.
   stale?: boolean
+  // Running here, but no progress update for a while (advisory only).
+  stalled?: boolean
   // The caller started this job or owns its drama, judged by the server from
   // the session. Missing (an older server) counts as false.
   owned_by_me?: boolean
