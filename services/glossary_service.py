@@ -642,7 +642,8 @@ def _extraction_status(drama_id: int, job_id: str) -> dict:
     _drama(drama_id)
     job = background_jobs.get_status(job_id)
     if not job:
-        raise NotFoundError("No glossary extraction for this drama in this app session.")
+        return {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
+                "result": None, "run_id": None}
     status = job.get("status")
     result = None
     if status == "done":
@@ -660,9 +661,9 @@ def get_novel_glossary_status(drama_id: int) -> dict:
     glossary-from-novel job; result is {"proposals": [...]} only when done
     (else None). run_id names this run (None if unknown); pass it back to
     the apply. The message (or a failed job's error) is redacted; no key
-    is ever in a job result. NotFoundError when the drama doesn't exist or
-    no such job is resident in this process (results live only in
-    background_jobs memory)."""
+    is ever in a job result. NotFoundError when the drama doesn't exist. No
+    such job resident in this process (results live only in background_jobs
+    memory) is the normal first answer: status "idle", job_id ""."""
     return _extraction_status(drama_id, novel_glossary_job_id(drama_id))
 
 

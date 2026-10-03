@@ -56,6 +56,9 @@ interface DiscoverMock {
   unmocked: string[]
 }
 
+// What the server answers when the job has not run in this API process.
+const IDLE = { job_id: '', status: 'idle', progress: 0, message: '', result: null }
+
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -174,7 +177,7 @@ export async function mockDiscover(page: Page, over: Partial<DiscoverMock> = {})
   })
   await page.route(/\/api\/discover\/bulk-extract\/result$/, (route) => {
     record(route)
-    if (s.bulk === 'none') return json(route, { error: { code: 'not_found', message: 'No such job.' } }, 404)
+    if (s.bulk === 'none') return json(route, IDLE)
     if (s.bulk === 'running') {
       return json(route, { job_id: 'discover_bulk_extract', status: 'running', progress: 0.5, message: 'Read 1 of 2 pages', result: null })
     }
@@ -192,7 +195,7 @@ export async function mockDiscover(page: Page, over: Partial<DiscoverMock> = {})
   })
   await page.route(/\/api\/discover\/navigation-help\/result$/, (route) => {
     record(route)
-    if (s.nav === 'none') return json(route, { error: { code: 'not_found', message: 'No such job.' } }, 404)
+    if (s.nav === 'none') return json(route, IDLE)
     return json(route, {
       job_id: 'discover_navigation_help', status: 'done', progress: 1, message: 'Done',
       result: {

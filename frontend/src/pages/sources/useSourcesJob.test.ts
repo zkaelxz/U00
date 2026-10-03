@@ -36,6 +36,29 @@ describe('pollSourcesJob', () => {
     expect(h.onError).not.toHaveBeenCalled()
   })
 
+  it('a first-look "idle" answer is idle, not an error, and ends polling', async () => {
+    const fetchResult = vi.fn().mockResolvedValue({ job_id: '', status: 'idle', progress: 0, message: '', result: null })
+    const h = handlers()
+    pollSourcesJob('j', { ...h, fetchResult })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.onIdle).toHaveBeenCalled()
+    expect(h.onUpdate).not.toHaveBeenCalled()
+    expect(h.onError).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fetchResult).toHaveBeenCalledTimes(1)
+  })
+
+  it('"idle" after a run was seen is the vanished-job error', async () => {
+    const idle = { job_id: '', status: 'idle', progress: 0, message: '', result: null }
+    const fetchResult = vi.fn().mockResolvedValueOnce(running).mockResolvedValueOnce(idle)
+    const h = handlers()
+    pollSourcesJob('j', { ...h, fetchResult })
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(h.onIdle).not.toHaveBeenCalled()
+    expect(h.onError).toHaveBeenCalledTimes(1)
+    expect(h.onError.mock.calls[0][0]).toMatchObject({ status: 404 })
+  })
+
   it.each([400, 409, 503])('a %i ends polling with the error', async (status) => {
     const err = new ApiError(status, { code: 'x', message: 'x' })
     const fetchResult = vi.fn().mockResolvedValueOnce(running).mockRejectedValueOnce(err)

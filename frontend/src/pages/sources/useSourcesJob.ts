@@ -7,7 +7,7 @@
  *
  * Polls GET /api/sources/jobs/{id}/result every 1.5 s. On mount (and when
  * the id changes) it looks once: running -> keeps polling, done -> shows the
- * stored result, 404 -> idle. A failed job answers with its mapped error
+ * stored result, status "idle" -> idle. A failed job answers with its mapped error
  * (400/404/409/503), which ends polling. A network failure (status 0) or a
  * 500 is retried up to 3 times with backoff; after that a lost connection
  * reads "Lost contact with the API." and a 500 shows the server's error.
@@ -52,6 +52,15 @@ export function pollSourcesJob<R>(id: string, h: PollHandlers<R>): () => void {
       const r = await fetchResult(id)
       if (stopped) return
       failures = 0
+      if (r.status === 'idle') {
+        // Never ran is the normal first answer. After a run was seen, the
+        // job vanished (API restart): the same error the 404 used to be.
+        if (!seen) {
+          h.onIdle()
+          return
+        }
+        throw new ApiError(404, { code: 'not_found', message: 'No such job.' })
+      }
       seen = true
       h.onUpdate(r)
       if (r.status !== 'running' && r.status !== 'queued') return

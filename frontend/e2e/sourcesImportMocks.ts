@@ -106,6 +106,7 @@ const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 const notFound = (route: Route) => json(route, { error: { code: 'not_found', message: 'No such job.' } }, 404)
+const idle = (route: Route) => json(route, { job_id: '', status: 'idle', progress: 0, message: '', result: null })
 
 export async function mockImports(page: Page, s: MockState, over: Partial<ImportMockState> = {}): Promise<ImportMockState> {
   const m: ImportMockState = {
@@ -166,7 +167,7 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
   })
   await page.route(/\/api\/sources\/jobs\/sources_url_preview\/result$/, (route) => {
     record(route)
-    if (m.preview === 'none') return notFound(route)
+    if (m.preview === 'none') return idle(route)
     // Without a hold the first look already finds it done (keeps slow machines quick).
     if (m.preview === 'running' && !m.previewHold) m.preview = 'done'
     if (m.preview === 'running') {
@@ -207,7 +208,7 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
   await page.route(/\/api\/sources\/jobs\/sourceimport_\d+\/result$/, (route) => {
     const url = record(route)
     const id = url.pathname.split('/')[4]
-    if (m.importJob === 'none') return notFound(route)
+    if (m.importJob === 'none') return idle(route)
     if (m.importJob === 'running' && m.importCancelRequested) {
       // The job notices the cancel at its next check.
       m.importJob = m.importKind === 'chapter' ? 'done' : 'cancelled'
@@ -234,7 +235,7 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
   })
   await page.route(/\/api\/sources\/jobs\/sources_save\/result$/, (route) => {
     record(route)
-    if (m.saveJob === 'none') return notFound(route)
+    if (m.saveJob === 'none') return idle(route)
     if (m.saveJob === 'running') {
       m.saveJob = 'done'
       return json(route, { job_id: 'sources_save', status: 'running', progress: 0.5, message: 'Chapter 1 / 2 -- page 3 / 20', result: null })

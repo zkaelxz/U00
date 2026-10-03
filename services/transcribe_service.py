@@ -70,6 +70,7 @@ from typing import Optional
 import background_jobs
 import core as core_module
 import db
+import diagnostics
 import raw_transcript
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from services import asr_options_service, diarization_service, settings_service, source_service
@@ -235,6 +236,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "asr_backend_choice": drama.get("asr_backend_choice") or "whisper",
         "whisper_size": whisper_size,
         "whisper_model_cached": core_module.is_whisper_model_cached(whisper_size),
+        "whisper_installed": diagnostics.check_dependency("faster_whisper"),
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
@@ -1024,14 +1026,15 @@ def get_autotune_status(drama_id: int) -> dict:
     """{job_id, status, progress, message, result} for this drama's auto-tune
     job; result is {"results": [...], "best_candidate_ms"} only when done
     (else None). The message (or a failed job's error) is redacted.
-    NotFoundError when the drama doesn't exist or no auto-tune job is
-    resident in this process (results live only in background_jobs memory)."""
+    NotFoundError when the drama doesn't exist. No auto-tune job resident in
+    this process (results live only in background_jobs memory) is the normal
+    first answer: status "idle", job_id ""."""
     if db.get_drama(drama_id) is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
     job_id = autotune_job_id(drama_id)
     job = background_jobs.get_status(job_id)
     if not job:
-        raise NotFoundError("No auto-tune run for this drama in this app session.")
+        return {"job_id": "", "status": "idle", "progress": 0.0, "message": "", "result": None}
     status = job.get("status")
     result = None
     if status == "done":
