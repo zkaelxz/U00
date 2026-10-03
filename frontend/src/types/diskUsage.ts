@@ -28,6 +28,8 @@ export type DiskUsageItem = {
   movable: DiskUsageMovable
 }
 
+export type DiskUsageTrashSummary = { size_bytes: number; item_count: number; partial: boolean }
+
 export type DiskUsageScan = {
   path: string
   parent: string | null
@@ -39,18 +41,48 @@ export type DiskUsageScan = {
   not_shown: number
   scanned_entries: number
   busy_reason: string | null
-  recycle_available: boolean
-  recycle_reason: string | null
+  trash: DiskUsageTrashSummary
   disk_total_bytes: number | null
   disk_free_bytes: number | null
 }
 
+// Moved into Trash: nothing is freed until it is deleted from there.
 export type DiskUsageClearDone = {
-  freed_bytes: number
+  moved_bytes: number
   file_count: number
   kind: 'file' | 'folder'
   name: string
+  trash_id: string
 }
+
+export type DiskUsageTrashItem = {
+  id: string
+  original_path_relative: string | null
+  kind: 'file' | 'folder' | null
+  size_bytes: number
+  file_count: number
+  trashed_at: string | null
+  restorable: boolean
+}
+
+export type DiskUsageTrashList = {
+  items: DiskUsageTrashItem[]
+  size_bytes: number
+  item_count: number
+  partial: boolean
+  busy_reason: string | null
+}
+
+export type DiskUsageTrashRestoreDone = {
+  name: string
+  kind: 'file' | 'folder'
+  size_bytes: number
+  file_count: number
+}
+
+export type DiskUsageTrashPurgeDone = { freed_bytes: number; file_count: number }
+
+export type DiskUsageTrashEmptyDone = { freed_bytes: number; removed: number; failed: number }
 
 export type DiskUsageMoveDone = {
   moved_bytes: number

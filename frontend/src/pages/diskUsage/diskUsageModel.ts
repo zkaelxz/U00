@@ -1,11 +1,12 @@
 // Pure helpers for the Disk usage section (DiskUsageSection.tsx).
-import type { DiskUsageClearDone, DiskUsageItem, DiskUsageMoveDone, DiskUsageScan } from '../../types/diskUsage'
+import type {
+  DiskUsageClearDone, DiskUsageItem, DiskUsageMoveDone, DiskUsageScan, DiskUsageTrashItem,
+} from '../../types/diskUsage'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
 
 export { formatBytes }
 
 export const ROOT_LABEL = 'Data folder'
-export const NO_RECYCLE_BIN_TEXT = 'Clearing sends items to the Windows Recycle Bin, and this system has none.'
 export const LINK_INSIDE_TEXT = "This folder contains a link or junction, so it can't be cleared whole. Open it and clear items inside instead."
 export const PARTIAL_TEXT: Record<'entries' | 'time' | 'items', string> = {
   entries: 'This folder has more files than can be counted at once. Sizes shown are at least this much.',
@@ -47,11 +48,10 @@ export function itemTone(item: DiskUsageItem): Tone {
   return 'plain'
 }
 
-/** Why Clear is unavailable for this item right now, or null. */
-export function clearBlock(item: DiskUsageItem, scan: Pick<DiskUsageScan, 'busy_reason' | 'recycle_available' | 'recycle_reason'>): string | null {
+/** Why Move to Trash is unavailable for this item right now, or null. */
+export function clearBlock(item: DiskUsageItem, scan: Pick<DiskUsageScan, 'busy_reason'>): string | null {
   if (item.protected) return item.protected_reason ?? 'Protected.'
   if (scan.busy_reason) return scan.busy_reason
-  if (!scan.recycle_available) return scan.recycle_reason || NO_RECYCLE_BIN_TEXT
   if (item.contains_link) return LINK_INSIDE_TEXT
   if (!item.complete) return 'This could not be fully counted, so its size can not be checked before clearing. Open it and clear pieces.'
   return null
@@ -65,13 +65,13 @@ export function moveBlock(item: DiskUsageItem, scan: Pick<DiskUsageScan, 'busy_r
 }
 
 export const clearConfirmLabel = (item: Pick<DiskUsageItem, 'name' | 'size_bytes'>) =>
-  `Confirm: send ${item.name} (${formatBytes(item.size_bytes)}) to the Recycle Bin`
+  `Confirm: move ${item.name} (${formatBytes(item.size_bytes)}) to Trash`
 
 export const moveConfirmLabel = (item: Pick<DiskUsageItem, 'name' | 'size_bytes'>) =>
   `Confirm: move ${item.name} (${formatBytes(item.size_bytes)})`
 
 export const describeCleared = (r: DiskUsageClearDone) =>
-  `Sent ${r.name} to the Recycle Bin. Freed ${formatBytes(r.freed_bytes)}; you can restore it from there.`
+  `Moved ${r.name} (${formatBytes(r.moved_bytes)}) to Trash. Nothing is freed until you delete it from Trash; you can restore it from there.`
 
 export const describeMoved = (r: DiskUsageMoveDone) =>
   `Moved ${r.name} (${formatBytes(r.moved_bytes)}). Baihe now uses the new folder.`
@@ -87,3 +87,28 @@ export function cellLabel(item: DiskUsageItem, w: number, h: number): string {
   if (w < 9 || h < 9) return ''
   return h >= 16 && w >= 14 ? `${item.name}\n${formatBytes(item.size_bytes)}` : item.name
 }
+
+export const TRASH_WORD = 'DELETE'
+
+/** The always-visible Trash size line. */
+export const trashLine = (size_bytes: number, partial = false) =>
+  `Trash uses ${partial ? 'at least ' : ''}${formatBytes(size_bytes)}; nothing is freed until you delete from it.`
+
+export const trashItemName = (t: Pick<DiskUsageTrashItem, 'original_path_relative'>) =>
+  t.original_path_relative ?? 'Unknown item (its record is missing)'
+
+/** "2026-10-03", or '' when unknown. */
+export const trashedOn = (t: Pick<DiskUsageTrashItem, 'trashed_at'>) => (t.trashed_at ?? '').slice(0, 10)
+
+export const trashSizeLine = (t: Pick<DiskUsageTrashItem, 'size_bytes' | 'file_count'>) =>
+  `${formatBytes(t.size_bytes)} · ${filesText(t.file_count)}`
+
+export const describeRestored = (name: string) => `Restored ${name} to where it came from.`
+
+export const describePurged = (name: string, freed: number) =>
+  `Deleted ${name} permanently. Freed ${formatBytes(freed)}.`
+
+export const describeEmptied = (r: { freed_bytes: number; removed: number; failed: number }) =>
+  r.failed > 0
+    ? `Deleted ${r.removed} item${r.removed === 1 ? '' : 's'} (${formatBytes(r.freed_bytes)} freed). ${r.failed} could not be deleted and ${r.failed === 1 ? 'is' : 'are'} still in Trash; they may be in use.`
+    : `Emptied Trash: ${r.removed} item${r.removed === 1 ? '' : 's'} deleted, ${formatBytes(r.freed_bytes)} freed.`

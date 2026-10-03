@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { DiskUsageItem } from '../../types/diskUsage'
 import {
-  barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, diskLine, filesText,
-  formatBytes, itemTone, moveBlock, percentText, sizeLine,
+  barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
+  filesText, formatBytes, itemTone, moveBlock, percentText, sizeLine, trashItemName, trashLine, trashedOn,
 } from './diskUsageModel'
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
@@ -12,7 +12,7 @@ const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
   protected_reason: null, regenerable: null, irreplaceable: false, irreplaceable_note: null,
   movable: { supported: false, reason: 'Fixed place.', what: null }, ...over,
 })
-const scan = { busy_reason: null, recycle_available: true, recycle_reason: null }
+const scan = { busy_reason: null }
 
 describe('size formatting', () => {
   it('uses the shared decimal byte formatter', () => {
@@ -53,17 +53,14 @@ describe('breadcrumbs', () => {
 })
 
 describe('what can be done', () => {
-  it('protected, busy, no bin and partly counted all block clearing, with a reason', () => {
+  it('protected, busy and partly counted all block moving to Trash, with a reason', () => {
     expect(clearBlock(item(), scan)).toBeNull()
     expect(clearBlock(item({ protected: true, protected_reason: 'The Baihe database.' }), scan)).toBe('The Baihe database.')
     expect(clearBlock(item(), { ...scan, busy_reason: 'A job is running.' })).toBe('A job is running.')
-    expect(clearBlock(item(), { ...scan, recycle_available: false })).toMatch(/Recycle Bin/)
     expect(clearBlock(item({ complete: false }), scan)).toMatch(/fully counted/)
   })
-  it('says why the Recycle Bin is unavailable, and refuses a folder holding a link', () => {
-    const service = { ...scan, recycle_available: false, recycle_reason: 'Clear needs Baihe to run as you, not as a Windows service.' }
-    expect(clearBlock(item(), service)).toBe(service.recycle_reason)
-    expect(moveBlock(item({ movable: { supported: true, reason: null, what: 'backups' } }), service)).toBeNull()
+  it('refuses a folder holding a link, and Move works while the library is idle', () => {
+    expect(moveBlock(item({ movable: { supported: true, reason: null, what: 'backups' } }), scan)).toBeNull()
     expect(clearBlock(item({ contains_link: true }), scan)).toMatch(/link or junction/)
   })
   it('move needs support and an idle library', () => {
@@ -80,8 +77,20 @@ describe('what can be done', () => {
     expect(itemTone(item())).toBe('plain')
   })
   it('names the item and size in the confirm and the result', () => {
-    expect(clearConfirmLabel(item())).toBe('Confirm: send tmp (1.5 MB) to the Recycle Bin')
-    expect(describeCleared({ freed_bytes: 1_500_000, file_count: 12, kind: 'folder', name: 'tmp' })).toContain('Freed 1.5 MB')
+    expect(clearConfirmLabel(item())).toBe('Confirm: move tmp (1.5 MB) to Trash')
+    const done = describeCleared({ moved_bytes: 1_500_000, file_count: 12, kind: 'folder', name: 'tmp', trash_id: 'x' })
+    expect(done).toContain('Moved tmp (1.5 MB) to Trash')
+    expect(done).toContain('Nothing is freed until you delete it from Trash')
+  })
+  it('says what Trash holds and that nothing is freed until deleting from it', () => {
+    expect(trashLine(2_400_000_000)).toBe('Trash uses 2.4 GB; nothing is freed until you delete from it.')
+    expect(trashLine(5, true)).toMatch(/^Trash uses at least 5 B/)
+    expect(trashItemName({ original_path_relative: 'library/tmp' })).toBe('library/tmp')
+    expect(trashItemName({ original_path_relative: null })).toMatch(/Unknown item/)
+    expect(trashedOn({ trashed_at: '2026-10-03T10:00:00+00:00' })).toBe('2026-10-03')
+    expect(trashedOn({ trashed_at: null })).toBe('')
+    expect(describeEmptied({ freed_bytes: 10, removed: 2, failed: 0 })).toBe('Emptied Trash: 2 items deleted, 10 B freed.')
+    expect(describeEmptied({ freed_bytes: 10, removed: 1, failed: 1 })).toMatch(/1 could not be deleted and is still in Trash/)
   })
   it('labels treemap cells by how much room they have', () => {
     expect(cellLabel(item(), 5, 5)).toBe('')

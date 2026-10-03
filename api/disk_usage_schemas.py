@@ -45,6 +45,13 @@ class DiskUsageItem(BaseModel):
     movable: DiskUsageMovable
 
 
+class DiskUsageTrashSummary(BaseModel):
+    size_bytes: int
+    item_count: int
+    partial: bool = Field(False, description="The size is a lower bound (walk limit, or the "
+                                             "Trash folder couldn't be read).")
+
+
 class DiskUsageScan(BaseModel):
     path: str
     parent: Optional[str] = None
@@ -59,10 +66,7 @@ class DiskUsageScan(BaseModel):
     scanned_entries: int
     busy_reason: Optional[str] = Field(None, description="Set while a job or library task "
                                                          "blocks clear and move.")
-    recycle_available: bool
-    recycle_reason: Optional[str] = Field(None, description="Why Clear is unavailable "
-                                                            "(no Recycle Bin, or Baihe is "
-                                                            "running as a Windows service).")
+    trash: DiskUsageTrashSummary
     disk_total_bytes: Optional[int] = None
     disk_free_bytes: Optional[int] = None
 
@@ -77,10 +81,12 @@ class DiskUsageClearRequest(BaseModel):
 
 
 class DiskUsageClearDone(BaseModel):
-    freed_bytes: int
+    moved_bytes: int = Field(description="Moved into Trash; nothing is freed until it is "
+                                         "deleted from there.")
     file_count: int
     kind: Literal["file", "folder"]
     name: str
+    trash_id: str
 
 
 class DiskUsageMoveRequest(BaseModel):
@@ -96,3 +102,59 @@ class DiskUsageMoveDone(BaseModel):
     remaining_bytes: int
     what: Optional[str] = None
     name: str
+
+
+class DiskUsageTrashItem(BaseModel):
+    id: str
+    original_path_relative: Optional[str] = Field(
+        None, description="Where it came from, relative to the data folder; null when its "
+                          "record is missing or damaged.")
+    kind: Optional[Literal["file", "folder"]] = None
+    size_bytes: int
+    file_count: int
+    trashed_at: Optional[str] = None
+    restorable: bool
+
+
+class DiskUsageTrashList(BaseModel):
+    items: List[DiskUsageTrashItem]
+    size_bytes: int
+    item_count: int
+    partial: bool
+    busy_reason: Optional[str] = None
+
+
+class DiskUsageTrashRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: StrictStr = Field(min_length=1, max_length=64)
+    confirm: StrictBool = False
+
+
+class DiskUsageTrashRestoreDone(BaseModel):
+    name: str
+    kind: Literal["file", "folder"]
+    size_bytes: int
+    file_count: int
+
+
+class DiskUsageTrashPurgeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: StrictStr = Field(min_length=1, max_length=64)
+    confirm_text: StrictStr = Field(max_length=32, description="The word DELETE, exactly.")
+    expected_size_bytes: StrictInt = Field(ge=0, description="The size the user was shown.")
+
+
+class DiskUsageTrashPurgeDone(BaseModel):
+    freed_bytes: int
+    file_count: int
+
+
+class DiskUsageTrashEmptyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm_text: StrictStr = Field(max_length=32, description="The word DELETE, exactly.")
+
+
+class DiskUsageTrashEmptyDone(BaseModel):
+    freed_bytes: int
+    removed: int
+    failed: int = Field(description="Entries that couldn't be removed; they stay in Trash.")

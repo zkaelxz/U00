@@ -1,7 +1,8 @@
 """
 services/disk_usage_service.py -- "what is taking up space" for the app's own
-data folder, plus clearing items to the Recycle Bin and moving the few parts
-Baihe can be told a new location for. UI-free; raises services/service_errors.
+data folder, plus moving items to Baihe's Trash folder (and restoring or
+permanently deleting them from it) and moving the few parts Baihe can be told
+a new location for. UI-free; raises services/service_errors.
 
 Scope is the data folder only (the parent of db.LIBRARY_DIR, which is
 portable.data_dir() in the running app). Everything is addressed by a path
@@ -16,21 +17,29 @@ never entered. Nothing is cached: every call walks the disk again.
 Clear and move are server-enforced, not only hidden in the UI:
 - protected: the data folder itself, the live SQLite files (and -wal, -shm,
   -journal), .env and key/secret files, the INSTALLED/PORTABLE markers, the
-  saved site sign-ins, installer files, the program folder, and any folder
-  that holds or contains one of those. Both refuse while any background job,
-  restore or maintenance run holds the library, or while another process holds
-  the GPU lock (all a CLI run leaves; see _busy_under_hold).
+  saved site sign-ins, installer files, the program folder, the Trash folder,
+  and any folder that holds or contains one of those. Both refuse while any
+  background job, restore or maintenance run holds the library, or while
+  another process holds the GPU lock (all a CLI run leaves; see
+  _busy_under_hold).
 - Clear needs confirm=true and the size and file count the user saw (409 when
-  the item changed since), and sends the item to the Recycle Bin through one
-  injectable function (send_to_recycle_bin). It refuses off Windows, when the
-  process isn't an interactive user session (a Windows service has its own
-  bin the owner never sees; recycle_unavailable_reason), when the data folder
-  is a drive root, the user's home or a folder holding it or a known shell folder,
-  for a folder it couldn't read fully (including paths Windows can't open
-  here) or that holds a link, and whenever the bin's settings are unknown;
-  top-level entries Baihe doesn't create are shown but protected; it never
-  deletes permanently. Inspect, re-resolve and recycle run under the library's
-  exclusive hold.
+  the item changed since) and MOVES the item into <data>/baihe_trash/<id>/
+  with one same-volume rename plus a manifest.json (nothing is copied and
+  nothing is deleted, so no space is freed). The Windows Recycle Bin is not
+  used: the installed API runs as a service account whose bin the owner
+  can't see. It refuses when the data folder is a drive root, the user's home
+  or a folder holding it or a known shell folder, for a folder it couldn't
+  read fully (including paths Windows can't open here) or that holds a link,
+  when the item is on another volume than the Trash folder, and for top-level
+  entries Baihe doesn't create (shown but protected). Inspect, re-resolve
+  and rename run under the library's exclusive hold.
+- Restore puts a trashed item back at its original relative path when the
+  parent is still there, the destination is free and passes the same checks
+  as clear.
+- Purge and empty are the ONLY permanent deletes in this module. They touch
+  only <data>/baihe_trash/<id> (id matched by a strict pattern, real path
+  checked, no link at the root or at the entry), need the typed word DELETE,
+  and walk the entry without following links (_remove_tree).
 - Move works only for a folder with an existing, safe way to repoint it
   without a restart: the automatic-backup folder (auto_backup_service
   .set_settings moves the copies and saves the setting together). Everything
@@ -39,8 +48,10 @@ Clear and move are server-enforced, not only hidden in the UI:
 
 import contextlib
 import datetime
+import json
 import os
 import re
+import secrets
 import shutil
 import stat
 import threading
@@ -54,6 +65,7 @@ from services import auto_backup_service as abs_
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
+TRASH_DIRNAME = "baihe_trash"       # installer.service.DATA_FOLDER_ENTRIES holds it too
 MAX_ENTRIES = 2_000_000
 MAX_SECONDS = 30.0
 _TIME_CHECK_EVERY = 256
@@ -63,10 +75,6 @@ _MAX_DEPTH = 64
 BAD_PATH = "That path isn't inside the app's data folder."
 BUSY = ("A job, restore or other library task is running. Wait for it to finish, then try "
         "again.")
-NO_RECYCLE_BIN = "No Recycle Bin on this system, so nothing was removed."
-NOT_INTERACTIVE = ("Clear needs Baihe to run as you, not as a Windows service. Its Recycle Bin "
-                   "would be the service's, which you can't open.")
-SESSION_UNKNOWN = ("Clear couldn't confirm that Baihe is running as you, so nothing was removed.")
 ROOT_TOO_BROAD = ("Baihe's data folder is a whole drive or your user folder, so nothing in it "
                   "can be cleared or moved from here.")
 LINK_INSIDE = ("This folder contains a link or junction, so it can't be cleared whole. Open it "
@@ -77,10 +85,17 @@ NOT_BAIHE = "Not created by Baihe"
 SCAN_BUSY = "Another scan is already running. Wait for it to finish, then try again."
 MAX_ITEMS = 2000
 
-# Where a Recycle Bin silently deletes for good instead (a drive with no bin,
-# "delete immediately", or an item bigger than the bin's limit): refuse first.
-# Used when the drive has no explicit limit.
-DEFAULT_BIN_FRACTION = 0.05
+TRASH_MANIFEST = "manifest.json"
+TRASH_PAYLOAD = "payload"           # the moved item; its own name is only in the manifest
+TRASH_WORD = "DELETE"
+_TRASH_ID_RE = re.compile(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{8}")
+TRASH_PROTECTED = ("Baihe's Trash folder. Restore or delete things from it in the Trash list "
+                   "below.")
+TRASH_FAILED = ("Couldn't move it to Trash (it may be in use, or on another drive), so nothing "
+                "was moved.")
+TRASH_DELETE_FAILED = ("Couldn't delete everything in that Trash item (something may be in "
+                       "use). What is left is still in Trash.")
+CHANGED = "This item changed since you looked. Rescan and check again."
 
 # What the recursive walk treats as a key/secret file at any depth. Narrow on
 # purpose: a drama's file named "token.mp3" must not lock its whole folder.
@@ -92,7 +107,7 @@ _INSTALLER_NAMES = {"launcher", "desktop.ini", "thumbs.db"}
 _BAD_CHARS = set('<>"|?*')
 # Folders of a source checkout's root that hold data; everything else there is
 # the program itself.
-_CHECKOUT_DATA_NAMES = {"library", "model_cache"}
+_CHECKOUT_DATA_NAMES = {"library", "model_cache", TRASH_DIRNAME}
 
 # library/ folders that are not drama media, with what losing them costs.
 _LIBRARY_FOLDERS = {
@@ -249,7 +264,7 @@ def _baihe_top_level_names() -> frozenset:
         names = set(installer_service.DATA_FOLDER_ENTRIES)
     except Exception:
         names = set()
-    names |= {SAVED_COMICS_DIRNAME, os.path.basename(db.LIBRARY_DIR), "library"}
+    names |= {SAVED_COMICS_DIRNAME, TRASH_DIRNAME, os.path.basename(db.LIBRARY_DIR), "library"}
     return frozenset(n.lower() for n in names)
 
 
@@ -290,9 +305,10 @@ def _flag_name(name: str, parts_of_parent) -> bool:
 
 
 class _Measured:
-    __slots__ = ("size", "files", "flagged", "unreadable", "has_link")
+    __slots__ = ("size", "files", "flagged", "unreadable", "has_link", "deepest")
 
-    def __init__(self):
+    def __init__(self, base_len: int = 0):
+        self.deepest = base_len
         self.size = self.files = 0
         self.flagged = self.unreadable = self.has_link = False
 
@@ -347,7 +363,7 @@ def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
     and never entered; only an entry confirmed gone mid-walk is skipped, any
     other error (and any path Windows may not open) marks the result
     unreadable (so clear refuses it)."""
-    m = _Measured()
+    m = _Measured(len(path))
     stack = [(path, parts)]
     while stack and not budget.hit:
         cur, cur_parts = stack.pop()
@@ -371,6 +387,7 @@ def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
                     break
                 if not budget.tick():
                     break
+                m.deepest = max(m.deepest, len(entry.path))
                 if _unopenable_name(entry.path, entry.name):
                     m.unreadable = True
                 try:
@@ -472,6 +489,8 @@ def _protection(parts: tuple, real: str, flagged: bool, ctx: _Ctx):
     name = low[-1]
     if low[0] == "launcher" or (len(low) == 1 and (name in _MARKER_NAMES or name in _INSTALLER_NAMES)):
         return True, "Install or installer file."
+    if low[0] == TRASH_DIRNAME.lower():
+        return True, TRASH_PROTECTED
     if low[0] not in ctx.top_level:
         return True, NOT_BAIHE
     if _SECRET_NAME_RE.search(name):
@@ -521,10 +540,11 @@ def _describe(parts: tuple, path: str, st, budget: _Budget, ctx: _Ctx) -> dict:
     is_link = _is_link_stat(st)
     is_dir = stat.S_ISDIR(st.st_mode) and not is_link
     unreadable = has_link = flagged = False
+    deepest = len(path)
     if is_dir:
         m = _measure(path, parts, budget)
         size, files, flagged = m.size, m.files, m.flagged
-        unreadable, has_link = m.unreadable, m.has_link
+        unreadable, has_link, deepest = m.unreadable, m.has_link, m.deepest
     else:
         size, files = st.st_size, 1
         flagged = _flag_name(parts[-1], parts[:-1]) if parts else False
@@ -553,6 +573,7 @@ def _describe(parts: tuple, path: str, st, budget: _Budget, ctx: _Ctx) -> dict:
         "irreplaceable": bool(note and not protected),
         "irreplaceable_note": note if note and not protected else None,
         "movable": _movable(parts, real, protected, ctx),
+        "_deepest_path": deepest,
     }
 
 
@@ -566,84 +587,6 @@ def busy_reason():
             or background_jobs.exclusive_active()):
         return BUSY
     return None
-
-
-def session_blocker(session_id, sid, username):
-    """Why this process can't use the signed-in person's Recycle Bin, or None.
-    Pure so it is tested anywhere. A Windows service (session 0, or a service,
-    virtual or machine account) has a Recycle Bin of its own that the owner
-    never sees; anything not known for sure is refused."""
-    if not isinstance(session_id, int) or isinstance(session_id, bool) or session_id < 0:
-        return SESSION_UNKNOWN
-    if session_id == 0:
-        return NOT_INTERACTIVE
-    if not isinstance(sid, str) or not sid:
-        return SESSION_UNKNOWN
-    # Only a local, domain or Entra ID user is a person. SYSTEM, LOCAL/NETWORK
-    # SERVICE and NT SERVICE\* (S-1-5-80-...) are not.
-    if not sid.startswith(("S-1-5-21-", "S-1-12-1-")):
-        return NOT_INTERACTIVE
-    if isinstance(username, str) and username.endswith("$"):
-        return NOT_INTERACTIVE
-    return None
-
-
-def _is_windows() -> bool:
-    return os.name == "nt"
-
-
-def _windows_session_facts():
-    """(session id, user SID string, user name) of this process. Raises on any
-    failure; the caller treats that as 'unknown' and refuses."""
-    import ctypes
-    from ctypes import wintypes
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    adv = ctypes.WinDLL("advapi32", use_last_error=True)
-    k32.GetCurrentProcess.restype = wintypes.HANDLE
-    k32.CloseHandle.argtypes = [wintypes.HANDLE]
-    k32.LocalFree.argtypes = [ctypes.c_void_p]
-    adv.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
-    adv.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
-                                        wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
-    adv.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR)]
-    session = wintypes.DWORD()
-    if not k32.ProcessIdToSessionId(k32.GetCurrentProcessId(), ctypes.byref(session)):
-        raise OSError("ProcessIdToSessionId failed")
-    token = wintypes.HANDLE()
-    if not adv.OpenProcessToken(k32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):
-        raise OSError("OpenProcessToken failed")
-    try:
-        need = wintypes.DWORD()
-        adv.GetTokenInformation(token, 1, None, 0, ctypes.byref(need))     # TokenUser
-        buf = ctypes.create_string_buffer(need.value)
-        if not need.value or not adv.GetTokenInformation(token, 1, buf, need, ctypes.byref(need)):
-            raise OSError("GetTokenInformation failed")
-        psid = ctypes.c_void_p.from_buffer(buf).value      # TOKEN_USER starts with the SID pointer
-        text = wintypes.LPWSTR()
-        if not psid or not adv.ConvertSidToStringSidW(psid, ctypes.byref(text)):
-            raise OSError("ConvertSidToStringSidW failed")
-        sid = text.value
-        k32.LocalFree(ctypes.cast(text, ctypes.c_void_p))
-    finally:
-        k32.CloseHandle(token)
-    return session.value, sid, os.environ.get("USERNAME", "")
-
-
-def recycle_unavailable_reason():
-    """Why Clear can't work here, or None. The one check for the Recycle Bin
-    being the signed-in person's own: Windows only, in an interactive session,
-    not as a service account; undeterminable means no. Tests replace this."""
-    if not _is_windows():
-        return NO_RECYCLE_BIN
-    try:
-        facts = _windows_session_facts()
-    except Exception:
-        return SESSION_UNKNOWN
-    return session_blocker(*facts)
-
-
-def recycle_available() -> bool:
-    return recycle_unavailable_reason() is None
 
 
 def scan(path="") -> dict:
@@ -710,7 +653,6 @@ def _scan(path) -> dict:
         disk = {"disk_total_bytes": usage.total, "disk_free_bytes": usage.free}
     except OSError:
         disk = {"disk_total_bytes": None, "disk_free_bytes": None}
-    recycle_reason = recycle_unavailable_reason()
     reason = budget.hit or list_cut or ("items" if not_shown else None)
     return {
         "path": "/".join(parts),
@@ -723,205 +665,14 @@ def _scan(path) -> dict:
         "partial_reason": reason,
         "scanned_entries": budget.entries,
         "busy_reason": busy_reason(),
-        "recycle_available": recycle_reason is None,
-        "recycle_reason": recycle_reason,
+        "trash": trash_summary(),
         **disk,
     }
 
 
 # --------------------------------------------------------------------------
-# Clear: Recycle Bin
+# Clear into the Trash folder
 # --------------------------------------------------------------------------
-
-def _int_or_none(v):
-    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
-
-
-def recycle_blocker(size_bytes: int, drive_type, nuke_on_delete, max_capacity_mb, volume_bytes,
-                    no_recycle_policy=0, policy_size_percent=None):
-    """Why the Recycle Bin would NOT keep this item (so asking it to would
-    delete for good with confirmations off), or None. Pure so it is tested
-    anywhere; the Windows readers below feed it. drive_type 3 = fixed disk.
-    Anything unknown or malformed refuses: nuke_on_delete must be 0,
-    max_capacity_mb is a positive integer or None (no explicit limit; 0 refuses), and
-    no_recycle_policy (NoRecycleFiles) must be 0."""
-    if drive_type != 3:
-        return "This drive has no Recycle Bin (removable or network), so nothing was removed."
-    if no_recycle_policy != 0:
-        return ("A Windows policy turns the Recycle Bin off, or it couldn't be checked, so "
-                "nothing was removed.")
-    if _int_or_none(nuke_on_delete) is None or nuke_on_delete not in (0, 1):
-        return "The drive's Recycle Bin setting couldn't be read, so nothing was removed."
-    if nuke_on_delete:
-        return ("This drive is set to delete immediately instead of using the Recycle Bin, so "
-                "nothing was removed.")
-    if max_capacity_mb is not None and _int_or_none(max_capacity_mb) is None:
-        return "The Recycle Bin size for this drive couldn't be read, so nothing was removed."
-    if max_capacity_mb == 0:
-        return "This drive's Recycle Bin size is set to 0, so nothing was removed."
-    volume = _int_or_none(volume_bytes)
-    limits = []
-    if max_capacity_mb is not None:
-        limits.append(max_capacity_mb * 1024 * 1024)
-    elif volume:
-        limits.append(int(volume * DEFAULT_BIN_FRACTION))
-    if policy_size_percent is not None:
-        pct = _int_or_none(policy_size_percent)
-        if pct is None or pct > 100 or not volume:
-            return "The Recycle Bin size policy couldn't be checked, so nothing was removed."
-        limits.append(volume * pct // 100)
-    if not limits:
-        return "The Recycle Bin size for this drive couldn't be checked, so nothing was removed."
-    if size_bytes > min(limits):
-        return ("This is bigger than the drive's Recycle Bin limit, so Windows would delete it "
-                "for good. Raise the Recycle Bin size or clear smaller pieces.")
-    return None
-
-
-_UNREADABLE_VALUE = "unreadable"
-
-
-def _read_reg(winreg, hive, sub, name):
-    """(found key, value): value is None when the value is absent and
-    _UNREADABLE_VALUE when the registry refused. Key absent -> (False, None)."""
-    try:
-        key = winreg.OpenKey(hive, sub)
-    except FileNotFoundError:
-        return False, None
-    except OSError:
-        return False, _UNREADABLE_VALUE
-    with key:
-        try:
-            return True, winreg.QueryValueEx(key, name)[0]
-        except FileNotFoundError:
-            return True, None
-        except OSError:
-            return True, _UNREADABLE_VALUE
-
-
-_FOF_SILENT, _FOF_NOCONFIRMATION = 0x0004, 0x0010
-_FOF_ALLOWUNDO, _FOF_NOERRORUI = 0x0040, 0x0400
-_FOF_NO_CONNECTED_ELEMENTS = 0x2000     # foo.html must not drag in foo_files
-# Win32: FOF_WANTNUKEWARNING "partially overrides FOF_NOCONFIRMATION", so the
-# "delete permanently?" prompt still shows (to the verified-interactive owner)
-# instead of being answered Yes; plain confirmations stay suppressed.
-_FOF_WANTNUKEWARNING = 0x4000
-RECYCLE_FLAGS = (_FOF_ALLOWUNDO | _FOF_NOCONFIRMATION | _FOF_SILENT | _FOF_NOERRORUI
-                 | _FOF_NO_CONNECTED_ELEMENTS | _FOF_WANTNUKEWARNING)
-
-
-def _volume_path_name(path: str) -> str:
-    """The mount point of the volume holding `path` (GetVolumePathNameW):
-    'C:\\' for a lettered drive, 'D:\\Mounts\\Data\\' for a volume mounted
-    into a folder. Raises on any failure."""
-    import ctypes
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    buf = ctypes.create_unicode_buffer(1024)
-    if not kernel32.GetVolumePathNameW(path, buf, len(buf)) or not buf.value:
-        raise OSError("GetVolumePathNameW failed")
-    return buf.value
-
-
-def _windows_bin_facts(path: str, volume_path_fn=None, kernel32=None, winreg=None):
-    """(drive_type, NukeOnDelete, MaxCapacity in MB, volume bytes,
-    NoRecycleFiles policy, RecycleBinSize policy percent) from Windows, all
-    for the volume that really holds `path` (a volume mounted into a folder
-    has its own bin settings). Anything that can't be read comes back as a
-    value recycle_blocker refuses (None for the drive facts,
-    _UNREADABLE_VALUE for the policy). The three callables are injectable so
-    this runs in tests."""
-    failed = (None, None, None, None, _UNREADABLE_VALUE, None)
-    try:
-        root = (volume_path_fn or _volume_path_name)(path)
-        if not isinstance(root, str) or not root:
-            return failed
-        if not root.endswith("\\"):
-            root += "\\"
-        import ctypes
-        if kernel32 is None:
-            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        drive_type = kernel32.GetDriveTypeW(root)
-        if winreg is None:
-            import winreg
-        nuke = max_mb = None
-        no_recycle = 0
-        size_pct = None
-        buf = ctypes.create_unicode_buffer(64)
-        found = (re.search(r"Volume(\{[0-9A-Fa-f-]+\})", buf.value)
-                 if kernel32.GetVolumeNameForVolumeMountPointW(root, buf, 64) else None)
-        if found:
-            sub = (r"Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume"
-                   "\\" + found.group(1))
-            has_key, nuke = _read_reg(winreg, winreg.HKEY_CURRENT_USER, sub, "NukeOnDelete")
-            if has_key:
-                # Absent MaxCapacity means no explicit limit; unreadable is
-                # not an integer, so the blocker refuses it.
-                max_mb = _read_reg(winreg, winreg.HKEY_CURRENT_USER, sub, "MaxCapacity")[1]
-            else:
-                nuke = None             # no Volume key: unknown, refuse
-        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
-            value = _read_reg(winreg, hive,
-                              r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer",
-                              "NoRecycleFiles")[1]
-            if value is not None and value != 0:
-                no_recycle = 1          # set, or unreadable
-            pct = _read_reg(winreg, hive, r"Software\Policies\Microsoft\Windows\Explorer",
-                            "RecycleBinSize")[1]
-            if pct is not None:
-                both = isinstance(pct, int) and isinstance(size_pct, (int, type(None)))
-                size_pct = ((pct if size_pct is None else min(size_pct, pct)) if both
-                            else _UNREADABLE_VALUE)
-        try:
-            volume = shutil.disk_usage(root).total
-        except OSError:
-            volume = None
-        return drive_type, nuke, max_mb, volume, no_recycle, size_pct
-    except Exception:
-        return failed
-
-
-def send_to_recycle_bin(path: str, size_bytes: int = 0) -> None:
-    """Moves one file or folder to the Windows Recycle Bin (undoable). Raises
-    UnsupportedOperationError when this isn't the signed-in person's Windows
-    session and OSError/ServiceError when Windows refuses. The single
-    platform call: tests replace this function."""
-    reason = recycle_unavailable_reason()
-    if reason:
-        raise UnsupportedOperationError(reason)
-    import ctypes
-    from ctypes import wintypes
-    if len(path) > 259 or _BAD_CHARS & set(path[2:]):
-        raise ServiceError("This path is too long for the Recycle Bin, so nothing was removed.")
-    blocker = recycle_blocker(size_bytes, *_windows_bin_facts(path))
-    if blocker:
-        raise ServiceError(blocker)
-
-    FO_DELETE = 0x0003
-
-    class SHFILEOPSTRUCTW(ctypes.Structure):
-        # The shell declares this packed on 32-bit Windows, naturally aligned
-        # on 64-bit.
-        _pack_ = 1 if ctypes.sizeof(ctypes.c_void_p) == 4 else 8
-        _fields_ = [("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT),
-                    ("pFrom", ctypes.c_void_p), ("pTo", ctypes.c_void_p),
-                    ("fFlags", ctypes.c_ushort), ("fAnyOperationsAborted", wintypes.BOOL),
-                    ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", ctypes.c_void_p)]
-
-    shell32 = ctypes.WinDLL("shell32", use_last_error=True)
-    shell32.SHFileOperationW.argtypes = [ctypes.POINTER(SHFILEOPSTRUCTW)]
-    shell32.SHFileOperationW.restype = ctypes.c_int
-    # pFrom is a list of names ending with two NULs: one path, then the
-    # buffer's own terminator.
-    buf = ctypes.create_unicode_buffer(os.path.normpath(path) + "\0")
-    op = SHFILEOPSTRUCTW()
-    op.wFunc = FO_DELETE
-    op.pFrom = ctypes.cast(buf, ctypes.c_void_p).value
-    op.fFlags = RECYCLE_FLAGS
-    code = shell32.SHFileOperationW(ctypes.byref(op))
-    if code != 0 or op.fAnyOperationsAborted:
-        raise ServiceError("Windows couldn't move it to the Recycle Bin (it may be in use or "
-                           "protected), so nothing was removed.")
-
 
 def _require_confirm(confirm):
     if confirm is not True:
@@ -984,60 +735,484 @@ def _inspect_for_change(path, op: str):
     return parts, real, item
 
 
-def clear(path, confirm=False, expected_size_bytes=None, expected_file_count=None,
-          confirm_irreplaceable=False) -> dict:
-    """Sends one item to the Recycle Bin. `expected_*` are the size and file
-    count the person saw: the item is measured again and a difference is a 409.
-    Anything that can't be recreated (a title's media, backups) also needs
-    confirm_irreplaceable."""
-    _require_confirm(confirm)
-    if expected_size_bytes is None or expected_file_count is None:
-        raise InvalidInputError("Send the size and file count you were shown.")
-    reason = recycle_unavailable_reason()
-    if reason:
-        raise UnsupportedOperationError(reason)
+@contextlib.contextmanager
+def _changing(label: str):
+    """One change at a time, under the library's exclusive hold."""
     if not _op_lock.acquire(blocking=False):
         raise ConflictError("Another clear or move is in progress. Try again in a moment.")
     try:
-        with _exclusive("Disk usage clear"):
-            parts, real, item = _inspect_for_change(path, "clearing")
-            if item["contains_link"]:
-                raise InvalidInputError(LINK_INSIDE)
-            if (item["size_bytes"] != expected_size_bytes
-                    or item["file_count"] != expected_file_count):
-                raise ConflictError("This item changed since you looked. Rescan and check again.",
-                                    details={"reason": "changed", "size_bytes": item["size_bytes"],
-                                             "file_count": item["file_count"]})
-            if item["irreplaceable"] and confirm_irreplaceable is not True:
-                raise ConflictError("This can't be recreated from inside Baihe. Confirm that "
-                                    "too to continue.",
-                                    details={"reason": "needs_irreplaceable_confirm"})
-            # Last look before the platform call: still the same plain item at
-            # the same place, no link swapped in, and nothing started meanwhile.
-            if _busy_under_hold():
-                raise ConflictError(BUSY)
-            again = _resolve(parts)
-            try:
-                swapped = _is_link_stat(os.lstat(again))
-            except OSError:
-                swapped = True
-            if _norm(again) != _norm(real) or swapped:
-                raise ConflictError("This item changed since you looked. Rescan and check again.",
-                                    details={"reason": "changed"})
-            try:
-                send_to_recycle_bin(again, item["size_bytes"])
-            except ServiceError:
-                raise
-            except OSError:
-                raise ServiceError("Windows couldn't move it to the Recycle Bin, so nothing was "
-                                   "removed.") from None
-            if os.path.lexists(again):
-                raise ServiceError("It is still there after the Recycle Bin call, so nothing was "
-                                   "freed. It may be in use.")
-            return {"freed_bytes": item["size_bytes"], "file_count": item["file_count"],
-                    "kind": item["kind"], "name": item["name"]}
+        with _exclusive(label):
+            yield
     finally:
         _op_lock.release()
+
+
+def _rename(src: str, dst: str) -> None:
+    """The one atomic same-volume move. os.rename, not os.replace: on Windows
+    it refuses to overwrite an existing destination. Never copies, so a path
+    on another volume fails instead of being copied and deleted."""
+    os.rename(src, dst)
+
+
+def _same_volume(a: str, b: str) -> bool:
+    try:
+        return os.lstat(a).st_dev == os.lstat(b).st_dev
+    except OSError:
+        return False
+
+
+def _too_deep(deepest: int, old_base: str, new_base: str) -> bool:
+    """True when the longest path under `old_base` would reach MAX_PATH after
+    the item is renamed to `new_base` (Windows opens nothing that long)."""
+    return deepest - len(old_base) + len(new_base) >= MAX_PATH
+
+
+def clear(path, confirm=False, expected_size_bytes=None, expected_file_count=None,
+          confirm_irreplaceable=False) -> dict:
+    """Moves one item into the Trash folder (nothing is deleted or freed).
+    `expected_*` are the size and file count the person saw: the item is
+    measured again and a difference is a 409. Anything that can't be recreated
+    (a title's media, backups) also needs confirm_irreplaceable."""
+    _require_confirm(confirm)
+    if expected_size_bytes is None or expected_file_count is None:
+        raise InvalidInputError("Send the size and file count you were shown.")
+    with _changing("Disk usage clear"):
+        parts, real, item = _inspect_for_change(path, "clearing")
+        if item["contains_link"]:
+            raise InvalidInputError(LINK_INSIDE)
+        if (item["size_bytes"] != expected_size_bytes
+                or item["file_count"] != expected_file_count):
+            raise ConflictError(CHANGED, details={"reason": "changed",
+                                                  "size_bytes": item["size_bytes"],
+                                                  "file_count": item["file_count"]})
+        if item["irreplaceable"] and confirm_irreplaceable is not True:
+            raise ConflictError("This can't be recreated from inside Baihe. Confirm that "
+                                "too to continue.",
+                                details={"reason": "needs_irreplaceable_confirm"})
+        # Last look before the rename: still the same plain item at the same
+        # place, no link swapped in, and nothing started meanwhile.
+        if _busy_under_hold():
+            raise ConflictError(BUSY)
+        again = _resolve(parts)
+        try:
+            swapped = _is_link_stat(os.lstat(again))
+        except OSError:
+            swapped = True
+        if _norm(again) != _norm(real) or swapped:
+            raise ConflictError(CHANGED, details={"reason": "changed"})
+        trash = _trash_root(create=True)
+        trash_id = _new_trash_id()
+        entry = os.path.join(trash, trash_id)
+        payload = os.path.join(entry, TRASH_PAYLOAD)
+        if (not _same_volume(again, trash)
+                or _too_deep(item["_deepest_path"], again, payload)):
+            raise ServiceError(TRASH_FAILED)
+        try:
+            os.mkdir(entry)
+            _write_manifest(entry, parts, item)
+            _rename(again, payload)
+        except OSError:
+            _drop_entry_shell(entry)
+            raise ServiceError(TRASH_FAILED) from None
+        return {"moved_bytes": item["size_bytes"], "file_count": item["file_count"],
+                "kind": item["kind"], "name": item["name"], "trash_id": trash_id}
+
+
+# --------------------------------------------------------------------------
+# Trash: list, restore, permanent delete
+# --------------------------------------------------------------------------
+
+def _trash_root(create: bool = False):
+    """<data>/baihe_trash when it is an ordinary folder, None when it doesn't
+    exist (and `create` is false). A link, a file or an odd real path there
+    is a ServiceError: nothing is read or changed through it."""
+    path = os.path.join(_root(), TRASH_DIRNAME)
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        if not create:
+            return None
+        try:
+            os.mkdir(path)
+            st = os.lstat(path)
+        except OSError:
+            raise ServiceError(TRASH_FAILED) from None
+    except OSError:
+        raise ServiceError("The Trash folder couldn't be read.") from None
+    if (_is_link_stat(st) or not stat.S_ISDIR(st.st_mode)
+            or _norm(os.path.realpath(path)) != _norm(path)):
+        raise ServiceError("The Trash folder isn't an ordinary folder, so nothing was changed.")
+    return path
+
+
+def _new_trash_id() -> str:
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"{stamp}-{secrets.token_hex(4)}"
+
+
+def _entry_path(trash_id, trash: str) -> str:
+    """The folder of one Trash entry. The id must match the strict pattern (so
+    no separator, '..' or drive letter can get through), the entry must be a
+    real folder directly inside the Trash folder and not a link."""
+    if not isinstance(trash_id, str) or not _TRASH_ID_RE.fullmatch(trash_id):
+        raise InvalidInputError("That isn't an item in Trash.")
+    path = os.path.join(trash, trash_id)
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        raise NotFoundError("That item is no longer in Trash.") from None
+    except OSError:
+        raise ServiceError("That Trash item couldn't be read.") from None
+    if (_is_link_stat(st) or not stat.S_ISDIR(st.st_mode)
+            or _norm(os.path.realpath(path)) != _norm(path)
+            or _norm(os.path.dirname(path)) != _norm(trash)):
+        raise InvalidInputError("That Trash item isn't an ordinary folder, so it isn't touched "
+                                "here.")
+    return path
+
+
+def _count(v):
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
+
+
+def _write_manifest(entry: str, parts, item: dict) -> None:
+    data = {"version": 1, "original_path": "/".join(parts), "kind": item["kind"],
+            "size_bytes": item["size_bytes"], "file_count": item["file_count"],
+            "trashed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    with open(os.path.join(entry, TRASH_MANIFEST), "x", encoding="utf-8") as fh:
+        json.dump(data, fh)
+
+
+def _read_manifest(entry: str):
+    """The checked manifest of one entry (original parts, kind, size, count,
+    time) or None when it is missing or not valid: what it says is only used
+    after every check clear makes again."""
+    path = os.path.join(entry, TRASH_MANIFEST)
+    try:
+        st = os.lstat(path)
+        if _is_link_stat(st) or not stat.S_ISREG(st.st_mode) or st.st_size > 16384:
+            return None
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        parts = split_rel(data.get("original_path"))
+    except InvalidInputError:
+        return None
+    size, files, kind = _count(data.get("size_bytes")), _count(data.get("file_count")), data.get("kind")
+    if not parts or kind not in ("file", "folder") or size is None or files is None:
+        return None
+    at = data.get("trashed_at")
+    return {"parts": parts, "kind": kind, "size_bytes": size, "file_count": files,
+            "trashed_at": at if isinstance(at, str) else None}
+
+
+def _measure_payload(entry: str, budget: _Budget) -> dict:
+    """What is in an entry's payload: kind (None when missing), size, file
+    count and what _measure reports. A link is its own file and never entered."""
+    payload = os.path.join(entry, TRASH_PAYLOAD)
+    out = {"kind": None, "size": 0, "files": 0, "flagged": False, "unreadable": False,
+           "has_link": False, "deepest": len(payload)}
+    try:
+        st = os.lstat(payload)
+    except FileNotFoundError:
+        return out
+    except OSError:
+        out["unreadable"] = True
+        return out
+    if stat.S_ISDIR(st.st_mode) and not _is_link_stat(st):
+        m = _measure(payload, (), budget)
+        out.update(kind="folder", size=m.size, files=m.files, flagged=m.flagged,
+                   unreadable=m.unreadable, has_link=m.has_link, deepest=m.deepest)
+    else:
+        out.update(kind="file", size=st.st_size, files=1, has_link=_is_link_stat(st))
+    return out
+
+
+def _restore_target(manifest: dict, meas: dict, ctx: _Ctx):
+    """(destination path, None) when the payload may go back where it came
+    from, else (None, plain reason). The same checks clear makes, on the
+    original place: every folder on the way re-resolved with no links, the
+    place free, and not protected."""
+    parts = manifest["parts"]
+    if meas["kind"] is None:
+        return None, "The trashed item is missing, so it can't be restored."
+    if meas["kind"] != manifest["kind"]:
+        return None, "The trashed item doesn't match its record, so it can't be restored."
+    if meas["unreadable"] or meas["has_link"]:
+        return None, "It holds a link or couldn't be read fully, so it can't be put back from here."
+    try:
+        parent = _resolve(parts[:-1])
+    except NotFoundError:
+        return None, "The folder it came from is gone. Create it again, or delete the item from Trash."
+    except InvalidInputError:
+        return None, "The folder it came from can't be used (it is, or sits behind, a link)."
+    if not os.path.isdir(parent):
+        return None, "The folder it came from is no longer a folder."
+    dest = os.path.join(parent, parts[-1])
+    if os.path.lexists(dest):
+        return None, "Something with the same name is already in its old place."
+    protected, reason = _protection(tuple(parts), dest, meas["flagged"], ctx)
+    if protected:
+        return None, reason or "Its old place is protected."
+    return dest, None
+
+
+def _trash_entries(trash: str):
+    """(id, entry path) of the ordinary folders directly in the Trash folder
+    whose names are Baihe's ids, newest first. Anything else there is ignored."""
+    try:
+        with os.scandir(trash) as it:
+            found = [(e.name, e.path) for e in it
+                     if _TRASH_ID_RE.fullmatch(e.name) and e.is_dir(follow_symlinks=False)]
+    except OSError:
+        raise ServiceError("The Trash folder couldn't be read.") from None
+    found.sort(reverse=True)
+    return found[:MAX_ITEMS]
+
+
+def trash_summary() -> dict:
+    """{size_bytes, item_count, partial} of the Trash folder, for the scan."""
+    try:
+        trash = _trash_root()
+        if trash is None:
+            return {"size_bytes": 0, "item_count": 0, "partial": False}
+        budget = _Budget()
+        size = 0
+        entries = _trash_entries(trash)
+        for _id, entry in entries:
+            if budget.hit:
+                break
+            size += _measure_payload(entry, budget)["size"]
+        return {"size_bytes": size, "item_count": len(entries), "partial": bool(budget.hit)}
+    except ServiceError:
+        return {"size_bytes": 0, "item_count": 0, "partial": True}
+
+
+def trash_list() -> dict:
+    """Every entry in Trash with what it was, its measured size and whether
+    Restore would work now. One walk at a time with the scan."""
+    if not _scan_lock.acquire(blocking=False):
+        raise ConflictError(SCAN_BUSY)
+    try:
+        trash = _trash_root()
+        budget = _Budget()
+        ctx = _Ctx()
+        items = []
+        total = 0
+        entries = _trash_entries(trash) if trash else []
+        for trash_id, entry in entries:
+            manifest = _read_manifest(entry)
+            size = files = 0
+            restorable = False
+            if manifest:
+                size, files = manifest["size_bytes"], manifest["file_count"]
+            if not budget.hit:
+                meas = _measure_payload(entry, budget)
+                if not budget.hit:
+                    size, files = meas["size"], meas["files"]
+                    restorable = bool(manifest) and _restore_target(manifest, meas, ctx)[1] is None
+                kind = (manifest or {}).get("kind") or meas["kind"]
+            else:
+                kind = (manifest or {}).get("kind")
+            total += size
+            items.append({
+                "id": trash_id,
+                "original_path_relative": "/".join(manifest["parts"]) if manifest else None,
+                "kind": kind, "size_bytes": size, "file_count": files,
+                "trashed_at": manifest["trashed_at"] if manifest else None,
+                "restorable": restorable,
+            })
+        return {"items": items, "size_bytes": total, "item_count": len(items),
+                "partial": bool(budget.hit), "busy_reason": busy_reason()}
+    finally:
+        _scan_lock.release()
+
+
+def _drop_entry_shell(entry: str) -> None:
+    """PERMANENT DELETE (own files only): removes the manifest.json and the
+    then-empty folder of an entry that holds no payload. Never recursive; an
+    entry that still holds anything else is left alone."""
+    try:
+        os.remove(os.path.join(entry, TRASH_MANIFEST))
+    except OSError:
+        pass
+    try:
+        os.rmdir(entry)
+    except OSError:
+        pass
+
+
+def trash_restore(trash_id, confirm=False) -> dict:
+    """Puts a Trash entry back at its original relative path with one atomic
+    rename. 409 with a plain reason when the original folder is gone, the
+    place is taken, it would be protected, or a job is running."""
+    _require_confirm(confirm)
+    with _changing("Disk usage restore"):
+        trash = _trash_root()
+        if trash is None:
+            raise NotFoundError("That item is no longer in Trash.")
+        entry = _entry_path(trash_id, trash)
+        manifest = _read_manifest(entry)
+        if manifest is None:
+            raise ConflictError("This Trash item's record is missing or damaged, so it can't "
+                                "be restored. You can still delete it.",
+                                details={"reason": "cannot_restore"})
+        budget = _Budget()
+        meas = _measure_payload(entry, budget)
+        if budget.hit:
+            raise ConflictError("This is too large to check completely before restoring.",
+                                details={"reason": "cannot_restore"})
+        dest, reason = _restore_target(manifest, meas, _Ctx())
+        if reason:
+            raise ConflictError(reason, details={"reason": "cannot_restore"})
+        payload = os.path.join(entry, TRASH_PAYLOAD)
+        if (not _same_volume(payload, os.path.dirname(dest))
+                or _too_deep(meas["deepest"], payload, dest)):
+            raise ConflictError("It can't be put back there from here (another drive, or the "
+                                "path would be too long).", details={"reason": "cannot_restore"})
+        try:
+            _rename(payload, dest)
+        except OSError:
+            raise ConflictError("Couldn't put it back (it may be in use), so nothing was "
+                                "changed.", details={"reason": "cannot_restore"}) from None
+        _drop_entry_shell(entry)
+        return {"name": manifest["parts"][-1], "kind": manifest["kind"],
+                "size_bytes": meas["size"], "file_count": meas["files"]}
+
+
+def _require_word(text) -> None:
+    if not isinstance(text, str) or text != TRASH_WORD:
+        raise InvalidInputError(f"Type {TRASH_WORD} in capital letters to confirm.")
+
+
+def _plain_dir(path: str) -> bool:
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return (stat.S_ISDIR(st.st_mode) and not _is_link_stat(st)
+            and _norm(os.path.realpath(path)) == _norm(path))
+
+
+def _clear_readonly(path: str) -> None:
+    """Drops the read-only bit (Windows refuses to delete such a file or
+    folder) of something just seen as an ordinary file or folder, never of a link."""
+    if _is_link_stat(os.lstat(path)):
+        raise OSError("link")
+    os.chmod(path, stat.S_IREAD | stat.S_IWRITE | (stat.S_IEXEC if os.path.isdir(path) else 0))
+
+
+def _remove_tree(top: str) -> None:
+    """PERMANENT DELETE: removes `top` and everything in it, never following a
+    link. Links are unlinked themselves (a directory link or junction with
+    rmdir, never entered); folders are listed only after being seen as
+    ordinary folders with no link on the way; files lose a read-only bit when
+    Windows needs that; folders are removed bottom-up. Raises OSError at the
+    first thing that can't be removed (what is left stays)."""
+    top = os.path.abspath(top)
+    folders = []
+    stack = [top]
+    while stack:
+        cur = stack.pop()
+        if not _plain_dir(cur) or not _within(cur, top):
+            raise OSError("not an ordinary folder")
+        folders.append(cur)
+        with os.scandir(cur) as it:
+            children = [(e.path, e.name) for e in it]
+        for path, name in children:
+            if os.path.dirname(path) != cur or name in ("", ".", ".."):
+                raise OSError("unexpected name")
+            st = os.lstat(path)
+            if _is_link_stat(st):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    os.rmdir(path)
+            elif stat.S_ISDIR(st.st_mode):
+                stack.append(path)
+            else:
+                try:
+                    os.unlink(path)
+                except PermissionError:
+                    _clear_readonly(path)
+                    os.unlink(path)
+    for folder in reversed(folders):
+        try:
+            os.rmdir(folder)
+        except PermissionError:
+            _clear_readonly(folder)
+            os.rmdir(folder)
+
+
+def _delete_entry(entry: str) -> None:
+    """PERMANENT DELETE of one validated Trash entry. The manifest goes first,
+    so an entry that fails halfway can't be restored from a partial payload."""
+    manifest = os.path.join(entry, TRASH_MANIFEST)
+    try:
+        os.unlink(manifest)
+    except FileNotFoundError:
+        pass
+    except PermissionError:
+        _clear_readonly(manifest)
+        os.unlink(manifest)
+    _remove_tree(entry)
+    if os.path.lexists(entry):
+        raise OSError("still there")
+
+
+def trash_purge(trash_id, confirm_text=None, expected_size_bytes=None) -> dict:
+    """PERMANENT DELETE of one Trash entry. Needs the typed word and the size
+    the person saw (409 when it changed); frees the space."""
+    _require_word(confirm_text)
+    if not isinstance(expected_size_bytes, int) or isinstance(expected_size_bytes, bool):
+        raise InvalidInputError("Send the size you were shown.")
+    with _changing("Disk usage delete from Trash"):
+        trash = _trash_root()
+        if trash is None:
+            raise NotFoundError("That item is no longer in Trash.")
+        entry = _entry_path(trash_id, trash)
+        budget = _Budget()
+        meas = _measure_payload(entry, budget)
+        if budget.hit:
+            raise ConflictError("This is too large to check completely before deleting.",
+                                details={"reason": "changed"})
+        if meas["size"] != expected_size_bytes:
+            raise ConflictError("This Trash item changed since you looked. Reload the list "
+                                "and check again.",
+                                details={"reason": "changed", "size_bytes": meas["size"],
+                                         "file_count": meas["files"]})
+        try:
+            _delete_entry(entry)
+        except OSError:
+            raise ServiceError(TRASH_DELETE_FAILED) from None
+        return {"freed_bytes": meas["size"], "file_count": meas["files"]}
+
+
+def trash_empty(confirm_text=None) -> dict:
+    """PERMANENT DELETE of every entry in Trash (typed word needed). Entries
+    that can't be removed stay; `failed` counts them. Anything in the Trash
+    folder that isn't one of Baihe's entries is left alone."""
+    _require_word(confirm_text)
+    with _changing("Disk usage empty Trash"):
+        trash = _trash_root()
+        if trash is None:
+            return {"freed_bytes": 0, "removed": 0, "failed": 0}
+        freed = removed = failed = 0
+        for trash_id, _path in _trash_entries(trash):
+            try:
+                entry = _entry_path(trash_id, trash)
+                size = _measure_payload(entry, _Budget())["size"]
+                _delete_entry(entry)
+            except (ServiceError, InvalidInputError, NotFoundError, OSError):
+                failed += 1
+                continue
+            freed += size
+            removed += 1
+        return {"freed_bytes": freed, "removed": removed, "failed": failed}
 
 
 # --------------------------------------------------------------------------

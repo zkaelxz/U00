@@ -1,6 +1,9 @@
 // Disk usage (api/routers/disk_usage_routes.py). Every route is PC only, so
 // every call, the scan included, goes through pcOnlyFetch.
-import type { DiskUsageClearDone, DiskUsageMoveDone, DiskUsageScan } from '../types/diskUsage'
+import type {
+  DiskUsageClearDone, DiskUsageMoveDone, DiskUsageScan, DiskUsageTrashEmptyDone, DiskUsageTrashList,
+  DiskUsageTrashPurgeDone, DiskUsageTrashRestoreDone,
+} from '../types/diskUsage'
 import { getJson, postJson, withSignal } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
@@ -15,13 +18,13 @@ export const scanDiskUsage = (path = '', signal?: AbortSignal, f?: Fetch) =>
     signal ? withSignal(signal, pcOnlyFetch(f)) : pcOnlyFetch(f),
   )
 
-/** Sends one item to the Recycle Bin. The size and file count are the ones the person saw (409 if changed). */
-export const recycleItem = (
+/** Moves one item into Baihe's Trash folder (frees nothing). The size and file count are the ones the person saw (409 if changed). */
+export const moveToTrash = (
   item: { path: string; size_bytes: number; file_count: number; irreplaceable?: boolean },
   f?: Fetch,
 ) =>
   postJson<DiskUsageClearDone>(
-    `${BASE}/recycle`,
+    `${BASE}/to-trash`,
     {
       path: item.path,
       confirm: true,
@@ -35,3 +38,22 @@ export const recycleItem = (
 /** Moves a movable item to `destination` (a full folder path on this PC) and repoints Baihe at it. */
 export const moveItem = (path: string, destination: string, f?: Fetch) =>
   postJson<DiskUsageMoveDone>(`${BASE}/move`, { path, destination, confirm: true }, pcOnlyFetch(f))
+
+/** What is in Trash, newest first. */
+export const listTrash = (f?: Fetch) => getJson<DiskUsageTrashList>(`${BASE}/trash`, pcOnlyFetch(f))
+
+/** Puts a Trash item back where it came from (409 with the reason when it can't). */
+export const restoreTrashItem = (id: string, f?: Fetch) =>
+  postJson<DiskUsageTrashRestoreDone>(`${BASE}/trash/restore`, { id, confirm: true }, pcOnlyFetch(f))
+
+/** PERMANENTLY deletes one Trash item; the size is the one the person saw (409 if changed). */
+export const purgeTrashItem = (item: { id: string; size_bytes: number }, f?: Fetch) =>
+  postJson<DiskUsageTrashPurgeDone>(
+    `${BASE}/trash/purge`,
+    { id: item.id, confirm_text: 'DELETE', expected_size_bytes: item.size_bytes },
+    pcOnlyFetch(f),
+  )
+
+/** PERMANENTLY deletes everything in Trash. */
+export const emptyTrash = (f?: Fetch) =>
+  postJson<DiskUsageTrashEmptyDone>(`${BASE}/trash/empty`, { confirm_text: 'DELETE' }, pcOnlyFetch(f))

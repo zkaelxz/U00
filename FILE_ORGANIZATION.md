@@ -183,7 +183,7 @@ baihe-subtitler/
 │   │                             api/background.py), restore one drama from a chosen copy (same id,
 │   │                             or a new "(restored <date>)" copy); router: backup_routes.py
 │   ├── disk_usage_service.py     Disk usage: bounded scan of the data folder (relative paths, links never
-│   │                             followed), Recycle Bin clear and automatic-backup folder move with
+│   │                             followed), move-to-Trash clear, Trash restore / permanent delete and automatic-backup folder move with
 │   │                             server-enforced protected paths; router: disk_usage_routes.py
 │   ├── backup_import_service.py  Step 143: import chosen dramas from an uploaded backup file (snapshot
 │   │                             copy, manual backup zip or library.db) as new dramas owned by the acting
@@ -489,7 +489,7 @@ baihe-subtitler/
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
 │   ├── scanlate_schemas.py       automatic Scanlate request/response models (kept apart from schemas.py)
 │   ├── job_stage_schemas.py      Step 41 per-stage job timing models (kept apart from schemas.py)
-│   ├── disk_usage_schemas.py     Disk usage scan / Recycle Bin / move models (relative paths only)
+│   ├── disk_usage_schemas.py     Disk usage scan / Trash / move models (relative paths only)
 │   ├── backup_schemas.py         automatic backup / snapshot restore models (kept apart from schemas.py)
 │   ├── sources_import_schemas.py import-state models (Step 107; kept apart from schemas.py)
 │   ├── engine_routing_schemas.py Step 36 "Which engine does what" request/response models
@@ -529,7 +529,7 @@ baihe-subtitler/
 │       ├── backup_routes.py      /api/backups/* (Step 43): auto-backup settings, back up now, snapshot
 │       │                         info/dramas, restore one drama, import from a backup file, delete snapshot; all local_only;
 │       │                         tests/test_api_backups.py
-│       ├── disk_usage_routes.py  /api/data-usage: scan a data-folder folder, recycle an item, move the backup folder; all local_only;
+│       ├── disk_usage_routes.py  /api/data-usage: scan a data-folder folder, move an item to Trash, list / restore / delete from Trash, move the backup folder; all local_only;
 │       │                         tests/test_api_disk_usage.py
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)

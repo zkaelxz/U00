@@ -1,6 +1,7 @@
 /*
  * Library tools > "Disk usage": what is taking space in Baihe's data folder
- * (a WizTree-style drill-down), with per-item Clear (to the Recycle Bin) and
+ * (a WizTree-style drill-down), with per-item Move to Trash (restorable from
+ * the Trash list under it; nothing is freed until deleted from there) and
  * Move for the one folder Baihe can be repointed away from. PC only: away
  * from the PC the Section shows only the PC-only note.
  *
@@ -11,7 +12,7 @@
  */
 import { useCallback, useRef, useState } from 'react'
 
-import { moveItem, recycleItem, scanDiskUsage } from '../../api/diskUsage'
+import { listTrash, moveItem, moveToTrash, scanDiskUsage } from '../../api/diskUsage'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -19,11 +20,12 @@ import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
-import type { DiskUsageItem, DiskUsageScan } from '../../types/diskUsage'
+import type { DiskUsageItem, DiskUsageScan, DiskUsageTrashList } from '../../types/diskUsage'
 import {
   PARTIAL_TEXT, barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeMoved,
   diskLine, itemTone, moveBlock, moveConfirmLabel, percentText, sizeLine,
 } from './diskUsageModel'
+import { TrashPanel } from './TrashPanel'
 import { squarify } from './treemap'
 import './diskUsage.css'
 
@@ -45,6 +47,7 @@ export function DiskUsageSection({ pc }: { pc: PcMode }) {
 
 function DiskUsageLive() {
   const [scan, setScan] = useState<DiskUsageScan | null>(null)
+  const [trash, setTrash] = useState<DiskUsageTrashList | null>(null)
   const [loading, setLoading] = useState(false)
   const [cancelled, setCancelled] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -77,12 +80,21 @@ function DiskUsageLive() {
     )
   }, [])
 
+  const loadTrash = useCallback(() => {
+    listTrash().then(setTrash, () => {
+      // The scan's own error banner covers a broken connection; the list just stays as it was.
+    })
+  }, [])
+
   const cancel = () => {
     abort.current?.abort()
   }
 
   const here = scan?.path ?? ''
-  const rescan = (keepNotice = false) => load(here, keepNotice)
+  const rescan = (keepNotice = false) => {
+    load(here, keepNotice)
+    loadTrash()
+  }
 
   return (
     <Section
@@ -92,13 +104,14 @@ function DiskUsageLive() {
         if (open && !started.current) {
           started.current = true
           load('')
+          loadTrash()
         }
       }}
     >
       <section aria-label="Disk usage" className="du" aria-busy={loading}>
         <p className="muted du-intro">
-          Only Baihe&apos;s own data folder is shown. Clearing sends an item to the Recycle Bin, so you can
-          restore it from there.
+          Only Baihe&apos;s own data folder is shown. Move to Trash puts an item in Baihe&apos;s own Trash
+          folder, so you can restore it, but nothing is freed until you delete it from Trash.
         </p>
         <nav aria-label="Folder path" className="du-crumbs">
           <ol>
@@ -136,7 +149,6 @@ function DiskUsageLive() {
           <p className="banner warn-banner" role="status">{PARTIAL_TEXT[scan.partial_reason]}</p>
         )}
         {scan?.busy_reason && <p className="muted du-busy">{scan.busy_reason}</p>}
-        {scan && !scan.recycle_available && scan.recycle_reason && <p className="muted du-busy">{scan.recycle_reason}</p>}
         {scan && scan.not_shown > 0 && <p className="muted du-busy">{`${scan.not_shown.toLocaleString('en-US')} more not shown. Open a smaller folder to see them.`}</p>}
         {scan && !loading && scan.items.length === 0 && !error && <p className="muted">This folder is empty.</p>}
         {scan && scan.items.length > 0 && (
@@ -159,6 +171,14 @@ function DiskUsageLive() {
             </ul>
           </>
         )}
+        <TrashPanel
+          trash={trash}
+          onChanged={(msg) => {
+            setDone(msg)
+            rescan(true)
+          }}
+          onStale={() => rescan(true)}
+        />
       </section>
     </Section>
   )
@@ -220,7 +240,7 @@ function ItemRow({ item, scan, onOpen, onChanged, onStale }: {
   const clear = () => {
     setBusy('clear')
     setError(null)
-    recycleItem(item).then(
+    moveToTrash(item).then(
       (r) => { setBusy(null); onChanged(describeCleared(r)) },
       fail,
     )
@@ -273,10 +293,10 @@ function ItemRow({ item, scan, onOpen, onChanged, onStale }: {
         )}
         <ConfirmButton
           name={item.name}
-          label="Clear…"
-          ariaLabel={`Clear ${item.name}`}
+          label="Move to Trash…"
+          ariaLabel={`Move ${item.name} to Trash`}
           confirmLabel={clearConfirmLabel(item)}
-          verb="send to the Recycle Bin"
+          verb="move to Trash"
           busy={busy === 'clear'}
           disabled={!!clearWhy || needsAck || busy === 'move'}
           describedBy={clearWhy || needsAck ? reasonId : undefined}

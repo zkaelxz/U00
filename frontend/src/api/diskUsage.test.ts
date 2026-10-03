@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { moveItem, recycleItem, scanDiskUsage } from './diskUsage'
+import { emptyTrash, listTrash, moveItem, moveToTrash, purgeTrashItem, restoreTrashItem, scanDiskUsage } from './diskUsage'
 import { resetPcModeForTests } from './pcOnly'
 
 function reply(body: unknown = {}) {
@@ -33,15 +33,15 @@ describe('disk usage api', () => {
     await expect(p).rejects.toThrow()
   })
 
-  it('recycle sends the sizes the person saw and the extra confirm only for media', async () => {
+  it('move to Trash sends the sizes the person saw and the extra confirm only for media', async () => {
     const { mock, f } = reply()
-    await recycleItem({ path: 'library/tmp', size_bytes: 10, file_count: 2 }, f)
-    await recycleItem({ path: 'library/dramas/1', size_bytes: 5, file_count: 1, irreplaceable: true }, f)
+    await moveToTrash({ path: 'library/tmp', size_bytes: 10, file_count: 2 }, f)
+    await moveToTrash({ path: 'library/dramas/1', size_bytes: 5, file_count: 1, irreplaceable: true }, f)
     expect(JSON.parse(mock.mock.calls[0][1].body)).toEqual({
       path: 'library/tmp', confirm: true, expected_size_bytes: 10, expected_file_count: 2,
     })
     expect(JSON.parse(mock.mock.calls[1][1].body).confirm_irreplaceable).toBe(true)
-    expect(mock.mock.calls[0][0]).toBe('/api/data-usage/recycle')
+    expect(mock.mock.calls[0][0]).toBe('/api/data-usage/to-trash')
   })
 
   it('move posts the path, destination and confirm', async () => {
@@ -51,5 +51,22 @@ describe('disk usage api', () => {
     expect(JSON.parse(mock.mock.calls[0][1].body)).toEqual({
       path: 'library/backups/auto', destination: 'D:\\Backups', confirm: true,
     })
+  })
+
+  it('lists, restores, purges and empties Trash with the PC header and the typed word', async () => {
+    const { mock, f } = reply()
+    await listTrash(f)
+    await restoreTrashItem('20260101-000000-abcdef12', f)
+    await purgeTrashItem({ id: '20260101-000000-abcdef12', size_bytes: 400 }, f)
+    await emptyTrash(f)
+    expect(mock.mock.calls.map(([u]) => u)).toEqual([
+      '/api/data-usage/trash', '/api/data-usage/trash/restore', '/api/data-usage/trash/purge', '/api/data-usage/trash/empty',
+    ])
+    expect(header(mock.mock.calls[0][1], 'X-Baihe-Local')).toBe('1')
+    expect(JSON.parse(mock.mock.calls[1][1].body)).toEqual({ id: '20260101-000000-abcdef12', confirm: true })
+    expect(JSON.parse(mock.mock.calls[2][1].body)).toEqual({
+      id: '20260101-000000-abcdef12', confirm_text: 'DELETE', expected_size_bytes: 400,
+    })
+    expect(JSON.parse(mock.mock.calls[3][1].body)).toEqual({ confirm_text: 'DELETE' })
   })
 })

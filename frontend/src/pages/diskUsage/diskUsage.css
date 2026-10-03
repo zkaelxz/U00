@@ -42,6 +42,14 @@ button.du-name { min-height: 44px; text-align: left; padding-inline: 0; }
 .du-move { display: grid; gap: var(--space-2); }
 .du-move .field-item { min-width: 0; }
 
+
+.du-trash { display: grid; gap: var(--space-2); min-width: 0; padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.du-trash-title { margin: 0; font-size: var(--text-lg); }
+.du-trash-line { margin: 0; font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.du-trash .delete-confirm { display: grid; gap: var(--space-2); min-width: 0; }
+.du-trash .delete-confirm input { min-height: 44px; max-width: 100%; }
+.du-trash .delete-confirm .actions button, .du-trash .delete-confirm .actions .link { min-height: 44px; }
+
 @media (max-width: 600px) {
   .du-size { margin-left: 0; flex: 1 1 100%; }
   .du-total { margin-left: 0; flex: 1 1 100%; }

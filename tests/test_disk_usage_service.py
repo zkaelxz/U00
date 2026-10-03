@@ -1,8 +1,10 @@
 """
-services/disk_usage_service.py: scan, protected paths, Recycle Bin clear and
-the backup-folder move. Temp folders only; the Recycle Bin call is replaced.
+services/disk_usage_service.py: scan, protected paths, clear into the Trash
+folder, restore and permanent delete from it, and the backup-folder move.
+Temp folders only.
 """
 
+import json
 import os
 
 import pytest
@@ -21,9 +23,6 @@ def _write(path, size):
         fh.write(b"x" * size)
 
 
-_REAL_REASON = dus.recycle_unavailable_reason
-
-
 @pytest.fixture
 def tree(isolated_db, monkeypatch):
     """root/ (the data folder) holding library/ (the isolated library) plus
@@ -38,23 +37,19 @@ def tree(isolated_db, monkeypatch):
     _write(os.path.join(lib, "backups", "auto", "baihe_snapshot-20260101-000000.zip"), 200)
     _write(os.path.join(root, ".env"), 20)
     _write(os.path.join(root, "model_cache", "m.bin"), 3000)
-    # An interactive Windows session; the session tests below put the real check back.
-    monkeypatch.setattr(dus, "recycle_unavailable_reason", lambda: None)
     return root
 
 
 @pytest.fixture
-def recycled(monkeypatch):
+def renames(monkeypatch):
+    """Every atomic move into or out of Trash, recorded; the move still happens."""
     calls = []
+    real = dus._rename
 
-    def fake(path, size_bytes=0):
-        calls.append((path, size_bytes))
-        if os.path.isdir(path):
-            import shutil
-            shutil.rmtree(path)
-        else:
-            os.remove(path)
-    monkeypatch.setattr(dus, "send_to_recycle_bin", fake)
+    def spy(src, dst):
+        calls.append((src, dst))
+        real(src, dst)
+    monkeypatch.setattr(dus, "_rename", spy)
     return calls
 
 
@@ -181,10 +176,10 @@ class TestProtection:
         assert not _item(res, "model_cache")["protected"]
 
     @pytest.mark.parametrize("path", ["", ".env", "library", "library/library.db", "model_cache/.."])
-    def test_clear_refuses_protected(self, tree, recycled, path):
+    def test_clear_refuses_protected(self, tree, renames, path):
         with pytest.raises(InvalidInputError):
             dus.clear(path, confirm=True, expected_size_bytes=0, expected_file_count=0)
-        assert recycled == []
+        assert renames == []
 
     def test_move_refuses_protected(self, tree, tmp_path):
         with pytest.raises(InvalidInputError):
@@ -196,14 +191,14 @@ class TestPathValidation:
         "..", "../x", "library/../..", "/etc", "\\Windows", "C:\\Users", "C:", "library/a:b",
         "library/..", "a//b", "library/x.", "library/x ", "li*brary", "a\x00b", "library/.",
     ])
-    def test_traversal_and_odd_names_refused(self, tree, recycled, bad):
+    def test_traversal_and_odd_names_refused(self, tree, renames, bad):
         with pytest.raises(InvalidInputError):
             dus.scan(bad)
         with pytest.raises(InvalidInputError):
             dus.clear(bad, confirm=True, expected_size_bytes=0, expected_file_count=0)
-        assert recycled == []
+        assert renames == []
 
-    def test_symlink_out_of_the_data_folder_refused(self, tree, tmp_path, recycled):
+    def test_symlink_out_of_the_data_folder_refused(self, tree, tmp_path, renames):
         outside = tmp_path / "outside"
         (outside / "sub").mkdir(parents=True)
         (outside / "sub" / "f.txt").write_bytes(b"data")
@@ -215,7 +210,7 @@ class TestPathValidation:
         for rel in ("library/evil", "library/evil/sub", "library/evil/sub/f.txt"):
             with pytest.raises(InvalidInputError):
                 dus.clear(rel, confirm=True, expected_size_bytes=4, expected_file_count=1)
-        assert recycled == [] and (outside / "sub" / "f.txt").exists()
+        assert renames == [] and (outside / "sub" / "f.txt").exists()
 
 
 class TestClear:
@@ -223,55 +218,97 @@ class TestClear:
         item = next(i for i in dus.scan(os.path.dirname(rel))["items"] if i["path"] == rel)
         return item["size_bytes"], item["file_count"]
 
-    def test_sends_to_recycle_bin_and_reports_freed(self, tree, recycled):
+    def test_moves_into_trash_with_a_manifest_and_frees_nothing(self, tree, renames):
         size, files = self._seen("library/source_cache")
         res = dus.clear("library/source_cache", confirm=True, expected_size_bytes=size,
                         expected_file_count=files)
-        assert res == {"freed_bytes": 400, "file_count": 1, "kind": "folder", "name": "source_cache"}
-        assert len(recycled) == 1 and recycled[0][1] == 400
-        assert recycled[0][0].endswith("source_cache")
-        assert not os.path.exists(recycled[0][0])
+        entry = os.path.join(tree, dus.TRASH_DIRNAME, res["trash_id"])
+        assert res["moved_bytes"] == 400 and res["name"] == "source_cache"
+        assert res["file_count"] == 1 and res["kind"] == "folder"
+        assert dus._TRASH_ID_RE.fullmatch(res["trash_id"])
+        assert len(renames) == 1 and renames[0][1] == os.path.join(entry, "payload")
+        assert not os.path.exists(os.path.join(tree, "library", "source_cache"))
+        assert os.path.getsize(os.path.join(entry, "payload", "x.html")) == 400
+        manifest = json.load(open(os.path.join(entry, "manifest.json"), encoding="utf-8"))
+        assert manifest["original_path"] == "library/source_cache"
+        assert (manifest["kind"], manifest["size_bytes"], manifest["file_count"]) == ("folder", 400, 1)
+        assert manifest["trashed_at"]
+        assert "baihe_trash" not in json.dumps(res) and tree not in json.dumps(res)
 
-    def test_needs_confirm_and_the_seen_sizes(self, tree, recycled):
+    def test_a_file_goes_to_trash_too(self, tree):
+        res = dus.clear("library/source_cache/x.html", confirm=True, expected_size_bytes=400,
+                        expected_file_count=1)
+        listed = dus.trash_list()["items"]
+        assert [(i["id"], i["kind"], i["original_path_relative"]) for i in listed] == [
+            (res["trash_id"], "file", "library/source_cache/x.html")]
+
+    def test_a_failed_rename_leaves_the_item_and_no_empty_entry(self, tree, monkeypatch):
+        def boom(src, dst):
+            raise OSError(18, "cross-device " + src)
+        monkeypatch.setattr(dus, "_rename", boom)
+        with pytest.raises(ServiceError) as exc:
+            dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
+                      expected_file_count=1)
+        assert tree not in exc.value.message
+        assert os.path.exists(os.path.join(tree, "library", "source_cache", "x.html"))
+        assert os.listdir(os.path.join(tree, dus.TRASH_DIRNAME)) == []
+
+    def test_another_volume_is_refused_without_copying(self, tree, renames, monkeypatch):
+        monkeypatch.setattr(dus, "_same_volume", lambda a, b: False)
+        with pytest.raises(ServiceError):
+            dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
+                      expected_file_count=1)
+        assert renames == [] and os.path.exists(os.path.join(tree, "library", "source_cache"))
+
+    def test_a_path_that_would_reach_max_path_in_trash_is_refused(self, tree, renames, monkeypatch):
+        monkeypatch.setattr(dus, "MAX_PATH", len(os.path.join(tree, "library", "source_cache",
+                                                              "x.html")) + 1)
+        monkeypatch.setattr(dus, "_unopenable_name", lambda p, n: False)
+        with pytest.raises(ServiceError):
+            dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
+                      expected_file_count=1)
+        assert renames == []
+
+    def test_needs_confirm_and_the_seen_sizes(self, tree, renames):
         with pytest.raises(InvalidInputError):
             dus.clear("library/source_cache", confirm=False, expected_size_bytes=400,
                       expected_file_count=1)
         with pytest.raises(InvalidInputError):
             dus.clear("library/source_cache", confirm=True)
-        assert recycled == []
+        assert renames == []
 
-    def test_changed_since_seen_is_a_409(self, tree, recycled):
+    def test_changed_since_seen_is_a_409(self, tree, renames):
         _write(os.path.join(tree, "library", "source_cache", "new.html"), 50)
         with pytest.raises(ConflictError) as exc:
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
                       expected_file_count=1)
         assert exc.value.details["reason"] == "changed"
         assert exc.value.details["size_bytes"] == 450
-        assert recycled == []
+        assert renames == []
 
-    def test_title_media_needs_the_extra_confirm(self, tree, recycled):
+    def test_title_media_needs_the_extra_confirm(self, tree, renames):
         args = dict(confirm=True, expected_size_bytes=1000, expected_file_count=1)
         with pytest.raises(ConflictError) as exc:
             dus.clear("library/dramas/2", **args)
         assert exc.value.details["reason"] == "needs_irreplaceable_confirm"
-        assert recycled == []
-        assert dus.clear("library/dramas/2", confirm_irreplaceable=True, **args)["freed_bytes"] == 1000
+        assert renames == []
+        assert dus.clear("library/dramas/2", confirm_irreplaceable=True, **args)["moved_bytes"] == 1000
 
-    def test_regenerable_inside_a_title_needs_no_extra_confirm(self, tree, recycled):
+    def test_regenerable_inside_a_title_needs_no_extra_confirm(self, tree, renames):
         res = dus.clear("library/dramas/1/dub_clips", confirm=True, expected_size_bytes=700,
                         expected_file_count=1)
-        assert res["freed_bytes"] == 700
+        assert res["moved_bytes"] == 700
 
-    def test_refused_while_a_job_runs(self, tree, recycled, monkeypatch):
+    def test_refused_while_a_job_runs(self, tree, renames, monkeypatch):
         monkeypatch.setattr(background_jobs, "active_job_ids", lambda: ["transcribe_1"])
         with pytest.raises(ConflictError) as exc:
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
                       expected_file_count=1)
         assert "running" in exc.value.message
-        assert recycled == []
+        assert renames == []
         assert dus.scan("")["busy_reason"]
 
-    def test_refused_during_maintenance(self, tree, recycled, monkeypatch):
+    def test_refused_during_maintenance(self, tree, renames, monkeypatch):
         monkeypatch.setattr(background_jobs, "maintenance_active", lambda: True)
         with pytest.raises(ConflictError):
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
@@ -295,7 +332,7 @@ class TestClear:
             return out
         monkeypatch.setattr(dus, "_resolve", swapping)
         called = []
-        monkeypatch.setattr(dus, "send_to_recycle_bin", lambda p, s=0: called.append(p))
+        monkeypatch.setattr(dus, "_rename", lambda a, b: called.append(a))
         try:
             with pytest.raises((ConflictError, InvalidInputError)):
                 dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
@@ -303,52 +340,6 @@ class TestClear:
         except OSError:
             pytest.skip("no symlinks here")
         assert called == [] and (outside / "f").exists()
-
-    @pytest.mark.skipif(os.name == "nt", reason="the real call exists on Windows")
-    def test_no_recycle_bin_off_windows_deletes_nothing(self, tree, monkeypatch):
-        monkeypatch.setattr(dus, "recycle_unavailable_reason", _REAL_REASON)
-        with pytest.raises(UnsupportedOperationError) as exc:
-            dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
-                      expected_file_count=1)
-        assert "No Recycle Bin" in exc.value.message
-        assert os.path.exists(os.path.join(tree, "library", "source_cache", "x.html"))
-
-    def test_item_still_there_after_the_call_is_an_error(self, tree, monkeypatch):
-        monkeypatch.setattr(dus, "send_to_recycle_bin", lambda p, s=0: None)
-        with pytest.raises(ServiceError):
-            dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
-                      expected_file_count=1)
-
-    def test_oserror_from_the_platform_call_has_no_path(self, tree, monkeypatch):
-        def boom(p, s=0):
-            raise OSError(5, "denied " + p)
-        monkeypatch.setattr(dus, "send_to_recycle_bin", boom)
-        with pytest.raises(ServiceError) as exc:
-            dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
-                      expected_file_count=1)
-        assert tree not in exc.value.message
-
-
-class TestRecycleBlocker:
-    GB = 1024 ** 3
-
-    def test_not_a_fixed_drive(self):
-        assert dus.recycle_blocker(10, 4, None, None, 100 * self.GB)
-        assert dus.recycle_blocker(10, 2, None, None, 100 * self.GB)
-
-    def test_delete_immediately_setting(self):
-        assert dus.recycle_blocker(10, 3, 1, 5000, 100 * self.GB)
-
-    def test_explicit_limit(self):
-        assert dus.recycle_blocker(2000 * 1024 ** 2, 3, 0, 1000, 100 * self.GB)
-        assert dus.recycle_blocker(500 * 1024 ** 2, 3, 0, 1000, 100 * self.GB) is None
-
-    def test_default_limit_is_a_fraction_of_the_drive(self):
-        assert dus.recycle_blocker(10 * self.GB, 3, 0, None, 100 * self.GB)
-        assert dus.recycle_blocker(1 * self.GB, 3, 0, None, 100 * self.GB) is None
-
-    def test_unknown_size_refuses(self):
-        assert dus.recycle_blocker(10, 3, 0, None, None)
 
 
 class TestMove:
@@ -425,56 +416,6 @@ def _touch(path):
 # Security review fixes
 # --------------------------------------------------------------------------
 
-USER_SID = "S-1-5-21-1111111111-2222222222-3333333333-1001"
-
-
-class TestServiceSession:                                  # H1
-    def test_pure_check(self):
-        assert dus.session_blocker(1, USER_SID, "Ana") is None
-        assert dus.session_blocker(2, "S-1-12-1-1-2-3-4", "Ana") is None
-        assert dus.session_blocker(0, USER_SID, "Ana") == dus.NOT_INTERACTIVE
-        for sid in ("S-1-5-80-123-456", "S-1-5-18", "S-1-5-19", "S-1-5-20", "S-1-5-82-1", "S-1-5-90-0-1"):
-            assert dus.session_blocker(1, sid, "BaiheStudio") == dus.NOT_INTERACTIVE, sid
-        assert dus.session_blocker(1, USER_SID, "PC$") == dus.NOT_INTERACTIVE
-        for bad in ((None, USER_SID, "a"), (-1, USER_SID, "a"), (True, USER_SID, "a"),
-                    (1, None, "a"), (1, "", "a")):
-            assert dus.session_blocker(*bad) == dus.SESSION_UNKNOWN, bad
-
-    def test_reason_uses_injected_platform_facts(self, monkeypatch):
-        monkeypatch.setattr(dus, "_is_windows", lambda: True)
-        monkeypatch.setattr(dus, "_windows_session_facts", lambda: (0, "S-1-5-80-1-2", "BaiheStudio"))
-        assert dus.recycle_unavailable_reason() == dus.NOT_INTERACTIVE
-        monkeypatch.setattr(dus, "_windows_session_facts", lambda: (3, USER_SID, "Ana"))
-        assert dus.recycle_unavailable_reason() is None
-
-    def test_undeterminable_fails_closed(self, monkeypatch):
-        monkeypatch.setattr(dus, "_is_windows", lambda: True)
-
-        def boom():
-            raise OSError("no token")
-        monkeypatch.setattr(dus, "_windows_session_facts", boom)
-        assert dus.recycle_unavailable_reason() == dus.SESSION_UNKNOWN
-
-    def test_service_session_refuses_clear_and_reports_it_but_move_works(self, tree, recycled,
-                                                                         monkeypatch, tmp_path):
-        monkeypatch.setattr(dus, "recycle_unavailable_reason", lambda: dus.NOT_INTERACTIVE)
-        res = dus.scan("")
-        assert res["recycle_available"] is False and res["recycle_reason"] == dus.NOT_INTERACTIVE
-        with pytest.raises(UnsupportedOperationError) as exc:
-            dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
-                      expected_file_count=1)
-        assert "not as a Windows service" in exc.value.message
-        assert recycled == []
-        dest = tmp_path / "moved"
-        dest.mkdir()
-        assert dus.move("library/backups/auto", str(dest), confirm=True)["what"] == "backups"
-
-    def test_the_platform_call_checks_again(self, tree, monkeypatch):
-        monkeypatch.setattr(dus, "recycle_unavailable_reason", lambda: dus.NOT_INTERACTIVE)
-        with pytest.raises(UnsupportedOperationError):
-            dus.send_to_recycle_bin(os.path.join(tree, "model_cache"), 1)
-
-
 class TestExclusiveHold:                                   # M1
     def _clear(self):
         return dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
@@ -482,39 +423,39 @@ class TestExclusiveHold:                                   # M1
 
     def test_the_hold_is_taken_during_the_change_and_released_after(self, tree, monkeypatch):
         seen = {}
+        real = dus._rename
 
-        def fake(path, size_bytes=0):
+        def spy(src, dst):
             seen["label"] = background_jobs._exclusive_label
-            import shutil
-            shutil.rmtree(path)
-        monkeypatch.setattr(dus, "send_to_recycle_bin", fake)
+            real(src, dst)
+        monkeypatch.setattr(dus, "_rename", spy)
         self._clear()
         assert seen["label"] == "Disk usage clear"
         assert background_jobs.exclusive_active() is False
 
-    def test_released_when_it_fails(self, tree, recycled, monkeypatch):
+    def test_released_when_it_fails(self, tree, renames, monkeypatch):
         with pytest.raises(ConflictError):
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=1,
                       expected_file_count=1)
         assert background_jobs.exclusive_active() is False
 
-    def test_someone_else_holding_it_refuses(self, tree, recycled):
+    def test_someone_else_holding_it_refuses(self, tree, renames):
         assert background_jobs.acquire_exclusive("Restore")
         try:
             with pytest.raises(ConflictError):
                 self._clear()
         finally:
             background_jobs.release_exclusive()
-        assert recycled == []
+        assert renames == []
 
-    def test_a_job_in_another_process_is_seen_under_the_hold(self, tree, recycled, monkeypatch):
+    def test_a_job_in_another_process_is_seen_under_the_hold(self, tree, renames, monkeypatch):
         from services import library_admin_service
         monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: True)
         with pytest.raises(ConflictError):
             self._clear()
-        assert recycled == [] and background_jobs.exclusive_active() is False
+        assert renames == [] and background_jobs.exclusive_active() is False
 
-    def test_a_cli_run_holding_the_gpu_lock_is_seen_under_the_hold(self, tree, recycled,
+    def test_a_cli_run_holding_the_gpu_lock_is_seen_under_the_hold(self, tree, renames,
                                                                     monkeypatch):
         """The CLI writes no job_records; its GPU steps leave a gpu_lock row."""
         from services import library_admin_service
@@ -529,7 +470,7 @@ class TestExclusiveHold:                                   # M1
                 dus.move("library/backups/auto", str(tree), confirm=True)
         finally:
             db.release_gpu_lock("cli-test-holder")
-        assert recycled == [] and background_jobs.exclusive_active() is False
+        assert renames == [] and background_jobs.exclusive_active() is False
         assert dus._busy_under_hold() is False
 
     def test_an_unreadable_gpu_lock_table_counts_as_busy(self, tree, monkeypatch):
@@ -541,13 +482,13 @@ class TestExclusiveHold:                                   # M1
         monkeypatch.setattr(db, "gpu_lock_status", boom)
         assert dus._busy_under_hold() is True
 
-    def test_a_job_that_appears_after_the_look_stops_the_recycle(self, tree, recycled, monkeypatch):
+    def test_a_job_that_appears_after_the_look_stops_the_move(self, tree, renames, monkeypatch):
         from services import library_admin_service
         answers = iter([False, True])        # under the hold, then the last look
         monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: next(answers, True))
         with pytest.raises(ConflictError):
             self._clear()
-        assert recycled == [] and background_jobs.exclusive_active() is False
+        assert renames == [] and background_jobs.exclusive_active() is False
 
     def test_move_takes_the_hold_and_rechecks_other_processes(self, tree, tmp_path, monkeypatch):
         from services import library_admin_service
@@ -585,72 +526,6 @@ class TestExclusiveHold:                                   # M1
             background_jobs.release_exclusive()
 
 
-class TestRecycleBlockerFailsClosed:                       # M2
-    GB = 1024 ** 3
-
-    @pytest.mark.parametrize("nuke", [None, "0", "unreadable", 2, -1, True])
-    def test_unknown_nuke_on_delete(self, nuke):
-        assert dus.recycle_blocker(10, 3, nuke, 1000, 100 * self.GB)
-
-    @pytest.mark.parametrize("cap", ["unreadable", "100", -5, 1.5])
-    def test_non_integer_max_capacity(self, cap):
-        assert dus.recycle_blocker(10, 3, 0, cap, 100 * self.GB)
-
-    @pytest.mark.parametrize("policy", [1, 2, "unreadable", None])
-    def test_no_recycle_files_policy(self, policy):
-        assert dus.recycle_blocker(10, 3, 0, 1000, 100 * self.GB, no_recycle_policy=policy)
-        assert dus.recycle_blocker(10, 3, 0, 1000, 100 * self.GB, no_recycle_policy=0) is None
-
-    def test_size_policy_caps_the_limit(self):
-        assert dus.recycle_blocker(10 * self.GB, 3, 0, 50_000, 100 * self.GB,
-                                   policy_size_percent=5)
-        assert dus.recycle_blocker(1 * self.GB, 3, 0, 50_000, 100 * self.GB,
-                                   policy_size_percent=5) is None
-        for bad in ("unreadable", 101, -1):
-            assert dus.recycle_blocker(1, 3, 0, 50_000, 100 * self.GB, policy_size_percent=bad)
-        assert dus.recycle_blocker(1, 3, 0, 50_000, None, policy_size_percent=5)
-
-    def test_windows_reader_without_winreg_or_volume_key_refuses(self, monkeypatch):
-        """Registry read errors map to values the blocker refuses."""
-        class Key:
-            def __init__(self, data):
-                self.data = data
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-        class Reg:
-            HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE = 1, 2
-            tree = {}
-
-            @classmethod
-            def OpenKey(cls, hive, sub):
-                if (hive, sub) not in cls.tree:
-                    raise FileNotFoundError
-                return Key(cls.tree[(hive, sub)])
-
-            @staticmethod
-            def QueryValueEx(key, name):
-                if name not in key.data:
-                    raise FileNotFoundError
-                v = key.data[name]
-                if isinstance(v, OSError):
-                    raise v
-                return v, 4
-        vol = r"Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume\{AB-12}"
-        pol = r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer"
-        assert dus._read_reg(Reg, 1, vol, "NukeOnDelete") == (False, None)
-        Reg.tree = {(1, vol): {"NukeOnDelete": 0, "MaxCapacity": PermissionError(5, "x")}, (2, pol): {}}
-        assert dus._read_reg(Reg, 1, vol, "NukeOnDelete") == (True, 0)
-        assert dus._read_reg(Reg, 1, vol, "MaxCapacity") == (True, dus._UNREADABLE_VALUE)
-        assert dus._read_reg(Reg, 1, vol, "Nope") == (True, None)
-        assert dus.recycle_blocker(1, 3, 0, dus._UNREADABLE_VALUE, 100 * self.GB)
-        assert dus.recycle_blocker(1, 3, 0, None, 100 * self.GB, dus._UNREADABLE_VALUE)
-
-
 class TestIncompleteMeasure:                               # M3
     def _break_scandir(self, monkeypatch, needle, exc=PermissionError):
         real = os.scandir
@@ -661,7 +536,7 @@ class TestIncompleteMeasure:                               # M3
             return real(path)
         monkeypatch.setattr(os, "scandir", broken)
 
-    def test_unreadable_subfolder_is_incomplete_and_protected(self, tree, recycled, monkeypatch):
+    def test_unreadable_subfolder_is_incomplete_and_protected(self, tree, renames, monkeypatch):
         _write(os.path.join(tree, "library", "tmp", "deep", "f.bin"), 10)
         self._break_scandir(monkeypatch, os.path.join("tmp", "deep"))
         item = _item(dus.scan("library"), "tmp")
@@ -669,7 +544,7 @@ class TestIncompleteMeasure:                               # M3
         with pytest.raises(InvalidInputError):
             dus.clear("library/tmp", confirm=True, expected_size_bytes=item["size_bytes"],
                       expected_file_count=item["file_count"])
-        assert recycled == []
+        assert renames == []
 
     def test_unreadable_entry_stat_marks_incomplete(self, tree, monkeypatch):
         _write(os.path.join(tree, "library", "tmp", "a.bin"), 10)
@@ -724,7 +599,7 @@ class TestProtectionDepth:                                 # M4
     @pytest.mark.parametrize("rel", ["library/profiles/site", "library/profiles/site/Default",
                                      "library/profiles/site/Default/Cookies", "launcher/baihe.pid",
                                      "launcher/logs", "launcher/logs/run.log"])
-    def test_everything_below_is_protected(self, tree, recycled, rel):
+    def test_everything_below_is_protected(self, tree, renames, rel):
         _write(os.path.join(tree, *rel.split("/"), "f.txt") if rel.count("/") < 1 or "." not in rel.rsplit("/", 1)[1]
                else os.path.join(tree, *rel.split("/")), 5)
         parent, name = rel.rsplit("/", 1)
@@ -733,7 +608,7 @@ class TestProtectionDepth:                                 # M4
         with pytest.raises(InvalidInputError):
             dus.clear(rel, confirm=True, expected_size_bytes=item["size_bytes"],
                       expected_file_count=item["file_count"])
-        assert recycled == []
+        assert renames == []
 
     def test_launcher_folder_itself_protected(self, tree):
         _write(os.path.join(tree, "launcher", "x.lock"), 5)
@@ -790,7 +665,7 @@ class TestScanLimits:                                      # L1
 
 
 class TestLinksInside:                                     # L3
-    def test_folder_with_a_link_inside_is_not_cleared(self, tree, tmp_path, recycled):
+    def test_folder_with_a_link_inside_is_not_cleared(self, tree, tmp_path, renames):
         outside = tmp_path / "out"
         outside.mkdir()
         link = os.path.join(tree, "library", "source_cache", "ln")
@@ -804,7 +679,7 @@ class TestLinksInside:                                     # L3
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=item["size_bytes"],
                       expected_file_count=item["file_count"])
         assert "link or junction" in exc.value.message
-        assert recycled == [] and outside.exists()
+        assert renames == [] and outside.exists()
 
     def test_reparse_point_attribute_counts_as_a_link(self, tree, monkeypatch):
         st_obj = type("S", (), {"st_mode": 0o040755, "st_size": 0, "st_file_attributes": 0x400})()
@@ -812,7 +687,7 @@ class TestLinksInside:                                     # L3
 
 
 class TestIrreplaceableBackups:                            # L4
-    def test_backups_need_the_extra_confirm(self, tree, recycled):
+    def test_backups_need_the_extra_confirm(self, tree, renames):
         _write(os.path.join(tree, "library", "backups", "manual", "m.zip"), 30)
         lib = dus.scan("library")
         b = _item(lib, "backups")
@@ -823,10 +698,10 @@ class TestIrreplaceableBackups:                            # L4
             dus.clear("library/backups/manual", confirm=True, expected_size_bytes=sub["size_bytes"],
                       expected_file_count=sub["file_count"])
         assert exc.value.details["reason"] == "needs_irreplaceable_confirm"
-        assert recycled == []
+        assert renames == []
         res = dus.clear("library/backups/manual", confirm=True, expected_size_bytes=sub["size_bytes"],
                         expected_file_count=sub["file_count"], confirm_irreplaceable=True)
-        assert res["freed_bytes"] == 30
+        assert res["moved_bytes"] == 30
 
     def test_exports_stay_regenerable(self, tree):
         _write(os.path.join(tree, "library", "backups", "exports", "e.zip"), 9)
@@ -836,7 +711,7 @@ class TestIrreplaceableBackups:                            # L4
 
 
 class TestBroadDataRoot:                                   # L5
-    def test_home_folder_as_data_root_is_read_only(self, tree, recycled, monkeypatch, tmp_path):
+    def test_home_folder_as_data_root_is_read_only(self, tree, renames, monkeypatch, tmp_path):
         monkeypatch.setattr(dus, "_home_dirs", lambda: [os.path.realpath(tree)])
         res = dus.scan("library")
         assert res["items"] and all(i["protected"] for i in res["items"])
@@ -847,7 +722,7 @@ class TestBroadDataRoot:                                   # L5
         assert exc.value.message == dus.ROOT_TOO_BROAD
         with pytest.raises(InvalidInputError):
             dus.move("library/backups/auto", str(tmp_path), confirm=True)
-        assert recycled == []
+        assert renames == []
 
     def test_drive_root_as_data_root(self, tmp_path):
         assert dus._root_blocker(os.path.abspath(os.sep)) == dus.ROOT_TOO_BROAD
@@ -858,7 +733,7 @@ class TestSecondReview:
     GB = 1024 ** 3
 
     # item 2: paths Windows can't open are unreadable, only a confirmed-gone entry is skipped
-    def test_name_ending_in_space_or_dot_is_unreadable(self, tree, recycled):
+    def test_name_ending_in_space_or_dot_is_unreadable(self, tree, renames):
         for name in ("trail ", "dot."):
             _write(os.path.join(tree, "library", "tmp", name, "f.bin"), 3)
             m = dus._measure(os.path.join(tree, "library", "tmp"), ("library", "tmp"),
@@ -871,7 +746,7 @@ class TestSecondReview:
                           expected_file_count=item["file_count"])
             import shutil
             shutil.rmtree(os.path.join(tree, "library", "tmp", name))
-        assert recycled == []
+        assert renames == []
 
     def test_path_of_max_path_length_is_unreadable(self, tree, monkeypatch):
         _write(os.path.join(tree, "library", "tmp", "a.bin"), 3)
@@ -931,78 +806,6 @@ class TestSecondReview:
         monkeypatch.setattr(os, "scandir", nf)
         assert dus._measure(folder, ("library", "tmp"), dus._Budget()).unreadable is True
 
-    def test_recycle_flags_warn_before_a_permanent_delete(self):
-        assert dus.RECYCLE_FLAGS & 0x4000           # FOF_WANTNUKEWARNING
-        assert dus.RECYCLE_FLAGS & 0x0040           # FOF_ALLOWUNDO
-        assert dus.RECYCLE_FLAGS == (0x0040 | 0x0010 | 0x0004 | 0x0400 | 0x2000 | 0x4000)
-
-    # item 3
-    def test_max_capacity_zero_refuses(self):
-        assert dus.recycle_blocker(1, 3, 0, 0, 100 * self.GB)
-        assert dus.recycle_blocker(1, 3, 0, 1000, 100 * self.GB) is None
-        assert dus.recycle_blocker(1, 3, 0, None, 100 * self.GB) is None
-
-    def _bin_env(self, vol_guid, mounted):
-        seen = {"roots": []}
-
-        class K32:
-            def GetDriveTypeW(self, root):
-                seen["roots"].append(("type", root))
-                return 3
-
-            def GetVolumeNameForVolumeMountPointW(self, root, buf, n):
-                seen["roots"].append(("name", root))
-                buf.value = "\\\\?\\Volume" + vol_guid + "\\"
-                return 1
-
-        class Key:
-            def __init__(self, data):
-                self.data = data
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-        class Reg:
-            HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE = 1, 2
-            tree = {(1, r"Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume"
-                        "\\" + vol_guid): {"NukeOnDelete": 0, "MaxCapacity": 2048}}
-
-            @classmethod
-            def OpenKey(cls, hive, sub):
-                if (hive, sub) not in cls.tree:
-                    raise FileNotFoundError
-                return Key(cls.tree[(hive, sub)])
-
-            @staticmethod
-            def QueryValueEx(key, name):
-                if name not in key.data:
-                    raise FileNotFoundError
-                return key.data[name], 4
-        return seen, K32(), Reg
-
-    def test_bin_facts_come_from_the_volume_mounted_into_a_folder(self, monkeypatch):
-        seen, k32, reg = self._bin_env("{AB-12}", True)
-        monkeypatch.setattr(dus.shutil, "disk_usage",
-                            lambda r: seen["roots"].append(("size", r)) or
-                            type("U", (), {"total": 7 * self.GB})())
-        facts = dus._windows_bin_facts("D:\\Mounts\\Data\\x", lambda p: "D:\\Mounts\\Data\\",
-                                       k32, reg)
-        assert facts == (3, 0, 2048, 7 * self.GB, 0, None)
-        assert {r for _, r in seen["roots"]} == {"D:\\Mounts\\Data\\"}
-
-    def test_bin_facts_fail_closed_when_the_volume_cant_be_resolved(self):
-        seen, k32, reg = self._bin_env("{AB-12}", False)
-
-        def boom(p):
-            raise OSError("no")
-        facts = dus._windows_bin_facts("D:\\x", boom, k32, reg)
-        assert dus.recycle_blocker(1, *facts)
-        assert dus.recycle_blocker(1, *dus._windows_bin_facts("D:\\x", lambda p: "", k32, reg))
-        assert seen["roots"] == []
-
     # item 4
     def test_data_root_holding_home_or_a_shell_folder_is_refused(self, tmp_path, monkeypatch):
         home = tmp_path / "Users" / "me"
@@ -1015,7 +818,7 @@ class TestSecondReview:
         assert dus._root_blocker(os.path.realpath(home / "Documents" / "Baihe")) is None
         assert dus._root_blocker(os.path.realpath(home / "Other")) is None
 
-    def test_top_level_entries_baihe_did_not_create_are_protected(self, tree, recycled):
+    def test_top_level_entries_baihe_did_not_create_are_protected(self, tree, renames):
         _write(os.path.join(tree, "Photos", "holiday", "a.jpg"), 50)
         _write(os.path.join(tree, "saved_comics", "ch1.cbz"), 40)
         res = dus.scan("")
@@ -1028,7 +831,7 @@ class TestSecondReview:
                 dus.clear(rel, confirm=True, expected_size_bytes=50, expected_file_count=1)
         for name in ("library", "model_cache", "saved_comics"):
             assert _item(res, name)["protected_reason"] != dus.NOT_BAIHE
-        assert recycled == []
+        assert renames == []
 
     def test_installer_entries_are_in_the_allow_list(self):
         from installer import service as installer_service
@@ -1036,7 +839,7 @@ class TestSecondReview:
         assert "saved_comics" in dus._baihe_top_level_names()
 
     # item 5
-    def test_source_profiles_and_saved_comics_need_the_irreplaceable_confirm(self, tree, recycled):
+    def test_source_profiles_and_saved_comics_need_the_irreplaceable_confirm(self, tree, renames):
         _write(os.path.join(tree, "library", "source_profiles", "example.com.json"), 12)
         _write(os.path.join(tree, "saved_comics", "ch1.cbz"), 40)
         prof = _item(dus.scan("library"), "source_profiles")
@@ -1050,10 +853,10 @@ class TestSecondReview:
             with pytest.raises(ConflictError) as exc:
                 dus.clear(rel, **args)
             assert exc.value.details["reason"] == "needs_irreplaceable_confirm"
-            assert recycled == [] or all(not c[0].endswith(rel.split("/")[-1]) for c in recycled)
+            assert renames == [] or all(not c[0].endswith(rel.split("/")[-1]) for c in renames)
         assert dus.clear("saved_comics", confirm=True, confirm_irreplaceable=True,
                          expected_size_bytes=comics["size_bytes"],
-                         expected_file_count=comics["file_count"])["freed_bytes"] == 40
+                         expected_file_count=comics["file_count"])["moved_bytes"] == 40
 
     def test_save_folder_name_matches_the_save_service(self):
         from services import sources_save_service
@@ -1074,7 +877,7 @@ class TestSecondReview:
         with pytest.raises(NotFoundError):
             dus._inspect_for_change("library/nope", "clearing")
 
-    def test_an_item_gone_at_the_last_look_is_a_409(self, tree, recycled, monkeypatch):
+    def test_an_item_gone_at_the_last_look_is_a_409(self, tree, renames, monkeypatch):
         import shutil
         target = os.path.join(tree, "library", "source_cache")
         real_resolve, calls = dus._resolve, {"n": 0}
@@ -1096,4 +899,399 @@ class TestSecondReview:
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
                       expected_file_count=1)
         assert exc.value.details["reason"] == "changed"
-        assert recycled == [] and background_jobs.exclusive_active() is False
+        assert renames == [] and background_jobs.exclusive_active() is False
+
+
+# --------------------------------------------------------------------------
+# Trash: protection, restore, permanent delete
+# --------------------------------------------------------------------------
+
+def _trash_one(rel="library/source_cache", size=400, files=1, **kw):
+    return dus.clear(rel, confirm=True, expected_size_bytes=size, expected_file_count=files, **kw)
+
+
+def _trash_dir(tree):
+    return os.path.join(tree, dus.TRASH_DIRNAME)
+
+
+class TestTrashProtection:
+    def test_the_trash_folder_is_in_the_baihe_allow_list(self):
+        assert dus.TRASH_DIRNAME in dus._baihe_top_level_names()
+
+    def test_installer_allows_the_trash_folder(self):
+        from installer import service as installer_service
+        assert dus.TRASH_DIRNAME in installer_service.DATA_FOLDER_ENTRIES
+
+    def test_trash_root_and_everything_in_it_is_protected_and_cannot_be_cleared_or_moved(
+            self, tree, renames, tmp_path):
+        done = _trash_one()
+        res = dus.scan("")
+        top = _item(res, dus.TRASH_DIRNAME)
+        assert top["protected"] and top["protected_reason"] == dus.TRASH_PROTECTED
+        assert top["movable"]["supported"] is False
+        entry = dus.scan(dus.TRASH_DIRNAME)
+        assert _item(entry, done["trash_id"])["protected"]
+        inner = f"{dus.TRASH_DIRNAME}/{done['trash_id']}"
+        before = len(renames)
+        for rel in (dus.TRASH_DIRNAME, inner, inner + "/payload", inner + "/manifest.json",
+                    inner + "/payload/x.html"):
+            with pytest.raises(InvalidInputError):
+                dus.clear(rel, confirm=True, expected_size_bytes=0, expected_file_count=0)
+            with pytest.raises(InvalidInputError):
+                dus.move(rel, str(tmp_path), confirm=True)
+        assert len(renames) == before
+        assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload", "x.html"))
+
+    def test_scan_reports_the_trash_block(self, tree):
+        assert dus.scan("")["trash"] == {"size_bytes": 0, "item_count": 0, "partial": False}
+        _trash_one()
+        _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
+        assert dus.scan("library")["trash"] == {"size_bytes": 1400, "item_count": 2,
+                                                "partial": False}
+
+    def test_a_link_as_the_trash_root_is_refused_everywhere(self, tree, tmp_path):
+        outside = tmp_path / "elsewhere"
+        outside.mkdir()
+        try:
+            os.symlink(str(outside), _trash_dir(tree), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("no symlinks here")
+        with pytest.raises(ServiceError):
+            _trash_one()
+        for call in (dus.trash_list, lambda: dus.trash_empty("DELETE")):
+            with pytest.raises(ServiceError):
+                call()
+        assert os.listdir(outside) == []
+        assert dus.scan("")["trash"]["partial"] is True
+
+
+class TestTrashRestore:
+    def test_restores_a_folder_to_its_old_place(self, tree, renames):
+        done = _trash_one()
+        item = dus.trash_list()["items"][0]
+        assert item["restorable"] is True and item["size_bytes"] == 400
+        res = dus.trash_restore(done["trash_id"], confirm=True)
+        assert res == {"name": "source_cache", "kind": "folder", "size_bytes": 400, "file_count": 1}
+        assert os.path.getsize(os.path.join(tree, "library", "source_cache", "x.html")) == 400
+        assert os.listdir(_trash_dir(tree)) == []
+        assert renames[-1][0].endswith("payload")
+
+    def test_restores_a_file(self, tree):
+        done = _trash_one("library/source_cache/x.html")
+        dus.trash_restore(done["trash_id"], confirm=True)
+        assert os.path.getsize(os.path.join(tree, "library", "source_cache", "x.html")) == 400
+
+    def _conflict(self, trash_id):
+        with pytest.raises(ConflictError) as exc:
+            dus.trash_restore(trash_id, confirm=True)
+        assert exc.value.details["reason"] == "cannot_restore"
+        return exc.value.message
+
+    def test_needs_confirm(self, tree):
+        done = _trash_one()
+        with pytest.raises(InvalidInputError):
+            dus.trash_restore(done["trash_id"])
+        assert not os.path.exists(os.path.join(tree, "library", "source_cache"))
+
+    def test_the_old_folder_is_gone_409(self, tree):
+        done = _trash_one("library/dramas/1/dub_clips", 700, 1)
+        import shutil
+        shutil.rmtree(os.path.join(tree, "library", "dramas", "1"))
+        assert dus.trash_list()["items"][0]["restorable"] is False
+        assert "folder it came from is gone" in self._conflict(done["trash_id"])
+        assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload"))
+
+    def test_the_place_is_taken_409(self, tree):
+        done = _trash_one()
+        _write(os.path.join(tree, "library", "source_cache", "new.html"), 3)
+        assert "same name" in self._conflict(done["trash_id"])
+        assert os.path.getsize(os.path.join(tree, "library", "source_cache", "new.html")) == 3
+
+    def test_the_old_parent_became_a_link_409(self, tree, tmp_path):
+        done = _trash_one("library/dramas/1/dub_clips", 700, 1)
+        import shutil
+        outside = tmp_path / "out"
+        outside.mkdir()
+        shutil.rmtree(os.path.join(tree, "library", "dramas", "1"))
+        try:
+            os.symlink(str(outside), os.path.join(tree, "library", "dramas", "1"),
+                       target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("no symlinks here")
+        self._conflict(done["trash_id"])
+        assert os.listdir(outside) == []
+
+    def test_a_job_running_409_and_nothing_moves(self, tree, monkeypatch):
+        done = _trash_one()
+        monkeypatch.setattr(background_jobs, "active_job_ids", lambda: ["transcribe_1"])
+        with pytest.raises(ConflictError) as exc:
+            dus.trash_restore(done["trash_id"], confirm=True)
+        assert "running" in exc.value.message
+        assert not os.path.exists(os.path.join(tree, "library", "source_cache"))
+        assert background_jobs.exclusive_active() is False
+
+    def test_a_tampered_manifest_cannot_aim_at_a_protected_or_outside_place(self, tree):
+        done = _trash_one()
+        manifest = os.path.join(_trash_dir(tree), done["trash_id"], "manifest.json")
+        for original in ("library/library.db", ".env", "../escape", "/etc/x", "C:/x",
+                         f"{dus.TRASH_DIRNAME}/{done['trash_id']}/payload/x", "Photos/a",
+                         "library/profiles/a"):
+            data = json.load(open(manifest, encoding="utf-8"))
+            data["original_path"] = original
+            json.dump(data, open(manifest, "w", encoding="utf-8"))
+            with pytest.raises(ConflictError):
+                dus.trash_restore(done["trash_id"], confirm=True)
+        assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload"))
+        assert not os.path.exists(os.path.join(tree, "..", "escape"))
+
+    def test_a_missing_or_damaged_manifest_cannot_be_restored_but_can_be_listed(self, tree):
+        done = _trash_one()
+        manifest = os.path.join(_trash_dir(tree), done["trash_id"], "manifest.json")
+        open(manifest, "w").write("{not json")
+        item = dus.trash_list()["items"][0]
+        assert item["restorable"] is False and item["original_path_relative"] is None
+        assert item["size_bytes"] == 400
+        with pytest.raises(ConflictError):
+            dus.trash_restore(done["trash_id"], confirm=True)
+
+    @pytest.mark.parametrize("bad", ["..", "../x", "a/b", "a\\b", "/etc", "C:\\x", "",
+                                     "20260101-000000-abcdefg1", "20260101-000000-abcdef12\n"])
+    def test_bad_ids_are_refused(self, tree, bad):
+        with pytest.raises((InvalidInputError, NotFoundError)):
+            dus.trash_restore(bad, confirm=True)
+
+
+
+class TestTrashPurge:
+    def _purge(self, trash_id, size, word="DELETE"):
+        return dus.trash_purge(trash_id, confirm_text=word, expected_size_bytes=size)
+
+    def test_deletes_for_good_and_reports_freed(self, tree):
+        done = _trash_one()
+        res = self._purge(done["trash_id"], 400)
+        assert res == {"freed_bytes": 400, "file_count": 1}
+        assert os.listdir(_trash_dir(tree)) == []
+        assert os.path.exists(os.path.join(tree, "library", "dramas", "2", "audio.mp3"))
+        assert background_jobs.exclusive_active() is False
+
+    @pytest.mark.parametrize("word", ["delete", "Delete", "DELETE ", " DELETE", "", "DELETED", None])
+    def test_the_typed_word_must_be_exact(self, tree, word):
+        done = _trash_one()
+        with pytest.raises(InvalidInputError):
+            self._purge(done["trash_id"], 400, word)
+        with pytest.raises(InvalidInputError):
+            dus.trash_empty(word)
+        assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload", "x.html"))
+
+    def test_changed_size_is_a_409(self, tree):
+        done = _trash_one()
+        _write(os.path.join(_trash_dir(tree), done["trash_id"], "payload", "more.html"), 5)
+        with pytest.raises(ConflictError) as exc:
+            self._purge(done["trash_id"], 400)
+        assert exc.value.details["reason"] == "changed" and exc.value.details["size_bytes"] == 405
+        assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload", "x.html"))
+
+    @pytest.mark.parametrize("bad", ["..", "../library", "library", "a/b", "a\\b", "/etc",
+                                     "C:\\Windows", "", ".", "baihe_trash",
+                                     "20260101-000000-abcdef12/../..", "2026-1-1",
+                                     "20260101-000000-ABCDEF12", "20260101-000000-abcdef12\n"])
+    def test_ids_that_are_not_trash_entries_are_refused(self, tree, bad):
+        keep = os.path.join(tree, "library", "source_cache", "x.html")
+        with pytest.raises((InvalidInputError, NotFoundError)):
+            self._purge(bad, 0)
+        assert os.path.exists(keep)
+
+    def test_a_missing_entry_is_404_and_a_missing_trash_folder_too(self, tree):
+        with pytest.raises(NotFoundError):
+            self._purge("20260101-000000-abcdef12", 0)
+        _trash_one()
+        with pytest.raises(NotFoundError):
+            self._purge("20260101-000000-abcdef12", 0)
+
+    def test_an_entry_that_is_a_link_is_refused_and_its_target_kept(self, tree, tmp_path):
+        outside = tmp_path / "precious"
+        outside.mkdir()
+        (outside / "f.txt").write_bytes(b"keep")
+        _trash_one()
+        fake_id = "20260101-000000-abcdef12"
+        try:
+            os.symlink(str(outside), os.path.join(_trash_dir(tree), fake_id),
+                       target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("no symlinks here")
+        with pytest.raises(InvalidInputError):
+            self._purge(fake_id, 4)
+        res = dus.trash_empty("DELETE")
+        assert res["removed"] == 1 and res["failed"] == 0      # the real entry; a link isn't one
+        assert (outside / "f.txt").read_bytes() == b"keep"
+        assert os.path.islink(os.path.join(_trash_dir(tree), fake_id))
+
+    def test_refused_while_a_job_runs(self, tree, monkeypatch):
+        done = _trash_one()
+        monkeypatch.setattr(background_jobs, "active_job_ids", lambda: ["x"])
+        with pytest.raises(ConflictError):
+            self._purge(done["trash_id"], 400)
+        with pytest.raises(ConflictError):
+            dus.trash_empty("DELETE")
+        assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload"))
+        assert background_jobs.exclusive_active() is False
+
+    def test_a_symlink_inside_a_trashed_folder_is_unlinked_and_its_target_untouched(
+            self, tree, tmp_path):
+        outside = tmp_path / "outside-the-data-folder"
+        (outside / "sub").mkdir(parents=True)
+        (outside / "sub" / "f.txt").write_bytes(b"precious")
+        (outside / "top.txt").write_bytes(b"precious too")
+        os.chmod(outside / "top.txt", 0o444)
+        # Put the links inside the folder while it sits in Trash, as if one
+        # had appeared there afterwards.
+        done = _trash_one()
+        payload = os.path.join(_trash_dir(tree), done["trash_id"], "payload")
+        try:
+            os.symlink(str(outside), os.path.join(payload, "dirlink"), target_is_directory=True)
+            os.symlink(str(outside / "top.txt"), os.path.join(payload, "filelink"))
+        except (OSError, NotImplementedError):
+            pytest.skip("no symlinks here")
+        res = self._purge(done["trash_id"], dus.trash_list()["items"][0]["size_bytes"])
+        assert res["freed_bytes"] >= 400
+        assert not os.path.lexists(os.path.join(_trash_dir(tree), done["trash_id"]))
+        assert (outside / "sub" / "f.txt").read_bytes() == b"precious"
+        assert (outside / "top.txt").read_bytes() == b"precious too"
+        assert oct(os.stat(outside / "top.txt").st_mode & 0o777) == oct(0o444)
+        assert sorted(os.listdir(outside)) == ["sub", "top.txt"]
+
+    def test_the_walk_never_enters_a_folder_swapped_for_a_link(self, tree, tmp_path):
+        outside = tmp_path / "other"
+        outside.mkdir()
+        (outside / "f.txt").write_bytes(b"precious")
+        _write(os.path.join(tree, "library", "tmp", "deep", "a.bin"), 3)
+        done = _trash_one("library/tmp", 3, 1)
+        payload = os.path.join(_trash_dir(tree), done["trash_id"], "payload")
+        real_plain = dus._plain_dir
+        state = {"n": 0}
+
+        def swap_then_check(path):
+            state["n"] += 1
+            if path.endswith(os.path.join("payload", "deep")) and os.path.isdir(path) \
+                    and not os.path.islink(path):
+                import shutil
+                shutil.rmtree(path)
+                os.symlink(str(outside), path, target_is_directory=True)
+            return real_plain(path)
+        dus._plain_dir = swap_then_check
+        try:
+            with pytest.raises(OSError):
+                dus._remove_tree(os.path.join(_trash_dir(tree), done["trash_id"]))
+        except (NotImplementedError,):
+            pytest.skip("no symlinks here")
+        finally:
+            dus._plain_dir = real_plain
+        assert (outside / "f.txt").read_bytes() == b"precious"
+        assert os.path.exists(payload)
+
+    def test_read_only_files_and_folders_are_removed(self, tree, monkeypatch):
+        _write(os.path.join(tree, "library", "tmp", "ro", "a.bin"), 3)
+        done = _trash_one("library/tmp", 3, 1)
+        entry = os.path.join(_trash_dir(tree), done["trash_id"])
+        target_file = os.path.join(entry, "payload", "ro", "a.bin")
+        target_dir = os.path.join(entry, "payload", "ro")
+        real_unlink, real_rmdir = os.unlink, os.rmdir
+        refused = []
+
+        def unlink(path, *a, **k):          # what Windows does to a read-only file
+            if path == target_file and not refused:
+                refused.append(path)
+                raise PermissionError(13, "read-only")
+            return real_unlink(path, *a, **k)
+
+        def rmdir(path, *a, **k):
+            if path == target_dir and len(refused) == 1:
+                refused.append(path)
+                raise PermissionError(13, "read-only")
+            return real_rmdir(path, *a, **k)
+        monkeypatch.setattr(os, "unlink", unlink)
+        monkeypatch.setattr(os, "rmdir", rmdir)
+        os.chmod(target_file, 0o444)
+        self._purge(done["trash_id"], 3)
+        assert refused == [target_file, target_dir]
+        assert not os.path.lexists(entry)
+
+    def test_a_failure_keeps_what_is_left_and_says_nothing_about_paths(self, tree, monkeypatch):
+        _write(os.path.join(tree, "library", "tmp", "b.bin"), 2)
+        done = _trash_one("library/tmp", 2, 1)
+        entry = os.path.join(_trash_dir(tree), done["trash_id"])
+        real_unlink = os.unlink
+
+        def unlink(path, *a, **k):
+            if path.endswith("b.bin"):
+                raise PermissionError(13, "in use " + path)
+            return real_unlink(path, *a, **k)
+        monkeypatch.setattr(os, "unlink", unlink)
+        with pytest.raises(ServiceError) as exc:
+            self._purge(done["trash_id"], 2)
+        assert tree not in exc.value.message and "b.bin" not in exc.value.message
+        assert os.path.exists(os.path.join(entry, "payload", "b.bin"))
+        assert background_jobs.exclusive_active() is False
+        # Its record went first, so a half-deleted payload can't be restored.
+        item = dus.trash_list()["items"][0]
+        assert item["restorable"] is False and item["original_path_relative"] is None
+        monkeypatch.setattr(os, "unlink", real_unlink)
+        assert self._purge(done["trash_id"], 2)["freed_bytes"] == 2
+
+
+class TestTrashEmpty:
+    def test_empties_every_entry_and_leaves_foreign_names_alone(self, tree):
+        _trash_one()
+        _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
+        _write(os.path.join(_trash_dir(tree), "notes.txt"), 7)
+        _write(os.path.join(_trash_dir(tree), "20260101-000000-abcdef12.bak", "x"), 1)
+        res = dus.trash_empty("DELETE")
+        assert res == {"freed_bytes": 1400, "removed": 2, "failed": 0}
+        assert sorted(os.listdir(_trash_dir(tree))) == ["20260101-000000-abcdef12.bak", "notes.txt"]
+        assert os.path.exists(os.path.join(tree, "library", "dramas", "1", "audio.mp3"))
+
+    def test_nothing_to_empty(self, tree):
+        assert dus.trash_empty("DELETE") == {"freed_bytes": 0, "removed": 0, "failed": 0}
+        _trash_one()
+        dus.trash_empty("DELETE")
+        assert dus.trash_empty("DELETE")["removed"] == 0
+
+    def test_one_failure_leaves_that_entry_and_removes_the_rest(self, tree, monkeypatch):
+        a = _trash_one()
+        b = _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
+        real_unlink = os.unlink
+
+        def unlink(path, *x, **k):
+            if os.path.join(a["trash_id"], "payload") in path:
+                raise PermissionError(13, "in use")
+            return real_unlink(path, *x, **k)
+        monkeypatch.setattr(os, "unlink", unlink)
+        res = dus.trash_empty("DELETE")
+        assert (res["removed"], res["failed"], res["freed_bytes"]) == (1, 1, 1000)
+        assert os.listdir(_trash_dir(tree)) == [a["trash_id"]]
+        assert b["trash_id"] not in os.listdir(_trash_dir(tree))
+
+
+class TestTrashList:
+    def test_newest_first_with_what_each_was(self, tree):
+        a = _trash_one()
+        b = _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
+        res = dus.trash_list()
+        assert [i["id"] for i in res["items"]] == sorted([a["trash_id"], b["trash_id"]], reverse=True)
+        by = {i["id"]: i for i in res["items"]}
+        assert by[a["trash_id"]]["original_path_relative"] == "library/source_cache"
+        assert by[b["trash_id"]]["size_bytes"] == 1000
+        assert res["size_bytes"] == 1400 and res["item_count"] == 2 and res["partial"] is False
+        assert all(i["trashed_at"] for i in res["items"])
+        assert tree not in json.dumps(res)
+
+    def test_empty_when_there_is_no_trash_folder(self, tree):
+        assert dus.trash_list()["items"] == []
+
+    def test_one_walk_at_a_time_with_the_scan(self, tree):
+        assert dus._scan_lock.acquire(blocking=False)
+        try:
+            with pytest.raises(ConflictError):
+                dus.trash_list()
+        finally:
+            dus._scan_lock.release()
