@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { DVR_WAIT_S, canDelay, embedSrc, parseStreamUrl, parseYouTubeInfo, planDelay } from './streamEmbed'
+import { DVR_WAIT_S, canDelay, embedSrc, parseStreamUrl, parseYouTubeInfo, planDelay } from './embedLogic'
 
 const ID = 'dQw4w9WgXcQ'
 

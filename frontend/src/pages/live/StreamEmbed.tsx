@@ -1,6 +1,6 @@
 /*
  * StreamEmbed: the Live page's optional picture of the stream, in an iframe
- * built from a validated id (streamEmbed.ts), played a few seconds behind the
+ * built from a validated id (embedLogic.ts), played a few seconds behind the
  * live edge so it lines up with the translation. Kept in one component so a
  * server relay can replace it. Everything that keeps playing (the iframe, the
  * message listener, the timers) goes away when this unmounts, and the parent
@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   DVR_WAIT_S, YT_ORIGIN, canDelay, embedSrc, parseYouTubeInfo, planDelay, ytListenMessage, ytSeekMessage,
   type PlayerInfo, type StreamRef,
-} from './streamEmbed'
+} from './embedLogic'
 
 type DelayState = 'waiting' | 'delayed' | 'none'
 
