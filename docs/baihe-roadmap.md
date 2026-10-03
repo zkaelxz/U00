@@ -4105,7 +4105,12 @@ Priority 5 of 5, **not independently re-verified yet**. Baihe already exposes an
 7. **Storage scan** (`storage.scan_library_storage`, 116-160): report "Originals", "Superseded originals" and "Kept intermediates" as their own categories. None of them goes into `CLEANABLE_CATEGORIES`.
 8. **`delete_service.remove_media`** (109-126) is an explicit, confirmed user action. It should remove the whole source set, including `original*`, the leftover `source.wav` beside `audio.wav`, and `vocals.wav`. Today those leak.
 9. **Backups and imports:** add every new file column to `IMPORT_FILE_COLUMNS` (`services/auto_backup_service.py:1316-1322`) and `_PAGE_UPDATE_FIELDS` (`db.py:2750`). Full backups with media already include `dramas/` (`library_admin_service.py:523-570`). The auto backup default `include_media: False` (`auto_backup_service.py:135`) is unchanged.
-10. **Out of scope:** Live capture audio is temporary by design (`services/live_service.py:215`). Changing the source-cache retention default (`sources/cache.py`, default `temporary`) also stays out; it is noted under Open questions.
+10. **Keep raw source downloads by default** (user decision 2026-10-03):
+    - Change `DEFAULT_SETTINGS["cache_mode"]` in `sources/store.py:48` from `temporary` to `keep_originals`, so raw chapter downloads (`<library>/source_cache/`, SHA-256-addressed by `sources/cache.py`) survive the import.
+    - Only the default changes. An install where the person already picked a mode keeps it, because `store.get_setting` falls back to `DEFAULT_SETTINGS` only when no row is stored.
+    - `cache_max_mb` stays 0 (no limit).
+    - `source_cache` is currently left out of full backups (`library_admin_service.py:488-492`). Include it when the backup includes media, so kept raws are backed up too.
+11. **Out of scope:** Live capture audio is temporary by design (`services/live_service.py:215`).
 
 **Exit:**
 - A test confirms re-uploading media without `confirm_replace` returns 422 and changes nothing on disk.
@@ -4117,6 +4122,7 @@ Priority 5 of 5, **not independently re-verified yet**. Baihe already exposes an
 - A test confirms `process_page` leaves `cleaned_filename` on disk after typesetting.
 - A test confirms a backup round trip (`_copy_drama`) carries every new file column, and `test_child_tables_cover_every_fk_to_dramas` still passes.
 - A test confirms the storage scan reports the new categories, and the cleanup action never touches them.
+- A test confirms a fresh sources store reports `cache_mode` = `keep_originals`, a stored `temporary` choice is left alone, and a media backup includes `source_cache/`.
 - **Manual check:** upload a phone photo with EXIF rotation, typeset it, and confirm `pages/originals/` holds the untouched photo and `clean_*.png` holds the text-free page.
 
 ### Step 145 — Source objects: SHA-256, stable ids, duplicates, integrity, orphans
@@ -4512,7 +4518,7 @@ What exists today falls short:
 
 - **Work / Edition split.** Today `dramas` is the work, the edition and the files at once. Step 145's `source_objects` gives files their own identity. A separate Edition table would only help when the same work exists as two releases (for example a raw and a fan-translated EPUB, or two video encodes) and should share characters and glossary while keeping separate files. A series already shares glossary and characters. **Skipped for now (user, 2026-10-03)**; revisit only when a real two-release case comes up.
 - **Standalone VAD (R4, parked).** VAD (voice activity detection) is the step that decides which stretches of audio contain speech. Today faster-whisper does it internally (`vad_filter=True`, `core.py:692`), and Whisper's segments then set every subtitle's start and end. Running VAD as its own step would let speech boundaries be set and tuned separately from Whisper. Nothing is planned. It becomes a candidate fix only if Step 153 finds the drift starts at Whisper's own segment timing.
-- **Source-cache retention default.** Adapter downloads default to `temporary` (`sources/cache.py:28-36`). Switching the default to `keep_originals` would keep every raw chapter, in line with "keep everything." Decide with the disk-budget follow-up (compressing or moving originals elsewhere).
+- *(Resolved 2026-10-03: keep raw source downloads by default, now Step 144 item 10.)*
 - **Decided 2026-10-03, recorded so they aren't re-proposed:**
   - Trust levels and the entity system are deferred.
   - Translation-memory scopes and the automatic downstream re-run are declined.
