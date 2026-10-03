@@ -404,12 +404,13 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     key: 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend',
     options: string[],
     help?: string,
+    disabled: string[] = [],
   ) =>
     cf && (
       <Field label={label} help={help} error={key === 'alignment_method' || key === 'asr_backend_choice' ? fieldError(key) : null}>
         <select value={cf[key]} onChange={(e) => setC(key, e.target.value)}>
           {(options.includes(cf[key]) ? options : [cf[key], ...options]).map((o) => (
-            <option key={o} value={o}>{optionLabel(o)}</option>
+            <option key={o} value={o} disabled={disabled.includes(o) && o !== cf[key]}>{optionLabel(o)}</option>
           ))}
         </select>
       </Field>
@@ -606,7 +607,11 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             {num('Min silence', 'min_silence_ms', 50, '300-3000. Silence that splits lines; longer gives fewer, longer lines. Auto-tune below can pick it.', 'ms')}
             {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
             {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
-            {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'])}
+            {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'],
+              haveTranscript
+                ? 'Qwen3 forced alignment lines up the transcript you supply against the audio for more exact timing.'
+                : 'Forced alignment lines up a transcript you provide; for raw audio, pick Whisper or Qwen3-ASR.',
+              haveTranscript ? [] : ['qwen3_forced_align'])}
             {select('ASR backend', 'asr_backend_choice', asrBackendOptions(mossEnabled), mossEnabled ? 'MOSS is experimental: it transcribes and labels speakers in one pass, replacing Whisper and speaker detection for this drama.' : undefined)}
             {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
             {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}

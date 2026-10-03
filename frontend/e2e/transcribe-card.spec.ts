@@ -45,6 +45,17 @@ test('a refused option is highlighted on its field, with the reason beside it', 
   await expect(field).not.toHaveAttribute('aria-invalid', 'true')
 })
 
+test('forced alignment is disabled with a reason when there is no supplied transcript', async ({ page }) => {
+  await page.route('**/api/transcribe/dramas/1/config', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), transcript_mode: 'whisper', alignment_method: 'whisper_diff' } })
+  })
+  await page.goto('/#/drama/1/source')
+  await page.getByLabel('Alignment method').waitFor({ state: 'attached' })
+  await expect(page.getByLabel('Alignment method').locator('option[value="qwen3_forced_align"]')).toBeDisabled()
+  await expect(page.getByText('for raw audio, pick Whisper or Qwen3-ASR')).toBeAttached()
+})
+
 test('an unnamed 422 shows the server sentence in the banner', async ({ page }) => {
   await page.route('**/api/transcribe/dramas/1/run', (route) =>
     route.fulfill({

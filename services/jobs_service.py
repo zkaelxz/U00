@@ -41,6 +41,7 @@ RESULT_ALLOWED_KEYS = (
     "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
     "fixed_count", "total_flagged", "existing_line_count", "line_count",
     "gpu_fallback", "device", "word_align_error", "forced_align_error",
+    "coverage_warning",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
@@ -346,6 +347,9 @@ def derive_outcome(status, error, result):
     if result.get("forced_align_error"):
         parts.append("Qwen3 forced alignment failed; timings use the fallback alignment "
                      f"({result['forced_align_error']}).")
+        warned = True
+    if result.get("coverage_warning"):
+        parts.append(str(result["coverage_warning"]))
         warned = True
     if result.get("flags_needing_recheck"):
         parts.append("Some lines changed while the job ran, so their review flags "
