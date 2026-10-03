@@ -1,21 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
-import { getSupportReport } from '../../api/diagnostics'
-import { Card } from '../../components/Card'
-import { copyText } from '../../components/clipboard'
-import { ErrorBanner } from '../../components/ErrorBanner'
-import { Section } from '../../components/Section'
-import { buttonClass } from '../../components/uiClasses'
-import { useMediaQuery } from '../../hooks/useMediaQuery'
-import { COPIED_MS, copyFallbackText } from './diagnosticsAdmin'
+import { getSupportReport } from '../api/diagnostics'
+import { copyText } from '../components/clipboard'
+import { ErrorBanner } from '../components/ErrorBanner'
+import { Section } from '../components/Section'
+import { buttonClass } from '../components/uiClasses'
+import { useMediaQuery } from '../hooks/useMediaQuery'
+import { COPIED_MS, copyFallbackText } from '../pages/diagnostics/diagnosticsAdmin'
 import { parseSupportReport, supportReportFileName } from './supportReport'
 
 /**
- * "Copy a report for a bug": one press builds the redacted support report
+ * "Copy a report for a bug", inside the Report a problem dialog: one press builds the redacted support report
  * and copies it. "Download .txt" saves it; "What's in it" previews it as
  * readable rows, with the plain text one press away.
  */
-export function SupportReportSection() {
+export function SupportReportPanel() {
   const [report, setReport] = useState<string | null>(null)
   const [working, setWorking] = useState<'copy' | 'download' | 'load' | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -26,6 +25,7 @@ export function SupportReportSection() {
   const [forceOpen, setForceOpen] = useState(0)
   const preRef = useRef<HTMLPreElement>(null)
   const touch = useMediaQuery('(pointer: coarse)')
+  const headingId = useId()
 
   useEffect(() => {
     if (!note) return
@@ -128,14 +128,11 @@ export function SupportReportSection() {
   }
 
   return (
-    <Card
-      title="Copy a report for a bug"
-      meta="Your versions, missing packages and recent errors, ready to paste into a bug report."
-      aria-label="Copy a report for a bug"
-    >
+    <section className="report-support" aria-labelledby={headingId}>
+      <h3 id={headingId}>Copy a report for a bug</h3>
       <p className="muted">
-        Redacted, so it's safe to share: it lists which keys are set, never the keys. To add a
-        screenshot, use Report a problem at the top of the page.
+        Your versions, missing packages and recent errors, ready to paste into a bug report. Redacted,
+        so it's safe to share: it lists which keys are set, never the keys.
       </p>
       <div className="actions">
         <button type="button" className={buttonClass('primary')} disabled={!!working} aria-busy={working === 'copy'}
@@ -157,14 +154,14 @@ export function SupportReportSection() {
         {report === null ? (
           <p className="muted">{working ? 'Building the report…' : 'Nothing built yet.'}</p>
         ) : (
-          <div className="diag-stack">
+          <div className="report-stack">
             <div className="actions">
               <button type="button" className={buttonClass('ghost', 'sm')} aria-pressed={plain} onClick={() => setPlain((p) => !p)}>
                 Plain text
               </button>
             </div>
             {plain ? (
-              <pre ref={preRef} className="diag-pre" aria-label="Support report" tabIndex={0}>
+              <pre ref={preRef} className="report-pre" aria-label="Support report" tabIndex={0}>
                 {report}
               </pre>
             ) : (
@@ -173,7 +170,7 @@ export function SupportReportSection() {
           </div>
         )}
       </Section>
-    </Card>
+    </section>
   )
 }
 
