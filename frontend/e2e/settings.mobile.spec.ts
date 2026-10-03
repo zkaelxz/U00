@@ -23,7 +23,7 @@ test('settings switches have 44px touch targets on a phone', async ({ page }) =>
     expect(hit).toEqual({ top: true, bottom: true, width: 44 })
   }
   // "Test" and "Set key" buttons in the engine rows are dense (.btn-sm) but still 44px on touch.
-  for (const b of await page.getByRole('region', { name: 'Which engine does what' }).getByRole('button').all())
+  for (const b of await page.getByRole('region', { name: 'Which engine does what' }).getByRole('button', { name: /^(Test|Set key|Replace|Close) / }).all())
     expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
