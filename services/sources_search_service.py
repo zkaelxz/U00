@@ -352,19 +352,26 @@ def _is_ours(job_id: str, local: bool = False) -> bool:
 
 
 def get_job_result(job_id, local: bool = False, principal=None) -> dict:
-    """{job_id, status, progress, message, result}. 404 when the job is not
-    resident in this process (or is a PC-only sign-in/tier-test job and the
-    request is not `local`); a failed job raises its mapped error (503
-    with retry_after, 409 handoff, 400 terms/hidden/unsupported)."""
+    """{job_id, status, progress, message, result}. A job that has not run
+    in this process is the normal first answer: status "idle" (also for
+    another user's run of a shared id, so it never leaks). 404 for an id
+    that is not a Sources job, a PC-only sign-in/tier-test job asked for
+    from another device, and an import into a drama the caller can't see;
+    a failed job raises its mapped error (503 with retry_after, 409
+    handoff, 400 terms/hidden/unsupported)."""
     job_id = str(job_id or "")
+    if not _is_ours(job_id, local):
+        raise NotFoundError("No such Sources job in this app session.")
+    if (job_id.startswith(IMPORT_JOB_PREFIX)
+            and not ownership_service.can_see_job(principal, job_id, None)):
+        raise NotFoundError("No such Sources job in this app session.")
     with _IDENTITY_LOCK:
-        status = background_jobs.get_status(job_id) if _is_ours(job_id, local) else None
+        status = background_jobs.get_status(job_id)
         started_for = _SERIES_IDENTITY.get(job_id)
     if not status or not ownership_service.can_see_job(principal, job_id,
                                                        status.get("owner_user_id")):
-        # Another user's search/preview/series run, or an import into a
-        # drama the caller can't see (auth B2), looks like no job at all.
-        raise NotFoundError("No such Sources job in this app session.")
+        return {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
+                "result": None}
     result = status.get("result")
     if status.get("status") == "error":
         err = (result or {}).get("error") if isinstance(result, dict) else None

@@ -48,6 +48,7 @@ interface ToolsMockState {
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 const notFound = (route: Route) => json(route, { error: { code: 'not_found', message: 'No such job.' } }, 404)
+const idle = (route: Route) => json(route, { job_id: '', status: 'idle', progress: 0, message: '', result: null })
 
 export async function mockTools(page: Page, s: MockState, m: ImportMockState, over: Partial<ToolsMockState> = {}) {
   const t: ToolsMockState = { preflight: 'none', identify: 'none', pastedPreview: { ...NOVEL_PREVIEW, pasted: true }, ...over }
@@ -71,7 +72,7 @@ export async function mockTools(page: Page, s: MockState, m: ImportMockState, ov
   })
   await page.route(/\/api\/sources\/jobs\/sources_url_preflight\/result$/, (route) => {
     record(route)
-    if (t.preflight === 'none') return notFound(route)
+    if (t.preflight === 'none') return idle(route)
     if (t.preflight === 'running') {
       t.preflight = 'done'
       return json(route, { job_id: 'sources_url_preflight', status: 'running', progress: 0.1, message: 'Checking the site...', result: null })
@@ -99,7 +100,7 @@ export async function mockTools(page: Page, s: MockState, m: ImportMockState, ov
   })
   await page.route(/\/api\/sources\/jobs\/sources_url_identify\/result$/, (route) => {
     record(route)
-    if (t.identify === 'none') return notFound(route)
+    if (t.identify === 'none') return idle(route)
     if (t.identify === 'running') {
       t.identify = 'done'
       return json(route, { job_id: 'sources_url_identify', status: 'running', progress: 0.1, message: 'Looking for media...', result: null })

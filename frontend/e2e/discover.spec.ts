@@ -33,6 +33,19 @@ test('nav entry, empty catalogue loads starter titles, search and filters', asyn
   expect(s.unmocked).toEqual([])
 })
 
+test('opening the page makes no 404 request to /api/discover', async ({ page }) => {
+  const notFound: string[] = []
+  page.on('response', (r) => {
+    if (r.status() === 404 && new URL(r.url()).pathname.startsWith('/api/discover/')) notFound.push(r.url())
+  })
+  const s = await mockDiscover(page)
+  await page.goto('/#/discover')
+  await expect(page.getByTestId('catalog-count')).toBeVisible()
+  await expect.poll(() => s.calls.some((c) => c.path.endsWith('/bulk-extract/result'))).toBe(true)
+  await expect.poll(() => s.calls.some((c) => c.path.endsWith('/navigation-help/result'))).toBe(true)
+  expect(notFound).toEqual([])
+})
+
 test('add to Library, already-added 409, PC-only remove', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')

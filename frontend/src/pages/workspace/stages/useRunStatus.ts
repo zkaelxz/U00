@@ -4,8 +4,8 @@ import { ApiError } from '../../../api/client'
 import { isActiveStatus } from './autotuneGlossary'
 
 // Polls a per-drama "run status" route (auto-tune, glossary-from-novel)
-// while its run is queued or running. A 404 means "no run held in this app
-// session" and reads as status null. refresh() re-reads at once (after a
+// while its run is queued or running. Status "idle" means "no run held in
+// this app session" and reads as status null. refresh() re-reads at once (after a
 // start or cancel) and restarts polling.
 export function useRunStatus<T extends { status: string }>(
   dramaId: number,
@@ -29,15 +29,11 @@ export function useRunStatus<T extends { status: string }>(
         (s) => {
           if (stopped) return
           failures = 0
-          setState({ id: dramaId, status: s, error: null, loaded: true })
+          setState({ id: dramaId, status: s.status === 'idle' ? null : s, error: null, loaded: true })
           if (isActiveStatus(s.status)) timer = setTimeout(run, intervalMs)
         },
         (e: unknown) => {
           if (stopped) return
-          if (e instanceof ApiError && e.status === 404) {
-            setState({ id: dramaId, status: null, error: null, loaded: true })
-            return
-          }
           // Network or 5xx: retry a few times before showing the error.
           const transient = !(e instanceof ApiError) || e.status === 0 || e.status >= 500
           failures += 1

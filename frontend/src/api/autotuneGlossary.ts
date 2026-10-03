@@ -14,7 +14,7 @@ import { getJson, postJson } from './client'
 type Fetch = typeof fetch
 
 // Auto-tune min silence (api/routers/transcribe_routes.py, batch 2C).
-// GET is 404 when no run is held in this app session.
+// GET answers status "idle" when no run is held in this app session.
 export const getAutotune = (id: number, f?: Fetch) =>
   getJson<AutotuneStatus>(`/api/transcribe/dramas/${id}/autotune`, f)
 
@@ -41,7 +41,7 @@ export const applyNovelGlossary = (id: number, body: GlossaryProposalsApplyReque
   postJson<NovelGlossaryApplyResult>(`/api/glossary/dramas/${id}/from-novel/apply`, body, f)
 
 // Glossary from the drama's source lines (glossary_routes.py, parity X10).
-// Same status/apply shapes as from-novel; GET is 404 when no run is held.
+// Same status/apply shapes as from-novel; GET answers status "idle" when no run is held.
 export const getLinesGlossary = (id: number, f?: Fetch) =>
   getJson<NovelGlossaryStatus>(`/api/glossary/dramas/${id}/from-lines`, f)
 

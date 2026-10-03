@@ -163,9 +163,15 @@ class TestAutotuneStart:
 
 
 class TestAutotuneStatus:
-    def test_not_resident_404(self, client, isolated_db):
+    def test_not_resident_is_idle_200(self, client, isolated_db):
         did = _audio_drama(isolated_db)
-        assert client.get(_at(did)).status_code == 404
+        r = client.get(_at(did))
+        assert r.status_code == 200
+        assert r.json() == {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
+                            "results": None, "best_candidate_ms": None}
+
+    def test_unknown_drama_is_still_404(self, client, isolated_db):
+        assert client.get(_at(999)).status_code == 404
 
     def test_running_then_done(self, client, isolated_db):
         did = _audio_drama(isolated_db)
@@ -293,9 +299,15 @@ class TestNovelGlossaryStart:
         monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
         assert client.post(_gl(did)).status_code == 409
 
-    def test_status_not_resident_404(self, client, isolated_db):
+    def test_status_not_resident_is_idle_200(self, client, isolated_db):
         did, _ = _novel_drama(isolated_db)
-        assert client.get(_gl(did)).status_code == 404
+        r = client.get(_gl(did))
+        assert r.status_code == 200
+        assert r.json() == {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
+                            "proposals": None, "run_id": None}
+
+    def test_status_unknown_drama_is_still_404(self, client, isolated_db):
+        assert client.get(_gl(999)).status_code == 404
 
 
 PROPOSALS = {"proposals": [

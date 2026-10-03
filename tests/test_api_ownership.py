@@ -935,9 +935,19 @@ class TestJobs:
         urls = ["/api/discover/bulk-extract/result", "/api/discover/navigation-help/result",
                 "/api/sources/jobs/sources_search/result", f"/api/live/sessions/{sid}"]
         for url in urls:
-            assert client.get(url, headers=world["b"]).status_code == 404, url
+            hidden = client.get(url, headers=world["b"])
+            if url.startswith("/api/live/"):
+                assert hidden.status_code == 404, url
+            else:
+                # A shared fixed id nobody may see answers like "nothing ran":
+                # 200 idle, with none of A's result or message.
+                assert hidden.status_code == 200, url
+                assert hidden.json() == {**hidden.json(), "job_id": "", "status": "idle",
+                                         "progress": 0.0, "message": "", "result": None}, url
             assert client.get(url, headers=world["a"]).status_code == 200, url
             assert client.get(url, headers=world["admin"]).status_code == 200, url
+            if not url.startswith("/api/live/"):
+                assert client.get(url, headers=world["a"]).json()["status"] == "done", url
         assert client.post(f"/api/live/sessions/{sid}/stop",
                            headers=world["b"]).status_code == 404
         listed = client.get("/api/live/sessions", headers=world["b"]).json()
@@ -963,6 +973,12 @@ class TestJobs:
             r = client.request(method, url, headers=world["b"])
             # PC-only: refused for any remote caller before the owner check.
             expected = 403 if path.endswith("/delete") else 404
+            if path == "/api/sources/jobs/{job_id}/result":
+                # Another user's run of a shared id reads as "nothing ran".
+                assert r.status_code == 200, (method, url, r.status_code)
+                assert r.json()["status"] == "idle" and r.json()["result"] is None
+                assert client.get(url, headers=world["a"]).json()["status"] == "done"
+                continue
             assert r.status_code == expected, (method, url, r.status_code)
             if method == "GET":
                 assert client.get(url, headers=world["a"]).status_code == 200, url

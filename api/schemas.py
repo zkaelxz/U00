@@ -2411,7 +2411,8 @@ class DiscoverJobStarted(BaseModel):
 class DiscoverJobResult(BaseModel):
     """`result` is the job's own result once set: bulk extract
     {entries, pages, source_label}; navigation help {labels, steps,
-    needs_manual, message}."""
+    needs_manual, message}. Nothing run yet in this process: status "idle",
+    job_id "", progress 0, no result."""
     job_id: str
     status: Optional[str] = None
     progress: float
@@ -2469,7 +2470,8 @@ class SourcesJobResult(BaseModel):
     errors, per_source_counts} or series {kind, source, series_id, info,
     chapters}. URLs are scheme+host+path only; text is scrubbed. Series
     jobs also carry `source` and `series_id` while queued/running, so a
-    page can tell which series the per-source run is for."""
+    page can tell which series the per-source run is for. A job that has not
+    run in this process answers status "idle" (job_id "", progress 0)."""
     job_id: str
     status: Optional[str] = None
     progress: Optional[float] = None
@@ -3069,7 +3071,7 @@ class AutotuneCandidateScore(BaseModel):
 
 class AutotuneStatus(BaseModel):
     """This drama's auto-tune job as held in this app session. results /
-    best_candidate_ms only once status is "done"."""
+    best_candidate_ms only once status is "done". No run held: status "idle"."""
     job_id: str
     status: str
     progress: Optional[float] = None
@@ -3100,7 +3102,8 @@ class NovelGlossaryProposal(BaseModel):
 
 class NovelGlossaryStatus(BaseModel):
     """This drama's glossary-from-novel job as held in this app session.
-    proposals only once status is "done". Never carries a key."""
+    proposals only once status is "done". No run held: status "idle". Never
+    carries a key."""
     job_id: str
     status: str
     progress: Optional[float] = None

@@ -219,10 +219,13 @@ class TestLinesGlossaryService:
         with pytest.raises(ConflictError):
             gs.start_lines_glossary_run(did)
 
-    def test_status_not_resident(self, isolated_db):
+    def test_status_not_resident_is_idle(self, isolated_db):
         did, _ = _lines_drama(isolated_db)
+        assert gs.get_lines_glossary_status(did) == {
+            "job_id": "", "status": "idle", "progress": 0.0, "message": "", "result": None,
+            "run_id": None}
         with pytest.raises(gs.NotFoundError):
-            gs.get_lines_glossary_status(did)
+            gs.get_lines_glossary_status(999)
 
     def test_apply_by_term_with_overrides(self, isolated_db):
         did, sid = _lines_drama(isolated_db)
@@ -346,7 +349,8 @@ class TestLinesGlossaryRoutes:
         monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: [
             {"term": "青云宗", "suggested_translation": "Qingyun Sect", "category": "sect",
              "policy": "hybrid", "reason": "r"}])
-        assert client.get(_gl(did)).status_code == 404
+        idle = client.get(_gl(did))
+        assert idle.status_code == 200 and idle.json()["status"] == "idle"
         r = client.post(_gl(did))
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"lines_glossary_{did}", "engine": "claude",

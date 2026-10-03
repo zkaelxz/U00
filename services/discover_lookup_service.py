@@ -35,7 +35,7 @@ import translate_engines
 from services import discover_catalog_service as _catalog
 from services import ownership_service, safe_fetch, settings_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
-                                     NotFoundError, RateLimitedError,
+                                     RateLimitedError,
                                      UnsupportedOperationError)
 
 DEFAULT_ENGINE = "claude"
@@ -216,12 +216,17 @@ def _start(job_id: str, label: str, target, *args) -> dict:
     return {"job_id": job_id, "started": True}
 
 
+IDLE_JOB = {"job_id": "", "status": "idle", "progress": 0.0, "message": "", "result": None}
+
+
 def _job_result(job_id: str, principal=None) -> dict:
-    """Another user's run of this shared job id is a 404 (auth B2)."""
+    """No run in this process yet is the normal first answer, not an error:
+    status "idle". Another user's run of this shared job id looks the same
+    (auth B2), so it never leaks."""
     status = background_jobs.get_status(job_id)
     if status is None or not ownership_service.can_see_job(principal, job_id,
                                                            status.get("owner_user_id")):
-        raise NotFoundError("No such job has run in this process.")
+        return dict(IDLE_JOB)
     return {"job_id": job_id, "status": status.get("status"),
             "progress": status.get("progress") or 0.0,
             "message": _redact(status.get("message")),
