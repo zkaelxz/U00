@@ -59,6 +59,8 @@ async function guard(page: Page): Promise<string[]> {
 }
 
 async function mockPage(page: Page, o: { jobs?: unknown[]; setup?: unknown; stats?: unknown } = {}) {
+  // No task groups here, so a missing package is installed one by one from "Not installed".
+  await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: { tasks: [], packages: {} } }))
   await page.route('**/api/diagnostics', (r) => r.fulfill({ json: overview }))
   await page.route('**/api/diagnostics/setup-checks', (r) => r.fulfill({ json: o.setup ?? setup() }))
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: o.jobs ?? [], count: (o.jobs ?? []).length } }))
@@ -74,7 +76,7 @@ test('keeps the testids, hides Jobs when empty, and opens Setup on a problem', a
   const summary = page.getByTestId('diagnostics-summary')
   await expect(summary.locator('.pill')).toHaveText(['1 setup problem', '2 of 4 packages', 'No jobs running'])
   await expect(summary.locator('.pill').first()).toHaveClass(/pill-warn/)
-  // Setup is an always-open card; the problem sorts first with a Problem badge.
+  // Setup opens by itself on a problem; the problem sorts first with a Problem badge.
   const setupRows = page.getByTestId('setup-rows')
   await expect(setupRows).toBeVisible()
   await expect(setupRows.locator('li').first()).toContainText('ffmpeg')
@@ -107,7 +109,6 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   })
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Missing packages/)
   await openSection(page, /^Danger zone/)
 
   await page.getByRole('button', { name: 'Install yt-dlp' }).click()
@@ -155,7 +156,6 @@ test('install errors: 409 shows the server sentence, 404 the unknown-package lin
   }))
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Missing packages/)
   await page.getByRole('button', { name: 'Install yt-dlp' }).click()
   await page.getByRole('button', { name: 'Confirm install yt-dlp' }).click()
   await expect(page.getByRole('alert')).toHaveText('A background job is running or queued; wait for it to finish.')
@@ -277,7 +277,6 @@ test('away from the PC: no install, reset or extension controls and no extension
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Missing packages/)
   await expect(page.getByTestId('dependency-panel')).toContainText('Installing is PC only.')
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
   await openSection(page, /^Danger zone/)
@@ -324,7 +323,6 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   await openSection(page, /^Packages/)
   const panel = page.getByTestId('dependency-panel')
   await expect(panel).toContainText('Checking whether this is the main PC…')
-  await openSection(page, /^Missing packages/)
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
   await openSection(page, /^Danger zone/)
   await expect(page.locator('.danger-zone')).toContainText('Checking whether this is the main PC…')
@@ -379,8 +377,9 @@ test('check access asks online only when pressed and links to the terms', async 
     } })
   })
   await page.goto('/#/diagnostics')
-  await expect(page.locator('summary', { hasText: 'Speaker detection' })).toContainText('Ready')
-  await openSection(page, /^Speaker detection/)
+  await expect(page.locator('summary', { hasText: /^Setup/ })).toContainText('All 6 OK') // folded: nothing is wrong
+  await openSection(page, /^Setup/)
+  await expect(page.getByTestId('pyannote-summary')).toHaveText('Ready')
   await page.getByRole('button', { name: 'Check access online' }).click()
   await expect(page.getByText('pyannote/speaker-diarization-3.1: terms not accepted')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Accept terms ↗' })).toHaveAttribute(
@@ -396,7 +395,7 @@ test('check access says why when huggingface_hub is missing', async ({ page }) =
     pyannote_installed: true, hf_token_configured: true, ready: true, models: null,
   } }))
   await page.goto('/#/diagnostics')
-  await openSection(page, /^Speaker detection/)
+  await openSection(page, /^Setup/)
   await expect(page.getByText("Can't check: huggingface_hub isn't installed.")).toHaveCount(0)
   await page.getByRole('button', { name: 'Check access online' }).click()
   await expect(page.getByText("Can't check: huggingface_hub isn't installed.")).toBeVisible()
