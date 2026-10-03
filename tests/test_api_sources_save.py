@@ -161,3 +161,43 @@ class TestNames:
         path = save.chapter_path(str(tmp_path), "../..", "../../etc", "../x", 7, "../passwd")
         assert os.path.commonpath([str(tmp_path), path]) == str(tmp_path)
         assert os.path.basename(path) == "0007 passwd.cbz"
+
+
+def _cbz_path(root):
+    return os.path.join(root, "Comicx", "Series T [s1]", "0001 第1章.cbz")
+
+
+def test_a_chapter_with_no_pages_fails_and_writes_nothing(client, fakes, root):
+    fakes["comicx"] = _make("comicx", comic=True)
+    fakes["comicx"].get_pages = lambda self, ch: []
+    _start(client, "comicx", ["c1"])
+    _, body = _result(client, JOB)
+    row = body["result"]["chapters"][0]
+    assert row["outcome"] == "failed" and "no pages" in row["error"]
+    assert body["result"]["saved_count"] == 0
+    assert _files(root) == []
+
+
+def test_an_empty_leftover_cbz_is_replaced_on_the_next_save(client, fakes, root):
+    fakes["comicx"] = _make("comicx", comic=True)
+    os.makedirs(os.path.dirname(_cbz_path(root)))
+    with zipfile.ZipFile(_cbz_path(root), "w") as zf:
+        zf.writestr("ComicInfo.xml", "<ComicInfo/>")
+    _start(client, "comicx", ["c1"])
+    _, body = _result(client, JOB)
+    assert body["result"]["chapters"][0]["outcome"] == "saved"
+    with zipfile.ZipFile(_cbz_path(root)) as zf:
+        assert zf.namelist() == ["001.png", "002.png", "ComicInfo.xml"]
+
+
+def test_an_unreadable_leftover_file_is_replaced_and_a_good_one_kept(client, fakes, root):
+    fakes["comicx"] = _make("comicx", comic=True)
+    os.makedirs(os.path.dirname(_cbz_path(root)))
+    with open(_cbz_path(root), "wb") as f:
+        f.write(b"not a zip")
+    _start(client, "comicx", ["c1"])
+    _, body = _result(client, JOB)
+    assert body["result"]["chapters"][0]["outcome"] == "saved"
+    _start(client, "comicx", ["c1"])
+    _, body = _result(client, JOB)
+    assert body["result"]["chapters"][0]["outcome"] == "skipped"
