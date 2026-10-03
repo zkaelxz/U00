@@ -136,6 +136,40 @@ test('without a Recycle Bin, Clear is disabled and says why', async ({ page }) =
   await expect(sec).not.toContainText('A job, restore')
 })
 
+test('running as a Windows service: Clear is disabled with the plain reason, Move still works', async ({ page }) => {
+  const reason = 'Clear needs Baihe to run as you, not as a Windows service.'
+  await mockDiskUsage(page, { recycleAvailable: false, recycleReason: reason })
+  const sec = await openSection(page)
+  await expect(sec.locator('p.du-busy', { hasText: reason })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Clear model_cache' })).toBeDisabled()
+  await expect(row(page, 'model_cache')).toContainText(reason)
+  await sec.getByRole('button', { name: 'Open library' }).click()
+  await sec.getByRole('button', { name: 'Open backups' }).click()
+  await expect(row(page, 'auto').getByRole('button', { name: 'Move…' }).first()).toBeEnabled()
+})
+
+test('backup copies need the can-not-be-recreated tick; a folder holding a link can not be cleared', async ({ page }) => {
+  const mock = await mockDiskUsage(page)
+  const sec = await openSection(page)
+  await sec.getByRole('button', { name: 'Open library' }).click()
+  await sec.getByRole('button', { name: 'Open backups' }).click()
+  const auto = row(page, 'auto')
+  await expect(auto).toContainText("Your backups. Once cleared they can't be recreated")
+  await expect(auto.getByRole('button', { name: 'Clear auto' })).toBeDisabled()
+  await auto.getByLabel(/I understand auto holds backups/).check()
+  await expect(auto.getByRole('button', { name: 'Clear auto' })).toBeEnabled()
+  const linked = row(page, 'linked')
+  await expect(linked).toContainText('contains a link or junction')
+  await expect(linked.getByRole('button', { name: 'Clear linked' })).toBeDisabled()
+  expect(mock.posts).toHaveLength(0)
+})
+
+test('a folder with more items than the list limit says how many are not shown', async ({ page }) => {
+  await mockDiskUsage(page, { notShown: 345 })
+  const sec = await openSection(page)
+  await expect(sec).toContainText('345 more not shown')
+})
+
 test('a slow scan can be cancelled, and Rescan tries again', async ({ page }) => {
   await mockDiskUsage(page, { slow: true })
   const sec = await openSection(page)

@@ -58,6 +58,6 @@ test('the two-step confirm and the move form fit the phone', async ({ page }) =>
   await auto.getByRole('button', { name: 'Move auto' }).tap()
   await expect(auto.getByRole('button', { name: /Confirm: move auto/ })).toBeVisible()
   await noSideways(page)
-  expect(await shortTargets(page, '.du button:not(.du-cell), .du input[type=checkbox]')).toEqual([])
+  expect(await shortTargets(page, '.du button:not(.du-cell), .du .du-ack')).toEqual([])
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/disk-usage-move-phone.png`, fullPage: true })
 })

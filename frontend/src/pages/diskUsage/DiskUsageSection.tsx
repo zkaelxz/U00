@@ -136,6 +136,8 @@ function DiskUsageLive() {
           <p className="banner warn-banner" role="status">{PARTIAL_TEXT[scan.partial_reason]}</p>
         )}
         {scan?.busy_reason && <p className="muted du-busy">{scan.busy_reason}</p>}
+        {scan && !scan.recycle_available && scan.recycle_reason && <p className="muted du-busy">{scan.recycle_reason}</p>}
+        {scan && scan.not_shown > 0 && <p className="muted du-busy">{`${scan.not_shown.toLocaleString('en-US')} more not shown. Open a smaller folder to see them.`}</p>}
         {scan && !loading && scan.items.length === 0 && !error && <p className="muted">This folder is empty.</p>}
         {scan && scan.items.length > 0 && (
           <>
@@ -207,6 +209,7 @@ function ItemRow({ item, scan, onOpen, onChanged, onStale }: {
   const clearWhy = clearBlock(item, scan)
   const moveWhy = moveBlock(item, scan)
   const tone = itemTone(item)
+  const isBackups = /^[^/]+\/backups(\/|$)/.test(item.path)
 
   const fail = (e: unknown) => {
     setBusy(null)
@@ -265,7 +268,7 @@ function ItemRow({ item, scan, onOpen, onChanged, onStale }: {
         {item.irreplaceable && !item.protected && (
           <label className="du-ack">
             <input type="checkbox" checked={ack} disabled={!!clearWhy || busy !== null} onChange={(e) => setAck(e.target.checked)} />
-            <span>I understand {item.name} is source media and can&apos;t be recreated</span>
+            <span>{isBackups ? `I understand ${item.name} holds backups and can't be recreated` : `I understand ${item.name} is source media and can't be recreated`}</span>
           </label>
         )}
         <ConfirmButton

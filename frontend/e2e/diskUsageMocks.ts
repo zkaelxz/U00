@@ -13,6 +13,7 @@ interface Node {
   protected?: string
   regen?: { label: string; note: string }
   irreplaceable?: boolean
+  hasLink?: boolean
   movable?: boolean
   incomplete?: boolean
 }
@@ -25,7 +26,7 @@ export const TREE: Record<string, Node[]> = {
   ],
   library: [
     { name: 'dramas', kind: 'folder', size: 41_000_000_000, files: 9000, irreplaceable: true },
-    { name: 'backups', kind: 'folder', size: 3_000_000_000, files: 12 },
+    { name: 'backups', kind: 'folder', size: 3_000_000_000, files: 12, irreplaceable: true },
     { name: 'tmp', kind: 'folder', size: 2_400_000_000, files: 80, regen: { label: 'Temporary job files', note: 'Working files of finished or interrupted jobs.' } },
     { name: 'library.db', kind: 'file', size: 1_600_000_000, files: 1, protected: 'The Baihe database.' },
   ],
@@ -34,7 +35,8 @@ export const TREE: Record<string, Node[]> = {
     { name: '7', kind: 'folder', size: 20_000_000_000, files: 120, irreplaceable: true },
   ],
   'library/backups': [
-    { name: 'auto', kind: 'folder', size: 2_900_000_000, files: 4, movable: true },
+    { name: 'auto', kind: 'folder', size: 2_900_000_000, files: 4, movable: true, irreplaceable: true },
+    { name: 'linked', kind: 'folder', size: 5_000, files: 2, hasLink: true },
     { name: 'exports', kind: 'folder', size: 100_000_000, files: 8, regen: { label: 'Exports', note: 'Export files; make them again from the Library.' } },
   ],
   'library/tmp': [],
@@ -49,7 +51,7 @@ export interface DiskUsageMock {
   setPartial(on: boolean): void
 }
 
-export async function mockDiskUsage(page: Page, opts: { recycleAvailable?: boolean; slow?: boolean } = {}): Promise<DiskUsageMock> {
+export async function mockDiskUsage(page: Page, opts: { recycleAvailable?: boolean; recycleReason?: string; notShown?: number; slow?: boolean } = {}): Promise<DiskUsageMock> {
   const tree: Record<string, Node[]> = JSON.parse(JSON.stringify(TREE))
   const state = { busy: null as string | null, partial: false }
   const mock: DiskUsageMock = {
@@ -99,17 +101,20 @@ export async function mockDiskUsage(page: Page, opts: { recycleAvailable?: boole
       items: nodes.map((n) => ({
         name: n.name, path: join(path, n.name), kind: n.kind, size_bytes: n.size, file_count: n.files,
         percent_of_parent: total ? Math.round((1000 * n.size) / total) / 10 : 0,
-        modified_at: '2026-10-01T10:00:00+00:00', is_link: false, complete: !n.incomplete,
+        modified_at: '2026-10-01T10:00:00+00:00', is_link: false, contains_link: !!n.hasLink, complete: !n.incomplete,
         protected: !!n.protected, protected_reason: n.protected ?? null,
         regenerable: n.regen ?? null,
         irreplaceable: !!n.irreplaceable,
-        irreplaceable_note: n.irreplaceable ? "Source audio and your work for this title. It can't be recreated from inside Baihe." : null,
+        irreplaceable_note: n.irreplaceable
+          ? (join(path, n.name).startsWith('library/backups') ? "Your backups. Once cleared they can't be recreated from inside Baihe." : "Source audio and your work for this title. It can't be recreated from inside Baihe.")
+          : null,
         movable: n.movable
           ? { supported: true, reason: null, what: 'backups' }
           : { supported: false, reason: n.protected ? 'Protected items can\'t be moved.' : 'Baihe has no setting for this location, so it can\'t be moved safely.', what: null },
       })),
-      partial: state.partial, partial_reason: state.partial ? 'time' : null, scanned_entries: 1234,
+      partial: state.partial, partial_reason: state.partial ? 'time' : null, not_shown: opts.notShown ?? 0, scanned_entries: 1234,
       busy_reason: state.busy, recycle_available: opts.recycleAvailable ?? true,
+      recycle_reason: opts.recycleAvailable === false ? (opts.recycleReason ?? null) : null,
       disk_total_bytes: 252_000_000_000, disk_free_bytes: 2_800_000_000,
     } })
   })

@@ -21,8 +21,11 @@ def _write(path, size):
         fh.write(b"x" * size)
 
 
+_REAL_REASON = dus.recycle_unavailable_reason
+
+
 @pytest.fixture
-def tree(isolated_db):
+def tree(isolated_db, monkeypatch):
     """root/ (the data folder) holding library/ (the isolated library) plus
     some media, a cache and a .env."""
     lib = db.LIBRARY_DIR
@@ -35,6 +38,8 @@ def tree(isolated_db):
     _write(os.path.join(lib, "backups", "auto", "baihe_snapshot-20260101-000000.zip"), 200)
     _write(os.path.join(root, ".env"), 20)
     _write(os.path.join(root, "model_cache", "m.bin"), 3000)
+    # An interactive Windows session; the session tests below put the real check back.
+    monkeypatch.setattr(dus, "recycle_unavailable_reason", lambda: None)
     return root
 
 
@@ -300,7 +305,8 @@ class TestClear:
         assert called == [] and (outside / "f").exists()
 
     @pytest.mark.skipif(os.name == "nt", reason="the real call exists on Windows")
-    def test_no_recycle_bin_off_windows_deletes_nothing(self, tree):
+    def test_no_recycle_bin_off_windows_deletes_nothing(self, tree, monkeypatch):
+        monkeypatch.setattr(dus, "recycle_unavailable_reason", _REAL_REASON)
         with pytest.raises(UnsupportedOperationError) as exc:
             dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
                       expected_file_count=1)
@@ -338,11 +344,11 @@ class TestRecycleBlocker:
         assert dus.recycle_blocker(500 * 1024 ** 2, 3, 0, 1000, 100 * self.GB) is None
 
     def test_default_limit_is_a_fraction_of_the_drive(self):
-        assert dus.recycle_blocker(10 * self.GB, 3, None, None, 100 * self.GB)
-        assert dus.recycle_blocker(1 * self.GB, 3, None, None, 100 * self.GB) is None
+        assert dus.recycle_blocker(10 * self.GB, 3, 0, None, 100 * self.GB)
+        assert dus.recycle_blocker(1 * self.GB, 3, 0, None, 100 * self.GB) is None
 
     def test_unknown_size_refuses(self):
-        assert dus.recycle_blocker(10, 3, None, None, None)
+        assert dus.recycle_blocker(10, 3, 0, None, None)
 
 
 class TestMove:
@@ -413,3 +419,409 @@ class TestMove:
 def _touch(path):
     path.write_bytes(b"x")
     return path
+
+
+# --------------------------------------------------------------------------
+# Security review fixes
+# --------------------------------------------------------------------------
+
+USER_SID = "S-1-5-21-1111111111-2222222222-3333333333-1001"
+
+
+class TestServiceSession:                                  # H1
+    def test_pure_check(self):
+        assert dus.session_blocker(1, USER_SID, "Ana") is None
+        assert dus.session_blocker(2, "S-1-12-1-1-2-3-4", "Ana") is None
+        assert dus.session_blocker(0, USER_SID, "Ana") == dus.NOT_INTERACTIVE
+        for sid in ("S-1-5-80-123-456", "S-1-5-18", "S-1-5-19", "S-1-5-20", "S-1-5-82-1", "S-1-5-90-0-1"):
+            assert dus.session_blocker(1, sid, "BaiheStudio") == dus.NOT_INTERACTIVE, sid
+        assert dus.session_blocker(1, USER_SID, "PC$") == dus.NOT_INTERACTIVE
+        for bad in ((None, USER_SID, "a"), (-1, USER_SID, "a"), (True, USER_SID, "a"),
+                    (1, None, "a"), (1, "", "a")):
+            assert dus.session_blocker(*bad) == dus.SESSION_UNKNOWN, bad
+
+    def test_reason_uses_injected_platform_facts(self, monkeypatch):
+        monkeypatch.setattr(dus, "_is_windows", lambda: True)
+        monkeypatch.setattr(dus, "_windows_session_facts", lambda: (0, "S-1-5-80-1-2", "BaiheStudio"))
+        assert dus.recycle_unavailable_reason() == dus.NOT_INTERACTIVE
+        monkeypatch.setattr(dus, "_windows_session_facts", lambda: (3, USER_SID, "Ana"))
+        assert dus.recycle_unavailable_reason() is None
+
+    def test_undeterminable_fails_closed(self, monkeypatch):
+        monkeypatch.setattr(dus, "_is_windows", lambda: True)
+
+        def boom():
+            raise OSError("no token")
+        monkeypatch.setattr(dus, "_windows_session_facts", boom)
+        assert dus.recycle_unavailable_reason() == dus.SESSION_UNKNOWN
+
+    def test_service_session_refuses_clear_and_reports_it_but_move_works(self, tree, recycled,
+                                                                         monkeypatch, tmp_path):
+        monkeypatch.setattr(dus, "recycle_unavailable_reason", lambda: dus.NOT_INTERACTIVE)
+        res = dus.scan("")
+        assert res["recycle_available"] is False and res["recycle_reason"] == dus.NOT_INTERACTIVE
+        with pytest.raises(UnsupportedOperationError) as exc:
+            dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
+                      expected_file_count=1)
+        assert "not as a Windows service" in exc.value.message
+        assert recycled == []
+        dest = tmp_path / "moved"
+        dest.mkdir()
+        assert dus.move("library/backups/auto", str(dest), confirm=True)["what"] == "backups"
+
+    def test_the_platform_call_checks_again(self, tree, monkeypatch):
+        monkeypatch.setattr(dus, "recycle_unavailable_reason", lambda: dus.NOT_INTERACTIVE)
+        with pytest.raises(UnsupportedOperationError):
+            dus.send_to_recycle_bin(os.path.join(tree, "model_cache"), 1)
+
+
+class TestExclusiveHold:                                   # M1
+    def _clear(self):
+        return dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
+                         expected_file_count=1)
+
+    def test_the_hold_is_taken_during_the_change_and_released_after(self, tree, monkeypatch):
+        seen = {}
+
+        def fake(path, size_bytes=0):
+            seen["label"] = background_jobs._exclusive_label
+            import shutil
+            shutil.rmtree(path)
+        monkeypatch.setattr(dus, "send_to_recycle_bin", fake)
+        self._clear()
+        assert seen["label"] == "Disk usage clear"
+        assert background_jobs.exclusive_active() is False
+
+    def test_released_when_it_fails(self, tree, recycled, monkeypatch):
+        with pytest.raises(ConflictError):
+            dus.clear("library/source_cache", confirm=True, expected_size_bytes=1,
+                      expected_file_count=1)
+        assert background_jobs.exclusive_active() is False
+
+    def test_someone_else_holding_it_refuses(self, tree, recycled):
+        assert background_jobs.acquire_exclusive("Restore")
+        try:
+            with pytest.raises(ConflictError):
+                self._clear()
+        finally:
+            background_jobs.release_exclusive()
+        assert recycled == []
+
+    def test_a_job_in_another_process_is_seen_under_the_hold(self, tree, recycled, monkeypatch):
+        from services import library_admin_service
+        monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: True)
+        with pytest.raises(ConflictError):
+            self._clear()
+        assert recycled == [] and background_jobs.exclusive_active() is False
+
+    def test_a_job_that_appears_after_the_look_stops_the_recycle(self, tree, recycled, monkeypatch):
+        from services import library_admin_service
+        answers = iter([False, True])        # under the hold, then the last look
+        monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: next(answers, True))
+        with pytest.raises(ConflictError):
+            self._clear()
+        assert recycled == [] and background_jobs.exclusive_active() is False
+
+    def test_move_takes_the_hold_and_rechecks_other_processes(self, tree, tmp_path, monkeypatch):
+        from services import library_admin_service
+        monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: True)
+        with pytest.raises(ConflictError):
+            dus.move("library/backups/auto", str(tmp_path), confirm=True)
+        assert background_jobs.exclusive_active() is False
+
+    def test_move_inspects_under_the_hold_and_releases_it_before_the_setting_call(
+            self, tree, tmp_path, monkeypatch):
+        labels = []
+        real_inspect, real_set = dus._inspect_for_change, abs_.set_settings
+
+        def inspect(*a, **k):
+            labels.append(background_jobs._exclusive_label)
+            return real_inspect(*a, **k)
+
+        def set_settings(**kw):
+            labels.append(background_jobs._exclusive_label)
+            return real_set(**kw)
+        monkeypatch.setattr(dus, "_inspect_for_change", inspect)
+        monkeypatch.setattr(abs_, "set_settings", set_settings)
+        dest = tmp_path / "d"
+        dest.mkdir()
+        dus.move("library/backups/auto", str(dest), confirm=True)
+        assert labels == ["Disk usage move", None]
+        assert background_jobs.exclusive_active() is False
+
+    def test_move_is_refused_while_someone_else_holds_the_library(self, tree, tmp_path):
+        assert background_jobs.acquire_exclusive("Restore")
+        try:
+            with pytest.raises(ConflictError):
+                dus.move("library/backups/auto", str(tmp_path), confirm=True)
+        finally:
+            background_jobs.release_exclusive()
+
+
+class TestRecycleBlockerFailsClosed:                       # M2
+    GB = 1024 ** 3
+
+    @pytest.mark.parametrize("nuke", [None, "0", "unreadable", 2, -1, True])
+    def test_unknown_nuke_on_delete(self, nuke):
+        assert dus.recycle_blocker(10, 3, nuke, 1000, 100 * self.GB)
+
+    @pytest.mark.parametrize("cap", ["unreadable", "100", -5, 1.5])
+    def test_non_integer_max_capacity(self, cap):
+        assert dus.recycle_blocker(10, 3, 0, cap, 100 * self.GB)
+
+    @pytest.mark.parametrize("policy", [1, 2, "unreadable", None])
+    def test_no_recycle_files_policy(self, policy):
+        assert dus.recycle_blocker(10, 3, 0, 1000, 100 * self.GB, no_recycle_policy=policy)
+        assert dus.recycle_blocker(10, 3, 0, 1000, 100 * self.GB, no_recycle_policy=0) is None
+
+    def test_size_policy_caps_the_limit(self):
+        assert dus.recycle_blocker(10 * self.GB, 3, 0, 50_000, 100 * self.GB,
+                                   policy_size_percent=5)
+        assert dus.recycle_blocker(1 * self.GB, 3, 0, 50_000, 100 * self.GB,
+                                   policy_size_percent=5) is None
+        for bad in ("unreadable", 101, -1):
+            assert dus.recycle_blocker(1, 3, 0, 50_000, 100 * self.GB, policy_size_percent=bad)
+        assert dus.recycle_blocker(1, 3, 0, 50_000, None, policy_size_percent=5)
+
+    def test_windows_reader_without_winreg_or_volume_key_refuses(self, monkeypatch):
+        """Registry read errors map to values the blocker refuses."""
+        class Key:
+            def __init__(self, data):
+                self.data = data
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        class Reg:
+            HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE = 1, 2
+            tree = {}
+
+            @classmethod
+            def OpenKey(cls, hive, sub):
+                if (hive, sub) not in cls.tree:
+                    raise FileNotFoundError
+                return Key(cls.tree[(hive, sub)])
+
+            @staticmethod
+            def QueryValueEx(key, name):
+                if name not in key.data:
+                    raise FileNotFoundError
+                v = key.data[name]
+                if isinstance(v, OSError):
+                    raise v
+                return v, 4
+        vol = r"Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume\{AB-12}"
+        pol = r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer"
+        assert dus._read_reg(Reg, 1, vol, "NukeOnDelete") == (False, None)
+        Reg.tree = {(1, vol): {"NukeOnDelete": 0, "MaxCapacity": PermissionError(5, "x")}, (2, pol): {}}
+        assert dus._read_reg(Reg, 1, vol, "NukeOnDelete") == (True, 0)
+        assert dus._read_reg(Reg, 1, vol, "MaxCapacity") == (True, dus._UNREADABLE_VALUE)
+        assert dus._read_reg(Reg, 1, vol, "Nope") == (True, None)
+        assert dus.recycle_blocker(1, 3, 0, dus._UNREADABLE_VALUE, 100 * self.GB)
+        assert dus.recycle_blocker(1, 3, 0, None, 100 * self.GB, dus._UNREADABLE_VALUE)
+
+
+class TestIncompleteMeasure:                               # M3
+    def _break_scandir(self, monkeypatch, needle, exc=PermissionError):
+        real = os.scandir
+
+        def broken(path):
+            if os.path.abspath(str(path)).endswith(needle):
+                raise exc(13, "denied")
+            return real(path)
+        monkeypatch.setattr(os, "scandir", broken)
+
+    def test_unreadable_subfolder_is_incomplete_and_protected(self, tree, recycled, monkeypatch):
+        _write(os.path.join(tree, "library", "tmp", "deep", "f.bin"), 10)
+        self._break_scandir(monkeypatch, os.path.join("tmp", "deep"))
+        item = _item(dus.scan("library"), "tmp")
+        assert item["complete"] is False and item["protected"] is True
+        with pytest.raises(InvalidInputError):
+            dus.clear("library/tmp", confirm=True, expected_size_bytes=item["size_bytes"],
+                      expected_file_count=item["file_count"])
+        assert recycled == []
+
+    def test_unreadable_entry_stat_marks_incomplete(self, tree, monkeypatch):
+        _write(os.path.join(tree, "library", "tmp", "a.bin"), 10)
+        calls = {}
+
+        class Entry:
+            name, path = "a.bin", "x"
+
+            def stat(self, follow_symlinks=True):
+                raise PermissionError(13, "denied")
+
+        class It:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if calls:
+                    raise StopIteration
+                calls["n"] = 1
+                return Entry()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+        monkeypatch.setattr(os, "scandir", lambda p: It())
+        m = dus._measure("somewhere", ("library", "tmp"), dus._Budget())
+        assert m.unreadable is True
+
+    def test_iteration_error_marks_incomplete(self, tree, monkeypatch):
+        class It:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                raise OSError(5, "io")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+        monkeypatch.setattr(os, "scandir", lambda p: It())
+        assert dus._measure("somewhere", (), dus._Budget()).unreadable is True
+
+    def test_a_vanished_file_is_not_an_error(self, tree):
+        assert dus._measure(os.path.join(tree, "nope"), (), dus._Budget()).unreadable is False
+
+
+class TestProtectionDepth:                                 # M4
+    @pytest.mark.parametrize("rel", ["library/profiles/site", "library/profiles/site/Default",
+                                     "library/profiles/site/Default/Cookies", "launcher/baihe.pid",
+                                     "launcher/logs", "launcher/logs/run.log"])
+    def test_everything_below_is_protected(self, tree, recycled, rel):
+        _write(os.path.join(tree, *rel.split("/"), "f.txt") if rel.count("/") < 1 or "." not in rel.rsplit("/", 1)[1]
+               else os.path.join(tree, *rel.split("/")), 5)
+        parent, name = rel.rsplit("/", 1)
+        item = _item(dus.scan(parent), name)
+        assert item["protected"] is True
+        with pytest.raises(InvalidInputError):
+            dus.clear(rel, confirm=True, expected_size_bytes=item["size_bytes"],
+                      expected_file_count=item["file_count"])
+        assert recycled == []
+
+    def test_launcher_folder_itself_protected(self, tree):
+        _write(os.path.join(tree, "launcher", "x.lock"), 5)
+        assert _item(dus.scan(""), "launcher")["protected"] is True
+
+
+class TestScanLimits:                                      # L1
+    def test_context_is_built_once_per_scan(self, tree, monkeypatch):
+        calls = {"prot": 0, "abs": 0}
+        real_prot, real_get = dus._protected_paths, abs_.get_settings
+
+        def prot():
+            calls["prot"] += 1
+            return real_prot()
+
+        def get():
+            calls["abs"] += 1
+            return real_get()
+        monkeypatch.setattr(dus, "_protected_paths", prot)
+        monkeypatch.setattr(abs_, "get_settings", get)
+        for i in range(20):
+            _write(os.path.join(tree, "library", "dramas", f"d{i}", "a.bin"), 1)
+        dus.scan("library/dramas")
+        assert calls["prot"] == 1 and calls["abs"] == 1
+
+    def test_items_are_capped(self, tree, monkeypatch):
+        monkeypatch.setattr(dus, "MAX_ITEMS", 3)
+        for i in range(8):
+            _write(os.path.join(tree, "library", "tmp", f"f{i}.bin"), 1)
+        res = dus.scan("library/tmp")
+        assert len(res["items"]) == 3 and res["not_shown"] == 5
+        assert res["partial"] is True and res["partial_reason"] == "items"
+
+    def test_children_are_not_described_after_the_budget_is_hit(self, tree, monkeypatch):
+        for i in range(6):
+            _write(os.path.join(tree, "library", "tmp", f"d{i}", "a.bin"), 1)
+        monkeypatch.setattr(dus, "MAX_ENTRIES", 2)
+        described = []
+        real = dus._describe
+        monkeypatch.setattr(dus, "_describe", lambda *a, **k: described.append(1) or real(*a, **k))
+        res = dus.scan("library/tmp")
+        assert res["partial_reason"] == "entries"
+        assert len(described) < 6 and res["not_shown"] == 6 - len(described)
+
+    def test_only_one_scan_at_a_time(self, tree):
+        assert dus._scan_lock.acquire(blocking=False)
+        try:
+            with pytest.raises(ConflictError) as exc:
+                dus.scan("")
+            assert exc.value.message == dus.SCAN_BUSY
+        finally:
+            dus._scan_lock.release()
+        assert dus.scan("")["items"]            # released again
+
+
+class TestLinksInside:                                     # L3
+    def test_folder_with_a_link_inside_is_not_cleared(self, tree, tmp_path, recycled):
+        outside = tmp_path / "out"
+        outside.mkdir()
+        link = os.path.join(tree, "library", "source_cache", "ln")
+        try:
+            os.symlink(str(outside), link, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("no symlinks here")
+        item = _item(dus.scan("library"), "source_cache")
+        assert item["contains_link"] is True
+        with pytest.raises(InvalidInputError) as exc:
+            dus.clear("library/source_cache", confirm=True, expected_size_bytes=item["size_bytes"],
+                      expected_file_count=item["file_count"])
+        assert "link or junction" in exc.value.message
+        assert recycled == [] and outside.exists()
+
+    def test_reparse_point_attribute_counts_as_a_link(self, tree, monkeypatch):
+        st_obj = type("S", (), {"st_mode": 0o040755, "st_size": 0, "st_file_attributes": 0x400})()
+        assert dus._is_link_stat(st_obj)
+
+
+class TestIrreplaceableBackups:                            # L4
+    def test_backups_need_the_extra_confirm(self, tree, recycled):
+        _write(os.path.join(tree, "library", "backups", "manual", "m.zip"), 30)
+        lib = dus.scan("library")
+        b = _item(lib, "backups")
+        assert b["irreplaceable"] is True and "backups" in b["irreplaceable_note"].lower()
+        sub = _item(dus.scan("library/backups"), "manual")
+        assert sub["irreplaceable"] is True
+        with pytest.raises(ConflictError) as exc:
+            dus.clear("library/backups/manual", confirm=True, expected_size_bytes=sub["size_bytes"],
+                      expected_file_count=sub["file_count"])
+        assert exc.value.details["reason"] == "needs_irreplaceable_confirm"
+        assert recycled == []
+        res = dus.clear("library/backups/manual", confirm=True, expected_size_bytes=sub["size_bytes"],
+                        expected_file_count=sub["file_count"], confirm_irreplaceable=True)
+        assert res["freed_bytes"] == 30
+
+    def test_exports_stay_regenerable(self, tree):
+        _write(os.path.join(tree, "library", "backups", "exports", "e.zip"), 9)
+        ex = _item(dus.scan("library/backups"), "exports")
+        assert ex["irreplaceable"] is False and ex["regenerable"]
+        assert _item(dus.scan("library/backups/exports"), "e.zip")["irreplaceable"] is False
+
+
+class TestBroadDataRoot:                                   # L5
+    def test_home_folder_as_data_root_is_read_only(self, tree, recycled, monkeypatch, tmp_path):
+        monkeypatch.setattr(dus, "_home_dirs", lambda: [os.path.realpath(tree)])
+        res = dus.scan("library")
+        assert res["items"] and all(i["protected"] for i in res["items"])
+        assert dus.ROOT_TOO_BROAD in {i["protected_reason"] for i in res["items"]}
+        with pytest.raises(InvalidInputError) as exc:
+            dus.clear("library/source_cache", confirm=True, expected_size_bytes=400,
+                      expected_file_count=1)
+        assert exc.value.message == dus.ROOT_TOO_BROAD
+        with pytest.raises(InvalidInputError):
+            dus.move("library/backups/auto", str(tmp_path), confirm=True)
+        assert recycled == []
+
+    def test_drive_root_as_data_root(self, tmp_path):
+        assert dus._root_blocker(os.path.abspath(os.sep)) == dus.ROOT_TOO_BROAD
+        assert dus._root_blocker(str(tmp_path)) is None

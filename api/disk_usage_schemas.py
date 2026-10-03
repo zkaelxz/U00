@@ -31,6 +31,8 @@ class DiskUsageItem(BaseModel):
     percent_of_parent: float
     modified_at: Optional[str] = None
     is_link: bool = False
+    contains_link: bool = Field(False, description="A link or junction is somewhere inside; "
+                                                   "clearing the folder whole is refused.")
     complete: bool = Field(True, description="False when the scan's limit cut this item's "
                                              "measurement short (size is a lower bound).")
     protected: bool
@@ -51,11 +53,16 @@ class DiskUsageScan(BaseModel):
     items: List[DiskUsageItem]
     partial: bool = Field(description="A walk limit (entries or time) was hit: sizes are "
                                       "lower bounds.")
-    partial_reason: Optional[Literal["entries", "time"]] = None
+    partial_reason: Optional[Literal["entries", "time", "items"]] = None
+    not_shown: int = Field(0, description="Items left out because the folder holds more than "
+                                          "the list limit or the walk limit was hit.")
     scanned_entries: int
     busy_reason: Optional[str] = Field(None, description="Set while a job or library task "
                                                          "blocks clear and move.")
     recycle_available: bool
+    recycle_reason: Optional[str] = Field(None, description="Why Clear is unavailable "
+                                                            "(no Recycle Bin, or Baihe is "
+                                                            "running as a Windows service).")
     disk_total_bytes: Optional[int] = None
     disk_free_bytes: Optional[int] = None
 

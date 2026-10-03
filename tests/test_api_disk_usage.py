@@ -41,10 +41,11 @@ def _write(path, size):
 
 
 @pytest.fixture
-def tree(isolated_db):
+def tree(isolated_db, monkeypatch):
     lib = db.LIBRARY_DIR
     _write(os.path.join(lib, "source_cache", "x.html"), 400)
     _write(os.path.join(lib, "dramas", "1", "audio.mp3"), 1000)
+    monkeypatch.setattr(dus, "recycle_unavailable_reason", lambda: None)
     return os.path.dirname(lib)
 
 
@@ -161,3 +162,21 @@ def test_remote_admin_refused_auth_on(tree, recycled, method, path, body):
 def test_openapi_has_the_routes_and_no_secret_fields(tree):
     schema = json.dumps(_local(_app()).get("/api/openapi.json").json())
     assert "/api/data-usage/recycle" in schema
+
+
+def test_a_second_scan_at_the_same_time_is_a_409(tree):
+    client = _local(_app())
+    assert dus._scan_lock.acquire(blocking=False)
+    try:
+        r = client.get(BASE)
+    finally:
+        dus._scan_lock.release()
+    assert r.status_code == 409 and "already running" in r.text
+    assert client.get(BASE).status_code == 200
+
+
+def test_scan_reports_why_clear_is_unavailable(tree, monkeypatch):
+    monkeypatch.setattr(dus, "recycle_unavailable_reason", lambda: dus.NOT_INTERACTIVE)
+    body = _local(_app()).get(BASE).json()
+    assert body["recycle_available"] is False and body["recycle_reason"] == dus.NOT_INTERACTIVE
+    assert "not_shown" in body

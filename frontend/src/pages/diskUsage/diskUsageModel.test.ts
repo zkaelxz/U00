@@ -8,11 +8,11 @@ import {
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
   name: 'tmp', path: 'library/tmp', kind: 'folder', size_bytes: 1_500_000, file_count: 12,
-  percent_of_parent: 40, modified_at: null, is_link: false, complete: true, protected: false,
+  percent_of_parent: 40, modified_at: null, is_link: false, contains_link: false, complete: true, protected: false,
   protected_reason: null, regenerable: null, irreplaceable: false, irreplaceable_note: null,
   movable: { supported: false, reason: 'Fixed place.', what: null }, ...over,
 })
-const scan = { busy_reason: null, recycle_available: true }
+const scan = { busy_reason: null, recycle_available: true, recycle_reason: null }
 
 describe('size formatting', () => {
   it('uses the shared decimal byte formatter', () => {
@@ -59,6 +59,12 @@ describe('what can be done', () => {
     expect(clearBlock(item(), { ...scan, busy_reason: 'A job is running.' })).toBe('A job is running.')
     expect(clearBlock(item(), { ...scan, recycle_available: false })).toMatch(/Recycle Bin/)
     expect(clearBlock(item({ complete: false }), scan)).toMatch(/fully counted/)
+  })
+  it('says why the Recycle Bin is unavailable, and refuses a folder holding a link', () => {
+    const service = { ...scan, recycle_available: false, recycle_reason: 'Clear needs Baihe to run as you, not as a Windows service.' }
+    expect(clearBlock(item(), service)).toBe(service.recycle_reason)
+    expect(moveBlock(item({ movable: { supported: true, reason: null, what: 'backups' } }), service)).toBeNull()
+    expect(clearBlock(item({ contains_link: true }), scan)).toMatch(/link or junction/)
   })
   it('move needs support and an idle library', () => {
     expect(moveBlock(item(), { busy_reason: null })).toBe('Fixed place.')

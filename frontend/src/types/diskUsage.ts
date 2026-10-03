@@ -18,6 +18,7 @@ export type DiskUsageItem = {
   percent_of_parent: number
   modified_at: string | null
   is_link: boolean
+  contains_link: boolean
   complete: boolean
   protected: boolean
   protected_reason: string | null
@@ -34,10 +35,12 @@ export type DiskUsageScan = {
   file_count: number
   items: DiskUsageItem[]
   partial: boolean
-  partial_reason: 'entries' | 'time' | null
+  partial_reason: 'entries' | 'time' | 'items' | null
+  not_shown: number
   scanned_entries: number
   busy_reason: string | null
   recycle_available: boolean
+  recycle_reason: string | null
   disk_total_bytes: number | null
   disk_free_bytes: number | null
 }

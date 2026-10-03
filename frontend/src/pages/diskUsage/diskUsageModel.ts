@@ -6,9 +6,11 @@ export { formatBytes }
 
 export const ROOT_LABEL = 'Data folder'
 export const NO_RECYCLE_BIN_TEXT = 'Clearing sends items to the Windows Recycle Bin, and this system has none.'
-export const PARTIAL_TEXT: Record<'entries' | 'time', string> = {
+export const LINK_INSIDE_TEXT = "This folder contains a link or junction, so it can't be cleared whole. Open it and clear items inside instead."
+export const PARTIAL_TEXT: Record<'entries' | 'time' | 'items', string> = {
   entries: 'This folder has more files than can be counted at once. Sizes shown are at least this much.',
   time: 'Counting took too long and was stopped. Sizes shown are at least this much.',
+  items: 'This folder holds more items than can be listed.',
 }
 
 export type Crumb = { label: string; path: string }
@@ -46,10 +48,11 @@ export function itemTone(item: DiskUsageItem): Tone {
 }
 
 /** Why Clear is unavailable for this item right now, or null. */
-export function clearBlock(item: DiskUsageItem, scan: Pick<DiskUsageScan, 'busy_reason' | 'recycle_available'>): string | null {
+export function clearBlock(item: DiskUsageItem, scan: Pick<DiskUsageScan, 'busy_reason' | 'recycle_available' | 'recycle_reason'>): string | null {
   if (item.protected) return item.protected_reason ?? 'Protected.'
   if (scan.busy_reason) return scan.busy_reason
-  if (!scan.recycle_available) return NO_RECYCLE_BIN_TEXT
+  if (!scan.recycle_available) return scan.recycle_reason || NO_RECYCLE_BIN_TEXT
+  if (item.contains_link) return LINK_INSIDE_TEXT
   if (!item.complete) return 'This could not be fully counted, so its size can not be checked before clearing. Open it and clear pieces.'
   return null
 }
