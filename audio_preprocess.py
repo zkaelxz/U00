@@ -96,7 +96,7 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
     (never treated as a failure worth falling back to the other backend
     for).
 
-    use_gpu=False keeps Demucs on the CPU (None leaves the library's own
+    use_gpu=False keeps Demucs on the CPU and makes audio-separator refuse (None leaves the library's own
     choice). event_cb(event, value), if given, reports "loading" (the
     backend name, before the model is downloaded/loaded, which cannot report
     progress) and "device" ("gpu" or "cpu", once the model is loaded)."""
@@ -154,12 +154,18 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
                                      use_gpu=None, event_cb=None) -> str:
     """Mel-Band RoFormer via audio-separator. Downloads the model once
     (to ~/.cache/audio-separator-models) on first use. The model is
-    loaded once and reused across every chunk, not reloaded per chunk."""
+    loaded once and reused across every chunk, not reloaded per chunk.
+    use_gpu=False is refused: the library cannot be told to stay on the CPU."""
     try:
         from audio_separator.separator import Separator
     except ImportError as exc:
         raise VocalSeparationError(
             "Mel-Band RoFormer vocal separation needs: pip install audio-separator") from exc
+    if use_gpu is False:
+        # Separator picks CUDA/MPS itself whenever torch reports one and has no
+        # constructor argument to stay on the CPU, so refuse rather than use the GPU.
+        raise VocalSeparationError(
+            "audio-separator can't be limited to the CPU here. Use Demucs, or turn GPU on.")
 
     work_dir = tempfile.mkdtemp(prefix="baihe_separator_", dir=os.path.dirname(out_path) or None)
     try:

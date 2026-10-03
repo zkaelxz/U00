@@ -79,7 +79,6 @@ def _install_fake_demucs(monkeypatch, stems=("drums", "bass", "other", "vocals")
 
 
 def _install_fake_audio_separator(monkeypatch, vocals_only=True, separate_exc=None):
-    import soundfile as sf
     captured = {"separate_paths": []}
 
     class FakeSeparator:
@@ -96,6 +95,7 @@ def _install_fake_audio_separator(monkeypatch, vocals_only=True, separate_exc=No
                 raise separate_exc
             if not vocals_only:
                 return []
+            import soundfile as sf
             data, sr = sf.read(path, dtype="float32", always_2d=True)
             out_name = f"chunk_{len(captured['separate_paths']):04d}_(Vocals).wav"
             sf.write(os.path.join(captured["output_dir"], out_name), data, sr)
@@ -265,6 +265,38 @@ class TestSeparateVocalsAudioSeparator:
         _write_wav(in_path, seconds=0.3, samplerate=8000)
         with pytest.raises(audio_preprocess.VocalSeparationError, match="wrote no vocals stem"):
             audio_preprocess.separate_vocals_audio_separator(in_path, str(tmp_path / "vocals.wav"))
+
+    def test_gpu_off_is_refused_before_the_model_is_loaded(self, monkeypatch, tmp_path):
+        captured = _install_fake_audio_separator(monkeypatch)
+        events = []
+        with pytest.raises(audio_preprocess.VocalSeparationError,
+                           match="can't be limited to the CPU here. Use Demucs, or turn GPU on."):
+            audio_preprocess.separate_vocals_audio_separator(
+                "/fake/audio.wav", str(tmp_path / "vocals.wav"), use_gpu=False,
+                event_cb=lambda e, v: events.append((e, v)))
+        assert "model" not in captured and "output_dir" not in captured
+        assert events == []
+
+    @pytest.mark.parametrize("use_gpu", [True, None])
+    def test_gpu_on_or_unset_runs_as_before_and_reports_the_device(self, monkeypatch, tmp_path, use_gpu):
+        pytest.importorskip("soundfile")
+        captured = _install_fake_audio_separator(monkeypatch)
+        in_path, out_path = str(tmp_path / "audio.wav"), str(tmp_path / "vocals.wav")
+        _write_wav(in_path, seconds=0.3, samplerate=8000)
+        events = []
+        result = audio_preprocess.separate_vocals_audio_separator(
+            in_path, out_path, use_gpu=use_gpu, event_cb=lambda e, v: events.append((e, v)))
+        assert result == out_path and os.path.exists(out_path)
+        assert captured["model"] == audio_preprocess.MEL_ROFORMER_VOCAL_MODEL
+        assert [e for e, _ in events] == ["loading", "device"]
+
+    def test_auto_falls_back_to_demucs_on_the_cpu_when_gpu_is_off(self, monkeypatch, tmp_path):
+        pytest.importorskip("soundfile")
+        _install_fake_audio_separator(monkeypatch)
+        _install_fake_demucs(monkeypatch)
+        in_path, out_path = str(tmp_path / "audio.wav"), str(tmp_path / "vocals.wav")
+        _write_wav(in_path, seconds=0.3, samplerate=8000)
+        assert audio_preprocess.separate_vocals(in_path, out_path, use_gpu=False) == out_path
 
 
 class TestSeparateVocalsChunked:
