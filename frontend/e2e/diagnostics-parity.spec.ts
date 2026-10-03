@@ -40,7 +40,11 @@ async function mockPage(page: Page) {
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: [], count: 0 } }))
 }
 
-const openSection = (page: Page, title: RegExp) => page.locator('summary', { hasText: title }).first().click()
+const openSection = async (page: Page, title: RegExp) => {
+  // Some sections now start open; click only a closed one, as a user would.
+  const summary = page.locator('summary', { hasText: title }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+}
 
 test('the Setup card shows every check and flags ffmpeg without libass first', async ({ page }) => {
   const unmocked = await guard(page)

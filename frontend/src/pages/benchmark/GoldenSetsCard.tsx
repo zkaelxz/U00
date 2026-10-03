@@ -241,7 +241,7 @@ function ImportSection({ options, pc, onDone }: { options: BenchmarkOptions; pc:
 
   if (pc === 'remote') {
     return (
-      <Section title="Import golden set" summary={PC_ONLY_SUMMARY} storageKey="benchmark.import">
+      <Section title="Import golden set" summary={PC_ONLY_SUMMARY} storageKey="benchmark.import" defaultOpen>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )
@@ -279,7 +279,7 @@ function ImportSection({ options, pc, onDone }: { options: BenchmarkOptions; pc:
   }
 
   return (
-    <Section title="Import golden set" summary="Paste JSONL or TSV" storageKey="benchmark.import">
+    <Section title="Import golden set" summary="Paste JSONL or TSV" storageKey="benchmark.import" defaultOpen>
       <p className="muted">
         Paste a test set you already have (e.g. a FLORES-200 or WMT slice you downloaded, or your own corrected lines).
         Nothing is downloaded. Only import sets whose licence allows your use (FLORES-200 is CC BY-SA 4.0; check the WMT terms for each year). At most 500 cases per import; a case already in the set is skipped.

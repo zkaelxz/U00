@@ -48,7 +48,6 @@ test('phone: series replaces results, ‹ Results restores them, no sideways scr
   await expect(page.getByText(/Searching…/)).toBeVisible()
   s.search = 'done'
   await expect(page.getByText('12 results', { exact: true })).toBeVisible()
-  await page.getByText('Search in').click()
   await noSideways(page)
   await tallTargets(page)
 

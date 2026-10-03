@@ -86,7 +86,6 @@ test('Series view: only 2+ dramas, types, shared counts, Open (L05)', async ({ p
   await page.route('**/api/library/series', (r) => r.fulfill({ json: series }))
   await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
-  await tools.locator('summary', { hasText: 'Series' }).click()
   const panel = tools.getByRole('region', { name: 'Series' })
   await expect(panel).toContainText('Mo Dao Zu Shi')
   await expect(panel).not.toContainText('Lonely Series')

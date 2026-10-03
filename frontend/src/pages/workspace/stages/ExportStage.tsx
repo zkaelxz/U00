@@ -128,7 +128,7 @@ export default function ExportStage() {
         <MarkExported />
       </section>
       {fmt === 'ass' && assStyle}
-      <Section storageKey="export.flags" title="Flag lines for review" summary="overlaps, auto-QC, dense lines">
+      <Section storageKey="export.flags" title="Flag lines for review" defaultOpen summary="overlaps, auto-QC, dense lines">
         <ExportFlags onDone={() => setReloads((n) => n + 1)} />
       </Section>
       <Section storageKey="export.media" title="Video and audio" summary="burned-in video, audiobook">

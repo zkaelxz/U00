@@ -171,6 +171,7 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
 export async function openVoices(page: Page) {
   await page.goto('/#/drama/1/dub')
   const summary = page.locator('summary', { hasText: 'Voices and cloning' }).first()
-  await summary.click()
+  // The section starts open; click only a closed one.
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
   return page.getByRole('region', { name: 'Voices and cloning' })
 }

@@ -40,7 +40,6 @@ test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', a
   await chat.getByText('Tools used (2)').click()
   await expect(chat.getByRole('list', { name: 'Tools used' }).getByRole('listitem')).toHaveCount(2)
   await expect(chat.getByRole('figure', { name: 'Proposed fix' })).toContainText('not applied')
-  await chat.locator('summary').filter({ hasText: 'Engine' }).click()
   await page.getByRole('region', { name: 'Tools' }).getByText('What it can read').click()
 
   const card = page.getByRole('region', { name: 'Backlog' })

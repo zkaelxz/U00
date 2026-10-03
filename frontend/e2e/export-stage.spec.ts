@@ -75,7 +75,6 @@ test('flag actions run only on click and report the result', async ({ page }) =>
   await page.goto('/#/drama/1/export')
   await expect(page.getByTestId('readiness')).toBeVisible()
   expect(posts).toBe(0)
-  await openGroup(page, 'Flag lines for review')
   await page.getByRole('button', { name: 'Flag overlapping lines' }).click()
   await expect(page.getByTestId('flag-result-overlaps')).toHaveText('Flagged 0 lines.')
   await page.getByRole('button', { name: 'Run auto-QC and flag' }).click()

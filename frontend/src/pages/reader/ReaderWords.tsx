@@ -38,7 +38,7 @@ export function WordsSection({ dramaId, page, chapterSize, engines, engine, onEn
     onLookedUp()
   })
   return (
-    <Section title="Words" storageKey="reader.words" summary="Look up this page's words once, then tap a word to see it">
+    <Section title="Words" storageKey="reader.words" defaultOpen summary="Look up this page's words once, then tap a word to see it">
       <label className="reader-check">
         <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
         Use AI for words the dictionary doesn't have

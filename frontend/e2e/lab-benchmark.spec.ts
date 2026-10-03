@@ -39,7 +39,6 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
 
   // Import a golden set from pasted TSV.
   const sets = page.getByRole('region', { name: 'Golden sets' })
-  await sets.locator('summary', { hasText: 'Import golden set' }).click()
   await sets.getByLabel('Set name', { exact: true }).first().fill(setName)
   await sets.getByLabel('Format', { exact: true }).selectOption('tsv')
   await sets.getByLabel('Cases', { exact: true }).fill('你好\tHello\n谢谢\tThank you\n再见\tGoodbye')

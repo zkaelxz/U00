@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSection } from './diagnosticsInstallsMocks'
 import { openSettingsGroups } from './settingsNav'
 
 // Phone project (390x844, touch): Diagnostics admin with the Log, the
@@ -59,7 +60,7 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
   // The job blocks installs; drop it so the Install button works.
   await page.unroute('**/api/jobs')
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 0, items: [] } }))
-  await page.locator('summary', { hasText: /^Packages/ }).click()
+  await openSection(page, /^Packages/)
   const install = page.getByRole('button', { name: 'Install yt-dlp' })
   await expect(install).toBeEnabled({ timeout: 10_000 })
 
@@ -118,8 +119,8 @@ test('Diagnostics at 360px: Setup card, Packages with GPU PyTorch fit', async ({
   } }))
   await page.goto('/#/diagnostics')
   await expect(page.getByTestId('setup-rows')).toBeVisible()
-  await page.locator('summary', { hasText: /^Packages/ }).click()
-  await page.locator('summary', { hasText: /^GPU PyTorch/ }).click() // 'missing' is not a problem, so it starts folded
+  await openSection(page, /^Packages/)
+  await openSection(page, /^GPU PyTorch/) // 'missing' is not a problem, so it starts folded
   await expect(page.getByRole('table', { name: 'PyTorch versions' })).toContainText('0.26.0+cu128')
   await expect(page.getByRole('button', { name: 'Set up GPU PyTorch' })).toBeVisible()
 

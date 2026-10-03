@@ -189,7 +189,7 @@ export default function SettingsPage() {
               </div>
             </Card>
           </Fold>
-          <Fold id="engines" signals={signals} summary="Keys, tests and which engine does what" defaultOpen>
+          <Fold id="engines" signals={signals} summary="Keys, tests and which engine does what">
             <EngineRoutingCard
               refreshToken={routingToken}
               settings={settings}

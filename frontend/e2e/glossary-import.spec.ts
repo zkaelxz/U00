@@ -11,7 +11,6 @@ const TERMS = [
 
 async function openGlossary(page: Page) {
   await page.goto('/#/drama/1/translate')
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await expect(glossary.getByLabel('Project instructions')).toBeVisible()
   return glossary

@@ -128,7 +128,6 @@ test('engine picker sends the pick and saves only what changed', async ({ page }
   const s = await mockAssistant(page, { developerMode: true, engine: 'claude' })
   await page.goto('/#/assistant')
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
-  await chat.locator('summary').filter({ hasText: 'Engine' }).click()
   await expect(chat.getByLabel('Engine', { exact: true })).toHaveValue('claude')
   const save = chat.getByRole('button', { name: 'Save as default' })
   await expect(save).toBeDisabled()

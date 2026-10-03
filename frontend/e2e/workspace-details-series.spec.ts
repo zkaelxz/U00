@@ -93,7 +93,6 @@ test('Edit details "+ New series…" sends the name and then shows the new serie
 test('the glossary box explains a drama without a series and creates one in one tap', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: null })
   await page.goto('/#/drama/2/translate')
-  await page.locator('.section-title', { hasText: 'Glossary' }).first().click()
   const box = page.getByTestId('series-assign')
   await expect(box).toContainText("isn't in a series, so it can't hold glossary terms")
   await expect(page.getByRole('button', { name: 'Add term' })).toBeDisabled()
@@ -106,7 +105,6 @@ test('the glossary box explains a drama without a series and creates one in one 
 test('the glossary box can move the drama to another series', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: 41 })
   await page.goto('/#/drama/2/translate')
-  await page.locator('.section-title', { hasText: 'Glossary' }).first().click()
   const box = page.getByTestId('series-assign')
   await expect(box.getByLabel('Series', { exact: true })).toHaveValue('41')
   await box.getByLabel('Series', { exact: true }).selectOption('7')

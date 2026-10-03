@@ -141,7 +141,7 @@ export default function DiscoverPage() {
           <h3>Find on official platforms</h3>
           <FindPanel engine={engine} canTranslate={aiReady} />
         </section>
-        <Section title="Search baihehub" summary="Chinese titles database" storageKey="discover.baihehub">
+        <Section title="Search baihehub" summary="Chinese titles database" storageKey="discover.baihehub" defaultOpen>
           <BaihehubPanel engine={engine} canTranslate={aiReady} />
         </Section>
         <Section title="Open a site or explain a page" summary="New tab, or steps for a site you don't read" storageKey="discover.nav">
