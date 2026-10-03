@@ -47,7 +47,7 @@ permissions:
 # (see CLAUDE.md's GitHub Actions minutes section), so a superseded run
 # here is worth cancelling promptly.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 jobs:

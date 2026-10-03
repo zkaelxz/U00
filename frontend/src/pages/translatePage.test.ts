@@ -12,6 +12,7 @@ import {
   pickEngine,
   pickLanguage,
   pickModel,
+  showLocalOnlyNote,
   swapDirection,
   visibleHistory,
 } from './translatePage'
@@ -101,5 +102,16 @@ describe('history', () => {
     expect(visibleHistory(items, false)).toHaveLength(HISTORY_PREVIEW)
     expect(visibleHistory(items, true)).toHaveLength(items.length)
     expect(visibleHistory([1, 2], false)).toEqual([1, 2])
+  })
+})
+
+describe('showLocalOnlyNote', () => {
+  const local = { ...eng('ollama'), free: true }
+  it('shows only for Ollama with no cloud engine keyed', () => {
+    expect(showLocalOnlyNote([eng('claude', false), local], 'ollama')).toBe(true)
+    expect(showLocalOnlyNote([eng('claude', true), local], 'ollama')).toBe(false)
+    expect(showLocalOnlyNote([eng('claude', false), local], 'claude')).toBe(false)
+    expect(showLocalOnlyNote([eng('claude', false), { ...eng('nllb'), free: true }], 'nllb')).toBe(false)
+    expect(showLocalOnlyNote([], 'ollama')).toBe(false)
   })
 })
