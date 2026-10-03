@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { setSourcesProxy } from '../../api/sources'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import type { SourcesSettings } from '../../types/sources'
 import { proxyProblem } from './sourcesFormat'
@@ -21,6 +22,7 @@ export function ProxyForm({ settings, onSaved }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [note, setNote] = useState('')
+  const [errorCount, setErrorCount] = useState(0)
   const problem = proxyProblem(value)
 
   async function save(url: string) {
@@ -34,12 +36,19 @@ export function ProxyForm({ settings, onSaved }: Props) {
       onSaved(next)
     } catch (e) {
       setError(e)
+      setErrorCount((n) => n + 1)
     } finally {
       setBusy(false)
     }
   }
 
   return (
+    <Section
+      title="Proxy"
+      summary={settings.proxy_configured ? 'set' : 'none'}
+      storageKey="sources.proxy"
+      openSignal={errorCount}
+    >
     <div className="sources-proxy" data-testid="sources-proxy">
       <Field label={`Proxy (${settings.proxy_configured ? 'set' : 'none'})`} help={HELP} error={problem ?? undefined}>
         <input
@@ -71,5 +80,6 @@ export function ProxyForm({ settings, onSaved }: Props) {
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true, serverText: true }} />
     </div>
+    </Section>
   )
 }

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { TRACKED, mockAccess } from './sourcesAccessMocks'
+import { TRACKED, mockAccess, openProxy } from './sourcesAccessMocks'
 import { mockSources } from './sourcesMocks'
 
 // Phone project (390x844, touch): New chapters with Check now and the
@@ -53,7 +53,9 @@ test('phone: sign-in, tier tests and proxy in the source card', async ({ page })
   await expect(access.getByText('Static: works.')).toBeVisible({ timeout: 15_000 })
   await noSideways(page)
   await tallTargets(page, '.source-access')
+  await openProxy(page)
   await tallTargets(page, '.sources-proxy')
+  await noSideways(page)
   await page.screenshot({ path: 'test-results/sources-access-phone.png', fullPage: true })
   expect(s.unmocked).toEqual([])
 })
