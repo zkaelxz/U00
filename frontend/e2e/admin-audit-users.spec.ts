@@ -50,7 +50,11 @@ async function mockPage(page: Page, permissions: string[], local = true) {
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: [], count: 0 } }))
 }
 
-const openSection = (page: Page, title: RegExp) => page.locator('summary', { hasText: title }).first().click()
+const openSection = async (page: Page, title: RegExp) => {
+  // Some sections now start open; click only a closed one, as a user would.
+  const summary = page.locator('summary', { hasText: title }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+}
 
 test('Users: lists accounts, explains the guards, and deactivates after a confirm', async ({ page }) => {
   const unmocked = await guard(page)

@@ -241,6 +241,7 @@ export function GlossaryPanel() {
     <Section
       storageKey="translate.glossary"
       title="Glossary"
+      defaultOpen
       count={terms?.length}
       summary={seriesId == null ? 'not in a series' : terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined}
     >

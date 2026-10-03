@@ -45,7 +45,6 @@ test('nav, header, empty-state and disabled reasons', async ({ page }) => {
 
   // Search in: untick both searchable sources.
   await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
-  await page.getByText('Search in').click()
   await page.getByRole('switch', { name: 'Alpha Comics' }).click()
   await page.getByRole('switch', { name: 'Beta Novels' }).click()
   await expect(page.getByRole('switch', { name: 'Beta Novels' })).not.toBeChecked()

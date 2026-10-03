@@ -32,12 +32,12 @@ const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
 
 // A "Library tools" fold: rare lists stay collapsed (spec rule 16); one with
 // nothing in it renders nothing, but a failed load stays visible.
-function ToolSection({ title, count, summary, error, children }: {
-  title: string; count?: number; summary?: string; error: unknown; children: ReactNode
+function ToolSection({ title, count, summary, error, defaultOpen, children }: {
+  title: string; count?: number; summary?: string; error: unknown; defaultOpen?: boolean; children: ReactNode
 }) {
   if (!showFold(count, error)) return null
   return (
-    <Section title={title} count={count} summary={summary} storageKey={`library.tools.${title.toLowerCase().replace(/\W+/g, '-')}`}>
+    <Section title={title} count={count} summary={summary} defaultOpen={defaultOpen} storageKey={`library.tools.${title.toLowerCase().replace(/\W+/g, '-')}`}>
       <section aria-label={title} className="tool-body">
         <ErrorBanner error={error} />
         {children}
@@ -199,7 +199,7 @@ export default function LibraryToolsPage() {
       </header>
       <ErrorBanner error={stats.error} />
       <section className="tools-stack" aria-label="Library tools">
-        <ToolSection title="Series" count={shared?.length} summary="Dramas that share characters and glossary" error={series.error}>
+        <ToolSection title="Series" defaultOpen count={shared?.length} summary="Dramas that share characters and glossary" error={series.error}>
           <ul className="tool-list series-list">
             {shared?.map((x) => (
               <li key={x.id} className="series-item">

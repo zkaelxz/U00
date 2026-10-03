@@ -41,7 +41,9 @@ async function media(page: Page, id: number, video: boolean) {
 }
 
 async function openSection(page: Page, title: string, timeout?: number) {
-  await page.locator('.section-title', { hasText: new RegExp(`^${title}`) }).first().click({ timeout })
+  // Some sections now start open; click only a closed one.
+  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}`) }) }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open', { timeout })) === null) await summary.click({ timeout })
 }
 
 async function shot(page: Page, name: string, selector?: string) {
