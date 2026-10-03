@@ -410,7 +410,7 @@ everything, use the delete button in Library or Workspace instead.
 | `claude` | Best for tone/character voice. Supports novel reference + prompt caching. |
 | `deepseek` | Cheap, strong on Chinese. Supports novel reference. |
 | `gemini` | Close to DeepSeek on price (Flash-Lite tier), strong on Chinese/Japanese. Supports novel reference. Google's model lineup/pricing changes often — see `GEMINI_MODELS` in `translate_engines.py` if a run starts erroring. |
-| `openai` | OpenAI GPT models (default `gpt-5-mini`) over the Chat Completions API, set with `BAIHE_OPENAI_KEY`. Pay per token. Supports novel reference. OpenAI's model lineup/pricing changes often — see `OPENAI_MODELS` in `translate_engines.py` if a run starts erroring. |
+| `openai` | OpenAI GPT models (default `gpt-5-mini`) over the Chat Completions API, set with `BAIHE_OPENAI_KEY`. Pay per token. Supports novel reference. Newer GPT-5-and-later models appear in the picker after Diagnostics > Model check with "offer provider models" on, and are costed at a high ceiling ($5 in / $40 out per 1M tokens) because their real price is unknown; see `OPENAI_MODELS` in `translate_engines.py` for the built-in list and prices. |
 | `ollama` | Runs locally via [Ollama](https://ollama.com). No per-token billing, but it uses your hardware — a usable model wants meaningful RAM/VRAM. Supports novel reference. Won't match Claude/DeepSeek on nuance. |
 | `nllb` | Fully local via Meta's [NLLB-200](https://github.com/facebookresearch/fairseq/tree/nllb) (`transformers` + `sentencepiece`). Genuinely free and fully offline — no API key, ever, unlike every paid engine above. Pure MT with no instruction-following, so noticeably rougher on idiom/tone than Claude/DeepSeek/Gemini. Downloads a model (2.4–5.2GB depending on size picked) on first use, then never touches the network again. |
 
@@ -1395,6 +1395,11 @@ in the HTML. `page_fetch.py` handles this in three layers:
    then `playwright install chromium` — the second command is easy to
    miss), the page is re-fetched with a real browser engine so the
    JavaScript actually runs.
+   If Playwright's own browser is missing (for example after a Playwright
+   upgrade), an installed Google Chrome or Microsoft Edge is used instead.
+   To pick a specific browser, set the environment variable
+   `BAIHE_BROWSER_PATH` to its program file (a system variable, not
+   `.env`). Diagnostics > Setup shows whether one was found.
 3. **Manual paste.** Always available, always works: open the page in
    your browser, select all, copy, paste into the app. No dependency,
    no rendering, no guessing.
@@ -1642,10 +1647,7 @@ python run_tests.py     # run everything (a wrapper around pytest, config in pyt
 python run_tests.py -k history   # run a subset
 ```
 
-If `tests/test_sources_mangaz.py`'s RSA tests fail with
-`ModuleNotFoundError: No module named '_cffi_backend'`, run
-`pip install cffi` (a missing dependency of `cryptography`, not an app
-bug). Tests are fully mocked: no GPU, models, API keys or network
+Tests are fully mocked: no GPU, models, API keys or network
 needed.
 
 Frontend checks, from `frontend/` after `npm ci`: `npm run lint`,

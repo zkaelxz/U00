@@ -316,7 +316,8 @@ def _guarded_chromium(p):
     proxy = None
     try:
         proxy = _PinningProxy()
-        browser = p.chromium.launch(headless=True, **proxy.launch_kwargs())
+        browser = _launch_chromium(p.chromium.launch, headless=True,
+                                   **proxy.launch_kwargs())
         try:
             yield browser, proxy
         finally:
@@ -456,82 +457,23 @@ def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: s
     return html, _visible_lines(html), blob_bytes
 
 
-# Keeps every Blob a page creates alive and its object URL resolvable.
-# Injected before the site's own scripts run. Some viewers (mangaz.com's
-# own, Step 23l) call URL.revokeObjectURL() inside the image's onload, so
-# by the time anything else looks the blob is already gone -- the rendered
-# bitmap is still on screen, but its bytes are unreachable. This only
-# declines to throw away what the page itself already produced for
-# display; it decodes nothing and defeats nothing.
-_BLOB_KEEPALIVE_JS = """
-window.__keptBlobs = {};
-const __origCreateObjectURL = URL.createObjectURL.bind(URL);
-URL.createObjectURL = function (obj) {
-    const url = __origCreateObjectURL(obj);
-    try { window.__keptBlobs[url] = obj; } catch (e) {}
-    return url;
-};
-URL.revokeObjectURL = function () { /* kept resolvable on purpose */ };
-"""
-
-# Reads back the kept blobs, newest first is irrelevant -- keyed by the
-# object URL the page itself handed to its own <img> tags, so a caller can
-# tie each one to whatever element referenced it.
-_KEPT_BLOBS_JS = """
-async () => {
-    const out = {};
-    for (const [url, blob] of Object.entries(window.__keptBlobs || {})) {
-        try {
-            const buf = new Uint8Array(await blob.arrayBuffer());
-            let binary = '';
-            for (let i = 0; i < buf.length; i += 8192) {
-                binary += String.fromCharCode.apply(null, buf.subarray(i, i + 8192));
-            }
-            out[url] = btoa(binary);
-        } catch (e) {
-            // left out; a missing key means "couldn't capture"
-        }
-    }
-    return out;
-}
-"""
-
-
 @contextmanager
-def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500,
-                     keep_blobs: bool = False):
+def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500):
     """An open, loaded page the caller drives itself, instead of the
     one-shot fetch_rendered() shape.
 
-    For a site whose content only appears as its own viewer is navigated
-    (mangaz.com's paginated reader, Step 23l): the caller steps through
-    using that site's own public viewer API and reads what it produces,
-    rather than this project reproducing the site's rendering itself.
-    With `keep_blobs`, blobs the page creates stay resolvable for
-    `kept_blob_bytes()` to read back.
+    For a site whose content only appears as its own viewer is navigated:
+    the caller steps through using that site's own public viewer API and
+    reads what it produces, rather than this project reproducing the
+    site's rendering itself.
     """
     sync_playwright = _require_playwright()
     with sync_playwright() as p:
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
-            if keep_blobs:
-                page.add_init_script(_BLOB_KEEPALIVE_JS)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="domcontentloaded")
             page.wait_for_timeout(wait_ms)
             yield page
-
-
-def kept_blob_bytes(page) -> dict:
-    """{object URL: real bytes} for every Blob a `keep_blobs` session's
-    page has created so far. A blob that couldn't be read is left out."""
-    import base64
-    out = {}
-    for blob_url, b64 in (page.evaluate(_KEPT_BLOBS_JS) or {}).items():
-        try:
-            out[blob_url] = base64.b64decode(b64)
-        except (ValueError, TypeError):
-            continue
-    return out
 
 
 def _url_matches(url: str, pattern) -> bool:
@@ -562,7 +504,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
     whose URL matches `url_pattern`, as the page's own JavaScript makes
     them -- yielding `(page, captured)` so the caller can also drive the
     page further (click, scroll, call a viewer's own API) the same way
-    `rendered_session()` already lets mangaz.py step through a reader.
+    `rendered_session()` lets a caller step through a reader.
 
     For a site that protects its own content API with something computed
     client-side -- a request signature built from a nonce, a timestamp,
@@ -572,7 +514,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
     real, already-signed request/response pairs the page makes on its
     own, instead of porting the signing algorithm to Python. The same
     "let the site's own execution path produce the result" principle
-    mangaz.py and manhuaku.py already apply to descrambling and AES,
+    manhuaku.py already applies to descrambling,
     extended here to an API a site protects with a computed signature
     rather than encrypted output. Nothing about the signature is ever
     inspected, guessed at, or reproduced -- only the response body the
@@ -619,6 +561,23 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
             yield page, captured
 
 
+# Readers that load each page image as it scrolls into view fill in
+# nothing for a single jump to the bottom: step down about a screen at a
+# time (bounded to ~10 s), then land at the bottom as before.
+_SCROLL_THROUGH_JS = """
+async () => {
+    let y = 0;
+    for (let i = 0; i < 40; i++) {
+        y += Math.max(window.innerHeight * 0.9, 400);
+        window.scrollTo(0, y);
+        await new Promise(r => setTimeout(r, 250));
+        if (y >= document.documentElement.scrollHeight) break;
+    }
+    window.scrollTo(0, document.body.scrollHeight);
+}
+"""
+
+
 @contextmanager
 def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     """A rendered, settled page, open for the caller to read from --
@@ -640,7 +599,7 @@ def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
             page = _guarded_page(browser)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="networkidle")
             try:
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.evaluate(_SCROLL_THROUGH_JS)
                 page.wait_for_load_state("networkidle", timeout=timeout * 1000)
             except Exception:
                 pass  # a scroll-triggered navigation or a slow settle isn't fatal
@@ -679,6 +638,116 @@ def _require_playwright():
             "The second command downloads the browser and is easy to miss."
         )
     return sync_playwright
+
+
+# ---------------------------------------------------------------------------
+# Which browser program to launch
+# ---------------------------------------------------------------------------
+#
+# Playwright pins one exact Chromium build per release, so upgrading the
+# package makes the build it downloaded earlier "missing". Rather than ask
+# for another download, the launch order is: BAIHE_BROWSER_PATH if that
+# file exists, then Playwright's own build, then an installed Chrome or
+# Edge. Nothing is downloaded here.
+
+BROWSER_ENV = "BAIHE_BROWSER_PATH"
+
+BROWSER_MISSING = ("No browser is available for JavaScript-only sites. Install Google Chrome "
+                   "or Microsoft Edge, or run the installer's repair (or "
+                   "`python -m playwright install chromium`), or set BAIHE_BROWSER_PATH to "
+                   "a Chrome or Edge program file. Then try again.")
+
+
+class BrowserNotFound(RuntimeError):
+    """No usable browser program was found. The message is fixed text with
+    no filesystem path, so it is safe to show."""
+
+
+def _system_browser_candidates():
+    """(name, path) in preference order for this OS."""
+    import shutil
+    import sys
+    out = []
+    if sys.platform == "win32":
+        roots = [os.environ.get(v) for v in ("ProgramFiles", "ProgramFiles(x86)", "LocalAppData")]
+        for root in (r for r in roots if r):
+            out.append(("Chrome", os.path.join(root, "Google", "Chrome", "Application", "chrome.exe")))
+            out.append(("Edge", os.path.join(root, "Microsoft", "Edge", "Application", "msedge.exe")))
+    elif sys.platform == "darwin":
+        for base in ("/Applications", os.path.expanduser("~/Applications")):
+            out.append(("Chrome", base + "/Google Chrome.app/Contents/MacOS/Google Chrome"))
+            out.append(("Edge", base + "/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"))
+    else:
+        for exe, name in (("google-chrome", "Chrome"), ("google-chrome-stable", "Chrome"),
+                          ("microsoft-edge", "Edge"), ("microsoft-edge-stable", "Edge"),
+                          ("chromium", "Chromium"), ("chromium-browser", "Chromium")):
+            found = shutil.which(exe)
+            if found:
+                out.append((name, found))
+    return out
+
+
+def find_system_browser():
+    """(name, path) of an installed Chrome, Edge or Chromium, or None."""
+    return next(((n, p) for n, p in _system_browser_candidates() if os.path.isfile(p)), None)
+
+
+def _explicit_browser():
+    path = (os.environ.get(BROWSER_ENV) or "").strip().strip('"')
+    return path if path and os.path.isfile(path) else None
+
+
+def _bundled_browser_present() -> bool:
+    """Whether any Playwright-downloaded Chromium exists on disk. It cannot
+    say whether that build is the one the installed Playwright wants."""
+    dirs = []
+    env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if env and env != "0":
+        dirs.append(env)
+    if os.environ.get("LOCALAPPDATA"):
+        dirs.append(os.path.join(os.environ["LOCALAPPDATA"], "ms-playwright"))
+    home = os.path.expanduser("~")
+    dirs += [os.path.join(home, "Library", "Caches", "ms-playwright"),
+             os.path.join(home, ".cache", "ms-playwright")]
+    for d in dirs:
+        try:
+            if any(n.startswith("chromium") and os.listdir(os.path.join(d, n))
+                   for n in os.listdir(d)):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def browser_status() -> dict:
+    """{found, name}: what a browser launch would use, without launching.
+    Never includes a path."""
+    if _explicit_browser():
+        return {"found": True, "name": "custom"}
+    if _bundled_browser_present():
+        return {"found": True, "name": "Playwright Chromium"}
+    system = find_system_browser()
+    if system:
+        return {"found": True, "name": system[0]}
+    return {"found": False, "name": None}
+
+
+def _launch_chromium(launch, *args, **kwargs):
+    """`launch(*args, **kwargs)` (chromium.launch or launch_persistent_context),
+    falling back to an installed Chrome/Edge when Playwright's own build is
+    missing. Raises BrowserNotFound when there is none."""
+    explicit = _explicit_browser()
+    if explicit:
+        return launch(*args, executable_path=explicit, **kwargs)
+    try:
+        return launch(*args, **kwargs)
+    except Exception as e:
+        if "Executable doesn't exist" not in str(e) and "playwright install" not in str(e):
+            raise
+    system = find_system_browser()
+    if system is None:
+        raise BrowserNotFound(BROWSER_MISSING) from None
+    return launch(*args, executable_path=system[1], **kwargs)
 
 
 def _visible_lines(html: str) -> str:
@@ -733,9 +802,9 @@ def _launch_persistent(profile_dir: str, headless: bool):
     proxy = None
     try:
         proxy = _PinningProxy()
-        context = pw.chromium.launch_persistent_context(profile_dir, headless=headless,
-                                                        service_workers="block",
-                                                        **proxy.launch_kwargs())
+        context = _launch_chromium(pw.chromium.launch_persistent_context, profile_dir,
+                                   headless=headless, service_workers="block",
+                                   **proxy.launch_kwargs())
     except Exception:
         if proxy is not None:
             proxy.stop()

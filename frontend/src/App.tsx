@@ -131,7 +131,9 @@ export default function App() {
   return (
     <>
       <header className="app-header">
-        <h1>Baihe Studio</h1>
+        <h1>
+          Baihe<span className="title-rest"> Studio</span>
+        </h1>
         <nav aria-label="Main">
           {NAV.map(([label, target, active]) => (
             <a
@@ -142,13 +144,13 @@ export default function App() {
               {label}
             </a>
           ))}
-          <GearMenu items={gearItems(canViewUsers(session), developerMode)} route={route} />
         </nav>
         <div className="header-end">
           <JobsMenu />
           <NotificationBell />
           <ReportProblemButton />
           <ThemeMenu />
+          <GearMenu items={gearItems(canViewUsers(session), developerMode)} route={route} />
           <ApiStatus />
           {user && <UserMenu user={user} />}
         </div>

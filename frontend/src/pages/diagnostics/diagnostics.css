@@ -46,25 +46,6 @@
   .setup-list > li .setup-value { grid-column: 1 / -1; grid-row: 2; }
 }
 
-/* Support report preview: label / value rows. */
-.report-list { margin: 0; display: grid; }
-.report-row {
-  display: grid;
-  grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr);
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-  border-top: 1px solid var(--border);
-}
-.report-row:first-child { border-top: 0; }
-.report-row dt { font-weight: 600; }
-.report-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.report-items { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: 2px; }
-.report-items.mono { font-family: var(--font-mono); font-size: var(--text-sm); }
-.report-item-name { font-weight: 500; }
-@media (max-width: 640px) {
-  .report-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-}
-
 /* Package rows: name and purpose, then the Install…/Upgrade… button (own line on phones, index.css). */
 .pkg-list { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
 .pkg-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
@@ -117,7 +98,7 @@
 .task-pkg.role-optional { border-style: dotted; }
 .pkg-meta .ok { color: var(--ok); }
 
-/* Log, support report and install output. */
+/* Log and install output. */
 .diag-pre {
   margin: 0;
   padding: var(--space-3);
@@ -176,15 +157,6 @@
   .hf-terms { display: inline-flex; align-items: center; min-height: 44px; padding-inline: var(--space-1); }
 }
 
-/* Bug reports (BugReportsSection) */
-.bug-report-list .bug-report-main { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
-/* Phones: keep Delete… beside Copy instead of on its own row (index.css
-   gives .confirm-button a full row under 640 px). */
-@media (max-width: 640px) {
-  .bug-report-list .actions { margin-left: auto; justify-content: flex-end; }
-  .bug-report-list .confirm-button { display: inline-flex; flex: 0 0 auto; }
-}
-
 /* Model cache rows with a delete button. */
 .diag-cache li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .diag-cache li > span { min-width: 0; overflow-wrap: anywhere; }
@@ -217,3 +189,16 @@
 .audit-detail { overflow-wrap: anywhere; }
 .admin-user-list .admin-user-main { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
 .admin-user-list .actions { flex-wrap: wrap; }
+
+/* Setup > models: an engine row with its downloads indented under it. */
+.diag-rows.model-engines > li { display: block; }
+.diag-rows.model-engines .diag-cache { padding-left: var(--space-3) !important; }
+.diag-page h4 + .muted, .diag-page .section-body > h4 { margin-top: 0; }
+.section-body > h4 { margin-top: var(--space-2); }
+
+/* Install by task: a task's missing packages (size, source, extras) in a quiet fold, not a box. */
+.task-details { font-size: var(--font-sm); }
+.task-details > summary { cursor: pointer; color: var(--muted); }
+@media (pointer: coarse), (max-width: 640px) {
+  .task-details > summary { display: flex; align-items: center; min-height: 44px; }
+}

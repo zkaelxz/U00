@@ -59,6 +59,8 @@ async function guard(page: Page): Promise<string[]> {
 }
 
 async function mockPage(page: Page, o: { jobs?: unknown[]; setup?: unknown; stats?: unknown } = {}) {
+  // No task groups here, so a missing package is installed one by one from "Not installed".
+  await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: { tasks: [], packages: {} } }))
   await page.route('**/api/diagnostics', (r) => r.fulfill({ json: overview }))
   await page.route('**/api/diagnostics/setup-checks', (r) => r.fulfill({ json: o.setup ?? setup() }))
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: o.jobs ?? [], count: (o.jobs ?? []).length } }))
@@ -74,7 +76,7 @@ test('keeps the testids, hides Jobs when empty, and opens Setup on a problem', a
   const summary = page.getByTestId('diagnostics-summary')
   await expect(summary.locator('.pill')).toHaveText(['1 setup problem', '2 of 4 packages', 'No jobs running'])
   await expect(summary.locator('.pill').first()).toHaveClass(/pill-warn/)
-  // Setup is an always-open card; the problem sorts first with a Problem badge.
+  // Setup opens by itself on a problem; the problem sorts first with a Problem badge.
   const setupRows = page.getByTestId('setup-rows')
   await expect(setupRows).toBeVisible()
   await expect(setupRows.locator('li').first()).toContainText('ffmpeg')
@@ -107,7 +109,6 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   })
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Missing packages/)
   await openSection(page, /^Danger zone/)
 
   await page.getByRole('button', { name: 'Install yt-dlp' }).click()
@@ -155,7 +156,6 @@ test('install errors: 409 shows the server sentence, 404 the unknown-package lin
   }))
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Missing packages/)
   await page.getByRole('button', { name: 'Install yt-dlp' }).click()
   await page.getByRole('button', { name: 'Confirm install yt-dlp' }).click()
   await expect(page.getByRole('alert')).toHaveText('A background job is running or queued; wait for it to finish.')
@@ -277,7 +277,6 @@ test('away from the PC: no install, reset or extension controls and no extension
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Missing packages/)
   await expect(page.getByTestId('dependency-panel')).toContainText('Installing is PC only.')
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
   await openSection(page, /^Danger zone/)
@@ -324,7 +323,6 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   await openSection(page, /^Packages/)
   const panel = page.getByTestId('dependency-panel')
   await expect(panel).toContainText('Checking whether this is the main PC…')
-  await openSection(page, /^Missing packages/)
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
   await openSection(page, /^Danger zone/)
   await expect(page.locator('.danger-zone')).toContainText('Checking whether this is the main PC…')
@@ -343,83 +341,6 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   await expect(ext).toContainText("Couldn't confirm this is the main PC.")
   await page.waitForTimeout(300)
   expect(extensionCalls).toEqual([])
-  expect(unmocked).toEqual([])
-})
-
-const REPORT = [
-  'Python: 3.12.4',
-  'Library writable: True',
-  'Model/engine versions:',
-  '  - faster-whisper: 1.1.0',
-  'Recent errors:',
-  '  12:01 ERROR boom',
-].join('\n')
-
-test('support report: one press builds and copies it; the preview reads as rows', async ({ page, context }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  const unmocked = await guard(page)
-  await mockPage(page)
-  let builds = 0
-  await page.route('**/api/diagnostics/support-report', (r) => {
-    builds += 1
-    return r.fulfill({ json: { report: REPORT } })
-  })
-  await page.goto('/#/diagnostics')
-  const card = page.getByRole('region', { name: 'Copy a report for a bug' })
-  await expect(card.getByRole('heading', { name: 'Copy a report for a bug' })).toBeVisible()
-  expect(builds).toBe(0) // nothing is built until asked
-  await expect(card.locator('.btn-primary')).toHaveCount(1)
-
-  await card.getByRole('button', { name: 'Copy report' }).click()
-  await expect(card.getByTestId('report-note')).toHaveText('Copied. Paste it into your bug report.')
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(REPORT)
-  expect(builds).toBe(1)
-
-  // The preview is a fold: rows, the engine list nested, errors in mono; plain text one press away.
-  await card.locator('summary', { hasText: "What's in it" }).click()
-  const list = card.getByTestId('report-list')
-  await expect(list.locator('.report-row', { hasText: 'Library writable' }).locator('dd')).toHaveText('Yes')
-  await expect(list.locator('.report-row', { hasText: 'Model/engine versions' })).toContainText('faster-whisper 1.1.0')
-  await expect(list.locator('.report-items.mono')).toHaveText('12:01 ERROR boom')
-  const summaryEl = card.locator('summary', { hasText: "What's in it" })
-  await expect(summaryEl).toBeFocused() // opening it keeps focus (no re-mount)
-  const plain = card.getByRole('button', { name: 'Plain text' })
-  await expect(plain).toHaveAttribute('aria-pressed', 'false')
-  await plain.click()
-  await expect(card.locator('pre')).toHaveText(REPORT)
-  await expect(plain).toHaveAttribute('aria-pressed', 'true')
-
-  const download = page.waitForEvent('download')
-  await card.getByRole('button', { name: 'Download .txt' }).click()
-  expect((await download).suggestedFilename()).toMatch(/^baihe-support-report-\d{4}-\d{2}-\d{2}\.txt$/)
-  expect(builds).toBe(2) // each copy or download is a fresh report
-  expect(unmocked).toEqual([])
-})
-
-test('support report: a failed build shows the error, and no clipboard falls back to selected text', async ({ page }) => {
-  const unmocked = await guard(page)
-  await mockPage(page)
-  let fail = true
-  await page.route('**/api/diagnostics/support-report', (r) => fail
-    ? r.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'boom' } } })
-    : r.fulfill({ json: { report: REPORT } }))
-  await page.addInitScript(() => {
-    // Plain http on another device with no clipboard API, and the
-    // execCommand fallback refused too: nothing can copy.
-    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
-    document.execCommand = () => false
-  })
-  await page.goto('/#/diagnostics')
-  const card = page.getByRole('region', { name: 'Copy a report for a bug' })
-  await card.getByRole('button', { name: 'Copy report' }).click()
-  await expect(card.getByRole('alert')).toBeVisible()
-  await expect(card.getByTestId('report-note')).toHaveText('')
-
-  fail = false
-  await card.getByRole('button', { name: 'Copy report' }).click()
-  await expect(card.getByTestId('report-note')).toHaveText('Press Ctrl+C to copy.')
-  await expect(card.locator('pre')).toHaveText(REPORT)
-  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(REPORT)
   expect(unmocked).toEqual([])
 })
 
@@ -456,8 +377,9 @@ test('check access asks online only when pressed and links to the terms', async 
     } })
   })
   await page.goto('/#/diagnostics')
-  await expect(page.locator('summary', { hasText: 'Speaker detection' })).toContainText('Ready')
-  await openSection(page, /^Speaker detection/)
+  await expect(page.locator('summary', { hasText: /^Setup/ })).toContainText('All 6 OK') // folded: nothing is wrong
+  await openSection(page, /^Setup/)
+  await expect(page.getByTestId('pyannote-summary')).toHaveText('Ready')
   await page.getByRole('button', { name: 'Check access online' }).click()
   await expect(page.getByText('pyannote/speaker-diarization-3.1: terms not accepted')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Accept terms ↗' })).toHaveAttribute(
@@ -473,7 +395,7 @@ test('check access says why when huggingface_hub is missing', async ({ page }) =
     pyannote_installed: true, hf_token_configured: true, ready: true, models: null,
   } }))
   await page.goto('/#/diagnostics')
-  await openSection(page, /^Speaker detection/)
+  await openSection(page, /^Setup/)
   await expect(page.getByText("Can't check: huggingface_hub isn't installed.")).toHaveCount(0)
   await page.getByRole('button', { name: 'Check access online' }).click()
   await expect(page.getByText("Can't check: huggingface_hub isn't installed.")).toBeVisible()

@@ -549,6 +549,73 @@ class TestTranscribeForTimingHallucinationFilter:
         assert len(result) == 6  # nothing collapsed
 
 
+class TestTightenToWords:
+    class W:
+        def __init__(self, start, end):
+            self.start, self.end = start, end
+
+    def test_narrows_to_the_first_and_last_spoken_word(self):
+        from core import tighten_to_words
+        words = [self.W(3.2, 3.6), self.W(3.6, 4.1), self.W(4.1, 4.4)]
+        assert tighten_to_words(1.0, 8.0, words) == (3.2, 4.4)
+
+    def test_never_widens_the_segment(self):
+        from core import tighten_to_words
+        words = [self.W(0.5, 1.0), self.W(1.0, 9.0)]
+        assert tighten_to_words(1.0, 8.0, words) == (1.0, 8.0)
+
+    def test_keeps_the_segment_times_without_usable_words(self):
+        from core import tighten_to_words
+        for words in (None, [], [object()], [self.W(2.0, 2.0)], "not words"):
+            assert tighten_to_words(1.0, 8.0, words) == (1.0, 8.0)
+
+    def test_transcribe_uses_word_times_and_asks_whisper_for_them(self):
+        import core, sys, types
+
+        seen = {}
+
+        class Seg:
+            start, end, text = 0.0, 10.0, " hi "
+            words = [self.W(4.0, 4.5), self.W(4.5, 5.0)]
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                seen.update(kwargs)
+                return iter([Seg()]), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: Model()
+        sys.modules["faster_whisper"] = fake_fw
+        core._whisper_model_cache.clear()
+
+        assert core.transcribe_for_timing("/fake/audio.mp3") == [
+            {"start": 4.0, "end": 5.0, "text": "hi"}]
+        assert seen["word_timestamps"] is True
+
+
+class TestPunctuationOnlySegmentsDropped:
+    def test_a_lone_bracket_is_dropped_but_real_and_tag_lines_stay(self):
+        import core, sys, types
+
+        class Seg:
+            def __init__(self, start, text):
+                self.start, self.end, self.text, self.words = start, start + 1.0, text, None
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                texts = ["[", "你好", "...", "[Music]", "  —  ", "こんにちは。", "7"]
+                return iter([Seg(float(i), t) for i, t in enumerate(texts)]), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: Model()
+        sys.modules["faster_whisper"] = fake_fw
+        core._whisper_model_cache.clear()
+
+        got = core.transcribe_for_timing("/fake/audio.mp3")
+
+        assert [g["text"] for g in got] == ["你好", "[Music]", "こんにちは。", "7"]
+
+
 class TestLineCoverageDiagnosis:
     """Regression cover built directly from a real uploaded file: several
     lines spanning many minutes with only a few characters of text each,

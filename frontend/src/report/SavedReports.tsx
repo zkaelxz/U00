@@ -1,24 +1,24 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { deleteBugReport, getBugReport, listBugReports } from '../../api/bugReports'
-import { copyText } from '../../components/clipboard'
-import { ConfirmButton } from '../../components/ConfirmButton'
-import { ErrorBanner } from '../../components/ErrorBanner'
-import { Section } from '../../components/Section'
-import { buttonClass } from '../../components/uiClasses'
-import { PC_ONLY_DELETE_NOTE, type PcMode } from '../../hooks/usePcOnly'
-import type { BugReportListItem } from '../../types/bugReports'
-import { CopyBlock } from './LogSection'
-import { useDetailsOpen } from './diagnosticsAdmin'
+import { deleteBugReport, getBugReport, listBugReports } from '../api/bugReports'
+import { copyText } from '../components/clipboard'
+import { ConfirmButton } from '../components/ConfirmButton'
+import { ErrorBanner } from '../components/ErrorBanner'
+import { Section } from '../components/Section'
+import { buttonClass } from '../components/uiClasses'
+import { PC_ONLY_DELETE_NOTE, type PcMode } from '../hooks/usePcOnly'
+import type { BugReportListItem } from '../types/bugReports'
+import { useDetailsOpen } from '../pages/diagnostics/diagnosticsAdmin'
 
-/** "Bug reports": reports sent with "Report a problem", newest first. Loaded when opened. */
-export function BugReportsSection({ pc }: { pc: PcMode }) {
+/** "Saved reports": reports sent with "Report a problem", newest first. Loaded when opened. */
+export function SavedReports({ pc }: { pc: PcMode }) {
   const [items, setItems] = useState<BugReportListItem[] | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState<number | null>(null)
   const [shown, setShown] = useState<{ id: number; markdown: string } | null>(null)
   const [note, setNote] = useState('')
   const [openRef, open] = useDetailsOpen()
+  const shownRef = useRef<HTMLTextAreaElement>(null)
 
   const load = useCallback(() => {
     listBugReports().then((r) => {
@@ -36,9 +36,15 @@ export function BugReportsSection({ pc }: { pc: PcMode }) {
     try {
       const r = await getBugReport(id)
       setShown(r)
-      setNote(await copyText(r.markdown)
-        ? `Copied report #${id}.`
-        : `Report #${id} is shown below; copy it from there.`)
+      if (await copyText(r.markdown)) {
+        setNote(`Copied report #${id}.`)
+      } else {
+        setNote(`Report #${id} is shown below; copy it from there.`)
+        requestAnimationFrame(() => {
+          shownRef.current?.focus()
+          shownRef.current?.select()
+        })
+      }
     } catch (e) {
       setError(e)
     }
@@ -58,16 +64,16 @@ export function BugReportsSection({ pc }: { pc: PcMode }) {
   }
 
   return (
-    <Section title="Bug reports" storageKey="diagnostics.bugReports" count={items?.length}
-      summary="Sent with Report a problem">
-      <div ref={openRef} className="diag-stack" data-testid="bug-reports">
+    <Section title="Saved reports" storageKey="diagnostics.bugReports" count={items?.length}
+      summary="Reports you sent before">
+      <div ref={openRef} className="report-stack" data-testid="bug-reports">
         <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
         {items === null ? (
           <p className="muted">Loading…</p>
         ) : items.length === 0 ? (
-          <p className="muted">No reports yet. Use "Report a problem" at the top of any page.</p>
+          <p className="muted">No saved reports yet. Send one above.</p>
         ) : (
-          <ul className="pkg-list bug-report-list">
+          <ul className="bug-report-list">
             {items.map((r) => (
               <li key={r.id}>
                 <div className="bug-report-main">
@@ -92,7 +98,10 @@ export function BugReportsSection({ pc }: { pc: PcMode }) {
         )}
         {pc === 'remote' && items && items.length > 0 && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
         <span className="muted" aria-live="polite">{note}</span>
-        {shown && <CopyBlock text={shown.markdown} label={`Report #${shown.id}`} />}
+        {shown && (
+          <textarea ref={shownRef} className="report-text" readOnly rows={10} value={shown.markdown}
+            aria-label={`Report #${shown.id}`} />
+        )}
       </div>
     </Section>
   )

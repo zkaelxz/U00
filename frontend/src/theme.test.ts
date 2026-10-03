@@ -47,10 +47,12 @@ function fakeRoot() {
 }
 
 describe('theme preference', () => {
-  it('parses light, dark and sepia; anything else is system', () => {
+  it('parses light, dark, sepia and oled; anything else is system', () => {
     expect(parseTheme('dark')).toBe('dark')
     expect(parseTheme('light')).toBe('light')
     expect(parseTheme('sepia')).toBe('sepia')
+    expect(parseTheme('oled')).toBe('oled')
+    expect(parseTheme('OLED')).toBe('system')
     expect(parseTheme('neon')).toBe('system')
     expect(parseTheme(null)).toBe('system')
   })
@@ -90,10 +92,11 @@ describe('theme preference', () => {
     expect(resolveTheme('light', true)).toBe('light')
     expect(resolveTheme('dark', false)).toBe('dark')
     expect(resolveTheme('sepia', true)).toBe('sepia')
+    expect(resolveTheme('oled', false)).toBe('oled')
   })
 
   it('lists the four choices with plain labels', () => {
-    expect(THEME_OPTIONS.map((o) => o.label)).toEqual(['Match this device', 'Light', 'Dark', 'Sepia'])
+    expect(THEME_OPTIONS.map((o) => o.label)).toEqual(['Match this device', 'Light', 'Dark', 'Sepia', 'OLED black'])
     expect(themeLabel('sepia')).toBe('Sepia')
   })
 })

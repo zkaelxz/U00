@@ -6,7 +6,7 @@ import { ME } from './authMocks'
 // Skipped unless DIAG_SHOTS_DIR=<dir> is set. Every non-GET /api call is
 // aborted, and each GET the page makes is mocked with a realistic state:
 // a setup problem, a running job, packages with presets, GPU PyTorch,
-// a support report, the log, the model cache and saved reports.
+// the log and the model cache.
 
 const DIR = process.env.DIAG_SHOTS_DIR
 test.skip(!DIR, 'set DIAG_SHOTS_DIR to save screenshots')
@@ -95,23 +95,6 @@ const gpuTorch = {
   problems: [], state: 'missing', python_supported: true, recommended: CU128, variants: [CU128], probe: null,
 }
 
-const report = [
-  'Python: 3.12.4',
-  'ffmpeg: found (ffmpeg version 6.1)',
-  'JS runtime: deno',
-  'Library writable: True',
-  'API keys set: claude, gemini',
-  'Missing dependencies: cv2, torch, yt-dlp',
-  'Hugging Face cache: 3 revision(s), 4.2 GB total',
-  'Model/engine versions:',
-  '  - faster-whisper: 1.1.0',
-  '  - Qwen3-ASR: not installed',
-  '  - edge-tts: 6.1.12',
-  'OS: Windows 11 (AMD64)',
-  'Recent errors:',
-  `  2026-09-29 12:01:07 ERROR ${long}`,
-].join('\n')
-
 async function mockPage(page: Page) {
   await page.route('**/api/**', (route) => {
     const r = route.request()
@@ -122,7 +105,6 @@ async function mockPage(page: Page) {
   await page.route('**/api/diagnostics/setup-checks', (r) => r.fulfill({ json: setup }))
   await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: presets }))
   await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch', (r) => r.fulfill({ json: gpuTorch }))
-  await page.route('**/api/diagnostics/support-report', (r) => r.fulfill({ json: { report } }))
   await page.route('**/api/diagnostics/log**', (r) => r.fulfill({
     json: { lines: ['2026-09-29 12:00:01 INFO started', `2026-09-29 12:01:07 ERROR ${long}`, '2026-09-29 12:02:00 INFO job done'] },
   }))
@@ -142,10 +124,6 @@ async function mockPage(page: Page) {
       gpu_touching: true, started_at: 1, finished_at: 200, duration_seconds: 199 },
     { job_id: 'b', label: 'Translating', status: 'error', description: 'Translate Signal ep 2', message: null, error: 'Timed out',
       gpu_touching: false, started_at: 1, finished_at: 62, duration_seconds: 61 },
-  ] }))
-  await page.route('**/api/diagnostics/bug-reports', (r) => r.fulfill({ json: [
-    { id: 2, stamp: '20260929T100000Z', created_at: '2026-09-29 10:00:00 UTC', summary: 'Export hangs', route: '/drama/1/export',
-      mode: 'pc', has_screenshot: true, has_server_log: true },
   ] }))
   await page.route('**/api/library/stats', (r) => r.fulfill({
     json: { total_dramas: 3, total_lines: 1210, by_status: {}, by_media_type: {}, translated_lines: 0, usage: {} },

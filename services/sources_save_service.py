@@ -52,6 +52,10 @@ from sources import chapter_order, ladder, registry
 from sources.http import Cancelled
 from sources.models import ChallengeDetected, FailureReason, SourceError, TermsProhibited
 
+# The reader refuses a chapter with more pages than this, so saving one would
+# only produce a file that never opens.
+MAX_CHAPTER_PAGES = 2000
+
 SAVE_DIRNAME = "saved_comics"
 SETTING = "comic_save"
 MAX_FOLDER_LEN = 1000
@@ -250,6 +254,8 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
             ladder.check_terms(name, adapter.capabilities())
             progress((i - 1) / total, f"Chapter {i} / {total} -- loading pages")
             pages = adapter.get_pages(ch)
+            if len(pages) > MAX_CHAPTER_PAGES:
+                raise SourceError("This chapter has too many pages to save.")
             images = []
             for j, page in enumerate(pages, start=1):
                 progress(((i - 1) + j / max(len(pages), 1)) / total,
@@ -277,8 +283,11 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
         except Cancelled:
             stopped = cancelled = True
             break
-        except (SourceError, OSError) as e:
+        except SourceError as e:
             rows.append(_row(ch, "failed", error=_scrub(str(e)) or "Save failed."))
+        except OSError as e:
+            # str(e) carries the full file path; only the OS reason is safe to show.
+            rows.append(_row(ch, "failed", error=_scrub(e.strerror or "") or "Save failed."))
     done = {r["chapter_id"] for r in rows}
     if stopped:
         rows += [_row(ch, "not_attempted", error=_NOT_ATTEMPTED) for ch in wanted

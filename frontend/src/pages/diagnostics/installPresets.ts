@@ -107,7 +107,7 @@ export function taskNotes(t: DiagnosticsInstallTask, packages: Record<string, Di
   return notes
 }
 
-/** "Optional, not installed by this button: paddleocr" (install them from Missing packages). */
+/** "Optional, not installed by this button: paddleocr" (install them one at a time under "Still to install"). */
 export const optionalMissingText = (t: DiagnosticsInstallTask): string | null =>
   t.optional_missing?.length ? `Optional, not installed by this button: ${t.optional_missing.join(', ')}` : null
 

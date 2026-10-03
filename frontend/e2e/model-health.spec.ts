@@ -13,6 +13,11 @@ const SHOTS = process.env.MODEL_HEALTH_SHOTS_DIR
 
 const card = (page: Page) => page.getByRole('region', { name: 'Model health' })
 
+// The card is a fold that opens itself only on a problem; these specs need it open.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.diagnostics.modelHealth', '1'))
+})
+
 test('the card reads the real status route and never checks providers by itself', async ({ page, request }) => {
   const real = await (await request.get('/api/models/status')).json()
   expect(Array.isArray(real.items)).toBe(true)
@@ -25,7 +30,7 @@ test('the card reads the real status route and never checks providers by itself'
     if (r.url().includes('/api/models/') && r.method() !== 'GET') posts.push(r.url())
   })
   await page.goto('/#/diagnostics')
-  await expect(card(page).getByRole('heading', { name: 'Model health' })).toBeVisible()
+  await expect(page.locator('summary', { hasText: /^Model health/ })).toBeVisible()
   await expect(card(page).getByTestId('model-health-badge')).toBeVisible()
   await expect(card(page).getByRole('button', { name: 'Check providers now' })).toBeEnabled()
   expect(posts).toEqual([])
@@ -100,7 +105,7 @@ test('Check providers now shows the check time and per-engine errors; a second c
   await c.getByRole('button', { name: 'Check providers now' }).click()
   await expect(c.getByTestId('model-health-checked')).toHaveText('Providers last checked 2026-09-30 14:03 UTC')
   const lines = c.getByRole('list', { name: 'Last provider check' }).locator('li')
-  await expect(lines).toHaveText([/^Gemini: Gemini rejected the key\. Check it in API keys, then test again\.\s*Details/, 'Claude: 12 models listed'])
+  await expect(lines).toHaveText([/^Gemini: Gemini rejected the key\. Check its key under Engines and keys, then test again\.\s*Details/, 'Claude: 12 models listed'])
   await expect(c.getByTestId('model-health-notice')).toHaveText('Checked. The list below is up to date.')
 
   await c.getByRole('button', { name: 'Check providers now' }).click()

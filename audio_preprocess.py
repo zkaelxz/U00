@@ -74,8 +74,17 @@ class VocalSeparationCancelled(VocalSeparationError):
     treats a cancel as a reason to try the next backend."""
 
 
+def _device_kind(device) -> str:
+    """"gpu" or "cpu" from a torch device (or its string); "" if unknown."""
+    text = str(device or "").lower()
+    if not text:
+        return ""
+    return "gpu" if text.startswith(("cuda", "mps")) else "cpu"
+
+
 def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
-                    progress_cb=None, cancel_check_cb=None) -> str:
+                    progress_cb=None, cancel_check_cb=None,
+                    use_gpu=None, event_cb=None) -> str:
     """Writes just the vocals of audio_path to out_path and returns
     out_path. backend: "auto" tries Mel-Band RoFormer (audio-separator)
     first and falls back to Demucs if it's missing or fails; naming a
@@ -85,13 +94,19 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
     proceeds chunk by chunk. cancel_check_cb, if given, is checked
     before each chunk starts; a True result raises VocalSeparationCancelled
     (never treated as a failure worth falling back to the other backend
-    for)."""
+    for).
+
+    use_gpu=False keeps Demucs on the CPU (None leaves the library's own
+    choice). event_cb(event, value), if given, reports "loading" (the
+    backend name, before the model is downloaded/loaded, which cannot report
+    progress) and "device" ("gpu" or "cpu", once the model is loaded)."""
     order = {"auto": ("audio_separator", "demucs")}.get(backend, (backend,))
     errors = []
     for name in order:
         try:
             return _BACKENDS[name](audio_path, out_path, progress_cb=progress_cb,
-                                   cancel_check_cb=cancel_check_cb)
+                                   cancel_check_cb=cancel_check_cb,
+                                   use_gpu=use_gpu, event_cb=event_cb)
         except VocalSeparationCancelled:
             raise
         except VocalSeparationError as exc:
@@ -135,7 +150,8 @@ def extract_background(audio_path: str, out_path: str, backend: str = "auto",
 
 def separate_vocals_audio_separator(audio_path: str, out_path: str,
                                      model: str = MEL_ROFORMER_VOCAL_MODEL,
-                                     progress_cb=None, cancel_check_cb=None) -> str:
+                                     progress_cb=None, cancel_check_cb=None,
+                                     use_gpu=None, event_cb=None) -> str:
     """Mel-Band RoFormer via audio-separator. Downloads the model once
     (to ~/.cache/audio-separator-models) on first use. The model is
     loaded once and reused across every chunk, not reloaded per chunk."""
@@ -147,6 +163,8 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
 
     work_dir = tempfile.mkdtemp(prefix="baihe_separator_", dir=os.path.dirname(out_path) or None)
     try:
+        if event_cb:
+            event_cb("loading", "audio_separator")
         try:
             separator = Separator(output_dir=work_dir, model_file_dir=_MODEL_DIR,
                                   output_single_stem="Vocals")
@@ -154,6 +172,8 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
         except Exception as exc:
             raise VocalSeparationError(
                 f"audio-separator failed to load model '{model}': {exc}") from exc
+        if event_cb:
+            event_cb("device", _device_kind(getattr(separator, "torch_device", None)))
 
         def _process_chunk(chunk_path, chunk_out_path):
             try:
@@ -176,7 +196,8 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
 
 
 def separate_vocals_demucs(audio_path: str, out_path: str, model: str = "htdemucs",
-                           progress_cb=None, cancel_check_cb=None) -> str:
+                           progress_cb=None, cancel_check_cb=None,
+                           use_gpu=None, event_cb=None) -> str:
     """
     Runs Demucs source separation on audio_path and writes just its
     vocals stem to out_path -- everything else Demucs identifies
@@ -200,7 +221,12 @@ def separate_vocals_demucs(audio_path: str, out_path: str, model: str = "htdemuc
         raise VocalSeparationError(
             "Vocal separation needs Demucs: pip install demucs") from exc
 
-    separator = Separator(model=model)
+    if event_cb:
+        event_cb("loading", "demucs")
+    # Demucs picks CUDA on its own when torch has it; honour "GPU off".
+    separator = Separator(model=model, device="cpu") if use_gpu is False else Separator(model=model)
+    if event_cb:
+        event_cb("device", _device_kind(getattr(separator, "_device", None)))
 
     def _process_chunk(chunk_path, chunk_out_path):
         try:
