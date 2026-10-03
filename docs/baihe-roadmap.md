@@ -4062,7 +4062,7 @@ Priority 5 of 5, **not independently re-verified yet**. Baihe already exposes an
 **Where these come from.** The user shared a longer ChatGPT conversation on 2026-10-03 ("Baihe Studio — what you actually want"). Its core rule: Baihe may create or supersede derivatives but never silently destroys an original, and every AI transformation stays traceable and replaceable. Each item below was checked against `origin/baihe-subtitler` at `c5730fc` (2026-10-03) with file:line evidence. Ids follow on from 143 (`docs/archive/baihe-roadmap-master.md` §5 on `baihe-subtitler`). They are **proposed**: the planning session confirms or renumbers them. Build order is the numeric order. 144 and 145 come first because they protect data; 146–151 are independent of each other; 152 needs 150; 153 is an investigation. 154 needs 144. 155 needs 144 and 145. 156 needs 147, and its first real case is the file from 153.
 
 **User decisions recorded with these steps (2026-10-03):**
-- **Keep every intermediate**, labelled with metadata (role, what produced it, from which input). Compression or moving files elsewhere can come later; nothing is deleted to save space without the user asking.
+- **Keep every intermediate**, labelled with metadata (role, what produced it, from which input). Compression or moving files elsewhere can come later; nothing is deleted to save space without the user asking. **Disk space is not a concern for now**, so no step trades completeness for size.
 - **Public benchmarks should arrive without hand-importing** (Step 152).
 - **Dubbing is not planned.** The vision document listing it was a slip. Nothing below touches dub.
 - **A trash folder with a retention window** (Step 154), even with auto backups. Backups exclude media by default and miss changes since the last run.
@@ -4459,7 +4459,7 @@ What exists today falls short:
 1. **"Save finished copy"** on a drama, and as a bulk action in Library admin. It writes a folder (or, as an option, a zip) to an **archive location** set in Settings: an absolute path that must exist and be writable. The setting is written through `local_only()` plus `_require_local_admin`, the same gate as the endpoint settings. The copy is named `<Title> (<year or episode>) [baihe-<drama id>-<YYYYMMDD>]/` and contains:
    - **`README.txt`:** what this is, which app version made it, and how to re-translate it (import `original/` into Baihe).
    - **`metadata.json`:** titles, series and episode, media type, languages, source URL, dates, the engines/models/prompt versions used (from `line_provenance`), and the sha256 of each original (Step 145).
-   - **`original/`:** byte-identical originals (Step 144). Optionally leave out originals over a size limit and record their sha256 and location instead.
+   - **`original/`:** byte-identical originals (Step 144), always included. Disk space is not a concern for now (user, 2026-10-03), so there is no size-based exclusion.
    - **`subtitles/`:** `.srt` and `.ass`, English, source and bilingual. **`transcript/lines.json`:** id, times, source, translation and speaker per line.
    - **`glossary.json`** and **`characters.json`:** the series glossary and characters as they were at export.
    - **`provenance.json`:** per-line history (Step 149, when built).
