@@ -4057,15 +4057,25 @@ Priority 5 of 5, **not independently re-verified yet**. Baihe already exposes an
 
 ---
 
-## Steps 144–153: keep the originals, make review cheap, benchmark against public data (proposed 2026-10-03)
+## Steps 144–156: keep the originals, make review cheap, benchmark against public data (proposed 2026-10-03)
 
-**Where these come from.** The user shared a longer ChatGPT conversation on 2026-10-03 ("Baihe Studio — what you actually want"). Its core rule: Baihe may create or supersede derivatives but never silently destroys an original, and every AI transformation stays traceable and replaceable. Each item below was checked against `origin/baihe-subtitler` at `c5730fc` (2026-10-03) with file:line evidence. Ids follow on from 143 (`docs/archive/baihe-roadmap-master.md` §5 on `baihe-subtitler`). They are **proposed**: the planning session confirms or renumbers them. Build order is the numeric order. 144 and 145 come first because they protect data; 146–151 are independent of each other; 152 needs 150; 153 is an investigation.
+**Where these come from.** The user shared a longer ChatGPT conversation on 2026-10-03 ("Baihe Studio — what you actually want"). Its core rule: Baihe may create or supersede derivatives but never silently destroys an original, and every AI transformation stays traceable and replaceable. Each item below was checked against `origin/baihe-subtitler` at `c5730fc` (2026-10-03) with file:line evidence. Ids follow on from 143 (`docs/archive/baihe-roadmap-master.md` §5 on `baihe-subtitler`). They are **proposed**: the planning session confirms or renumbers them. Build order is the numeric order. 144 and 145 come first because they protect data; 146–151 are independent of each other; 152 needs 150; 153 is an investigation. 154 needs 144. 155 needs 144 and 145. 156 needs 147, and its first real case is the file from 153.
 
 **User decisions recorded with these steps (2026-10-03):**
 - **Keep every intermediate**, labelled with metadata (role, what produced it, from which input). Compression or moving files elsewhere can come later; nothing is deleted to save space without the user asking.
 - **Public benchmarks should arrive without hand-importing** (Step 152).
 - **Dubbing is not planned.** The vision document listing it was a slip. Nothing below touches dub.
-- **Not part of this batch, still open:** the Work/Edition split, soft delete or trash, an archive format readable without Baihe, trust levels, the entity merge screen, translation-memory scopes, and a stage-graph re-run. See "Open questions" at the end of this block.
+- **A trash folder with a retention window** (Step 154), even with auto backups. Backups exclude media by default and miss changes since the last run.
+- **A finished copy outside Baihe is a one-way, dated snapshot, not a synced mirror** (Step 155). It is labelled so it can be found and re-translated from the original later.
+- **chrF is enough; COMET stays unbuilt** (Step 150).
+- **Build a timing and speaker benchmark** for long recordings (Step 156), alongside the Step 153 investigation.
+- **Declined (no step):**
+  - translation-memory scopes beyond series;
+  - automatically re-running everything downstream of a replaced stage.
+- **Deferred, agreed:**
+  - trust levels across glossary, characters and translation memory;
+  - the entity system (wiki scope, character merge, where detected names go).
+- **Still open:** the Work/Edition split. See "Open questions" at the end of this block.
 
 ---
 
@@ -4394,18 +4404,119 @@ The backup manifest (`auto_backup_service.py:950-963`) has no file list and no c
 2. Check each stage's output separately: the raw transcript (`raw_transcript.json`), after alignment, after re-segmentation, and after diarization. Find the first stage where the drift appears.
 3. Write up the cause, the proposed fix as its own step, and a small long-file regression case for the Benchmark Lab: timing offset at checkpoints, plus speaker accuracy if diarization is involved. That case becomes the first diarization or timing benchmark.
 
-**Exit:** a written diagnosis naming the stage that drifts, with measurements, and a follow-up fix step. Shipping a fix is not part of this step.
+**Exit:** a written diagnosis naming the stage that drifts, with measurements, and a follow-up fix step. Shipping a fix is not part of this step. The measurement method should be the one Step 156 builds, so the same file becomes its first timing case.
+
+### Step 154 — Trash folder for deleted dramas and removed media, with a retention window
+
+**Why.** Deleting a drama is permanent today. `drama_service._hard_delete_drama` (`services/drama_service.py:291-341`) renames the folder to a `.deleting-*` tombstone, deletes the row (which cascades to every child table), then `rmtree`s the tombstone. Its own docstring names it as "the single place a drama is actually removed, so roadmap Step 43's soft-delete can replace just this function." `delete_service.remove_media` (109-126) and `remove_raw_novel` (128-) delete files outright.
+
+Auto backups don't fully cover this:
+- They only hold what existed at the last backup.
+- They exclude media by default (`auto_backup_service.py:135`, `include_media: False`).
+
+Re-running doesn't cover it either: hand edits, reviewed speakers and a downloaded source that has since vanished can't be regenerated. The user asked for this on 2026-10-03, matching their earlier "soft delete, purged after X days" decision recorded under Step 43.
+
+**Scope:**
+1. **Move a deleted drama to the trash** instead of removing it:
+   - `_hard_delete_drama` writes a one-drama bundle into `<library>/trash/<drama_id>-<UTC stamp>/` before deleting the row.
+   - The bundle holds a filtered DB snapshot and the drama folder, **moved** with `os.rename` (same volume, instant), not copied.
+   - The DB snapshot reuses Step 142's machinery: `_sanitized_snapshot` plus a filter like `_user_backup_filter` (`services/library_admin_service.py:681`), generalised from "one owner" to "these drama ids".
+   - Then the row is deleted as today. The tombstone ordering (B-14) still guards against half-deleted state.
+   - `bulk_delete` (`library_admin_service.py:246`) goes through the same path.
+2. **Restore** reuses Step 143's import path (`services/backup_import_service.py:300-402`, `auto_backup_service._copy_drama`), which already remaps ids and file references:
+   - Restore as the original id when it is free, otherwise as a new drama.
+   - Files are moved back, not copied.
+   - Ownership must match, or the user must be the PC admin.
+3. **Removed media and raw novel text:** `remove_media` and `remove_raw_novel` move their files into `trash/<drama_id>-<stamp>-media/`, with a small `trash.json` naming the columns that pointed at them so restore can re-point them.
+4. **Retention:**
+   - A setting, default **30 days**.
+   - A purge sweep at startup, next to `cleanup_stale_tombstones` in `api/background.py:209-235`.
+   - An **Empty trash** action and a per-item **Delete now** action, both with confirmation.
+   - Nothing is ever purged as a side effect of another action.
+5. **Library admin "Trash" list:** title, deleted at, size, deleted by, Restore, Delete now. The storage scan reports trash size as its own category, never in `CLEANABLE_CATEGORIES`. Trash is excluded from backups, like `tmp`.
+6. **Routes:** list and restore check ownership; purge and Empty trash are `local_only()`. Add the rows to `docs/remote-access-decision.md` (`tests/test_api_permissions.py` enforces it).
+7. **Out of scope:** small row deletes (translation versions, series characters, presets, voice bank entries, reading history). They stay confirm-then-delete.
+
+**Exit:**
+- A test confirms a deleted drama disappears from the library but its folder and filtered snapshot sit in `trash/`, and that restore brings back lines, pages, characters and files with matching sha256s (Step 145).
+- A test confirms restore uses a new id when the old one is taken.
+- A test confirms `remove_media` followed by restore re-points `audio_filename` and `source_video_filename`.
+- A test confirms the startup sweep purges only items past retention (fake clock).
+- A test confirms Empty trash needs confirmation.
+- A test confirms trash is excluded from backups and counted in the storage scan.
+- A test confirms another user's trashed drama can't be listed or restored by a household member.
+- **Manual check:** delete a real drama, restore it the next day, and confirm Review, Export and the comic viewer all work as before.
+
+### Step 155 — "Finished copy": a one-way, labelled archive of a completed drama
+
+**Why.** The user wants a copy of finished work kept elsewhere: on another drive, a NAS or cloud-synced storage. It should be readable without Baihe and labelled well enough to find again and re-translate from the original later. It is **a dated snapshot, not a synced mirror**: nothing keeps it in step with later edits. Exporting again writes a new dated copy.
+
+What exists today falls short:
+- The only plain export, `start_export_zip` (`services/library_admin_service.py:403-435`), writes three SRTs and a dub track into a zip, with no metadata and no originals.
+- Backups are SQLite plus folders, readable only through Baihe.
+
+**Scope:**
+1. **"Save finished copy"** on a drama, and as a bulk action in Library admin. It writes a folder (or, as an option, a zip) to an **archive location** set in Settings: an absolute path that must exist and be writable. The setting is written through `local_only()` plus `_require_local_admin`, the same gate as the endpoint settings. The copy is named `<Title> (<year or episode>) [baihe-<drama id>-<YYYYMMDD>]/` and contains:
+   - **`README.txt`:** what this is, which app version made it, and how to re-translate it (import `original/` into Baihe).
+   - **`metadata.json`:** titles, series and episode, media type, languages, source URL, dates, the engines/models/prompt versions used (from `line_provenance`), and the sha256 of each original (Step 145).
+   - **`original/`:** byte-identical originals (Step 144). Optionally leave out originals over a size limit and record their sha256 and location instead.
+   - **`subtitles/`:** `.srt` and `.ass`, English, source and bilingual. **`transcript/lines.json`:** id, times, source, translation and speaker per line.
+   - **`glossary.json`** and **`characters.json`:** the series glossary and characters as they were at export.
+   - **`provenance.json`:** per-line history (Step 149, when built).
+   - **Comics:** `pages/original/`, `pages/cleaned/` and `pages/translated/`.
+   - **Novels:** the original EPUB and the translated EPUB (`epub_io.py:73`).
+   - **Video, optional:** the soft-sub or burned-in video (`services/media_export_service.py`).
+   - **`checksums.sha256`:** in `sha256sum` format, so `sha256sum -c checksums.sha256` verifies the copy with no Baihe installed.
+2. **Baihe records each finished copy** (drama id, path, date, manifest sha256) and shows "Last finished copy: <date>" on the drama, plus a **Verify copy** action that re-checks the checksums. Nothing else ever writes to an existing copy.
+3. **No Jellyfin NFO** in v1. Jellyfin already gets subtitles through Step 39. NFO/poster sidecars (`docs/media-server-metadata-design.md`, option A) stay a separate decision.
+4. **Out of scope:** importing a finished copy back into Baihe. A copy carries the drama id and original hashes, so this can be added later.
+
+**Exit:**
+- A test confirms a finished copy of an audio drama, a comic and a novel each contain the documented files.
+- A test confirms `checksums.sha256` verifies with a plain sha256 check.
+- A test confirms `metadata.json` names the engines used and the originals' hashes.
+- A test confirms a second export writes a new dated folder and never touches the first.
+- A test confirms the archive-location setting refuses a relative or unwritable path and a remote write.
+- A test confirms Verify reports a changed file.
+- **Manual check:** export a real finished episode to a second drive, open the subtitles and `metadata.json` with ordinary tools, and run `sha256sum -c`.
+
+### Step 156 — Timing and speaker benchmark for long recordings
+
+**Why.** The user asked for a benchmark on 2026-10-03, after a real ~3-hour VOD drifted out of sync and lost lines toward the end (Step 153). The Benchmark Lab scores only translation, transcription text and OCR (`STAGES`, `services/benchmark_lab_service.py:61`). Nothing measures **when** lines appear, **whether** lines go missing, or **who** is speaking. So a timing or diarization change can't be shown to help or hurt. Step 153 finds the cause; this step makes sure it stays fixed and lets settings and models be compared.
+
+**Scope:**
+1. **A new `timing` stage**, scored on both timing and speakers. A case is:
+   - an audio file in `db.BENCHMARK_DIR`, the same place transcription cases keep theirs (`benchmark_lab_service.py:614-616`), stored as FLAC to save space;
+   - a reference subtitle with start/end times and optional speaker labels.
+
+   **"Make a timing case from this drama"** takes a drama the user has reviewed (times fixed, speakers checked) and uses its audio and lines as the reference. The user's corrected VOD becomes the first case. Cases created this way start as `candidate` until verified (Step 147).
+2. **A run** re-processes the case audio with the chosen settings (ASR model, VAD threshold, alignment on/off, re-segmentation, diarization model, speaker count), the same as a real job, then compares against the reference:
+   - **Line matching:** pair hypothesis and reference lines by time overlap plus text similarity. Report **missed** and **extra** lines, which is where "slipped lines" show up.
+   - **Timing:** the median absolute start offset, the share of lines within 0.5 s, and a **drift curve**: the median offset in each 15-minute bucket, plus its slope in seconds per hour.
+   - **Speakers:** line-level speaker accuracy after the best one-to-one mapping between hypothesis and reference labels. Full DER (pyannote.metrics) is a possible follow-up; line-level accuracy matches how Baihe uses speakers.
+3. **Window mode:** score only chosen windows (for example the first and last 20 minutes) **of a full-length run**. Drift depends on processing the whole file, so audio is never clipped before the run; windows only limit what is scored and shown.
+4. **Display:** the run view shows the drift curve as a small line chart. Model Arena compares timing runs side by side. The aggregate score is the share of lines matched within 0.5 s with the right speaker, and `metric` = `timing`.
+5. **Public cases** come later through Step 152's diarization sets (AISHELL-4/AliMeeting slices).
+6. **GPU and time:** a 3-hour case is a long GPU job. It goes through the existing GPU queue and checkpointing, and the estimate shows the expected duration before it starts.
+
+**Exit:**
+- A test with synthetic lines confirms matching counts missed and extra lines correctly.
+- A test confirms the drift slope is recovered from a fixture with a known linear offset.
+- A test confirms speaker accuracy is invariant to label renaming.
+- A test confirms window mode scores only the chosen windows of a full run.
+- A test confirms "make a timing case from this drama" stores audio plus reference as a `candidate`.
+- A test confirms Arena refuses to mix `timing` with other metrics (Step 150 item 4).
+- **Manual check:** build a case from the user's corrected 3-hour VOD, run it with the current defaults, and confirm the drift curve shows the late-file problem. After Step 153's fix, confirm the curve is flat.
 
 ### Open questions carried with this batch (not scheduled)
 
 - **Work / Edition split.** Today `dramas` is the work, the edition and the files at once. Step 145's `source_objects` gives files their own identity. A separate Edition table would only help when the same work exists as two releases (for example a raw and a fan-translated EPUB, or two video encodes) and should share characters and glossary while keeping separate files. A series already shares glossary and characters, so wait for a real case.
-- **Soft delete / trash.** Auto backups (`services/auto_backup_service.py`, 2 daily and 2 weekly) already allow restoring one drama, but only if a backup ran after the last change, and by default they exclude media (`include_media: False`). A trash (rename to `.trash/<id>` with a retention window) would also cover media and the minutes since the last backup. Decide once Step 144 makes originals worth protecting.
-- **An archive readable without Baihe.** Step 145 adds checksums to the manifest. A further export (JSON or SRT sidecars per drama, plus Jellyfin NFO/poster files per `docs/media-server-metadata-design.md`, option A) is the user's call.
-- **Trust levels** (trusted, observed, inferred) beyond metadata. Steps 147 and 148 add candidate/verified for benchmarks and derived confidence for glossary proposals. A shared trust column across glossary, characters and translation memory waits until those two have been used.
-- **Entity merge screen.** Character aliases exist (`series_characters.aliases`), but there is no name/variant detection, no merge and no review. The universe wiki (`wiki_entries`) is per drama with no review step. Decide whether the wiki moves to series scope and whether "merge two characters" is needed before designing it.
-- **Translation-memory scopes.** TM is series-only (`db.py:383-393`). Step 38's segment/project/series/global scopes stay unbuilt unless TM suggestions are seen to be missing across series.
-- **Re-running everything downstream of one replaced stage.** Each stage re-runs on its own today (re-diarize, re-translate, re-typeset). A pipeline graph that re-runs everything downstream automatically is large. Revisit after Step 149 shows which stages actually get replaced.
-- **Source-cache retention default.** Adapter downloads default to `temporary` (`sources/cache.py:28-36`). Switching the default to `keep_originals` would keep every raw chapter; decide alongside the disk-budget follow-up (compressing or moving originals elsewhere).
+- **Standalone VAD (R4, parked).** VAD (voice activity detection) is the step that decides which stretches of audio contain speech. Today faster-whisper does it internally (`vad_filter=True`, `core.py:692`), and Whisper's segments then set every subtitle's start and end. Running VAD as its own step would let speech boundaries be set and tuned separately from Whisper. Nothing is planned. It becomes a candidate fix only if Step 153 finds the drift starts at Whisper's own segment timing.
+- **Source-cache retention default.** Adapter downloads default to `temporary` (`sources/cache.py:28-36`). Switching the default to `keep_originals` would keep every raw chapter, in line with "keep everything." Decide with the disk-budget follow-up (compressing or moving originals elsewhere).
+- **Decided 2026-10-03, recorded so they aren't re-proposed:**
+  - Trust levels and the entity system are deferred.
+  - Translation-memory scopes and the automatic downstream re-run are declined.
+  - Soft delete becomes Step 154 and the archive question becomes Step 155.
 
 ---
 
