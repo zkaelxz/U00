@@ -141,7 +141,7 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
 
   return (
     <Section title="Model health" storageKey="diagnostics.modelHealth" summary={summary} defaultOpen={problems > 0}>
-      <div className="model-health" aria-label="Model health">
+      <div className="model-health" role="region" aria-label="Model health">
       <div className="actions">
         {badge && (
           <span data-testid="model-health-badge">

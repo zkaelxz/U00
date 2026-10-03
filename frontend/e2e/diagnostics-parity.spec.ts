@@ -101,7 +101,7 @@ test('model cache delete is two-step, PC-only and refreshes the list', async ({ 
     return r.fulfill({ json: { deleted: true, name: REV } })
   })
   await page.goto('/#/diagnostics')
-  await openSection(page, /^Model cache/)
+  await openSection(page, /^Setup/)
   await page.getByRole('button', { name: 'Delete org/model' }).click()
   expect(sent).toHaveLength(0)
   await page.getByRole('button', { name: 'Confirm delete org/model' }).click()

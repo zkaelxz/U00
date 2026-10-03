@@ -88,7 +88,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   const engines = installableEngines(overview.model_engine_versions, Object.keys(overview.dependencies))
   // Missing packages no task installs (a package that isn't on PyPI, one that ships with the app).
   const inTask = new Set((presets?.tasks ?? []).flatMap((t) => t.packages))
-  const leftover = presets ? deps.missing.filter((d) => !inTask.has(d.name) && d.tier !== 'required' && d.tier !== 'dev') : []
+  const hasTasks = !!presets && presets.tasks.length > 0
+  const leftover = deps.missing.filter((d) => !inTask.has(d.name) && d.tier !== 'required' && d.tier !== 'dev')
   const blocked = installBlockedReason(jobsActive, busy)
   const running = busyLine(busy)
 
@@ -272,19 +273,19 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                 </ul>
               </Section>
             ))}
-            {leftover.length > 0 && (
-              <>
-                <h4>Not part of a task</h4>
-                <ul aria-label="Packages not part of a task" className="pkg-list">
-                  {leftover.map((d) => (
-                    <li key={d.name}>
-                      <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} />
-                      {isInstallable(d.tier) && !info(d.name)?.not_offered_reason && action('install', d.name)}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
+          </div>
+        )}
+        {leftover.length > 0 && (
+          <div className="diag-stack">
+            <h4>{hasTasks ? 'Not part of a task' : 'Not installed'}</h4>
+            <ul aria-label={hasTasks ? 'Packages not part of a task' : 'Not installed'} className="pkg-list">
+              {leftover.map((d) => (
+                <li key={d.name}>
+                  <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} />
+                  {isInstallable(d.tier) && !info(d.name)?.not_offered_reason && action('install', d.name)}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         <GpuTorchPanel refreshKey={gpuKey} action={(v, reason) => local && (
@@ -434,7 +435,7 @@ function TaskRow({ task, packages, action, torchInstalled, installOne }: {
         {optional && <span className="muted" data-testid="task-optional">{optional}</span>}
         {missing.length > 0 && (
           <details className="task-details" data-testid={`task-details-${task.id}`}>
-            <summary>Packages to install ({missing.length})</summary>
+            <summary>Still to install ({missing.length})</summary>
             <ul className="pkg-list" aria-label={`${task.label} packages`}>
               {missing.map((n) => (
                 <li key={n}>

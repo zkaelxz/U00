@@ -65,7 +65,6 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
   await page.unroute('**/api/jobs')
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 0, items: [] } }))
   await page.locator('summary', { hasText: /^Packages/ }).click()
-  await page.locator('summary', { hasText: /^Missing packages/ }).click()
   const install = page.getByRole('button', { name: 'Install yt-dlp' })
   await expect(install).toBeEnabled({ timeout: 10_000 })
 
