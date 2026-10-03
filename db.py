@@ -922,6 +922,11 @@ def init_db():
         # JSON-encoded, so the API can tell a "done" job that failed from one that worked.
         if "result_json" not in jr_cols:
             _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN result_json TEXT")
+        # The OS pid of the process running the job, so a row whose owner
+        # has exited can be closed at once instead of after the heartbeat
+        # cutoff (services/jobs_service.sweep_stale_job_records).
+        if "owner_pid" not in jr_cols:
+            _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN owner_pid INTEGER")
         # Step 133: API users, permissions, server-side sessions, audit log.
         # Additive only; nothing above is touched. Session ids / CSRF tokens
         # are stored as SHA-256 hashes only (see services/auth_service.py).
@@ -4416,7 +4421,7 @@ def list_field_provenance(drama_id: int):
 def save_job_record(job_id: str, status: str, progress: float = None, message: str = None,
                     error: str = None, description: str = None, gpu_touching: bool = False,
                     started_at: float = None, finished_at: float = None,
-                    result_json: str = None, owner_user_id: int = None):
+                    result_json: str = None, owner_user_id: int = None, owner_pid: int = None):
     """Mirrors one background_jobs.py job's status-transition fields into
     the cross-process job_records table (Migration Slice 7) -- records
     only, no resume: this is the *last written* state, not necessarily
@@ -4427,14 +4432,16 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
     with contextlib.closing(get_conn()) as conn:
         conn.execute("""
             INSERT INTO job_records (job_id, status, progress, message, error, description,
-                gpu_touching, started_at, finished_at, updated_at, result_json, owner_user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                gpu_touching, started_at, finished_at, updated_at, result_json, owner_user_id,
+                owner_pid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(job_id) DO UPDATE SET
                 status = excluded.status, progress = excluded.progress,
                 message = excluded.message, error = excluded.error,
                 description = excluded.description, gpu_touching = excluded.gpu_touching,
                 started_at = excluded.started_at, finished_at = excluded.finished_at,
                 updated_at = excluded.updated_at, result_json = excluded.result_json,
+                owner_pid = excluded.owner_pid,
                 owner_user_id = CASE
                     WHEN excluded.status IN ('queued', 'running')
                          AND job_records.status NOT IN ('queued', 'running')
@@ -4448,7 +4455,7 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
                 cancel_requested = CASE WHEN excluded.status IN ('queued', 'running')
                     THEN job_records.cancel_requested ELSE 0 END
         """, (job_id, status, progress, message, error, description, int(bool(gpu_touching)),
-              started_at, finished_at, time.time(), result_json, owner_user_id))
+              started_at, finished_at, time.time(), result_json, owner_user_id, owner_pid))
         conn.commit()
 
 
@@ -4482,16 +4489,33 @@ def touch_job_records(job_ids) -> None:
         conn.commit()
 
 
-def close_stale_job_record(job_id: str, cutoff: float) -> bool:
+def close_stale_job_record(job_id: str, cutoff: float, error: str = None) -> bool:
     """B-04: marks a queued/running row cancelled only if its owner has not
     written or heartbeated since `cutoff` -- a single conditional UPDATE,
     so a row the owner just finished ("done") or just touched is never
-    overwritten. Returns whether it closed the row."""
+    overwritten. `error`, if given, says why. Returns whether it closed
+    the row."""
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute(
-            "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0 "
+            "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0, "
+            "error = COALESCE(?, error) "
             "WHERE job_id = ? AND status IN ('queued', 'running') "
-            "AND COALESCE(updated_at, 0) < ?", (time.time(), job_id, cutoff))
+            "AND COALESCE(updated_at, 0) < ?", (time.time(), error, job_id, cutoff))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def close_orphaned_job_record(job_id: str, owner_pid: int, error: str = None) -> bool:
+    """Marks a queued/running row cancelled if it still belongs to the
+    (exited) process `owner_pid`: one conditional UPDATE, so a new run of
+    the same job id by a live process is never closed. Returns whether it
+    closed the row."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0, "
+            "error = COALESCE(?, error) "
+            "WHERE job_id = ? AND status IN ('queued', 'running') AND owner_pid = ?",
+            (time.time(), error, job_id, owner_pid))
         conn.commit()
         return cur.rowcount > 0
 

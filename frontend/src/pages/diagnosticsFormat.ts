@@ -74,9 +74,11 @@ export function jobStatusLine(job: JobRecord, nowSec: number): string {
 
 // The small line under a job's status: live progress text while it runs,
 // the error for a failed job, nothing once it is done or cancelled (its
-// last progress text, e.g. "Transcribing... 99%", would read as stuck).
+// last progress text, e.g. "Transcribing... 99%", would read as stuck),
+// except why a cancelled job ended when the server says (Baihe restarted).
 export function jobDetail(job: Pick<JobRecord, 'status' | 'message' | 'error'>): string | null {
-  if (job.status === 'done' || job.status === 'cancelled') return null
+  if (job.status === 'cancelled') return job.error || null
+  if (job.status === 'done') return null
   if (job.status === 'error') return job.error || job.message || null
   return job.message || null
 }

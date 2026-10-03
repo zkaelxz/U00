@@ -44,6 +44,7 @@ describe('diagnosticsFormat', () => {
     expect(jobDetail(job({ status: 'running', message: '' }))).toBeNull()
     expect(jobDetail(job({ status: 'done', message: 'Transcribing... 99%' }))).toBeNull()
     expect(jobDetail(job({ status: 'cancelled', message: 'Batch 2 of 5' }))).toBeNull()
+    expect(jobDetail(job({ status: 'cancelled', message: 'Starting...', error: 'Interrupted: Baihe restarted while this was running.' }))).toBe('Interrupted: Baihe restarted while this was running.')
     expect(jobDetail(job({ status: 'error', message: 'Batch 2 of 5', error: 'Timed out' }))).toBe('Timed out')
     expect(jobDetail(job({ status: 'error', message: 'Batch 2 of 5', error: null }))).toBe('Batch 2 of 5')
   })

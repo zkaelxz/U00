@@ -253,6 +253,9 @@ def test_max_minutes_stops_job(live, monkeypatch):
 
 def test_stop_bumps_generation_before_cancel(live, monkeypatch):
     sid = _start()
+    # run_live_job bumps first thing in its worker thread; let that land so
+    # only stop_session's bump is recorded.
+    assert _wait(lambda: live_service.get_session(sid)["message"] != "Starting...")
     order = []
     real_bump = live_translate.bump_generation
     monkeypatch.setattr(live_translate, "bump_generation",
