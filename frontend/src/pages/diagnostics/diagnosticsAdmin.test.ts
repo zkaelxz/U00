@@ -6,7 +6,7 @@ import {
   LOST_CONTACT_INSTALL, adminErrorText, busyLine, copyFallbackText,
   extensionEngineNote, extensionSummary, extensionToggleNote,
   headerBadges, historySummary, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
-  isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, resetBlockedReason,
+  isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, reconcileModels, resetBlockedReason,
   setupRows, setupSummary,
 } from './diagnosticsAdmin'
 
@@ -144,6 +144,34 @@ describe('packages', () => {
       .toBe('That cannot be done right now because something else is already using it.')
     expect(adminErrorText(err(500, 'internal_error', 'boom'), 'reset'))
       .toBe('Something went wrong inside Baihe. Details are in the app log.')
+  })
+})
+
+describe('reconcileModels', () => {
+  const eng = (name: string, o: Partial<ModelEngineVersion> = {}): ModelEngineVersion =>
+    ({ name, version: '1.0', url: null, installed: true, package: name, help: null, ...o })
+  const hf = (repo_id: string, revision: string) => ({ repo_id, repo_type: 'model', revision, size_bytes: 1 })
+
+  it('puts each download under its engine and the rest in other', () => {
+    const engines = [
+      eng('Whisper (faster-whisper)'),
+      eng('pyannote diarization model', { package: null, version: 'pyannote/speaker-diarization-3.1, pyannote/segmentation-3.0' }),
+      eng('Qwen3-ASR', { installed: false, version: 'not installed' }),
+      eng('edge-tts'),
+    ]
+    const { rows, other } = reconcileModels(engines, [
+      hf('Systran/faster-whisper-large-v3', 'a'), hf('Systran/faster-whisper-small', 'b'),
+      hf('pyannote/speaker-diarization-3.1', 'c'), hf('someone/unknown', 'd'),
+    ])
+    expect(rows[0].cached.map((c) => c.revision)).toEqual(['a', 'b'])
+    expect(rows[1].cached.map((c) => c.revision)).toEqual(['c'])
+    expect(other.map((c) => c.revision)).toEqual(['d'])
+    expect(rows.map((r) => r.notDownloaded)).toEqual([false, false, false, false])
+  })
+
+  it('flags an installed weight-downloading engine with nothing cached', () => {
+    const { rows } = reconcileModels([eng('Whisper (faster-whisper)'), eng('Qwen3-ASR', { installed: false }), eng('edge-tts')], [])
+    expect(rows.map((r) => r.notDownloaded)).toEqual([true, false, false])
   })
 })
 

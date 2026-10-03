@@ -86,6 +86,9 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
 
   const deps = splitDependencies(overview.dependencies)
   const engines = installableEngines(overview.model_engine_versions, Object.keys(overview.dependencies))
+  // Missing packages no task installs (a package that isn't on PyPI, one that ships with the app).
+  const inTask = new Set((presets?.tasks ?? []).flatMap((t) => t.packages))
+  const leftover = presets ? deps.missing.filter((d) => !inTask.has(d.name) && d.tier !== 'required' && d.tier !== 'dev') : []
   const blocked = installBlockedReason(jobsActive, busy)
   const running = busyLine(busy)
 
@@ -241,17 +244,16 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         </p>
         {outcome && <OutcomeBlock outcome={outcome} onRecheck={changed} />}
         {presets && presets.tasks.length > 0 && (
-          <div className="diag-subcard" data-testid="install-tasks" role="group" aria-labelledby={tasksId}>
-            <div className="subcard-head">
-              <h4 id={tasksId}>Install by task</h4>
-            </div>
+          <div className="diag-stack" data-testid="install-tasks" role="group" aria-labelledby={tasksId}>
+            <h4 id={tasksId}>Install by task</h4>
             <p className="muted">Pick what you want to do; only the packages it needs are installed.</p>
             {groupTasks(sortTasksNeedingInstall(presets.tasks)).map((g) => (
               <Section key={g.group} title={g.group} count={g.tasks.length} storageKey={`diagnostics.tasks.${g.group}`}
                 summary={taskGroupSummary(g.tasks)}>
                 <ul aria-label={`${g.group} tasks`} className="pkg-list task-list">
                   {g.tasks.map((t) => (
-                    <TaskRow key={t.id} task={t} packages={presets.packages}
+                    <TaskRow key={t.id} task={t} packages={presets.packages} torchInstalled={torchInstalled}
+                      installOne={(n) => action('install', n)}
                       action={local && t.to_install.length > 0 && (
                         <ConfirmButton
                           name={t.label}
@@ -270,6 +272,19 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                 </ul>
               </Section>
             ))}
+            {leftover.length > 0 && (
+              <>
+                <h4>Not part of a task</h4>
+                <ul aria-label="Packages not part of a task" className="pkg-list">
+                  {leftover.map((d) => (
+                    <li key={d.name}>
+                      <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} />
+                      {isInstallable(d.tier) && !info(d.name)?.not_offered_reason && action('install', d.name)}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
         )}
         <GpuTorchPanel refreshKey={gpuKey} action={(v, reason) => local && (
@@ -286,18 +301,6 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
             onConfirm={() => void runGpuSetup(v)}
           />
         )} />
-        {deps.missing.length > 0 && (
-          <Section storageKey="diagnostics.missing" title="Missing packages" count={deps.missing.length}>
-            <ul aria-label="Missing packages" className="pkg-list">
-              {deps.missing.map((d) => (
-                <li key={d.name}>
-                  <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} />
-                  {isInstallable(d.tier) && !info(d.name)?.not_offered_reason && action('install', d.name)}
-                </li>
-              ))}
-            </ul>
-          </Section>
-        )}
         {engines.length > 0 && (
           <Section storageKey="diagnostics.engines" title="Model engines not installed" count={engines.length}>
             <ul aria-label="Model engines not installed" className="pkg-list">
@@ -351,7 +354,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
 }
 
 /** Name and purpose, then approx. size, a PyPI link, and any caveat. */
-function PackageText({ name, text, info, torchInstalled, installed = false, update }: {
+function PackageText({ name, text, info, torchInstalled, installed = false, update, quiet = false }: {
   name: string
   text: string
   info: DiagnosticsPackageInfo | undefined
@@ -359,6 +362,8 @@ function PackageText({ name, text, info, torchInstalled, installed = false, upda
   installed?: boolean
   // The last "Check for updates" result for this package, if any.
   update?: DiagnosticsPackageUpdate
+  // The task row already shows the not-offered reason and warning.
+  quiet?: boolean
 }) {
   const size = info && !installed ? packageSizeText(info, torchInstalled) : null
   const url = safeSourceUrl(info?.source_url)
@@ -383,17 +388,21 @@ function PackageText({ name, text, info, torchInstalled, installed = false, upda
           )}
         </span>
       )}
-      {!installed && info?.not_offered_reason && <span className="muted" data-testid="pkg-not-offered">{info.not_offered_reason}</span>}
-      {!installed && !info?.not_offered_reason && info?.warning && <span className="warn">Warning: {info.warning}</span>}
+      {!quiet && !installed && info?.not_offered_reason && <span className="muted" data-testid="pkg-not-offered">{info.not_offered_reason}</span>}
+      {!quiet && !installed && !info?.not_offered_reason && info?.warning && <span className="warn">Warning: {info.warning}</span>}
     </span>
   )
 }
 
-function TaskRow({ task, packages, action }: {
+function TaskRow({ task, packages, action, torchInstalled, installOne }: {
   task: DiagnosticsInstallTask
   packages: Record<string, DiagnosticsPackageInfo>
   action: ReactNode
+  torchInstalled: boolean
+  // The Install… button for one package (optional extras are installed one by one).
+  installOne: (name: string) => ReactNode
 }) {
+  const missing = task.packages.filter((n) => packages[n] && !packages[n].installed)
   const notes = taskNotes(task, packages)
   const optional = optionalMissingText(task)
   const size = task.to_install.length ? packageSizeText({ approx_mb: task.approx_mb, pulls_torch: false }, true) : null
@@ -423,6 +432,19 @@ function TaskRow({ task, packages, action }: {
         </span>
         {notes.map((n) => <span key={n} className="warn">{n}</span>)}
         {optional && <span className="muted" data-testid="task-optional">{optional}</span>}
+        {missing.length > 0 && (
+          <details className="task-details" data-testid={`task-details-${task.id}`}>
+            <summary>Packages to install ({missing.length})</summary>
+            <ul className="pkg-list" aria-label={`${task.label} packages`}>
+              {missing.map((n) => (
+                <li key={n}>
+                  <PackageText name={n} text={packages[n].powers} info={packages[n]} torchInstalled={torchInstalled} quiet />
+                  {task.optional_missing?.includes(n) && installOne(n)}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </span>
       {action}
     </li>
