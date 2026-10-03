@@ -100,7 +100,9 @@ def test_second_search_409(client, fakes):
 
 def test_404_422_400(client, fakes):
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
-    assert client.get("/api/sources/jobs/sources_search/result").status_code == 404
+    idle = client.get("/api/sources/jobs/sources_search/result")
+    assert idle.status_code == 200
+    assert idle.json()["status"] == "idle" and idle.json()["result"] is None
     assert client.get("/api/sources/jobs/translate_1/result").status_code == 404
     assert client.post("/api/sources/search",
                        json={"query": "abc", "sources": ["nope"]}).status_code == 404
