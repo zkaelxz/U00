@@ -137,11 +137,6 @@ def fix_file_org():
             print("   ", ln)
 
 
-def merge_base():
-    return subprocess.run(["git", "merge-base", "HEAD", "origin/baihe-subtitler"],
-                          capture_output=True, text=True, check=True).stdout.strip()
-
-
 def conflicted_schema_modules():
     out = subprocess.run(["git", "diff", "--name-only", "--diff-filter=U"],
                          capture_output=True, text=True, check=True).stdout.split()
