@@ -206,3 +206,7 @@
 @media (pointer: coarse), (max-width: 640px) {
   .task-details > summary { display: flex; align-items: center; min-height: 44px; }
 }
+
+@media (max-width: 640px) {
+  .diag-stack { gap: var(--space-3); }
+}
