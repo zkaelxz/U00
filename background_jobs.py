@@ -1317,6 +1317,13 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         # Reap the child (no zombie) and close the queue's pipe fds.
         try:
             proc.join(timeout=5)
+            # A worker that sent its result but has not exited (stuck in
+            # interpreter or CUDA teardown, or waiting on a child it started)
+            # still holds VRAM and its temp files: end it before the GPU
+            # slot and the finish hook are released.
+            if kill_whole_tree and proc.is_alive():
+                kill_tree(proc)
+                proc.join(timeout=5)
         except Exception:
             pass
         try:

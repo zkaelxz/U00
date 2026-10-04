@@ -1314,6 +1314,43 @@ class TestProcessJobOnDone:
         assert killed == [instances[0]]
         bg.clear_job(job_id)
 
+    def test_a_worker_alive_after_its_result_is_killed_before_the_slot_and_hook(self, monkeypatch):
+        instances = _install_fake_process(monkeypatch, alive_forever=True)
+        events = []
+
+        def fake_kill_tree(proc):
+            events.append("kill")
+            proc.terminate()
+        monkeypatch.setattr(bg, "kill_tree", fake_kill_tree)
+        real_release = bg._release_gpu_slot
+        monkeypatch.setattr(bg, "_release_gpu_slot",
+                            lambda *a, **k: (events.append("release"), real_release(*a, **k)))
+        job_id = "test_alive_after_result"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=(), gpu_touching=True,
+                             kill_whole_tree=True, on_finish=lambda j: events.append("finish"))
+        assert _wait_for(lambda: bg.is_running(job_id))
+        instances[0]._args[-1].put(("ok", {"v": 1}))
+        assert _wait_for(lambda: "finish" in events)
+        assert bg.get_status(job_id)["status"] == "done"
+        assert events == ["kill", "release", "finish"]
+        assert instances[0].terminated is True
+        assert db.gpu_lock_holder_count() == 0
+        bg.clear_job(job_id)
+
+    def test_a_worker_that_exited_is_not_killed_again(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        killed = []
+        monkeypatch.setattr(bg, "kill_tree", killed.append)
+        finished = []
+        job_id = "test_exited_not_killed"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(), kill_whole_tree=True,
+                             on_finish=finished.append)
+        assert _wait_for(lambda: finished == [job_id])
+        assert killed == []
+        bg.clear_job(job_id)
+
     def test_an_ended_runs_late_release_keeps_a_rerun_s_gpu_lock(self, monkeypatch):
         """The lock row is named after the job id: a re-run started between
         the first run's final status and its watcher's release takes the
