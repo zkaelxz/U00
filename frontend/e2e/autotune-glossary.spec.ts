@@ -216,7 +216,7 @@ test.describe('Glossary from novel', () => {
     state = 'done'
     const table = page.getByTestId('novel-glossary-proposals')
     await expect(table.locator('tbody tr')).toHaveCount(4)
-    await expect(table.locator('tbody tr').nth(3)).toContainText('already in glossary')
+    await expect(table.locator('tbody tr').nth(3)).toContainText(/already in glossary/i)
     const add = page.getByRole('button', { name: 'Add 3 terms to series glossary' })
     await expect(add).toBeVisible()
     await page.getByLabel('Select 蓝湛').uncheck()
@@ -296,7 +296,7 @@ test.describe('Glossary from novel', () => {
     await openSection(page, 'From novel')
     await page.getByTestId('novel-glossary-proposals').getByLabel('Select 江澄').check()
     await page.getByRole('switch', { name: 'Overwrite existing terms' }).click()
-    await expect(page.getByText('Tick terms marked "already in glossary" to replace them.')).toBeVisible()
+    await expect(page.getByText('Tick terms marked "Already in glossary" to replace them.')).toBeVisible()
     await page.getByRole('button', { name: 'Add 1 term to series glossary' }).click()
     await expect(page.getByText('Replace 1 existing term in the series glossary?')).toBeVisible()
     expect(applyBody).toBe('')

@@ -57,9 +57,9 @@ describe('dub request logic', () => {
     expect(dubBlocker(cfg(), initialDubForm(cfg()))).toBeNull()
   })
   it('renders null pacing numbers safely and picks overflow rows', () => {
-    expect(formatMs(null)).toBe('n/a')
+    expect(formatMs(null)).toBe('N/A')
     expect(formatMs(1234.6)).toBe('1235 ms')
-    expect(formatFactor(null)).toBe('n/a')
+    expect(formatFactor(null)).toBe('N/A')
     expect(pacingSummary({ fit: 2, overflow: 1 })).toBe('2 fit · 1 overflow')
     const lines = [
       { idx: 1, status: 'fit', factor: 1, clip_ms: null, window_ms: null },

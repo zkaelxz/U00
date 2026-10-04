@@ -4,6 +4,7 @@ import { Badge } from '../../components/Badge'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import type { PcMode } from '../../hooks/usePcOnly'
+import { capFirst } from '../../labels'
 import type { DiagnosticsModelCache, DiagnosticsSetupChecks, GpuStatus, ModelEngineVersion } from '../../types/diagnostics'
 import { setupRows, setupSummary } from './diagnosticsAdmin'
 import { ModelsList } from './ModelsList'
@@ -42,7 +43,7 @@ export function SetupSection({ checks, gpu, engines, cache, pc, checking, onRech
         {sorted.map((r) => (
           <li key={r.key} className={r.problem ? 'problem' : undefined}>
             <span className="setup-name">{r.label}</span>
-            <span className="setup-value">{r.value}</span>
+            <span className="setup-value">{capFirst(r.value)}</span>
             <Badge tone={r.problem ? 'warn' : 'ok'}>{r.problem ? 'Problem' : 'OK'}</Badge>
           </li>
         ))}

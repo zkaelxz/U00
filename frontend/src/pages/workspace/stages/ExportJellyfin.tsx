@@ -92,7 +92,7 @@ export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) 
 
   return (
     <div role="region" aria-label="Send to Jellyfin">
-      <Section storageKey="export.jellyfin" title="Send to Jellyfin" summary="put the subtitles in your Jellyfin library">
+      <Section storageKey="export.jellyfin" title="Send to Jellyfin" summary="Put the subtitles in your Jellyfin library">
         <div className="source-panel">
           {!readyToSend(cfg) && (
             <p className="muted">Finish the Jellyfin setup in Settings (address, API key and library folder).</p>

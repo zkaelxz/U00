@@ -85,7 +85,7 @@ export function userName(user: AdminUser): string {
 }
 
 export function sessionsText(n: number): string {
-  return n === 0 ? 'not signed in' : n === 1 ? 'signed in on 1 device' : `signed in on ${n} devices`
+  return n === 0 ? 'Not signed in' : n === 1 ? 'Signed in on 1 device' : `Signed in on ${n} devices`
 }
 
 /** Who did it: the user's name, "User #id" for an unknown id, "PC or system" for none. */

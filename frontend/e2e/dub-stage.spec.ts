@@ -55,11 +55,11 @@ test('shows config and null-safe pacing, then starts a dub with the right body a
   await page.getByRole('spinbutton', { name: 'Max speed-up' }).fill('1.5')
   await page.getByRole('switch', { name: 'Keep background music' }).click()
   await page.getByRole('button', { name: 'Generate dub' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   expect(bodies[0]).toEqual({ tts_engine: 'edge_tts', max_speedup: 1.5, max_slowdown: 0.85, keep_background: true })
 
   await page.getByRole('button', { name: 'Cancel job' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('cancelled')
+  await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 
 test('keep-background is disabled when unavailable, and 503 shows a plain banner', async ({ page }) => {

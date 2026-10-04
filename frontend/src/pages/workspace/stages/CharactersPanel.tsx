@@ -106,8 +106,8 @@ function Row({ entry, engines, bank, hasSeries, taken, onSaved, onRemembered, on
   const nameEdited = form.character_name !== entry.character_name
   const engineIds = engines?.engines.map((e) => e.id) ?? []
   const reference = entry.has_ref_audio
-    ? `reference audio set${entry.ref_text_present ? ', transcript set' : ''}`
-    : 'no reference audio'
+    ? `Reference audio set${entry.ref_text_present ? ', transcript set' : ''}`
+    : 'No reference audio'
 
   return (
     <>

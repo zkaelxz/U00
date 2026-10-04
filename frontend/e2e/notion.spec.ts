@@ -147,7 +147,7 @@ test('export: starts a job, shows progress, then links to the page', async ({ pa
   await expect(panel.getByRole('alert')).toHaveText('Another job is running for this drama.')
 
   await panel.getByRole('button', { name: 'Export to Notion' }).click()
-  await expect(panel.getByTestId('job-status')).toContainText('running · Writing blocks')
+  await expect(panel.getByTestId('job-status')).toContainText('Running · Writing blocks')
   await expect(panel.getByTestId('job-percent')).toHaveText('50%')
   const link = panel.getByRole('link', { name: 'Open in Notion' })
   await expect(link).toHaveAttribute('href', PAGE_URL)

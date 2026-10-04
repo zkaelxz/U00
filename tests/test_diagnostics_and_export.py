@@ -449,7 +449,7 @@ class TestModelEngineVersions:
         for name in ("OmniVoice", "GPT-SoVITS", "Chatterbox", "TADA"):
             assert name in rows
         # a separate server, not a pip package -- says so rather than "not installed"
-        assert rows["GPT-SoVITS"]["version"] == "separate local server (not pip-installed)"
+        assert rows["GPT-SoVITS"]["version"] == "Separate local server (not pip-installed)"
 
     def test_step_11b_pip_engines_are_registered_dependencies(self):
         # keyed by the real pip name, since the Install button runs `pip install <key>`
@@ -498,7 +498,7 @@ class TestGpuStatus:
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: False)
         status = diagnostics.get_gpu_status()
         assert status["available"] is False
-        assert "torch isn't installed" in status["message"]
+        assert "PyTorch isn't installed" in status["message"]
 
     def test_unavailable_no_error_when_no_gpu_present(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)

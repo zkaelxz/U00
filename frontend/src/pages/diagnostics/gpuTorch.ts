@@ -17,7 +17,7 @@ export function driverText(n: DiagnosticsGpuTorchNvidia): string {
 
 /** "2.11.0+cu128 (CUDA build)", "2.11.0+cpu (CPU only)", "not installed". */
 export function packageVersionText(p: DiagnosticsTorchPackage): string {
-  if (!p.version) return 'not installed'
+  if (!p.version) return 'Not installed'
   if (p.build === 'cuda') return `${p.version} (CUDA build)`
   if (p.build === 'cpu') return `${p.version} (CPU only)`
   return p.version
@@ -56,7 +56,7 @@ export function verifyText(v: DiagnosticsTorchVerify): string {
   const cuda = v.cuda_available
     ? `CUDA works${v.device ? ` on ${v.device}` : ''}`
     : v.cuda_build ? `CUDA ${v.cuda_build} build, but no GPU is available` : 'CPU-only build: CUDA not available'
-  return `torch ${v.torch}: ${cuda}.`
+  return `PyTorch ${v.torch}: ${cuda}.`
 }
 
 /** The short badge next to the "GPU PyTorch" heading. */
@@ -72,10 +72,10 @@ export function stateBadge(s: DiagnosticsGpuTorchStatus): { text: string; tone: 
   }
 }
 
-/** The closed fold's one line: "torch 2.11.0+cu128 · CUDA OK · RTX 3080 Ti". */
+/** The closed fold's one line: "PyTorch 2.11.0+cu128 · CUDA OK · RTX 3080 Ti". */
 export function gpuTorchSummary(s: DiagnosticsGpuTorchStatus): string {
   const torch = s.installed.find((p) => p.name === 'torch')
-  const parts = [torch?.version ? `torch ${torch.version}` : 'torch not installed']
+  const parts = [torch?.version ? `PyTorch ${torch.version}` : 'PyTorch not installed']
   if (s.probe) parts.push(s.probe.cuda_available ? 'CUDA OK' : 'no CUDA')
   else if (torch?.build === 'cuda') parts.push('CUDA build')
   else if (torch?.build === 'cpu') parts.push('CPU only')

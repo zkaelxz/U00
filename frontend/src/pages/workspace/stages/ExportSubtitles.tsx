@@ -129,10 +129,10 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
       >
         <div className="export-form">
           <Field label="Wrap English" unit="chars" help="Break English lines longer than this. Blank means no wrapping.">
-            <input inputMode="numeric" value={form.wrapEn} placeholder="off" onChange={(e) => set('wrapEn', e.target.value)} />
+            <input inputMode="numeric" value={form.wrapEn} placeholder="Off" onChange={(e) => set('wrapEn', e.target.value)} />
           </Field>
           <Field label="Wrap source" unit="chars" help="Break source-language lines longer than this. Blank means no wrapping.">
-            <input inputMode="numeric" value={form.wrapSource} placeholder="off" onChange={(e) => set('wrapSource', e.target.value)} />
+            <input inputMode="numeric" value={form.wrapSource} placeholder="Off" onChange={(e) => set('wrapSource', e.target.value)} />
           </Field>
           <Field label="File name" help="Name of the downloaded file, without the extension. Blank uses drama_<id>_<language>.">
             <input

@@ -243,7 +243,7 @@ function GlossaryExtract({ source, title, storageKey }: Props) {
               </Field>
             </div>
             {overwrite && (
-              <p className="muted">Tick terms marked "already in glossary" to replace them.</p>
+              <p className="muted">Tick terms marked "Already in glossary" to replace them.</p>
             )}
             {!confirming ? (
               <div className="actions">
