@@ -1482,6 +1482,43 @@ class TestProcessJobOnDone:
         assert finished == [job_id]
         bg.clear_job(job_id)
 
+    def test_a_process_that_cannot_be_built_at_promotion_ends_both_jobs_cleanly(self, monkeypatch):
+        """mp.Process() raising (no fds, no /dev/shm) while another process
+        job's watcher promotes the queued one: the finishing job's on_finish
+        still runs once, the promoted job ends failed with its on_finish run
+        once, its GPU row is released and the id can start again."""
+        instances = _install_fake_process(monkeypatch, alive_forever=True)
+        finished = []
+        bg.clear_job("test_build_holder")
+        assert bg.start_process_job("test_build_holder", lambda q: None, args=(),
+                                    gpu_touching=True, on_finish=finished.append)
+        assert _wait_for(lambda: bg.is_running("test_build_holder"))
+        job_id = "test_build_promoted"
+        bg.clear_job(job_id)
+        assert bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(),
+                                    gpu_touching=True, on_finish=finished.append) is True
+        assert bg.get_status(job_id)["status"] == "queued"
+
+        def no_process(target, args, daemon=True):
+            raise OSError("Too many open files")
+        monkeypatch.setattr(bg.multiprocessing, "Process", no_process)
+        bg.request_cancel("test_build_holder")
+
+        assert _wait_for(lambda: sorted(finished) == sorted(["test_build_holder", job_id]))
+        status = bg.get_status(job_id)
+        assert status["status"] == "error" and "Too many open files" in status["error"]
+        assert _wait_for(lambda: db.gpu_lock_holder_count() == 0)
+        assert len(instances) == 1
+        time.sleep(0.1)
+        assert sorted(finished) == sorted(["test_build_holder", job_id])
+
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        assert bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(),
+                                    gpu_touching=True) is True
+        assert _wait_for(lambda: bg.get_status(job_id)["status"] == "done")
+        for j in ("test_build_holder", job_id):
+            bg.clear_job(j)
+
     def test_a_raising_finish_hook_never_breaks_the_cancel(self, monkeypatch):
         _install_fake_process(monkeypatch, run_target_on_start=True)
 

@@ -666,7 +666,10 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=Non
             pass
     with _lock:
         job = _jobs.get(job_id)
-        if job is not None and job.get("status") == "running":
+        # "queued": a promoted process job whose Process could not even be
+        # built is still its queued run.
+        if job is not None and (job.get("status") == "running" or (
+                job.get("status") == "queued" and run is not None and job is run)):
             job["status"] = "error"
             job["error"] = error_msg
             job["finished_at"] = time.time()
@@ -813,14 +816,24 @@ def _promote_one_queued_gpu_job(dropped):
             _gpu_queue.pop(0)
             _refresh_queue_messages_locked()
             if entry.get("kind") == "process":
-                proc, result_queue = _register_process_job(
-                    job_id, entry["target"], entry["args"],
-                    _jobs[job_id]["gpu_touching"], entry["description"],
-                    _jobs[job_id].get("owner_user_id"), start_method=entry.get("start_method"))
                 on_done = entry.get("on_done")
                 on_finish = entry.get("on_finish")
                 kill_whole_tree = entry.get("kill_whole_tree", False)
                 run = _jobs[job_id]
+                proc = result_queue = None
+                build_error = None
+                try:
+                    proc, result_queue = _register_process_job(
+                        job_id, entry["target"], entry["args"],
+                        run["gpu_touching"], entry["description"],
+                        run.get("owner_user_id"), start_method=entry.get("start_method"))
+                    run = _jobs[job_id]
+                except Exception as exc:
+                    # mp.Queue()/Process() can fail (no fds, no /dev/shm)
+                    # after the GPU row was claimed and the entry popped:
+                    # handled below like a failed start, so the job ends,
+                    # its row is released and its on_finish runs once.
+                    build_error = exc
                 break
             _jobs[job_id]["status"] = "running"
             _jobs[job_id]["message"] = "Starting..."
@@ -831,6 +844,8 @@ def _promote_one_queued_gpu_job(dropped):
             break
     try:
         if entry.get("kind") == "process":
+            if build_error is not None:
+                raise build_error
             proc.start()
             _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                               job_id, proc, result_queue, True, on_done=on_done,
@@ -1433,10 +1448,12 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             pass
         _timing_finish(job_id, _timing, thread_job=False)
         _release_gpu_slot(job_id, gpu_touching, run)
-        _promote_next_queued_gpu_job()
-        # Last: removing a large temp folder must not hold the GPU slot.
-        if on_finish is not None:
-            _run_finish_hooks([(job_id, on_finish)])
+        try:
+            _promote_next_queued_gpu_job()
+        finally:
+            # Last: removing a large temp folder must not hold the GPU slot.
+            if on_finish is not None:
+                _run_finish_hooks([(job_id, on_finish)])
 
 
 # A running job whose stage reports progress, but has not reported any for
