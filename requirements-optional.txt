@@ -10,10 +10,10 @@ transformers>=4.46      # local NLLB-200 engine -- genuinely free, fully
                          # bubble detector and PaddleOCR-VL-For-Manga --
                          # both need RT-DETR-v2/current VLM support only
                          # present in more recent releases.)
-sentencepiece>=0.2       # tokenizer NLLB-200 needs
+sentencepiece>=0.2.1      # tokenizer NLLB-200 needs
 
 # --- download audio/video directly from a URL (video_download.py) ---
-yt-dlp>=2024.1           # YouTube and many other sites. Update often
+yt-dlp>=2026.7.4          # YouTube and many other sites. Update often
                           # (pip install -U yt-dlp) -- sites change and
                           # break older versions regularly.
 
@@ -133,7 +133,7 @@ torch>=2.0
 safetensors>=0.4
 
 # --- scanlate: PDF import (splits a PDF into per-page images) ---
-pypdf>=6.0        # 6.x caps how far a stream may inflate (PDF bombs)
+pypdf>=6.19       # 6.x caps how far a stream may inflate (PDF bombs)
 
 # --- exports ---
 genanki>=0.13           # Anki decks
@@ -156,7 +156,7 @@ trafilatura>=2.0
 jiwer>=3.0
 
 # --- Google sign-in token checks (household access) ---
-cryptography>=41.0
+cryptography>=46.0.6
 
 # --- development ---
 pytest>=7.4
