@@ -128,9 +128,40 @@ def _place_pipeline(pipeline, use_gpu: bool) -> str:
     return device
 
 
+def _run_pipeline(pipeline, audio, hints: dict, on_progress=None):
+    """Calls the pipeline, passing pyannote's progress hook when on_progress
+    is given. Progress is capped below 1.0 (the job isn't done until its
+    result is applied) and never moves backwards across pyannote's steps. A
+    pyannote without hook support is simply run without one."""
+    if on_progress is None:
+        return pipeline(audio, **hints)
+    best = [0.08]
+
+    def hook(step_name, step_artifact=None, file=None, total=None, completed=None, **_):
+        try:
+            label = str(step_name).replace("_", " ")
+            if total and completed is not None and total > 0:
+                frac = 0.08 + 0.87 * min(max(float(completed) / float(total), 0.0), 1.0)
+                best[0] = max(best[0], frac)
+                msg = f"Detecting speakers: {label} ({int(completed)} of {int(total)})"
+            else:
+                msg = f"Detecting speakers: {label}"
+            on_progress(min(best[0], 0.95), msg)
+        except Exception:
+            pass  # progress is cosmetic; it must never fail the run
+
+    try:
+        return pipeline(audio, hook=hook, **hints)
+    except TypeError as exc:
+        if "hook" not in str(exc):
+            raise
+        return pipeline(audio, **hints)
+
+
 def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_model: bool = False,
            return_embeddings: bool = False, use_gpu: bool = False,
-           min_speakers: int = None, max_speakers: int = None, run_info: dict = None):
+           min_speakers: int = None, max_speakers: int = None, run_info: dict = None,
+           on_progress=None):
     """
     Returns a list of {"start": float, "end": float, "speaker": str}
     covering who spoke when, e.g. "SPEAKER_00", "SPEAKER_01", ... --
@@ -144,9 +175,13 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     pyannote's own min_speakers/max_speakers; mutually exclusive with
     num_speakers (validate_speaker_hints). run_info: an optional dict this
     fills with {"device": "cuda"|"cpu"}, the device actually used.
+    on_progress: optional on_progress(fraction 0-1, message), called as the
+    stages change and (where pyannote's hook reports it) as each step advances.
     """
+    _say = on_progress or (lambda frac, message: None)
     num_speakers, min_speakers, max_speakers = validate_speaker_hints(
         num_speakers, min_speakers, max_speakers)
+    _say(0.02, "Loading speaker model...")
     pipeline, model = load_pipeline(hf_token)
     device = _place_pipeline(pipeline, use_gpu)
     if run_info is not None:
@@ -162,7 +197,9 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
         hints["min_speakers"] = min_speakers
     if max_speakers is not None:
         hints["max_speakers"] = max_speakers
-    result = pipeline({"waveform": waveform, "sample_rate": sample_rate}, **hints)
+    audio = {"waveform": waveform, "sample_rate": sample_rate}
+    _say(0.08, "Detecting speakers...")
+    result = _run_pipeline(pipeline, audio, hints, on_progress)
     # pyannote.audio 4.x's pipeline(audio) returns a DiarizeOutput dataclass
     # (its .speaker_diarization attribute holds the actual Annotation)
     # instead of an Annotation directly, so .itertracks() would otherwise
@@ -205,12 +242,15 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
     result_queue = rest[-1]
     options = rest[0] if len(rest) > 1 and isinstance(rest[0], dict) else {}
     try:
+        import background_jobs
         run_info = {}
         segments, model, embeddings = diarize(
             audio_path, hf_token, num_speakers=num_speakers,
             return_model=True, return_embeddings=True,
             use_gpu=bool(options.get("use_gpu")), min_speakers=options.get("min_speakers"),
-            max_speakers=options.get("max_speakers"), run_info=run_info)
+            max_speakers=options.get("max_speakers"), run_info=run_info,
+            on_progress=lambda frac, message: background_jobs.report_progress(
+                result_queue, frac, message))
         result_queue.put(("ok", {"segments": segments, "model": model, "embeddings": embeddings,
                                  "device": run_info.get("device", "cpu")}))
     except Exception as exc:
