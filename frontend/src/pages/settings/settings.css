@@ -18,7 +18,7 @@
 .settings-fold > details.section > summary .section-title { font-weight: var(--weight-bold); }
 .settings-fold > details.section > .section-body { gap: var(--space-5); }
 .settings-fold .card { padding: 0; border: 0; box-shadow: none; background: none; }
-.settings-fold .card-title { font-size: 1rem; }
+.settings-fold .card-title { font-size: var(--text-md); }
 .settings-fold .section-body > .card + .card, .settings-fold .section-body > details.section { border-top: 1px solid var(--border); padding-top: var(--space-4); }
 .settings-fold-single .card-head .card-title { display: none; }
 

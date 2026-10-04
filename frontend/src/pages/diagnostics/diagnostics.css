@@ -52,12 +52,12 @@
 .pkg-list > li > span:first-child { flex: 1 1 16rem; min-width: 0; }
 /* Name + purpose, then "approx. size · Source ↗" and any caveat, stacked. */
 .pkg-text { display: grid; gap: 2px; overflow-wrap: anywhere; }
-.pkg-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--font-sm); }
+.pkg-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
 .pkg-meta .pkg-source { white-space: nowrap; }
-.pkg-text .warn { font-size: var(--font-sm); }
+.pkg-text .warn { font-size: var(--text-sm); }
 /* Installed version and the "Check for updates" result. */
-.pkg-version { font-size: var(--font-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
-.pkg-text .ok { font-size: var(--font-sm); color: var(--ok); }
+.pkg-version { font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.pkg-text .ok { font-size: var(--text-sm); color: var(--ok); }
 
 /* Packages: "Install by task" and "GPU PyTorch" as open panels inside the fold. */
 .diag-subcard {
@@ -80,16 +80,16 @@
 .gpu-torch code { overflow-wrap: anywhere; }
 .table-scroll .torch-table, .torch-table { min-width: 0; width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .torch-table th, .torch-table td { text-align: left; padding: var(--space-1) var(--space-2) var(--space-1) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
-.torch-table thead th { color: var(--muted); font-weight: 500; font-size: var(--text-xs); }
+.torch-table thead th { color: var(--muted); font-weight: 500; font-size: var(--text-sm); }
 .torch-table tbody th { font-weight: 600; }
 .torch-table th { overflow-wrap: normal; }
 .torch-table tr > :last-child { padding-right: 0; }
 .torch-table thead th:nth-child(1), .torch-table thead th:nth-child(3) { width: 36%; }
 
 /* Install by task: a group heading, then task rows like package rows. */
-.task-group { margin: var(--space-2) 0 0; font-size: var(--font-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.task-group { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .task-list > li { padding: var(--space-2) 0; border-top: 1px solid var(--border); }
-.task-pkgs { display: flex; flex-wrap: wrap; gap: var(--space-1); font-size: var(--font-sm); }
+.task-pkgs { display: flex; flex-wrap: wrap; gap: var(--space-1); font-size: var(--text-sm); }
 .task-pkg { padding: 0 var(--space-1); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .task-pkg.installed { color: var(--ok); border-color: transparent; }
 /* Role for the task: required stays solid, recommended/optional are lighter. */
@@ -109,7 +109,7 @@
   overflow-wrap: anywhere;
   max-height: 60vh;
   overflow: auto;
-  font-size: var(--font-sm);
+  font-size: var(--text-sm);
 }
 
 /* Jobs as cards (phone). */
@@ -197,7 +197,7 @@
 .section-body > h4 { margin-top: var(--space-2); }
 
 /* Install by task: a task's missing packages (size, source, extras) in a quiet fold, not a box. */
-.task-details { font-size: var(--font-sm); }
+.task-details { font-size: var(--text-sm); }
 .task-details > summary { cursor: pointer; color: var(--muted); }
 @media (pointer: coarse), (max-width: 640px) {
   .task-details > summary { display: flex; align-items: center; min-height: 44px; }

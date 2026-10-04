@@ -8,7 +8,7 @@
 .stage-translate .translate-basics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
 .stage-translate .translate-basics select { width: 100%; }
 .stage-translate .translate-go { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; margin-bottom: var(--space-3); }
-.stage-translate .translate-estimate { min-width: 0; font-size: var(--font-sm); }
+.stage-translate .translate-estimate { min-width: 0; font-size: var(--text-sm); }
 .stage-translate .translate-estimate .error { display: block; }
 .stage-translate .advanced-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: var(--space-3); }
 .stage-translate .advanced-wide { grid-column: 1 / -1; }
@@ -28,7 +28,7 @@
 .stage-translate .bulk-batches { display: grid; gap: var(--space-2); min-width: 0; }
 .stage-translate .bulk-batches p { margin: 0; }
 .stage-translate .bulk-actions, .stage-translate .bulk-confirm { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
-.stage-translate .bulk-error { display: block; font-size: var(--font-sm); }
+.stage-translate .bulk-error { display: block; font-size: var(--text-sm); }
 .stage-translate .bulk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .stage-translate .bulk-list li { display: grid; gap: var(--space-1); min-width: 0; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .stage-translate .bulk-batches .badge { white-space: nowrap; }
@@ -47,7 +47,7 @@
 }
 
 .translate-failed p { margin: 0 0 var(--space-2); }
-.translate-failed-reasons { margin: 0 0 var(--space-2); padding-left: var(--space-4); font-size: var(--font-sm); overflow-wrap: anywhere; }
+.translate-failed-reasons { margin: 0 0 var(--space-2); padding-left: var(--space-4); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .stage-translate .stage-blocker { flex: 1 1 14rem; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: var(--text-md); font-weight: var(--weight-medium); min-width: 0; }
 .stage-translate .stage-ack { display: block; margin: 0 0 var(--space-3); }
 @media (pointer: coarse), (max-width: 640px) {

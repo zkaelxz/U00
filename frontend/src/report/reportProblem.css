@@ -4,16 +4,16 @@ button.report-btn {
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  font-size: var(--font-sm, 0.9rem);
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 button.report-btn:hover:not(:disabled) { color: var(--text); }
 .report-form { display: grid; gap: var(--space-3); }
 .report-form .field-item { display: grid; gap: 4px; }
 .report-check { display: inline-flex; align-items: center; gap: var(--space-2); }
-.report-note { margin: 0; font-size: var(--font-sm, 0.9rem); }
+.report-note { margin: 0; font-size: var(--text-sm); }
 .report-saved { margin: 0; font-weight: 600; color: var(--ok); }
-.report-text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem; margin-top: var(--space-2); }
+.report-text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--text-sm); margin-top: var(--space-2); }
 .report-form details summary { cursor: pointer; }
 
 
@@ -33,7 +33,7 @@ button.report-btn:hover:not(:disabled) { color: var(--text); }
   overflow-wrap: anywhere;
   max-height: 40vh;
   overflow: auto;
-  font-size: var(--font-sm);
+  font-size: var(--text-sm);
 }
 .report-list { margin: 0; display: grid; }
 .report-row {

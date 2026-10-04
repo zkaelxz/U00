@@ -39,7 +39,7 @@
 .source-manual .setting-list { margin: 0; }
 .source-manual .stage-ack { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; overflow-wrap: anywhere; }
 .source-manual p { margin: 0; }
-.source-subhead { margin: var(--space-2) 0 0; font-size: var(--font-sm); font-weight: 600; color: var(--muted); }
+.source-subhead { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: 600; color: var(--muted); }
 /* One box per workflow: panels inside the Source stage are drawn flat, nested sections as dividers. */
 .stage-source details.section .panel,
 .stage-source section.panel[aria-label]:not([aria-label="Job"]) { border: 0; padding: 0; background: none; overflow: visible; }

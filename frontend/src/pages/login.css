@@ -47,7 +47,7 @@ details.user-menu > summary {
   padding: 4px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  font-size: var(--font-sm);
+  font-size: var(--text-sm);
   cursor: pointer;
   list-style: none;
 }
@@ -89,7 +89,7 @@ details.user-menu > summary::after { content: '▾'; color: var(--muted); }
   .header-end > :not(.user-menu) { flex-shrink: 0; }
   /* Title yields first (ellipsis), then the email; the user menu keeps a 44px arrow. */
   .app-header { gap: var(--space-2); }
-  .app-header h1 { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; }
+  .app-header h1 { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md); }
   /* Six 44px controls leave room for about 66px of title: "Studio" stays in the accessible name only. */
   .app-header h1 .title-rest { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   details.user-menu, details.user-menu > summary { min-width: 44px; }

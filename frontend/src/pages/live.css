@@ -7,7 +7,7 @@
 .live-feed > p { margin: 0; }
 .live-cues { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); }
 .live-cues li { display: grid; grid-template-columns: auto 1fr; column-gap: var(--space-3); row-gap: 2px; padding: var(--space-2) var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); min-width: 0; }
-.live-ts { grid-row: span 2; color: var(--muted); font-family: var(--font-mono); font-size: var(--font-sm); }
+.live-ts { grid-row: span 2; color: var(--muted); font-family: var(--font-mono); font-size: var(--text-sm); }
 .live-src, .live-en { min-width: 0; overflow-wrap: anywhere; }
 .live-src { color: var(--muted); }
 /* Video beside the lines on wide screens, above them on phones. */
