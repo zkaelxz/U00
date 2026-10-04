@@ -10,11 +10,12 @@ import translate_engines as te
 from core import Line
 from services import settings_service, translate_run_service, translate_service
 from services.service_errors import DependencyUnavailableError, InvalidInputError
+from tests.http_fakes import StreamedBody
 
 KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
 
 
-class FakeResp:
+class FakeResp(StreamedBody):
     def __init__(self, status=200, body=None):
         self.status_code = status
         self._body = body if body is not None else {}
