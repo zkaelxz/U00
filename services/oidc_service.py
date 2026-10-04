@@ -23,7 +23,8 @@ Security rules kept here:
   already bound to another `sub`, an inactive user or an email not on the
   allowlist is refused. Nobody is created here.
 - Every outbound HTTP call has a timeout (Authlib's httpx `OAuth2Client`
-  for the code exchange, httpx for the JWKS). The client secret is only
+  for the code exchange, httpx for the JWKS), and both replies are read
+  through `capped_body` (GOOGLE_RESPONSE_MAX_BYTES). The client secret is only
   ever sent to Google's token endpoint; it is never logged, audited or
   returned, and every failure is reduced to a generic code.
 - Authlib is imported lazily, so the app still starts without it; sign-in
@@ -41,7 +42,7 @@ import warnings
 from collections import OrderedDict
 from urllib.parse import urlencode, urlsplit
 
-from services import auth_service
+from services import auth_service, capped_body
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      RateLimitedError)
 
@@ -52,6 +53,8 @@ GOOGLE_ISSUERS = ("https://accounts.google.com", "accounts.google.com")
 CALLBACK_PATH = "/api/auth/callback"
 
 HTTP_TIMEOUT_SECONDS = 10
+# Google's token reply and JWKS are a few KB each.
+GOOGLE_RESPONSE_MAX_BYTES = 256 * 1024
 TRANSACTION_TTL_SECONDS = 600
 MAX_PENDING_TRANSACTIONS = 1000
 MAX_PENDING_PER_SOURCE = 20       # per rate-limit bucket (IPv4 address / IPv6 /64)
@@ -111,6 +114,21 @@ def _s256(verifier: str) -> str:
     return create_s256_code_challenge(verifier)
 
 
+def _too_big():
+    return LoginError("provider_error", "login.error", "response_too_large")
+
+
+def _read_capped_response(resp, timeout: float):
+    """A streamed httpx response turned into an already-read one, its body
+    read through capped_body, for Authlib, which parses the token reply itself. The body is decoded here, so the encoding and
+    length headers are dropped to stop httpx decoding it a second time.
+    type(resp) keeps it the same class as Authlib's own (httpx or httpx2)."""
+    body = capped_body.read_capped(resp, GOOGLE_RESPONSE_MAX_BYTES, timeout * 3, _too_big)
+    headers = [(k, v) for k, v in resp.headers.multi_items()
+               if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")]
+    return type(resp)(resp.status_code, headers=headers, content=body, request=resp.request)
+
+
 class GoogleProvider:
     """The real Google endpoints. Tests inject a fake with the same three
     members through `app.state.oidc_provider`. `transport` is an optional
@@ -124,7 +142,15 @@ class GoogleProvider:
 
     def exchange_code(self, *, client_id, client_secret, redirect_uri, code, code_verifier):
         """Server-to-server code exchange. Returns the token response dict."""
-        from authlib.integrations.httpx_client import OAuth2Client
+        from authlib.integrations.httpx_client import OAuth2Client as AuthlibOAuth2Client
+        timeout = self.timeout
+
+        class OAuth2Client(AuthlibOAuth2Client):
+            # Authlib reads the token reply itself, so the cap goes on every send.
+            def send(self, request, **kwargs):
+                kwargs["stream"] = True
+                return _read_capped_response(super().send(request, **kwargs), timeout)
+
         extra = {"transport": self.transport} if self.transport is not None else {}
         with OAuth2Client(client_id=client_id, client_secret=client_secret,
                           redirect_uri=redirect_uri, timeout=self.timeout,
@@ -138,9 +164,10 @@ class GoogleProvider:
         import httpx
         extra = {"transport": self.transport} if self.transport is not None else {}
         with httpx.Client(timeout=self.timeout, follow_redirects=False, **extra) as client:
-            resp = client.get(GOOGLE_JWKS_URL, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp.json()
+            with client.stream("GET", GOOGLE_JWKS_URL, timeout=self.timeout) as resp:
+                resp.raise_for_status()
+                return json.loads(capped_body.read_capped(
+                    resp, GOOGLE_RESPONSE_MAX_BYTES, self.timeout * 3, _too_big))
 
 
 def safe_return_to(value) -> str:

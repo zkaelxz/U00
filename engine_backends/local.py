@@ -1,7 +1,7 @@
 """Local engines: NLLB-200 and Ollama."""
 
 from .prompts import build_batch_user_message, build_stable_system_text
-from .shared import request_translations_with_retry
+from .shared import read_json_capped, request_translations_with_retry
 
 
 # ---------------------------------------------------------------------------
@@ -137,15 +137,19 @@ class OllamaUnavailableError(Exception):
         self.message = message
 
 
-def _ollama_chat(base_url: str, payload: dict):
-    """POST /api/chat with the slow-local-model timeout; returns the
-    response after raise_for_status. A refused/unresolvable/unreachable
+# Local models can be slow, especially CPU-only or larger ones.
+OLLAMA_CHAT_TIMEOUT = 300
+
+
+def _ollama_chat(base_url: str, payload: dict) -> dict:
+    """POST /api/chat with the slow-local-model timeout; returns the JSON
+    reply, read with the provider byte cap. A refused/unresolvable/unreachable
     server and a model that isn't pulled become OllamaUnavailableError;
     requests' own messages embed the URL, so none of that text is kept."""
     import requests
     try:
-        resp = requests.post(f"{base_url}/api/chat", json=payload,
-                             timeout=300)  # local models can be slow, especially CPU-only or larger ones
+        resp = requests.post(f"{base_url}/api/chat", json=payload, stream=True,
+                             timeout=OLLAMA_CHAT_TIMEOUT)
     except requests.ConnectionError:  # includes ConnectTimeout and DNS failures
         raise OllamaUnavailableError(
             "ollama_unreachable",
@@ -157,6 +161,7 @@ def _ollama_chat(base_url: str, payload: dict):
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
+        resp.close()
         if getattr(exc.response, "status_code", None) != 404:
             raise
         model = str(payload.get("model") or "")
@@ -164,7 +169,7 @@ def _ollama_chat(base_url: str, payload: dict):
             "ollama_model_missing",
             f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
             "or pick another model in Settings.") from None
-    return resp
+    return read_json_capped(resp, OLLAMA_CHAT_TIMEOUT)
 
 
 class OllamaEngine:
@@ -211,7 +216,7 @@ class OllamaEngine:
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
                 "options": {"num_ctx": num_ctx},
             })
-            return resp.json()["message"]["content"].strip()
+            return resp["message"]["content"].strip()
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="ollama")
@@ -240,8 +245,10 @@ def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
     if cached and now - cached[0] < OLLAMA_REACHABILITY_CACHE_SECONDS:
         return cached[1]
     try:
-        resp = requests.get(f"{base_url}/api/tags", timeout=2.5)
+        # stream=True so only the status is read; the model list isn't needed here.
+        resp = requests.get(f"{base_url}/api/tags", timeout=2.5, stream=True)
         reachable = resp.ok
+        resp.close()
     except Exception:
         reachable = False
     _ollama_reachability_cache[base_url] = (now, reachable)
