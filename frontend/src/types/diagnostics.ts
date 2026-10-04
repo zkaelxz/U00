@@ -49,6 +49,8 @@ export interface DiagnosticsSetupChecks {
   cuda: { torch_installed: boolean; cuda_available: boolean | null }
   files: { all_present: boolean; missing_top_level: string[]; missing_tabs: string[] }
   library_writable: boolean
+  // Non-blocking heads-ups (old yt-dlp, package conflicts); fixed short text, no paths.
+  warnings?: string[]
 }
 
 export interface DiagnosticsHfCacheEntry {

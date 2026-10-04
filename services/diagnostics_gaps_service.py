@@ -95,6 +95,7 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
                   "missing_top_level": list(files["missing_top_level"]),
                   "missing_tabs": list(files["missing_tabs"])},
         "library_writable": bool(diagnostics.check_library_writable(library_dir)),
+        "warnings": diagnostics.startup_warnings(),
     }
 
 
