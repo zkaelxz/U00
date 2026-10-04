@@ -3,6 +3,7 @@
  * default and PC only:
  *   - Qwen3-ASR batch size: how many lines go to Qwen3-ASR at once when a
  *     drama's ASR backend is Qwen3 ASR. 1 is the original one-at-a-time run.
+ *   - Mixed languages: detect the spoken language per speech span.
  *   - MOSS-Transcribe-Diarize: lets the experimental one-pass transcribe +
  *     speakers backend be picked in a drama's Transcribe > Advanced.
  * Another device sees "PC only" and makes no calls.
@@ -83,7 +84,7 @@ function Controls() {
 
   const parsed = parseBatchSize(batch, opts.qwen_asr_batch_min, opts.qwen_asr_batch_max)
   const batchError = parsed === null ? `A whole number from ${opts.qwen_asr_batch_min} to ${opts.qwen_asr_batch_max}.` : undefined
-  const meta = opts.moss_experimental || opts.qwen_vad_refine_timing || opts.qwen_asr_batch_size > 1 ? 'On' : 'Off'
+  const meta = opts.moss_experimental || opts.qwen_vad_refine_timing || opts.mixed_languages || opts.qwen_asr_batch_size > 1 ? 'On' : 'Off'
 
   return (
     <Card title={TITLE} meta={meta} aria-label={TITLE}>
@@ -126,6 +127,17 @@ function Controls() {
             disabled={saving}
             onChange={(next) => save({ qwen_vad_refine_timing: next })}
             aria-label="Refine line timing with the forced aligner"
+          />
+        </Field>
+        <Field
+          label="Mixed languages"
+          help="For a video where people speak more than one language (say Korean, Chinese and Japanese). The language is detected for each stretch of speech, and a line whose language differs from the title's is marked in Review. Runs with the Whisper and Qwen3 ASR with speech detection backends. Slower: one language detection per stretch of speech. With the speech detection backend, refining line timing is skipped. Off transcribes everything in the title's language."
+        >
+          <Toggle
+            checked={opts.mixed_languages}
+            disabled={saving}
+            onChange={(next) => save({ mixed_languages: next })}
+            aria-label="Mixed languages"
           />
         </Field>
         <Field

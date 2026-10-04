@@ -47,7 +47,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
     "sensevoice_tags.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
     "translation_memory.py", "action_tiers.py", "media_inspect.py",
-    "vad_segments.py", "process_guard.py",   # the installed server's Job Object (python -m api imports it)
+    "vad_segments.py", "mixed_language.py", "process_guard.py",   # the installed server's Job Object (python -m api imports it)
 ]
 
 # name -> (import name, feature it powers, required vs optional)
@@ -1252,7 +1252,7 @@ KNOWN_UPGRADE_LIMITATIONS = {
     "audio-separator": {
         "python_version": (3, 14),
         "reason": "its diffq-fixed sub-dependency has wheels only through cp313, and its "
-                  "sdist build also fails independently (Step 61); Demucs, this app's "
+                  "sdist build also fails independently; Demucs, this app's "
                   "default vocal-separation backend, is unaffected.",
     },
     # Reproduced for real -- with huggingface_hub 2.0.0 installed
