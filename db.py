@@ -19,6 +19,7 @@ import stat
 import threading
 import time
 import uuid
+import weakref
 from typing import List
 
 import portable
@@ -62,70 +63,70 @@ def configure_library_dir(path: str):
     _db_ready = False
 
 
-# Connections opened but not yet closed, keyed by the ident() of the thread
-# that opened them. Under normal flow a function opens one and closes it
-# (via the try/finally every public function below wraps around its own
-# get_conn()/close() pair) before returning, so a thread's own entry here is
-# removed again before that same thread's next get_conn() call -- this dict
-# is a last-resort net for whatever still slips past that.
+# Connections opened but not yet closed: thread ident -> list of weak
+# references, one per get_conn() call that thread still has open. A list,
+# because a thread may legitimately hold more than one at a time: a helper
+# that calls get_conn() while its caller still holds a connection (possibly
+# mid-transaction) must get a second connection, not close the caller's,
+# which would silently roll back the caller's uncommitted writes.
 #
-# Keyed per-thread, and swept with real care, because this app is not
-# single-threaded: background_jobs.py runs real threading.Thread workers
-# that call straight into db.py concurrently with the main Streamlit
-# thread. A connection that's simply still in ordinary use by another,
-# still-*running* thread is not a leak -- closing it out from under that
-# thread is a worse bug than the one this net exists to catch (confirmed
-# directly: an earlier version of this fix used one flat list and closed
-# whatever was in it on every get_conn() call, regardless of whose thread
-# was still using it -- under Streamlit's own AppTest, which runs the
-# script in its own thread while the test thread also calls db.py, this
-# reliably closed a connection the script thread's very next statement
-# then hit as "Cannot operate on a closed database"). So a sweep only
-# ever closes:
-#   (a) the current thread's OWN previous connection, if it left one
-#       leaked; or
-#   (b) a connection whose owning thread has since died -- safe because a
-#       dead thread can never touch it again, so there's no race.
-# It never touches a live *other* thread's still-open connection.
+# Weak references, so the registry never keeps a connection alive by
+# itself: a connection its caller dropped without close() is closed (and
+# any open transaction rolled back) by garbage collection -- the cycle
+# collector, since sqlite3's statement cache refers back to its connection.
+#
+# The sweep in _close_leaked_connections only ever closes connections whose
+# owning thread has died -- a dead thread can never touch them again, so
+# there's no race. background_jobs.py runs real threading.Thread workers
+# that call straight into db.py concurrently with the request threads, and
+# a live thread's still-open connection is never closed by anyone else
+# (an earlier version that did reliably broke the other thread's very next
+# statement with "Cannot operate on a closed database").
+#
+# Only the owning thread changes its own list; other threads only pop the
+# entry of a thread that has died.
 _open_connections = {}
 
 
 class _TrackedConnection(sqlite3.Connection):
-    """Deregisters itself on close, so a normal call leaves nothing behind
-    for the next get_conn() to clean up. sqlite3.Connection forbids
-    assigning to .close, so subclassing via connect(factory=...) is the
-    supported way to hook it. Closing is always done by the same thread
-    that opened the connection (see _open_connections above), so reading
-    the current thread's own ident here to find which entry is "self" is
-    safe -- the cross-thread case is handled separately, directly on
-    _open_connections, in _close_leaked_connections below."""
+    """Deregisters itself on close, so a normal call leaves nothing behind.
+    sqlite3.Connection forbids assigning to .close (and plain instances
+    can't be weakly referenced), so subclassing via connect(factory=...) is
+    the supported way to hook it. A connection is closed by the thread
+    that opened it (see _open_connections above), so only that thread's
+    own list is looked at here."""
 
     def close(self):
         ident = threading.get_ident()
-        if _open_connections.get(ident) is self:
-            del _open_connections[ident]
+        refs = _open_connections.get(ident)
+        if refs is not None:
+            refs[:] = [r for r in refs if r() is not None and r() is not self]
+            if not refs:
+                del _open_connections[ident]
         super().close()
 
 
 def _close_leaked_connections():
-    my_ident = threading.get_ident()
     alive_idents = {t.ident for t in threading.enumerate()}
     for ident in list(_open_connections):
-        if ident != my_ident and ident in alive_idents:
-            continue  # still in ordinary use by a live thread -- not a leak
-        leaked = _open_connections.pop(ident)
-        try:
-            sqlite3.Connection.close(leaked)
-        except Exception:
-            # Already popped from _open_connections above, so a failed
-            # close here would otherwise vanish silently -- untracked and
-            # never actually closed, holding its WAL handle open for the
-            # rest of the process's life with no future get_conn() call
-            # ever retrying it. Log so that's visible instead of invisible.
-            import applog  # local import: applog imports db, so this can't be top-level
-            applog.get_logger().warning(
-                "Failed to close a leaked db connection; it may stay open "
-                "for the rest of this process's life.", exc_info=True)
+        if ident in alive_idents:
+            continue  # possibly still in ordinary use by a live thread -- not a leak
+        for ref in _open_connections.pop(ident, ()):
+            leaked = ref()
+            if leaked is None:
+                continue
+            try:
+                sqlite3.Connection.close(leaked)
+            except Exception:
+                # Already popped from _open_connections above, so a failed
+                # close here would otherwise vanish silently -- untracked and
+                # never actually closed, holding its WAL handle open for the
+                # rest of the process's life with no future get_conn() call
+                # ever retrying it. Log so that's visible instead of invisible.
+                import applog  # local import: applog imports db, so this can't be top-level
+                applog.get_logger().warning(
+                    "Failed to close a leaked db connection; it may stay open "
+                    "for the rest of this process's life.", exc_info=True)
 
 
 def _ensure_ready():
@@ -144,7 +145,7 @@ def _ensure_ready():
 def get_conn():
     _ensure_ready()
     _close_leaked_connections()
-    # check_same_thread=False: needed for case (b) above -- closing a
+    # check_same_thread=False: needed for the sweep above -- closing a
     # connection whose owning thread has died, which sqlite3 forbids by
     # default even though it's safe (a dead thread can never race with us).
     path = getattr(_path_override, "path", None) or DB_PATH
@@ -156,7 +157,9 @@ def get_conn():
         # function calls (the restore allows only plain tables/indexes).
         conn.execute("PRAGMA trusted_schema = OFF")
     conn.execute("PRAGMA journal_mode = WAL")
-    _open_connections[threading.get_ident()] = conn
+    refs = _open_connections.setdefault(threading.get_ident(), [])
+    refs[:] = [r for r in refs if r() is not None]
+    refs.append(weakref.ref(conn))
     return conn
 
 
@@ -1814,8 +1817,8 @@ def _drama_rows_exist(ids):
     if not os.path.isfile(DB_PATH):
         return None
     try:
-        # Its own untracked connection: callers hold a get_conn() connection
-        # (mid-transaction), which a nested get_conn() in this thread would close.
+        # A separate connection: callers hold a get_conn() connection
+        # mid-transaction, so this sees only committed rows.
         with contextlib.closing(sqlite3.connect(DB_PATH, timeout=10)) as conn:
             for i in range(0, len(ids), 500):
                 chunk = ids[i:i + 500]
