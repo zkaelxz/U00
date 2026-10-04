@@ -3,6 +3,8 @@ tests/test_db.py -- tests for db.py, using the isolated_db fixture so
 nothing here ever touches your real library.
 """
 
+import contextlib
+import gc
 import shutil
 import sqlite3
 import subprocess
@@ -10,6 +12,7 @@ import sys
 import os
 import tempfile
 import threading
+import weakref
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db
@@ -1114,6 +1117,15 @@ class TestFullLibraryReset:
         assert isolated_db.list_series() == []
         assert not os.path.exists(ddir)
 
+    def test_reset_closes_a_connection_this_thread_left_open(self, isolated_db):
+        leftover = isolated_db.get_conn()
+        isolated_db.reset_library()
+        try:
+            leftover.execute("SELECT 1")
+        except sqlite3.ProgrammingError:
+            return
+        raise AssertionError("the leftover connection was still open")
+
     def test_schema_is_immediately_usable_after_reset(self, isolated_db):
         isolated_db.reset_library()
         did = isolated_db.create_drama(title_en="Fresh")
@@ -1551,6 +1563,41 @@ class TestImportTimeSafety:
         assert os.path.exists(os.path.join(tmp_path_str, "library.db"))
 
 
+def _is_tracked(db_module, conn):
+    return any(ref() is conn for refs in db_module._open_connections.values() for ref in refs)
+
+
+class TestNestedConnections:
+    """A helper that opens its own connection while its caller still holds
+    one on the same thread used to close the caller's connection, silently
+    rolling back the caller's uncommitted writes."""
+
+    def test_a_nested_get_conn_keeps_the_outer_transaction(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Before")
+        with contextlib.closing(isolated_db.get_conn()) as outer:
+            outer.execute("UPDATE dramas SET title_en = 'After' WHERE id = ?", (did,))
+            assert outer.in_transaction
+            isolated_db.list_dramas()   # opens and closes its own connection
+            assert outer.in_transaction
+            outer.commit()
+        assert isolated_db.get_drama(did)["title_en"] == "After"
+        assert len(isolated_db._open_connections) == 0
+
+    def test_a_connection_dropped_without_close_releases_the_write_lock(self, isolated_db):
+        did = isolated_db.create_drama(title_en="X")
+        conn = isolated_db.get_conn()
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("UPDATE dramas SET title_en = 'lost' WHERE id = ?", (did,))
+        # The registry must not keep it, and its write lock, alive. sqlite3's
+        # statement cache refers back to its connection, so the cycle
+        # collector is what frees a dropped one.
+        del conn
+        gc.collect()
+        isolated_db.update_drama(did, status="translated")
+        assert isolated_db.get_drama(did)["title_en"] == "X"
+        assert isolated_db.get_drama(did)["status"] == "translated"
+
+
 class TestLeakedConnectionCleanup:
     """Step 69: get_conn()'s own connection-tracking exists to catch a
     connection leaked by a mid-statement failure (get_conn() called, but
@@ -1583,7 +1630,7 @@ class TestLeakedConnectionCleanup:
         assert not t.is_alive()
 
         leaked_conn = leaked["conn"]
-        assert leaked_conn in isolated_db._open_connections.values()
+        assert _is_tracked(isolated_db, leaked_conn)
 
         # The dead worker thread can never touch its own connection again,
         # so the main thread's next get_conn() call should be able to
@@ -1595,7 +1642,7 @@ class TestLeakedConnectionCleanup:
 
         conn2 = isolated_db.get_conn()
         try:
-            assert leaked_conn not in isolated_db._open_connections.values()
+            assert not _is_tracked(isolated_db, leaked_conn)
             with pytest.raises(sqlite3.ProgrammingError):
                 leaked_conn.execute("SELECT 1")
         finally:
@@ -1617,7 +1664,8 @@ class TestLeakedConnectionCleanup:
         holder = {}
 
         def worker():
-            holder["conn"] = sqlite3.connect(isolated_db.DB_PATH)
+            holder["conn"] = sqlite3.connect(isolated_db.DB_PATH,
+                                             factory=isolated_db._TrackedConnection)
             holder["ident"] = threading.get_ident()
 
         t = threading.Thread(target=worker)
@@ -1626,7 +1674,7 @@ class TestLeakedConnectionCleanup:
         assert not t.is_alive()
 
         # Register it as if it were a leak left by that (now-dead) thread.
-        isolated_db._open_connections[holder["ident"]] = holder["conn"]
+        isolated_db._open_connections[holder["ident"]] = [weakref.ref(holder["conn"])]
 
         logged = []
 
@@ -1677,7 +1725,7 @@ class TestLeakedConnectionCleanup:
             # not treat that as a leak.
             conn2 = isolated_db.get_conn()
             try:
-                assert holder["conn"] in isolated_db._open_connections.values()
+                assert _is_tracked(isolated_db, holder["conn"])
             finally:
                 conn2.close()
         finally:
