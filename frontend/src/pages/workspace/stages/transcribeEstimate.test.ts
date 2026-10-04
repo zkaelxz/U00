@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { diarizeEstimate, etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, roughDuration, roughRange, transcribeEstimate, whisperEstimateSeconds } from './transcribeEstimate'
+import { diarizeEstimate, etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, measuredRunSeconds, roughDuration, roughRange, transcribeEstimate, whisperEstimateSeconds } from './transcribeEstimate'
 
 const base = { audioSeconds: 3600, whisperSize: 'large-v3', useGpu: false, useGroq: false, detectSpeakers: false }
 
@@ -53,6 +53,37 @@ describe('whisperEstimateSeconds', () => {
     expect(many.high_s).toBeLessThan(one.high_s)
     expect(many.low_s).toBeLessThan(1800)
     expect(many.high_s).toBeGreaterThan(1800)
+  })
+})
+
+describe('stage medians', () => {
+  const measured = { ...base, measuredSpeed: 2, measuredRuns: 5 } // 1800 s of Whisper work
+  const stages = { load: 60, decode_vad: 40, separate: 300, align: 100 }
+  it('adds load and decode, but separation and alignment only when the run has them', () => {
+    expect(measuredRunSeconds({ ...measured, measuredStages: stages })).toBe(1900)
+    expect(measuredRunSeconds({ ...measured, measuredStages: stages, separateVocals: true })).toBe(2200)
+    expect(measuredRunSeconds({ ...measured, measuredStages: stages, separateVocals: true, realignLong: true })).toBe(2300)
+  })
+  it('an older server with no stage medians gives the speed alone', () => {
+    expect(measuredRunSeconds(measured)).toBe(1800)
+    expect(measuredRunSeconds({ ...measured, measuredStages: {} })).toBe(1800)
+  })
+  it('has no measured time without a usable speed', () => {
+    expect(measuredRunSeconds({ ...base, measuredStages: stages })).toBeNull()
+  })
+})
+
+describe('measured speaker detection', () => {
+  it('uses the recorded speed once there is one, with the runs wording', () => {
+    expect(diarizeEstimate(3600)).toBe('Takes approx. 1 h to 2 h.')
+    expect(diarizeEstimate(3600, 4, 3)).toBe('Takes approx. 14 min to 17 min, based on your last 3 runs.')
+  })
+  it('falls back to the fixed range without a speed', () => {
+    expect(diarizeEstimate(3600, null, 1)).toBe(diarizeEstimate(3600))
+  })
+  it('feeds the transcribe caption too', () => {
+    const text = transcribeEstimate({ ...base, detectSpeakers: true, measuredDiarizeSpeed: 4, measuredDiarizeRuns: 3 })!
+    expect(text).toContain('plus 14 min to 17 min to detect speakers')
   })
 })
 

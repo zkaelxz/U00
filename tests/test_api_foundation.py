@@ -800,6 +800,7 @@ class TestTranscribeConfigEndpoints:
             "audio_available": False, "alignment_method": "whisper_diff",
             "asr_backend_choice": "whisper", "whisper_size": transcribe_service.CPU_DEFAULT_WHISPER_SIZE,
             "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None, "measured_speed_runs": 0,
+            "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": body["whisper_installed"],
             "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5,
             "separate_vocals_first": False, "separation_backend": "auto",

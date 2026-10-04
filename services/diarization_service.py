@@ -185,6 +185,23 @@ def relabel_from_saved_turns(drama_id: int, only_ids=None) -> dict:
     return counts
 
 
+def _record_run_speed(drama_id: int, result) -> None:
+    """Feeds the run's duration to the speaker-detection estimate. Never
+    raises: a finished detection must not fail over its own bookkeeping."""
+    try:
+        seconds = (result or {}).get("seconds")
+        drama = db.get_drama(drama_id)
+        audio_path = _drama_audio_path(drama_id, drama) if drama else None
+        if seconds is None or audio_path is None:
+            return
+        from services import transcribe_service  # imports this module, so not at the top
+        transcribe_service.record_diarize_speed(
+            result.get("device") == "cuda", transcribe_service._audio_duration_seconds(audio_path),
+            seconds)
+    except Exception:
+        pass
+
+
 def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
                        overwrite_manual: bool = False, min_speakers: Optional[int] = None,
                        max_speakers: Optional[int] = None):
@@ -196,6 +213,7 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
             job_id, 0.97, (notice + " " if fell_back else "") + "Matching speakers to lines...")
         apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
                                  min_speakers=min_speakers, max_speakers=max_speakers)
+        _record_run_speed(drama_id, result)
         if fell_back:
             # Replaces the stored result so the finished job still says it.
             return {"device": "cpu", "gpu_fallback": notice, "device_notice": notice}

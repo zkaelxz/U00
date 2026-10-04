@@ -48,6 +48,27 @@ export interface WhisperEstimateInput {
   fastMode?: boolean
   measuredSpeed?: number | null // seconds of audio per second of work: the median of the recent runs here
   measuredRuns?: number // how many runs that median covers; more runs, a narrower range
+  measuredStages?: Record<string, number> // median seconds per stage over those runs
+  separateVocals?: boolean // the run separates vocals first
+  realignLong?: boolean // the run splits long merged lines afterwards
+  measuredDiarizeSpeed?: number | null // audio seconds per second of speaker detection here
+  measuredDiarizeRuns?: number
+}
+
+// The measured speed covers only the Whisper pass after its first percent, so
+// the other stages are added from their own medians, and only those this run has.
+function measuredOverheadSeconds(i: WhisperEstimateInput): number {
+  const s = i.measuredStages ?? {}
+  const keys = ['load', 'decode_vad', ...(i.separateVocals ? ['separate'] : []), ...(i.realignLong ? ['align'] : [])]
+  return keys.reduce((sum, k) => (Number.isFinite(s[k]) && s[k] > 0 ? sum + s[k] : sum), 0)
+}
+
+// Seconds of work from this PC's recorded runs, or null when there is no usable speed.
+export function measuredRunSeconds(i: WhisperEstimateInput): number | null {
+  const speed = i.measuredSpeed
+  if (!i.audioSeconds || i.audioSeconds <= 0) return null
+  if (typeof speed !== 'number' || !Number.isFinite(speed) || speed <= 0) return null
+  return i.audioSeconds / speed + measuredOverheadSeconds(i)
 }
 
 // Room left around a measured time: a single run is not exact either, while
@@ -59,9 +80,8 @@ function measuredSpread(runs: number | undefined): [number, number] {
 // Seconds of work as [low, high], or null when it can't be estimated (no length, or a model with no table entry).
 export function whisperEstimateSeconds(i: WhisperEstimateInput): { low_s: number; high_s: number } | null {
   if (!i.audioSeconds || i.audioSeconds <= 0) return null
-  const speed = i.measuredSpeed
-  if (typeof speed === 'number' && Number.isFinite(speed) && speed > 0) {
-    const t = i.audioSeconds / speed
+  const t = measuredRunSeconds(i)
+  if (t !== null) {
     const [lo, hi] = measuredSpread(i.measuredRuns)
     return { low_s: t * lo, high_s: t * hi }
   }
@@ -102,16 +122,27 @@ export function transcribeEstimate(i: TranscribeEstimateInput): string | null {
   if (!est || !i.audioSeconds) return null
   const measured = typeof i.measuredSpeed === 'number' && i.measuredSpeed > 0
   const where = i.useGpu ? 'GPU' : 'CPU'
-  const speakers = i.detectSpeakers ? `, plus ${range(i.audioSeconds, DIARIZE)} to detect speakers` : ''
+  const speakers = i.detectSpeakers ? `, plus ${diarizeRange(i.audioSeconds, i.measuredDiarizeSpeed, i.measuredDiarizeRuns)} to detect speakers` : ''
   const basis = !measured ? '' : (i.measuredRuns ?? 1) >= 2 ? `, based on your last ${i.measuredRuns} runs` : ', based on your last run'
   const download = i.modelCached === false ? ' First use also downloads the model.' : ''
   return `Rough estimate: ${roughRange(est.low_s, est.high_s)} for this audio (${i.whisperSize} on ${where}${basis})${speakers}.${download}`
 }
 
+// Speaker detection time: this PC's recorded speed when there is one, else the fixed range.
+function diarizeRange(seconds: number, speed?: number | null, runs?: number): string {
+  if (typeof speed === 'number' && Number.isFinite(speed) && speed > 0) {
+    const [lo, hi] = measuredSpread(runs)
+    return range(seconds / speed, [lo, hi])
+  }
+  return range(seconds, DIARIZE)
+}
+
 // The caption next to "Detect speakers only".
-export function diarizeEstimate(durationSeconds: number | null): string {
+export function diarizeEstimate(durationSeconds: number | null, speed?: number | null, runs?: number): string {
   if (!durationSeconds || durationSeconds <= 0) return 'Takes approx. a minute to a few minutes, depending on audio length.'
-  return `Takes approx. ${range(durationSeconds, DIARIZE)}.`
+  const measured = typeof speed === 'number' && speed > 0
+  const basis = !measured ? '' : (runs ?? 1) >= 2 ? `, based on your last ${runs} runs` : ', based on your last run'
+  return `Takes approx. ${diarizeRange(durationSeconds, speed, runs)}${basis}.`
 }
 
 // --- Live ETA for a running transcription ---------------------------------

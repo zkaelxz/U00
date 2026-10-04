@@ -2,7 +2,7 @@
 diarization, autotune, re-transcribe and live sessions.
 """
 
-from typing import Annotated, List, Optional
+from typing import Annotated, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
@@ -118,6 +118,11 @@ class TranscribeConfig(BaseModel):
     measured_speed: Optional[float] = None
     # How many recent runs the measured speed is the median of (0 = none yet).
     measured_speed_runs: int = 0
+    # Median seconds per stage (separate, load, decode_vad, transcribe, align) over those runs.
+    measured_stage_seconds: Dict[str, float] = Field(default_factory=dict)
+    # Audio seconds per second of speaker detection on this device; None until enough runs.
+    measured_diarize_speed: Optional[float] = None
+    measured_diarize_runs: int = 0
     # False when faster-whisper isn't installed, so a run can't start.
     whisper_installed: bool = True
     beam_size: int

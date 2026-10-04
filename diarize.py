@@ -35,6 +35,7 @@ untouched.
 import datetime
 import json
 import os
+import time
 
 DIARIZATION_MODELS = ("pyannote/speaker-diarization-community-1",
                       "pyannote/speaker-diarization-3.1")
@@ -310,6 +311,7 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
     try:
         import background_jobs
         run_info = {}
+        started = time.monotonic()
         segments, model, embeddings = diarize(
             audio_path, hf_token, num_speakers=num_speakers,
             return_model=True, return_embeddings=True,
@@ -319,6 +321,7 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
                 result_queue, frac, message))
         result_queue.put(("ok", {"segments": segments, "model": model, "embeddings": embeddings,
                                  "device": run_info.get("device", "cpu"),
+                                 "seconds": time.monotonic() - started,
                                  "fell_back_to_cpu": bool(run_info.get("fell_back_to_cpu")),
                                  "fallback_reason": run_info.get("fallback_reason"),
                                  "fallback_kind": run_info.get("fallback_kind")}))

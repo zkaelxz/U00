@@ -373,6 +373,7 @@ def cmd_diarize(args):
                     last_beat[0] = time.monotonic()
                     db.heartbeat_gpu_lock(_gpu_holder)
 
+            started = time.monotonic()
             turns, model, embeddings = diarize.diarize(
                 audio_path, hf_token, num_speakers=num_speakers,
                 return_model=True, return_embeddings=True,
@@ -381,6 +382,10 @@ def cmd_diarize(args):
                 on_progress=on_progress)
         finally:
             release_gpu_models()
+        # Same history the app's speaker-detection estimate reads.
+        transcribe_service.record_diarize_speed(
+            run_info.get("device") == "cuda", transcribe_service._audio_duration_seconds(audio_path),
+            time.monotonic() - started)
         if run_info.get("fell_back_to_cpu"):
             print(f"#{d['id']} WARNING: {diarize.fallback_done_message(run_info.get('fallback_kind'))}")
         diarize.save_turns(ddir, turns, num_speakers=num_speakers, model=model,

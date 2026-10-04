@@ -36,6 +36,11 @@ export interface TranscribeConfig {
   measured_speed: number | null
   // How many recent runs that speed is the median of.
   measured_speed_runs?: number
+  // Median seconds per stage (separate, load, decode_vad, transcribe, align) over those runs.
+  measured_stage_seconds?: Record<string, number>
+  // Audio seconds per second of speaker detection on this device; null until enough runs.
+  measured_diarize_speed?: number | null
+  measured_diarize_runs?: number
   // False when faster-whisper isn't installed (transcription can't run).
   whisper_installed: boolean
   beam_size: number
@@ -64,6 +69,9 @@ export type TranscribeConfigUpdate = Partial<
     | 'whisper_model_cached'
     | 'measured_speed'
     | 'measured_speed_runs'
+    | 'measured_stage_seconds'
+    | 'measured_diarize_speed'
+    | 'measured_diarize_runs'
     | 'whisper_installed'
     | 'has_video_source'
   >
