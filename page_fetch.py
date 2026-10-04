@@ -369,15 +369,33 @@ def _guarded_page(browser):
 
 
 STATIC_FETCH_MAX_BYTES = 5_000_000
+STATIC_FETCH_MAX_REDIRECTS = 5
+_REDIRECT_CODES = (301, 302, 303, 307, 308)
 
 
 def fetch_static(url: str, timeout: int = 20):
-    """Plain fetch. Returns (html, text). Raises on network failure."""
-    import requests
+    """Plain fetch. Returns (html, text). Raises on network failure, and
+    `url_guard.UnsafeURLError` when the URL or any redirect hop is not a
+    public http(s) address."""
+    from urllib.parse import urljoin
     from bs4 import BeautifulSoup
+    from services import metadata_service, url_guard
 
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"}
-    resp = requests.get(url, headers=headers, timeout=timeout, stream=True)
+    headers = {"User-Agent": _UA}
+    current = url
+    # Redirects are followed by hand so every hop is validated and the
+    # connection pinned to the validated IP (no DNS-rebinding window).
+    for _ in range(STATIC_FETCH_MAX_REDIRECTS + 1):
+        ip = url_guard.resolve_public(current)
+        resp = metadata_service.pinned_get(current, ip, headers, timeout=timeout)
+        location = resp.headers.get("Location")
+        if resp.status_code in _REDIRECT_CODES and location:
+            resp.close()
+            current = urljoin(current, location)
+            continue
+        break
+    else:
+        raise url_guard.UnsafeURLError("Too many redirects.")
     try:
         resp.raise_for_status()
         encoding = resp.encoding or "utf-8"
@@ -962,6 +980,11 @@ def open_login_window(url: str, profile_dir: str, launcher=None):
         lock.release()
 
 
+def _redact(exc) -> str:
+    from engine_backends.shared import redact_secrets
+    return redact_secrets(str(exc))
+
+
 def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
     """
     Fetches a page and tells you honestly what you got.
@@ -982,7 +1005,7 @@ def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
         html, text = fetch_static(url, timeout=timeout)
     except Exception as e:
         result["needs_manual"] = True
-        result["message"] = f"Couldn't reach that page: {e}"
+        result["message"] = f"Couldn't reach that page: {_redact(e)}"
         return result
 
     check = looks_like_unrendered_shell(html, text)
@@ -1018,11 +1041,11 @@ def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
             result["needs_manual"] = True
             result["message"] = (
                 "This page is built with JavaScript, so a plain fetch only returns an "
-                f"empty shell.\n\n{e}\n\nOr use the manual paste option below.")
+                f"empty shell.\n\n{_redact(e)}\n\nOr use the manual paste option below.")
             return result
         except Exception as e:
             result["needs_manual"] = True
-            result["message"] = f"Browser rendering failed: {e}. Try the manual paste option."
+            result["message"] = f"Browser rendering failed: {_redact(e)}. Try the manual paste option."
             return result
 
     result["needs_manual"] = True
