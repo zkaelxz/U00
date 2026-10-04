@@ -437,7 +437,7 @@ path as Workspace's "Video URL" option, with the same cookie settings.
 |---|---|
 | Name | `demo`. Hidden until **Sources → Source settings → Show the demo source** is turned on. |
 | What it is | A locally generated three-chapter comic, plus a "Challenge test" series that always answers like a Cloudflare challenge. It goes through the real paced client, so the status view and the hand-off can be tried without the network. |
-| Tests | `tests/test_sources_workflows.py`, `tests/test_sources_tab.py` |
+| Tests | `tests/test_sources_workflows.py` |
 
 ## If a site blocks your IP or region
 
