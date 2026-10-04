@@ -1482,6 +1482,15 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
     assert items[-1] == ("ok", {"failed_reason": "empty"})
 
 
+def test_the_workers_stage_checks_end_it_once_its_parent_is_gone(monkeypatch):
+    exits = []
+    monkeypatch.setattr(background_jobs, "exit_if_parent_gone", lambda: exits.append(True))
+    rep = transcribe_service._ProcessReporter(None)
+    assert rep.cancelled() is False
+    rep.raise_if_cancelled()
+    assert exits == [True, True]
+
+
 def test_the_worker_pickles_and_runs_in_a_spawned_process(tmp_path):
     """Windows starts process jobs with spawn: the worker and its arguments
     must cross a fresh interpreter. An unknown separation backend fails

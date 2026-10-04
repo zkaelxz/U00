@@ -1939,6 +1939,91 @@ class TestProcessJobProgressTuples:
         assert bg._apply_progress_item("nope", ("ok", {})) is False
 
 
+class _WorkerExited(BaseException):
+    pass
+
+
+class TestOrphanedWorkerExits:
+    """A worker that left its parent's process group (start_own_process_group)
+    ends itself once its parent dies, instead of running on unseen."""
+
+    def _orphan(self, monkeypatch):
+        killed = []
+        monkeypatch.setattr(bg, "_worker_parent_pid", 4242)
+        monkeypatch.setattr(bg.os, "getppid", lambda: 1)
+        monkeypatch.setattr(bg.os, "getpgid", lambda pid: os.getpid())
+        monkeypatch.setattr(bg.os, "killpg", lambda pgid, sig: killed.append((pgid, sig)))
+
+        def fake_exit(code):
+            raise _WorkerExited(code)
+        monkeypatch.setattr(bg.os, "_exit", fake_exit)
+        return killed
+
+    @pytest.mark.parametrize("report", [lambda q: bg.report_progress(q, 0.5, "x"),
+                                        lambda q: bg.report_stage(q, "Loading")])
+    def test_a_report_after_the_parent_died_kills_the_group_and_exits(self, monkeypatch, report):
+        import signal
+        killed = self._orphan(monkeypatch)
+        q = queue.Queue()
+        with pytest.raises(_WorkerExited):
+            report(q)
+        assert killed == [(0, signal.SIGKILL)]
+        assert q.empty()
+
+    def test_a_live_parent_changes_nothing(self, monkeypatch):
+        monkeypatch.setattr(bg, "_worker_parent_pid", os.getppid())
+        q = queue.Queue()
+        bg.report_progress(q, 0.5, "x")
+        assert q.get_nowait() == ("progress", 0.5, "x")
+
+    def test_no_check_outside_a_worker(self, monkeypatch):
+        monkeypatch.setattr(bg, "_worker_parent_pid", None)
+        monkeypatch.setattr(bg.os, "getppid", lambda: 1)
+        bg.exit_if_parent_gone()
+
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="POSIX process groups")
+    def test_a_real_worker_ends_after_its_parent_is_killed(self, tmp_path):
+        """A parent process starts a worker that leads its own group and
+        then reports nothing; the parent is killed hard. The watchdog ends
+        the worker within a few check intervals."""
+        import signal
+        import subprocess
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        script = (
+            "import multiprocessing, sys, time\n"
+            f"sys.path.insert(0, {root!r})\n"
+            "import background_jobs as bg\n"
+            "def worker():\n"
+            "    bg.start_own_process_group()\n"
+            "    time.sleep(120)\n"
+            "p = multiprocessing.get_context('fork').Process(target=worker, daemon=False)\n"
+            "p.start()\n"
+            "print(p.pid, flush=True)\n"
+            "time.sleep(120)\n")
+        parent = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE,
+                                  text=True)
+        try:
+            worker_pid = int(parent.stdout.readline())
+            time.sleep(0.5)   # let the worker record its parent
+            os.kill(parent.pid, signal.SIGKILL)
+            parent.wait(timeout=10)
+
+            def gone():
+                try:
+                    with open(f"/proc/{worker_pid}/stat") as f:
+                        return f.read().rsplit(")", 1)[1].split()[0] == "Z"
+                except FileNotFoundError:
+                    return True
+            assert _wait_for(gone, timeout=4 * bg.PARENT_CHECK_INTERVAL + 2)
+        finally:
+            if parent.poll() is None:
+                parent.kill()
+            try:
+                os.kill(worker_pid, signal.SIGKILL)
+            except (ProcessLookupError, UnboundLocalError):
+                pass
+
+
 class TestRunCancellable:
     """B-05: a thread job running an external command can be stopped."""
 

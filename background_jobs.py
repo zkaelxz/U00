@@ -1135,7 +1135,9 @@ def report_progress(result_queue, frac: float, message: str = ""):
     intermediate ("progress", fraction, message) tuple to the parent's
     watcher, which applies it to the job like update_progress(). Best
     effort -- never raises into the worker. The final ("ok"/"error", ...)
-    tuple protocol is unchanged."""
+    tuple protocol is unchanged. Ends a worker whose parent is gone (see
+    exit_if_parent_gone)."""
+    exit_if_parent_gone()
     try:
         result_queue.put(("progress", frac, message))
     except Exception:
@@ -1148,23 +1150,70 @@ def report_stage(result_queue, message: str, frac: float = 0.0):
     (elapsed time, the no-progress note, the longer stall allowance) until
     the worker's next progress or stage item; an empty message just ends
     the stage. Best effort, like report_progress."""
+    exit_if_parent_gone()
     try:
         result_queue.put(("stage", frac, message))
     except Exception:
         pass
 
 
+# Set in a worker by start_own_process_group: the pid of the process that
+# started it, so the worker can tell that it has been orphaned.
+_worker_parent_pid = None
+PARENT_CHECK_INTERVAL = 2.0
+
+
 def start_own_process_group():
     """For a kill_whole_tree=True process-job worker, called first: on POSIX the
     worker leads a new process group, so a cancel's kill_tree also reaches
     the processes it starts (ffmpeg, ffprobe). A no-op on Windows, where
-    kill_tree walks the process tree instead. Never raises."""
+    kill_tree walks the process tree instead. Never raises.
+
+    Leaving the parent's process group also takes the worker out of reach
+    of a terminal's hang-up or Ctrl+C, so when the parent dies without
+    cancelling it (killed, out of memory, terminal closed) nothing else
+    would stop it. The worker records its parent's pid here and ends
+    itself once that changes (exit_if_parent_gone): at every progress or
+    stage report and from a watchdog thread, which also covers a long call
+    that reports nothing. Not PR_SET_PDEATHSIG: Linux sends that when the
+    parent *thread* that started the worker exits, and a queued job is
+    started from another job's watcher thread, which ends right after."""
+    global _worker_parent_pid
+    try:
+        _worker_parent_pid = os.getppid()
+        threading.Thread(target=_parent_watchdog, daemon=True, name="parent-watchdog").start()
+    except Exception:
+        pass
     if os.name == "nt":
         return
     try:
         os.setsid()
     except Exception:
         pass
+
+
+def exit_if_parent_gone():
+    """In a worker that called start_own_process_group: when its parent has
+    died (the worker was re-parented, so os.getppid() changed), kills the
+    worker's own process group (itself and what it started) and exits. A
+    no-op anywhere else, and on Windows, where getppid never changes."""
+    parent = _worker_parent_pid
+    if parent is None or os.getppid() == parent:
+        return
+    if os.name != "nt":
+        try:
+            if os.getpgid(0) == os.getpid():
+                import signal
+                os.killpg(0, signal.SIGKILL)
+        except Exception:
+            pass
+    os._exit(1)
+
+
+def _parent_watchdog():
+    while _worker_parent_pid is not None:
+        time.sleep(PARENT_CHECK_INTERVAL)
+        exit_if_parent_gone()
 
 
 def _apply_progress_item(job_id, item, stage=None) -> bool:

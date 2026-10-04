@@ -749,7 +749,9 @@ class _ProcessStage:
 class _ProcessReporter:
     """The same inside the worker process: progress and stages go to the
     parent through the result queue. A cancel kills the process, so there is
-    nothing to check here; the parent re-checks before applying anything."""
+    nothing to check here; the parent re-checks before applying anything.
+    Every report and stage-boundary check ends the worker if its parent has
+    died (background_jobs.exit_if_parent_gone)."""
 
     job_id = None
 
@@ -763,10 +765,11 @@ class _ProcessReporter:
         return _ProcessStage(self._queue, message, frac)
 
     def cancelled(self) -> bool:
+        background_jobs.exit_if_parent_gone()
         return False
 
     def raise_if_cancelled(self):
-        pass
+        background_jobs.exit_if_parent_gone()
 
 
 def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode, transcript_text,
