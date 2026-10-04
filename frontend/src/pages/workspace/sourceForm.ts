@@ -115,7 +115,7 @@ export function runProblemFromError(err: unknown): RunFieldProblem | null {
   return null
 }
 
-// Mirrors core.whisper_model_warning: large-v3-turbo is weaker on ja/ko.
+// large-v3-turbo is weaker on ja/ko.
 export function whisperModelWarning(size: string, language: string): string {
   if (size === 'large-v3-turbo' && (language === 'ja' || language === 'ko')) {
     return 'large-v3-turbo is reported noticeably weaker on Japanese and Korean -- large-v3 (or medium) is the safer choice for this drama.'

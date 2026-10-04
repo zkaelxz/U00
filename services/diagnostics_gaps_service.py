@@ -58,8 +58,6 @@ def describe_job(job_id: str) -> str:
     """Turns a raw job_id like 'emotion_42' into 'Detecting emotional
     register -- Some Drama Title', so the jobs list means something at a
     glance instead of showing internal id strings."""
-    if job_id == "live_capture":
-        return "🔴 Live capture"
     prefix, _, suffix = job_id.rpartition("_")
     if prefix in _JOB_LABELS and suffix.isdigit():
         drama = db.get_drama(int(suffix))

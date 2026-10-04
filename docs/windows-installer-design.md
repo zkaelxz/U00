@@ -111,7 +111,7 @@ same as `start.bat`.
      anywhere, `venv`/`.venv`, `__pycache__`/`*.pyc`, logs and database files,
      `tests/`, `docs/`, `scripts/`, `frontend/` (except `frontend/dist`),
      `installer/` (except the two runtime scripts), `.github`, `.claude`,
-     `.streamlit`, `build`/`dist`, the source-checkout launchers (`start.bat`,
+     `build`/`dist`, the source-checkout launchers (`start.bat`,
      `start.ps1`, `uninstall.bat`, `make_*.bat`, `uninstall_path_cleanup.ps1`),
      the `PORTABLE`/`PYTHON_VERSION`/`INSTALLED` markers, and developer files.
      (`run_tests.py` does ship: Diagnostics' file-completeness check expects it.)
