@@ -1,5 +1,5 @@
 /*
- * Settings > Jellyfin (roadmap Step 39): the optional connector, off by
+ * Settings > Jellyfin: the optional connector, off by
  * default. PC only. The server address and library folder are plain
  * settings; the API key is write-only (only "Set/Missing" ever comes back)
  * and, like engine keys, needs key writes turned on at the PC.

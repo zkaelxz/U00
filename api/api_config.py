@@ -12,7 +12,7 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 
 - `BAIHE_API_HOST` (default `127.0.0.1`) -- loopback only by default.
   A non-loopback host is refused at startup unless `BAIHE_API_AUTH=on`
-  (Step 133, see below).
+  (see below).
 - `BAIHE_API_PORT` (default `8600`) -- not adjacent to the extension
   bridge's 8756 (`page_server.DEFAULT_PORT`).
 - `BAIHE_API_ENV` (`development` or `production`, default
@@ -25,7 +25,7 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
   A literal `*` is refused, not honoured.
 - `BAIHE_API_ALLOW_KEY_WRITES` (`1` to enable, default off) -- turns on
   the write-only engine-key endpoints (`POST /api/settings/keys/...`,
-  Migration Slice 24). Off: they return 403. On: they still refuse any
+  Off: they return 403. On: they still refuse any
   request that looks remote (non-loopback peer/Host, proxy or identity
   headers, cross-origin) and need `confirm=true`. That is a safeguard,
   not authentication -- see docs/archive/migration-review.md. start.bat and
@@ -35,7 +35,7 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
   React app (`frontend/dist`) at `/` from the same process. Has no
   effect when `frontend/dist/index.html` doesn't exist (API only).
   Unrelated to CORS and to the host binding.
-- `BAIHE_API_AUTH` (`off` default, or `on`) -- Step 133. `off` keeps
+- `BAIHE_API_AUTH` (`off` default, or `on`). `off` keeps
   today's behaviour: every request is the local owner with every
   permission, so it also refuses (403) every request that isn't a direct
   loopback one: proxy/forwarding headers, non-loopback Host, peer or

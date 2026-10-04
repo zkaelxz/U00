@@ -214,7 +214,7 @@ def _source_audio_path(drama: dict):
 
 
 def apply_dub_result(drama_id: int, result: dict) -> None:
-    """on_done hook body (Migration Slice 26): persists a finished dub run
+    """on_done hook body persists a finished dub run
     -- field-scoped
     save_lines(dub_filename [+ start/end for narration]) and status
     "dubbed". The subprocess's returned lines are used only as a source of
@@ -249,7 +249,7 @@ def start_dub_run(drama_id: int, tts_engine: str = "edge_tts", max_speedup=None,
     loop. Raises NotFoundError (unknown drama), InvalidInputError (bad
     engine/pacing/narration language, or nothing speakable),
     DependencyUnavailableError (ffmpeg/engine package missing),
-    ConflictError (already running). keep_background (Step 95, video dub
+    ConflictError (already running). keep_background (video dub
     only): after the track is built, the original's separated background
     music/ambience is mixed back under it; needs the drama's stored audio
     and a separation backend (503 with fixed text otherwise). Returns

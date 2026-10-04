@@ -26,7 +26,7 @@ export interface UrlPreview {
   display_url: string | null
 }
 
-// not_attempted (Step 107): the run stopped (cancel, browser check) before this chapter.
+// not_attempted: the run stopped (cancel, browser check) before this chapter.
 // needs_ai: the page loaded but the adapter's layout no longer fits; waits for an AI-recovery confirm.
 export type ChapterOutcome = 'imported' | 'skipped' | 'failed' | 'not_found' | 'not_attempted' | 'needs_ai'
 
@@ -46,7 +46,7 @@ export interface ChapterImportResult {
   imported_count: number
   skipped_count: number
   failed_count: number
-  // Step 107: failed + not attempted ids (the retry set) and whether any exist.
+  // Failed + not attempted ids (the retry set) and whether any exist.
   not_attempted_count: number
   retry_chapter_ids: string[]
   partial: boolean
@@ -113,7 +113,7 @@ export interface UrlDownloadRequest {
   confirm_replace_audio: boolean
 }
 
-// Step 107: GET /api/sources/{name}/import-state?series_id=&drama_id= --
+// GET /api/sources/{name}/import-state?series_id=&drama_id= --
 // which chapters of a series are already in a drama, and the ones the last
 // imports left failed or not attempted ("Retry failed chapters (N)").
 export interface ImportRetryRow {

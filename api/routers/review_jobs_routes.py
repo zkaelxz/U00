@@ -1,6 +1,6 @@
 """
-api/routers/review_jobs_routes.py -- Review-stage AI jobs for one drama
-(Migration Slice 44): consistency check, emotion tagging, translation notes,
+api/routers/review_jobs_routes.py -- Review-stage AI jobs for one drama:
+consistency check, emotion tagging, translation notes,
 flag pass and fix-flagged. Each starts a background job that does everything
 itself (field-scoped DB writes); progress is read via /api/jobs. Logic lives
 in services/review_jobs_service.py.

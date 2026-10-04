@@ -1,6 +1,5 @@
 """
-sources/adapters/guazimanhua.py -- 瓜子漫画 guazimanhua.com (zh manhua),
-roadmap Step 23h.
+sources/adapters/guazimanhua.py -- 瓜子漫画 guazimanhua.com (zh manhua).
 
 Technique read from Keiyoushi's actively maintained Mihon extension
 (keiyoushi/extensions-source, src/zh/guazimanhua, Apache-2.0), then

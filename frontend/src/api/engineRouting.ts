@@ -1,4 +1,4 @@
-// Settings > "Which engine does what" (Step 36, api/routers/engine_routing_routes.py).
+// Settings > "Which engine does what" (api/routers/engine_routing_routes.py).
 // Reading is admin.settings; choosing an engine and Test are PC only, so the
 // writes go through pcOnlyFetch (a 403 marks the tab remote).
 import type { CapabilityRoute, EngineRouteStatus, EngineRouting } from '../types/engineRouting'

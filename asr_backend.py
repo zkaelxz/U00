@@ -3,8 +3,8 @@ asr_backend.py -- pluggable transcription backends for the
 "I don't have a transcript, let Whisper transcribe it" workflow in
 services/transcribe_service.py (Whisper-text mode).
 
-Backends are registered in BACKENDS / get_backend() at the bottom (Step 104
-added that seam and the experimental MossTranscribeDiarizeBackend, whose
+Backends are registered in BACKENDS / get_backend() at the bottom (a
+seam that also holds the experimental MossTranscribeDiarizeBackend, whose
 segments also carry a "speaker"). Each backend's transcribe() returns the same
 shape core.transcribe_for_timing() already produces: a list of {"start": float, "end": float, "text": str}
 segments -- a drop-in replacement at that one call site.
@@ -61,7 +61,7 @@ SEGMENT_DURATION_WARNING_SECONDS = 300.0
 # this dict by name (it never imports this module), so keep the name.
 _asr_model_cache = {}
 
-# Step 103: batching (Qwen3ASRBackend.transcribe's batch_size) was written
+# Batching (Qwen3ASRBackend.transcribe's batch_size) was written
 # against qwen-asr 0.0.6, whose transcribe(list) returns one result per input
 # in input order -- the order texts are assigned back to segments in. Any
 # other installed version runs one segment per call, since that ordering is
@@ -174,7 +174,7 @@ class Qwen3ASRBackend:
         for why this backend needs Whisper's boundaries rather than
         producing its own.
 
-        batch_size (Step 103, experimental): how many segments go to Qwen3-ASR
+        batch_size (experimental): how many segments go to Qwen3-ASR
         in one call. 1 (the default) is the original one-segment-at-a-time
         behaviour. Timing is Whisper's either way; only throughput changes.
         Only used with the tested qwen-asr version (effective_qwen_batch_size);
@@ -215,7 +215,7 @@ class Qwen3ASRBackend:
         return out
 
     def _transcribe_batch(self, model, audio_path, segments, indices, language_name, tmp_dir):
-        """{segment index: text} for one batch. Step 103: with more than one
+        """{segment index: text} for one batch. With more than one
         index, qwen-asr's transcribe() gets a list of slices and returns one
         result per input in input order (checked against qwen-asr 0.0.6's
         own code); results are keyed back by segment index, and a batch that

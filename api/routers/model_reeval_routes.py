@@ -1,5 +1,5 @@
 """
-api/routers/model_reeval_routes.py -- Step 40b: scheduled model
+api/routers/model_reeval_routes.py -- scheduled model
 re-evaluation and promotion. Thin: see services/model_reeval_service.py.
 
 - Reads (`admin.diagnostics`): the overview (production model, schedule,

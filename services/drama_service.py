@@ -2,7 +2,7 @@
 services/drama_service.py -- Create a drama and edit its metadata, for the
 drama routes.
 
-Migration Slice 35 (create/update) and 36 (delete). Create/update return the same drama detail dict
+Create/update return the same drama detail dict
 `library_service.get_library_drama` does, so a client sees one shape.
 
 Whitelist rationale: `db.create_drama(**fields)` and `db.update_drama(id,
@@ -283,8 +283,8 @@ def job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
 
 
 def hard_delete_drama(drama_id) -> bool:
-    """The single place a drama is actually removed, so roadmap Step 43's
-    soft-delete can replace just this function. Order (B-14): rename the
+    """The single place a drama is actually removed, so a
+    soft-delete can replace just this function. Order: rename the
     drama folder to a tombstone name, drop the DB row (db.delete_drama's own
     rmtree then finds nothing), then rmtree the tombstone. If the DB delete
     fails the folder name is restored, so nothing is half-deleted. If the
@@ -338,7 +338,7 @@ TOMBSTONE_MAX_AGE_SECONDS = 24 * 3600
 
 
 def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: float = None) -> int:
-    """B-14 leftover: removes `<id>.deleting-<hex>` folders in DRAMAS_DIR
+    """Leftover cleanup: removes `<id>.deleting-<hex>` folders in DRAMAS_DIR
     that a delete renamed aside but could not remove, once they are older
     than max_age (a day), so an in-flight delete is never touched. Symlinks,
     anything else, and a tombstone whose drama row still exists (a failed

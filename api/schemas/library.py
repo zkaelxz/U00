@@ -171,13 +171,13 @@ class ExportReadiness(BaseModel):
 
 
 class FlagActionResult(BaseModel):
-    """A flagging action's result (Migration Slice 15) -- 0 is not an
+    """A flagging action's result: 0 is not an
     error, just nothing new to flag."""
     flagged_count: int
 
 
 class AutoQcFlagResult(BaseModel):
-    """auto_qc.run_auto_qc's own counts (Migration Slice 15) -- see its
+    """auto_qc.run_auto_qc's own counts; see its
     docstring for exactly what each counts."""
     flagged: int
     cleared: int
@@ -186,7 +186,7 @@ class AutoQcFlagResult(BaseModel):
 
 
 class AssStyleOverrides(BaseModel):
-    """Per-request ASS style overrides (Migration Slice 27). Only fields the
+    """Per-request ASS style overrides. Only fields the
     client sets replace the preset's values; unknown keys are a 422. An
     explicit JSON null for a field is also a 422 (omit the key instead)."""
     model_config = ConfigDict(extra="forbid")
@@ -227,7 +227,7 @@ class AssStyleOptions(BaseModel):
 
 
 class DramaCreateRequest(BaseModel):
-    """Create a drama (Migration Slice 35). `source_language` is required
+    """Create a drama. `source_language` is required
     (zh/ja/ko); `series_id` and `new_series_name` are mutually exclusive."""
     model_config = ConfigDict(extra="forbid")
     source_language: str
@@ -296,7 +296,7 @@ class MediaUploadResult(BaseModel):
     name: str
     size: int
     kind: str
-    # B-09: set for a video -- the background audio-extraction job to poll.
+    # Set for a video -- the background audio-extraction job to poll.
     job_id: Optional[str] = None
 
 
@@ -424,7 +424,7 @@ class LibraryRename(BaseModel):
 
 
 class MediaAnalysis(BaseModel):
-    """Numbers/booleans only (Migration Slice 37); never a path."""
+    """Numbers/booleans only; never a path."""
     drama_id: int
     duration_seconds: float
     has_video: bool
