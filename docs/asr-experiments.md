@@ -36,10 +36,6 @@ becomes a default is a later decision, made after the real comparison below.
 - A run can't be stopped part-way (one blocking call); a Stop takes effect
   when it returns, before any line is replaced.
 
-- **The frozen Streamlit tab has no MOSS path.** A drama set to MOSS keeps that
-  choice when opened there, but a run started from the Streamlit Workspace
-  transcribes with Whisper (and pyannote, if speaker detection is on).
-  Use the React app for MOSS runs.
 - **Batching needs the tested qwen-asr.** With any version other than 0.0.6
   installed, Qwen3-ASR sends one line at a time whatever the saved batch size;
   the Settings card says which applies.

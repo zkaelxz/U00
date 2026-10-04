@@ -42,6 +42,12 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`technical-notes.md`** — an engineering changelog of real bugs found
   and how they were fixed, kept separate from the main `README.md` so
   that stays focused on using the app.
+- **`RELEASE.md`** — building the Windows installer and the frontend release zip.
+- **`runbook.md`** — one-page maintainer steps: installer lock, tests, restore, certificate, benchmark.
+- **`remote-access-decision.md`** — the remote-access design as built, including the route table `tests/test_api_permissions.py` enforces.
+- **`asr-experiments.md`** — the off-by-default Qwen3-ASR batching and MOSS-Transcribe-Diarize options.
+- **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
+- **`design/`** and **`specs/`** — the UI refresh spec (with before/after screenshots) and earlier API/UX/Step 141 proposals; the specs were written against the removed Streamlit tabs.
 - **`STATUS.md`** — current state, in-flight work and what's next.
 - **`archive/`** — historical records kept for reference, not sources of
   truth: the migration review, handoff and React/FastAPI phase log, the

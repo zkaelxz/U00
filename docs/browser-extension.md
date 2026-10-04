@@ -13,11 +13,11 @@ answer different questions.
 
 It reaches content the adapters structurally can't, and it does so
 **without this app ever touching a protection mechanism** — the same line
-`manhuaku.py` and `mangaz.py` already draw:
+`manhuaku.py` and the former Mangaz adapter (removed since) drew:
 
 - **mangaz.com** serves tile-scrambled pages (a 1190x1684 page arrives as
-  a ~4760x421 strip). Only its own reader reassembles them. The adapter
-  drives that reader in a headless browser, which works but is slow
+  a ~4760x421 strip). Only its own reader reassembles them. The Mangaz
+  adapter (since removed from the app) drove that reader in a headless browser, which worked but was slow
   (~3 minutes for a 43-page book), flaky in sandboxes, and has to be
   paced carefully to avoid being throttled.
 - **manhuaku.net** hands its protected chapters out as `blob:` URLs that
@@ -163,8 +163,8 @@ extension/                     the browser side
   content.js                   injected on a click: collects images/text, draws overlays/panel
   popup.html / popup.js        pick a drama, send, toggle
   options.html / options.js    paste the token
-page_server.py                 the endpoint, on a thread beside Streamlit
-tabs/settings_tab.py           the opt-in switch, the token, the settings bridge
+page_server.py                 the endpoint, on a thread beside the API server
+services/extension_service.py  the opt-in switch, the token, the status (routes: api/routers/extension_routes.py)
 ```
 
 The endpoint's four routes:
@@ -186,7 +186,7 @@ implementation in JavaScript that would drift from it.
 
 `/text` follows the same "one pipeline" rule from the other side: it
 funnels into `translate_engines.standalone_translate`, the exact function
-`tabs/translate_tab.py`'s Standalone translate tab already calls, rather
+`services/translate_service.py`'s standalone translate already calls, rather
 than a second translation path for text captured by the extension. It
 does no detection or OCR -- the extension already sends real text, not
 pixels -- so it's a much thinner route than `/page`/`/pages`: validate
@@ -237,7 +237,7 @@ statically, because none of it can be checked by running the app.
 ## What was actually verified
 
 The endpoint and the settings bridge have ordinary mocked tests
-(`tests/test_page_server.py`, `tests/test_page_server_settings.py`),
+(`tests/test_page_server.py`),
 including every refusal above.
 
 Beyond that, the extension was run for real, and that run is repeatable:
@@ -295,6 +295,8 @@ held a worker thread. Both are fixed and covered by tests that were
 confirmed to fail without the fix.
 
 ### Against the real mangaz.com
+
+(Historical: the Mangaz adapter was removed from the app afterwards; the result below is kept as the evidence for the extension.)
 
 The extension was then pointed at a real chapter on **mangaz.com** — the
 sharpest possible test, because its pages are tile-scrambled and only its

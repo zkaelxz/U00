@@ -1,6 +1,7 @@
 # React UI guidelines: make it concise, like Streamlit
 
 Status: design guidance plus a prioritised change list. Docs only; no code changed by this file.
+Note (2026-10-04): the Streamlit app and the `tabs/` files this refers to were deleted in #502, so those `tabs/` paths and line numbers no longer resolve; the text is kept as the record of the comparison.
 Implementation status (2026-09-29): every screen in section 3 is implemented (Library #285 and #302, Source #299, Translate #297/#300, Review #298, Dub #295, Export #296, Settings and Diagnostics #301, shared Section/Field #293). Remaining gaps are backend-blocked (e.g. a pending-batch list endpoint).
 Visual refresh (2026-09-29): rules 4 and 8 are revised and rules 16-22 added from `docs/design/ui-refresh-spec.md` §2.2 and §2.4 (Card vs Section, button hierarchy, ButtonLink, toggles, humanized labels, badges, disabled primaries). The kit they refer to is `frontend/src/components/{Toggle,Button,Badge,Card}.tsx`, `components/labels.ts` and the design-kit block in `index.css`.
 Written 2026-09-29 after the user reviewed the React app and said: "I want the UI and functionality

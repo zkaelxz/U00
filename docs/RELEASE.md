@@ -19,8 +19,7 @@ behaviour: `docs/windows-installer-design.md`.
 # Frontend release zip (source checkouts)
 
 End users run the app without Node.js. The React frontend is built once, on
-a developer's PC, and published as a zip on a GitHub release. GitHub Actions
-minutes are exhausted, so CI does not build it.
+a developer's PC, and published as a zip on a GitHub release. CI does not build it.
 
 ## Build it (developer PC, needs Node.js 22)
 

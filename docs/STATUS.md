@@ -1,6 +1,6 @@
 # Status
 
-What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (at 6f6ea23, after #603) on 2026-10-01.
+What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (at 22b3bdc, after #672) and the open PR list on 2026-10-04.
 Each session replaces its own entry here when it finishes. Git and the PR list win over this file.
 
 ## Where the app is
@@ -20,8 +20,22 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
   other profiles' reading data), the WP5 boot service (#575) with its port selection (#597), Caddy and owner-run enable/disable/status (#592),
   the library temp folder (#595), the service's `set-port` command, the "Baihe Studio service" Start-menu menu and the Setup lock (#599), the Diagnostics "Ports" panel (#602), the Workspace and Sources e2e checks (#601) and the translation-memory e2e fix (#603).
 
+Merged 2026-10-03 and 2026-10-04 (#661-#675):
+- Transcription says plainly when it isn't installed and how to install it (#661).
+- Transcribe splits long lines at sentence ends and re-assigns speakers from saved turns (#671).
+- Diarization jobs report real stages and progress (#669).
+- Transcription shows a time estimate and live elapsed/ETA, and no longer shows 100% before it is done (#668).
+- Live capture takes a GPU slot only when Use GPU is on (#667).
+- Disk usage view: see what takes space in the data folder, send items to a Trash folder, move backups (#657).
+- Library "Get started" card with a first-run translator choice (#673).
+- Source tab: the common transcribe path first, tuning folded, and the medium model as the CPU default (#672).
+- A nested `db.get_conn()` no longer closes the caller's connection (#675).
+- Idle job polls answer 200 with status idle instead of 404 (#666).
+- Also merged since #603 and not listed one by one: see `git log origin/baihe-subtitler` (for example the MangaK source #645, removal of the Mangaz source #648 and of the LibreTranslate engine #621, removal of the Diagnostics bug-bundle helpers #638).
+
 ## In flight and queued
 Open (lead session merges once CI is green):
+- #677 (one shared capped body reader) and #676 (Review: re-split long lines and a per-speaker time summary) are open drafts. #640 and #660 are roadmap-only drafts.
 - #589 is parked unmerged (see Live capture and SSRF below).
 - WP5 is merged except the owner's real-PC checks and network steps: forward router port 443, a domain/DDNS name, the firewall rule `enable-remote` prints, and the Google client values plus `BAIHE_PUBLIC_URL` in `.env`.
 - Step 141 build (after its spec).
@@ -63,7 +77,7 @@ Resource for the deferred manual Scanlate canvas editor: tldraw (github.com/tldr
 
 ## Open bugs
 - B-20, B-23, B-24: fixed in #466 (merged); B-23's music level still needs the user's listening check.
-- Closed 2026-09-30 (user): B-11 (Streamlit-only; goes with the Streamlit deletion), B-17 (CORS GET-only is by design: the app and API are served from one origin, and Caddy keeps it that way).
+- Closed 2026-09-30 (user): B-17 (CORS GET-only is by design: the app and API are served from one origin, and Caddy keeps it that way).
 - Parked, no work planned: Step 100 (Anki mining), Step 108 (adapter interfaces; see Deferred above), R1-full, R2, R3-full, R4, R7, the M8+ job queue, Docker, per-platform Live capture.
 
 ## Owed by the user (can't be checked from a cloud session)
