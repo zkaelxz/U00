@@ -20,7 +20,7 @@ The table has 174 rows. 10 are not pending (listed at the end), leaving **163**.
 - `cd frontend && PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium npx playwright test --project=desktop e2e/library.spec.ts e2e/library-page.spec.ts e2e/review-search-jump.spec.ts e2e/review-popout.spec.ts e2e/theme-menu.spec.ts e2e/routing.spec.ts e2e/diagnostics.spec.ts e2e/settings-jump-links.spec.ts e2e/source-modes.spec.ts e2e/lab-benchmark.spec.ts`: 26 passed. These drive the real seeded API; cited as evidence only for 20, 25z and 38.
 - `python -m pytest -q -p no:cacheprovider -o addopts="" "tests/test_background_jobs.py::TestNotifyOnCompletion::test_failed_job_notifies_with_error_status"` ten times: 10 x `1 passed` (step 49).
 - Throwaway scripts (not committed) against a temporary library: backup/restore (25k, 52), merge and notes (2, 25l), re-segmentation preview/apply (6f), find & replace after a merge (25o), `media_inspect` on an ffmpeg-made file (59), `auto_qc` (12b), `render_vertical_clip` on an ffmpeg-made clip (6e), `import db` in a clean `git archive` (51), top-level `.py` vs `FILE_ORGANIZATION.md` (56).
-- A temporary Playwright spec (deleted) swept 16 routes in dark scheme for light surfaces: none found; the same sweep in light scheme did find them (46). Another swept 7 pages for "ElevenLabs": none (11d).
+- A temporary Playwright spec (deleted) swept 16 routes in dark scheme for light surfaces: none found; the same sweep in light scheme did find them (46). Another swept 7 pages for the removed hosted-cloning vendor's name: none (11d).
 
 ## 1. Obsolete
 
@@ -80,7 +80,7 @@ The table has 174 rows. 10 are not pending (listed at the end), leaving **163**.
 | 4f | Expected speakers field resets to 0 | In Workspace > Source set speakers to 2 under the speaker detection options, leave the drama and come back; the field should still read 2. A mocked spec exists (`transcribe-speakers.spec.ts`), no real-flow one. |
 | 6g | Speech-splitting default 300 ms, per-drama value persists | Open a new drama's Source stage > tuning and read the speech-splitting default and help text; change it, switch stages and back. |
 | 9c | Drama presets | Save a preset from a drama in the Translate stage, create a new drama from Library with that preset, and check the captured fields are still editable. |
-| 11d | ElevenLabs removed | A real-Chromium text sweep of Settings, Diagnostics and the drama Source/Translate/Dub/Export pages found no "ElevenLabs" (2026-10-04). Still to check: dub a drama that has a character with an old ElevenLabs clone and read the message (`dub.REMOVED_CLONE_MESSAGE`). |
+| 11d | Hosted cloning vendor removed | A real-Chromium text sweep of Settings, Diagnostics and the drama Source/Translate/Dub/Export pages found no mention of the vendor (2026-10-04). Still to check: dub a drama that has a character with an old hosted clone and read the message (`dub.REMOVED_CLONE_MESSAGE`). |
 | 12c | Review linkage: seek, timestamp box, burned preview, SFX | In Review with a drama that has a video, select a row and check the player seeks, try the timestamp box and Play segment, make a burned preview (Extras) and check captions match the style, mark a line as an SFX cue and export. |
 | 18 | Diagnostics narrowing | Open Diagnostics: the Danger zone (`DangerZone.tsx`) should sit apart from routine checks, and Benchmark Lab is its own page (`#/benchmark`). |
 | 19 | Full click-through UX test | Walk the workflows listed in Step 19 in the React app (Library, Workspace stages, Sources, Settings) and note anything unclear. |
