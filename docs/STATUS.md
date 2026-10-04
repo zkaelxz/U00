@@ -38,6 +38,7 @@ Deferred until a need arises (owner decision 2026-09-30):
 - Step 108 stays parked. Add the smallest per-site extension only when a real site needs login, scoped search, metadata or a scrape policy. Login goes through a persistent browser profile; the app never collects a username or password. Refactor the shared adapter contract only if repeated cases show it is awkward.
 - AI-fallback extras: comics, batch confirm, automatic use of a saved profile, and the two text-only adapters.
 - Structural debt: the `init_db` split, private-name reach-ins, import cycles, shared backup helpers, and consolidating the byte-capped reader and redactor.
+- NFO/poster sidecars on Send to Jellyfin (option A, parked); design in docs/archive/media-server-metadata-design.md
 
 Live capture and SSRF (owner decision 2026-09-30):
 - #589 (a guarded egress proxy) is parked unmerged. `media.import_url` will be granted to household members (allowlisted Google accounts) and the risk accepted.
@@ -54,7 +55,7 @@ Parked import and export follow-ups (owner decision 2026-09-30, revisit only if 
 - `media_export_service` still builds in the system temp dir (`tempfile.TemporaryDirectory()`, not the library `tmp` folder) and `shutil.move`s to the final path; across drives that is a copy, so a failure can leave a half-copied file.
 - Rows written before the at-rest redaction change (`access_attempts`, `source_health`, `tracked_series.last_check_error`, `job_records`) are only scrubbed on read. In-memory job messages are not query-stripped; check that the job API scrubs them.
 
-Resource for the deferred manual Scanlate canvas editor: tldraw (github.com/tldraw/tldraw), an infinite-canvas SDK with custom shapes, tools and drawing. Check it again if that feature resumes. The Scanlate-specific image editing tools would still need custom work, and its repository says production use requires a license key, so check the license terms first.
+Resource for the deferred manual Scanlate canvas editor: tldraw (github.com/tldraw/tldraw), an infinite-canvas SDK with custom shapes, tools and drawing. The editor's requirements are in section 5 of `docs/archive/scanlate-api-spec.md`. Check it again if that feature resumes. The Scanlate-specific image editing tools would still need custom work, and its repository says production use requires a license key, so check the license terms first.
 
 ## Next
 - Remote access, steps 133-140 (other household members and phones use the PC's library). Sign-in, ownership, the D5 listeners, the boot service and the Caddy config with owner-run enable are merged; left: the owner's LAN test with a real certificate and the router port last (140).

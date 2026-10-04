@@ -35,7 +35,7 @@ security-auditor, parity-auditor, bug-investigator, test-author, docs-steward, s
 **Next queue for the new session:**
 1. Once the old session's items are merged: route batch 2 over the new services: library admin (bulk delete, restore and storage clean are `local_only`; downloads of backups and exports are `local_only`), Reader (the permission contract is in the reader-service merge PR), auto-tune and glossary-from-novel (`jobs.start`, plus `engines.paid` when the engine is paid).
 2. Delete routes that have no API yet (all PC-only, `local_only` plus confirm): remove audio, remove raw novel, delete version, series character, bug bundle, preset, voice bank. Their Streamlit tests stay until these exist.
-3. Workspace shell + Review editor rebuild (spec `docs/specs/ux-workspace-shell-and-review.md`), after the progress endpoint merges; then the React pages for the new routes (react-page-builder).
+3. Workspace shell + Review editor rebuild (spec `docs/archive/ux-workspace-shell-and-review.md`), after the progress endpoint merges; then the React pages for the new routes (react-page-builder).
 4. Act on the security-audit and parity-audit findings; then extract the 36 tab functions (`docs/streamlit-test-triage.md`); then the `pre-streamlit-removal` tag + `legacy/streamlit` branch + the deletion PRs.
 5. Step 141 (user approved, 2026-09-29): have migration-architect write a spec for the standalone PC shell and the "This PC" / "Connect to my PC" toggle, after remote access (step 140). See the step 141 row in `docs/baihe-roadmap-master.md`. Spec only; no build yet.
 

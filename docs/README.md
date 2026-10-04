@@ -34,9 +34,6 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   CI-minutes notes.
 - **`household-access.md`** — step-by-step guide to reach Baihe from
   household devices through Caddy (`deploy/caddy/Caddyfile.template`).
-- **`media-server-metadata-design.md`** — Step 116: how Baihe's title
-  metadata could reach or come from Jellyfin/Plex (NFO sidecars, pulling
-  Jellyfin's metadata, a provider endpoint); design only, nothing built.
 - **`windows-installer-design.md`** — the Windows installer/uninstaller:
   Step 80's design, as built in Step 80b (`installer/`).
 - **`technical-notes.md`** — an engineering changelog of real bugs found
@@ -47,7 +44,8 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   truth: the migration review, handoff and React/FastAPI phase log, the
   old roadmap master tracker, the Streamlit test triage, the superseded
   remote-access and browser-extension handoffs, the installer research
-  notes and the Step 19 click-through audit.
+  notes, the Step 19 click-through audit, the unbuilt Jellyfin/Plex metadata
+  design, and the finished Scanlate API and Workspace shell specs.
 
 ## `docs/secondary-review-notes.md` — not present here
 

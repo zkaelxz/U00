@@ -1,6 +1,6 @@
 """
 api/routers/scanlate_routes.py -- the automatic Scanlate path (spec
-docs/specs/scanlate-api-spec.md S1, S2, S5, S6, S8). Thin over
+docs/archive/scanlate-api-spec.md S1, S2, S5, S6, S8). Thin over
 services/scanlate_pages_service.py, scanlate_run_service.py and
 scanlate_render_service.py. Shares the /api/scanlate prefix with the comic
 viewer's read routes (api/routers/comic_routes.py), which serve the page
