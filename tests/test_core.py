@@ -212,17 +212,16 @@ class TestModelDownloadErrorHandling:
 
 
 class TestDefaultWhisperSize:
-    """Step 5b item 9: a consumer GPU in the 8-12GB class this app targets
-    (confirmed against real hardware -- an RTX 3080 Ti, 12GB) comfortably
-    fits large-v3 without needing large-v3-turbo's memory savings, and
-    large-v3-turbo is reported weaker on Japanese/Korean -- so large-v3 is
-    the default for all three source languages, not just an available
-    option alongside 'medium'."""
+    """Owner decision: large-v3-turbo is the default; its label says so and
+    still carries the Japanese/Korean caveat."""
 
-    def test_default_whisper_size_is_large_v3(self):
+    def test_default_whisper_size_is_large_v3_turbo(self):
         from core import DEFAULT_WHISPER_SIZE, WHISPER_MODELS
-        assert DEFAULT_WHISPER_SIZE == "large-v3"
+        assert DEFAULT_WHISPER_SIZE == "large-v3-turbo"
         assert DEFAULT_WHISPER_SIZE in WHISPER_MODELS
+        assert "default" in WHISPER_MODELS["large-v3-turbo"]
+        assert "default" not in WHISPER_MODELS["medium"]
+        assert "weaker on Japanese/Korean" in WHISPER_MODELS["large-v3-turbo"]
 
 
 class TestDnsDiagnosis:

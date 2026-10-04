@@ -9,6 +9,7 @@ import { reflectAvailable } from '../../translateForm'
 import { spendText } from './reviewResults'
 import type { LineFilter, LinePatch, ReviewLine, ReviewMatch } from '../../../../types/review'
 import { lineNumber } from '../../../../lineNumber'
+import { languageLabel } from '../../../../labels'
 
 export interface LineDraft {
   zh: string
@@ -17,6 +18,31 @@ export interface LineDraft {
   start: string
   end: string
   sfx: boolean
+  // '' = the drama's source language.
+  lang: string
+}
+
+// What one line's spoken language may be (core.LINE_LANGUAGES).
+export const LINE_LANGUAGES = ['zh', 'ja', 'ko', 'en'] as const
+
+// The row chip ("KO"): only for a line spoken in another language than the
+// drama's, so a single-language drama shows nothing new.
+export function lineLangChip(lang: string | null | undefined, sourceLanguage: string | null | undefined): string | null {
+  if (!lang || lang === (sourceLanguage || 'zh')) return null
+  return lang.toUpperCase()
+}
+
+// "Set language" in the line sheet: just this line, or every line of its speaker.
+export type LanguageScope = 'line' | 'speaker'
+
+export function languageSetText(updated: number, lang: string, sourceLanguage: string | null | undefined): string {
+  const label = lang ? languageLabel(lang) : `the title default (${languageLabel(sourceLanguage || 'zh')})`
+  if (updated === 0) return `Nothing changed: already ${label}.`
+  return `Set ${updated} line${updated === 1 ? '' : 's'} to ${label}.`
+}
+
+export function titleDefaultLabel(sourceLanguage: string | null | undefined): string {
+  return `Title default (${languageLabel(sourceLanguage || 'zh')})`
 }
 
 export const PAGE_SIZE = 40
@@ -29,6 +55,7 @@ export function draftFromLine(line: ReviewLine): LineDraft {
     start: String(line.start),
     end: String(line.end),
     sfx: line.sfx,
+    lang: line.lang ?? '',
   }
 }
 
@@ -51,6 +78,10 @@ export function buildPatch(line: ReviewLine, draft: LineDraft): LinePatch | stri
   if (draft.sfx !== line.sfx) {
     patch.sfx = draft.sfx
     expected.sfx = line.sfx
+  }
+  if (draft.lang !== (line.lang ?? '')) {
+    patch.lang = draft.lang
+    expected.lang = line.lang ?? ''
   }
   for (const key of ['start', 'end'] as const) {
     if (draft[key].trim() === '' || Number.isNaN(Number(draft[key]))) return `Enter a number for ${key}.`

@@ -466,7 +466,7 @@ COPIED = {
                "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
                "project_instructions"},
     "lines": {"idx", "start", "end", "zh", "en", "speaker", "flag", "flag_note",
-              "speaker_manual", "sfx"},
+              "speaker_manual", "sfx", "lang"},
     "characters": {"speaker_label", "character_name", "voice_actor", "tts_voice", "offline_voice",
                    "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "pronouns"},

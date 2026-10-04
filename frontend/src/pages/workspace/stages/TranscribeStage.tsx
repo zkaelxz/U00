@@ -45,11 +45,15 @@ import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
 import { TranscriptModePicker } from './SourceModes'
 import { mediaFileInputId } from './stageBlockers'
-import { diarizeEstimate, transcribeEstimate } from './transcribeEstimate'
+import { diarizeEstimate, measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import './source.css'
 
 const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
+// The value stays the model name; the text says which is the default and its Japanese/Korean caveat.
+const WHISPER_LABELS: Record<string, string> = {
+  'large-v3-turbo': 'large-v3-turbo (default, weaker on Japanese/Korean)',
+}
 const LANGUAGE_NAMES: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean' }
 // Display names for the Advanced backend choices (the option value stays raw).
 const OPTION_LABELS: Record<string, string> = {
@@ -350,7 +354,13 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     }
     // A file picked but not uploaded yet has no known length, and a cloud run's time isn't this PC's.
     const speed = config.whisper_size === cf.whisper_size ? config.measured_speed : null
-    const expectedRunSeconds = whisperRun && !file && !cf.use_groq && duration && speed ? duration / speed : null
+    const expectedRunSeconds = whisperRun && !file && !cf.use_groq
+      ? measuredRunSeconds({
+          audioSeconds: duration, whisperSize: cf.whisper_size, useGpu, measuredSpeed: speed,
+          measuredStages: speed ? config.measured_stage_seconds : undefined, separateVocals: cf.separate_vocals_first,
+          realignLong: cf.realign_long_segments,
+        })
+      : null
     const start = () => (file ? uploadAndTranscribe(dramaId, file, req) : startTranscribe(dramaId, req))
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
@@ -450,6 +460,11 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         modelCached: config?.whisper_model_cached,
         measuredSpeed: config?.whisper_size === cf.whisper_size ? config.measured_speed : null,
         measuredRuns: config?.measured_speed_runs,
+        measuredStages: config?.whisper_size === cf.whisper_size ? config.measured_stage_seconds : undefined,
+        separateVocals: cf.separate_vocals_first,
+        realignLong: cf.realign_long_segments,
+        measuredDiarizeSpeed: config?.measured_diarize_speed,
+        measuredDiarizeRuns: config?.measured_diarize_runs,
         useGroq: cf.use_groq,
         detectSpeakers: runDiarize,
       })
@@ -471,7 +486,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           <Field label="Whisper model" help={config && !config.whisper_model_cached ? 'This model will be downloaded on first use.' : undefined}>
             <select value={cf.whisper_size} onChange={(e) => setC('whisper_size', e.target.value)}>
               {(WHISPER_SIZES.includes(cf.whisper_size) ? WHISPER_SIZES : [cf.whisper_size, ...WHISPER_SIZES]).map((o) => (
-                <option key={o} value={o}>{o}</option>
+                <option key={o} value={o}>{WHISPER_LABELS[o] ?? o}</option>
               ))}
             </select>
           </Field>
@@ -601,7 +616,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           {needsAck ? (
             <span className="muted" id="diarize-needed">Still needed: tick the confirmation above, or turn Replace off.</span>
           ) : (
-            hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration)}</span>
+            hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration, config?.measured_diarize_speed, config?.measured_diarize_runs)}</span>
           )}
         </div>
         <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
