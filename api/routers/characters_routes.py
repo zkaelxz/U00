@@ -1,6 +1,6 @@
 """
 api/routers/characters_routes.py -- per-drama characters and voice config
-(Phase 6, Migration Slice 42).
+(Phase 6).
 
 Speaker labels can contain spaces, unicode or slashes, so they travel in
 JSON bodies, never path segments. Only fields the client actually sets

@@ -1,6 +1,6 @@
 """
 installer/launcher.py -- what the installed app's Start-menu shortcut runs
-(Step 80b, the Windows installer).
+(the Windows installer).
 
 The installed layout is `<install dir>\\python\\` (the bundled embeddable
 Python), `<install dir>\\app\\` (the code, including the prebuilt React app

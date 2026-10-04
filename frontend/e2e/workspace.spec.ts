@@ -179,7 +179,7 @@ test('source options offer turbo with a ja/ko hint, the Taiwan script label and 
   const size = page.getByLabel('Whisper model', { exact: true })
   await expect(size.locator('option[value="large-v3-turbo"]')).toHaveCount(1)
   await expect(size.locator('option[value="large-v3-turbo"]')).toHaveText('large-v3-turbo (default, weaker on Japanese/Korean)')
-  // The Edit details panel has its own "Source language" select (#348); scope to Transcribe.
+  // The Edit details panel has its own "Source language" select; scope to Transcribe.
   const language = page.getByRole('region', { name: 'Transcribe' }).getByLabel('Source language', { exact: true })
   await language.selectOption('ja')
   await size.selectOption('large-v3-turbo')

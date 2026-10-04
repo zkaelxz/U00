@@ -1,6 +1,6 @@
 """
 api/routers/review_lines_routes.py -- the Review stage's READ-ONLY line
-views for one drama (Migration Slice 47): paginated/filtered line list,
+views for one drama: paginated/filtered line list,
 transcript search, find-and-replace PREVIEW, coverage check, pacing check,
 per-line provenance and original-transcript text.
 

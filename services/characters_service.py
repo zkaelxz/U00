@@ -5,7 +5,7 @@ the "People & pronouns" panel and the per-character voice config.
 Covers: listing a drama's speakers with their character/voice settings
 (plus a couple of sample lines and the linked series character's
 pronoun default), a validated field-scoped partial update,
-series-character listing, the clone-engine picklist (Step 26c language
+series-character listing, the clone-engine picklist (language
 rule), the voice bank (list + apply), recurring-voice suggestions
 ("sounds like X": list, accept, reject) and "remember as a known series
 character".
@@ -169,7 +169,7 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
     = leave alone; "" = clear (except character_name, which must be
     non-blank). pronouns: a preset or any custom text, stripped and length
     capped. clone_engine must be in dub.CLONE_ENGINES and support the
-    drama's source_language (Step 26c). Raises NotFoundError (unknown
+    drama's source_language. Raises NotFoundError (unknown
     drama or speaker), InvalidInputError. Returns the speaker's
     list_characters entry."""
     drama = require_drama(drama_id)
@@ -223,8 +223,8 @@ def list_series_characters(series_id: int) -> list:
 
 
 def get_clone_engine_options(drama_id: int) -> dict:
-    """Clone engines usable for this drama's source language (Step 26c:
-    never offer an engine that can't speak it), with capability flags.
+    """Clone engines usable for this drama's source language (never
+    offer an engine that can't speak it), with capability flags.
     Raises NotFoundError for an unknown drama."""
     lang = _source_language(require_drama(drama_id))
     engines = []
@@ -267,7 +267,7 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
     "..", control character, or more than MAX_SPEAKER_LABEL_LEN chars.
 
     The entry's clone_engine must support the drama's source language, exactly as update_character
-    requires (Step 26c). Returns the speaker's list_characters entry."""
+    requires. Returns the speaker's list_characters entry."""
     drama = require_drama(drama_id)
     check_id("voice_bank_id", voice_bank_id)
     if (not isinstance(speaker_label, str) or len(speaker_label) > MAX_SPEAKER_LABEL_LEN

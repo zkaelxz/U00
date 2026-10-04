@@ -1,5 +1,5 @@
 """
-api/routers/benchmark_routes.py -- Step 38: the Benchmark Lab (golden sets,
+api/routers/benchmark_routes.py -- the Benchmark Lab (golden sets,
 persistent per-run results, Model Arena). Thin: see
 services/benchmark_lab_service.py.
 

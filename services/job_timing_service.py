@@ -1,5 +1,5 @@
 """
-services/job_timing_service.py -- Step 41 item 5: per-stage duration and
+services/job_timing_service.py -- per-stage duration and
 estimated spend for every real background job (not just benchmark runs).
 UI-free; rows live in db.py's `job_stage_timings`.
 

@@ -10,7 +10,7 @@ new dramas, spending cap, Ollama num_ctx, offline Whisper folder, OCR
 defaults, yt-dlp cookies); `/endpoints/{name}` sets or clears the Ollama
 and GPT-SoVITS URLs in .env behind the same guard as keys.
 
-Slice 24: write-only engine key endpoints (`POST /keys/{engine}` and
+Write-only engine key endpoints (`POST /keys/{engine}` and
 `/keys/{engine}/clear`). Off by default (BAIHE_API_ALLOW_KEY_WRITES=1) and
 guarded by `_require_local_admin`. The guard is a safeguard against
 proxied/remote/cross-site requests, NOT authentication; real isolation is

@@ -1,6 +1,6 @@
 """
-sources/adapters/missevan.py -- 猫耳FM / MissEvan (zh, audio dramas),
-roadmap Step 94: Baihe's first audio-drama adapter (`known_sites.py`
+sources/adapters/missevan.py -- 猫耳FM / MissEvan (zh, audio dramas):
+Baihe's first audio-drama adapter (`known_sites.py`
 already listed MissEvan as a recognized-but-unbuilt "audio_drama"
 candidate before this).
 
@@ -53,8 +53,8 @@ Confirmed directly (real fetches, 2026-09-28, not assumed):
     written permission. This is the same class of specific, written
     anti-scraping clause `sources/site_terms.py` already uses to mark
     Naver/Novelpia/JJWXC `EXPLICITLY_RESTRICTED` -- recorded honestly in
-    `capabilities()` below (`terms.tos_prohibited = True`). Per Step 90
-    (`sources/ladder.py`'s `check_terms()`), ToS/robots.txt enforcement
+    `capabilities()` below (`terms.tos_prohibited = True`). Per the
+    app-wide terms decision (`sources/ladder.py`'s `check_terms()`), ToS/robots.txt enforcement
     is currently a deliberate no-op app-wide, per the user's own explicit
     decision -- this finding is recorded for the record, not enforced by
     this adapter, matching every other adapter's "state facts, the

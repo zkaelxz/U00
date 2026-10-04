@@ -132,7 +132,7 @@ class CharactersVoiceBankApply(BaseModel):
     voice_bank_id: int = Field(ge=1, le=2147483647)
 
 
-# --- Glossary, instructions and catalogues (Migration Slice 46) -----------
+# --- Glossary, instructions and catalogues ----------------------
 class GlossaryTerm(BaseModel):
     id: int
     term_original: str

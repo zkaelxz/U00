@@ -1,6 +1,6 @@
 """
-api/routers/restructure_routes.py -- structural line changes for one drama
-(Migration Slice 45): add, delete, merge, split, re-segmentation
+api/routers/restructure_routes.py -- structural line changes for one drama:
+add, delete, merge, split, re-segmentation
 (read-only preview + a job that re-segments and saves; parity R47 adds an
 LLM preview job, read back with GET .../resegment/preview-llm and applied
 as shown with `use_preview: true`), and Version

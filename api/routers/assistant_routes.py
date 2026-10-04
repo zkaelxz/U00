@@ -1,6 +1,6 @@
 """
 api/routers/assistant_routes.py -- the in-app AI maintenance assistant
-(roadmap Step 42, read-only v1). Thin: see
+(read-only v1). Thin: see
 services/maintenance_assistant_service.py.
 
 Every route is `local_only()`: the assistant reads the app's code, git

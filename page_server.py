@@ -1,6 +1,6 @@
 """
 page_server.py -- the small, localhost-only HTTP endpoint the browser
-extension talks to (roadmap Step 34).
+extension talks to.
 
 **Why this exists at all.** The adapters in `sources/` do bulk import:
 they fetch a chapter, track new ones, and build an offline library. This
@@ -100,7 +100,7 @@ MAX_IMAGES_PER_REQUEST = 12            # a spread or one visible strip
 MAX_TEXT_CHARS = 20000                 # a generous chapter's worth of prose
 REQUEST_TIMEOUT_SECONDS = 120.0
 
-# standalone_translate (Step 26b) only ever translates one side of a pair
+# standalone_translate only ever translates one side of a pair
 # with English -- see its own docstring -- so /text is bound to the same
 # assumption rather than accepting an arbitrary language pair it can't
 # actually serve.
@@ -426,7 +426,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
 
 def translate_text_block(text: str, source_language: str, target_language: str,
                          store: bool = True) -> dict:
-    """A raw block of page text (Step 96's text-capture mode), run through
+    """A raw block of page text (text-capture mode), run through
     the same `translate_engines.standalone_translate` pipeline as the
     app's Standalone translate tool -- reused exactly, not reimplemented,
     per this module's own "one pipeline" rule. This function is the text
