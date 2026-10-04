@@ -162,6 +162,16 @@ def _fake_engine_installed():
 
 
 @pytest.fixture(autouse=True)
+def _private_separator_model_dir(tmp_path_factory, monkeypatch):
+    """The vocal-separator model folder defaults to ~/.cache; the startup
+    sweep and the download guard list and delete files there, so no test
+    may see the developer's real one (or race another xdist worker on it)."""
+    import audio_preprocess
+    monkeypatch.setattr(audio_preprocess, "MODEL_DIR",
+                        str(tmp_path_factory.mktemp("separator_models")))
+
+
+@pytest.fixture(autouse=True)
 def _keep_real_torch_importable():
     """Restores the real torch (and friends) after every test, so a fake
     left behind can never turn into a re-import crash in a later test."""
