@@ -395,7 +395,7 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
 
 
 def mark_exported(drama_id: int) -> dict:
-    """The Export tab's "Mark as exported": sets only the drama's status
+    """The Export stage's "Mark as exported": sets only the drama's status
     to "exported" (no other field is touched). Raises NotFoundError."""
     if db.get_drama(drama_id) is None:
         raise NotFoundError(f"No drama with id {drama_id}.")

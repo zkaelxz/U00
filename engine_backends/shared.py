@@ -6,6 +6,8 @@ import json
 import re
 import time
 
+from services import capped_body
+
 
 def _empty_usage() -> dict:
     return {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
@@ -130,6 +132,28 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             else:
                 raise
     raise last_exception
+
+
+# Far above any real non-streamed reply (a whole batch's output tokens are a
+# few hundred KB of JSON), yet a broken or hostile endpoint can't fill memory.
+PROVIDER_RESPONSE_MAX_BYTES = 16 * 1024 * 1024
+
+
+class ProviderResponseTooLarge(RuntimeError):
+    """A provider's reply was over its byte cap or took too long to read."""
+
+
+def read_json_capped(resp, deadline_seconds: float, cap_bytes: int = PROVIDER_RESPONSE_MAX_BYTES,
+                     make_error=None):
+    """The JSON body of a `stream=True` requests response, read through
+    services.capped_body. A non-2xx status raises requests.HTTPError, as
+    raise_for_status does, without reading the body."""
+    if not resp.ok:
+        resp.close()
+        resp.raise_for_status()
+    make_error = make_error or (lambda: ProviderResponseTooLarge(
+        "The provider's reply was too large or too slow to read."))
+    return json.loads(capped_body.read_capped(resp, cap_bytes, deadline_seconds, make_error))
 
 
 # Matches a raw API key/token sitting in an error string -- a query

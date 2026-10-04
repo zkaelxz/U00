@@ -16,6 +16,7 @@ import pytest
 import translate_engines as te
 from core import Line
 from tests import fake_engine
+from tests.http_fakes import StreamedBody
 
 
 class RateLimitError(Exception):
@@ -892,7 +893,7 @@ class TestGeminiEngine:
     def test_translate_batch_parses_response_and_records_usage(self, monkeypatch):
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -902,7 +903,7 @@ class TestGeminiEngine:
                     "usageMetadata": {"promptTokenCount": 42, "candidatesTokenCount": 8},
                 }
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             captured["url"] = url
             captured["headers"] = headers
             captured["json"] = json
@@ -926,13 +927,13 @@ class TestGeminiEngine:
     def test_recent_context_reaches_the_user_message_not_the_system_instruction(self, monkeypatch):
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": "[]"}]}}]}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             captured["json"] = json
             return FakeResponse()
 
@@ -948,13 +949,13 @@ class TestGeminiEngine:
     def test_speaker_labels_reach_the_actual_numbered_lines_sent(self, monkeypatch):
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             captured["json"] = json
             return FakeResponse()
 
@@ -972,13 +973,13 @@ class TestGeminiEngine:
         so the translator sees them on the line itself."""
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             captured["json"] = json
             return FakeResponse()
 
@@ -994,7 +995,7 @@ class TestGeminiEngine:
     def test_a_response_missing_one_id_is_retried_before_giving_up(self, monkeypatch):
         call_count = {"n": 0}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def __init__(self, text):
                 self._text = text
             def raise_for_status(self):
@@ -1002,7 +1003,7 @@ class TestGeminiEngine:
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": self._text}]}}]}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 return FakeResponse('{"1": "First."}')  # line 2 missing
@@ -1016,7 +1017,7 @@ class TestGeminiEngine:
         assert call_count["n"] == 2
 
     def test_missing_usage_metadata_does_not_crash(self, monkeypatch):
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -1035,7 +1036,7 @@ class TestGeminiEngine:
         started -- no `candidates` key at all, the real reason sitting in
         `promptFeedback.blockReason` instead. Used to raise a bare
         IndexError from the old `data["candidates"][0]...` indexing."""
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -1054,7 +1055,7 @@ class TestGeminiEngine:
         """Step 31 item 1, shape two: a candidate came back, but with
         finishReason SAFETY/PROHIBITED_CONTENT and no `content` key --
         used to raise a bare KeyError from `candidates[0]["content"]...`."""
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -1169,7 +1170,7 @@ class TestGeminiRateStatus:
     against the static table otherwise."""
 
     def _post_with_headers(self, monkeypatch, headers):
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -1179,7 +1180,7 @@ class TestGeminiRateStatus:
         resp = FakeResponse()
         resp.headers = headers
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             return resp
 
         monkeypatch.setattr("requests.post", fake_post)
@@ -1307,13 +1308,13 @@ class TestOllamaEngine:
     parsing from Step 1."""
 
     def _fake_response(self, captured, text='{"1": "Hello."}'):
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"message": {"content": text}}
 
-        def fake_post(url, json=None, timeout=None):
+        def fake_post(url, json=None, timeout=None, stream=None):
             captured["json"] = json
             captured["timeout"] = timeout
             return FakeResponse()
@@ -1370,7 +1371,7 @@ class TestOllamaUnavailableErrors:
     def test_translate_batch_and_call_llm_json_share_the_mapping(self, monkeypatch):
         import requests
 
-        def refuse(url, json=None, timeout=None):
+        def refuse(url, json=None, timeout=None, stream=None):
             raise requests.ConnectionError(f"refused {url}")
         monkeypatch.setattr("requests.post", refuse)
         engine = te.OllamaEngine(base_url="http://10.1.2.3:11434")
@@ -1381,6 +1382,38 @@ class TestOllamaUnavailableErrors:
         for info in (batch, free_form):
             assert info.value.reason == "ollama_unreachable"
             assert "10.1.2.3" not in str(info.value)
+
+
+    def test_a_stalled_or_reset_body_read_is_mapped_too(self, monkeypatch):
+        # The body is read after post() returns, so a drop there raises from
+        # the read; requests' text for it names the host.
+        import requests
+
+        class Dropped:
+            status_code = 200
+            ok = True
+            headers = {}
+            closed = False
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, size):
+                raise requests.ConnectionError(
+                    "HTTPConnectionPool(host='192.168.7.9', port=11434): Read timed out.")
+                yield b""
+
+            def close(self):
+                self.closed = True
+
+        resp = Dropped()
+        monkeypatch.setattr("requests.post", lambda *a, **k: resp)
+        engine = te.OllamaEngine(base_url="http://192.168.7.9:11434")
+        with pytest.raises(te.OllamaUnavailableError) as info:
+            engine.translate_batch(["你好"], {})
+        assert info.value.reason == "ollama_unreachable"
+        assert "192.168" not in str(info.value)
+        assert resp.closed
 
 
 class TestOllamaReachability:
@@ -1398,12 +1431,12 @@ class TestOllamaReachability:
     def _fake_get(self, ok=True, raises=None):
         captured = {}
 
-        def fake_get(url, timeout=None):
+        def fake_get(url, timeout=None, stream=None):
             captured["url"] = url
             captured["timeout"] = timeout
             if raises:
                 raise raises
-            return type("Resp", (), {"ok": ok})()
+            return type("Resp", (), {"ok": ok, "close": lambda self: None})()
         return fake_get, captured
 
     def test_true_when_the_server_responds_ok(self, monkeypatch):
@@ -1426,7 +1459,7 @@ class TestOllamaReachability:
     def test_result_is_cached_briefly_not_rechecked_every_call(self, monkeypatch):
         fake_get, _ = self._fake_get(ok=True)
         calls = {"n": 0}
-        def counting_get(url, timeout=None):
+        def counting_get(url, timeout=None, stream=None):
             calls["n"] += 1
             return fake_get(url, timeout=timeout)
         monkeypatch.setattr("requests.get", counting_get)
@@ -1712,7 +1745,7 @@ class TestCallLlmJson:
             input_tokens = 10
             output_tokens = 5
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             usage = FakeUsage()
             content = [_FakeBlock('{"ok": true}')]
 
@@ -1743,7 +1776,7 @@ class TestCallLlmJson:
             class message:
                 content = "[1, 2, 3]"
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             usage = FakeUsage()
             choices = [FakeChoice()]
 
@@ -1767,7 +1800,7 @@ class TestCallLlmJson:
     def test_gemini_engine_is_not_silently_skipped(self, monkeypatch):
         captured_usage = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
 
@@ -1790,7 +1823,7 @@ class TestCallLlmJson:
         """call_llm_json's Gemini branch is a second, separate call site
         from translate_batch -- confirms the free-tier throttle applies
         there as well, not just to translation."""
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -1818,14 +1851,14 @@ class TestCallLlmJson:
         pacing rewrite all silently did nothing at all with Ollama."""
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"message": {"content": "real answer"},
                         "prompt_eval_count": 12, "eval_count": 4}
 
-        def fake_post(url, json=None, timeout=None):
+        def fake_post(url, json=None, timeout=None, stream=None):
             captured["url"] = url
             captured["json"] = json
             captured["timeout"] = timeout
@@ -1858,7 +1891,7 @@ class TestCallLlmJson:
             te.call_llm_json(FakeTranslationOnlyEngine(), "prompt", fallback="[]")
 
     def test_a_malformed_gemini_response_returns_fallback(self, monkeypatch):
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
 
@@ -1923,7 +1956,7 @@ class TestCheckConsistencyLlm:
         """call_llm_json returns its `fallback` (None, here) rather than
         raising when a provider's response can't be parsed at all -- that
         has to be counted the same as an outright exception."""
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
 
@@ -2203,7 +2236,7 @@ class TestTagSpeakersLlm:
         result -- not the old silent fallback (which for this particular
         feature happened to look like a plausible "Narrator" label,
         making the bug easy to miss without a test like this one)."""
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -2579,7 +2612,7 @@ class _FakeClaudeMessages:
         block = _Block()
         block.text = text
 
-        class _Resp:
+        class _Resp(StreamedBody):
             pass
         resp = _Resp()
         resp.content = [block]
@@ -2645,7 +2678,7 @@ class TestStablePromptPrefix:
         import re as _re
         bodies = []
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def __init__(self, body):
                 self.body = body
 
@@ -2659,7 +2692,7 @@ class TestStablePromptPrefix:
                 return {"candidates": [{"content": {"parts": [
                     {"text": _json.dumps({i: "x" for i in ids})}]}}]}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             bodies.append(json)
             return FakeResponse(json)
 
@@ -2895,14 +2928,14 @@ class TestGemini31FlashLite:
     def test_reaches_the_api_with_the_right_model_id(self, monkeypatch):
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
 
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
 
-        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None:
+        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None, stream=None:
                             captured.update(url=url) or FakeResponse())
         engine = te.get_engine("gemini", "k", "gemini-3.1-flash-lite")
         assert engine.translate_batch(["你好"], {}) == ["Hi."]

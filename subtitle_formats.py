@@ -397,39 +397,3 @@ def wrap_lines(lines, wrap_chars: dict):
         c.zh = wrap_text(ln.zh, wrap_chars.get("zh"))
         out.append(c)
     return out
-
-
-def _css_font(name: str) -> str:
-    return re.sub(r"[^\w \-]", "", name or "") or "Arial"
-
-
-def _css_color(hex_rgb: str) -> str:
-    return hex_rgb if re.fullmatch(r"#[0-9A-Fa-f]{6}", hex_rgb or "") else "#FFFFFF"
-
-
-def style_preview_html(text: str, style: dict, color: str = None, height: int = 216) -> str:
-    """A small dark 16:9 box with `text` drawn in `style` -- the live
-    preview next to the style controls. Everything user-controlled is
-    escaped/whitelisted: subtitle text is untrusted input going into HTML."""
-    scale = height / PLAY_RES[1]
-    width = int(height * 16 / 9)
-    outline = max(int(round(style.get("outline_width", 2) * scale)), 0)
-    oc = _css_color(style.get("outline"))
-    shadow = ", ".join(f"{dx}px {dy}px 0 {oc}" for dx in (-outline, 0, outline)
-                       for dy in (-outline, 0, outline) if dx or dy) or "none"
-    align = style.get("alignment", "bottom-center")
-    vertical = "flex-start" if align.startswith("top") else "flex-end"
-    horizontal = {"left": "flex-start", "right": "flex-end"}.get(align.split("-")[-1], "center")
-    body = "<br>".join(html.escape(part) for part in (text or " ").split("\n"))
-    return (
-        f'<div style="width:{width}px;max-width:100%;height:{height}px;background:#1b1f24;'
-        f'display:flex;align-items:{vertical};justify-content:{horizontal};padding:10px;'
-        f'box-sizing:border-box;border-radius:6px;">'
-        f'<span style="font-family:\'{_css_font(style.get("font"))}\',sans-serif;'
-        f'font-size:{style.get("size", 24) * scale:.0f}px;'
-        f'font-weight:{"bold" if style.get("bold") else "normal"};'
-        f'font-style:{"italic" if style.get("italic") else "normal"};'
-        f'color:{_css_color(color or style.get("primary"))};text-shadow:{shadow};'
-        f'text-align:{"left" if horizontal == "flex-start" else "right" if horizontal == "flex-end" else "center"};'
-        f'line-height:1.2;">{body}</span></div>'
-    )

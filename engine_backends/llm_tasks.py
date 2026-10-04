@@ -11,6 +11,7 @@ from .shared import (
     call_with_backoff,
     extract_first_json_value,
     parse_json_array,
+    read_json_capped,
     redact_secrets,
     request_translations_with_retry,
 )
@@ -68,9 +69,8 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
                f"{engine.model}:generateContent")
         resp = call_with_backoff(lambda: requests.post(
             url, headers={"x-goog-api-key": engine.api_key},
-            json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=120))
-        resp.raise_for_status()
-        data = resp.json()
+            json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=120, stream=True))
+        data = read_json_capped(resp, 120)
         usage = data.get("usageMetadata") or {}
         if usage_cb:
             usage_cb(usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0))
@@ -84,14 +84,13 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
             [{"role": "user", "content": prompt}], usage_cb=usage_cb))
 
     if isinstance(engine, OllamaEngine):
-        resp = _ollama_chat(engine.base_url, {
+        data = _ollama_chat(engine.base_url, {
             "model": engine.model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
             "format": "json",
             "options": {"num_ctx": estimate_ollama_num_ctx(prompt, "")},
         })
-        data = resp.json()
         if usage_cb:
             usage_cb(data.get("prompt_eval_count", 0), data.get("eval_count", 0))
         return data["message"]["content"].strip()

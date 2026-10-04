@@ -103,6 +103,9 @@ class TestJobResults:
             "done", None, {"flags_needing_recheck": [7]})
         assert outcome == "partial" and "recheck" in message
         assert jobs_service.derive_outcome("done", None, {"line_count": 5, "gpu_fallback": None})[0] == "ok"
+        notice = "Transcription ran on the CPU because the GPU couldn't be used (x). This was slower than on the GPU."
+        result = jobs_service.project_result({"line_count": 5, "gpu_fallback": "x", "device_notice": notice})
+        assert jobs_service.derive_outcome("done", None, result) == ("partial", notice)
 
     def test_cancelled_bulk_run_is_cancelled(self):
         assert jobs_service.derive_outcome("done", None, {"status": "cancelled"})[0] == "cancelled"

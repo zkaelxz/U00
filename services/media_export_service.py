@@ -123,7 +123,7 @@ def _audiobook_job(job_id, drama_id, lines, ddir, title, narrate_original):
 
 
 def start_audiobook_export(drama_id: int) -> dict:
-    """Starts the Export tab's "Generate audiobook (.m4b)" as thread job
+    """Starts the Export stage's "Generate audiobook (.m4b)" as thread job
     `audiobook_<drama_id>` (narration track -> AAC m4b with chapter markers,
     output kind "audio"). Raises NotFoundError (unknown drama),
     InvalidInputError (no lines / no narration track yet),
@@ -169,7 +169,7 @@ def _burned_video_job(job_id, drama_id, video_path, ass_text, ext):
 
 
 def start_burned_video_export(drama_id: int, **ass_options) -> dict:
-    """Starts the Export tab's hardsub "Generate subtitled episode" (ASS,
+    """Starts the Export stage's hardsub "Generate subtitled episode" (ASS,
     burned in with libass) as thread job `burned_video_<drama_id>`, output
     kind "video". ass_options are export_service.generate_ass_text's
     keyword arguments (field, style, preset, speaker_colors, ...), validated
@@ -211,7 +211,7 @@ def _softsub_video_job(job_id, drama_id, video_path, srt_text, ext, language):
 
 def start_softsub_video_export(drama_id: int, field: str = "en",
                                include_notes: bool = False) -> dict:
-    """Starts the Export tab's softsub "Generate subtitled episode" as
+    """Starts the Export stage's softsub "Generate subtitled episode" as
     thread job `softsub_video_<drama_id>`: the SRT for `field` (en, zh or
     bilingual) is added as a selectable subtitle track, video and audio
     are stream-copied. .mp4/.mkv sources keep their container, anything
@@ -254,7 +254,7 @@ def _dubbed_video_job(job_id, drama_id, video_path, dub_path, ext, keep_original
 
 
 def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dict:
-    """Starts the Export tab's "Export video with dub audio" as thread job
+    """Starts the Export stage's "Export video with dub audio" as thread job
     `dubbed_video_<drama_id>`: the drama's dub track replaces the video's
     audio, or with keep_original the original audio is mixed in quietly
     underneath (-20 dB). Output kind "dubbed_video", same container as the
