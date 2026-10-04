@@ -1,0 +1,36 @@
+version: 2
+
+# Dependabot only opens PRs; nothing here merges. Each ecosystem is grouped
+# into one weekly PR so a week of bumps is one CI run to review, and the low
+# open-PR limit keeps an unattended repo from piling up stale branches.
+updates:
+  # The tiered requirements files live at the repo root; constraints.txt is
+  # read alongside them, so both are scanned from the same directory.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      python-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      npm-dependencies:
+        patterns: ["*"]
+
+  # Workflows pin actions by commit SHA with a version comment; Dependabot
+  # updates both together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      github-actions:
+        patterns: ["*"]

@@ -1,0 +1,57 @@
+name: Dependency audit
+
+# Weekly scan for known vulnerabilities in the declared dependencies. Kept out
+# of the PR checks on purpose: a new advisory against a package a PR never
+# touched would turn unrelated PRs red. A failure here means "look at the
+# advisory", not "this change is broken".
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      # The tier files are audited separately because requirements.txt is only
+      # their union; each run resolves the full dependency tree, not just the
+      # listed names, so transitive advisories are caught too.
+      - name: Audit requirements
+        run: |
+          pip-audit -r requirements-core.txt
+          pip-audit -r requirements-media.txt
+          pip-audit -r requirements-optional.txt
+
+  npm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
+        with:
+          node-version: "22"
+
+      # Dev-only packages (vite, playwright, ...) never ship in the built app.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
