@@ -65,6 +65,7 @@ same shape as diarization_service.start_diarization_run.
 import importlib.util
 import os
 import subprocess
+import time
 from typing import Optional
 
 import background_jobs
@@ -144,6 +145,60 @@ def _audio_duration_seconds(path) -> Optional[float]:
         return float((info.get("format") or {}).get("duration") or 0.0) or None
     except Exception:
         return None
+
+
+# A running job never reports 100%: only completion does. When Qwen3-ASR
+# re-transcribes after Whisper, Whisper's stage fills 0..QWEN_SPLIT and
+# Qwen3's batches fill QWEN_SPLIT..RUNNING_MAX; otherwise Whisper's stage
+# fills 0..RUNNING_MAX.
+RUNNING_MAX = 0.99
+QWEN_SPLIT = 0.85
+
+
+_SPEED_SETTING = "transcribe_speed"
+# Outside this range a reading is a clock glitch or a near-empty file, not a speed.
+_SPEED_BOUNDS = (0.01, 1000.0)
+_SPEED_MIN_WORK_SECONDS = 5.0
+
+
+def _speed_key(model: str, on_gpu: bool) -> str:
+    return f"{model}|{'gpu' if on_gpu else 'cpu'}"
+
+
+def measured_transcribe_speed(model: str, on_gpu: bool) -> Optional[float]:
+    """Seconds of audio transcribed per second of work on the last finished
+    run of this (model, device), or None. Never raises."""
+    try:
+        stored = db.get_app_setting(_SPEED_SETTING, {})
+        value = stored.get(_speed_key(model, on_gpu)) if isinstance(stored, dict) else None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        value = float(value)
+        return value if _SPEED_BOUNDS[0] <= value <= _SPEED_BOUNDS[1] else None
+    except Exception:
+        return None
+
+
+def record_transcribe_speed(model: str, on_gpu: bool, audio_seconds, work_seconds) -> None:
+    """Keeps an exponential average (half old, half new) of a finished run's
+    speed. Ignores non-numeric or out-of-range readings; never raises, so a
+    settings hiccup cannot fail a finished transcription."""
+    try:
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in (audio_seconds, work_seconds)):
+            return
+        if work_seconds < _SPEED_MIN_WORK_SECONDS or audio_seconds <= 0:
+            return
+        speed = float(audio_seconds) / float(work_seconds)
+        if not _SPEED_BOUNDS[0] <= speed <= _SPEED_BOUNDS[1]:
+            return
+        stored = db.get_app_setting(_SPEED_SETTING, {})
+        stored = dict(stored) if isinstance(stored, dict) else {}
+        key = _speed_key(model, on_gpu)
+        old = measured_transcribe_speed(model, on_gpu)
+        stored[key] = round(speed if old is None else (old + speed) / 2, 4)
+        db.set_app_setting(_SPEED_SETTING, stored)
+    except Exception:
+        pass
 
 
 def _raise_if_job_cancelled(job_id):
@@ -236,6 +291,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "asr_backend_choice": drama.get("asr_backend_choice") or "whisper",
         "whisper_size": whisper_size,
         "whisper_model_cached": core_module.is_whisper_model_cached(whisper_size),
+        "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get_use_gpu()),
         "whisper_installed": diagnostics.check_dependency("faster_whisper"),
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
@@ -635,6 +691,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     skipped (diarize_started stays False), same as the existing
     no-hf_token case."""
     gpu_fallback_msg = []
+    whisper_clock = {}
     word_align_error = None
     forced_align_error = None
     coverage_msg = None
@@ -706,6 +763,10 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
             return
 
+        qwen_run = transcript_mode == "whisper" and asr_backend_choice == "qwen3_asr" and not moss_run
+        stage_max = QWEN_SPLIT if qwen_run else RUNNING_MAX
+        step_label = " (step 1 of 2)" if qwen_run else ""
+
         if moss_run:
             # Step 104 (experimental): one pass that also labels speakers;
             # replaces Whisper for this run, only when chosen explicitly.
@@ -742,7 +803,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 segments = core_module.transcribe_with_groq(
                     audio_path, source_language, groq_api_key,
                     progress_cb=lambda frac: background_jobs.update_progress(
-                        job_id, frac, f"Transcribing via Groq's cloud API... {frac * 100:.0f}%"))
+                        job_id, min(frac, 1.0) * stage_max,
+                        f"Transcribing via Groq's cloud API{step_label}... {frac * 100:.0f}%"))
             except core_module.GroqTranscriptionError as exc:
                 background_jobs.set_result(job_id, {"failed_reason": "groq", "detail": str(exc)})
                 return
@@ -769,6 +831,15 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 background_jobs.update_progress(
                     job_id, 0.0, f"Transcribing... starting; the percent appears once "
                                  f"the first lines are found{device_suffix}")
+                def _whisper_progress(frac):
+                    # The clock starts at the first percent: model download and
+                    # load are not transcription speed.
+                    if frac > 0 and "t" not in whisper_clock:
+                        whisper_clock.update(t=time.monotonic(), p=min(frac, 1.0))
+                    _raise_if_job_cancelled(job_id)
+                    background_jobs.update_progress(
+                        job_id, min(frac, 1.0) * stage_max,
+                        f"Transcribing{step_label}... {frac * 100:.0f}%{device_suffix}")
                 segments = transcribe_for_timing(
                     audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
                     local_model_path=local_model_path, hf_token=None,
@@ -776,11 +847,10 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                     beam_size=beam_size,
                     min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
                     on_gpu_fallback=lambda exc: gpu_fallback_msg.append(core_module._short_reason(exc)),
-                    progress_cb=lambda frac: (
-                        _raise_if_job_cancelled(job_id),
-                        background_jobs.update_progress(
-                            job_id, frac, f"Transcribing... {frac * 100:.0f}%{device_suffix}")),
+                    progress_cb=_whisper_progress,
                     fast_mode=whisper_fast_mode)
+                if "t" in whisper_clock:
+                    whisper_clock["work"] = time.monotonic() - whisper_clock["t"]
             except core_module.ModelDownloadError as exc:
                 background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
                 return
@@ -795,7 +865,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         if realign_long_segments and not moss_run and not background_jobs.is_cancel_requested(job_id):
             import word_align
             try:
-                with background_jobs.stage_ticker(job_id, "Splitting long merged lines", frac=1.0):
+                with background_jobs.stage_ticker(job_id, "Splitting long merged lines", frac=stage_max):
                     segments = word_align.realign_oversized_segments(
                         segments, audio_path, source_language, chinese_script=chinese_script)
             except word_align.WordAlignError as exc:
@@ -811,13 +881,25 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                     return
                 # Timing stays Whisper's VAD segments; only the text is replaced
                 # (asr_backend.py's module docstring explains why).
-                background_jobs.update_progress(
-                    job_id, 1.0, "Re-transcribing with Qwen3-ASR (timing kept from Whisper)...")
+                qwen_ticker = background_jobs.stage_ticker(
+                    job_id, "Re-transcribing with Qwen3-ASR (step 2 of 2; no percent until "
+                            "the first batch finishes)", frac=QWEN_SPLIT).start()
+
+                def _qwen_progress(frac):
+                    # The first finished batch ends the no-percent phase; the
+                    # ticker would otherwise overwrite the message.
+                    qwen_ticker.stop()
+                    _raise_if_job_cancelled(job_id)
+                    background_jobs.update_progress(
+                        job_id, QWEN_SPLIT + min(max(frac, 0.0), 1.0) * (RUNNING_MAX - QWEN_SPLIT),
+                        f"Re-transcribing with Qwen3-ASR (step 2 of 2)... {frac * 100:.0f}%")
+
                 try:
                     import asr_backend
                     segments = asr_backend.Qwen3ASRBackend().transcribe(
                         audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu,
-                        batch_size=asr_options_service.get_qwen_asr_batch_size())
+                        batch_size=asr_options_service.get_qwen_asr_batch_size(),
+                        progress_cb=_qwen_progress)
                 except ImportError as exc:
                     background_jobs.set_result(job_id, {
                         "failed_reason": "dependency_missing",
@@ -832,6 +914,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                     background_jobs.set_result(
                         job_id, {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))})
                     return
+                finally:
+                    qwen_ticker.stop()
                 raw_backend, raw_model = "qwen3_asr", "Qwen3-ASR"
             lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                           speaker=seg.get("speaker") or None)
@@ -840,14 +924,14 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 segments, _audio_duration_seconds(audio_path),
                 qwen3_asr=raw_backend == "qwen3_asr")
         else:
-            background_jobs.update_progress(job_id, 1.0, "Aligning transcript to audio timing...")
+            background_jobs.update_progress(job_id, RUNNING_MAX, "Aligning transcript to audio timing...")
             user_lines = split_user_transcript(transcript_text)
             if alignment_method == "qwen3_forced_align":
                 if background_jobs.is_cancel_requested(job_id):
                     background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
                     return
                 background_jobs.update_progress(
-                    job_id, 1.0, "Aligning with Qwen3-ForcedAligner (true forced alignment)...")
+                    job_id, RUNNING_MAX, "Aligning with Qwen3-ForcedAligner (true forced alignment)...")
                 try:
                     import forced_align
                     lines = forced_align.align_with_qwen3(
@@ -915,6 +999,15 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             on_done=diarization_service.make_apply_on_done(
                 drama_id, expected_speakers, min_speakers=min_speakers,
                 max_speakers=max_speakers))
+
+    if "work" in whisper_clock and whisper_clock["p"] < 0.5:
+        # Only the Whisper pass counts, and only the part after its first
+        # percent: audio_seconds * (1 - that first percent) over the time taken.
+        audio_seconds = _audio_duration_seconds(audio_path)
+        if audio_seconds:
+            record_transcribe_speed(
+                whisper_size, bool(use_gpu) and not gpu_fallback_msg,
+                audio_seconds * (1.0 - whisper_clock["p"]), whisper_clock["work"])
 
     background_jobs.set_result(job_id, {
         "line_count": len(lines),
