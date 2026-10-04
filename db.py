@@ -2592,6 +2592,36 @@ def clear_character_series_link(drama_id: int, speaker_label: str):
         conn.commit()
 
 
+def rename_character_label(drama_id: int, old_label: str, new_label: str,
+                           character_name) -> bool:
+    """Moves one speaker's characters row (voice, pronouns, series link) and
+    its dismissed voice matches from old_label to new_label, and sets the
+    row's character_name (None clears it); in one transaction. A speaker with
+    no row gets one. False, nothing written, when new_label already has a
+    row."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                        (drama_id, new_label)).fetchone():
+            conn.rollback()
+            return False
+        conn.execute("INSERT OR IGNORE INTO characters (drama_id, speaker_label) VALUES (?, ?)",
+                     (drama_id, old_label))
+        conn.execute("UPDATE characters SET speaker_label = ?, character_name = ? "
+                     "WHERE drama_id = ? AND speaker_label = ?",
+                     (new_label, character_name, drama_id, old_label))
+        conn.execute("UPDATE OR IGNORE voice_suggestion_dismissals SET speaker_label = ? "
+                     "WHERE drama_id = ? AND speaker_label = ?", (new_label, drama_id, old_label))
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Series-level characters -- persist across every drama in a series (a
 # streamer's whole archive, or a book series), independent of any one

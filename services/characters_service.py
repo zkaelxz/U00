@@ -43,6 +43,7 @@ from db import (apply_voice_bank_entry as _db_apply_voice_bank_entry, drama_dir,
                 get_voice_bank_entry, list_characters_with_series_names,
                 list_series_characters as _db_list_series_characters,
                 list_voice_bank_entries, load_lines, upsert_character)
+from services import drama_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_NAME_LEN = 200
@@ -316,7 +317,10 @@ def _current_suggestions(drama_id: int, drama: dict):
     series_chars = _series_characters_of(drama)
     if not series_chars:
         return [], {}
-    embeddings = _load_voice_embeddings(drama_id)
+    # A renamed speaker leaves its old label in the saved embeddings; offering a
+    # match for it would re-create that label.
+    known = known_speakers(drama_id)
+    embeddings = {k: v for k, v in _load_voice_embeddings(drama_id).items() if k in known}
     if not embeddings:
         return [], {}
     try:
@@ -446,3 +450,100 @@ def remember_series_character(drama_id: int, speaker_label: str) -> dict:
     series_entry = next(sc for sc in list_series_characters(series_id) if sc["id"] == sc_id)
     return {"character": get_one(drama_id, speaker_label), "series_character": series_entry,
             "created": created}
+
+
+# --- Rename a speaker once ----------------------------------------------------
+
+_RENAME_CONFLICT = ("Another speaker already has that name. Merging speakers isn't "
+                    "supported here; pick a different name.")
+_BUSY = ("A background job is still running for this drama -- wait for it "
+         "to finish or cancel it before {what}.")
+
+
+def _restore_lines(drama_id: int, previous: list, current_label: str) -> int:
+    """Puts previous labels back, only on lines still carrying current_label."""
+    by_id = {p["id"]: p for p in previous}
+    lines = [ln for ln in db.load_line_objects(drama_id)
+             if ln.id in by_id and ln.speaker == current_label]
+    for ln in lines:
+        ln.speaker = by_id[ln.id]["speaker"]
+        ln.speaker_manual = bool(by_id[ln.id]["speaker_manual"])
+    db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"), only_if_unchanged=True)
+    return len(lines)
+
+
+def rename_speaker(drama_id: int, speaker_label: str, new_name: str) -> dict:
+    """Names a speaker once: every line labelled speaker_label gets new_name as
+    its speaker, and the speaker's Characters row (voice, pronouns, series
+    link) moves to new_name with it as character_name, so translation context
+    sees the name. The lines are marked set by hand, so re-assigning from saved
+    turns keeps the name. Only speaker and speaker_manual are written. Raises
+    NotFoundError (unknown drama or speaker), InvalidInputError (blank, too
+    long or unchanged name), ConflictError (a job is running for the drama, the
+    name already belongs to another speaker, or a line was edited meanwhile; in
+    that case nothing is changed). Returns {"characters": list_characters,
+    "renamed": n, "undo": {...}}; pass undo to undo_rename_speaker."""
+    require_drama(drama_id)
+    if not isinstance(speaker_label, str) or speaker_label not in known_speakers(drama_id):
+        raise NotFoundError("No such speaker in this drama.")
+    check_len("new_name", new_name, MAX_NAME_LEN)
+    name = new_name.strip()
+    if not name:
+        raise InvalidInputError("The name can't be blank.")
+    if name == speaker_label:
+        raise InvalidInputError("That is already this speaker's name.")
+    if name in known_speakers(drama_id):
+        raise ConflictError(_RENAME_CONFLICT)
+    if drama_service.job_running_for_drama(drama_id):
+        raise ConflictError(_BUSY.format(what="renaming a speaker"))
+    row = next((r for r in db.list_characters(drama_id) if r["speaker_label"] == speaker_label), {})
+    lines = [ln for ln in db.load_line_objects(drama_id) if ln.speaker == speaker_label]
+    previous = [{"id": ln.id, "speaker": speaker_label, "speaker_manual": bool(ln.speaker_manual)}
+                for ln in lines]
+    for ln in lines:
+        ln.speaker, ln.speaker_manual = name, True
+    unwritten = set(db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"),
+                                  only_if_unchanged=True))
+    if unwritten:
+        _restore_lines(drama_id, [p for p in previous if p["id"] not in unwritten], name)
+        raise ConflictError("Some lines changed while renaming; nothing was renamed. Try again.")
+    if not db.rename_character_label(drama_id, speaker_label, name, name):
+        _restore_lines(drama_id, previous, name)
+        raise ConflictError(_RENAME_CONFLICT)
+    undo = {"speaker_label": name, "previous_label": speaker_label,
+            "previous_character_name": row.get("character_name"), "previous": previous}
+    return {"characters": list_characters(drama_id), "renamed": len(lines), "undo": undo}
+
+
+def undo_rename_speaker(drama_id: int, undo: dict) -> dict:
+    """Reverses rename_speaker from the undo it returned: lines still labelled
+    with the new name get their previous label (and manual flag) back and the
+    Characters row moves back. Lines edited since are left as they are.
+    Raises NotFoundError (unknown drama, or the name is no longer a speaker),
+    InvalidInputError (bad undo data), ConflictError (a job is running, or the
+    old label has been taken again). Returns {"characters": ..., "renamed": n,
+    "undo": None}."""
+    require_drama(drama_id)
+    new_label, old_label = undo.get("speaker_label"), undo.get("previous_label")
+    previous, old_name = undo.get("previous"), undo.get("previous_character_name")
+    if (not isinstance(new_label, str) or not isinstance(old_label, str) or not old_label.strip()
+            or not isinstance(previous, list)):
+        raise InvalidInputError("That undo isn't valid.")
+    check_len("previous_label", old_label, MAX_NAME_LEN)
+    if old_name is not None:
+        check_len("previous_character_name", old_name, MAX_NAME_LEN)
+    for p in previous:
+        if (not isinstance(p, dict) or isinstance(p.get("id"), bool)
+                or not isinstance(p.get("id"), int) or p.get("speaker") != old_label):
+            raise InvalidInputError("That undo isn't valid.")
+    known = known_speakers(drama_id)
+    if new_label not in known:
+        raise NotFoundError("That speaker was renamed again or removed; nothing to undo.")
+    if old_label in known:
+        raise ConflictError("The old label is in use again, so the rename can't be undone.")
+    if drama_service.job_running_for_drama(drama_id):
+        raise ConflictError(_BUSY.format(what="undoing"))
+    n = _restore_lines(drama_id, previous, new_label)
+    if not db.rename_character_label(drama_id, new_label, old_label, old_name):
+        raise ConflictError("The old label is in use again, so the rename can't be undone.")
+    return {"characters": list_characters(drama_id), "renamed": n, "undo": None}

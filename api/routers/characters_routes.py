@@ -18,7 +18,8 @@ from typing import List
 from fastapi import APIRouter, Path
 from api.auth import require_permission
 from api.schemas import (CharactersCloneEngines, CharactersEntry, CharactersRememberRequest,
-                         CharactersRememberResult, CharactersSeriesEntry,
+                         CharactersRememberResult, CharactersRenameRequest,
+                         CharactersRenameResult, CharactersRenameUndoRequest, CharactersSeriesEntry,
                          CharactersUpdateRequest, CharactersVoiceBankApply,
                          CharactersVoiceBankEntry, CharactersVoiceSuggestion,
                          CharactersVoiceSuggestionRequest, CharactersVoiceSuggestionResult,
@@ -104,3 +105,21 @@ def post_voice_suggestion_reject(payload: CharactersVoiceSuggestionRequest, dram
                         422: {"model": ErrorResponse}})
 def post_remember_series_character(payload: CharactersRememberRequest, drama_id: int = Path(ge=1)):
     return characters_service.remember_series_character(drama_id, payload.speaker_label)
+
+
+@router.post("/dramas/{drama_id}/rename-speaker", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersRenameResult,
+             summary="Name a speaker once: every one of its lines and its Characters row",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_rename_speaker(payload: CharactersRenameRequest, drama_id: int = Path(ge=1)):
+    return characters_service.rename_speaker(drama_id, payload.speaker_label, payload.new_name)
+
+
+@router.post("/dramas/{drama_id}/rename-speaker/undo", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersRenameResult,
+             summary="Undo a speaker rename from the undo it returned",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_undo_rename_speaker(payload: CharactersRenameUndoRequest, drama_id: int = Path(ge=1)):
+    return characters_service.undo_rename_speaker(drama_id, payload.undo.model_dump())
