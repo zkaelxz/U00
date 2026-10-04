@@ -79,6 +79,6 @@ test('no corrections: no replace switch; the time estimates show next to both bu
   await openSpeakers(page)
   await expect(page.getByTestId('manual-speakers')).toHaveCount(0)
   await expect(page.getByTestId('diarize-estimate')).toHaveText('Takes approx. 10 min to 20 min.')
-  await expect(page.getByTestId('transcribe-estimate')).toContainText('Takes approx.')
-  await expect(page.getByTestId('transcribe-estimate')).toContainText('on the ')
+  await expect(page.getByTestId('transcribe-estimate')).toContainText('Rough estimate')
+  await expect(page.getByTestId('transcribe-estimate')).toContainText(' on ')
 })

@@ -741,6 +741,7 @@ class TestSourceConfigEndpoints:
     services/source_service.py's own docstring for why."""
 
     def test_get_config_contract_shape(self, client, isolated_db):
+        from services import transcribe_service
         did = isolated_db.create_drama(title_en="D")
         body = client.get(f"/api/source/dramas/{did}/config").json()
         assert body == {
@@ -797,8 +798,8 @@ class TestTranscribeConfigEndpoints:
         assert body == {
             "drama_id": did, "transcript_mode": "have_transcript", "has_audio_pipeline": True,
             "audio_available": False, "alignment_method": "whisper_diff",
-            "asr_backend_choice": "whisper", "whisper_size": "large-v3",
-            "whisper_model_cached": body["whisper_model_cached"],
+            "asr_backend_choice": "whisper", "whisper_size": transcribe_service.CPU_DEFAULT_WHISPER_SIZE,
+            "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None,
             "whisper_installed": body["whisper_installed"],
             "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5,
             "separate_vocals_first": False, "separation_backend": "auto",
