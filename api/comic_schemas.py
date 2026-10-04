@@ -1,9 +1,7 @@
 """
 api/comic_schemas.py -- request/response models for the comic viewer
-routes (api/routers/comic_routes.py). Kept out of api/schemas.py so the
-slice could be built alongside another branch editing that file; the
-shared ErrorResponse still lives there. No path or filename field exists
-on any model.
+routes (api/routers/comic_routes.py). No path or filename field exists on
+any model.
 """
 
 from typing import List, Literal

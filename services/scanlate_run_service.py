@@ -29,7 +29,7 @@ Safety (spec §4):
   the saved settings on the server, never from the request.
 - Every note is redacted and path-stripped before it is stored.
 Model runs hold the pipeline lock shared with the extension bridge.
-No FastAPI or Streamlit import.
+No FastAPI import.
 """
 import background_jobs
 import db

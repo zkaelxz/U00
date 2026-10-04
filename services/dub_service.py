@@ -1,16 +1,12 @@
 """
-services/dub_service.py -- read-only Dub-stage services for one drama,
-shared by a later FastAPI /api/dub router (not this file) and mirroring the
-Streamlit Dub tab (`tabs/workspace_tab.py`'s `with tab_dub:` block, lines
-~5502-5654, and `_render_dub_pacing`, lines ~722-749).
+services/dub_service.py -- Dub-stage services for one drama, used by
+api/routers/dub_routes.py: the config summary, the last run's pacing, the
+Generate job (start_dub_run, with apply_dub_result as its on_done hook) and
+the finished track (get_dub_track). Voice/character config is
+characters_service. Speakers and lines come from the database, not the
+browser's unsaved session lines.
 
-Migration Slice 25. Deliberately out of scope: the Generate job (Slice 26),
-voice/character CRUD (lives in the Translate tab, a separate slice),
-per-line preview/regenerate (a new feature). Track download is Slice 53
-(`get_dub_track`). Speakers and lines come from the database,
-not the browser's unsaved session lines.
-
-No Streamlit or FastAPI import: plain dicts out. Nothing secret or
+No FastAPI import: plain dicts out. Nothing secret or
 location-revealing is returned (D2): no filesystem path, no GPT-SoVITS URL,
 only booleans such as `gpt_sovits_configured`.
 """
@@ -219,7 +215,7 @@ def _source_audio_path(drama: dict):
 
 def apply_dub_result(drama_id: int, result: dict) -> None:
     """on_done hook body (Migration Slice 26): persists a finished dub run
-    the way the Dub tab's "done" branch does -- field-scoped
+    -- field-scoped
     save_lines(dub_filename [+ start/end for narration]) and status
     "dubbed". The subprocess's returned lines are used only as a source of
     those fields, matched by permanent line id onto the CURRENT database
@@ -245,9 +241,9 @@ def apply_dub_result(drama_id: int, result: dict) -> None:
 def start_dub_run(drama_id: int, tts_engine: str = "edge_tts", max_speedup=None,
                   max_slowdown=None, narration_language=None,
                   keep_background: bool = False) -> dict:
-    """Starts the Dub tab's "Generate dub/narration track" as a background
-    process job (`dub_<drama_id>`), with the same voice/clone/emotion/pacing
-    inputs as the tab and `cli dub` (per-speaker voices, filled from the
+    """Starts "Generate dub/narration track" as a background process job
+    (`dub_<drama_id>`), with the same voice/clone/emotion/pacing inputs as
+    `cli dub` (per-speaker voices, filled from the
     pools; GPT-SoVITS URL from settings; drama glossary/locale are not used
     by TTS). The result is applied by an on_done hook, not by a UI render
     loop. Raises NotFoundError (unknown drama), InvalidInputError (bad

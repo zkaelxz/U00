@@ -5,10 +5,6 @@ one drama (Migration Slice 48): line history, translation versions
 issues, emotion summary, stored edit tendencies, and translation-memory
 suggestions. See services/review_records_service.py.
 
-Out of scope (each its own later slice): every write (restore/activate/
-delete/add/dismiss), LLM analysis (consistency check, emotion detection,
-"learn my style", notes generation), background-job starters, bulk modes.
-
 Static paths (`/versions/compare`, `/notes/markdown`) are declared before
 any `/{id}` path in the same prefix.
 """

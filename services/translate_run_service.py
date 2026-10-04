@@ -1,7 +1,6 @@
 """
-services/translate_run_service.py -- Streamlit-free, READ-ONLY half of the
-per-drama Translate stage (tabs/workspace_tab.py's `with tab_translate:`
-block). Migration Slice 39: get_translate_config() (everything the stage
+services/translate_run_service.py -- the per-drama Translate stage.
+Migration Slice 39: get_translate_config() (everything the stage
 needs to render its form) and estimate_translate_cost() (the pre-run cost
 estimate / cap gating).
 
@@ -14,16 +13,16 @@ Migration Slice 41 adds reflect=True (Step 7's three-pass Reflect mode, live)
 and bulk=True (Step 9/9d's Claude/Gemini batch APIs, DeepSeek off-peak, and
 bulk Reflect) to the same start, plus resume_bulk_translations().
 
-Parity X02/X22 add apply_workflow_tier() and save_translate_preset() (the
-tab's "Apply tier" and "Save as preset" buttons); parity X03 adds
+Parity X02/X22 add apply_workflow_tier() and save_translate_preset() ("Apply
+tier" and "Save as preset"); parity X03 adds
 apply_translate_preset() ("Apply a preset" on an existing drama), and the
 config's style presets carry their guidance text (X04).
 
 Out of scope here: glossary review, preset rename/delete and characters CRUD.
 
 Every knob (engine, model, context window, batch size, reflect, bulk, caps)
-is a request-time parameter with the widget's own default as fallback -- no
-new drama columns, so no db.py change. The API reads lines/config from the
+is a request-time parameter with a built-in default as fallback -- none is
+stored on the drama. The API reads lines/config from the
 DB, not unsaved browser state. D2: keys/secrets, client-supplied URLs and
 the novel text are never returned -- booleans only.
 """
@@ -46,7 +45,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 
-# tabs/workspace_tab.py's _cap_applies: engines that report usage.
+# Engines that report usage, so the spending cap applies to them.
 _CAP_ENGINES = ("claude", "deepseek", "gemini", "openai")
 
 
@@ -141,7 +140,7 @@ def get_translate_config(drama_id: int) -> dict:
 
 
 def ollama_reachable() -> bool:
-    """Parity X24: whether the configured Ollama server answers (the tab's
+    """Parity X24: whether the configured Ollama server answers (the
     "Can't reach Ollama" warning). A boolean only; the URL never leaves
     the server. Cached briefly by translate_engines."""
     return bool(translate_engines.check_ollama_reachable(
@@ -308,7 +307,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     character names / locale as the Workspace button and `cli.py translate`.
     line_ids (optional) restricts the run to those lines; the rest are only
     context. Only empty-`en` lines are translated unless force_retranslate,
-    so hand-edited translations survive (as in the tab).
+    so hand-edited translations survive.
 
     fallback_chain (Step 97b): optional ordered [{"engine", "model"}, ...] tried
     in turn -- for the rest of the run -- when the active engine fails with an
@@ -319,7 +318,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     "fallbacks" lists any switch that happened.
 
     reflect (Slice 41): Step 7's three-pass Reflect mode through the same
-    run_translate_job the tab uses (critiques saved as notes by line).
+    run_translate_job (critiques saved as notes by line).
     bulk (Slice 41): submits through bulk_translate (Claude/Gemini batch API,
     DeepSeek off-peak schedule; with reflect, the three-stage bulk Reflect
     pipeline) inside job `bulk_translate_{id}`, which also polls the batch
@@ -328,11 +327,11 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     fallback chain (Reflect calls call_llm_json, which FallbackEngine does
     not wrap; a batch is bound to one provider); bulk takes no line_ids.
 
-    default_female_pronouns / include_genre_notes: the tab's "Default
+    default_female_pronouns / include_genre_notes: the "Default
     ambiguous pronouns to she/her" and "Include baihe/GL genre guidance"
     toggles (a preset's values, which the client holds; nothing links a
-    drama to a preset in the DB). None means the tab's own widget defaults:
-    she/her off, genre guidance on.
+    drama to a preset in the DB). None means the defaults: she/her off,
+    genre guidance on.
 
     own_lines_only (with line_ids): run_translate_job's own_lines_only -- a
     line edited while the job runs keeps the edit.
@@ -438,7 +437,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
             raise ConflictError("A bulk translation is already pending for this drama.")
         if engine_name != "deepseek" and caps[0] is not None:
             # DeepSeek off-peak runs as a normal run later and stops at the
-            # cap; a submitted batch can't, so it's refused up front (as the tab).
+            # cap; a submitted batch can't, so it's refused up front.
             est = estimate_translate_cost(drama_id, engine_name, model, reflect=reflect,
                                           force_retranslate=force_retranslate, bulk=True,
                                           gemini_free_tier=gemini_free_tier,
@@ -521,9 +520,9 @@ def _bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referen
                     glossary_terms, style_guidelines, style_note, locale, style_preset,
                     context_window, context_window_ahead, batch_size, force_retranslate,
                     job_cost_cap_usd, series_id):
-    """A zero-arg callable that submits what the tab's _start_bulk_translation
-    / _start_bulk_reflect submit (same translate_args, context and character
-    names) and returns the bulk job id. Called inside the job so the provider
+    """A zero-arg callable that submits the bulk translation (or bulk
+    Reflect) batch (same translate_args, context and character names as a
+    normal run) and returns the bulk job id. Called inside the job so the provider
     call never blocks the request. Lines are re-read from the DB at submit
     time so each carries its permanent id and current English."""
     def submit() -> int:
@@ -602,8 +601,7 @@ def _bulk_engine_factory(engine_name, model):
 
 def resume_bulk_translations(drama_id: int) -> dict:
     """After a restart: starts a poller for each of this drama's pending
-    bulk jobs (bulk_translate.resume_pending, the call the tab's Bulk jobs
-    panel makes), with engines built from server-side keys only."""
+    bulk jobs (bulk_translate.resume_pending), with engines built from server-side keys only."""
     require_drama(drama_id)
     out = bulk_translate.resume_pending(drama_id, _bulk_engine_factory, month_cap_usd() or None)
     return {"drama_id": drama_id,
@@ -706,7 +704,7 @@ def list_bulk_translations(drama_id: int) -> dict:
 
 
 def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
-    """The tab's Cancel button: stops polling, marks the job cancelled and
+    """Cancel: stops polling, marks the job cancelled and
     asks the provider to cancel when a server-side key exists (best effort,
     same as bulk_translate.cancel_bulk_job)."""
     require_drama(drama_id)
@@ -728,10 +726,9 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
 # ---------------------------------------------------------------------------
 
 def apply_workflow_tier(drama_id: int, tier: str) -> dict:
-    """tabs/workspace_tab.py apply_workflow_tier: the tier's engine goes onto
-    the drama row (the only field with a per-drama DB home); the model,
-    Reflect and Auto QC are returned for the client to put into its form,
-    which Streamlit did through session_state. Starts nothing."""
+    """The tier's engine goes onto the drama row (the only field with a
+    per-drama DB home); the model, Reflect and Auto QC are returned for the
+    client to put into its form. Starts nothing."""
     drama = require_drama(drama_id)
     t = translate_engines.effective_tier(tier)
     if t is None:
@@ -744,11 +741,10 @@ def apply_workflow_tier(drama_id: int, tier: str) -> dict:
 
 
 def apply_translate_preset(drama_id: int, preset_id: int) -> dict:
-    """tabs/workspace_tab.py "Apply a preset" on an existing drama (parity
-    X03): the preset's engine (if it saved one) goes onto the drama row,
-    the one field with a per-drama DB home; style, locale, the two toggles
-    and the model are returned for the client's form, as Streamlit's
-    apply_preset_to_session put them in session_state. Starts nothing.
+    """Applies a preset to an existing drama (parity X03): the preset's
+    engine (if it saved one) goes onto the drama row, the one field with a
+    per-drama DB home; style, locale, the two toggles and the model are
+    returned for the client's form. Starts nothing.
     Raises NotFoundError (unknown drama or preset)."""
     require_drama(drama_id)
     preset = next((p for p in db.list_presets() if p["id"] == preset_id), None)
@@ -775,7 +771,7 @@ def apply_translate_preset(drama_id: int, preset_id: int) -> dict:
 
 
 def dismiss_translate_errors(drama_id: int) -> dict:
-    """tabs/workspace_tab.py "Dismiss this notice": clears only the drama's
+    """Dismisses the failed-batches notice: clears only the drama's
     persisted record of the last run's failed batches
     (db.update_drama(last_translate_errors=None)); lines are untouched, so a
     later "Translate all lines" still retries the missing ones. NotFoundError
@@ -794,10 +790,9 @@ def save_translate_preset(name: str, translation_engine: str, engine_model: Opti
                           style_preset: Optional[str] = None, locale: Optional[str] = None,
                           default_female_pronouns: bool = False,
                           include_genre_notes: bool = True, overwrite: bool = False) -> dict:
-    """tabs/workspace_tab.py "Save as preset": db.save_preset with the
-    Translate form's engine, model, style, locale and the two toggles.
-    Streamlit silently replaced a preset of the same name; here that needs
-    overwrite=True (otherwise ConflictError). Replacing is effectively a
+    """Saves the Translate form as a preset: db.save_preset with the Translate form's engine,
+    model, style, locale and the two toggles. Replacing a preset of the
+    same name needs overwrite=True (otherwise ConflictError). Replacing is effectively a
     delete, so the route only allows overwrite from the PC. engine_model is None for engines without a
     model picker, and None (engine default) is allowed for the others."""
     name = name.strip() if isinstance(name, str) else ""

@@ -31,7 +31,7 @@ the whole app (409 busy / 429 after that). The PC-only Test has its own lock
 and bucket, so searches never block it.
 Errors are fixed text: never the URL or the server's reply.
 
-No Streamlit or FastAPI import: plain dicts in, plain dicts out.
+No FastAPI import: plain dicts in, plain dicts out.
 """
 import ipaddress
 import json

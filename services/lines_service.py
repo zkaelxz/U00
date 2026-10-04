@@ -1,9 +1,8 @@
 """
 services/lines_service.py -- the Review stage's per-line WRITES (migration
-slice 43), keyed by permanent `Line.id`. Mirrors the write blocks of
-`with tab_review:` in `tabs/workspace_tab.py` (Save edits, Dismiss flag,
+slice 43), keyed by permanent `Line.id`: Save edits, Dismiss flag,
 find-and-replace Apply, translation-memory Accept, translation-note
-add/delete), but never through a browser-session line list.
+add/delete -- never through a browser-session line list.
 
 The rule this replaces: `db.save_lines(..., fields=None)` is a FULL SYNC --
 called from a stale list it resurrects lines another writer merged away and
@@ -18,7 +17,7 @@ conditional UPDATE (`db.update_line_fields_if`), so a change landing between
 a read and the write can't be overwritten.
 
 Explicitly out of scope: merge/split/delete lines, restore original text,
-LLM tools, bulk modes. No Streamlit/FastAPI import: plain dicts in and out.
+LLM tools, bulk modes. No FastAPI import: plain dicts in and out.
 Error messages never echo user text, and no path or key is returned.
 """
 import math
@@ -89,7 +88,7 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
                speaker=None, sfx=None, expected=None) -> dict:
     """Applies only the fields passed (None = leave alone; speaker "" clears
     it) and writes exactly those columns. Editing `en` on a flagged line
-    clears its flag/flag_note (the tab's "editing addresses it" rule);
+    clears its flag/flag_note (editing addresses it);
     changing the speaker sets `speaker_manual`. `expected` maps field -> the
     old value the client saw; any mismatch is a 409 with nothing written.
     A changed `en` also records an edit sample and translation memory, as

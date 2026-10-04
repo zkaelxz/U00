@@ -1,7 +1,7 @@
 """
 api/model_reeval_schemas.py -- request/response models for scheduled model
 re-evaluation and promotion (api/routers/model_reeval_routes.py, Step 40b).
-Kept out of api/schemas.py; no key field exists on any model.
+No key field exists on any model.
 """
 
 from typing import Dict, List, Optional

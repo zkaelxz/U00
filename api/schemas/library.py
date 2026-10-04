@@ -431,7 +431,7 @@ class MediaAnalysis(BaseModel):
     has_audio: bool
     audio_track_count: int
     sample_rate: Optional[int] = None
-    # Parity P05: from media_inspect (the tab's media analysis).
+    # Parity P05: from media_inspect.
     width: Optional[int] = None
     height: Optional[int] = None
     fps: Optional[float] = None
@@ -534,8 +534,8 @@ class WorkflowProgress(BaseModel):
 # PC-only delete routes (migration handoff "Next queue" item 2)
 # ---------------------------------------------------------------------------
 class DeleteConfirm(BaseModel):
-    """Body of every PC-only delete: the Streamlit buttons are gated by a
-    plain Confirm checkbox, so `confirm: true` (strict) is the whole bar."""
+    """Body of every PC-only delete: `confirm: true` (strict) is the whole
+    bar; no typed word."""
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
 
@@ -568,8 +568,6 @@ class VoiceBankDeleteResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Route batch 2A: library admin (bulk status/tags/delete/translate, export,
 # backup, artifacts, restore, storage) over services/library_admin_service.py
-# (imports kept local to this section so parallel slices don't collide on
-# the module's import line)
 # ---------------------------------------------------------------------------
 LibraryDramaIds = Annotated[List[Annotated[StrictInt, Field(ge=1, le=2**31 - 1)]],
                             Field(min_length=1, max_length=_MAX_BULK_IDS)]

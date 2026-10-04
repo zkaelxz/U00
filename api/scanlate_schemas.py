@@ -1,8 +1,7 @@
 """
 api/scanlate_schemas.py -- request/response models for the automatic
-Scanlate routes (api/routers/scanlate_routes.py). Kept out of
-api/schemas.py (other branches edit it); the shared ErrorResponse still
-lives there. No path, filename or key field exists on any model.
+Scanlate routes (api/routers/scanlate_routes.py). No path, filename or key
+field exists on any model.
 """
 
 from typing import List, Literal, Optional

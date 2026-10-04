@@ -169,9 +169,8 @@ class RunningJob(BaseModel):
 class DiagnosticsOverview(BaseModel):
     """A read-only snapshot of Diagnostics' routine view (Migration
     Slice 5) -- no admin action (install/upgrade/delete) is exposed
-    here; those stay Streamlit-only. Log lines and job messages/errors
-    are redacted the same way the Streamlit tab's own "copy for
-    support" export already is."""
+    here; those are PC-only routes under /api/diagnostics. Log lines and
+    job messages/errors are redacted."""
     dependencies: dict[str, DependencyStatus]
     file_completeness: FileCompleteness
     library_writable: bool
@@ -410,7 +409,7 @@ class EndpointUrlResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API batch 1: Diagnostics gaps (Streamlit retirement M1) -- /api/diagnostics/...
+# API batch 1: Diagnostics gaps -- /api/diagnostics/...
 # ---------------------------------------------------------------------------
 class DiagnosticsSetupPython(BaseModel):
     version: Optional[str] = None
@@ -664,8 +663,7 @@ class DiagnosticsGpuTorchSetupResult(DiagnosticsInstallResult):
 
 
 class DiagnosticsResetRequest(BaseModel):
-    """confirm=true and confirm_text "RESET" (the word the Streamlit button
-    made the user type)."""
+    """confirm=true and confirm_text "RESET" (the word the user types to confirm)."""
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
     confirm_text: str = Field("", max_length=20)

@@ -6,7 +6,7 @@ accept, and translation-note add/delete.
 
 Lines are addressed by permanent line id, never by position, and every write
 is field-scoped (never a full line-list sync). Writes are POSTs; a note delete
-is a DELETE with no confirm, matching the Review tab.
+is a DELETE with no confirm.
 
 Auto-shorten overlong lines (review parity R28) calls an LLM, so besides
 `lines.edit` the handler runs `require_engines_allowed` on the engine the

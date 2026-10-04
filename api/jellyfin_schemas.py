@@ -1,7 +1,6 @@
 """
 api/jellyfin_schemas.py -- request/response models for the optional Jellyfin
-connector (roadmap Step 39, api/routers/jellyfin_routes.py). Kept out of
-api/schemas.py on purpose (separate owner).
+connector (roadmap Step 39, api/routers/jellyfin_routes.py).
 """
 from typing import Literal, Optional
 

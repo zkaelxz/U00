@@ -1,6 +1,6 @@
 """
 api/routers/sources_extraction_routes.py -- the pasted-URL extraction
-extras (Streamlit Sources parity SO09, SO06, SO10). Thin: see
+extras (SO09, SO06, SO10). Thin: see
 services/sources_extraction_service.py and, for the comic import job,
 services/sources_import_service.py.
 

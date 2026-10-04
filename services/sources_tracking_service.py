@@ -7,7 +7,7 @@ series auto-imports into.
 background job the scheduler uses (`sources_chapter_check`), so a manual
 check and a scheduled one can never run side by side in this process, and
 the cycle's own claim (`store.claim_check_cycle`) keeps a second process
-(Streamlit, while it still exists) from checking at the same time: that
+from checking at the same time: that
 cycle ends with `skipped: true` and checks nothing. The scheduler itself is
 started by the API process (`api/background.py`), not here.
 
@@ -15,7 +15,7 @@ A check re-fetches each tracked series' chapter list through the adapter's
 paced client and records new chapters as notifications. It downloads
 nothing unless the `auto_queue_new_chapters` setting is on and the series
 has a drama; then it starts that drama's per-drama import job
-(`sourceimport_<id>`), exactly as the Streamlit button did. A comic series
+(`sourceimport_<id>`). A comic series
 with "Save new chapters as CBZ" on (`set_tracked_save`) also has its new
 chapters saved as CBZ files into the save folder, during the check.
 

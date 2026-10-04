@@ -14,8 +14,7 @@ Content-Length is checked against the cap before any of the body is read
 (chunked bodies are refused), and the body stream itself is counted, like
 the bug-report upload. The metadata update also takes "+ New series"
 (`new_series_name`) and `series_id: 0` to take a drama out of its series
-(parity P11/X09). Series rename and presets CRUD are out of scope -- see
-services/drama_service.py.
+(parity P11/X09). Series rename and presets CRUD are not in this router.
 """
 
 import os

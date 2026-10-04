@@ -19,7 +19,7 @@ tall strips sliced by default) and written ONLY through
 sources.pipeline.add_page_images (the one page writer: per-drama lock,
 exclusive index claim, exclusive file create). A bad file adds nothing.
 
-No FastAPI or Streamlit import. Plain dicts; errors from service_errors.
+No FastAPI import. Plain dicts; errors from service_errors.
 """
 import contextlib
 import importlib.util

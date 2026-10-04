@@ -1,31 +1,10 @@
 """
-services/source_service.py -- Source-stage config for one drama, shared
-by the FastAPI /api/source routes and the Streamlit Source tab
-(`tabs/workspace_tab.py`'s `with tab_source:` block, lines ~1602-1958).
-
-Migration Slice 19: the minimal prerequisite this migration needs before
-a future "transcribe-and-align" action slice can be built (a prior
-migration-architect scoping pass found that action's real home is inside
-`tab_translate`, depending on state `tab_source` sets up -- see
-docs/archive/migration-review.md's own Transcript-stage scoping notes). This
-slice covers config only: source_language, chinese_script, content_mode,
+services/source_service.py -- Source-stage config for one drama, for the
+/api/source routes: source_language, chinese_script, content_mode,
 transcript_mode, and read-only audio/video/transcript-source presence.
+Upload is media_upload_service; transcription transcribe_service.
 
-Deliberately NOT here, by design (not an oversight):
-  - Audio/video upload or yt-dlp download -- a materially different risk
-    tier (multipart upload, an ffmpeg subprocess) than every config write
-    in this migration so far. Today's Streamlit code saves an uploaded
-    file and starts the transcribe job in the same click (`run_prep`,
-    workspace_tab.py:3154-3234) -- folding upload into the future
-    transcribe-action slice preserves that same one-step behavior, rather
-    than inventing a new two-step "upload now, transcribe later" flow.
-  - transcript_text / novel_narration_text -- neither is persisted ahead
-    of the transcribe/chunk action today either (both are plain,
-    un-saved widget values until that action's own handler writes them);
-    the future action should accept them directly in its own request
-    body, matching current behavior exactly.
-
-No Streamlit or FastAPI import: plain functions, plain dicts in, plain
+No FastAPI import: plain functions, plain dicts in, plain
 values out, so a CLI or another service could call them too.
 """
 import os
@@ -40,8 +19,7 @@ _TRANSCRIPT_MODES = ("have_transcript", "whisper", "hardsub_ocr")
 
 
 def _audio_available(drama_id: int, drama: dict) -> bool:
-    """Mirrors tab_source's own `existing_audio` check (workspace_tab.py:
-    1714-1718): an audio_filename is set AND the file is actually there."""
+    """An audio_filename is set AND the file is actually there."""
     audio_filename = drama.get("audio_filename")
     if not audio_filename:
         return False
@@ -52,8 +30,7 @@ def get_source_config(drama_id: int) -> dict:
     """Read-only Source-stage summary for one drama. has_video_source
     reflects only already-persisted state (`source_video_filename`) --
     a video upload that hasn't been saved yet has no server-side presence
-    to report, unlike the Streamlit tab's own live `audio_file is not
-    None` check, which only exists within that one request/rerun. Raises
+    to report. Raises
     NotFoundError for an unknown drama id."""
     drama = get_drama(drama_id)
     if drama is None:
@@ -85,8 +62,7 @@ def update_source_config(drama_id: int, *, source_language: str = None,
                          transcript_mode: str = None) -> dict:
     """Field-scoped partial update -- only the fields actually passed are
     validated and written, mirroring db.update_drama's own partial-update
-    shape. Replicates tab_source's own content_mode=="streamer_vod" ->
-    media_type sync exactly (workspace_tab.py:1643-1652): one-directional,
+    shape. content_mode=="streamer_vod" also sets media_type: one-directional,
     never reverted when content_mode changes away from streamer_vod again
     (a deliberate existing behavior, not a gap to fix here). Raises
     NotFoundError for an unknown drama id, InvalidInputError for an

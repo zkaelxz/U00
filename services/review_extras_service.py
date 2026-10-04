@@ -1,6 +1,6 @@
 """
-services/review_extras_service.py -- the Review tab's optional AI/media
-extras, UI-free (inventory rows R46, R37, R35, R03):
+services/review_extras_service.py -- Review's optional AI/media extras,
+UI-free (inventory rows R46, R37, R35, R03):
 
 - Merge short adjacent lines (R46): a read-only preview of
   `core.merge_adjacent_short_lines` over COPIES of the drama's lines, then an
@@ -9,12 +9,11 @@ extras, UI-free (inventory rows R46, R37, R35, R03):
   the merge groups are exactly what the preview showed. A "before merge"
   line-history snapshot is taken first; refused while a job runs on the drama.
 - Learn my style (R37): `adaptive_style.analyze_edit_patterns` over every
-  recorded edit (one synchronous LLM call, like the tab's spinner), saved per
+  recorded edit (one synchronous LLM call), saved per
   scope (series, else global). The apply toggle is stored on the profile as
   `"apply": false`, which `adaptive_style.profile_to_prompt_block` honours, so
-  every translate path (API run, CLI, line AI, Streamlit) skips a paused
-  profile the same way. Reset stores an empty profile, as the tab does (PC
-  only). Learn re-reads the stored profile after the LLM call: a pause made
+  every translate path (API run, CLI, line AI) skips a paused profile the
+  same way. Reset stores an empty profile (PC only). Learn re-reads the stored profile after the LLM call: a pause made
   meanwhile is kept, and a reset/re-learn made meanwhile makes it a 409.
 - SenseVoice audio tags (R35): `workspace_job_service.run_sensevoice_job` as a
   `sensevoice_<id>` job (funasr optional; 503 when missing), and the
@@ -26,7 +25,7 @@ extras, UI-free (inventory rows R46, R37, R35, R03):
   the stale clip dropped, once the drama's source video is gone). ffmpeg is
   killed after BURN_PREVIEW_TIMEOUT_SECONDS.
 
-No Streamlit/FastAPI import. Messages never echo keys or paths.
+No FastAPI import. Messages never echo keys or paths.
 """
 import dataclasses
 import datetime
@@ -227,7 +226,7 @@ def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
 
 def learn_style(drama_id: int, engine_name: str = None, model: str = None,
                 gemini_free_tier: bool = None) -> dict:
-    """Analyzes every recorded edit (all dramas, as the tab does) and saves
+    """Analyzes every recorded edit (all dramas) and saves
     the learned preferences for this drama's scope. Keeps the profile's
     apply toggle. Nothing is saved when no clear pattern is found. Refused
     before the LLM call when this month's spending cap is used up (capped
@@ -295,8 +294,8 @@ def set_style_applied(drama_id: int, apply: bool) -> dict:
 
 
 def reset_style(drama_id: int) -> dict:
-    """Forgets the learned profile for this drama's scope (as the tab's
-    Reset); the forgotten profile stays restorable (restore_style)."""
+    """Forgets the learned profile for this drama's scope; the forgotten
+    profile stays restorable (restore_style)."""
     drama = _require_drama(drama_id)
     with _STYLE_LOCK:
         db.replace_style_profile(_scope(drama), {"preferences": []}, 0)

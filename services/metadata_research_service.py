@@ -24,7 +24,7 @@ searches, which also needs a paid (non-free-tier) key and room under the
 monthly cap. Values are matched to fields by name, never by list position.
 Cited source URLs are kept only when they are http(s).
 
-No Streamlit or FastAPI import: plain dicts in, plain dicts out.
+No FastAPI import: plain dicts in, plain dicts out.
 """
 import datetime
 import hashlib

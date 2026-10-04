@@ -1,7 +1,6 @@
 """
 api/metadata_research_schemas.py -- request/response models for grounded
 metadata research (roadmap Step 37, api/routers/metadata_research_routes.py).
-Kept out of api/schemas.py on purpose (separate owner).
 """
 from typing import Literal, Optional
 

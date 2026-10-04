@@ -2,19 +2,13 @@
 services/review_lines_service.py -- the Review stage's READ-ONLY line views
 (migration slice R1a): filtered/paginated line list, transcript search,
 find-and-replace PREVIEW, coverage check, pacing check, "What happened
-here?" provenance, and original-transcript-text lookup. Mirrors the
-matching blocks of `with tab_review:` in `tabs/workspace_tab.py`, but reads
-the database by permanent `Line.id` instead of the browser session list.
+here?" provenance, and original-transcript-text lookup. Reads the
+database by permanent `Line.id`, never a browser session list.
 
 Also read-only, added later: the nearest flagged line across pages and
 the page it is on (review parity R08).
 
-Explicitly OUT OF SCOPE for this slice (each its own later slice): every
-write (applying a replace, editing, flagging, restoring original text), the
-media player / burned preview / pronunciation, translation-memory
-suggestions, LLM tools, bulk modes, and history/versions/notes reads.
-
-Nothing here writes to the database or disk. No Streamlit/FastAPI import:
+Nothing here writes to the database or disk. No FastAPI import:
 plain dicts in and out. Identity is always `Line.id`; `idx` is returned for
 display only and never accepted as an identifier.
 """
@@ -80,8 +74,8 @@ def _check_len(name: str, value: str):
 
 def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
                       only: str = "all") -> dict:
-    """One page of lines, optionally only flagged or only untranslated
-    (same definitions and totals as the Review tab). The two counts are
+    """One page of lines, optionally only flagged or only untranslated.
+    The two counts are
     always over the whole drama, not the filtered view. An out-of-range
     page returns an empty `lines` list rather than an error."""
     if only not in _ONLY_VALUES:

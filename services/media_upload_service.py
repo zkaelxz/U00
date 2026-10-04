@@ -1,8 +1,6 @@
 """
 services/media_upload_service.py -- upload an audio/video file into a
-drama's folder (Migration Slice 31), mirroring the Streamlit Source tab's
-"Upload a file" branch (`tabs/workspace_tab.py`, `run_prep`): the file is
-saved as `source<ext>` in the drama folder; a video also gets its audio
+drama's folder (Migration Slice 31): the file is saved as `source<ext>` in the drama folder; a video also gets its audio
 track extracted to `audio.wav` and both filenames recorded, an audio file
 records just `audio_filename`.
 
@@ -35,8 +33,8 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm")
 _CHUNK = 1024 * 1024
 _DEFAULT_MAX_MB = 2048
 _TOO_LARGE = "The uploaded file is too large."
-# Streamlit offers the audio/video upload only when content_mode is one of
-# these (tabs/workspace_tab.py `has_audio_pipeline`); keep in sync by hand.
+# The content modes with an audio pipeline (source_service's
+# `has_audio_pipeline`); keep in sync by hand.
 UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
 NO_UPLOAD_MODE = ("This drama has no audio to upload (it is set to work from a novel). "
                    "Change what you are working from to Audio drama or Streamer/VOD first.")

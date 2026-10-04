@@ -1,9 +1,8 @@
 """
 api/notification_schemas.py -- request/response models for the Step 44
 notification routes added after the first slice (the category switches and
-the in-app list). Kept out of api/schemas.py, which another batch owns; the
-first slice's models still live there. No model carries a webhook URL,
-host, topic, path or job id.
+the in-app list). The channel models live in api/schemas/system.py. No
+model carries a webhook URL, host, topic, path or job id.
 """
 
 from typing import List, Literal, Optional

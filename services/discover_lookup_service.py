@@ -1,6 +1,6 @@
 """
-services/discover_lookup_service.py -- the Discover tab's network helpers
-without Streamlit (spec slice D-2): query translation, baihehub search,
+services/discover_lookup_service.py -- Discover's network helpers (spec
+slice D-2): query translation, baihehub search,
 import suggestion from a page, bulk listing extraction, bulk commit and
 navigation help.
 

@@ -14,7 +14,7 @@ Security:
   PNG or JPEG signature; the content type comes from those bytes.
 - The image is never decoded (no PIL), and width/height come from the DB.
 - Every image refusal is the same generic NotFoundError with no path.
-Returns plain dicts; no FastAPI or Streamlit import.
+Returns plain dicts; no FastAPI import.
 """
 import os
 import stat

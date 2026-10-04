@@ -2,7 +2,7 @@
 services/review_jobs_service.py -- Migration Slice 44: the Review stage's
 AI checks as background jobs that do everything themselves (DB write
 included): consistency check, emotion tagging, translation notes, the
-"needs a second look" flag pass, and bulk fix-flagged-lines. Streamlit-free.
+"needs a second look" flag pass, and bulk fix-flagged-lines.
 
 Each start function validates, builds the engine from settings-resolved keys
 (never a client-supplied key or URL; D2), copies the drama's lines from the
@@ -17,8 +17,7 @@ never by list position.
 
 bulk=True (parity R49) submits consistency / emotion / notes / flag through
 Claude's or Gemini's batch API at half price instead (bulk_translate's
-submit_bulk_* functions, the same ones the Workspace tab's Bulk checkbox
-uses; submit_bulk_review below is that glue, moved out of the tab). The job
+submit_bulk_* functions; submit_bulk_review below is the glue). The job
 `bulk_<kind>_<drama_id>` submits, then polls until the batch is applied
 (translate_run_service.run_bulk_translate_job). Results are applied by
 bulk_translate itself, matched to lines by the request's custom_id and the
@@ -71,8 +70,7 @@ def submit_bulk_review(kind: str, drama_id: int, engine, engine_choice: str,
                        **submit_kwargs):
     """Submits a flag/consistency/emotion/translation_notes batch (kind is
     the bulk_translate kind) with the drama's lines fresh from the database,
-    so each carries its permanent id. Returns (bulk_job_id, provider).
-    Moved from tabs/workspace_tab.py's _start_bulk_generic."""
+    so each carries its permanent id. Returns (bulk_job_id, provider)."""
     lines = db.load_line_objects(drama_id)
     provider = bulk_translate.make_provider(engine_choice, engine)
     bulk_id = _BULK_SUBMIT[kind](drama_id, lines, engine, engine_choice,
@@ -170,7 +168,7 @@ def start_emotion_tagging(drama_id: int, engine_name: str = None, model: str = N
                           gemini_free_tier: bool = None,
                           use_audio_cues: bool = None, bulk: bool = False) -> dict:
     """Emotional register per line, saved by permanent line id. use_audio_cues
-    defaults on when the drama has audio, like the tab."""
+    defaults on when the drama has audio."""
     def cues(drama):
         return bool(drama.get("audio_filename")) if use_audio_cues is None else use_audio_cues
 

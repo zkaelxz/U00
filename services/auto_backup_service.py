@@ -74,7 +74,7 @@ few rotating copies, plus restoring a single drama from any of them.
   one named by the caller and matched against the folder's listing, never
   used as a path), read from a read-only temp copy of its library.db, into
   the live library: the drama row and every child table it cascades to (see
-  _CHILD_TABLES), plus its series when that series is gone, plus its folder
+  CHILD_TABLES), plus its series when that series is gone, plus its folder
   when the copy has media. If the drama's id is still in use it comes back
   as a new drama (new id, title suffixed "(restored <date>)"); other dramas
   are never touched. The result names the copy it came from.
@@ -82,7 +82,7 @@ few rotating copies, plus restoring a single drama from any of them.
 No result or error message carries a filesystem path (copies are named by
 file name only), except the folder setting the owner typed themselves (all
 routes are local_only).
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 
 import contextlib

@@ -7,8 +7,8 @@ chunks and handles Range/HEAD); the path never reaches a response body.
 Only a file that resolves (symlinks followed) inside that drama's own folder,
 is a regular file and has a whitelisted media extension is served. Every
 refusal is the same generic NotFoundError so nothing leaks about the layout.
-Also holds Review & edit's burned-subtitle preview ASS text. No FastAPI or
-Streamlit import.
+Also holds Review & edit's burned-subtitle preview ASS text. No FastAPI
+import.
 """
 import os
 
@@ -53,11 +53,10 @@ def resolve_media(drama_id: int, kind: str):
 
 def burn_preview_ass(lines, line, style_state, pad=2.0):
     """Step 12c: (start, end, ass_text) for a short burned-subtitle preview
-    around `line` -- `pad` seconds either side -- styled with the Export
-    subtitles section's current settings (`style_state`, stashed there on
-    each render) and timed to the clip the same way the vertical export
-    is. Falls back to the "Clean" preset if that section hasn't rendered
-    yet this session."""
+    around `line` -- `pad` seconds either side -- timed to the clip the
+    same way the vertical export is. style_state: optional {style,
+    speaker_colors, speaker_names, wrap_chars}; None or no style = the
+    "Clean" preset."""
     style_state = style_state or {}
     start, end = max(line.start - pad, 0.0), line.end + pad
     field = "en" if line.en.strip() else "zh"

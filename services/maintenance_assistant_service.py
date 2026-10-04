@@ -19,12 +19,10 @@ touches the library exists in this module. A tool name the model invents
 runs. The backlog (roadmap item 7) is written only by the user through
 its own routes; the assistant can only *suggest* items.
 
-Reused from the Streamlit-era App Assistant (Step 18b, app_help.py):
-qa._dispatch_chat for the multi-engine Claude/OpenAI-shaped/Gemini/Ollama
-chat call, and its "answer from what you can see, say so honestly
-otherwise" discipline. Not reused: app_help's grounding, which parses
-tabs/*_tab.py (Streamlit, being deleted); the assistant searches the
-real code (frontend/src included) with search_code instead.
+qa._dispatch_chat makes the multi-engine Claude/OpenAI-shaped/Gemini/Ollama
+chat call. The assistant answers from what it can see and says so honestly
+otherwise; it searches the real code (frontend/src included) with
+search_code.
 
 Safety rails on every tool: paths are repo-relative, resolved and kept
 inside the repo, and never reach the library folder, .git internals,

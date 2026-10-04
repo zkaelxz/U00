@@ -1,8 +1,7 @@
 """
 services/series_people_service.py -- add and edit a series' people
-(series_characters): name, pronouns, aliases and notes. The UI-free half
-of the Translate tab's "People & pronouns" editor in `tabs/workspace_tab.py`
-(parity audit B1 #8, X15-X17). Listing stays in characters_service and
+(series_characters): name, pronouns, aliases and notes, for the "People &
+pronouns" editor (parity audit B1 #8, X15-X17). Listing stays in characters_service and
 deleting in delete_service.
 
 Series pronouns feed translation gender hints
@@ -14,15 +13,15 @@ to that series; nothing is matched by name or list position. Updates are
 field-scoped (db.update_series_character, one statement): None leaves a
 field alone, "" clears it (the name can't be blank).
 
-Differences from the tab, on purpose:
-  - Adding a name the series already has is a 409. The tab's add form
-    calls db.upsert_series_character, which silently resets that person's
+On purpose:
+  - Adding a name the series already has is a 409, not
+    db.upsert_series_character, which would silently reset that person's
     aliases and notes to "".
-  - Renaming to a taken name is a 409 (the tab lets the sqlite
-    IntegrityError escape).
-  - The tab never edits aliases; this does (they feed Auto QC name checks).
+  - Renaming to a taken name is a 409, not an escaping sqlite
+    IntegrityError.
+  - Aliases are editable (they feed Auto QC name checks).
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 import sqlite3
 import unicodedata

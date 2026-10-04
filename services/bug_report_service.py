@@ -21,7 +21,7 @@ routes and API paths are not filesystem paths, so they keep their shape
 unless they look like one. Screenshot metadata (EXIF, XMP, PNG text
 chunks) is stripped. Nothing returned here contains a filesystem path.
 
-No Streamlit import, no HTTP types.
+No HTTP types.
 """
 
 import datetime

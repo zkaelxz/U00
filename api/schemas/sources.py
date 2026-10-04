@@ -286,7 +286,7 @@ class SourceToggle(BaseModel):
 
 class SourcesSettingsUpdate(BaseModel):
     """Partial update. `extra=forbid`: http_proxy_url, page_server_enabled and
-    any unknown key are rejected (422). Ranges match the Streamlit form;
+    any unknown key are rejected (422). Ranges are checked by the service;
     pace_min_delay also has a floor at the built-in default (service check)."""
     model_config = ConfigDict(extra="forbid")
     pace_min_delay: Optional[float] = None

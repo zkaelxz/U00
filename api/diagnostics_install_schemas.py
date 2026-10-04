@@ -1,7 +1,7 @@
 """
 api/diagnostics_install_schemas.py -- Pydantic models for
 api/routers/diagnostics_installs_routes.py (Deno install, "Test first" for
-an update). Kept out of api/schemas.py so this batch doesn't touch it.
+an update).
 """
 
 from typing import List, Optional

@@ -1,8 +1,6 @@
 """
 api/asr_options_schemas.py -- request/response models for the experimental
 transcription settings (api/routers/asr_options_routes.py, Steps 103/104).
-Kept out of api/schemas.py so this could be built alongside another branch
-editing that file; the shared ErrorResponse still lives there.
 """
 
 from typing import Optional

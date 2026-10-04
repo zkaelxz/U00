@@ -2,9 +2,8 @@
 api/routers/settings_routes.py -- Settings endpoints (Migration Slices 10, 23).
 
 GET: whether each engine key/endpoint is configured, plus the app_settings
-toggles. Never returns a key's value (D2). POST (Slice 23): non-secret
-boolean toggles only -- writing a secret to disk over HTTP is a
-separate, higher-risk slice of its own (see docs/archive/migration-review.md).
+toggles. Never returns a key's value (D2). POST takes non-secret toggles
+and preferences; secrets use the key/endpoint routes below.
 
 Settings parity: POST also takes the persisted preferences (defaults for
 new dramas, spending cap, Ollama num_ctx, offline Whisper folder, OCR
@@ -41,6 +40,9 @@ def get_overview(request: Request):
                             is_local_request(request))
 
 
+# PC-only: the preferences include paths the server itself uses (the
+# Tesseract program it runs, the Whisper folder, the cookies file); see
+# docs/remote-access-decision.md.
 @router.post("", dependencies=[local_only()], response_model=SettingsOverview,
              summary="Update non-secret toggles and preferences (never keys or endpoint URLs)")
 def update_settings(body: SettingsUpdateRequest):

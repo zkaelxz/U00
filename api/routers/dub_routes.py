@@ -1,10 +1,7 @@
 """
-api/routers/dub_routes.py -- read-only Dub-stage endpoints for one drama
-(Migration Slice 25): the config summary and the last run's pacing.
-
-The Generate job is Slice 26 (POST .../run); voice/character
-edits and per-line preview are also out of scope. All
-logic lives in services/dub_service.py.
+api/routers/dub_routes.py -- Dub-stage endpoints for one drama: the config
+summary, the last run's pacing, the Generate job and the finished-track
+download. All logic lives in services/dub_service.py.
 """
 
 from fastapi import APIRouter, Path

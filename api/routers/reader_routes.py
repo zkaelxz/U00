@@ -3,7 +3,7 @@ api/routers/reader_routes.py -- the Reader's API (prefix /api/reader).
 
 Migration Slice 4 added the page HTML (GET .../page), served for a
 sandboxed iframe from cached definitions only. Route batch 2B (M4) adds
-everything else the Reader tab renders, over `services/reader_service.py`
+the rest of the Reader, over `services/reader_service.py`
 (its module docstring holds the permission contract, decided by the user
 on 2026-09-29):
 

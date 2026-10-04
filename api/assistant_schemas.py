@@ -1,9 +1,7 @@
 """
 api/assistant_schemas.py -- request/response models for the maintenance
-assistant routes (api/routers/assistant_routes.py, roadmap Step 42). Kept
-out of api/schemas.py so this slice can be built alongside other branches
-editing that file; the shared ErrorResponse still lives there. No model
-carries a key, a token or an absolute path.
+assistant routes (api/routers/assistant_routes.py, roadmap Step 42). No
+model carries a key, a token or an absolute path.
 """
 
 from typing import Dict, List, Literal, Optional, Union

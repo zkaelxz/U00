@@ -3,13 +3,9 @@ services/review_records_service.py -- READ-ONLY Review-stage records for one
 drama (the Review read-only records slice, "R1b"): line history, translation
 versions (list/compare), translation notes (list/markdown), consistency
 issues, emotion summary, stored edit tendencies, and translation-memory
-suggestions. Mirrors the Review tab in `tabs/workspace_tab.py`
-(`with tab_review:`).
+suggestions.
 
-Nothing here writes to the database. Out of scope for this slice (each its
-own later slice): every write (restore/activate/delete/add/dismiss/reset),
-LLM analysis (consistency check, emotion detection, "learn my style",
-notes generation), background-job starters, and bulk modes.
+Nothing here writes to the database.
 
 Ownership: several id-only db reads (`db.get_line_history_snapshot`,
 `db.get_translation_version`) do not check which drama a record belongs to,
@@ -17,7 +13,7 @@ so this module verifies ownership itself and raises NotFoundError -- the
 same error as a missing record, so the existence of another drama's record
 is never revealed.
 
-No Streamlit or FastAPI import; plain dicts in and out, JSON-serialisable.
+No FastAPI import; plain dicts in and out, JSON-serialisable.
 """
 import os
 from typing import Optional
@@ -102,7 +98,7 @@ def _owned_version(drama_id: int, version_id: int) -> dict:
 
 
 def compare_versions(drama_id: int, left_id: int, right_id: int) -> dict:
-    """What the tab's "Show differences" shows: lines of the left version
+    """The "Show differences" view: lines of the left version
     whose English differs from the right version's line at the same idx.
     Both versions must belong to this drama."""
     _require_drama(drama_id)
@@ -136,7 +132,7 @@ def list_translation_notes(drama_id: int) -> list:
 
 
 def get_notes_markdown(drama_id: int) -> str:
-    """The text of the tab's "Download notes as Markdown" button."""
+    """The text of "Download notes as Markdown"."""
     drama = _require_drama(drama_id)
     notes = db.list_translation_notes(drama_id)
     # db's COALESCE can yield a NULL line_idx, which the formatter's sort

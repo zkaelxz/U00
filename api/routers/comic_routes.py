@@ -1,7 +1,6 @@
 """
-api/routers/comic_routes.py -- the comic viewer's read API (prefix
-/api/scanlate, the S1 paths, so Scanlate S1 later adds only config,
-single-page detail and thumbnails). Thin over
+api/routers/comic_routes.py -- the comic viewer's read API. Shares the
+/api/scanlate prefix with scanlate_routes.py. Thin over
 services/comic_view_service.py:
 
 - GET  /dramas/{id}/pages                        library.read

@@ -47,6 +47,7 @@ def post_translate(payload: TranslateRequest, request: Request):
             principal=request.state.principal)
 
 
+# Deletes are PC-only (docs/remote-access-decision.md).
 @router.delete("/history", dependencies=[local_only()], response_model=ClearHistoryResult,
               summary="Clear standalone-translate history (requires confirm=true)",
               responses={422: {"model": ErrorResponse}})

@@ -2,11 +2,8 @@
 api/routers/source_routes.py -- Source-stage config endpoints for one
 drama (Phase 6, Migration Slice 19).
 
-Config only (language/script/content mode/transcript mode) -- audio/
-video upload and transcript/novel-narration text are deliberately out of
-scope, folded instead into a future transcribe-and-align action slice
-that needs them anyway (see services/source_service.py's own docstring
-for why). POST for the write, matching every other mutation endpoint in
+Config only (language/script/content mode/transcript mode); upload is
+media_routes.py, transcription transcribe_routes.py. POST for the write, matching every other mutation endpoint in
 this migration (translate/export/diarization routes are all POST; there
 is no PATCH precedent here yet).
 """
