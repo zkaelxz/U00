@@ -43,6 +43,7 @@ def translate_query_to_zh(query: str, engine) -> str:
 # {"data": [...], "meta": {...}}, and each item's detail page on the site
 # is /<collection>/<documentId>.
 BAIHEHUB_API = "https://strapi.zhufree.fun/api"
+BAIHEHUB_MAX_BYTES = 2_000_000
 
 # (collection, fields the site's own search matches on, title field)
 _BAIHEHUB_COLLECTIONS = [
@@ -68,7 +69,9 @@ def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
     way the site's own search page does. Returns a list of {title, url,
     snippet} dicts, or None if nothing came back (caller should fall
     back to search_url_fallback() below)."""
+    import json
     import requests
+    from services import capped_body
     headers = {"User-Agent": "Mozilla/5.0 (compatible; TitleLibrary/1.0)", "Accept": "application/json"}
     results = []
     for collection, fields, title_field in _BAIHEHUB_COLLECTIONS:
@@ -77,10 +80,13 @@ def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
         params["pagination[limit]"] = limit
         try:
             resp = requests.get(f"{BAIHEHUB_API}/{collection}", params=params,
-                                headers=headers, timeout=timeout)
+                                headers=headers, timeout=timeout, stream=True)
             if resp.status_code != 200:
+                resp.close()
                 continue
-            items = _baihehub_items(resp.json())
+            items = _baihehub_items(json.loads(capped_body.read_capped(
+                resp, BAIHEHUB_MAX_BYTES, timeout * 3,
+                lambda: ValueError("BaiheHub response too large"))))
         except (requests.RequestException, ValueError):
             continue
         for item in items:

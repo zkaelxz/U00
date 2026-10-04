@@ -109,3 +109,48 @@ class TestApiCaptureEntryLogic:
         entry = pf._capture_entry("https://site.invalid/api/x", 200, "text/plain",
                                   body, max_body_bytes=50)
         assert entry["body"] == body
+
+
+class TestFetchStaticCap:
+    def _get(self, monkeypatch, resp):
+        import requests
+        monkeypatch.setattr(requests, "get", lambda *a, **k: resp)
+
+    def test_an_oversized_page_is_refused(self, monkeypatch):
+        class Endless:
+            headers = {}
+            encoding = "utf-8"
+            closed = False
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, size):
+                while True:
+                    yield b"<p>x</p>" * 100
+
+            def close(self):
+                Endless.closed = True
+        monkeypatch.setattr(pf, "STATIC_FETCH_MAX_BYTES", 1000)
+        self._get(monkeypatch, Endless())
+        import pytest
+        with pytest.raises(ValueError, match="too large"):
+            pf.fetch_static("https://example.com/")
+        assert Endless.closed
+
+    def test_a_page_under_the_cap_is_decoded(self, monkeypatch):
+        class Small:
+            headers = {}
+            encoding = None
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, size):
+                yield "<p>你好</p>".encode()
+
+            def close(self):
+                pass
+        self._get(monkeypatch, Small())
+        html, text = pf.fetch_static("https://example.com/")
+        assert text == "你好"

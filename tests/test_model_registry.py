@@ -18,8 +18,13 @@ class FakeResp:
     def __init__(self, body, status=200):
         self._body, self.status_code = body, status
 
-    def json(self):
-        return self._body
+    headers = {}
+
+    def iter_content(self, size):
+        yield json.dumps(self._body).encode()
+
+    def close(self):
+        pass
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -77,7 +82,7 @@ class TestProviderCheck:
         db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
         seen = {}
 
-        def fake_get(url, headers=None, timeout=None, allow_redirects=True):
+        def fake_get(url, headers=None, timeout=None, allow_redirects=True, stream=False):
             seen.update(url=url, headers=headers, timeout=timeout, redirects=allow_redirects)
             return FakeResp({"data": [{"id": "claude-sonnet-5"}, {"id": "claude-haiku-4-5-20251001"}]})
         monkeypatch.setattr(requests, "get", fake_get)
@@ -540,3 +545,26 @@ class TestModelOverrides:
             with contextlib.redirect_stdout(io.StringIO()):
                 cli.cmd_translate(args)
         assert seen["model"] == "deepseek-v4-pro"
+
+
+def test_an_oversized_model_list_is_refused(monkeypatch):
+    import requests
+
+    class Big(FakeResp):
+        headers = {"Content-Length": "9999999"}
+    monkeypatch.setattr(requests, "get", lambda *a, **k: Big({}))
+    with pytest.raises(ValueError, match="too large"):
+        svc._fetch_models("claude", "sk-ant-key")
+
+
+def test_a_model_list_that_outgrows_the_cap_while_streaming_is_refused(monkeypatch):
+    import requests
+
+    class Endless(FakeResp):
+        def iter_content(self, size):
+            while True:
+                yield b"x" * size
+    monkeypatch.setattr(svc, "MAX_RESPONSE_BYTES", 1000)
+    monkeypatch.setattr(requests, "get", lambda *a, **k: Endless({}))
+    with pytest.raises(ValueError, match="too large"):
+        svc._fetch_models("claude", "sk-ant-key")

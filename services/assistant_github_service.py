@@ -32,6 +32,7 @@ Hard rules, each enforced here, not only in the UI:
 
 import base64
 import hashlib
+import json as _json
 import re
 import threading
 import time
@@ -40,11 +41,13 @@ import requests
 
 import action_tiers
 import db
+from services import capped_body
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, ServiceError)
 
 API = "https://api.github.com"
 TIMEOUT = 20
+MAX_RESPONSE_BYTES = 5_000_000
 TOKEN_ENV = ("BAIHE_GITHUB_TOKEN",)
 BRANCH_PREFIX = "baihe-assistant/"
 DEFAULT_BASE = "baihe-subtitler"
@@ -175,19 +178,23 @@ def _call(token: str, method: str, path: str, *, json=None, params=None, ok=(200
                "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "baihe-maintenance-assistant"}
     try:
         resp = requests.request(method, API + path, headers=headers, json=json, params=params,
-                               timeout=TIMEOUT, allow_redirects=False)
+                               timeout=TIMEOUT, allow_redirects=False, stream=True)
     except Exception as e:
         raise DependencyUnavailableError("Couldn't reach GitHub: " + _scrub(e, token)[:200]) from None
+
+    def too_big():
+        return ServiceError("GitHub sent back more data than expected.")
+    raw = capped_body.read_capped(resp, MAX_RESPONSE_BYTES, TIMEOUT * 3, too_big)
     if resp.status_code not in ok:
         detail = ""
         try:
-            detail = str(resp.json().get("message", ""))
+            detail = str(_json.loads(raw).get("message", ""))
         except Exception:
             pass
         raise ServiceError(f"GitHub said {resp.status_code}"
                            + (f": {_scrub(detail, token)[:200]}" if detail else "") + ".")
     try:
-        return resp.json()
+        return _json.loads(raw)
     except Exception:
         return {}
 

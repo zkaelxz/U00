@@ -3,6 +3,7 @@ tests/test_title_library.py -- tests for title_library.py's seed data
 and search/dedup logic.
 """
 
+import json
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -137,8 +138,15 @@ class _FakeResponse:
         self._payload = payload
         self.status_code = status_code
 
-    def json(self):
-        return self._payload
+    @property
+    def headers(self):
+        return {}
+
+    def iter_content(self, size):
+        yield json.dumps(self._payload).encode()
+
+    def close(self):
+        pass
 
 
 class TestSearchBaihehub:
@@ -153,7 +161,7 @@ class TestSearchBaihehub:
         import requests
         calls = []
 
-        def fake_get(url, params=None, headers=None, timeout=None):
+        def fake_get(url, params=None, headers=None, timeout=None, stream=False):
             calls.append((url, params, timeout))
             return _FakeResponse(payload_for(url))
         monkeypatch.setattr(requests, "get", fake_get)
@@ -202,4 +210,37 @@ class TestSearchBaihehub:
     def test_non_200_is_skipped(self, monkeypatch):
         import requests
         monkeypatch.setattr(requests, "get", lambda *a, **k: _FakeResponse({"data": [self.ITEM]}, 404))
+        assert title_library.search_baihehub("公主") is None
+
+
+class TestBaihehubResponseCap:
+    def test_an_oversized_response_is_skipped(self, monkeypatch):
+        import requests
+        closed = []
+
+        class Big:
+            status_code = 200
+            headers = {"Content-Length": "999999"}
+            def iter_content(self, size):
+                raise AssertionError("must not read past a declared oversize")
+            def close(self):
+                closed.append(True)
+        monkeypatch.setattr(title_library, "BAIHEHUB_MAX_BYTES", 1000)
+        monkeypatch.setattr(requests, "get", lambda *a, **k: Big())
+        assert title_library.search_baihehub("公主") is None
+        assert closed
+
+    def test_a_body_that_outgrows_the_cap_while_streaming_is_skipped(self, monkeypatch):
+        import requests
+
+        class Endless:
+            status_code = 200
+            headers = {}
+            def iter_content(self, size):
+                while True:
+                    yield b"x" * size
+            def close(self):
+                pass
+        monkeypatch.setattr(title_library, "BAIHEHUB_MAX_BYTES", 1000)
+        monkeypatch.setattr(requests, "get", lambda *a, **k: Endless())
         assert title_library.search_baihehub("公主") is None

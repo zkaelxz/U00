@@ -3,6 +3,8 @@ Step 40: /api/models routes (api/routers/model_registry_routes.py).
 Permissions, confirm, rate limit and that no key reaches a response.
 Mocked provider responses only.
 """
+import json
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -49,8 +51,13 @@ class FakeResp:
     def __init__(self, body):
         self._body = body
 
-    def json(self):
-        return self._body
+    headers = {}
+
+    def iter_content(self, size):
+        yield json.dumps(self._body).encode()
+
+    def close(self):
+        pass
 
     def raise_for_status(self):
         pass
