@@ -374,6 +374,9 @@ def fetch_static(url: str, timeout: int = 20):
     from bs4 import BeautifulSoup
 
     headers = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"}
+    # No URL validation and no redirect guard here, unlike the browser
+    # path's pinning proxy: requests follows redirects, so any public-host
+    # check is the caller's.
     resp = requests.get(url, headers=headers, timeout=timeout)
     resp.raise_for_status()
     html = resp.text
@@ -803,7 +806,7 @@ def _visible_lines(html: str) -> str:
 #
 # What persists is the profile directory -- the browser process itself is
 # started per call and closed after. Playwright's sync objects only work
-# on the thread that created them (Streamlit runs each rerun on its own
+# on the thread that created them (each background job runs on its own
 # thread), a Chromium profile can only be open in one browser at a time,
 # and the visible sign-in window and the headless reads need separate
 # launches anyway. Login state survives all of that because it lives in

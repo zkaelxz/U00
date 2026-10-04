@@ -106,7 +106,7 @@ def estimate_ollama_num_ctx(system_text: str, numbered: str, floor: int = OLLAMA
 
 
 # A flat {"<id>": "<text>"} object, matching exactly what
-# _parse_id_keyed_json expects back -- passed as Ollama's `format` so
+# parse_id_keyed_json expects back -- passed as Ollama's `format` so
 # structured output does the work of staying on-shape instead of hoping
 # the model follows the prompt's instructions unprompted.
 _OLLAMA_ID_KEYED_JSON_SCHEMA = {"type": "object", "additionalProperties": {"type": "string"}}
@@ -219,12 +219,11 @@ class OllamaEngine:
 
 # {base_url: (checked_at, reachable)} -- Ollama is exempted from the
 # API-key check entirely, so with nothing in its place, clicking
-# Translate against a stopped local server used to start a background
-# job that only failed once translate_batch's own 300s request timeout
-# expired. check_ollama_reachable() lets the UI disable that button
-# BEFORE starting the job instead. Cached briefly per base_url so a
-# Streamlit rerun (which happens on almost every interaction) doesn't
-# re-hit the health check every time.
+# Translate against a stopped local server would start a background job
+# that only fails once translate_batch's own 300s request timeout expires.
+# check_ollama_reachable() lets the UI disable that button BEFORE starting
+# the job instead. Cached briefly per base_url so a UI that re-checks on
+# nearly every interaction doesn't re-hit the health check every time.
 _ollama_reachability_cache = {}
 OLLAMA_REACHABILITY_CACHE_SECONDS = 5
 

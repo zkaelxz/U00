@@ -70,12 +70,12 @@ trade rather than a bug.
 
 ## Where the translation settings come from
 
-The server runs on a background thread, and `st.session_state` does not
-exist there. API keys are also deliberately never persisted to the
-database (see `tabs/settings_tab.py`'s own "nothing here is written to
-disk" note). So the UI *pushes* the current config into this module on
-each render, exactly the way `settings_tab` already pushes into
-`background_jobs.set_gpu_limit_enabled` / `set_notify_on_completion`.
+The server runs on its own background thread with no request session of
+the API's to read settings from. `services/extension_service.py` registers
+a config provider (`set_config_provider`) that resolves the saved engine
+and its key from `.env` server-side on every request, so a key saved in
+Settings applies to the next page without a restart; API keys are never
+stored in the database.
 With no engine configured the endpoint still detects and OCRs, and says
 so in its `notes` -- it never silently returns untranslated text as
 though it had translated it.
@@ -88,9 +88,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# 8501 is Streamlit's own port (start.bat), so this is deliberately not
-# adjacent to it -- a person reading a port number in a browser URL bar
-# should not have to wonder which of the two they are looking at.
+# Deliberately not adjacent to the app's own port (8600, start.bat) -- a
+# person reading a port number in a browser URL bar should not have to
+# wonder which of the two they are looking at.
 DEFAULT_PORT = 8756
 TOKEN_HEADER = "X-Baihe-Token"
 TOKEN_FILENAME = "extension_token.txt"
@@ -139,9 +139,10 @@ _config = {
 
 # Rolling per-drama translation context, so consecutive pages of the same
 # book read as one conversation rather than N isolated pages -- the same
-# `previous_context` the Scanlate tab threads between pages. In-memory
-# only, like `background_jobs`: a process restart simply starts the
-# context fresh, which costs quality on one page and nothing else.
+# `previous_context` the Scanlate run (services/scanlate_run_service.py)
+# threads between pages. In-memory only, like `background_jobs`: a process
+# restart simply starts the context fresh, which costs quality on one page
+# and nothing else.
 _context_lock = threading.Lock()
 _contexts = {}
 
@@ -213,9 +214,11 @@ _config_provider = None
 
 
 def set_translation_config(**kwargs):
-    """Called from the Settings sidebar on each render (the established
-    settings->thread bridge). Unknown keys are ignored rather than
-    raising, so adding a field to the UI can't break a running server."""
+    """Sets the base config the provider's values are merged over; called
+    by services/extension_service.push_translation_config (when the server
+    starts and when the extension's engine setting changes).
+    Unknown keys are ignored rather than raising, so adding a config field
+    can't break a running server."""
     with _config_lock:
         for key, value in kwargs.items():
             if key in _config:
@@ -392,7 +395,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 except Exception as e:
                     # The OCR text is still real and still useful, so it
                     # is returned rather than thrown away -- the same
-                    # choice the Scanlate tab makes on this failure.
+                    # choice the Scanlate pipeline makes on this failure.
                     notes.append(["warning", f"translation failed ({translate_engines.redact_secrets(str(e))}); "
                                              "the source text below was still read"])
             elif bubbles and engine is None:
@@ -422,11 +425,11 @@ def translate_text_block(text: str, source_language: str, target_language: str,
                          store: bool = True) -> dict:
     """A raw block of page text (Step 96's text-capture mode), run through
     the same `translate_engines.standalone_translate` pipeline as the
-    Standalone translate tab (`tabs/translate_tab.py`) -- reused exactly,
-    not reimplemented, per this module's own "one pipeline" rule. This
-    function is the text equivalent of `translate_image`: it does not
-    detect or OCR anything, since the extension already sends real text
-    rather than pixels, so it goes straight to translation.
+    app's Standalone translate tool -- reused exactly, not reimplemented,
+    per this module's own "one pipeline" rule. This function is the text
+    equivalent of `translate_image`: it does not detect or OCR anything,
+    since the extension already sends real text rather than pixels, so it
+    goes straight to translation.
 
     Uses the same globally-configured engine as the image routes (pushed
     in from Settings -> Browser extension); the extension itself picks no
@@ -482,7 +485,7 @@ def translate_text_block(text: str, source_language: str, target_language: str,
 
 
 def _usage_cb(drama, config, engine):
-    """Cost logging, matching the Scanlate tab's own call. Skipped with
+    """Cost logging, matching the Scanlate run's own usage_cb. Skipped with
     no drama to attribute it to, rather than inventing a row."""
     if not drama:
         return None
@@ -617,7 +620,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "app": "Baihe Subtitler",
                 "engine_configured": _build_engine(get_translation_config()) is not None,
                 # `title_en or title_zh` is the app's own display-title
-                # convention (tabs/library_tab.py:106), not a new one.
+                # convention, not a new one.
                 "dramas": [{"id": d["id"],
                             "title": (d.get("title_en") or d.get("title_zh")
                                       or f"drama #{d['id']}"),
@@ -769,9 +772,9 @@ def serve(port: int):
 
 
 def ensure_server_started(port: int = DEFAULT_PORT) -> bool:
-    """Starts the endpoint once per process, on a daemon thread beside
-    Streamlit -- the same shape `sources/chapter_check.py`'s
-    `ensure_scheduler_started` uses, and safe to call on every rerun.
+    """Starts the endpoint once per process, on a daemon thread -- the same
+    shape `sources/chapter_check.py`'s `ensure_scheduler_started` uses, and
+    idempotent, so a repeat call is safe.
 
     Returns True if this call started it.
     """

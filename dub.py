@@ -200,9 +200,9 @@ _f5tts_model = None
 def _get_f5tts_model():
     """Lazily loads F5-TTS. Requires `pip install f5-tts` and, on first
     run, downloads model checkpoints (needs internet on your machine).
-    NOTE: written against F5-TTS's documented Python API but not run
-    end-to-end in this environment -- sanity-check on one short line
-    before batch-processing a whole drama."""
+    NOTE: written against F5-TTS's documented Python API, not verified
+    end-to-end -- sanity-check on one short line before batch-processing
+    a whole drama."""
     global _f5tts_model
     if _f5tts_model is None:
         from f5_tts.api import F5TTS
@@ -224,9 +224,8 @@ def synthesize_line_cloned(text: str, ref_audio_path: str, ref_text: str, out_pa
 # Step 11b: more local voice engines, chosen per character
 # (characters.clone_engine). Each is optional and imported only when a
 # character actually uses it. Written against each project's own
-# documented Python/HTTP API, not run end-to-end in this environment (no
-# GPU, no model downloads) -- sanity-check one short line before
-# narrating a whole novel.
+# documented Python/HTTP API, not verified end-to-end -- sanity-check one
+# short line before narrating a whole novel.
 # ---------------------------------------------------------------------------
 
 # NULL clone_engine in the database means F5-TTS -- the only local cloning
@@ -795,6 +794,8 @@ def build_dub_track(lines, drama_dir: str, character_voice_map: dict,
         else:
             voice = character_voice_map.get(ln.speaker, default_voice)
         signature = clip_signature(ln.en, _voice_for_signature(clone, tts_engine, voice, exaggeration))
+        # The signature is part of the name (see clip_signature): an edited
+        # line gets a fresh clip, an unchanged one is reused on resume.
         clip_path = os.path.join(clips_dir, f"line_{ln.idx:04d}_{signature}.wav")
 
         clip = None
@@ -1004,6 +1005,8 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
             unit["clone"], tts_engine, voice, unit["exaggeration"],
             lang=(source_language if narrate_original else None)))
         span = f"{first:04d}" if first == last else f"{first:04d}-{last:04d}"
+        # Signature in the name for the same reason as build_dub_track's
+        # clips: an edited unit gets a fresh clip, an unchanged one is reused.
         unit["clip_path"] = os.path.join(clips_dir, f"line_{span}_{signature}.wav")
 
     def synthesize(unit, clip_path) -> bool:

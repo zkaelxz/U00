@@ -1,7 +1,7 @@
 """
 asr_backend.py -- pluggable transcription backends for the
 "I don't have a transcript, let Whisper transcribe it" workflow in
-tabs/workspace_tab.py (the _use_whisper_text branch).
+services/transcribe_service.py (Whisper-text mode).
 
 Backends are registered in BACKENDS / get_backend() at the bottom (Step 104
 added that seam and the experimental MossTranscribeDiarizeBackend, whose
@@ -31,8 +31,7 @@ If timing itself is the problem, that's forced_align.py's job, not this
 module's -- and note forced_align.py needs a real reference transcript to
 align against, which this whisper-text-only mode by definition doesn't have.
 
-SETUP (not run inside this sandbox -- no GPU, no network; code is here to
-run locally):
+SETUP:
     pip install qwen-asr torch
 Same Python 3.14/CUDA-wheel caveat as forced_align.py -- see that module's
 docstring.
@@ -58,6 +57,8 @@ from forced_align import LANGUAGE_NAMES
 # safer than guessing at an undocumented cap and failing the whole run.
 SEGMENT_DURATION_WARNING_SECONDS = 300.0
 
+# Loaded models stay cached across calls; core.release_gpu_models() clears
+# this dict by name (it never imports this module), so keep the name.
 _asr_model_cache = {}
 
 # Step 103: batching (Qwen3ASRBackend.transcribe's batch_size) was written
@@ -99,7 +100,7 @@ class WhisperBackend:
     """Wraps the existing Whisper transcription path unchanged -- a pure
     refactor behind a common interface, not a behavior change. Existing
     callers of core.transcribe_for_timing() are unaffected; this exists
-    so tabs/workspace_tab.py can pick a backend without an if/else on
+    so a caller can pick a backend without an if/else on
     which model to call directly."""
     name = "whisper"
 
@@ -251,7 +252,7 @@ class Qwen3ASRBackend:
 
 
 # ---------------------------------------------------------------------------
-# Step 104 (experimental pilot): MOSS-Transcribe-Diarize
+# MOSS-Transcribe-Diarize (experimental, opt-in)
 # ---------------------------------------------------------------------------
 #
 # One model that transcribes AND labels speakers in a single pass
@@ -266,8 +267,8 @@ class Qwen3ASRBackend:
 # picked explicitly per drama -- never switched to automatically.
 #
 # Unlike Qwen3ASRBackend it produces its own segment boundaries (that is the
-# point of the pilot), so a comparison against Whisper+pyannote measures
-# both segmentation and text at once; see the Step 104 write-up.
+# point of trying it), so a comparison against Whisper+pyannote measures
+# both segmentation and text at once; see docs/asr-experiments.md.
 
 MOSS_MODEL_ID = "OpenMOSS-Team/MOSS-Transcribe-Diarize"
 # Package tested: pip install

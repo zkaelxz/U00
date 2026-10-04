@@ -29,8 +29,7 @@ FINAL, precise timestamps. Only the coarse pass's chunk boundaries survive
 into the output -- its per-character proportional-guess timestamps are
 discarded and replaced by the aligner's real ones.
 
-SETUP (not run inside this sandbox -- no GPU, no network; code is here to
-run locally):
+SETUP:
     pip install qwen-asr torch
 qwen-asr recommends a clean Python 3.12 environment. If you're on Python
 3.14 (as this project's own requirements-optional.txt already warns for
@@ -62,6 +61,8 @@ from core import (
 MAX_CHUNK_SECONDS = 60.0
 HARD_CAP_SECONDS = 300.0
 
+# Loaded models stay cached across calls; core.release_gpu_models() clears
+# this dict by name (it never imports this module), so keep the name.
 _aligner_model_cache = {}
 
 
