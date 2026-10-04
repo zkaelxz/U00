@@ -1117,6 +1117,15 @@ class TestFullLibraryReset:
         assert isolated_db.list_series() == []
         assert not os.path.exists(ddir)
 
+    def test_reset_closes_a_connection_this_thread_left_open(self, isolated_db):
+        leftover = isolated_db.get_conn()
+        isolated_db.reset_library()
+        try:
+            leftover.execute("SELECT 1")
+        except sqlite3.ProgrammingError:
+            return
+        raise AssertionError("the leftover connection was still open")
+
     def test_schema_is_immediately_usable_after_reset(self, isolated_db):
         isolated_db.reset_library()
         did = isolated_db.create_drama(title_en="Fresh")

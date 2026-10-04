@@ -107,8 +107,12 @@ class _TrackedConnection(sqlite3.Connection):
 
 
 def _close_leaked_connections():
+    # Snapshot the registered threads first: a thread that registers after this
+    # point is not in the list being swept, so it can't look dead because it
+    # started after the live-thread set was taken.
+    registered = list(_open_connections)
     alive_idents = {t.ident for t in threading.enumerate()}
-    for ident in list(_open_connections):
+    for ident in registered:
         if ident in alive_idents:
             continue  # possibly still in ordinary use by a live thread -- not a leak
         for ref in _open_connections.pop(ident, ()):
@@ -5171,6 +5175,15 @@ def reset_library():
     import shutil
 
     _close_leaked_connections()
+    # The calling thread's own leftovers too: an open handle blocks removing
+    # the files on Windows.
+    for ref in _open_connections.pop(threading.get_ident(), ()):
+        leftover = ref()
+        if leftover is not None:
+            try:
+                sqlite3.Connection.close(leftover)
+            except Exception:
+                pass
     for suffix in ("", "-wal", "-shm", "-journal"):
         # A job thread closing its last connection can checkpoint and delete
         # the -wal/-shm files between a check and the remove, so just try.
