@@ -1,7 +1,6 @@
 """
 sources/ai_extract.py -- content extraction with an LLM as the *fallback*,
-plus the independent confidence checks every result goes through (roadmap
-Step 23g items 1, 2, 3 and 5).
+plus the independent confidence checks every result goes through.
 
 This is metadata_lookup.py's pattern (one strict "return ONLY JSON, null
 for anything not found" prompt through translate_engines.call_llm_json)
@@ -312,7 +311,7 @@ def llm_available(engine) -> bool:
     return engine is not None and bool(getattr(engine, "supports_reference", False))
 
 
-# Step 23k: a page read through a signed-in browser can carry
+# A page read through a signed-in browser can carry
 # session-derived credentials inside ordinary URLs (signed image tokens,
 # auth_key=, access_token=...). The model only ever needs the page's
 # content and the ids it answers with, so those values are blanked before
@@ -446,7 +445,7 @@ def blocks_for_text(page: PageModel, text: str) -> list:
 
 
 def deterministic_novel(page: PageModel) -> dict:
-    """Step 23's deterministic tier (trafilatura, else the largest-text-
+    """The deterministic tier (trafilatura, else the largest-text-
     block heuristic), reshaped into the same result as every other tier."""
     from .generic_import import extract_main_text
     text, method = extract_main_text(page.html, page.url)
@@ -959,7 +958,7 @@ def media_candidates(html: str, url: str) -> list:
 
 
 def resource_types(html: str, url: str) -> list:
-    """Step 23k item 6: which resource types the page actually exposes to
+    """Which resource types the page actually exposes to
     the session that read it (ContentAccess values), from the same
     deterministic detectors the extraction tiers use -- nothing fetched."""
     from .generic_import import extract_main_text_heuristic

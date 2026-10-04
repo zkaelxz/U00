@@ -11,13 +11,13 @@ client can poll for via the existing GET /api/jobs/{id} -- no separate
 "apply" call, and no risk of "job succeeded but nothing was saved" if a
 client never follows up.
 
-Migration Slice 21 extends this with hardsub_ocr transcript_mode --
+This also supports the hardsub_ocr transcript_mode --
 reading captions burned into video, via hardsub_ocr.extract_hardsub_
 subtitles (the OCR cues already carry real per-cue timing, so unlike
 Whisper's own text there's no separate alignment step -- same reasoning
 as run_hardsub_ocr_job's own docstring).
 
-Migration Slice 34 makes the run honour the two experimental Qwen3 choices:
+The run also honours the two experimental Qwen3 choices:
 asr_backend_choice == "qwen3_asr" (whisper transcript_mode) re-transcribes Whisper's VAD segments
 with asr_backend.Qwen3ASRBackend, replacing only the text; alignment_method
 == "qwen3_forced_align" (have_transcript mode) aligns the supplied
@@ -30,7 +30,7 @@ DependencyUnavailableError, both raised at start (not inside the job).
 The `chunk_and_tag` novel_narration path is services/narration_service.py.
 A run needs its media already on disk; upload is media_upload_service.
 
-Auto-tune (Step 6h's "🪄 Auto-tune" speech-splitting sensitivity) is a
+Auto-tune (the "🪄 Auto-tune" speech-splitting sensitivity) is a
 separate action, not chained off the transcribe run: start_autotune_run
 re-transcribes the drama's audio once per candidate min_silence_ms in ONE
 process job (so Cancel terminates it mid-decode) and scores each with
@@ -337,7 +337,7 @@ def _resolve_initial_prompt(drama_id: int, initial_prompt, extra_names) -> str:
 
 def get_transcribe_config(drama_id: int) -> dict:
     """Read-only Transcript-stage summary for one drama: which action the
-    "Transcribe & Align" button would run (from Slice 19's transcript_mode),
+    "Transcribe & Align" button would run (from the source config's transcript_mode),
     whether its Whisper model is already downloaded, and every tuning knob
     with its current per-drama value (falling back to _DEFAULT_TUNING).
     Raises NotFoundError for an unknown drama id."""
@@ -384,7 +384,7 @@ _SEPARATION_BACKENDS = ("auto", "audio_separator", "demucs")
 
 
 def update_transcribe_config(drama_id: int, **fields) -> dict:
-    """Field-scoped partial update for the tuning knobs Slice 20 newly
+    """Field-scoped partial update for the tuning knobs the config newly
     persists (whisper_size/alignment_method/asr_backend_choice already had
     their own DB columns and are updated the same way elsewhere -- accepted
     here too for a single write path). Only fields actually passed (not
@@ -450,7 +450,7 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
 
 
 def _speaker_range(expected_speakers=None, min_speakers=None, max_speakers=None):
-    """Step 105: (min_speakers, max_speakers) for the chained speaker
+    """(min_speakers, max_speakers) for the chained speaker
     detection, each None when unset. Raises InvalidInputError for a bad
     range, or a range combined with an exact count (diarize.validate_speaker_hints)."""
     import diarize as diarize_module
@@ -467,7 +467,7 @@ _MOSS_OFF_MESSAGE = ("MOSS-Transcribe-Diarize is experimental and turned off. Tu
 
 
 def _require_moss_backend() -> None:
-    """Step 104: the experimental MOSS backend needs its Settings toggle on
+    """The experimental MOSS backend needs its Settings toggle on
     and its package installed; never falls back to Whisper silently."""
     if not asr_options_service.get_moss_experimental():
         raise InvalidInputError(_MOSS_OFF_MESSAGE)
@@ -517,18 +517,18 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     happened (see this module's own docstring for why).
 
     source_language / chinese_script default to this drama's own stored
-    values (Slice 19) when omitted. initial_prompt is an optional
+    values when omitted. initial_prompt is an optional
     full override of Whisper's prompt; when it's empty or omitted the run
     uses build_auto_initial_prompt (series glossary plus extra_names plus
     raw-novel excerpt), the prompt cli.cmd_align builds without extra names.
 
     transcript_text is required (and only used) when this drama's
-    transcript_mode is "have_transcript" -- per Slice 19, it's
+    transcript_mode is "have_transcript" -- it's
     deliberately never persisted, matching today's one-click behavior of
     accepting it fresh each run.
 
     hardsub_ocr's own settings (backend, sample interval) come from this
-    drama's persisted values (Slice 21) -- update them first via
+    drama's persisted values -- update them first via
     update_transcribe_config if a run needs different ones.
     tesseract_cmd is an optional, client-supplied path to the tesseract
     binary; omitted, the saved Settings Tesseract path applies
@@ -679,7 +679,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
                                 min_speakers: Optional[int] = None,
                                 max_speakers: Optional[int] = None, **_ignored) -> None:
     """Validate-only pre-check for a run that starts after the audio exists
-    (B-09: upload-and-transcribe with a video). Raises the same errors as
+    (upload-and-transcribe with a video). Raises the same errors as
     start_transcribe_run for everything that doesn't depend on the audio or
     video file being on disk yet; starts nothing. Keep in step with
     start_transcribe_run's checks."""
@@ -865,7 +865,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     polling GET /api/jobs/{job_id} never observes a state where the job
     succeeded but nothing was saved.
 
-    min_speakers/max_speakers (Step 105): a speaker-count range for the
+    min_speakers/max_speakers: a speaker-count range for the
     chained speaker detection, already checked by start_transcribe_run.
 
     use_gpu is the persisted server-side toggle (db.app_settings, read via
@@ -1001,8 +1001,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     "qwen3_asr_vad" backend. vocals_work_dir: where vocal separation writes before its result
     is moved next to the audio, so a killed worker leaves no partial file.
 
-    asr_backend_choice / alignment_method (Slice 34) are the drama's stored
-    choices: "qwen3_asr" and the experimental "moss_td" (Step 104: replaces
+    asr_backend_choice / alignment_method are the drama's stored
+    choices: "qwen3_asr" and the experimental "moss_td" (replaces
     Whisper, keeps MOSS's own speaker labels and skips the pyannote chain
     when it produced any) only apply in whisper transcript_mode, and
     "qwen3_forced_align" only in have_transcript mode. Import/download/other Qwen3 failures end the job
@@ -1129,7 +1129,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             finally:
                 vad_ticker.stop()
         elif moss_run:
-            # Step 104 (experimental): one pass that also labels speakers;
+            # Experimental: one pass that also labels speakers;
             # replaces Whisper for this run, only when chosen explicitly.
             rep.progress(0.0, "Transcribing and detecting speakers with "
                               "MOSS-Transcribe-Diarize (experimental)...")
@@ -1339,7 +1339,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     if background_jobs.is_cancel_requested(job_id):
         return {"failed_reason": "cancelled"}
 
-    # Step 25 item 2's same safety rule, ported here: never let an empty
+    # Never let an empty
     # result silently wipe out an already-populated drama.
     existing_lines_before = db.load_line_objects(drama_id)
     if not lines and existing_lines_before:
@@ -1407,7 +1407,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
 
 
 # ---------------------------------------------------------------------------
-# Auto-tune speech-splitting sensitivity (Step 6h)
+# Auto-tune speech-splitting sensitivity
 # ---------------------------------------------------------------------------
 
 def autotune_job_id(drama_id: int) -> str:

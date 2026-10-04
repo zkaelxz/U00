@@ -20,7 +20,7 @@ interface Props {
   onUse: (text: string) => Promise<boolean>
 }
 
-// Step 99: on a hard line, offer the stronger engine picked in Settings for
+// On a hard line, offer the stronger engine picked in Settings for
 // this one line. Suggest only: nothing runs without a click, the try writes
 // nothing, and the result is applied only by "Use this".
 export function StrongerEngine({ dramaId, line, offer, active, onUse }: Props) {

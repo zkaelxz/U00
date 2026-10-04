@@ -1,6 +1,6 @@
 """
 sources/generic_import.py -- one-off "paste a URL" imports for sites with
-no registered adapter (Step 23 items 8, 9, 14).
+no registered adapter.
 
 Deliberately not an adapter: no search, no chapter list, no tracking.
 It fetches the one URL it's given (through the same paced client and
@@ -21,7 +21,7 @@ None of that is per-site knowledge.
 Novel text: trafilatura when installed (a maintained main-content
 extractor), else a plain largest-text-block heuristic.
 
-Step 23g (sources/adaptive.py, sources/ai_extract.py) runs these same
+The fetch ladder (sources/adaptive.py, sources/ai_extract.py) runs these same
 deterministic passes first and only asks an LLM when they come back
 empty or ambiguous; this module stays the deterministic tier and the
 resource downloader.
@@ -63,7 +63,7 @@ class ImageCandidate:
     height: int = 0
     sha256: str = ""
     reject_reason: str = ""
-    # Step 23g: where the URL came from and what surrounds it -- read by
+    # Where the URL came from and what surrounds it -- read by
     # the AI-assisted classifier (sources/ai_extract.py), never used to
     # download anything. `attr` is "srcset"/"data-src"/"src"/.../"manifest".
     attr: str = ""
@@ -316,7 +316,7 @@ def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None
     -- the page source the person saved after completing a verification
     themselves -- the USER_ASSISTED tier is used instead of any request.
     Once the person has signed in to this source through its browser
-    window (Step 23k), the page is read through that saved, signed-in
+    window, the page is read through that saved, signed-in
     profile instead, so they see what their account sees. Raises
     TermsProhibited, before anything is sent, when the source's record (or
     the site's own terms entry) restricts automated access -- signed in or
@@ -568,4 +568,4 @@ def extract_main_text(html: str, url: str = "") -> tuple:
     return extract_main_text_heuristic(html).strip(), "heuristic"
 
 # The novel import itself (fetch + this extractor + an AI fallback when
-# the result is ambiguous) is sources/adaptive.import_novel (Step 23g).
+# the result is ambiguous) is sources/adaptive.import_novel.

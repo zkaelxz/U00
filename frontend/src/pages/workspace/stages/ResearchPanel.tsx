@@ -49,7 +49,7 @@ function Choice({ name, label, value, options, onChange }: {
   )
 }
 
-// "Research online" (roadmap Step 37): Gemini with Google Search grounding.
+// "Research online": Gemini with Google Search grounding.
 // A lookup writes nothing; each field shows its own sources, and a value that
 // differs from the saved one is only written if the user picks Replace.
 export function ResearchPanel() {

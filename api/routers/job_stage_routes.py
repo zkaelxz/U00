@@ -1,5 +1,5 @@
 """
-api/routers/job_stage_routes.py -- Step 41 item 5: a job's per-stage
+api/routers/job_stage_routes.py -- a job's per-stage
 timing and estimated spend. Thin: see services/jobs_service.get_job_stages
 and services/job_timing_service.
 

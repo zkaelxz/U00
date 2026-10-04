@@ -1,7 +1,7 @@
 """
 api/model_registry_schemas.py -- request/response models for the model
-deprecation / migration assistant (api/routers/model_registry_routes.py,
-Step 40). No key field exists on any model.
+deprecation / migration assistant (api/routers/model_registry_routes.py).
+No key field exists on any model.
 """
 
 from typing import Dict, List, Literal, Optional

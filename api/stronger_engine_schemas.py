@@ -1,5 +1,5 @@
 """
-api/stronger_engine_schemas.py -- request/response models for Step 99's
+api/stronger_engine_schemas.py -- request/response models for the
 "Try with a stronger engine" routes (api/routers/stronger_engine_routes.py).
 No key, URL or path field exists on any model.
 """

@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { CURRENT_ROWS, OLDER_PRESET, RETIRED_PRESET, guardWrites, status } from './modelHealthMocks'
 
-// Model health card on Diagnostics (Step 40, desktop). The real e2e API has
+// Model health card on Diagnostics (desktop). The real e2e API has
 // no keys, so the first test only checks the card against the real status
 // route; the rest mock /api/models/* so the provider check and the preset
 // switch never touch the shared seeded library (a catch-all fails the test

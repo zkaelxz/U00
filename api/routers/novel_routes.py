@@ -1,9 +1,9 @@
 """
 api/routers/novel_routes.py -- attach novel text/EPUB to a drama and OCR
-chapter images (Migration Slice 38). See services/novel_attach_service.py
+chapter images. See services/novel_attach_service.py
 for the safety rules. OCR is a background job; poll GET /api/jobs/{id}.
 
-Step 115b: import with lightnovel-crawler, a user-installed GPL-3.0 program
+Import with lightnovel-crawler, a user-installed GPL-3.0 program
 Baihe only runs as a separate process (services/lncrawl_service.py). Both
 routes are local_only(): the job runs a program on this PC, and that
 program does its own fetching and redirects, which Baihe's per-request

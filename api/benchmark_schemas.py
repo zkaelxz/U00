@@ -1,6 +1,6 @@
 """
 api/benchmark_schemas.py -- request/response models for the Benchmark Lab
-routes (api/routers/benchmark_routes.py, Step 38). No key, path or file
+routes (api/routers/benchmark_routes.py). No key, path or file
 name field exists on any model.
 """
 

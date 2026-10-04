@@ -1,5 +1,5 @@
 """
-sources -- the raw-source adapter system (roadmap Steps 23/23b).
+sources -- the raw-source adapter system.
 
 A separate domain from the drama/line core: it finds and fetches raw
 content (comic pages, novel chapters, video URLs) from outside sources

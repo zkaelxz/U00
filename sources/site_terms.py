@@ -1,6 +1,6 @@
 """
 sources/site_terms.py -- terms findings for sites that have no adapter
-but whose terms have been read directly (roadmap Step 23k item 4).
+but whose terms have been read directly.
 
 A pasted URL with no adapter is fetched as the shared "generic" source,
 whose capability record can't carry one particular site's terms. This
@@ -101,7 +101,7 @@ SITE_TERMS = [
         },
     },
     {
-        # roadmap Step 91 investigation. No adapter -- not because the
+        # No adapter -- not because the
         # technique couldn't be found (it was, in full: see below), but
         # because the site's own real, directly-read Terms of Service
         # explicitly prohibit exactly this. Automation_permission is
@@ -163,7 +163,7 @@ SITE_TERMS = [
         },
     },
     {
-        # roadmap Step 91 investigation. No adapter: an active Cloudflare
+        # No adapter: an active Cloudflare
         # interactive challenge blocks even the homepage and the terms
         # pages over plain HTTP -- this project's own architecture (see
         # sources/models.py's CHALLENGE_REASONS / sources/ladder.py) always
@@ -191,7 +191,7 @@ SITE_TERMS = [
         },
     },
     {
-        # roadmap Step 113 vetting (2026-09-30). Has a metadata adapter
+        # Vetted 2026-09-30. Has a metadata adapter
         # (sources/adapters/fanjiao.py); recorded here too so a pasted
         # fanjiao.co link the adapter doesn't recognize carries the same
         # finding.
@@ -213,7 +213,7 @@ SITE_TERMS = [
         },
     },
     {
-        # roadmap Step 115. Has an adapter (sources/adapters/lightnovel_fun.py),
+        # Has an adapter (sources/adapters/lightnovel_fun.py),
         # whose own capability record carries the same notes; recorded here
         # too as the directly-read finding for the domain as a whole.
         "domains": ("lightnovel.fun",),

@@ -13,7 +13,7 @@ The page URL a sign-in or tier test uses must be a public http(s) address
 (`sources_url_service.check_public_url`) on the source's own site: a page
 the adapter recognises (`matches_url`) or its login page, base URL or a
 mirror (same host or a subdomain). So the window and the tests only ever go
-to that site. ToS enforcement is OFF (Step 90), but `adapter.login` and
+to that site. ToS enforcement is OFF, but `adapter.login` and
 `ladder.test_tier` still call `ladder.check_terms` first.
 
 Jobs (one per source; results via GET /api/sources/jobs/{id}/result, which

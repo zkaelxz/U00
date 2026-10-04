@@ -1,5 +1,5 @@
 """
-api/routers/stronger_engine_routes.py -- Step 99: suggest the stronger
+api/routers/stronger_engine_routes.py -- suggest the stronger
 translation engine for a hard line in Review. Thin: see
 services/stronger_engine_service.py.
 

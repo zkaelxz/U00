@@ -1,6 +1,6 @@
 """
 services/jellyfin_service.py -- the optional Jellyfin connector (roadmap
-Step 39). Off by default; API + filesystem only, never a Jellyfin plugin.
+Off by default; API + filesystem only, never a Jellyfin plugin.
 
   - get_config / set_config / clear_key: the server URL, the library folder
     on this PC and an on/off switch are stored in app_settings; the API key

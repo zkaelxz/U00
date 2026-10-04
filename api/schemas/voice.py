@@ -31,7 +31,7 @@ __all__ = [
 
 
 class DubTtsEngine(BaseModel):
-    """One selectable TTS engine for the Dub stage (Migration Slice 25)."""
+    """One selectable TTS engine for the Dub stage."""
     key: str
     label: str
     requires_internet: bool
@@ -60,7 +60,7 @@ class DubDefaults(BaseModel):
 
 
 class DubConfig(BaseModel):
-    """Read-only Dub-stage summary for one drama (Migration Slice 25).
+    """Read-only Dub-stage summary for one drama.
     D2: no filesystem path, no GPT-SoVITS URL or secret -- only the
     `gpt_sovits_configured` boolean."""
     drama_id: int

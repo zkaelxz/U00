@@ -53,7 +53,7 @@ interface Props {
   onDelete: () => void
   sourceLanguage: string | null
   onSetLanguage: (lang: string, scope: LanguageScope) => void
-  // Step 38: shows "Add as regression test" (PC only) when given.
+  // Shows "Add as regression test" (PC only) when given.
   dramaId?: number
 }
 

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 
-// Jellyfin connector (Step 39): the /api/jellyfin routes are mocked (no
+// Jellyfin connector: the /api/jellyfin routes are mocked (no
 // Jellyfin server); everything else hits the real seeded API.
 
 const on = { enabled: true, server_url: 'http://192.168.1.20:8096', library_dir: 'D:\\Media', key_configured: true }

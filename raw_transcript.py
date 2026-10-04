@@ -1,6 +1,6 @@
 """
 raw_transcript.py -- the untouched output of each transcription run, kept
-on disk next to the drama (Step 3, R1-lite).
+on disk next to the drama (R1-lite).
 
 Lines get edited, merged, split and re-transcribed; this file never does.
 The first run writes drama_dir/raw_transcript.json; every later run writes

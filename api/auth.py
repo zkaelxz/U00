@@ -1,5 +1,5 @@
 """
-api/auth.py -- the deny-by-default permission layer (Step 133; see
+api/auth.py -- the deny-by-default permission layer (see
 docs/remote-access-decision.md, which holds the route -> permission table).
 
 Every route in `api/routers/*.py` (and the frontend catch-all in

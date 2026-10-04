@@ -1,4 +1,4 @@
-// Step 36 "Which engine does what" (api/engine_routing_schemas.py).
+// "Which engine does what" (api/engine_routing_schemas.py).
 // Engine names and short redacted text only; never a key or a URL.
 
 export interface CapabilityRoute {
@@ -9,7 +9,7 @@ export interface CapabilityRoute {
   engine: string
   default_engine: string
   is_default: boolean
-  // Set when unset means "off" (Step 99's stronger engine): the unset option's label.
+  // Set when unset means "off" (the stronger engine): the unset option's label.
   unset_label?: string | null
   engine_supported: boolean
   choices: string[]

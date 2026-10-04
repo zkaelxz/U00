@@ -5,7 +5,7 @@ api/routers/system_routes.py -- liveness and API metadata.
 answers "is the server up" and nothing else; a client should use a real
 endpoint's own error to learn anything more specific.
 
-`POST /api/system/shutdown` (Step 80b) is the installed launcher's clean
+`POST /api/system/shutdown` is the installed launcher's clean
 stop: PC-only, and it exists only when the launcher started the server
 with a one-time token (services/shutdown_service.py); otherwise it is a 404.
 """

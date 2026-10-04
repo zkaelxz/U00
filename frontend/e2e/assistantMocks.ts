@@ -2,7 +2,7 @@ import type { Page, Route } from '@playwright/test'
 
 import { ME } from './authMocks'
 
-// Shared page.route mocks for the Maintenance assistant specs (Step 42).
+// Shared page.route mocks for the Maintenance assistant specs.
 // Every /api/assistant/* call is mocked (asking would reach an AI engine);
 // a guard aborts and records anything under /api/assistant that nothing
 // mocks. Other GETs (library etc.) go to the seeded API.
@@ -59,7 +59,7 @@ interface AssistantMock {
   askGate: Promise<void> | null
   calls: Call[]
   unmocked: string[]
-  /** Step 60: the independent review settings and the review /ask returns. */
+  /** The independent review settings and the review /ask returns. */
   rolesEnabled: boolean
   reviewEngine: string | null
   review: unknown

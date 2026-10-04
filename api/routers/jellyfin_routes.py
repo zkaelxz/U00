@@ -1,6 +1,5 @@
 """
-api/routers/jellyfin_routes.py -- the optional Jellyfin connector (roadmap
-Step 39). See services/jellyfin_service.py.
+api/routers/jellyfin_routes.py -- the optional Jellyfin connector. See services/jellyfin_service.py.
 
 Every route is local_only(); the key routes, and a change of server address
 (which moves where the key is sent), also take the engine-key gate

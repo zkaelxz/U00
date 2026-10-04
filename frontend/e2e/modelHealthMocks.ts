@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-// Model health (Step 40) mocks shared by model-health.spec.ts and
+// Model health mocks shared by model-health.spec.ts and
 // model-health.mobile.spec.ts. The e2e API has no keys, so its real status
 // only shows built-in defaults and tiers; these rows add saved presets that
 // are retired / older so the warning and switch UI can be driven.

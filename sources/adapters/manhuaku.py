@@ -1,6 +1,5 @@
 """
-sources/adapters/manhuaku.py -- 漫画库 manhuaku.net (zh manhua), roadmap
-Step 23j.
+sources/adapters/manhuaku.py -- 漫画库 manhuaku.net (zh manhua).
 
 **Confirmed platform**: a real, stock MCCMS (`chshcms/mccms`) deployment
 (the page itself carries an explicit "Mccms core JS build, must be

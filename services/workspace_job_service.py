@@ -37,7 +37,7 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
                             include_genre_notes=True, default_female_pronouns=False):
     """(glossary_terms, style_guidelines, character_names) for one drama --
     the one builder shared by translate_run_service.start_translate_run,
-    `cli.py translate`, line_ai_service and the review jobs (B-20): series
+    `cli.py translate`, line_ai_service and the review jobs: series
     glossary, the learned style profile, emotion guidance for `lines` and
     character gender hints in custom_notes, and named-speaker labels.
     include_genre_notes/default_female_pronouns are the Translate toggles
@@ -62,7 +62,7 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
 
 
 def _fallback_result(engine) -> dict:
-    """{"fallbacks": [...]} when a Step 97b FallbackEngine switched engines,
+    """{"fallbacks": [...]} when a FallbackEngine switched engines,
     else {} -- so the caller can show which engine actually did the work."""
     events = getattr(engine, "events", None)
     return {"fallbacks": list(events)} if isinstance(events, list) and events else {}
@@ -81,7 +81,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     from a background thread. Progress goes through
     background_jobs.update_progress(); clients poll the job for it.
 
-    reflect: Step 7's "High quality" Reflect mode -- three LLM passes per
+    reflect: the "High quality" Reflect mode -- three LLM passes per
     batch instead of one; the middle (reflection) pass's critique is
     saved as a translation note per line, via notes_cb below.
 
@@ -89,7 +89,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     estimated spend reaches it -- the tighter of the per-job and monthly
     caps, resolved before the job starts. None = no cap.
 
-    summary_engine/summary_engine_choice (Step 74): the engine used for
+    summary_engine/summary_engine_choice: the engine used for
     the once-per-episode running-summary call once this drama finishes
     translating, built by the caller (in the main thread, where Settings
     is readable) -- None if no summary engine is available/configured,
@@ -97,7 +97,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     summary_monthly_cap_usd: the monthly cap, re-checked right before a
     paid summary call (skipped once used up); None = no cap.
 
-    target_ids: optional set of permanent line ids (Migration Slice 40's API
+    target_ids: optional set of permanent line ids (set by the API
     start) -- only those lines are translated; None = every eligible line.
 
     own_lines_only (with target_ids): English is written only on the target
@@ -123,7 +123,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     character_names = tguide.build_speaker_labels(
         db.list_characters_with_series_names(drama_id),
         db.list_series_characters(_series_id) if _series_id else [])
-    # Step 41: what produced each line (item 4) and per-stage timing (item 5).
+    # What produced each line, and per-stage timing.
     provenance = line_provenance_service.translate_run_tracker(
         drama_id, lines, engine, engine_choice, glossary_terms, locale=locale,
         style_preset=style_preset, reflect=bool(reflect), context_window=context_window,
@@ -168,7 +168,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
     job_timing_service.mark_stage(job_id, "Finish (glossary checks, version, summary)")
     recheck = set()
-    # Shared with `cli.py translate` (Step 25c): glossary enforcement,
+    # Shared with `cli.py translate`: glossary enforcement,
     # density flags, the version, persisted errors, and a "translated"
     # status only once nothing is left untranslated.
     if not bulk_translate.finish_translation_run(
@@ -215,7 +215,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
     expected/common outcome (an optional dependency the person hasn't
     installed) rather than a bug.
 
-    use_groq: Step 6i -- sends audio_path to Groq's hosted cloud Whisper
+    use_groq: sends audio_path to Groq's hosted cloud Whisper
     API (core.transcribe_with_groq) instead of running local Whisper at
     all. whisper_size/beam_size/vad_threshold/fast_mode have no effect
     on this path -- Groq's own hosted model and its own VAD produce
@@ -260,7 +260,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
             background_jobs.set_result(job_id, {"failed_reason": "vocal_separation", "detail": str(exc)})
             return
 
-    # Step 4g: separate_vocals()'s own cancel_check_cb only fires between
+    # separate_vocals()'s own cancel_check_cb only fires between
     # its internal chunks, so a cancel requested right at its tail (or,
     # when separation is off/skipped, a cancel requested before this
     # point is even reached) fell through this checkpoint-free gap and
@@ -300,8 +300,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
         background_jobs.set_result(job_id, {"failed_reason": "empty"})
         return
 
-    # Whisper's own pass has no cancel checkpoint of its own yet (out of
-    # scope for this step -- see Step 4g) -- this is the next point a
+    # Whisper's own pass has no cancel checkpoint of its own yet -- this is the next point a
     # cancel requested mid-transcription can actually be honored. The
     # expensive work is already done by here, so a cancel caught this
     # late just skips the optional realign step rather than discarding
@@ -404,7 +403,7 @@ def run_sensevoice_job(job_id, drama_id, lines, audio_path, drama_dir, use_gpu):
 
 
 def _raise_if_cancelled(job_id):
-    """B-05: stops a review job between LLM batches once cancel is requested."""
+    """Stops a review job between LLM batches once cancel is requested."""
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
 
@@ -506,9 +505,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     cost_cap_usd: same cap "Translate all lines" enforces (the tighter of
     the per-job and monthly caps, resolved before the job starts) -- stop
     cleanly once this run's real logged spend reaches it, leaving whatever
-    is still flagged untouched. Step 25w: this loop previously had no cap
-    check at all, so it could spend without limit regardless of a
-    configured monthly cap.
+    is still flagged untouched. This loop checks the cap so it can't spend without
+    limit regardless of a configured monthly cap.
 
     Each re-translation gets the same context a translate run uses
     (glossary, style guidelines, locale, the line's character name).
@@ -527,7 +525,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     fixed_count = 0
     spent = 0.0
     cap_reached = None
-    # Step 25d item 3: both stages below used to be able to lose every
+    # Both stages below used to be able to lose every
     # already-fixed line, not just the one that failed. The re-transcribe
     # call had no `except` at all, so a real exception (e.g. a
     # model-download failure partway through) escaped the loop entirely --
@@ -539,7 +537,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     # explanation. Now every per-line failure is caught, recorded, and
     # the line stays flagged, but the loop keeps going and the fixes made
     # so far are saved in a `finally` so a later failure can't erase them
-    # (the Step 25w cost-cap break below is a clean, expected stop, not a
+    # (the cost-cap break below is a clean, expected stop, not a
     # failure, but the same `finally` covers it too).
     errors = []
     try:
@@ -593,7 +591,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                                         "errors": errors[:20], "cap_reached": cap_reached})
 
 
-# Step 25k restore-a-backup guardrails -- generous, not tight, since a
+# Restore-a-backup guardrails -- generous, not tight, since a
 # full library backup legitimately includes media (audio, video); they
 # exist to catch a corrupted or accidentally-huge zip failing safely
 # (before it fills the disk), not to defend against a malicious upload in
@@ -847,7 +845,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
     staged = os.path.join(staging_dir, "library.db")
     upload = os.path.join(staging_dir, ".uploaded_library.db")
     os.replace(staged, upload)
-    # The app's data migrations (line refs -> line ids, Step 26e profiles)
+    # The app's data migrations (line refs -> line ids, profiles)
     # run on a scratch COPY of the validated upload -- safe because the
     # allowlist leaves only plain tables/indexes; its DDL is discarded, only
     # its rows are copied into the fresh file below.
@@ -915,7 +913,7 @@ def _remove_entry(path: str):
 
 
 def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None) -> None:
-    """Step 25k: validate an uploaded backup zip and swap it in for
+    """Validate an uploaded backup zip and swap it in for
     library_dir, without ever destroying the existing library if the
     upload turns out to be invalid.
 
@@ -1044,7 +1042,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                                   expected_engines: dict = None, allow_paid_summary: bool = True,
                                   include_genre_notes: bool = True,
                                   default_female_pronouns: bool = False):
-    """Step 9b.3: translates every drama in drama_ids that has no
+    """Translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
     GPU/API-load reasoning as everywhere else in this app that queues
     rather than parallelizes). Each drama uses its own saved engine
@@ -1066,7 +1064,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     rule). models: {engine_name: model_id}, same reasoning -- the
     Settings-configured default model for each engine, gathered by the
     caller before this starts, rather than falling back to each engine's
-    own bare default (Step 25d item 1). monthly_cap: Settings' monthly
+    own bare default. monthly_cap: Settings' monthly
     spending cap in USD, or 0/None for no cap -- re-checked against
     db.get_month_spend() before each drama, same as Workspace's and
     cli.py translate's own per-run cap resolution, since this was the one
@@ -1146,10 +1144,9 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             continue
 
         lines = core_module.lines_from_rows(rows)
-        # Step 25d item 1: this used to always be "audio_drama", even for
-        # a novel-narration drama -- same per-content-mode default Step
-        # 25c's own shared translate-finishing helper and `cli.py
-        # translate` already use.
+        # Must not always be "audio_drama" (wrong for a novel-narration
+        # drama): same per-content-mode default the shared
+        # translate-finishing helper and `cli.py translate` use.
         is_novel = drama.get("content_mode") == "novel_narration"
         style_preset = "novel" if is_novel else "audio_drama"
         glossary_terms, style_guidelines, _ = build_run_style_context(
@@ -1176,9 +1173,9 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             batch_size=defaults["batch_size"],
             summary_engine=summary_engine, summary_engine_choice=summary_choice,
             summary_monthly_cap_usd=monthly_cap,
-            # Step 25d item 1: an Ollama-engine run touches the local GPU
+            # An Ollama-engine run touches the local GPU
             # like every other Ollama translation job in the app, and
-            # needs the same GPU-job guard (Step 5c) so it can't run
+            # needs the same GPU-job guard so it can't run
             # alongside another GPU-touching job.
             gpu_touching=engine_choice == "ollama",
             description=f"Ollama translation ({title})" if engine_choice == "ollama" else None)
@@ -1187,8 +1184,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             continue
 
         while True:
-            # Step 25d item 1: an Ollama drama can now be queued behind
-            # Step 5c's GPU guard (see gpu_touching= above) instead of
+            # An Ollama drama can be queued behind
+            # the GPU guard (see gpu_touching= above) instead of
             # starting immediately -- is_running() alone would miss that
             # state entirely and fall straight through to the "finished"
             # check below while the job was still only queued.

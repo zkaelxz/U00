@@ -29,7 +29,7 @@ What it asserts:
   * click-to-see-original and the overlay toggle work,
   * the same image appearing twice is sent once, not once per element.
 
-Step 96 added a second, text-capture mode alongside the image one, and
+The extension has a second, text-capture mode alongside the image one, and
 this script covers it with the same rigor:
 
   * with nothing selected, the page's own largest contiguous block of
@@ -372,7 +372,7 @@ document.getElementById("viaBlob").src =
                   len([c for c in calls if c[0] == "translate"]) == before,
                   f"{len([c for c in calls if c[0] == 'translate'])} translate call(s) total")
 
-            # -- text capture (Step 96) -------------------------------
+            # -- text capture -------------------------------
             # With nothing selected: the heuristic should pick the
             # <article>'s three paragraphs and skip the <nav> entirely,
             # then run that text through the real (unmocked)

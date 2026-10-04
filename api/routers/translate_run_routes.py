@@ -1,8 +1,8 @@
 """
 api/routers/translate_run_routes.py -- Translate-stage endpoints for one
-drama (Migration Slice 39): the read-only stage config and the advisory
-pre-run cost estimate. Distinct from Slice 13's standalone translator
-under /api/translate. Slice 40 adds the start-translate job;
+drama: the read-only stage config and the advisory
+pre-run cost estimate. Distinct from the standalone translator
+under /api/translate. It also adds the start-translate job;
 see services/translate_run_service.py for the scope decision.
 Parity X02/X22 add "Apply tier" (lines.edit: per-drama stage config) and
 "Save as preset" (admin.library, like preset rename: a library catalogue

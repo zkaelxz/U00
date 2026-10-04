@@ -4,7 +4,7 @@ import { getStrongerSuggestions } from '../../../../api/strongerEngine'
 import type { StrongerEngineSuggestions } from '../../../../types/strongerEngine'
 import { buildOffers, type StrongerOffer } from './strongerEngineLogic'
 
-// Step 99: which lines to offer the stronger engine for, by line id. Fetched
+// Which lines to offer the stronger engine for, by line id. Fetched
 // once per drama and again after any write (`reloads`); the GET makes no
 // engine call. Optional: a failure (or no permission) just offers none.
 export function useStrongerOffers(dramaId: number, reloads: number): Map<number, StrongerOffer> {

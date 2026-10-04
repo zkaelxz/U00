@@ -1,9 +1,9 @@
 """
-services/restructure_service.py -- Migration Slice 45: STRUCTURAL line
+services/restructure_service.py -- STRUCTURAL line
 changes for one drama (add, delete, merge, split, re-segmentation) and
 Version-history restore.
 
-Correctness rules (Steps 2, 6c, 6f, 25l, 25m):
+Correctness rules:
 - Every change loads the drama's lines FRESH from the database, checks the
   client's `expected_line_ids` (the drama's line ids, in order, as the
   client last saw them) against them -- any difference is a 409 with
@@ -312,7 +312,7 @@ def preview_resegmentation(drama_id: int) -> dict:
 
 
 def _apply_resegmented(drama_id: int, new_lines, source_ids: list) -> dict:
-    """The job's write step: same guard as Apply (Step 6f)."""
+    """The job's write step: same guard as Apply."""
     with _drama_lock(drama_id):
         current = db.load_line_objects(drama_id)
         if [ln.id for ln in current] != source_ids:
@@ -374,7 +374,7 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
                          model: Optional[str] = None, use_preview: bool = False) -> dict:
     """Starts a `resegment_<drama_id>` job that re-segments AND saves (with
     a "before re-segment" snapshot). Split lines lose their translation,
-    flag, notes and emotion tag (Step 6c); confirm=true is required when
+    flag, notes and emotion tag; confirm=true is required when
     any line long enough to be split carries one. A local Ollama LLM pass
     runs in a subprocess (cancellable) and saves via on_done.
 
@@ -586,8 +586,8 @@ def _start_preview_apply(drama_id: int, expected_line_ids: list, confirm: bool) 
 def restore_version(drama_id: int, history_id: int, expected_line_ids) -> dict:
     """Restores a history snapshot over the current lines, after taking a
     "before restore" snapshot (so the restore itself can be undone). Lines
-    are matched by permanent id (core.restore_saved_lines / adopt_ids,
-    Step 25l): a line whose id still exists keeps its notes/emotion; flag,
+    are matched by permanent id (core.restore_saved_lines / adopt_ids):
+    a line whose id still exists keeps its notes/emotion; flag,
     flag note and SFX mark come from the snapshot (or, for a snapshot saved
     before those were recorded, stay as the line has them now); a line
     merged/deleted since gets a fresh id and nothing is reattached by

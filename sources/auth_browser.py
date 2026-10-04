@@ -1,6 +1,5 @@
 """
-sources/auth_browser.py -- signed-in browser sessions (roadmap Step 23k
-items 1, 2 and 4).
+sources/auth_browser.py -- signed-in browser sessions.
 
     1. The capability check runs first. A source whose terms restrict
        automated access (or AI/ML use) is refused here -- before a window

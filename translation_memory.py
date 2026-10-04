@@ -1,5 +1,5 @@
 """
-translation_memory.py -- Step 24: reuse a translation the translator
+translation_memory.py -- reuse a translation the translator
 already approved for an exact or near-identical source line.
 
 Distinct from adaptive_style.py, which learns aggregate preferences
@@ -9,7 +9,7 @@ approved before, and offers that specific translation back.
 
 Matches are only ever suggestions: nothing here writes to a line. The
 Workspace shows each one next to its line with an Accept button, the same
-guardrail as Step 8's voice-match Accept/Reject and Step 7b's glossary
+guardrail as the voice-match Accept/Reject and the glossary
 suggestions -- a near-match can be wrong (one changed character can flip
 a line's meaning), so a person decides.
 

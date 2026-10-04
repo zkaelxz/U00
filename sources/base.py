@@ -1,5 +1,5 @@
 """
-sources/base.py -- the adapter interface (Step 23 item 1).
+sources/base.py -- the adapter interface.
 
 An adapter is one class per site. It declares what it serves (content
 types, languages, URL patterns) and implements whichever of these it can:
@@ -10,7 +10,7 @@ types, languages, URL patterns) and implements whichever of these it can:
     get_pages(chapter)            -> [PageRef]          (image sources)
     download_page(page)           -> (bytes, ext)       (image sources)
     get_chapter_text(chapter)     -> str                (text sources)
-    login(url)                    -> LoginCheck         (Step 23k: the person
+    login(url)                    -> LoginCheck         (the person
                                                          signs in in a real browser
                                                          window; no credentials
                                                          pass through the app)
@@ -36,7 +36,7 @@ from .models import (NotSupportedError, Requirement, SourceCapabilities)
 
 def host_url_search(patterns, url, flags=0):
     """True if `url` is an http(s) URL whose *parsed host* is matched by one of
-    the host+path regexes in `patterns` (B-25).
+    the host+path regexes in `patterns`.
 
     The regex runs on ``hostname + path [+ ?query]`` and must start at the
     beginning of the host or right after a dot inside it (so ``www.``/``m.``
@@ -143,12 +143,12 @@ class SourceAdapter:
 
     def get_audio_url(self, chapter):
         """Optional: an audio source's equivalent of get_pages()/
-        get_chapter_text() (roadmap Step 94) -- resolves one episode to
+        get_chapter_text() -- resolves one episode to
         its real, playable location. Returns models.AudioRef."""
         raise NotSupportedError(f"{self.display_name or self.name} doesn't provide episode audio.")
 
     def login(self, url: str = "", launcher=None):
-        """Step 23k's manual login: opens this source's persistent browser
+        """Manual login: opens this source's persistent browser
         profile at `url` (or `login_url`) for the person to sign in
         themselves, waits until they close the window, then checks the
         page is actually visible in that session. The app never sees or

@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { mockReeval, mockRemote, overview } from './reevalMocks'
 
-// Model re-evaluation card on the Benchmark Lab (Step 40b, desktop). The
+// Model re-evaluation card on the Benchmark Lab (desktop). The
 // first test uses the real API for what spends nothing (read, add, estimate,
 // reject, re-add): its production model is Claude with no key, so Run now
 // stays disabled. Run, promote and the schedule go through a stand-in for

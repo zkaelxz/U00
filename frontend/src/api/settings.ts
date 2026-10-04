@@ -47,7 +47,7 @@ export function gpuMaxParallelHelp(n: number): string {
 export const updatePreferences = (patch: Partial<SettingsPreferences>, f?: Fetch) =>
   postJson<SettingsOverview>('/api/settings', patch, f)
 
-// Write-only key endpoints (Slice 24). The value goes in the body only,
+// Write-only key endpoints. The value goes in the body only,
 // never the URL; the response is {engine, configured}, never the key.
 const keyPath = (engine: string) => `/api/settings/keys/${encodeURIComponent(engine)}`
 export const setEngineKey = (engine: string, value: string, f?: Fetch) =>

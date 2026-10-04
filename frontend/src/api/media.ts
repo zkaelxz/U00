@@ -1,4 +1,4 @@
-// Seekable playback URLs (Slice 52: GET/HEAD /api/media/dramas/{id}/audio|video,
+// Seekable playback URLs (GET/HEAD /api/media/dramas/{id}/audio|video,
 // HTTP Range, permission media.stream). The browser's <audio>/<video> element
 // fetches these directly; nothing is buffered in JS.
 

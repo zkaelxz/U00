@@ -8,7 +8,7 @@ import type { ReviewLine } from '../../../../types/review'
 
 const CONFIRM_TIMEOUT_MS = 5000
 
-// Step 38: "Add as regression test" in the line sheet. Keeps this line's
+// "Add as regression test" in the line sheet. Keeps this line's
 // source and its current English as a Benchmark Lab regression case, so the
 // next benchmark run checks it. Never automatic: two presses, PC only (the
 // route is local_only), hidden elsewhere.

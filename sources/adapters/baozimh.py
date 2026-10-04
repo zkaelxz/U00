@@ -1,6 +1,6 @@
 """
 sources/adapters/baozimh.py -- 包子漫画 baozimh.org / godamh.com (zh
-manhua), roadmap Step 23i.
+manhua).
 
 **Distinct from `baozimh.com`** (the domain sharing similar branding but
 confirmed blocked twice, never built) -- this is specifically the

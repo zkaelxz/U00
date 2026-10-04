@@ -1,6 +1,6 @@
 """
 services/maintenance_assistant_service.py -- the in-app AI maintenance
-assistant, read-only v1 (roadmap Step 42). UI-free; the API
+assistant, read-only v1. UI-free; the API
 (api/routers/assistant_routes.py, every route PC-only) and the React
 Assistant page call it.
 
@@ -294,7 +294,7 @@ def get_settings() -> dict:
         "engine": engine if engine in choices else None,
         "model": model if isinstance(model, str) and model else None,
         "engine_choices": choices,
-        # Step 60: implement -> independent review, off by default.
+        # Implement -> independent review, off by default.
         "roles_enabled": _get("roles_enabled", False) is True,
         "review_engine": review_engine if review_engine in choices else None,
         "review_model": review_model if isinstance(review_model, str) and review_model else None,
@@ -829,7 +829,7 @@ _PATCH_FILE_RE = re.compile(r"^\+\+\+ (?:b/)?(\S+)", re.MULTILINE)
 
 
 def tools_prompt() -> str:
-    """How to call the read-only tools; shared by every role (Step 60)."""
+    """How to call the read-only tools; shared by every role."""
     tool_lines = "\n".join(f"- {name}: {desc} Example args: {example}"
                            for name, (_fn, desc, example) in READ_ONLY_TOOLS.items())
     return (
@@ -1036,7 +1036,7 @@ def run_diagnosis(question: str, history: list, engine, chat=None, system_prompt
     """The tool loop. `chat(system_prompt, messages, engine) -> str` is
     injectable for tests. Returns the final answer text and the tool
     calls made (id, name, args, ok, summary). `system_prompt` sets the
-    role (Step 60's reviewer); the tool table is the same read-only one
+    role (the reviewer); the tool table is the same read-only one
     for every role."""
     chat = chat or _chat
     system_prompt = system_prompt or _system_prompt()
@@ -1210,7 +1210,7 @@ def developer_report(chat_history=None, question: str = "", evidence: str = "") 
 
 
 # ---------------------------------------------------------------------------
-# Step 60: independent cross-provider review of a proposed fix
+# Independent cross-provider review of a proposed fix
 # ---------------------------------------------------------------------------
 
 def build_review_engine():

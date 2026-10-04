@@ -1,4 +1,4 @@
-// Step 99: suggest a stronger engine for a hard line in Review
+// Suggest a stronger engine for a hard line in Review
 // (api/routers/stronger_engine_routes.py). Suggest only: the GET makes no
 // engine call, and the POST makes one (possibly paid) call and writes nothing.
 import type { StrongerEngineSuggestions, StrongerLineResult } from '../types/strongerEngine'

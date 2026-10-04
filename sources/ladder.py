@@ -1,5 +1,5 @@
 """
-sources/ladder.py -- the access-method ladder (Step 23 items 2, 2b, 3b).
+sources/ladder.py -- the access-method ladder.
 
     STATIC_HTTP -> RENDERED_BROWSER -> AUTHENTICATED_BROWSER
                 -> USER_ASSISTED_BROWSER -> OFFICIAL_API -> UNAVAILABLE
@@ -16,7 +16,7 @@ Rules the ladder enforces, not just documents:
     the page they reached themselves (USER_ASSISTED_BROWSER).
   * Protected content (DRM, site-side decryption, signed tokens) is named
     and recorded, never decoded or worked around.
-  * AUTHENTICATED_BROWSER (Step 23k) reads the page inside the persistent
+  * AUTHENTICATED_BROWSER reads the page inside the persistent
     browser profile the person signed in to themselves. It answers "can
     this session see it" -- never "may the app extract it". Terms
     restrictions are still read and recorded (apply_terms), but
@@ -59,7 +59,7 @@ class TierOutcome:
     content_access: str = ContentAccess.UNKNOWN.value
     evidence: dict = field(default_factory=dict)
     data: object = None                             # tier-specific payload (e.g. API metadata)
-    stop: bool = False                              # B-25: refused address -- try no further tier
+    stop: bool = False                              # refused address -- try no further tier
 
 
 @dataclass
@@ -144,7 +144,7 @@ def rendered_tier(client=None, fetch_rendered=None):
 
 
 def authenticated_tier(profile_dir: str, client=None, fetch_with_profile=None):
-    """AUTHENTICATED_BROWSER (Step 23k): the page as the persistent
+    """AUTHENTICATED_BROWSER: the page as the persistent
     profile at `profile_dir` sees it -- i.e. with the person's own sign-in.
     The same classification as RENDERED_BROWSER then doubles as the
     "is the target content actually visible in this session" check: a page
@@ -231,8 +231,8 @@ AUTOMATED_TIERS = [AccessTier.STATIC_HTTP, AccessTier.RENDERED_BROWSER,
 def _refused_address(url: str):
     """True when `url` itself is not http(s) with only public addresses.
     "unresolved" when the name doesn't resolve here: the static tier may
-    still run and fail normally, but the browser tiers are dropped (B-28:
-    with split-horizon DNS Chromium could resolve it to a private IP)."""
+    still run and fail normally, but the browser tiers are dropped (with
+    split-horizon DNS Chromium could resolve it to a private IP)."""
     from services import url_guard
     try:
         url_guard.resolve_public(ascii_url(url))
@@ -256,7 +256,7 @@ def run_ladder(url: str, tiers: dict, source: str = None, log: bool = True) -> L
         tiers = {t: fn for t, fn in tiers.items()
                  if t not in (AccessTier.RENDERED_BROWSER, AccessTier.AUTHENTICATED_BROWSER)}
     elif refused:
-        # B-25: a URL that is not public is never handed to any tier at all.
+        # A URL that is not public is never handed to any tier at all.
         result.attempts.append(AttemptRecord(
             tier=AccessTier.STATIC_HTTP.value, ok=False,
             reason=FailureReason.ACCESS_DENIED.value, detail=REDIRECT_REFUSED,
@@ -496,7 +496,7 @@ def record_ladder_result(source: str, result: LadderResult,
 
 
 # ---------------------------------------------------------------------------
-# Step 23k: per-attempt access facts (Source Diagnostics item 6)
+# Per-attempt access facts
 # ---------------------------------------------------------------------------
 
 _UNAUTHENTICATED = (AccessTier.STATIC_HTTP.value, AccessTier.RENDERED_BROWSER.value)

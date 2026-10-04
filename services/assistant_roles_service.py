@@ -1,6 +1,6 @@
 """
 services/assistant_roles_service.py -- multi-agent roles for the
-maintenance assistant (roadmap Step 60). UI-free; used by
+maintenance assistant. UI-free; used by
 services/maintenance_assistant_service.ask when the "roles" setting is on
 (off by default).
 
@@ -14,8 +14,8 @@ is resolved automatically in either direction: a review that raises
 concerns is shown next to the fix, the fix is not dropped, and a review
 that agrees does not apply anything.
 
-Roles are prompts over the existing engine dispatch (Step 36's capability
-registry isn't built; the capability names below are the ones Step 36
+Roles are prompts over the existing engine dispatch (the capability
+registry isn't built; the capability names below are the ones it
 would route). No role gets any tool beyond maintenance_assistant_service's
 read-only table. Out of scope (roadmap item 4): an autonomous tester
 agent and a release agent.

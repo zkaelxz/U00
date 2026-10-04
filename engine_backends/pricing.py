@@ -91,7 +91,7 @@ PRICING_PER_MILLION_TOKENS = {
     "claude-sonnet-5": {"input": 2.0, "output": 10.0},
     "claude-haiku-4-5-20251001": {"input": 1.0, "output": 5.0},
     "claude-opus-4-8": {"input": 15.0, "output": 75.0},
-    # Step 9e: corrected against api-docs.deepseek.com/quick_start/pricing's
+    # Corrected against api-docs.deepseek.com/quick_start/pricing's
     # raw page source (checked directly, not a summarized fetch) -- these
     # previous flat figures didn't match DeepSeek's real pricing structure
     # at all, which splits every price by peak/off-peak (peak: 01:00-04:00
@@ -191,7 +191,7 @@ def estimate_translation_cost(engine, zh_lines: list) -> float:
 
 
 def estimate_reflect_mode_cost(engine, zh_lines: list) -> float:
-    """Rough pre-run estimate for Step 7's Reflect mode, shown before the
+    """Rough pre-run estimate for Reflect mode, shown before the
     user starts it (it costs real money to run and can't be cancelled
     mid-line the way a single bad batch can). Reflect mode is three LLM
     calls instead of translate_batch's one, so this is a normal run's

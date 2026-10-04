@@ -1,6 +1,6 @@
 """
 sources/registry.py -- which adapters exist, which are switched on, and
-the top-level multi-source search (Step 23 item 6).
+the top-level multi-source search.
 """
 
 import re
@@ -123,7 +123,7 @@ def multi_search(query: str, adapters=None, max_workers: int = 4,
     failing source only costs that source's results.
 
     `limit_per_source` caps how many of one adapter's own results are
-    kept (Step 85: an unbounded search against a source with a huge
+    kept (an unbounded search against a source with a huge
     catalog could otherwise return hundreds of results with no way to
     trim them -- 20 per source is already generous for picking the
     right series by title)."""

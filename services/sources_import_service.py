@@ -206,7 +206,7 @@ def _import_result(chapters: list, cancelled: bool, handoff) -> dict:
 
 
 def _save_manifest(name: str, series_id: str, drama_id: int, chapters: list):
-    """Step 107: remembers which chapters failed or were never attempted
+    """Remembers which chapters failed or were never attempted
     (redacted text only, as shown in the result), so the retry survives a
     reload or a restart. Best effort: the import itself already happened."""
     try:
@@ -421,7 +421,7 @@ def _drama_created(drama: dict):
 
 
 def get_import_state(name, series_id, drama_id, principal=None) -> dict:
-    """Step 107: what the chapter picker marks before an import -- the
+    """What the chapter picker marks before an import -- the
     chapters of this series already imported into this drama, and the ones
     the last imports left failed or not attempted (the "Retry failed
     chapters (N)" set). Reads sources.db only; fetches nothing. 404 unknown

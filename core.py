@@ -42,7 +42,7 @@ class Line:
     # speaker detection (diarize.merge_speakers) leaves it alone unless
     # told to overwrite corrections.
     speaker_manual: bool = False
-    # Step 12c: a non-verbal/SFX cue ("door slams") rather than dialogue --
+    # A non-verbal/SFX cue ("door slams") rather than dialogue --
     # exported bracketed and styled apart from speech (see sfx_cue_text).
     sfx: bool = False
     # This line's spoken language, a LINE_LANGUAGES code; None means the
@@ -125,7 +125,7 @@ def adopt_ids(restored, current, recorded=()) -> list:
     """For restoring a saved snapshot/translation version over the current
     lines: gives each restored line the permanent id (and `orig`) of the
     current line it replaces -- by id when the snapshot recorded one, else
-    by position (snapshots from before Step 2 have no ids) -- so notes and
+    by position (snapshots from before line ids existed have no ids) -- so notes and
     emotions stay attached instead of being deleted with the old rows.
     Fields a snapshot doesn't store (dub_filename in a version; flag,
     flag_note, sfx and lang in one saved before they were recorded) are carried
@@ -134,7 +134,7 @@ def adopt_ids(restored, current, recorded=()) -> list:
     value, since after a merge the matched line may hold another line's flag.
 
     Positional fallback only applies to a line whose snapshot never
-    recorded an id at all (pre-Step-2). A line whose id *was* recorded but
+    recorded an id at all (older snapshot). A line whose id *was* recorded but
     no longer resolves -- it was merged away since the snapshot was taken
     -- must not fall back to matching by position: idx numbering shifts
     after a merge, so that would silently reattach the snapshot's notes,
@@ -162,7 +162,7 @@ def adopt_ids(restored, current, recorded=()) -> list:
                 setattr(ln, f, getattr(match, f))
         if "sfx" not in recorded:
             ln.sfx = ln.sfx or match.sfx
-        # Snapshots/versions from before Step 25c didn't record
+        # Older snapshots/versions didn't record
         # speaker_manual -- restoring the same speaker the line has now
         # keeps its hand-corrected mark instead of silently dropping it.
         if ln.speaker == match.speaker:
@@ -200,7 +200,7 @@ def restore_saved_lines(rows, current, translation_only: bool = False) -> list:
     hand-corrected mark), source text and timing stay as they are now,
     since activating a version picks a translation, not a rollback of the
     whole line. A version saved over a different line structure (merged,
-    split, re-segmented since, or from before Step 2's ids) can only be
+    split, re-segmented since, or from before line ids existed) can only be
     restored whole, since its translations belong to its own lines."""
     if translation_only and saved_matches_lines(rows, current):
         en_by_id = {r["id"]: r.get("en") or "" for r in rows}
@@ -235,7 +235,7 @@ def notes_suffix(line_idx: int, notes_by_idx: dict) -> str:
 
 
 def sfx_cue_text(text: str, italic_tags: bool = True) -> str:
-    """Step 12c: a non-verbal/SFX cue's subtitle text -- bracketed, so it
+    """A non-verbal/SFX cue's subtitle text -- bracketed, so it
     reads as "[door slams]" rather than as something a character said.
     Already-bracketed text isn't double-bracketed. italic_tags wraps it in
     <i>...</i>, which SRT/VTT players (and an SRT burn-in) render; ASS
@@ -271,7 +271,7 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 1: transcribe audio for timing (faster-whisper)
+# Transcribe audio for timing (faster-whisper)
 # ---------------------------------------------------------------------------
 
 _whisper_model_cache = {}
@@ -307,7 +307,7 @@ WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False, "no_repeat_ngra
 def release_gpu_models():
     """Call after a GPU stage (transcription, alignment, diarization)
     finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models
-    (and a local NLLB translation pipeline, Step 41 item 8)
+    (and a local NLLB translation pipeline)
     and hands CUDA's cached memory back, so the next stage -- or a local
     translation model in Ollama, or TTS -- isn't fighting leftovers for
     the same VRAM. The next run of a stage reloads its model (seconds, from
@@ -571,7 +571,7 @@ def build_initial_prompt(terms, max_terms: int = 40) -> str:
 
     `terms` accepts glossary rows or plain strings, so a glossary built
     from the novel can feed straight back into transcription. A glossary
-    row's `aliases` (Step 30: pipe-separated alt spellings/transliterations
+    row's `aliases` (pipe-separated alt spellings/transliterations
     of term_original) are primed too, not just the canonical original --
     whichever spelling Whisper actually latches onto still helps.
     """
@@ -875,7 +875,7 @@ class GroqTranscriptionError(RuntimeError):
 def transcribe_with_groq(audio_path: str, language: str, api_key: str,
                          model: str = GROQ_DEFAULT_MODEL, progress_cb=None):
     """
-    Step 6i: an opt-in, paid cloud alternative to transcribe_for_timing's
+    An opt-in, paid cloud alternative to transcribe_for_timing's
     local faster-whisper path -- sends the whole file to Groq's hosted
     Whisper Large-v3-Turbo API (the same model family this app defaults
     to locally, at ~$0.04/hour of audio) and returns the identical
@@ -927,7 +927,7 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
 
 
 # ---------------------------------------------------------------------------
-# Step 2: align user transcript to Whisper timing
+# Align user transcript to Whisper timing
 # ---------------------------------------------------------------------------
 
 def chunk_novel_text(raw_text: str, max_chars: int = 200):

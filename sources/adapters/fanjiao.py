@@ -1,6 +1,6 @@
 """
 sources/adapters/fanjiao.py -- 饭角 Fanjiao (zh, baihe/GL audio dramas,
-18+), roadmap Step 113. Operator 深圳热蓝科技有限公司. (The roadmap's
+18+). Operator 深圳热蓝科技有限公司. (The roadmap's
 "泛娱有声" label was wrong; the platform is 饭角, www.fanjiao.co.)
 
 Metadata only, through the RENDERED_BROWSER tier. User decision

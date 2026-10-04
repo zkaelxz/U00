@@ -1,6 +1,5 @@
 """
-sources/profiles.py -- per-domain extraction profiles (roadmap Step 23g
-item 4).
+sources/profiles.py -- per-domain extraction profiles.
 
 Once a site's layout has been worked out -- by the AI-assisted fallback,
 or by the person correcting a result on the Review Extraction screen --

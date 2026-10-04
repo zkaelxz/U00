@@ -2,7 +2,7 @@ import { type Page } from '@playwright/test'
 
 import { expect, test } from './fixtures'
 
-// Settings > Notifications (Step 44) and the header bell. Every notification
+// Settings > Notifications and the header bell. Every notification
 // call is mocked and fulfilled; a catch-all aborts (and records) any other
 // non-GET /api call, so nothing is written to the seeded library's .env and
 // nothing is sent. NOTIFY_SCREENS_DIR saves review screenshots (not asserted).

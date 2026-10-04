@@ -1,5 +1,5 @@
 """
-media_inspect.py -- Step 59: a lightweight "what is this file?" probe for a
+media_inspect.py -- a lightweight "what is this file?" probe for a
 media file dropped before a drama/project even exists (the services call
 into this). Pure ffprobe + filename/duration heuristics, no model
 loading -- deliberately cheap enough to run on every file a user is just

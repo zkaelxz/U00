@@ -1,6 +1,6 @@
 """
-api/routers/discover_routes.py -- Discover known-titles catalog
-(Migration Slice 55). Thin: see services/discover_catalog_service.py.
+api/routers/discover_routes.py -- Discover known-titles catalog.
+Thin: see services/discover_catalog_service.py.
 No network, no LLM.
 """
 

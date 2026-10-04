@@ -1,4 +1,4 @@
-// Mirrors api/jellyfin_schemas.py (roadmap Step 39: optional Jellyfin connector).
+// Mirrors api/jellyfin_schemas.py (optional Jellyfin connector).
 
 export interface JellyfinConfig {
   enabled: boolean

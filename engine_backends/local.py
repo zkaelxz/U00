@@ -9,7 +9,7 @@ from .shared import read_json_capped, request_translations_with_retry
 # ---------------------------------------------------------------------------
 
 # NLLB-200's own language codes for the three source languages this app
-# supports, plus English (Step 26b: needed as a target for zh/ja/ko ->
+# supports, plus English (needed as a target for zh/ja/ko ->
 # English, the app's existing default, and as a source for the standalone
 # tool's new English -> zh/ja/ko direction). zh always maps to Simplified
 # here (NLLB has a separate zho_Hant code for Traditional) -- see
@@ -24,7 +24,7 @@ NLLB_MODELS = {
 
 # Keyed by (model_name, source_language, target_language) -- NLLB bakes
 # both src_lang and tgt_lang into the pipeline object itself, so a drama
-# that mixes source languages across runs (or Step 26b's standalone tool,
+# that mixes source languages across runs (or the standalone tool,
 # which can ask for either direction) needs a separate pipeline per
 # language pair, same shape as Whisper's own _whisper_model_cache in
 # core.py.
@@ -114,7 +114,7 @@ _OLLAMA_ID_KEYED_JSON_SCHEMA = {"type": "object", "additionalProperties": {"type
 
 # Local Ollama models offered in the picker. qwen3:8b is the default: it
 # beat qwen2.5:7b on translation benchmarks at the same size (see the
-# roadmap's Step 5 / model registry). 14B is opt-in -- its quantized weights
+# model registry). 14B is opt-in -- its quantized weights
 # don't fit cleanly alongside everything else in 8 GB of VRAM, so Ollama
 # offloads part of it to the CPU and it runs much slower there.
 OLLAMA_DEFAULT_MODEL = "qwen3:8b"

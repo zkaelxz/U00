@@ -1,5 +1,5 @@
 """
-services/engine_routing_service.py -- Step 36: capability-based AI task
+services/engine_routing_service.py -- capability-based AI task
 routing ("which engine does what").
 
 A task asks for a capability (`resolve_capability("translation.cheap")`)
@@ -17,7 +17,7 @@ dramas" preference and `summary.episode` IS the episode-summary engine
 preference. The others are stored in db.app_settings under
 "capability.<id>".
 
-Also here (Step 36 item 6): the per-engine status for Settings
+Also here: the per-engine status for Settings
 (not configured / untested / working / failed) and the "Test" action, which
 makes one short real call through diagnostics.check_engine_reachable with
 the key resolved on the PC. Keys are never accepted or returned; a failure
@@ -60,7 +60,7 @@ CAPABILITIES = {
                  "you choose it."),
         "requires": translate_engines.CAP_TRANSLATE,
         "default": _DEFAULT_ENGINE,
-        "unset_label": "Off (no suggestions)",  # Step 99 offers nothing while unset
+        "unset_label": "Off (no suggestions)",  # no suggestions are offered while unset
     },
     "llm.instructions": {
         "label": "Line helpers for translation-only engines",
@@ -225,7 +225,7 @@ def get_routing() -> dict:
 
 
 def test_engine(engine: str, model: str = None) -> dict:
-    """Step 36 item 6: one short real translate call with the key saved on
+    """One short real translate call with the key saved on
     this PC. Spends a tiny amount of quota on a paid engine, so it runs only
     from an explicit button. Records the outcome for the status badge and
     returns the engine's refreshed status."""

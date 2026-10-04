@@ -42,7 +42,7 @@ class ClaudeEngine:
         def call_model(numbered):
             resp = self.client.messages.create(**self.build_request_params(context, numbered))
             _add_usage(self.last_usage, claude_usage(getattr(resp, "usage", None)))
-            # Step 31: Claude's Messages API sets stop_reason to "refusal"
+            # Claude's Messages API sets stop_reason to "refusal"
             # when it declines a request on content-policy grounds -- a
             # real, documented signal, not a guess. Checked before ever
             # falling through to the soft-refusal text heuristic.

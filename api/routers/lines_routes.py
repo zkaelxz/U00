@@ -1,6 +1,6 @@
 """
 api/routers/lines_routes.py -- the Review stage's per-line WRITES for one
-drama (Migration Slice 43): partial line edit (with compare-and-set on the
+drama: partial line edit (with compare-and-set on the
 client's old values), set lines' spoken language, dismiss flag, find-and-replace apply, translation-memory
 accept, and translation-note add/delete.
 

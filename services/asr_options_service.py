@@ -1,12 +1,12 @@
 """
 services/asr_options_service.py -- the two experimental transcription
-settings (Steps 103 and 104), stored in db.app_settings like use_gpu.
+settings, stored in db.app_settings like use_gpu.
 
-- qwen_asr_batch_size (Step 103): how many Whisper segments go to Qwen3-ASR
+- qwen_asr_batch_size: how many Whisper segments go to Qwen3-ASR
   in one call when a drama's ASR backend is Qwen3-ASR. 1 (the default) keeps
   the original one-segment-at-a-time behaviour; batching is opt-in until the
   user's real GPU comparison shows it doesn't change the text.
-- moss_experimental (Step 104): allows MOSS-Transcribe-Diarize as a drama's
+- moss_experimental: allows MOSS-Transcribe-Diarize as a drama's
   ASR backend. Off by default; with it off the backend can't be chosen or run.
 - qwen_vad_refine_timing: with the "Qwen3 ASR with speech detection" backend, also
   tightens each line's times with Qwen3-ForcedAligner. Off by default.

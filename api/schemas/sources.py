@@ -70,7 +70,7 @@ __all__ = [
 ]
 
 
-# --- Discover catalog (Migration Slice 55) ---------------------------------
+# --- Discover catalog -------------------------------------------------------
 class KnownTitle(BaseModel):
     id: int
     title_original: Optional[str] = None
@@ -130,7 +130,7 @@ class DiscoverSearchLinks(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Sources registry and status (Migration Slice 56, S-1). Read-only; S-2 adds
+# Sources registry and status (S-1). Read-only; S-2 adds
 # the write request models below. No proxy URL, path or query string is ever
 # part of these shapes.
 # ---------------------------------------------------------------------------
@@ -278,7 +278,7 @@ class SourceNotification(BaseModel):
     dismissed: bool
 
 
-# Sources config writes (Migration Slice 56, S-2).
+# Sources config writes (S-2).
 class SourceToggle(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: StrictBool
@@ -589,7 +589,7 @@ class SourceDomainProposalDismissed(BaseModel):
     dismissed: bool
 
 
-# --- Step 115b: import with lightnovel-crawler (external program) -----------
+# --- Import with lightnovel-crawler (external program) ----------------------
 class LncrawlStatus(BaseModel):
     """Booleans only: never the program's path."""
     installed: bool

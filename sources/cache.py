@@ -1,5 +1,5 @@
 """
-sources/cache.py -- the configurable raw-content cache (Step 23 item 4).
+sources/cache.py -- the configurable raw-content cache.
 
 The point isn't saving Baihe money on re-OCR (that costs next to
 nothing); it's not re-hitting a rate-limited external source for content

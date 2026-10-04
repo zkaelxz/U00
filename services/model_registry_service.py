@@ -1,5 +1,5 @@
 """
-services/model_registry_service.py -- Step 40: model deprecation /
+services/model_registry_service.py -- model deprecation /
 migration assistant. UI-free.
 
 Answers "is a model this app is set up to use deprecated, retired, or no
@@ -16,7 +16,7 @@ automatically (a settled decision: no automatic model switching).
   key, or without a list endpoint, are reported as not checked.
 - "Configured" models are every place a model string is set in this app:
   each engine's built-in default, the workflow tiers and saved presets.
-  (Step 36's capability routing, when it lands, can add its own.)
+  (Capability routing, when it lands, can add its own.)
 - The guided switch changes one saved preset's model to the replacement,
   only when the user confirms, and only if the preset still has the model
   the user saw (409 otherwise).

@@ -1,6 +1,6 @@
 """
 check_setup.py -- start.bat's own "print anything missing in plain
-words" step (Step 10), run once on every launch before the app starts.
+words" step, run once on every launch before the app starts.
 
 Deliberately a separate, tiny script rather than importing the app's own
 modules: those pull in heavy, sometimes-optional dependencies

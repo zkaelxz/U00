@@ -1,5 +1,5 @@
 """
-auto_qc.py -- Step 12b's Auto QC pass: a factual-detail check between each
+auto_qc.py -- the Auto QC pass: a factual-detail check between each
 line's source text and its translation.
 
 Looks for the details a translation most often drops or invents without
@@ -315,7 +315,7 @@ def build_name_list(glossary_terms=None, series_characters=None) -> list:
     source-language (CJK) alias recorded. Single-character source forms are
     left out -- one character matches inside too many unrelated words.
 
-    Step 30: a glossary term's recorded aliases (alt spellings/
+    A glossary term's recorded aliases (alt spellings/
     transliterations of term_original) are folded in the same way
     series_characters.aliases already is below -- classified by whether
     each alias contains a CJK character: a CJK alias is another source
@@ -343,7 +343,7 @@ def build_name_list(glossary_terms=None, series_characters=None) -> list:
 
 def build_banned_terms(glossary_terms=None) -> list:
     """[(source_forms, banned_forms)] for glossary terms with a recorded
-    banned_translations list (Step 30) -- checked across every category,
+    banned_translations list -- checked across every category,
     not just NAME_CATEGORIES, since a prohibited rendering isn't limited to
     names the way the "missing" name check is. source_forms includes both
     term_original and any recorded aliases, so a line using an alt spelling
@@ -397,7 +397,7 @@ def check_line(src: str, tgt: str, names=(), banned_terms=()) -> list:
     "text": ...}]. Empty when there's nothing to compare (either side
     blank) or when everything checks out.
 
-    `banned_terms` (Step 30, from build_banned_terms()) is checked
+    `banned_terms` (from build_banned_terms()) is checked
     separately from `names`: a term whose source form appears in `src` but
     whose translation in `tgt` matches one of its recorded
     banned_translations is flagged with direction "banned" -- never

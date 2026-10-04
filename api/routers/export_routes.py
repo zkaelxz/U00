@@ -2,15 +2,14 @@
 api/routers/export_routes.py -- Export-stage endpoints for one drama
 (Phase 6's first Workspace stage).
 
-Migration Slice 12 added the read-only readiness summary. Migration
-Slice 14 added subtitle text generation (SRT/VTT) as a plain-text
-download. Migration Slice 15 added the three flagging actions -- each
+The read-only readiness summary, subtitle text generation (SRT/VTT) as a
+plain-text download, and the three flagging actions -- each
 writes only the flag/flag_note fields (see services/export_service.py's
-own docstring for the field-scoped-write discipline). Migration Slice 18
-adds EPUB export (novel-narration dramas only) as a binary download.
-Migration Slice 27 adds ASS subtitle text (POST, per-request style, plain-text
-download) and the style-options listing. Migration Slice 29 adds the audiobook export
-job and Slice 30 the burned-in video job
+own docstring for the field-scoped-write discipline) -- live here, as does
+EPUB export (novel-narration dramas only) as a binary download.
+ASS subtitle text (POST, per-request style, plain-text
+download) and the style-options listing are also here, along with the audiobook export
+job and the burned-in video job
 (POST, returns {job_id}, output downloads via /api/artifacts). Parity
 E17/E19 add the soft-subtitle and dubbed video jobs (same shape), and E22
 "Mark as exported" (status only; admin.library like the other drama status

@@ -62,7 +62,7 @@ PREVIEW_CLIP_MAX_BYTES = 200 * 1024 * 1024
 
 def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: float, end: float,
                         timeout: float = PREVIEW_CLIP_TIMEOUT_SECONDS):
-    """Step 12c: a short [start, end) cut of the source with `ass_text`
+    """A short [start, end) cut of the source with `ass_text`
     burned in -- for checking the current subtitle style over real video
     before a full export. `ass_text` must already be timed to the clip
     (subtitle_formats.lines_for_clip), the same contract as

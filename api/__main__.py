@@ -6,7 +6,7 @@ unless `BAIHE_API_AUTH=on`. With `BAIHE_API_HOUSEHOLD_PORT` set it also
 serves the household app on that loopback port, in the same process (one
 job list); stopping either stops both.
 
-Local user administration (Step 133). These touch the library database
+Local user administration. These touch the library database
 directly, so only someone at the PC (with file access) can run them; they
 print no tokens or hashes:
 

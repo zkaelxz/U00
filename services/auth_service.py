@@ -1,6 +1,6 @@
 """
 services/auth_service.py -- users, allowlist, permissions, server-side
-sessions and the audit log (Step 133; see docs/remote-access-decision.md).
+sessions and the audit log (see docs/remote-access-decision.md).
 
 UI-free: plain dicts in and out, errors from `service_errors`. Nothing
 here knows about HTTP; `api/auth.py` is the FastAPI layer on top.

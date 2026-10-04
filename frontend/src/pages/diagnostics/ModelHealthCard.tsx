@@ -14,7 +14,7 @@ import {
 } from './modelHealth'
 
 /**
- * "Model health" (Step 40): every model this app is set up to use (built-in
+ * "Model health": every model this app is set up to use (built-in
  * defaults, workflow tiers, saved presets), with the ones that are retired,
  * deprecated, no longer listed or older shown first. The provider check is a
  * button, never automatic, and PC only; so is switching a preset or choosing

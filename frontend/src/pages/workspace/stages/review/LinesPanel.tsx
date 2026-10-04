@@ -832,7 +832,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       cancelled = true
     }
   }, [dramaId, shownIds, reloads])
-  // Step 99: lines to offer the stronger engine for (no engine call).
+  // Lines to offer the stronger engine for (no engine call).
   const strongerByLine = useStrongerOffers(dramaId, reloads)
   const tmByLine = useMemo(() => {
     const m = new Map<number, TmSuggestion>()

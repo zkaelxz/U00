@@ -1,4 +1,4 @@
-// Step 60: turn the independent review role on and pick its engine. Off by
+// Turn the independent review role on and pick its engine. Off by
 // default. When on, every proposed fix is checked by a different engine and
 // both views are shown; nothing is applied or hidden either way.
 import { useState } from 'react'

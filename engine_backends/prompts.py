@@ -17,7 +17,7 @@ _MEDIUM_DESCRIPTIONS = {
 
 
 def build_project_instructions_block(drama_meta: dict) -> str:
-    """The persisted per-series and per-drama instructions (Step 12e), as
+    """The persisted per-series and per-drama instructions, as
     one prompt block -- series first, then the drama's own, which is more
     specific and so gets the last word. Empty string when neither is set."""
     parts = []
@@ -34,7 +34,7 @@ def build_project_instructions_block(drama_meta: dict) -> str:
 
 
 def build_previous_episode_summary_block(drama_meta: dict) -> str:
-    """Step 74: the immediately preceding episode's stored running summary
+    """The immediately preceding episode's stored running summary
     (db._DRAMA_SELECT's previous_episode_summary, resolved from
     dramas.episode_number -- see its own docstring), as a fixed prompt
     block. Only ever the ONE immediately-preceding episode's summary, not
@@ -52,7 +52,7 @@ def build_previous_episode_summary_block(drama_meta: dict) -> str:
             "in your translation:\n" + text + "\n")
 
 
-# Step 54: markers in a drama's own (freeform) genre field that mean "yes,
+# Markers in a drama's own (freeform) genre field that mean "yes,
 # this really is baihe/yuri content" -- matched as whole words so a genre
 # like "tangled romance" doesn't false-positive on "gl". An unset/blank
 # genre still defaults to the baihe framing below (this app's original,
@@ -75,7 +75,7 @@ def build_llm_instructions(style_note: str, drama_meta: dict, locale: str = "en-
     build_batch_context() instead, which goes after this, in the user
     message.
 
-    Step 12e: drama_meta's series_instructions (inherited by every drama
+    drama_meta's series_instructions (inherited by every drama
     in a series) and project_instructions (this drama only) -- both
     persisted, multi-line, per project -- go in as their own block, in
     addition to style_note (the single-line global Settings default),
@@ -181,7 +181,7 @@ def build_batch_context(recent_context=None, upcoming_lines=None) -> str:
 
 
 def build_standalone_instructions(source_language: str, target_language: str) -> str:
-    """Step 26b's system prompt for the standalone translate tool -- plain
+    """The system prompt for the standalone translate tool -- plain
     prose translation with no subtitle formatting, genre assumption, or
     drama metadata, unlike build_llm_instructions above (kept exactly as
     it was for drama translation; this is a separate prompt, not a
@@ -205,7 +205,7 @@ def build_standalone_instructions(source_language: str, target_language: str) ->
     )
 
 
-# Step 50: a reference novel at or under this size is sent whole and
+# A reference novel at or under this size is sent whole and
 # unchanged (this is why every short-reference prompt/test is unaffected);
 # a longer one is trimmed to the passages most likely to matter for THIS
 # batch instead of the whole file, unbounded, every time.
@@ -216,7 +216,7 @@ def _select_relevant_novel_passages(novel_reference: str, batch_source_lines: li
                                     speaker_labels: list = None, glossary_terms: list = None,
                                     budget_chars: int = NOVEL_REFERENCE_BUDGET_CHARS) -> str:
     """Bounded, relevance-based excerpt of `novel_reference` for one
-    translation batch (Step 50) -- replaces sending the whole reference,
+    translation batch -- replaces sending the whole reference,
     unbounded, to every batch regardless of the batch's actual content.
 
     The reference novel is itself an existing English translation (the
@@ -278,7 +278,7 @@ def build_stable_prompt(context: dict):
     glossary included), then the reference novel. novel_reference_block
     is "" when there's no reference.
 
-    context["standalone"] routes to Step 26b's generic, non-drama prompt
+    context["standalone"] routes to the generic, non-drama prompt
     instead (build_standalone_instructions) -- the only place that flag
     is checked, so every existing drama-translation call site (which
     never sets it) is completely unaffected."""
@@ -298,7 +298,7 @@ def build_stable_prompt(context: dict):
         excerpt = _select_relevant_novel_passages(
             novel_reference.strip(), batch_source_lines=context.get("batch_source_lines"),
             speaker_labels=context.get("speaker_labels"), glossary_terms=context.get("glossary_terms"))
-        # Step 50 item 3: recorded on the per-batch context (same pattern as
+        # Recorded on the per-batch context (same pattern as
         # speaker_labels/line_ids below) so "why did this line translate
         # this way" can inspect exactly what reference text this batch
         # actually saw, not just that a reference existed.

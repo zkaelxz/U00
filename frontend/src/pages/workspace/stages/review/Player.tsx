@@ -47,7 +47,7 @@ const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
   Bilingual: 'Both-language subtitles need an original and a translation.',
 }
 
-// A player over the Slice 52 Range endpoint, with a seek bar, jump to time and
+// A player over the Range endpoint, with a seek bar, jump to time and
 // subtitles from the current lines (the Reader's caption route). Only rendered
 // when the drama has audio (or a source video); the element fetches the stream itself.
 export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, trailing, panelHost }: Props) {

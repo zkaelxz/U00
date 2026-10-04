@@ -73,6 +73,6 @@ test('the card title opens the workspace in one click', async ({ page }) => {
   await page.goto('/')
   await dramas(page).getByRole('link', { name: 'Signal', exact: true }).click()
   await expect(page).toHaveURL(/#\/drama\/\d+$/)
-  // The seeded drama has no lines, so its current stage is Source (#433).
+  // The seeded drama has no lines, so its current stage is Source.
   await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
 })

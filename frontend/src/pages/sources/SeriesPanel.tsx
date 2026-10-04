@@ -97,7 +97,7 @@ export function SeriesPanel({
   const importing = !!result && chapters.length > 0 && canImport
   // Tracking (R4) works for any source, not only those with import; same remote rule.
   const canTrack = !!result && !tracked && (!remote || IMPORT_REMOTE_ALLOWED)
-  // Step 107: chapters already in the chosen drama are marked and left out of Select all.
+  // Chapters already in the chosen drama are marked and left out of Select all.
   const selectable = selectableChapters(chapters, imp.importState.state)
 
   return (

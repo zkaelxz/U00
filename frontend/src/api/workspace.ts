@@ -62,7 +62,7 @@ export const startTranscribe = (id: number, req: TranscribeRunRequest, f?: Fetch
   postJson<JobStarted>(`/api/transcribe/dramas/${id}/run`, req, f)
 
 // Speaker-count hints for a diarization run: an exact count, or a min/max
-// range (Step 105). The server rejects a count combined with a range.
+// range. The server rejects a count combined with a range.
 interface SpeakerHints {
   expectedSpeakers?: number | null
   minSpeakers?: number | null
@@ -126,7 +126,7 @@ export const startNovelOcr = (
   return postMultipart<JobStarted>(`/api/novel/dramas/${id}/ocr-chapter`, form, f)
 }
 
-// Step 115b: the user-installed lightnovel-crawler program (PC only). The
+// The user-installed lightnovel-crawler program (PC only). The
 // import runs as job lncrawl_{id}; poll it with getJob, cancel with cancelJob.
 export const getLncrawlStatus = (f?: Fetch) => getJson<LncrawlStatus>('/api/novel/lncrawl', f)
 

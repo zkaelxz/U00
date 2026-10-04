@@ -1,6 +1,6 @@
 """
 services/metadata_research_service.py -- "Research online" for a drama's
-metadata (roadmap Step 37): Gemini with Google Search grounding, returning
+metadata: Gemini with Google Search grounding, returning
 per-field values with their own cited sources, for the user to review before
 anything is written.
 

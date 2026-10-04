@@ -263,7 +263,7 @@ def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int = None,
 
 def adjacent_flagged_idx(all_lines, ref_idx, forward):
     """The nearest flagged line's idx strictly after (forward=True) or
-    before (forward=False) ref_idx, or None if there isn't one. Step 20's
+    before (forward=False) ref_idx, or None if there isn't one. The
     next/previous-flagged navigation -- there was previously no way to
     step through flagged lines one at a time, only the "Show flagged
     lines only" filter."""

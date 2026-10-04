@@ -31,7 +31,7 @@ POST /{name}/save writes chosen chapters of a comic series to
 `sources_save`); no drama is involved and no path is returned. The save
 folder and reading what was saved live in saved_comics_routes.py.
 
-GET /{name}/import-state (Step 107) reads sources.db only: which chapters
+GET /{name}/import-state reads sources.db only: which chapters
 of a series are already in a drama, and which the last imports left
 failed or not attempted, so the picker can mark them and offer a retry.
 

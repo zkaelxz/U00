@@ -1,9 +1,9 @@
 """
-api/routers/line_ai_routes.py -- per-line AI helpers for the Review stage
-(Migration Slice 50): an improved-translation suggestion and a "why this
+api/routers/line_ai_routes.py -- per-line AI helpers for the Review stage:
+an improved-translation suggestion and a "why this
 translation" explanation. Both are synchronous, address the line by
 permanent id, never write, and never accept or return a key. Apply a
-suggestion via the Slice 43 compare-and-set line patch. Logic lives in
+suggestion via the compare-and-set line patch. Logic lives in
 services/line_ai_service.py. Both take a slot from the shared LLM cap
 (api/llm_slots.py; 429 when busy).
 

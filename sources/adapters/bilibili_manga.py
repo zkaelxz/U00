@@ -1,7 +1,7 @@
 """
-sources/adapters/bilibili_manga.py -- 哔哩哔哩漫画 / Bilibili Manga (zh),
-roadmap Step 23f: a candidate authenticated comic source, investigated
-rather than assumed. Its own adapter, not a reuse of Step 23d's
+sources/adapters/bilibili_manga.py -- 哔哩哔哩漫画 / Bilibili Manga (zh):
+a candidate authenticated comic source, investigated
+rather than assumed. Its own adapter, not a reuse of the
 BilibiliSource -- they may eventually share authentication/session
 plumbing, but the extraction logic is nothing alike (video's yt-dlp-
 based approach vs. manga's token-gated single-page-app reality).
@@ -53,8 +53,8 @@ it has receives whatever real, already-signed image URLs the site's own
 JavaScript legitimately puts on the rendered page) and downloads exactly
 those URLs, exactly as issued. This is the same "the browser is the
 source of truth for what the user can actually access" principle the
-challenge hand-off flow (Step 23 item 2) already applies to a CAPTCHA,
-applied here to a token system instead -- and it doubles as item 6's
+challenge hand-off flow already applies to a CAPTCHA,
+applied here to a token system instead -- and it doubles as the
 "generic browser-based comic extraction as the fallback," since no
 better-verified extraction technique exists for this site at all.
 

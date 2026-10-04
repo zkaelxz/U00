@@ -1,17 +1,17 @@
 """
 services/translate_run_service.py -- the per-drama Translate stage.
-Migration Slice 39: get_translate_config() (everything the stage
+get_translate_config() (everything the stage
 needs to render its form) and estimate_translate_cost() (the pre-run cost
 estimate / cap gating).
 
-Migration Slice 40 adds start_translate_run(): a normal (non-bulk,
+It also provides start_translate_run(): a normal (non-bulk,
 non-reflect) translation as a background job that does everything itself.
 
-Step 97b adds an optional fallback chain to the start (see start_translate_run).
+The start takes an optional fallback chain (see start_translate_run).
 
-Migration Slice 41 adds reflect=True (Step 7's three-pass Reflect mode, live)
-and bulk=True (Step 9/9d's Claude/Gemini batch APIs, DeepSeek off-peak, and
-bulk Reflect) to the same start, plus resume_bulk_translations().
+The start also takes reflect=True (three-pass Reflect mode, live)
+and bulk=True (Claude/Gemini batch APIs, DeepSeek off-peak, and
+bulk Reflect), plus resume_bulk_translations().
 
 Parity X02/X22 add apply_workflow_tier() and save_translate_preset() ("Apply
 tier" and "Save as preset"); parity X03 adds
@@ -309,7 +309,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     context. Only empty-`en` lines are translated unless force_retranslate,
     so hand-edited translations survive.
 
-    fallback_chain (Step 97b): optional ordered [{"engine", "model"}, ...] tried
+    fallback_chain: optional ordered [{"engine", "model"}, ...] tried
     in turn -- for the rest of the run -- when the active engine fails with an
     auth error, rate limit, timeout or connection error (never a moderation
     refusal or a generic exception). The whole chain must be one class:
@@ -317,9 +317,9 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     Each engine has its own cost cap and spend; the job result's
     "fallbacks" lists any switch that happened.
 
-    reflect (Slice 41): Step 7's three-pass Reflect mode through the same
+    reflect: three-pass Reflect mode through the same
     run_translate_job (critiques saved as notes by line).
-    bulk (Slice 41): submits through bulk_translate (Claude/Gemini batch API,
+    bulk: submits through bulk_translate (Claude/Gemini batch API,
     DeepSeek off-peak schedule; with reflect, the three-stage bulk Reflect
     pipeline) inside job `bulk_translate_{id}`, which also polls the batch
     (each Reflect stage in turn) until applied, failed or cancelled; results

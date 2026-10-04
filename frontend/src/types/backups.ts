@@ -1,4 +1,4 @@
-// Mirrors api/backup_schemas.py (automatic backups, roadmap Step 43).
+// Mirrors api/backup_schemas.py (automatic backups).
 // Every /api/backups route is PC only.
 
 export type BackupFrequency = 'daily' | 'weekly' | 'monthly'

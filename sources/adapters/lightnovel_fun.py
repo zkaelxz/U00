@@ -1,6 +1,6 @@
 """
 sources/adapters/lightnovel_fun.py -- 轻之国度 (www.lightnovel.fun), zh light
-novels, roadmap Step 115 (reduced by user decision 2026-09-30: lightnovel.fun
+novels (scoped by user decision 2026-09-30: lightnovel.fun
 only, for personal zh->en reading of the public /book and /reader pages).
 
 Technique read directly from the live site while building this adapter

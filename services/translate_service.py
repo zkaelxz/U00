@@ -1,14 +1,13 @@
 """
 services/translate_service.py -- metadata and translate action for the
 standalone translate tool.
-Migration Slice 11 (Phase 5, docs/archive/migration-review.md section 3.7) added
-the read-only "list engines" / "list history" half; Migration Slice 13
-adds translate() itself, resolving a server-side key per engine (D2 --
+The read-only "list engines" / "list history" half (docs/archive/migration-review.md
+section 3.7) is paired with translate() itself, resolving a server-side key per engine (D2 --
 docs/archive/migration-review.md section 6) rather than accepting one from the
 caller.
 
-Migration Slice 17 adds clear_history(), the one piece deliberately
-deferred from Slices 11/13.
+clear_history() is the one piece deliberately
+added separately from the read-only half and translate().
 """
 from typing import Optional
 

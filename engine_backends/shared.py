@@ -188,7 +188,7 @@ _SECRET_PATTERNS = [
     re.compile(r'\bGOCSPX-[A-Za-z0-9_-]{10,}'),
     # GitHub tokens: ghp_/gho_/ghu_/ghs_/ghr_ and fine-grained github_pat_.
     re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})'),
-    # Discord webhook URLs (Step 44): the id/token path is the secret.
+    # Discord webhook URLs: the id/token path is the secret.
     re.compile(r'(discord(?:app)?\.com/api/(?:v\d+/)?webhooks/)[^\s"\'<>]+', re.IGNORECASE),
 ]
 
@@ -328,7 +328,7 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
                             engine_name: str = None) -> dict:
     """The actual id-keyed request/parse/retry-missing loop shared by
     request_translations_with_retry below (every engine's own
-    translate_batch) and Step 7's reflect_translate_batch (three passes,
+    translate_batch) and reflect_translate_batch (three passes,
     each with its own prompt shape). build_batch_text(batch_ids) returns
     the prompt-ready text for just those ids -- a retry only re-sends
     whichever ids came back missing, not the whole batch. Returns
@@ -336,9 +336,9 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
     value; a still-missing id after max_retries just isn't a key here,
     same contract parse_id_keyed_json already documents.
 
-    engine_name (Step 31): opts into the best-effort soft-refusal text
+    engine_name: opts into the best-effort soft-refusal text
     heuristic (see _detect_soft_refusal_text) -- deliberately not passed
-    by reflect_translate_batch's own three calls, since Step 31 is scoped
+    by reflect_translate_batch's own three calls, since refusal detection is scoped
     to the plain translate_batch path each engine's own translate_batch
     already raises ContentModerationBlocked from directly for a real
     structural signal; left None there keeps Reflect mode's behavior
@@ -358,7 +358,7 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
             # engine's own translate_batch, before the text ever reaches
             # here. Reaching here with non-empty text that parsed to
             # nothing means no such signal was available, so this is the
-            # lower-confidence, best-effort fallback (Step 31 item 2).
+            # lower-confidence, best-effort fallback.
             soft_reason = _detect_soft_refusal_text(text)
             if soft_reason:
                 raise ContentModerationBlocked(engine_name, soft_reason)
@@ -393,7 +393,7 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
     incomplete response as a reason to redo (or lose) the whole batch.
     """
     ids = list(range(1, len(zh_lines) + 1))
-    # The lines' own permanent ids (Step 2) when every line has one and
+    # The lines' own permanent ids when every line has one and
     # they're unique -- the same id a line keeps through merges and
     # re-saves. Otherwise (unsaved lines, non-translation callers) 1..n.
     if (line_ids is not None and len(line_ids) == len(zh_lines)
@@ -414,7 +414,7 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
 
 
 # ---------------------------------------------------------------------------
-# Step 31: content-moderation refusal detection
+# Content-moderation refusal detection
 # ---------------------------------------------------------------------------
 
 class ContentModerationBlocked(Exception):
@@ -434,7 +434,7 @@ class ContentModerationBlocked(Exception):
 
 
 # Best-effort, lower-confidence fallback for the "soft refusal" case
-# (Step 31 item 2): only reached when a batch's raw response text is
+# Only reached when a batch's raw response text is
 # non-empty but zero ids parsed out of it, AND no real structural signal
 # (stop_reason/refusal -- checked inside each engine's own translate_batch,
 # which raises ContentModerationBlocked directly when one exists) was

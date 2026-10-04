@@ -78,7 +78,7 @@ def _storage_text(text):
 
 def _mirror_locked(job_id):
     """Caller must already hold _lock. Writes this job's current
-    status-transition fields (Migration Slice 7) to the cross-process
+    status-transition fields to the cross-process
     job_records table -- a best-effort mirror, never on the hot path of
     update_progress()'s own per-tick calls. A DB hiccup here must never
     break the job it's describing, so any exception is swallowed after
@@ -111,7 +111,7 @@ def _mirror_locked(job_id):
     _ensure_heartbeat()
 
 
-# B-04: while this process owns queued/running jobs, a daemon thread bumps
+# While this process owns queued/running jobs, a daemon thread bumps
 # their job_records.updated_at every HEARTBEAT_INTERVAL seconds, so another
 # process's stale-record sweep (jobs_service.cancel_job) can tell a live job
 # that is simply not changing status from one whose owner process died.
@@ -168,7 +168,7 @@ def _ensure_heartbeat():
 # deadlock the thread against itself.
 _lock = threading.RLock()
 
-# Step 5c: a soft, global "one GPU job at a time" guard, prompted by a
+# A soft, global "one GPU job at a time" guard, prompted by a
 # shared review flagging that nothing today stops two independent
 # GPU-touching jobs (e.g. a transcription on one drama and diarization on
 # another, started from two different tabs/sessions) from running
@@ -301,8 +301,8 @@ def try_take_gpu_slot(holder: str, description: str = None, check_external_load:
     return db.try_acquire_gpu_lock(holder, description)
 
 
-# Step 23c item 4: an optional local desktop notification when a
-# background job finishes, so a long job (especially Step 9b's bulk
+# An optional local desktop notification when a
+# background job finishes, so a long job (especially a bulk
 # series-translate, which can run unattended for a while) doesn't
 # require watching the page. Off by default -- a Settings toggle turns it
 # on via set_notify_on_completion() below. Backed by db.app_settings, same
@@ -331,7 +331,7 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None):
     never take down the job runner that calls this right after finishing
     the job's real work.
 
-    Step 44: also queues a Discord/ntfy push when a channel is configured
+    Also queues a Discord/ntfy push when a channel is configured
     (services/notification_service; its own opt-in is configuring a
     channel, independent of the desktop toggle). That call only queues --
     the send happens on a timer thread -- and never raises. It also keeps
@@ -404,7 +404,7 @@ GPU_WAIT_MESSAGE = "Waiting for the GPU (another job is running)"
 
 
 def _queue_message(position: int) -> str:
-    """Step 41 item 6: the waiting message with the job's place in line
+    """The waiting message with the job's place in line
     (first in line keeps the plain message). Never names another job."""
     return GPU_WAIT_MESSAGE if position <= 1 else f"{GPU_WAIT_MESSAGE} - number {position} in line"
 
@@ -467,22 +467,22 @@ def _refresh_queue_messages_locked():
 def _gpu_slot_available_locked(job_id, description):
     """Caller must already hold _lock. True if job_id may actually start
     running right now -- nothing else, in this process, another one
-    (Step 25w), or (Step 26d) a completely different application, currently
-    holds the GPU. background_jobs' own guard (Step 5c) is plain in-process
+    (cross-process), or a completely different application, currently
+    holds the GPU. background_jobs' own guard is plain in-process
     module state, invisible to a separate OS process; `cli.py`'s
     GPU-touching commands never went through it at all (confirmed: cli.py
     never imports this module), so a CLI run and a live UI job could
     previously both hold the GPU at once. db.gpu_lock's single-row table in
     the shared library.db is the cross-process coordination point instead.
 
-    Step 26d: both of those locks only know about GPU-touching work Baihe
+    Both of those locks only know about GPU-touching work Baihe
     itself started -- neither can see a different application on the same
     machine using the same physical GPU (Jellyfin's hardware-accelerated
     transcoding on the same card is the motivating case). nvidia-smi's own
     utilization/free-VRAM numbers (diagnostics.external_gpu_is_busy) are
     checked as a third, independent guard for exactly that: real driver-
-    level load, whoever caused it. Same accepted-latency tradeoff as Step
-    25w's cross-process check below: nothing polls this on its own, so a
+    level load, whoever caused it. Same accepted-latency tradeoff as the
+    cross-process check below: nothing polls this on its own, so a
     job queued purely because of external load resumes the next time some
     *other* GPU-touching job's finish triggers _promote_next_queued_gpu_job()
     again, not the instant the external load actually clears -- not a
@@ -551,7 +551,7 @@ class JobCancelled(Exception):
 
 
 def _timing_start(job_id, thread_job=True):
-    """Step 41 item 5 (services/job_timing_service): a job's per-stage
+    """(services/job_timing_service): a job's per-stage
     timing run starts when it actually runs. Never raises."""
     try:
         from services import job_timing_service
@@ -776,7 +776,7 @@ def _promote_next_queued_gpu_job():
     from under the queue in the meantime. Dispatches to the thread-based
     or process-based starter depending on how that entry was queued.
 
-    Step 25w: the GPU can also be free-in-this-process but still held
+    The GPU can also be free-in-this-process but still held
     cross-process (a `cli.py` run) -- checked via _gpu_slot_available_locked,
     same as start_job/start_process_job. If that's the case, this leaves
     the entry at the head of the queue and returns rather than popping it;
@@ -1036,7 +1036,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     Same job_id/queued/gpu_touching semantics as start_job(); returns
     False if job_id is already running or queued.
 
-    Migration Slice 49: on_done, if given, is called as
+    on_done, if given, is called as
     on_done(job_id, result) in the watcher thread after the subprocess
     returns a successful result and BEFORE the job is marked "done" (so
     nobody polling sees "done" while the hook is still applying it).
@@ -1333,7 +1333,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 logger.info(f"job {job_id} {'cleared' if was_cleared else 'cancelled'} "
                            f"(subprocess terminated)")
                 return
-            # Step 4i: drain the queue continuously while the process is
+            # Drain the queue continuously while the process is
             # still alive, not only after it exits. A child that has put()
             # more onto the queue than fits in one OS pipe buffer (~64KB on
             # Linux) cannot exit until this side actually reads from it --
@@ -1514,7 +1514,7 @@ def update_progress(job_id: str, frac: float, message: str = ""):
             _gpu_touching = bool(_jobs[job_id].get("gpu_touching"))
             _emit_change(job_id)
     if _gpu_touching:
-        # Step 25w: refreshes this job's cross-process GPU lock (see
+        # Refreshes this job's cross-process GPU lock (see
         # _gpu_slot_available_locked) so a long-running job's own regular
         # progress updates keep it from looking abandoned to another
         # process before it's actually done. Best-effort, same reasoning
@@ -1627,7 +1627,7 @@ def is_running(job_id: str) -> bool:
 # Jobs that write to, or propose for, a drama's existing lines (job ids
 # "translate_<id>", "flag_<id>", "fixflag_<id>", and "retranscribe_<id>",
 # which only proposes text for one line; its apply is a separate request).
-# Since Step 2 each writes only its own fields by permanent line id, so they
+# Each writes only its own fields by permanent line id, so they
 # can run alongside each other and the user's own edits. Replacing ALL of a
 # drama's lines (a new transcription) is the one thing that makes their work
 # pointless.
@@ -1642,7 +1642,7 @@ def cancel_line_jobs(drama_id):
             request_cancel(f"{prefix}{drama_id}")
 
 
-# Step 25d item 8: every job id this app starts that's scoped to one
+# Every job id this app starts that's scoped to one
 # drama -- for "is anything still working on this drama?" checks before a
 # destructive, whole-drama action (deleting it) rather than the narrower
 # LINE_WRITING_JOB_PREFIXES above, which only covers jobs safe to run
@@ -1777,7 +1777,7 @@ _db_cancel_check_failed = set()   # job ids whose check failure was already logg
 
 
 def _db_cancel_requested(job_id: str) -> bool:
-    """Migration Slice 22: a cancel requested from another process (the API
+    """A cancel requested from another process (the API
     host) lives in job_records. Checked at most once per
     _DB_CANCEL_CHECK_INTERVAL seconds per job so a tight job loop doesn't
     hit SQLite every iteration; on a hit the in-memory flag is set so
@@ -1987,7 +1987,7 @@ def list_running_jobs():
 def list_all_jobs():
     """Every job this process still has a record of -- running or
     finished, since a finished job's entry isn't cleared automatically
-    (see clear_all_jobs/_jobs.pop). Backs Step 58's job-level "why was
+    (see clear_all_jobs/_jobs.pop). Backs the job-level "why was
     this slow" view: it can only explain a job still resident in this
     process's own memory, never one from a prior run of the app."""
     with _lock:

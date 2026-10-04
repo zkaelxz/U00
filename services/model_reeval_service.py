@@ -1,9 +1,9 @@
 """
-services/model_reeval_service.py -- Step 40b: scheduled model
+services/model_reeval_service.py -- scheduled model
 re-evaluation and promotion. UI-free.
 
 "Is something better than my production model available?" -- answered
-with Step 38's Benchmark Lab, not a second scoring system:
+with the Benchmark Lab, not a second scoring system:
 
 - Candidates are added by the user (a model string for an engine this app
   offers, or a local Ollama model already pulled). Nothing browses provider
@@ -23,13 +23,13 @@ with Step 38's Benchmark Lab, not a second scoring system:
   confirm=true, and it only updates the production record here and, when
   the engine differs, Settings' default engine (the existing "change the
   translation backend in Settings" setting). Presets keep their own model;
-  Step 40's guided switch changes those.
+  the guided model switch changes those.
 - Every decision (promoted or rejected) is recorded with the candidate, its
   scores, the reason and the date. A rejected candidate is left out of later
   runs and re-adding it surfaces "already evaluated on <date>, rejected:
   <reason>" instead of starting over as if new.
 
-Only the "translation" capability exists until Step 36's capability
+Only the "translation" capability exists until the capability
 registry lands; the capability field is kept so it can grow.
 """
 import datetime

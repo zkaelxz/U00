@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { openTranscribeOptions } from './sourceHelpers'
 
-// Step 105: the "Detect speakers only" control sends a min/max speaker
+// The "Detect speakers only" control sends a min/max speaker
 // range. The run and job endpoints are mocked; reads hit the seeded API.
 
 test('detect speakers only sends a speaker range and catches a bad one', async ({ page }) => {
@@ -51,7 +51,7 @@ test('detect speakers only sends a speaker range and catches a bad one', async (
   expect(sent.get('expected_speakers')).toBeNull()
 })
 
-// Step 105 follow-up: the Min/Max range also goes with "Detect speakers
+// The Min/Max range also goes with "Detect speakers
 // after transcribing" (sent in the transcribe run body).
 test('transcribe with speaker detection sends the speaker range', async ({ page }) => {
   const bodies: Record<string, unknown>[] = []

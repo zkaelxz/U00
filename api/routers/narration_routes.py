@@ -1,6 +1,6 @@
 """
-api/routers/narration_routes.py -- novel-narration "Chunk & tag speakers"
-(Migration Slice 33). A config read plus one job-starting action; see
+api/routers/narration_routes.py -- novel-narration "Chunk & tag speakers".
+A config read plus one job-starting action; see
 services/narration_service.py. Poll the job via GET /api/jobs/{job_id}.
 """
 

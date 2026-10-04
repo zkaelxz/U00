@@ -45,7 +45,7 @@ _ENGINE_KEY_NAMES = tuple(k for k in ENV_NAMES if k != "monthly_cap_usd")
 def default_env_path() -> str:
     # The project folder for a source checkout; the per-user data folder
     # for an installed copy, so keys never sit in the program files an
-    # update replaces (portable.data_dir(), Step 80b).
+    # update replaces (portable.data_dir()).
     return os.path.join(portable.data_dir(), ".env")
 
 
@@ -176,7 +176,7 @@ def get_use_gpu() -> bool:
 
 
 def get_gemini_free_tier() -> bool:
-    """Persisted 'Gemini is on the free tier' flag (Slice 23). Default False."""
+    """Persisted 'Gemini is on the free tier' flag. Default False."""
     return _get_bool_setting("gemini_free_tier")
 
 
@@ -228,7 +228,7 @@ def _set_app_bool(key: str, enabled: bool):
     db.set_app_setting(key, bool(enabled))
 
 
-# Typed allow-list of writable, non-secret boolean settings (Slice 23).
+# Typed allow-list of writable, non-secret boolean settings.
 # Keys are never here (D2); preferences (paths, defaults, the cap) are in
 # _PREFERENCES below, endpoint URLs go through set_endpoint_url.
 _WRITABLE_SETTINGS = {
@@ -278,7 +278,7 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
 # validates (e.g. an engine that was removed) reads back as the default.
 
 _PREF_PREFIX = "pref."
-# Step 36: the last "Test" result per engine (engine_routing_service). A key
+# The last "Test" result per engine (engine_routing_service). A key
 # or endpoint write forgets it, so a stale "working" never outlives the key.
 ENGINE_TEST_PREFIX = "engine_test."
 _MAX_PATH_LENGTH = 1024
@@ -387,7 +387,7 @@ _PREFERENCES = {
     # Accepted risk (inventory G05): the program Tesseract runs is editable
     # here. Writes are PC-only, like every other settings write.
     "tesseract_cmd": ("", _check_text("tesseract_cmd", _MAX_PATH_LENGTH)),
-    # Step 115b: the lightnovel-crawler program, when it isn't on PATH. Same
+    # The lightnovel-crawler program, when it isn't on PATH. Same
     # accepted risk as tesseract_cmd; services/lncrawl_service.py also only
     # runs a file named lncrawl / lightnovel-crawler.
     "lncrawl_cmd": ("", _check_text("lncrawl_cmd", _MAX_PATH_LENGTH)),
@@ -577,7 +577,7 @@ def clear_endpoint_url(name: str, env_path: str = None) -> dict:
             "configured": bool(resolve_key(name, env_path))}
 
 
-# Slice 24: write-only secret keys. URL settings and the numeric cap are
+# Write-only secret keys. URL settings and the numeric cap are
 # not secrets and stay out; only real keys/tokens can be set here.
 KEY_WRITE_ENGINES = ("claude", "deepseek", "gemini", "openai", "groq", "hf_token")
 _MAX_KEY_LENGTH = 512
@@ -725,7 +725,7 @@ def engine_test_generation(engine: str) -> int:
 
 def _forget_engine_test(name: str):
     """Drops the saved Test result for the engine a key or endpoint belongs
-    to (Step 36), e.g. "ollama_url" -> "ollama". Best effort: the key or URL
+    to, e.g. "ollama_url" -> "ollama". Best effort: the key or URL
     is already written to .env, and status bookkeeping must never turn that
     into an error (e.g. a library whose tables don't exist yet)."""
     import db

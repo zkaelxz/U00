@@ -1,4 +1,4 @@
-// Mirrors api/metadata_research_schemas.py (roadmap Step 37: grounded research).
+// Mirrors api/metadata_research_schemas.py (grounded research).
 
 export type ResearchMode = 'quick' | 'deep' | 'verify'
 export type ResearchChoice = 'keep' | 'replace' | 'save_both' | 'confirm'

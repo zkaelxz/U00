@@ -1,6 +1,6 @@
 """
 api/routers/backup_routes.py -- automatic backups and single-drama restore
-(roadmap Step 43 as redefined 2026-09-29) over
+over
 services/auto_backup_service.py: settings, "Back up now", the rotating
 copies' info, the dramas inside a copy, restoring one drama, deleting a
 copy (or all of them), and importing chosen dramas from an uploaded backup

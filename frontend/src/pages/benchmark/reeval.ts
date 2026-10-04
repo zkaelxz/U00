@@ -1,6 +1,5 @@
 /*
- * Pure helpers for the Model re-evaluation card (pages/benchmark/ReevalCard.tsx,
- * Step 40b): labels, signed deltas, whether "Run now" may be pressed, the
+ * Pure helpers for the Model re-evaluation card (pages/benchmark/ReevalCard.tsx): labels, signed deltas, whether "Run now" may be pressed, the
  * schedule and candidate request bodies, and the wording shown for a
  * candidate that was already evaluated. No React here (reeval.test.ts).
  */

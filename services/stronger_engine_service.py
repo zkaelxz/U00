@@ -1,8 +1,8 @@
 """
-services/stronger_engine_service.py -- Step 99: tiered translation
+services/stronger_engine_service.py -- tiered translation
 cost/quality. A drama is translated with its everyday (often cheap or local)
 engine; on a line that looks hard, Review SUGGESTS the stronger engine the
-user picked in Settings (Step 36 capability "translation.high_quality") for
+user picked in Settings (capability "translation.high_quality") for
 that one line. User decision 2026-09-29: suggest only, never switch
 automatically -- nothing here runs on its own or writes a line.
 
@@ -16,7 +16,7 @@ automatically -- nothing here runs on its own or writes a line.
   same glossary, style guidelines, character hints, speaker name and novel
   reference a translate run sends, plus the lines before it.
   Returns the text for the user to accept (the client applies it through
-  the Slice 43 compare-and-set line patch) -- it never writes the line.
+  the compare-and-set line patch) -- it never writes the line.
   Refused once the monthly cap is used up or when the estimate would pass
   it; the spend is logged against the drama, also when the call fails or
   its answer is rejected (it may still have been billed).

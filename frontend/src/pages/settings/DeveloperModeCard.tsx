@@ -1,5 +1,5 @@
 /*
- * Settings > Developer Mode (Step 42): shows the AI maintenance assistant in
+ * Settings > Developer Mode: shows the AI maintenance assistant in
  * the menu. PC only: from another device the settings route answers 403 and
  * this card is not rendered.
  */

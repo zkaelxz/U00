@@ -56,7 +56,7 @@ def build_emotion_prompt(batch: list, use_audio_cues: bool = False,
                          id_fn=lambda ln: ln.idx) -> str:
     """The emotion-tagging prompt for one batch, each line numbered by
     id_fn(ln) (position by default, matching detect_emotions' own
-    results dict). bulk_translate.py's bulk submission (Step 9d) passes
+    results dict). bulk_translate.py's bulk submission passes
     id_fn=lambda ln: ln.id -- see build_flag_prompt's docstring for why a
     permanent id matters once results can come back hours later."""
     tags_desc = "\n".join(f"  - {k}: {v}" for k, v in EMOTION_TAGS.items())
@@ -103,7 +103,7 @@ def parse_emotion_tags(text: str) -> dict:
     prompt embedded (a line's position or its permanent id -- this
     function doesn't care which, it just echoes back what the model
     returned). Shared by detect_emotions (live) and bulk_translate.py's
-    bulk submission (Step 9d)."""
+    bulk submission."""
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
         tagged = json.loads(text)

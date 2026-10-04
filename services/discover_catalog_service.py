@@ -1,6 +1,5 @@
 """
-services/discover_catalog_service.py -- the Discover "Known titles" catalog
-(Migration Slice 55, spec slice D-1).
+services/discover_catalog_service.py -- the Discover "Known titles" catalog.
 
 UI-free, plain dicts, errors from `service_errors`. No network and no LLM:
 platform listing and search links are pure string building

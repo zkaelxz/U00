@@ -5,9 +5,9 @@ drama (Phase 6's third Workspace stage, Migration Slices 20-21).
 One config read/write and one job-starting action -- see
 services/transcribe_service.py's own docstring for the job-does-everything
 scope decision and the deliberately-out-of-scope list (audio upload;
-hardsub_ocr was added in Slice 21). Job status/cancel for the transcribe
+hardsub_ocr was added later). Job status/cancel for the transcribe
 run is not duplicated here: poll it through the existing
-GET /api/jobs/{job_id} (Migration Slice 8).
+GET /api/jobs/{job_id}.
 
 Route batch 2C adds auto-tune (start, status with the candidate scores,
 apply a measured candidate), whose results are only readable here.

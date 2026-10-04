@@ -1,6 +1,6 @@
 """
-api/routers/sources_catalog_routes.py -- the Sources registry and status
-(Migration Slice 56). Prefix /api/sources. Deliberately a different file
+api/routers/sources_catalog_routes.py -- the Sources registry and status.
+Prefix /api/sources. Deliberately a different file
 name from source_routes.py, which is the Workspace Source stage
 (/api/source/dramas/{id}/config).
 

@@ -7,9 +7,9 @@ API process starts (FastAPI lifespan in `api/server.py`):
 - the browser-extension endpoint (`page_server.ensure_server_started`, loopback
   port 8756): only while the Sources setting `page_server_enabled` is on.
 
-Also at startup (Step 43): the automatic-backup due-check
+Also at startup: the automatic-backup due-check
 (`services/auto_backup_service.check_and_run`, a no-op unless the owner
-turned automatic backups on) and the B-14 sweep of stale `.deleting-*`
+turned automatic backups on) and the sweep of stale `.deleting-*`
 drama folders older than a day (`drama_service.cleanup_stale_tombstones`), plus
 leftover partial snapshots and restore staging folders
 (`auto_backup_service.cleanup_stale_leftovers`), and lightnovel-crawler work
@@ -93,7 +93,7 @@ def stop_gpu_queue_poller(timeout: float = 5.0) -> None:
         poller[0].join(timeout)
 
 
-# Step 40b: scheduled model re-evaluation. The loop only asks
+# Scheduled model re-evaluation. The loop only asks
 # model_reeval_service.run_if_due(), which does nothing unless the user turned
 # the schedule on (which needs a monthly cap or a per-run limit), added a
 # candidate and the interval has passed, and never while another job is

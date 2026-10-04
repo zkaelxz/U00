@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })
 
-// Step 107, phone project (390x844, touch): the marked chapter picker and
+// Phone project (390x844, touch): the marked chapter picker and
 // "Retry failed chapters (N)" fit one column, keep 44 px targets, and Retry
 // sends exactly the retry set. Every call is mocked (sourcesImportMocks.ts).
 const expect = baseExpect.configure({ timeout: 15_000 })

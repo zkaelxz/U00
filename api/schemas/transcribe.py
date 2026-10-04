@@ -54,16 +54,15 @@ class SpeakerTimeSummary(BaseModel):
 
 
 class DiarizationConfig(BaseModel):
-    """Read-only Diarize-stage summary for one drama (Migration Slice
-    16) -- hf_token_configured is a boolean only, never the token value
+    """Read-only Diarize-stage summary for one drama -- hf_token_configured is a boolean only, never the token value
     itself (D2)."""
     drama_id: int
     hf_token_configured: bool
     expected_speakers: Optional[int] = None
-    # Step 105: the speaker-count range the last run used, if any.
+    # The speaker-count range the last run used, if any.
     min_speakers: Optional[int] = None
     max_speakers: Optional[int] = None
-    # Step 101: "cuda" or "cpu" -- where the last run's pipeline ran.
+    # "cuda" or "cpu" -- where the last run's pipeline ran.
     last_device: Optional[str] = None
     audio_available: bool
     manual_speaker_count: int = 0   # parity D06: hand-corrected speakers
@@ -75,7 +74,7 @@ class DiarizationRunResult(BaseModel):
 
 
 class SourceConfig(BaseModel):
-    """Source-stage config for one drama (Migration Slice 19) -- config
+    """Source-stage config for one drama -- config
     only (language/script/content mode/transcript mode) plus read-only
     audio/video/transcript-source presence. Never includes an upload or
     a secret."""
@@ -102,9 +101,9 @@ class SourceConfigUpdate(BaseModel):
 
 
 class TranscribeConfig(BaseModel):
-    """Read-only Transcript-stage summary for one drama (Migration Slice
-    20) -- which action the transcribe button would run (from Slice 19's
-    transcript_mode) plus every tuning knob's current value, falling back
+    """Read-only Transcript-stage summary for one drama -- which action the
+    transcribe button would run (from the source config's transcript_mode)
+    plus every tuning knob's current value, falling back
     to the defaults the Transcribe stage shows."""
     drama_id: int
     transcript_mode: str
@@ -161,7 +160,7 @@ class TranscribeConfigUpdate(BaseModel):
 
 class TranscribeRunRequest(BaseModel):
     """transcript_text is required (and only used) when this drama's
-    transcript_mode is "have_transcript" -- per Slice 19, it's never
+    transcript_mode is "have_transcript" -- it's never
     persisted server-side. tesseract_cmd is an optional, client-supplied
     path to the tesseract binary (hardsub_ocr with the "tesseract"
     backend only). The server runs it, so the run route accepts it only from
@@ -171,7 +170,7 @@ class TranscribeRunRequest(BaseModel):
     transcript_text: Optional[str] = None
     run_diarize: bool = False
     expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
-    # Step 105: a speaker-count range for the chained speaker detection
+    # A speaker-count range for the chained speaker detection
     # (pyannote min_speakers/max_speakers); not combined with expected_speakers.
     min_speakers: Optional[int] = Field(default=None, ge=0, le=20)
     max_speakers: Optional[int] = Field(default=None, ge=0, le=20)

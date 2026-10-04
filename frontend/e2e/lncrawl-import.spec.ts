@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// Step 115b: "Import with lightnovel-crawler" in Source > Novel text. The
+// "Import with lightnovel-crawler" in Source > Novel text. The
 // lncrawl endpoints and the job are mocked (real lncrawl never runs); the
 // drama read hits the real seeded API.
 

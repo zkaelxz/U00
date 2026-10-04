@@ -1,4 +1,4 @@
-// The AI maintenance assistant (Step 42, api/routers/assistant_routes.py).
+// The AI maintenance assistant (api/routers/assistant_routes.py).
 // Every route is PC only: from another device they answer 403. Reads use a
 // plain fetch (the caller treats a 403 as "PC only" and hides the feature);
 // writes go through pcOnlyFetch like the other PC-only calls. Only the

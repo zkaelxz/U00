@@ -20,7 +20,7 @@ interface Props {
   onImported?: () => void
 }
 
-// Step 115b: shown only when the user-installed lightnovel-crawler program is
+// Shown only when the user-installed lightnovel-crawler program is
 // found on the PC (GET /api/novel/lncrawl), and never on another device.
 export function LncrawlPanel({ mode, onImported }: Props) {
   const { dramaId } = useStage()

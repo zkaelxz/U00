@@ -1,9 +1,8 @@
 """
-api/routers/jobs_routes.py -- read-only job-list endpoints (Migration
-Slice 8), reading `db.job_records` (Migration Slice 7's cross-process
-mirror) through `services.jobs_service`.
+api/routers/jobs_routes.py -- read-only job-list endpoints, reading
+`db.job_records` (the cross-process mirror) through `services.jobs_service`.
 
-Slice 22 adds POST /{job_id}/cancel (cross-process: flags the DB row, the
+Also POST /{job_id}/cancel (cross-process: flags the DB row, the
 owning process notices via a throttled check).
 
 POST /clear-finished and POST /{job_id}/delete permanently erase finished

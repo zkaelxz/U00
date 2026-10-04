@@ -104,7 +104,7 @@ def get_diarization_config(drama_id: int) -> dict:
         "expected_speakers": diarize.load_last_speaker_count(ddir),
         "min_speakers": last_run["min_speakers"],
         "max_speakers": last_run["max_speakers"],
-        # Step 101: the device the last run's pyannote pipeline actually
+        # The device the last run's pyannote pipeline actually
         # ran on ("cuda"/"cpu"), None before any run that recorded it.
         "last_device": last_run["device"],
         "audio_available": audio_path is not None,
@@ -223,7 +223,7 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
 def worker_options(min_speakers: Optional[int] = None,
                    max_speakers: Optional[int] = None) -> dict:
     """The options dict diarize.diarize_subprocess_worker takes: the
-    persisted use_gpu setting (Step 101) and the speaker range (Step 105)."""
+    persisted use_gpu setting and the speaker range."""
     return {"use_gpu": settings_service.get_use_gpu(),
             "min_speakers": min_speakers or None, "max_speakers": max_speakers or None}
 
@@ -242,7 +242,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     overwrite_manual=True lets the result replace hand-corrected speakers
     (destructive), so it needs confirm=True too, else InvalidInputError
     (HTTP 422). Default False keeps manual speakers.
-    min_speakers/max_speakers (Step 105): an optional speaker-count range
+    min_speakers/max_speakers: an optional speaker-count range
     for pyannote; InvalidInputError if min > max, either is below 1, or it
     is combined with an exact expected_speakers.
     Returns {"job_id": ...} -- poll it via the existing GET /api/jobs/

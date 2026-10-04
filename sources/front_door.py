@@ -1,5 +1,5 @@
 """
-sources/front_door.py -- one "paste any URL" box (Step 23 items 10, 11).
+sources/front_door.py -- one "paste any URL" box.
 
 Works out what a URL is before anything is imported -- a registered
 source, a video, a novel chapter, or a comic chapter -- and builds a
@@ -148,9 +148,8 @@ def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = 
             p.series_id = parsed[1].series_id
             p.chapter_id = parsed[1].chapter_id
         elif p.content_type == VIDEO and hasattr(adapter, "get_metadata"):
-            # Step 23d: a real VideoSource adapter (e.g. BilibiliSource) --
-            # metadata shown before any download, same guarantee item 2
-            # asks for, via extract_info(download=False) under the hood.
+            # A real VideoSource adapter (e.g. BilibiliSource) --
+            # metadata shown before any download, via extract_info(download=False) under the hood.
             try:
                 meta = adapter.get_metadata(url)
                 p.title = meta.get("title") or ""
@@ -178,7 +177,7 @@ def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = 
 def import_video(url: str, drama_id: int, audio_only: bool = True, progress_cb=None,
                  cookies_browser: str = None, cookies_file: str = None) -> str:
     """Routes a detected video URL into a download path -- a registered
-    VideoSource adapter (Step 23d's BilibiliSource) if one matches this
+    VideoSource adapter (e.g. BilibiliSource) if one matches this
     URL, otherwise the same generic video_download.download call and
     drama updates as before, unchanged for every other video source
     (YouTube etc., which have no dedicated adapter)."""
@@ -189,7 +188,7 @@ def import_video(url: str, drama_id: int, audio_only: bool = True, progress_cb=N
     adapter = registry.find_for_url(url)
     if adapter is not None and hasattr(adapter, "download") and ContentType.VIDEO.value in adapter.content_types:
         # Re-checked here, not just relied on from an earlier preview() call
-        # (Step 28 gap 2) -- same "gate the actual action, don't trust a
+        # -- same "gate the actual action, don't trust a
         # prior UI step" pattern pipeline.run_import_job already follows.
         ladder.check_terms(adapter.name, adapter.capabilities())
         options = {"quality": "Audio only" if audio_only else "Best available",

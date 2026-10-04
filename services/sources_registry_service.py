@@ -1,6 +1,6 @@
 """
 services/sources_registry_service.py -- the Sources catalog and status for
-the API (Migration Slice 56, S-1 read-only part; S-2 adds the config writes
+the API (read-only part; a later part adds the config writes
 below). This is NOT the Workspace Source stage (services/source_service.py).
 
 Everything returned is plain dicts. Nothing here returns a proxy URL, a
@@ -9,7 +9,7 @@ site profile or a query string: URLs are reduced to scheme+host+path and
 free text goes through `_scrub` (secrets via translate_engines.redact_secrets,
 then paths and URL queries).
 
-ToS/robots enforcement is OFF by user decision (Step 90, 2026-09-29 Q1), so
+ToS/robots enforcement is OFF by user decision (user decision 2026-09-29), so
 the recorded `terms` block is information only: nothing here ever says a
 source is "permitted".
 
@@ -169,7 +169,7 @@ def get_source(name: str) -> dict:
         "technical_status": d["technical_status"],
         "access_method": d["access_method"],
         "content_access_status": d["content_access_status"],
-        # The separate Step 23k fields, never collapsed into one verdict.
+        # The separate access fields, never collapsed into one verdict.
         "authentication_required": d["authentication_required"],
         "purchase_required": d["purchase_required"],
         "technical_protection": d["technical_protection"],

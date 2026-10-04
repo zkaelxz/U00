@@ -14,7 +14,7 @@ export interface MediaUploadResult {
   name: string
   size: number
   kind: string
-  // Set for a video: the background audio-extraction job (B-09).
+  // Set for a video: the background audio-extraction job.
   job_id?: string | null
 }
 
@@ -83,7 +83,7 @@ export interface TranscribeRunRequest {
   transcript_text?: string | null
   run_diarize?: boolean
   expected_speakers?: number | null
-  // Step 105: a speaker-count range for "Detect speakers after transcribing".
+  // A speaker-count range for "Detect speakers after transcribing".
   min_speakers?: number | null
   max_speakers?: number | null
   initial_prompt?: string

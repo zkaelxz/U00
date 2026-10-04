@@ -1,6 +1,6 @@
 """
 sources/detect.py -- reading a response and naming what happened
-(Step 23 item 2b's failure-reason taxonomy).
+(the failure-reason taxonomy).
 
 Only reports what the response actually shows: status code, headers,
 final URL, page title, visible text length, and a handful of well-known

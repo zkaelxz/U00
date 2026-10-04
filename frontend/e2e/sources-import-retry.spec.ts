@@ -3,7 +3,7 @@ import { expect as baseExpect, test, type Page } from '@playwright/test'
 import { chapterImportResult, mockImports } from './sourcesImportMocks'
 import { mockSources, posted } from './sourcesMocks'
 
-// Step 107, desktop: the chapter picker marks what the chosen drama already
+// Desktop: the chapter picker marks what the chosen drama already
 // has (and what earlier runs left failed or not attempted), a partial run
 // lists its not-attempted chapters, and "Retry failed chapters (N)" sends
 // exactly the retry set. Every call is mocked (sourcesImportMocks.ts).

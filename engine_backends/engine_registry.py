@@ -8,16 +8,16 @@ from .local import NLLBEngine, OllamaEngine
 from .openai_compat import DeepSeekEngine, OpenAIEngine
 
 
-# Step 12e: Draft / Standard / Release starting tiers -- sensible starting
-# points for engine + Step 7's Reflect mode + Step 12b's Auto QC pass,
+# Draft / Standard / Release starting tiers -- sensible starting
+# points for engine + Reflect mode + the Auto QC pass,
 # applied in one click. Built-in and fixed, layered on top of (not
-# replacing) Step 9c's saved presets, which stay the way to keep a
+# replacing) the saved presets, which stay the way to keep a
 # customized set of values. Engines follow §7.2's price ordering: DeepSeek
 # is the cheapest capable LLM, Claude Sonnet the recommended default,
 # Claude Opus the highest quality.
 #
-# auto_qc turns on Workspace's "Auto QC before export" check (auto_qc.py,
-# Step 12b) -- the export section then lists lines with a factual-detail
+# auto_qc turns on Workspace's "Auto QC before export" check (auto_qc.py)
+# -- the export section then lists lines with a factual-detail
 # mismatch before anything is downloaded.
 WORKFLOW_TIERS = {
     "draft": {"label": "Draft -- fast and cheap", "translation_engine": "deepseek",
@@ -63,7 +63,7 @@ def unknown_engine_message(engine_name) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 36: capability tags per engine -- what each engine can actually do,
+# Capability tags per engine -- what each engine can actually do,
 # so a task asks services/engine_routing_service.resolve_capability() for a
 # capability instead of naming an engine. Descriptive only: nothing here
 # switches engines on its own (settled decision: no automatic switching).

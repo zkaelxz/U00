@@ -1,4 +1,4 @@
-// Benchmark Lab (Step 38; api/routers/benchmark_routes.py, api/benchmark_schemas.py):
+// Benchmark Lab (api/routers/benchmark_routes.py, api/benchmark_schemas.py):
 // golden sets, persistent per-run results and the Model Arena. Reads and the
 // estimate need admin.diagnostics; adding, importing and deleting cases and
 // starting a run are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403

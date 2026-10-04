@@ -1,6 +1,6 @@
 """
 subtitle_formats.py -- WebVTT and ASS subtitle export, plus the checks
-shared by every export format (Step 6b):
+shared by every export format:
 
 - VTT: same cues as SRT, in WebVTT's header/timestamp format.
 - ASS: real styling -- font, size, bold/italic, fill and outline colour,
@@ -111,7 +111,7 @@ def overlap_note(ln, next_start: float) -> str:
 def lines_for_clip(lines, start: float, end: float):
     """Copies of the lines overlapping [start, end), timeshifted so the
     clip's own timeline starts at 0 -- for burning subtitles onto a video
-    that's been trimmed to that same range (Step 6e's vertical export). A
+    that's been trimmed to that same range (the vertical export). A
     line only partially inside the window is clamped to it, not dropped or
     left running past the clip's own end. Renumbers .idx in order; the
     original `lines` are left untouched."""
@@ -262,7 +262,7 @@ ASS_PRESETS = {
                       "alignment": "bottom-center"},
 }
 
-# Step 12c: SFX/non-verbal cues get their own ASS style -- the export's
+# SFX/non-verbal cues get their own ASS style -- the export's
 # style in italics, in a muted colour, so "[door slams]" never reads as a
 # line someone said.
 SFX_STYLE_NAME = "SFX"

@@ -1,5 +1,5 @@
 """
-sources/adapters/manhuagui.py -- 漫画柜 / ManHuaGui (zh), roadmap Step 23b.
+sources/adapters/manhuagui.py -- 漫画柜 / ManHuaGui (zh).
 
 Technique read from Keiyoushi's actively maintained Mihon extension
 (keiyoushi/extensions-source, src/zh/manhuagui, Apache-2.0) and
