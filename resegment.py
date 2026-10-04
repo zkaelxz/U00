@@ -319,7 +319,7 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
         for k, piece in enumerate(pieces):
             new_lines.append(Line(idx=0, start=edges[k], end=edges[k + 1], zh=piece,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                  sfx=ln.sfx))
+                                  sfx=ln.sfx, lang=ln.lang))
         changed.append((ln, pieces))
     for i, ln in enumerate(new_lines):
         ln.idx = i

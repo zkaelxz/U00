@@ -12,6 +12,7 @@ import {
   listTmSuggestions,
   patchLine,
   searchLines,
+  setLinesLanguage,
 } from '../../../../api/review'
 import { ButtonLink } from '../../../../components/Button'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
@@ -37,6 +38,7 @@ import {
   emptyMessage,
   initialActiveId,
   isDirty,
+  languageSetText,
   lineRange,
   flaggedStep,
   nextFlaggedId,
@@ -47,6 +49,7 @@ import {
   stepFrom,
   structureErrorText,
   suggestionPatch,
+  type LanguageScope,
   type LineDraft,
   type PanelMode,
 } from './reviewLogic'
@@ -64,6 +67,8 @@ interface Props {
   onChanged: () => void
   jobRunning: boolean
   mediaKind: MediaKind | null
+  // The drama's source_language: the spoken language of a line with no lang of its own.
+  sourceLanguage: string | null
   // The drama's whole line count, whenever the "all" view reports it.
   onLineCount?: (n: number) => void
   // The drama's flagged-line count, whenever a page reports it.
@@ -106,7 +111,7 @@ function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
 // edit mode, the "⋯" line sheet with structure edits, a sticky toolbar with the
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, onLineCount, onFlaggedCount, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
@@ -710,6 +715,28 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       },
     )
   }
+  // Writes only `lang`, so unlike the structure edits it needs no line-list check.
+  const doSetLanguage = async (lang: string, scope: LanguageScope) => {
+    const line = sheetLine
+    if (!line || busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    setStructError(null)
+    setSheetNote(null)
+    try {
+      const target = scope === 'speaker' && line.speaker ? { speaker: line.speaker } : { line_ids: [line.id] }
+      const r = await setLinesLanguage(dramaId, { lang: lang || null, ...target })
+      setSheet(null)
+      pending.current = { target: line.id }
+      setStatus(languageSetText(r.updated, lang, sourceLanguage))
+      onChanged()
+    } catch (e) {
+      setStructError(e)
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
   const closeSheetThen = (fn: () => void) => {
     setSheet(null)
     fn()
@@ -1023,6 +1050,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               key={l.id}
               dramaId={dramaId}
               line={l}
+              sourceLanguage={sourceLanguage}
               active={l.id === activeId}
               isPhone={isPhone}
               hasMedia={mediaKind !== null}
@@ -1121,6 +1149,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onMerge={doMerge}
           onAdd={doAdd}
           onDelete={doDelete}
+          sourceLanguage={sourceLanguage}
+          onSetLanguage={(lang, scope) => void doSetLanguage(lang, scope)}
         />
         <ShortcutSheet open={keysOpen} onClose={() => setKeysOpen(false)} />
       </div>

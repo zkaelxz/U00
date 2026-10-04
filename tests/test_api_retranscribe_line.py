@@ -146,7 +146,7 @@ class TestStart:
         assert transcribe_service.stored_whisper_size(
             {"id": 1, "whisper_size": stored}) == expected
 
-    def test_default_is_large_with_gpu_on_and_saved_choice_never_changes(self, isolated_db, monkeypatch):
+    def test_default_is_turbo_with_gpu_on_and_saved_choice_never_changes(self, isolated_db, monkeypatch):
         monkeypatch.setattr(transcribe_service.settings_service, "get_use_gpu", lambda: True)
         assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": ""}) == core.DEFAULT_WHISPER_SIZE
         monkeypatch.setattr(transcribe_service.settings_service, "get_use_gpu", lambda: False)
