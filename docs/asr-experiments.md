@@ -280,6 +280,106 @@ human transcript, with more than a few Korean and Japanese spans, before relying
 this; keep the Korean/Japanese span detection under review, since the disputed spans
 are where it matters.
 
+## Public benchmark: Chinese (2026-10-04)
+
+Clean read speech, so this understates the difficulty of drama audio. Use it to compare models and settings, not
+as an absolute error rate for the product.
+
+**Data.** FLEURS Mandarin (`google/fleurs`, config `cmn_hans_cn`, test split, CC BY 4.0), fetched without a token
+from the Hub's parquet export (`refs/convert/parquet`, revision `168de341b3db6859a9bac1c50a2ef5e3b47647e0`, file
+`cmn_hans_cn/test/0000.parquet`, sha256 `87c0aebbe183f3a36ac87b5c3421b6ab57036824744ff695029a3f858e7622fd`). The
+dataset script itself (revision `70bb2e84b976b7e960aa89f1c648e09c59f894dd`) was not run. The first 60 rows, 632.8 s of
+audio (10.5 min, not 12), were used; audio was kept outside the repo. The `id` column repeats (1721 and 1906 each
+appear twice, read by different speakers), so rows are identified by position. Ids in row order: 1906, 2006, 1883, 1852, 1734, 1890, 1721, 1869, 1805, 1965, 1903, 1953, 1830, 1910, 1902, 1874, 1763, 1837, 1905, 1772, 1779, 1792, 1780, 1962, 1884, 1958, 1871, 1738, 1698, 1989, 1725, 1712, 2002, 1804, 1661, 1700, 1951, 1697, 1821, 1971, 1808, 1914, 1868, 1729, 1802, 1760, 1816, 1723, 2003, 1906, 1686, 1880, 1797, 1834, 1721, 1785, 1691, 1728, 1666, 1704.
+<details><summary>Audio file stems in row order</summary>
+
+10026684690566417990, 10040380210557600780, 10048525650290665384, 10053956375630517392, 10056338555786085046, 10073099671796350432, 10081186303620187437, 10104380129516909856, 10112798408996336578, 10134195680525011353, 10142207404499844309, 10144930991730701959, 10147383166642115307, 10154699825088384418, 1015891181557233386, 1017060882143751441, 10182944938509562796, 10234433636571543908, 10279011772105822622, 10325486695909573217, 10325559490685159122, 10343405611041314630, 10369927130798325266, 10388181945260949729, 10400579561005332584, 10480388653191520950, 10481669967989866997, 10540148133747674396, 10544065594858743613, 1055783299672050865, 10558410879827163654, 10563386955236607431, 10571681330551714048, 10604423531103587528, 1061358881165519725, 10651933140664828475, 1065812790870009684, 10674527227632117693, 10694001904489787463, 10695273702291556205, 10700749092778973179, 10702444759150940582, 10730178299232374639, 10777625043982141593, 10785184604222814212, 10797488489095533876, 10800216992470799626, 10824731430851864186, 10836453965609915738, 10837263830977293517, 10852536777113131618, 10885647054729330005, 10892793653125285181, 10949290146151676233, 1095027899793949587, 10952847248994110499, 10970596972697016742, 11027229860710500775, 11031078104467854733, 11044189448827036819
+</details>
+
+**Method.** CPU only (4 cores, 15 GB), one configuration at a time so timings don't contend. Whisper models went
+through `core.load_whisper_model` (int8) with the settings `core.transcribe_for_timing` uses: `language="zh"`,
+`vad_filter=True` with `min_silence_duration_ms=300` and `threshold=0.5` (the app's `_DEFAULT_TUNING`),
+`beam_size=5`, `word_timestamps=True`, and `core.WHISPER_ANTI_LOOP_KWARGS` (`condition_on_previous_text=False`,
+`no_repeat_ngram_size=3`, `repetition_penalty=1.1`), faster-whisper's default temperature fallback, no initial prompt,
+followed by `core.filter_hallucinated_segments`. The app's default model is large-v3-turbo; the CPU default in
+`transcribe_service` is medium. Each row changes one setting against that baseline. The call is rebuilt in the
+benchmark script because `transcribe_for_timing` does not expose `vad_filter`, `temperature` or
+`condition_on_previous_text`; on 3 utterances the rebuilt baseline gave text identical to `transcribe_for_timing`.
+The Chinese prompt was the generic sentence "以下是普通话的句子。". Qwen3-ASR plain is `asr_backend.load_qwen3_asr`
+(bfloat16, which fit in memory) on each whole utterance with language Chinese; the second row is
+`asr_backend.Qwen3ASRVadBackend(model_size="1.7B")` (`use_gpu=False`, `batch_size=1`). Each utterance was
+transcribed separately. Model load time is not in wall time. Wall time is the sum over the 60 files; RTF is wall
+time over 632.8 s of audio.
+
+**Metric.** Character error rate (CER) from a plain Levenshtein distance over characters (my own 10-line
+implementation, not a library), corpus-level = total edits / total reference characters. Reference = FLEURS
+`raw_transcription`. Both sides: NFKC, remove every Unicode punctuation (P), separator (Z) and control (C) character, convert to Simplified
+with `opencc` `t2s` (opencc-python-reimplemented 0.1.7), lowercase. Two further choices you should know about:
+(1) four references carry translator-added Latin glosses in parentheses, e.g. "(Sintra)", that nobody speaks; I
+removed them from the reference, which lowers every system by about 3 points (e.g. turbo 10.30% with them, 7.15%
+without). (2) FLEURS writes numbers as digits ("1990年"); Qwen's VAD path and some Whisper output write numerals
+("一九九零年"), which counts as errors. The "no-digit utts" column rescopes to the 48 utterances whose reference has
+no digit. "Traditional" counts outputs (before conversion) that contained any Traditional-only character. "Halluc."
+counts non-empty outputs longer than 1.5x the reference or with a 2-12 character unit repeated 4+ times in a row;
+no output was empty.
+
+| Configuration | CER | CER, no-digit utts | Traditional | Halluc. | Wall s | RTF |
+|---|---|---|---|---|---|---|
+| Qwen3-ASR 1.7B plain | 3.60% | 2.30% | 1/60 | 0 | 716 | 1.13 |
+| Qwen3ASRVadBackend 1.7B | 5.30% | 2.58% | 0/60 | 0 | 645 | 1.02 |
+| large-v3 baseline | 5.71% | 5.30% | 6/60 | 0 | 957 | 1.51 |
+| large-v3 beam 1 | 5.86% | 5.37% | 7/60 | 0 | 671 | 1.06 |
+| large-v3 no VAD | 5.86% | 5.37% | 6/60 | 0 | 922 | 1.46 |
+| large-v3 zh prompt | 5.55% | 5.23% | 6/60 | 0 | 917 | 1.45 |
+| large-v3-turbo baseline (app default) | 7.15% | 6.62% | 3/60 | 0 | 435 | 0.69 |
+| turbo beam 1 | 7.30% | 6.62% | 6/60 | 0 | 391 | 0.62 |
+| turbo no VAD | 7.20% | 6.69% | 5/60 | 0 | 440 | 0.70 |
+| turbo cond. on previous text | 7.15% | 6.62% | 3/60 | 0 | 432 | 0.68 |
+| turbo temperature 0 (no fallback) | 7.15% | 6.62% | 3/60 | 0 | 438 | 0.69 |
+| turbo zh prompt | 6.99% | 6.48% | 4/60 | 0 | 425 | 0.67 |
+| medium baseline (CPU default) | 6.84% | 6.97% | 11/60 | 0 | 595 | 0.94 |
+| medium beam 1 | 7.46% | 7.39% | 14/60 | 0 | 391 | 0.62 |
+| medium no VAD | 7.10% | 7.39% | 12/60 | 0 | 576 | 0.91 |
+| medium cond. on previous text | 6.84% | 6.97% | 11/60 | 0 | 569 | 0.90 |
+| medium temperature 0 | 6.84% | 6.97% | 11/60 | 0 | 585 | 0.92 |
+| medium zh prompt | 7.46% | 7.18% | 5/60 | 0 | 592 | 0.94 |
+
+**Reading the table.**
+- Qwen3-ASR plain is the most accurate here (3.60%; 2.30% on utterances without digits). Paired bootstrap over
+  utterances: its CER is 1.4 to 5.5 points below turbo's (95% interval) and 0.2 to 3.8 below large-v3's.
+- large-v3 beats turbo by 0.6 to 2.4 points (95% interval) at 2.2x the wall time. medium and turbo cannot be
+  told apart (interval -1.4 to +0.8).
+- The `Qwen3ASRVadBackend` gap to plain Qwen (5.30% vs 3.60%) is mostly numerals: on the digit-free utterances they are
+  2.58% vs 2.30%. Each FLEURS clip is one sentence, so the VAD span step has little to do here; it is not tested on
+  multi-speaker or long audio.
+- Whisper settings barely matter on this data. All turbo variations are within 0.3 points, which is inside the noise
+  at 60 utterances (a few thousand characters). `condition_on_previous_text` and temperature 0 change nothing because every clip
+  is a single sub-30 s window, so there is no previous text and no fallback fired; this says nothing about long audio.
+  Beam 1 saves 10-35% of time for about 0.15 points on turbo and large-v3 and 0.6 on medium.
+- The Chinese prompt changed CER by at most 0.6 points (large-v3 and turbo slightly better, medium worse), but it cut
+  medium's Traditional-script outputs from 11 to 5 of 60. Medium produces Traditional text most often (11/60 by default);
+  Qwen almost never (1/60).
+- No hallucinations on any configuration; short clean clips do not trigger them, so this does not clear the settings
+  that guard against them on music or silence.
+
+**What I would default to for Chinese.** Keep faster-whisper large-v3-turbo as the Whisper default: it is the fastest
+(RTF 0.69), it is 1.4 points of CER behind large-v3, which takes 2.2x as long, and no setting change is supported by this data. large-v3 is the choice when accuracy matters more than time, and medium is not better than turbo on this data.
+Qwen3-ASR 1.7B was clearly best on clean sentence-length clips, so it is worth offering for Chinese, but this data
+cannot tell whether the lead holds on drama audio, long files or segmentation by VAD. Do not read the 0.1-0.3 point
+differences between settings as rankings.
+
+**Against the earlier private-clip finding** (one 3-minute drama clip, character recall against hardsubs: turbo 86.8%,
+medium 83.2%, Qwen 1.7B 79.4%, large-v3 77.7%): the public data does not agree on the order. Here large-v3 is clearly
+better than turbo and Qwen is best, while turbo is no better than medium. It agrees only that turbo is competitive
+with the larger models and much faster. The two tests differ in audio (clean read speech vs a drama with music and
+overlap), reference (written text vs hardsubs), metric (CER vs recall, which ignores insertions) and size (60 clips
+vs one), so neither overrules the other. Check on more drama material before changing a default.
+
+**Not run.** Beam sizes above 5, VAD threshold or silence settings, temperature fallback with long audio, fast mode,
+GPU, a Simplified-forcing prompt for medium on its own, repeated runs for timing noise (RTF of large-v3 ranged
+1.06 to 1.51 across settings that should cost about the same, so treat times as rough), and the 60-to-12-minute
+shortfall in the brief (60 utterances are 10.5 min).
+
 ## Public benchmark: Japanese (2026-10-04)
 
 Question: which speech-recognition model and settings should Japanese default to? Measured on public, clean read speech with reference transcripts. Results are CPU-only. Nothing here uses drama audio.

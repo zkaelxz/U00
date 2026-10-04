@@ -2,7 +2,7 @@
 // every call, the scan included, goes through pcOnlyFetch.
 import type {
   DiskUsageClearDone, DiskUsageMoveDone, DiskUsageScan, DiskUsageTrashEmptyDone, DiskUsageTrashList,
-  DiskUsageTrashPurgeDone, DiskUsageTrashRestoreDone,
+  DiskUsageTrashPurgeDone, DiskUsageTrashRestoreDone, UnusedVoiceClip, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
 } from '../types/diskUsage'
 import { getJson, postJson, withSignal } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -59,5 +59,17 @@ export const emptyTrash = (seen: { item_count: number; size_bytes: number }, f?:
   postJson<DiskUsageTrashEmptyDone>(
     `${BASE}/trash/empty`,
     { confirm_text: 'DELETE', expected_item_count: seen.item_count, expected_size_bytes: seen.size_bytes },
+    pcOnlyFetch(f),
+  )
+
+/** Voice clips no speaker uses, per title (type, size and date only). */
+export const listUnusedVoiceClips = (f?: Fetch) =>
+  getJson<UnusedVoiceClipList>(`${BASE}/unused-voice-clips`, pcOnlyFetch(f))
+
+/** Moves these clips into Baihe's Trash folder; each carries the size the person saw. Used or changed ones come back in `skipped`. */
+export const trashUnusedVoiceClips = (clips: Pick<UnusedVoiceClip, 'id' | 'size_bytes'>[], f?: Fetch) =>
+  postJson<UnusedVoiceClipTrashDone>(
+    `${BASE}/unused-voice-clips/to-trash`,
+    { clips: clips.map((c) => ({ id: c.id, expected_size_bytes: c.size_bytes })), confirm: true },
     pcOnlyFetch(f),
   )
