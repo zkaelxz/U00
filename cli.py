@@ -1018,7 +1018,7 @@ def main():
     p_list.add_argument("--status", default=None)
     p_list.set_defaults(func=cmd_list)
 
-    p_inspect = sub.add_parser("inspect-line", help="Step 58: \"what happened here?\" for one line")
+    p_inspect = sub.add_parser("inspect-line", help="Show \"what happened here?\" for one line")
     p_inspect.add_argument("--id", type=int, required=True)
     p_inspect.add_argument("--line", type=int, required=True, help="1-based line number")
     p_inspect.set_defaults(func=cmd_inspect_line)
@@ -1057,7 +1057,7 @@ def main():
     p_translate.add_argument("--model", default=None)
     p_translate.add_argument("--episode-summary-engine", default=None,
                              choices=list(translate_engines.ENGINES),
-                             help="Step 74: engine for the once-per-episode running-summary call "
+                             help="Engine for the once-per-episode running-summary call "
                                   "made after a drama finishes translating, fed forward as "
                                   "continuity context into the next episode of the same series. "
                                   "Defaults to the Settings episode-summary engine (local Ollama "
@@ -1102,7 +1102,7 @@ def main():
     p_translate.add_argument("--ollama-url", default=None,
                              help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
     p_translate.add_argument("--reflect", action="store_true",
-                             help="Step 7 'High quality' Reflect mode: three passes per batch "
+                             help="'High quality' Reflect mode: three passes per batch "
                                   "(faithful draft, critique, rewrite) instead of one -- costs "
                                   "about 3x as much. The critique is saved as a translation note "
                                   "per line.")
@@ -1154,8 +1154,7 @@ def main():
     p_dub.add_argument("--tts-engine", default="edge_tts", choices=["edge_tts", "offline"],
                        help="Fallback TTS engine used where a character has no cloned voice "
                             "reference set (same choice as Workspace's own 8. AI dub / "
-                            "narration section). Step 25d item 10: this command used to have "
-                            "no such flag at all, so it could only ever use edge-tts.")
+                            "narration section). Defaults to edge-tts.")
     p_dub.add_argument("--gpt-sovits-url", default=None,
                        help="GPT-SoVITS server for characters using it "
                             f"(default {dub_module.GPT_SOVITS_DEFAULT_URL})")
@@ -1220,7 +1219,7 @@ def main():
     p_export_video.add_argument("--subs", default="english", choices=["english", "bilingual", "chinese"])
     p_export_video.set_defaults(func=cmd_export_video)
 
-    p_doctor = sub.add_parser("doctor", help="Step 97: pre-flight one engine's credentials/"
+    p_doctor = sub.add_parser("doctor", help="Pre-flight one engine's credentials/"
                               "reachability with a real, minimal translate call")
     p_doctor.add_argument("--engine", required=True, choices=list(translate_engines.ENGINES))
     p_doctor.add_argument("--api-key", default=None)

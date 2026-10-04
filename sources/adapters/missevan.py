@@ -296,7 +296,7 @@ class MissEvanSource(SourceAdapter):
                      "to obtain the platform's services, content, or data, for any reason, "
                      "without prior written permission.",
             "tos_prohibited": True,
-            "enforcement_note": "ToS/robots.txt enforcement was deactivated app-wide in Step 90, "
+            "enforcement_note": "ToS/robots.txt enforcement was deactivated app-wide, "
                                 "per the user's own explicit decision -- this finding is recorded "
                                 "for the record here, not enforced by this adapter.",
         }

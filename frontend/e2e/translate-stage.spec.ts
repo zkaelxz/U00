@@ -80,7 +80,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 
-test('fallback engines: the rule is shown, only same-kind engines are offered, Reflect turns them off (B-06)', async ({ page }) => {
+test('fallback engines: the rule is shown, only same-kind engines are offered, Reflect turns them off', async ({ page }) => {
   const config = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
   const names: string[] = config.engines.map((e: { name: string }) => e.name)
   const main: string = config.translation_engine
