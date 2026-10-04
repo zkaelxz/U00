@@ -47,6 +47,7 @@ export function SetupSection({ checks, gpu, engines, cache, pc, checking, onRech
           </li>
         ))}
       </ul>
+      {checks.warnings?.map((w) => <p key={w} className="warn" data-testid="setup-warning">{w}</p>)}
       {children}
       <PyannoteSection />
       <ModelsList engines={engines} cache={cache} pc={pc} onChanged={onCacheChanged} />
