@@ -1277,7 +1277,7 @@ def delete_snapshot(confirm=False, confirm_text="", snapshot=None, all_copies=Fa
 # --------------------------------------------------------------------------
 
 # Every table with a drama_id foreign key to dramas(id), in insert order,
-# except the two in _SKIPPED_TABLES. tests/test_auto_backup_service.py
+# except those in _SKIPPED_TABLES. tests/test_auto_backup_service.py
 # checks this against the live schema, so a new child table fails a test
 # until it is listed in one or the other.
 CHILD_TABLES = ("lines", "pages", "characters", "translation_notes", "line_emotions",
@@ -1287,6 +1287,8 @@ CHILD_TABLES = ("lines", "pages", "characters", "translation_notes", "line_emoti
 _SKIPPED_TABLES = {
     "usage_log": "ON DELETE SET NULL: the spending rows survive a delete, so restoring them "
                  "would count the cost twice",
+    "speaker_merge_undos": "short-lived, single-use undo records; a restored one would "
+                           "describe lines and rows that no longer match",
     "bulk_jobs": "provider batch jobs: a restored in-flight batch could be polled again and "
                  "write stale results over the restored lines",
     "metadata_research_results": "a short-lived research cache pruned by age, keyed by a "
