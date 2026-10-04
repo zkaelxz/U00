@@ -318,3 +318,12 @@ def test_patch_expected_lang_is_compare_and_set(isolated_db):
         lines_service.patch_line(did, ids[1], lang="en", expected={"lang": "ja"})
     assert lines_service.patch_line(did, ids[1], lang="en", expected={"lang": "ko"})["lang"] == "en"
     assert lines_service.patch_line(did, ids[0], lang="zh", expected={"lang": ""})["lang"] == "zh"
+
+
+def test_cas_follows_the_lenient_read_of_imported_codes(isolated_db):
+    did, ids = _seed()
+    with db.get_conn() as conn:
+        conn.execute("UPDATE lines SET lang = 'KO' WHERE id = ?", (ids[0],))
+        conn.execute("UPDATE lines SET lang = 'xx' WHERE id = ?", (ids[2],))
+    assert lines_service.patch_line(did, ids[0], lang="en", expected={"lang": "ko"})["lang"] == "en"
+    assert lines_service.patch_line(did, ids[2], lang="ja", expected={"lang": ""})["lang"] == "ja"

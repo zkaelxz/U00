@@ -2292,6 +2292,7 @@ def list_dramas_by_series(series_id: int):
 # ---------------------------------------------------------------------------
 
 from core import LINE_FIELDS as _LINE_COLUMNS  # noqa: E402 -- core has no db dependency
+from core import LINE_LANGUAGES as _LINE_LANGUAGES  # noqa: E402
 
 
 def line_value(ln, f):
@@ -2365,7 +2366,16 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
         elif col == "sfx":
             conds.append("COALESCE(sfx, 0) = ?")
             cargs.append(int(bool(val)))
-        elif col in ("zh", "en", "speaker", "flag", "flag_note", "lang"):
+        elif col == "lang":
+            # Stored rows are read leniently (core._stored_line_lang): an
+            # imported "KO" reads as "ko" and an unknown code as the title
+            # default, so the check must see the same value or the line could
+            # never be saved again.
+            codes = ", ".join("?" for _ in _LINE_LANGUAGES)
+            conds.append(f"CASE WHEN LOWER(lang) IN ({codes}) THEN LOWER(lang) ELSE '' END = ?")
+            cargs.extend(_LINE_LANGUAGES)
+            cargs.append(val or "")
+        elif col in ("zh", "en", "speaker", "flag", "flag_note"):
             conds.append(f"COALESCE({col}, '') = ?")
             cargs.append(val or "")
         else:
