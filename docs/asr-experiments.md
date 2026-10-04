@@ -95,3 +95,76 @@ time and peak GPU memory (`nvidia-smi --query-gpu=memory.used --format=csv -l 1`
 ## Results
 
 *Not run yet: needs the user's GPU PC.*
+
+## Mixed Korean/Japanese/English clip comparison (2026-10-04)
+
+One 131 s clip of a multi-speaker stream (Korean, Japanese and English speakers),
+CPU only (4 cores, int8 for faster-whisper, bfloat16 for Qwen3-ASR 1.7B), one run
+per cell. The clip is not kept in the repo and no transcript text is quoted here.
+The VAD spans are the app's (`vad_segments.speech_spans/merge_close/cap_spans`):
+19 spans, 107 s of speech, longest 14.9 s.
+
+**No reference exists.** The only burned-in subtitles are English, laid over game
+UI, and rapidocr found no Hangul or kana. They are a translation, not a
+transcript of the Korean/Japanese speech, so there is no character recall per
+language. Span labels are a *consensus*: each span's language is the majority of
+votes (script of the output, plus the detected language where a mode reports one)
+from the automatic and per-span runs, leaving out every run of the model being
+scored. A span counts only if at least 70% of the votes agree: 12 of 19 spans
+(8 English, 2 Korean, 2 Japanese); the other 7, mostly Korean-vs-Japanese
+disagreements, are excluded as disputed. Zero Chinese-labelled spans.
+
+| Model | Mode | Script match | Wrong script | Empty | Kana on ko span / other-script spans | Lang-detect correct | Hallucinated lines | Segments | Median seg (s) | Time (s) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| medium | fixed ko | 4/12 | 7 | 1 | 0 / 1 | n/a | 3 | 53 | 2.0 | 570 |
+| medium | fixed ja | 4/12 | 7 | 1 | 1 / 1 | n/a | 3 | 47 | 2.0 | 646 |
+| medium | auto (multilingual) | 7/12 | 2 | 3 | 1 / 4 | n/a | 6 | 45 | 2.0 | 552 |
+| medium | per-span detect (ko/ja/en/zh) | 11/12 | 1 | 0 | 1 / 0 | 11/12 | 3 | 65 | 1.5 | 693 |
+| large-v3-turbo | fixed ko | 6/11 | 3 | 2 | 0 / 1 | n/a | 6 | 37 | 1.6 | 188 |
+| large-v3-turbo | fixed ja | 4/11 | 5 | 2 | 1 / 2 | n/a | 0 | 45 | 2.0 | 247 |
+| large-v3-turbo | auto (multilingual) | 5/11 | 1 | 5 | 0 / 3 | n/a | 0 | 21 | 4.0 | 156 |
+| large-v3-turbo | per-span detect (ko/ja/en/zh) | 11/11 | 0 | 0 | 0 / 0 | 11/11 | 6 | 42 | 2.0 | 338 |
+| large-v3 | fixed ko | 4/11 | 2 | 5 | 0 / 0 | n/a | 7 | 34 | 2.0 | 849 |
+| large-v3 | fixed ja | 2/11 | 4 | 5 | 1 / 0 | n/a | 0 | 49 | 2.0 | 1297 |
+| large-v3 | auto (multilingual) | 6/11 | 1 | 4 | 0 / 0 | n/a | 0 | 36 | 2.0 | 830 |
+| large-v3 | per-span detect (ko/ja/en/zh) | 11/11 | 0 | 0 | 0 / 0 | 11/11 | 0 | 46 | 1.8 | 1082 |
+| qwen3-asr-1.7B | plain, per span, auto | 11/12 | 1 | 0 | 0 / 1 | 10/12 | 0 | 19 | 4.2 | 318 |
+| qwen3-asr-1.7B | repo VAD backend, auto | 11/12 | 1 | 0 | 0 / 1 | n/a | 0 | 21 | 4.2 | 284 |
+
+"Script match" is the share of the scored spans whose output is in the labelled
+script (Hangul, kana/kanji, Latin). "Wrong script" is output in a different script;
+"Empty" is no text at all. Time is wall-clock for the whole run; the first medium
+runs overlapped with a package install, so compare times only roughly. Whisper
+sampling fallback is random: the first medium fixed-ko run gave 75 segments, the
+rerun in the table 53.
+
+Interpretation (small sample, consensus is not truth):
+- Per-span detection restricted to ko/ja/en/zh scored best among the Whisper modes
+  (11 of 11 or 11 of 12 scored spans in the right script for all three sizes,
+  against 2-7 of 11-12 for fixed ko, fixed ja or whole-file automatic). Those runs
+  also vote in the consensus through their detection, so they partly agree with
+  themselves; treat this as favourable to them.
+- Fixed ko or ja gave a wrong-script or empty result on roughly half to four fifths of
+  the scored spans (5-9 of 11-12). Whole-file automatic mode
+  (`multilingual=True`) is not a fix: it left 3-5 scored spans empty, and large-v3-turbo
+  produced only 21 segments.
+- Qwen3-ASR with no language set matched the script on 11 of 12 scored spans, but
+  its detected language was right on 10 of 12 and across all 19 spans it
+  reported Indonesian, Russian and Portuguese once each, and Chinese for 4. Run on
+  the whole clip in one call it returned a short, single-language English text.
+  The repo backend matched the same count (11 of 12) as the plain per-span run.
+- `asr_backend.Qwen3ASRVadBackend.transcribe` raises for `language=None`, so
+  automatic mode is not reachable through the backend as written; these runs swapped
+  its language table for an "auto" entry to drive the unchanged code path.
+- The three Whisper sizes' per-span detections agreed on 13 of 19 spans (ko 1-3,
+  ja 3-5, zh 1-3 spans per size). The Korean and Japanese conclusions rest on 2 and
+  2 scored spans, so they are weak.
+
+Suggested starting point for the "Mixed languages" option (not a verdict): detect
+the language per VAD span, restricted to the languages the user ticked, then
+transcribe each span with that language; do not use a single fixed language or
+whole-file automatic mode on mixed audio. Prefer large-v3-turbo for speed (3-5x faster
+than large-v3 here at the same scored result). Re-measure on a clip with a
+human transcript, with more than a few Korean and Japanese spans, before relying on
+this; keep the Korean/Japanese span detection under review, since the disputed spans
+are where it matters.
