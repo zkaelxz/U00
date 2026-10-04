@@ -767,7 +767,7 @@ def _promote_next_queued_gpu_job():
                 proc, result_queue = _register_process_job(
                     job_id, entry["target"], entry["args"],
                     _jobs[job_id]["gpu_touching"], entry["description"],
-                    _jobs[job_id].get("owner_user_id"))
+                    _jobs[job_id].get("owner_user_id"), start_method=entry.get("start_method"))
                 on_done = entry.get("on_done")
                 on_finish = entry.get("on_finish")
                 kill_whole_tree = entry.get("kill_whole_tree", False)
@@ -942,7 +942,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
 
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
                       description: str = None, on_done=None, on_finish=None,
-                      kill_whole_tree: bool = False) -> bool:
+                      kill_whole_tree: bool = False, start_method: str = None) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -991,8 +991,15 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     subprocess alone. On POSIX the target must call
     start_own_process_group() first so its children share its group.
 
-    on_done/on_finish/kill_whole_tree are carried through the GPU queue like
-    target/args. Records its starter and refuses during a clean stop like
+    start_method: a multiprocessing start method ("spawn") for this job's
+    process and queue instead of the platform default. A job that may use
+    CUDA passes "spawn" on Linux too, where the default forks: a forked
+    child of a process that has already initialised CUDA (the Diagnostics
+    GPU check, an in-process GPU job) cannot use it. Under spawn, target and
+    args must pickle and target's module is imported fresh in the child.
+
+    on_done/on_finish/kill_whole_tree/start_method are carried through the
+    GPU queue like target/args. Records its starter and refuses during a clean stop like
     start_job().
     """
     owner_user_id = _acting_user_id()
@@ -1017,11 +1024,11 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
                                 "on_done": on_done, "on_finish": on_finish,
-                                "kill_whole_tree": kill_whole_tree})
+                                "kill_whole_tree": kill_whole_tree, "start_method": start_method})
             _note_gpu_wait_reason_locked(job_id)
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
-                                                   owner_user_id)
+                                                   owner_user_id, start_method=start_method)
     try:
         proc.start()
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
@@ -1033,15 +1040,18 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     return True
 
 
-def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None):
+def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None,
+                          start_method=None):
     """Caller must already hold _lock. Builds the Process and its result
     queue and records the job dict entry, but doesn't call proc.start()
     itself -- constructing a Process is cheap, but actually starting one
     (forking/spawning a real OS process) shouldn't happen while holding
     _lock, so callers start it themselves right after releasing the
-    lock. Returns (proc, result_queue) for that."""
-    result_queue = multiprocessing.Queue()
-    proc = multiprocessing.Process(target=target, args=(*args, result_queue), daemon=True)
+    lock. Returns (proc, result_queue) for that. start_method None keeps
+    the platform's default context."""
+    mp = multiprocessing.get_context(start_method) if start_method else multiprocessing
+    result_queue = mp.Queue()
+    proc = mp.Process(target=target, args=(*args, result_queue), daemon=True)
     _jobs[job_id] = {
         "status": "running", "progress": 0.0, "message": "Starting...",
         "error": None, "started_at": time.time(), "finished_at": None,

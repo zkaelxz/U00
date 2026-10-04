@@ -580,6 +580,9 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       settings_service.get_whisper_model_path(),
                       asr_options_service.get_qwen_asr_batch_size(), scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
+                # Spawn, not Linux's default fork: a forked child of a process
+                # that has already initialised CUDA cannot use the GPU.
+                start_method="spawn",
                 on_done=functools.partial(
                     _apply_on_done, drama_id=drama_id, source_language=source_language,
                     whisper_size=whisper_size, use_gpu=use_gpu, transcript_mode=transcript_mode,
@@ -821,8 +824,10 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
                        whisper_fast_mode, use_groq, initial_prompt, use_gpu, asr_backend_choice,
                        alignment_method, local_model_path, qwen_batch_size, scratch_dir,
                        result_queue):
-    """Process-job target (top level and plain arguments only, so it pickles
-    for Windows' spawn): runs the pipeline for an audio transcript_mode and
+    """Process-job target, started with spawn on every platform (top level
+    and plain arguments only, so it pickles; nothing here may depend on
+    state set up in the parent process after import): runs the pipeline for
+    an audio transcript_mode and
     puts ("ok", outcome) -- the plain dict _apply_transcription takes -- or
     ("error", type name, redacted message). Writes nothing to the database.
     Every temp file goes under scratch_dir, which the parent removes however

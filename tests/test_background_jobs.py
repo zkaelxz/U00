@@ -1314,6 +1314,46 @@ class TestProcessJobOnDone:
         assert killed == [instances[0]]
         bg.clear_job(job_id)
 
+    def test_start_method_picks_the_context_also_through_the_gpu_queue(self, monkeypatch):
+        contexts = []
+
+        class FakeContext:
+            def Queue(self):
+                return queue.Queue()
+
+            def Process(self, target, args, daemon=True):
+                return _FakeProcess(target, args, daemon=daemon, run_target_on_start=True)
+        monkeypatch.setattr(bg.multiprocessing, "get_context",
+                            lambda method: contexts.append(method) or FakeContext())
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+
+        bg.clear_job("test_start_method_default")
+        bg.start_process_job("test_start_method_default", lambda q: q.put(("ok", {})), args=())
+        assert _wait_for_status("test_start_method_default", "running")["status"] == "done"
+        assert contexts == []
+
+        bg.clear_job("test_start_method_direct")
+        bg.start_process_job("test_start_method_direct", lambda q: q.put(("ok", {})), args=(),
+                             start_method="spawn")
+        assert _wait_for_status("test_start_method_direct", "running")["status"] == "done"
+        assert contexts == ["spawn"]
+
+        release, started = threading.Event(), threading.Event()
+        bg.start_job("test_start_method_gpu_thread",
+                     lambda: (started.set(), release.wait(timeout=2.0)), gpu_touching=True)
+        started.wait(timeout=2.0)
+        job_id = "test_start_method_queued"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(), gpu_touching=True,
+                             start_method="spawn")
+        assert bg.get_status(job_id)["status"] == "queued"
+        release.set()
+        assert _wait_for(lambda: bg.get_status(job_id)["status"] == "done")
+        assert contexts == ["spawn", "spawn"]
+        for j in ("test_start_method_default", "test_start_method_direct",
+                  "test_start_method_gpu_thread", job_id):
+            bg.clear_job(j)
+
     def test_a_reported_stage_shows_as_a_no_progress_stage(self, monkeypatch):
         """report_stage: the parent runs a stage_ticker (no-progress note,
         longer stall allowance) until the worker's next progress."""

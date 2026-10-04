@@ -7,6 +7,7 @@ The job body (_run_transcribe_and_apply_job) is called directly, the same
 way tests/test_workspace_tab.py exercises run_transcribe_job -- transcribe_
 for_timing is mocked throughout, so no real model/GPU/audio is involved.
 """
+import functools
 import multiprocessing
 import os
 import subprocess
@@ -276,6 +277,7 @@ class TestStartTranscribeRun:
         assert captured["target"] is transcribe_service._transcribe_worker
         k = captured["start_kwargs"]
         assert k["gpu_touching"] is True and k["kill_whole_tree"] is True
+        assert k["start_method"] == "spawn"
         assert callable(k["on_done"]) and callable(k["on_finish"])
         assert captured["drama_id"] == did
 
@@ -1302,12 +1304,73 @@ def _process_gone(pid):
         return True
 
 
-@pytest.mark.skipif(not sys.platform.startswith("linux")
-                    or multiprocessing.get_start_method() != "fork",
-                    reason="the test's fakes reach the worker process only through fork")
+# Set in the parent by TestTranscribeProcessJob: a forked child would inherit
+# it, a spawned one (a fresh interpreter) never does.
+_PARENT_ONLY_PROBE = False
+
+
+def _spawned_worker(scenario, *args):
+    """The transcribe worker as TestTranscribeProcessJob's spawned child runs
+    it. Under spawn the child imports every module fresh, so the parent's
+    monkeypatches never reach it: the scenario's fakes are installed here,
+    then the real worker runs. args end with (scratch_dir, result_queue)."""
+    import json
+    import audio_preprocess
+    import db
+    kind, library, marker = scenario
+    if _PARENT_ONLY_PROBE:
+        raise AssertionError("the worker was forked, not spawned")
+    db.configure_library_dir(library)
+    core_module.load_whisper_model = lambda *a, **k: object()
+    scratch_dir = args[-2]
+
+    def two_lines(*a, progress_cb=None, **k):
+        progress_cb(0.5)
+        return [{"start": 0.0, "end": 1.0, "text": "hi"},
+                {"start": 1.0, "end": 2.0, "text": "there"}]
+
+    def fake_separate(in_path, out_path, **k):
+        if os.path.dirname(out_path) != scratch_dir:
+            raise AssertionError("vocals not written in the scratch folder")
+        with open(out_path, "wb") as f:
+            f.write(b"vocals")
+        return out_path
+
+    def stuck_whisper(*a, progress_cb=None, **k):
+        # One long model call with no cancel point, which has started a
+        # helper process and written a temp file of its own.
+        progress_cb(0.1)
+        helper = subprocess.Popen(["sleep", "120"])
+        fd, temp_path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        with open(marker + ".tmp", "w") as f:
+            json.dump({"worker": os.getpid(), "helper": helper.pid, "temp": temp_path}, f)
+        os.replace(marker + ".tmp", marker)
+        time.sleep(120)
+        return [{"start": 0.0, "end": 1.0, "text": "新的"}]
+
+    if kind == "two_lines":
+        transcribe_service.transcribe_for_timing = two_lines
+    elif kind == "vocals":
+        audio_preprocess.separate_vocals = fake_separate
+        transcribe_service.transcribe_for_timing = (
+            lambda path, *a, **k: [{"start": 0.0, "end": 1.0, "text": path}])
+    elif kind == "stuck":
+        transcribe_service.transcribe_for_timing = stuck_whisper
+    transcribe_service._transcribe_worker(*args)
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"),
+                    reason="checks the worker's processes through /proc")
 class TestTranscribeProcessJob:
-    """An audio transcription runs in its own process (start_process_job),
-    with a fake Whisper; nothing loads a real model."""
+    """An audio transcription runs in its own spawned process
+    (start_process_job, start_method="spawn"), with a fake Whisper installed
+    in the child (_spawned_worker); nothing loads a real model."""
+
+    def _use_spawned_fakes(self, monkeypatch, isolated_db, kind, marker=None):
+        monkeypatch.setattr(sys.modules[__name__], "_PARENT_ONLY_PROBE", True)
+        monkeypatch.setattr(transcribe_service, "_transcribe_worker", functools.partial(
+            _spawned_worker, (kind, isolated_db.LIBRARY_DIR, marker)))
 
     def _track_scratch(self, monkeypatch):
         made = []
@@ -1320,12 +1383,7 @@ class TestTranscribeProcessJob:
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
         job_id = f"transcribe_{did}"
         _clear(job_id)
-
-        def fake_whisper(*a, progress_cb=None, **k):
-            progress_cb(0.5)
-            return [{"start": 0.0, "end": 1.0, "text": "hi"},
-                    {"start": 1.0, "end": 2.0, "text": "there"}]
-        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", fake_whisper)
+        self._use_spawned_fakes(monkeypatch, isolated_db, "two_lines")
         messages = []
         real_update = background_jobs.update_progress
         monkeypatch.setattr(background_jobs, "update_progress",
@@ -1333,7 +1391,7 @@ class TestTranscribeProcessJob:
         scratch = self._track_scratch(monkeypatch)
 
         transcribe_service.start_transcribe_run(did)
-        status = _wait_finished(job_id)
+        status = _wait_finished(job_id, timeout=60)
 
         assert status["status"] == "done", status
         assert status["result"]["line_count"] == 2
@@ -1350,24 +1408,15 @@ class TestTranscribeProcessJob:
         _clear(job_id)
 
     def test_vocals_are_separated_in_the_scratch_folder_then_kept(self, isolated_db, monkeypatch):
-        import audio_preprocess
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper",
                                       separate_vocals_first=1)
         job_id = f"transcribe_{did}"
         _clear(job_id)
+        self._use_spawned_fakes(monkeypatch, isolated_db, "vocals")
         scratch = self._track_scratch(monkeypatch)
 
-        def fake_separate(in_path, out_path, **k):
-            assert os.path.dirname(out_path) == scratch[0]
-            with open(out_path, "wb") as f:
-                f.write(b"vocals")
-            return out_path
-        monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
-        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
-                            lambda path, *a, **k: [{"start": 0.0, "end": 1.0, "text": path}])
-
         transcribe_service.start_transcribe_run(did)
-        status = _wait_finished(job_id)
+        status = _wait_finished(job_id, timeout=60)
 
         assert status["status"] == "done", status
         vocals = os.path.join(ddir, "vocals.wav")
@@ -1385,23 +1434,10 @@ class TestTranscribeProcessJob:
         job_id = f"transcribe_{did}"
         _clear(job_id)
         marker = str(tmp_path / "worker.json")
-
-        def stuck_whisper(*a, progress_cb=None, **k):
-            # One long model call with no cancel point, which has started a
-            # helper process and written a temp file of its own.
-            progress_cb(0.1)
-            helper = subprocess.Popen(["sleep", "120"])
-            fd, temp_path = tempfile.mkstemp(suffix=".wav")
-            os.close(fd)
-            with open(marker + ".tmp", "w") as f:
-                json.dump({"worker": os.getpid(), "helper": helper.pid, "temp": temp_path}, f)
-            os.replace(marker + ".tmp", marker)
-            time.sleep(120)
-            return [{"start": 0.0, "end": 1.0, "text": "新的"}]
-        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", stuck_whisper)
+        self._use_spawned_fakes(monkeypatch, isolated_db, "stuck", marker)
 
         transcribe_service.start_transcribe_run(did)
-        assert _wait_until(lambda: os.path.exists(marker), timeout=20)
+        assert _wait_until(lambda: os.path.exists(marker), timeout=60)
         with open(marker) as f:
             info = json.load(f)
         assert info["temp"].startswith(transcribe_service.storage.temp_root())
