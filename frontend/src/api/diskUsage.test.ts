@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { emptyTrash, listTrash, moveItem, moveToTrash, purgeTrashItem, restoreTrashItem, scanDiskUsage } from './diskUsage'
+import { emptyTrash, listTrash, listUnusedVoiceClips, trashUnusedVoiceClips, moveItem, moveToTrash, purgeTrashItem, restoreTrashItem, scanDiskUsage } from './diskUsage'
 import { resetPcModeForTests } from './pcOnly'
 
 function reply(body: unknown = {}) {
@@ -69,6 +69,19 @@ describe('disk usage api', () => {
     })
     expect(JSON.parse(mock.mock.calls[3][1].body)).toEqual({
       confirm_text: 'DELETE', expected_item_count: 2, expected_size_bytes: 400,
+    })
+  })
+
+  it('lists unused voice clips and moves them with the sizes shown, over the PC header', async () => {
+    const { mock, f } = reply()
+    await listUnusedVoiceClips(f)
+    await trashUnusedVoiceClips([{ id: 'a'.repeat(32), size_bytes: 120 }], f)
+    expect(mock.mock.calls.map(([u]) => u)).toEqual([
+      '/api/data-usage/unused-voice-clips', '/api/data-usage/unused-voice-clips/to-trash',
+    ])
+    expect(header(mock.mock.calls[0][1], 'X-Baihe-Local')).toBe('1')
+    expect(JSON.parse(mock.mock.calls[1][1].body)).toEqual({
+      clips: [{ id: 'a'.repeat(32), expected_size_bytes: 120 }], confirm: true,
     })
   })
 })

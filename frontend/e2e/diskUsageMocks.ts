@@ -47,7 +47,10 @@ const join = (a: string, b: string) => (a ? `${a}/${b}` : b)
 
 export interface TrashEntry { id: string; parent: string; node: Node; trashed_at: string; restorable: boolean }
 
+export interface MockClip { id: string; type: string; size: number; used?: boolean }
+
 export interface DiskUsageMock {
+  clips: { title: string; clips: MockClip[] }[]
   posts: { path: string; body: Record<string, unknown> }[]
   tree: Record<string, Node[]>
   trash: TrashEntry[]
@@ -55,7 +58,7 @@ export interface DiskUsageMock {
   setPartial(on: boolean): void
 }
 
-export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?: boolean; slowScan?: number; trash?: { path: string; size: number; files: number; restorable?: boolean }[] } = {}): Promise<DiskUsageMock> {
+export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?: boolean; slowScan?: number; trash?: { path: string; size: number; files: number; restorable?: boolean }[]; clips?: { title: string; clips: MockClip[] }[]; clipsInUse?: number; clipsFailPost?: number } = {}): Promise<DiskUsageMock> {
   const tree: Record<string, Node[]> = JSON.parse(JSON.stringify(TREE))
   const state = { busy: null as string | null, partial: false }
   const trash: TrashEntry[] = (opts.trash ?? []).map((t, i) => {
@@ -65,7 +68,7 @@ export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?
       node: { name, kind: 'folder', size: t.size, files: t.files } }
   })
   const mock: DiskUsageMock = {
-    posts: [], tree, trash,
+    posts: [], tree, trash, clips: JSON.parse(JSON.stringify(opts.clips ?? [])),
     setBusy: (r) => { state.busy = r },
     setPartial: (on) => { state.partial = on },
   }
@@ -83,6 +86,39 @@ export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?
     if (opts.slow) await new Promise((r) => setTimeout(r, 1500))
     const isScan = url.pathname === '/api/data-usage' && req.method() === 'GET'
     if (opts.slowScan && isScan) await new Promise((r) => setTimeout(r, opts.slowScan))
+    if (url.pathname === '/api/data-usage/unused-voice-clips' && req.method() === 'GET') {
+      const titles = mock.clips.filter((t) => t.clips.length).map((t) => ({
+        title: t.title, size_bytes: t.clips.reduce((s, c) => s + c.size, 0),
+        clips: t.clips.map((c) => ({ id: c.id, file_type: c.type, size_bytes: c.size, modified_at: '2026-09-30T08:00:00+00:00' })),
+      }))
+      return route.fulfill({ json: {
+        titles, total_bytes: titles.reduce((s, t) => s + t.size_bytes, 0),
+        total_count: titles.reduce((s, t) => s + t.clips.length, 0), titles_in_use: opts.clipsInUse ?? 0, busy_reason: state.busy,
+      } })
+    }
+    if (url.pathname === '/api/data-usage/unused-voice-clips/to-trash') {
+      const body = req.postDataJSON()
+      mock.posts.push({ path: 'clips-to-trash', body })
+      if (state.busy) return route.fulfill(conflict(state.busy, 'busy'))
+      if (body.clips.length > 500) return route.fulfill({ status: 422, json: { error: { code: 'validation_error', message: 'Too many clips.' } } })
+      // The nth request stops part-way: two clips moved, then the library got busy.
+      if (opts.clipsFailPost === mock.posts.filter((p) => p.path === 'clips-to-trash').length) {
+        return route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'A job, restore or other library task is running.', details: { reason: 'busy', moved_count: 2, moved_bytes: 2, skipped: [] } } } })
+      }
+      let moved = 0
+      let bytes = 0
+      const skipped: { id: string; reason: string }[] = []
+      for (const want of body.clips) {
+        const owner = mock.clips.find((t) => t.clips.some((c) => c.id === want.id))
+        const clip = owner?.clips.find((c) => c.id === want.id)
+        if (!owner || !clip || clip.used) { skipped.push({ id: want.id, reason: 'no_longer_unused' }); continue }
+        if (clip.size !== want.expected_size_bytes) { skipped.push({ id: want.id, reason: 'changed' }); continue }
+        owner.clips = owner.clips.filter((c) => c !== clip)
+        moved += 1
+        bytes += clip.size
+      }
+      return route.fulfill({ json: { moved_count: moved, moved_bytes: bytes, skipped } })
+    }
     if (url.pathname === '/api/data-usage/to-trash') {
       const body = req.postDataJSON()
       mock.posts.push({ path: 'to-trash', body })

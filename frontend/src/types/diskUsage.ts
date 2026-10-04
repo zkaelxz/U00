@@ -91,3 +91,23 @@ export type DiskUsageMoveDone = {
   what: string | null
   name: string
 }
+
+// Voice clips in a title's voice_refs/ that no speaker uses. No file name or path: `id` is opaque.
+export type UnusedVoiceClip = { id: string; file_type: string; size_bytes: number; modified_at: string | null }
+
+export type UnusedVoiceClipTitle = { title: string; size_bytes: number; clips: UnusedVoiceClip[] }
+
+export type UnusedVoiceClipList = {
+  titles: UnusedVoiceClipTitle[]
+  total_bytes: number
+  total_count: number
+  // Titles left out because a dub, narration or audiobook job is running for them.
+  titles_in_use: number
+  busy_reason: string | null
+}
+
+export type UnusedVoiceClipTrashDone = {
+  moved_count: number
+  moved_bytes: number
+  skipped: { id: string; reason: 'no_longer_unused' | 'changed' }[]
+}

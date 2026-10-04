@@ -55,6 +55,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 
@@ -77,6 +78,23 @@ JOB_PREFIX = "voiceref_"
 _CLIP_READING_JOB_PREFIXES = ("dub_", "narration_", "audiobook_")
 _CLIP_IN_USE = ("A dub, narration or audiobook job is running for this drama and may be "
                 "using this clip. Wait for it to finish or cancel it first.")
+
+# One lock per title around "a clip file exists" + "a speaker row points at
+# it". Disk usage moves unreferenced clips to Trash, and a clip that was just
+# written or picked has no row yet, so without this its existence check and its
+# rename could both pass between the file appearing and the row being saved.
+# Order: a holder of a clip lock never waits for the library hold (these
+# routes don't take it), so Disk usage may take a clip lock while it holds the
+# library; the reverse would deadlock. Held only for the file check and DB
+# write, never across ffprobe, ffmpeg or an upload body.
+_CLIP_LOCKS = {}
+_CLIP_LOCKS_GUARD = threading.Lock()
+
+
+def clip_lock(drama_id: int) -> threading.Lock:
+    with _CLIP_LOCKS_GUARD:
+        return _CLIP_LOCKS.setdefault(drama_id, threading.Lock())
+
 
 # Upload caps (C09). wav/mp3/m4a, plus flac/ogg (also plain audio).
 MAX_CLIP_BYTES = 20 * 1024 * 1024
@@ -267,16 +285,17 @@ def upload_reference_clip(drama_id: int, speaker_label, client_filename, fileobj
                 f"A reference clip must be {MIN_CLIP_SECONDS:g} to {MAX_CLIP_SECONDS:g} seconds long.")
         _require_no_clip_reading_job(drama_id)  # again: the probe can take a while
         rel = f"{REFS_DIR}/clone_ref_{uuid.uuid4().hex}{ext}"
-        os.replace(tmp, os.path.join(db.drama_dir(drama_id), rel))
+        with clip_lock(drama_id):
+            os.replace(tmp, os.path.join(db.drama_dir(drama_id), rel))
+            old = _character_row(drama_id, speaker_label).get("ref_audio_filename") or ""
+            db.upsert_character(drama_id, speaker_label, ref_audio_filename=rel,
+                                ref_text=None if ref_text is None else ref_text.strip())
+            if old != rel:
+                _remove_owned_clip(drama_id, old, speaker_label)
     except BaseException:
         if os.path.exists(tmp):
             os.remove(tmp)
         raise
-    old = _character_row(drama_id, speaker_label).get("ref_audio_filename") or ""
-    db.upsert_character(drama_id, speaker_label, ref_audio_filename=rel,
-                        ref_text=None if ref_text is None else ref_text.strip())
-    if old != rel:
-        _remove_owned_clip(drama_id, old, speaker_label)
     return characters_service.get_one(drama_id, speaker_label)
 
 
@@ -291,10 +310,11 @@ def remove_reference_clip(drama_id: int, speaker_label, confirm: bool = False) -
     if confirm is not True:
         raise InvalidInputError("Removing a reference clip needs confirm=true.")
     _require_no_clip_reading_job(drama_id)
-    old = _character_row(drama_id, speaker_label).get("ref_audio_filename") or ""
-    if old:
-        db.upsert_character(drama_id, speaker_label, ref_audio_filename="")
-        _remove_owned_clip(drama_id, old, speaker_label)
+    with clip_lock(drama_id):
+        old = _character_row(drama_id, speaker_label).get("ref_audio_filename") or ""
+        if old:
+            db.upsert_character(drama_id, speaker_label, ref_audio_filename="")
+            _remove_owned_clip(drama_id, old, speaker_label)
     return characters_service.get_one(drama_id, speaker_label)
 
 
@@ -522,6 +542,22 @@ def candidate_audio_path(drama_id: int, candidate_id: str) -> str:
     return _find_candidate(drama_id, candidate_id)[2]
 
 
+def _ensure_pick_copy(root: str, rel: str, candidate_path: str):
+    """Copies the candidate to its clone_pick_ name unless that copy is
+    already there (candidate files never change under an id)."""
+    if _safe_file(root, rel) is not None:
+        return
+    fd, tmp = tempfile.mkstemp(prefix=".pick_", suffix=".tmp", dir=os.path.join(root, REFS_DIR))
+    os.close(fd)
+    try:
+        shutil.copyfile(candidate_path, tmp)
+        os.replace(tmp, os.path.join(root, rel))
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
 def choose_candidate(drama_id: int, candidate_id: str) -> dict:
     """Makes one candidate its speaker's clone reference: the wav is copied
     to `voice_refs/clone_pick_<candidate id>.wav` (so a later extraction
@@ -541,17 +577,6 @@ def choose_candidate(drama_id: int, candidate_id: str) -> dict:
         raise NotFoundError("No such speaker in this drama.")
     root = db.drama_dir(drama_id)
     rel = f"{REFS_DIR}/clone_pick_{candidate_id}.wav"
-    if _safe_file(root, rel) is None:
-        fd, tmp = tempfile.mkstemp(prefix=".pick_", suffix=".tmp", dir=os.path.join(root, REFS_DIR))
-        os.close(fd)
-        try:
-            shutil.copyfile(path, tmp)
-            os.replace(tmp, os.path.join(root, rel))
-        except BaseException:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-            raise
-    old = _character_row(drama_id, label).get("ref_audio_filename") or ""
     ref_text = None
     line_id = cand.get("line_id")
     if line_id is not None:
@@ -559,9 +584,16 @@ def choose_candidate(drama_id: int, candidate_id: str) -> dict:
             if ln.get("id") == line_id and (ln.get("zh") or "").strip():
                 ref_text = ln["zh"].strip()
                 break
-    db.upsert_character(drama_id, label, ref_audio_filename=rel, ref_text=ref_text)
-    if old != rel and _PICKED_CLIP.match(old) and not _clip_reading_job_active(drama_id):
-        _remove_owned_clip(drama_id, old, label)
+    with clip_lock(drama_id):
+        _ensure_pick_copy(root, rel, path)
+        old = _character_row(drama_id, label).get("ref_audio_filename") or ""
+        db.upsert_character(drama_id, label, ref_audio_filename=rel, ref_text=ref_text)
+        # Checked again because the copy had no row pointing at it until
+        # just now; a file that vanished in that gap would leave a speaker
+        # pointing at nothing.
+        _ensure_pick_copy(root, rel, path)
+        if old != rel and _PICKED_CLIP.match(old) and not _clip_reading_job_active(drama_id):
+            _remove_owned_clip(drama_id, old, label)
     return characters_service.get_one(drama_id, label)
 
 
