@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { answerVoiceSuggestion, getVoiceSuggestions, rememberSeriesCharacter, renameSpeaker, undoRenameSpeaker } from './characters'
+import { answerVoiceSuggestion, getVoiceSuggestions, mergeSpeakers, undoMergeSpeakers, rememberSeriesCharacter, renameSpeaker, undoRenameSpeaker } from './characters'
 
 type Call = { url: string; init?: RequestInit }
 
@@ -55,6 +55,24 @@ describe('rename speaker API', () => {
     const undo = { speaker_label: 'Mei', previous_label: 'Speaker 1', previous_character_name: null, previous: [] }
     await undoRenameSpeaker(3, undo, fakeFetch(calls))
     expect(calls[0].url).toBe('/api/characters/dramas/3/rename-speaker/undo')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ undo })
+  })
+})
+
+describe('merge speakers API', () => {
+  it('posts the two labels', async () => {
+    const calls: Call[] = []
+    await mergeSpeakers(4, 'SPEAKER_03', 'SPEAKER_01', fakeFetch(calls))
+    expect(calls[0].url).toBe('/api/characters/dramas/4/merge-speakers')
+    expect(calls[0].init?.method).toBe('POST')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ source_label: 'SPEAKER_03', target_label: 'SPEAKER_01' })
+  })
+
+  it('posts the undo it was given', async () => {
+    const calls: Call[] = []
+    const undo = { source_label: 'B', target_label: 'A', source_row: {}, target_row: null, previous: [] }
+    await undoMergeSpeakers(4, undo as never, fakeFetch(calls))
+    expect(calls[0].url).toBe('/api/characters/dramas/4/merge-speakers/undo')
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ undo })
   })
 })

@@ -552,3 +552,124 @@ class TestRenameSpeaker:
         r = client.post(f"/api/characters/dramas/{did}/rename-speaker/undo", json={"undo": undo})
         assert r.status_code == 200, r.text
         assert _by_label(r.json()["characters"], "Speaker 1")["character_name"] == name
+
+
+class TestMergeSpeakers:
+    def _merge(self, client, did, source, target):
+        return client.post(f"/api/characters/dramas/{did}/merge-speakers",
+                           json={"source_label": source, "target_label": target})
+
+    def _undo(self, client, did, undo):
+        return client.post(f"/api/characters/dramas/{did}/merge-speakers/undo", json={"undo": undo})
+
+    def _setup(self, db):
+        did = _drama(db, speakers=("S1", "S3", "S1", "S2"))
+        lines = db.load_line_objects(did)
+        for ln in lines:
+            ln.en = f"en{ln.idx}"
+        lines[0].speaker_manual = True
+        db.save_lines(did, lines, fields=("en", "speaker_manual"))
+        return did
+
+    def test_moves_lines_and_folds_the_row_without_touching_other_fields(self, client, isolated_db):
+        did = self._setup(isolated_db)
+        isolated_db.upsert_character(did, "S1", character_name="Mei", tts_voice="v1")
+        isolated_db.upsert_character(did, "S3", pronouns="she/her", tts_voice="v3")
+        r = self._merge(client, did, "S3", "S1")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["moved"] == 1
+        labels = [c["speaker_label"] for c in body["characters"]]
+        assert labels == ["S1", "S2"]
+        mei = _by_label(body["characters"], "S1")
+        assert (mei["character_name"], mei["tts_voice"], mei["pronouns"], mei["line_count"]) == \
+            ("Mei", "v1", "she/her", 3)
+        assert [r["speaker_label"] for r in isolated_db.list_characters(did)].count("S3") == 0
+        saved = isolated_db.load_line_objects(did)
+        assert [(ln.speaker, ln.en) for ln in saved] == \
+            [("S1", "en0"), ("S1", "en1"), ("S1", "en2"), ("S2", "en3")]
+        assert saved[0].speaker_manual is True and saved[1].speaker_manual is True
+
+    def test_undo_restores_lines_flags_and_both_rows(self, client, isolated_db):
+        did = self._setup(isolated_db)
+        isolated_db.upsert_character(did, "S1", character_name="Mei")
+        isolated_db.upsert_character(did, "S3", pronouns="she/her", tts_voice="v3")
+        before_rows = isolated_db.list_characters(did)
+        before_lines = [(ln.speaker, ln.speaker_manual) for ln in isolated_db.load_line_objects(did)]
+        undo = self._merge(client, did, "S3", "S1").json()["undo"]
+        r = self._undo(client, did, undo)
+        assert r.status_code == 200, r.text
+        assert r.json()["undo"] is None
+        strip = lambda rows: sorted(({k: v for k, v in x.items() if k != "id"} for x in rows),
+                                    key=lambda x: x["speaker_label"])
+        assert strip(isolated_db.list_characters(did)) == strip(before_rows)
+        assert [(ln.speaker, ln.speaker_manual) for ln in isolated_db.load_line_objects(did)] == before_lines
+
+    def test_undo_removes_a_target_row_the_merge_created(self, client, isolated_db):
+        did = self._setup(isolated_db)
+        isolated_db.upsert_character(did, "S3", tts_voice="v3")
+        undo = self._merge(client, did, "S3", "S1").json()["undo"]
+        assert self._undo(client, did, undo).status_code == 200
+        assert [r["speaker_label"] for r in isolated_db.list_characters(did)] == ["S3"]
+
+    def test_series_link_is_inherited_or_conflicts(self, client, isolated_db):
+        sid = isolated_db.create_series("Show")
+        did = _drama(isolated_db, speakers=("S1", "S3"), series_id=sid)
+        a = isolated_db.insert_series_character(sid, "Mei")
+        b = isolated_db.insert_series_character(sid, "Lan")
+        isolated_db.upsert_character(did, "S3", series_character_id=a)
+        r = self._merge(client, did, "S3", "S1")
+        assert r.status_code == 200, r.text
+        assert _by_label(r.json()["characters"], "S1")["series_character_id"] == a
+        did2 = _drama(isolated_db, speakers=("S1", "S3"), series_id=sid)
+        isolated_db.upsert_character(did2, "S1", series_character_id=a)
+        isolated_db.upsert_character(did2, "S3", series_character_id=b)
+        assert self._merge(client, did2, "S3", "S1").status_code == 409
+
+    def test_validation(self, client, isolated_db):
+        did = self._setup(isolated_db)
+        assert self._merge(client, did, "S1", "S1").status_code == 422
+        assert self._merge(client, did, "Nobody", "S1").status_code == 404
+        assert self._merge(client, did, "S1", "Nobody").status_code == 404
+        assert self._merge(client, 9999, "S1", "S3").status_code == 404
+
+    def test_refused_while_a_job_runs(self, client, isolated_db, monkeypatch):
+        did = self._setup(isolated_db)
+        from services import drama_service
+        monkeypatch.setattr(drama_service, "job_running_for_drama", lambda _id: True)
+        assert self._merge(client, did, "S3", "S1").status_code == 409
+        assert [ln.speaker for ln in isolated_db.load_line_objects(did)][1] == "S3"
+
+    def test_changed_line_rolls_everything_back(self, client, isolated_db, monkeypatch):
+        did = self._setup(isolated_db)
+        isolated_db.upsert_character(did, "S3", tts_voice="v3")
+        real = isolated_db.merge_speakers_atomic
+
+        def racing(drama_id, source, target, updates, restore_row=None):
+            lines = isolated_db.load_line_objects(drama_id)
+            lines[1].speaker = "S2"
+            isolated_db.save_lines(drama_id, lines, fields=("speaker",))
+            return real(drama_id, source, target, updates, restore_row)
+        monkeypatch.setattr(isolated_db, "merge_speakers_atomic", racing)
+        assert self._merge(client, did, "S3", "S1").status_code == 409
+        assert [r["speaker_label"] for r in isolated_db.list_characters(did)] == ["S3"]
+
+    def test_undo_refused_when_a_moved_line_changed_or_label_reused(self, client, isolated_db):
+        did = self._setup(isolated_db)
+        undo = self._merge(client, did, "S3", "S1").json()["undo"]
+        lines = isolated_db.load_line_objects(did)
+        lines[1].speaker = "S2"
+        isolated_db.save_lines(did, lines, fields=("speaker",))
+        assert self._undo(client, did, undo).status_code == 409
+        lines[1].speaker = "S1"
+        lines[3].speaker = "S3"
+        isolated_db.save_lines(did, lines, fields=("speaker",))
+        assert self._undo(client, did, undo).status_code == 409
+
+    def test_undo_rejects_a_forged_clip_name(self, client, isolated_db):
+        did = self._setup(isolated_db)
+        undo = self._merge(client, did, "S3", "S1").json()["undo"]
+        undo["source_row"]["ref_audio_filename"] = "../../secret.wav"
+        assert self._undo(client, did, undo).status_code == 422
+        undo["source_row"]["ref_audio_filename"] = "missing.wav"
+        assert self._undo(client, did, undo).status_code == 422

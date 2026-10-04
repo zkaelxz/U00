@@ -19,6 +19,7 @@ from fastapi import APIRouter, Path
 from api.auth import require_permission
 from api.schemas import (CharactersCloneEngines, CharactersEntry, CharactersRememberRequest,
                          CharactersRememberResult, CharactersRenameRequest,
+                         CharactersMergeRequest, CharactersMergeResult, CharactersMergeUndoRequest,
                          CharactersRenameResult, CharactersRenameUndoRequest, CharactersSeriesEntry,
                          CharactersUpdateRequest, CharactersVoiceBankApply,
                          CharactersVoiceBankEntry, CharactersVoiceSuggestion,
@@ -123,3 +124,21 @@ def post_rename_speaker(payload: CharactersRenameRequest, drama_id: int = Path(g
                         422: {"model": ErrorResponse}})
 def post_undo_rename_speaker(payload: CharactersRenameUndoRequest, drama_id: int = Path(ge=1)):
     return characters_service.undo_rename_speaker(drama_id, payload.undo.model_dump())
+
+
+@router.post("/dramas/{drama_id}/merge-speakers", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersMergeResult,
+             summary="Merge one speaker into another: its lines and its Characters row",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_merge_speakers(payload: CharactersMergeRequest, drama_id: int = Path(ge=1)):
+    return characters_service.merge_speakers(drama_id, payload.source_label, payload.target_label)
+
+
+@router.post("/dramas/{drama_id}/merge-speakers/undo", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersMergeResult,
+             summary="Undo a speaker merge from the undo it returned",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_undo_merge_speakers(payload: CharactersMergeUndoRequest, drama_id: int = Path(ge=1)):
+    return characters_service.undo_merge_speakers(drama_id, payload.undo.model_dump())

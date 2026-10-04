@@ -36,3 +36,33 @@ export interface RenameResult {
   renamed: number
   undo: RenameUndo | null
 }
+
+// Merge two speakers: the source's lines and Characters row move into the
+// target. The undo carries both rows as they were; the server re-validates it.
+export interface MergeRow {
+  character_name: string | null
+  voice_actor: string | null
+  tts_voice: string | null
+  offline_voice: string | null
+  ref_audio_filename: string | null
+  ref_text: string | null
+  elevenlabs_voice_id: string | null
+  clone_engine: string | null
+  voice_design: string | null
+  pronouns: string | null
+  series_character_id: number | null
+}
+
+export interface MergeUndo {
+  source_label: string
+  target_label: string
+  source_row: MergeRow
+  target_row: MergeRow | null
+  previous: { id: number; speaker: string; speaker_manual: boolean }[]
+}
+
+export interface MergeResult {
+  characters: CharacterEntry[]
+  moved: number
+  undo: MergeUndo | null
+}

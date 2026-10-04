@@ -43,6 +43,11 @@ __all__ = [
     "CharactersRenameUndo",
     "CharactersRenameUndoRequest",
     "CharactersRenameResult",
+    "CharactersMergeRequest",
+    "CharactersMergeRow",
+    "CharactersMergeUndo",
+    "CharactersMergeUndoRequest",
+    "CharactersMergeResult",
     "LinesGlossaryRunResult",
     "GlossaryProposalEdit",
     "GlossaryProposalsApplyRequest",
@@ -360,6 +365,52 @@ class CharactersRenameResult(BaseModel):
     characters: List[CharactersEntry]
     renamed: int
     undo: Optional[CharactersRenameUndo] = None
+
+
+class CharactersMergeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_label: str = Field(min_length=1, max_length=200)
+    target_label: str = Field(min_length=1, max_length=200)
+
+
+class CharactersMergeRow(BaseModel):
+    """A Characters row as it was, for undo. Round-tripped by the client; the
+    server re-validates every field (the clip name must exist in the drama's
+    folder)."""
+    model_config = ConfigDict(extra="forbid")
+    character_name: Optional[str] = Field(default=None, max_length=100000)
+    voice_actor: Optional[str] = Field(default=None, max_length=100000)
+    tts_voice: Optional[str] = Field(default=None, max_length=100000)
+    offline_voice: Optional[str] = Field(default=None, max_length=100000)
+    ref_audio_filename: Optional[str] = Field(default=None, max_length=1000)
+    ref_text: Optional[str] = Field(default=None, max_length=100000)
+    elevenlabs_voice_id: Optional[str] = Field(default=None, max_length=100000)
+    clone_engine: Optional[str] = Field(default=None, max_length=100000)
+    voice_design: Optional[str] = Field(default=None, max_length=100000)
+    pronouns: Optional[str] = Field(default=None, max_length=100000)
+    series_character_id: Optional[StrictInt] = None
+
+
+class CharactersMergeUndo(BaseModel):
+    """What undoes one merge: the moved lines' previous flags by id, and both
+    Characters rows as they were."""
+    model_config = ConfigDict(extra="forbid")
+    source_label: str = Field(min_length=1, max_length=200)
+    target_label: str = Field(min_length=1, max_length=200)
+    source_row: CharactersMergeRow
+    target_row: Optional[CharactersMergeRow] = None
+    previous: List[CharactersRenameUndoLine] = Field(max_length=100000)
+
+
+class CharactersMergeUndoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    undo: CharactersMergeUndo
+
+
+class CharactersMergeResult(BaseModel):
+    characters: List[CharactersEntry]
+    moved: int
+    undo: Optional[CharactersMergeUndo] = None
 
 
 class CharactersRememberResult(BaseModel):

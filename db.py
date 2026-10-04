@@ -2649,6 +2649,92 @@ def rename_speaker_atomic(drama_id: int, old_label: str, new_label: str, charact
         conn.close()
 
 
+MERGE_ROW_FIELDS = ("character_name", "voice_actor", "tts_voice", "offline_voice",
+                    "ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
+                    "voice_design", "pronouns", "series_character_id")
+
+
+def merge_speakers_atomic(drama_id: int, source: str, target: str, line_updates: list,
+                          restore_row: dict = None):
+    """Merges speaker `source` into `target` in ONE transaction. Each of
+    line_updates ({id, expect_speaker, expect_manual, speaker, manual}) is
+    written only while the row still holds the expected speaker and manual
+    flag; only those two columns are touched. Then the source's characters row
+    is folded into the target's (a blank target field takes the source's value,
+    a filled one is kept) and deleted, and the source's dismissed voice matches
+    move to the target.
+
+    restore_row (undo): {"source": row snapshot, "target": row snapshot or
+    None}; the source row is brought back and the target row's fields are put
+    back as they were before the merge filled them (None: it had no row). A
+    source label that already has a row is refused.
+    Returns the number of lines written, or "changed" (a line no longer
+    matched) / "name_taken" (undo only: source already has a row); in those
+    cases, and on any error, nothing is written."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        written = 0
+        for u in line_updates:
+            cur = conn.execute(
+                "UPDATE lines SET speaker = ?, speaker_manual = ? WHERE id = ? AND drama_id = ? "
+                "AND COALESCE(speaker, '') = ? AND COALESCE(speaker_manual, 0) = ?",
+                (u["speaker"], int(bool(u["manual"])), u["id"], drama_id,
+                 u["expect_speaker"], int(bool(u["expect_manual"]))))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return "changed"
+            written += 1
+        ids = {u["id"] for u in line_updates}
+        if any(r["id"] not in ids for r in conn.execute(
+                "SELECT id FROM lines WHERE drama_id = ? AND COALESCE(speaker, '') = ?",
+                (drama_id, source)).fetchall()):
+            conn.rollback()
+            return "changed"
+        if restore_row is not None:
+            if conn.execute("SELECT 1 FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                            (drama_id, source)).fetchone():
+                conn.rollback()
+                return "name_taken"
+            cols = MERGE_ROW_FIELDS
+            conn.execute(
+                f"INSERT INTO characters (drama_id, speaker_label, {', '.join(cols)}) "
+                f"VALUES (?, ?{', ?' * len(cols)})",
+                (drama_id, source, *(restore_row["source"].get(c) for c in cols)))
+            before = restore_row.get("target")
+            if before is None:
+                conn.execute("DELETE FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                             (drama_id, target))
+            else:
+                conn.execute(
+                    f"UPDATE characters SET {', '.join(c + ' = ?' for c in cols)} "
+                    "WHERE drama_id = ? AND speaker_label = ?",
+                    (*(before.get(c) for c in cols), drama_id, target))
+        else:
+            src = conn.execute("SELECT * FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                               (drama_id, source)).fetchone()
+            conn.execute("INSERT OR IGNORE INTO characters (drama_id, speaker_label) VALUES (?, ?)",
+                         (drama_id, target))
+            if src is not None:
+                for col in MERGE_ROW_FIELDS:
+                    conn.execute(
+                        f"UPDATE characters SET {col} = ? WHERE drama_id = ? AND speaker_label = ? "
+                        f"AND ({col} IS NULL OR {col} = '')", (src[col], drama_id, target))
+                conn.execute("DELETE FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                             (drama_id, source))
+            conn.execute("UPDATE OR IGNORE voice_suggestion_dismissals SET speaker_label = ? "
+                         "WHERE drama_id = ? AND speaker_label = ?", (target, drama_id, source))
+            conn.execute("DELETE FROM voice_suggestion_dismissals WHERE drama_id = ? "
+                         "AND speaker_label = ?", (drama_id, source))
+        conn.commit()
+        return written
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Series-level characters -- persist across every drama in a series (a
 # streamer's whole archive, or a book series), independent of any one

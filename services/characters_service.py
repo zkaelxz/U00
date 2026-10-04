@@ -589,3 +589,130 @@ def undo_rename_speaker(drama_id: int, undo: dict) -> dict:
                 "speaker": old_label, "manual": by_id[ln.id]["speaker_manual"]} for ln in lines]
     n = _move(drama_id, new_label, old_label, old_name, updates)
     return {"characters": list_characters(drama_id), "renamed": n, "undo": None}
+
+
+# --- Merge two speakers -------------------------------------------------------
+
+_MERGE_TEXT_FIELDS = tuple(f for f in db.MERGE_ROW_FIELDS if f != "series_character_id")
+
+
+def _row_snapshot(row):
+    return None if row is None else {f: row.get(f) for f in db.MERGE_ROW_FIELDS}
+
+
+def _check_snapshot(drama: dict, snap, *, allow_none: bool):
+    """Validates a Characters-row snapshot from an undo (it comes from the
+    client). The reference clip is a bare file name that must already sit in
+    the drama's folder, so a forged undo can't point a row at another path."""
+    if snap is None and allow_none:
+        return None
+    if not isinstance(snap, dict) or set(snap) != set(db.MERGE_ROW_FIELDS):
+        raise InvalidInputError("That undo isn't valid.")
+    for f in _MERGE_TEXT_FIELDS:
+        if snap[f] is not None:
+            check_len(f, snap[f], 100000)
+    clip = snap["ref_audio_filename"]
+    if clip and (os.path.basename(clip) != clip or clip in (".", "..") or "\\" in clip
+                 or not os.path.isfile(os.path.join(drama_dir(drama["id"]), clip))):
+        raise InvalidInputError("That undo isn't valid.")
+    sc = snap["series_character_id"]
+    if sc is not None and (isinstance(sc, bool) or not isinstance(sc, int)
+                           or not drama.get("series_id")
+                           or sc not in {x["id"] for x in _db_list_series_characters(drama["series_id"])}):
+        raise InvalidInputError("That undo isn't valid.")
+    return snap
+
+
+def _merge_result(drama_id: int, n: int, undo) -> dict:
+    return {"characters": list_characters(drama_id), "moved": n, "undo": undo}
+
+
+def merge_speakers(drama_id: int, source: str, target: str) -> dict:
+    """Merges speaker `source` into `target`: every line labelled source gets
+    target as its speaker (marked set by hand, like a rename), and the
+    source's Characters row is folded into the target's -- a blank target
+    field (name, voice, pronouns, clip, series link...) takes the source's
+    value, a filled one is kept -- then removed, so no duplicate or orphaned
+    row is left. Only the speaker columns of lines change. One database
+    transaction. Raises NotFoundError (unknown drama or speaker),
+    InvalidInputError (same speaker twice, or a label undo couldn't restore),
+    ConflictError (job running, the two are linked to different series
+    characters, or a line changed meanwhile). Returns {"characters": ...,
+    "moved": n lines, "undo": {...}}; pass undo to
+    undo_merge_speakers."""
+    require_drama(drama_id)
+    known = known_speakers(drama_id)
+    for label in (source, target):
+        if not isinstance(label, str) or label not in known:
+            raise NotFoundError("No such speaker in this drama.")
+    if source == target:
+        raise InvalidInputError("Pick two different speakers.")
+    if _clean_label("source", source) != source or _clean_label("target", target) != target:
+        raise InvalidInputError("A speaker name has characters that can't be merged here; "
+                                "fix it in the line editor first.")
+    rows = {r["speaker_label"]: r for r in db.list_characters(drama_id)}
+    src_row, tgt_row = rows.get(source), rows.get(target)
+    src_link = (src_row or {}).get("series_character_id")
+    tgt_link = (tgt_row or {}).get("series_character_id")
+    if src_link and tgt_link and src_link != tgt_link:
+        raise ConflictError("These speakers are linked to different series characters; "
+                            "unlink one of them first.")
+    if drama_service.job_running_for_drama(drama_id):
+        raise ConflictError(_BUSY.format(what="merging speakers"))
+    previous = [{"id": ln.id, "speaker": source, "speaker_manual": bool(ln.speaker_manual)}
+                for ln in _lines_with_label(drama_id, source)]
+    updates = [{"id": p["id"], "expect_speaker": source, "expect_manual": p["speaker_manual"],
+                "speaker": target, "manual": True} for p in previous]
+    n = db.merge_speakers_atomic(drama_id, source, target, updates)
+    if n == "changed":
+        raise ConflictError("Some lines changed meanwhile; nothing was changed. Try again.")
+    undo = {"source_label": source, "target_label": target, "source_row": _row_snapshot(src_row or {}), "target_row": _row_snapshot(tgt_row),
+            "previous": previous}
+    return _merge_result(drama_id, n, undo)
+
+
+def undo_merge_speakers(drama_id: int, undo: dict) -> dict:
+    """Reverses merge_speakers from the undo it returned: the moved lines get
+    their label and manual flag back, the source's Characters row returns and
+    the target's fields go back to what they were. Refused when the source
+    label is in use again, or when any moved line no longer carries the target
+    label (it was edited, deleted or re-split since). Raises NotFoundError
+    (unknown drama, or the target is gone), InvalidInputError (bad undo data),
+    ConflictError. Returns {"characters": ..., "moved": n, "undo": None}."""
+    drama = require_drama(drama_id)
+    source, target = undo.get("source_label"), undo.get("target_label")
+    previous = undo.get("previous")
+    if not isinstance(source, str) or not isinstance(target, str) or not isinstance(previous, list):
+        raise InvalidInputError("That undo isn't valid.")
+    source, target = _clean_label("source_label", source), _clean_label("target_label", target)
+    if source == target:
+        raise InvalidInputError("That undo isn't valid.")
+    for p in previous:
+        if (not isinstance(p, dict) or isinstance(p.get("id"), bool)
+                or not isinstance(p.get("id"), int) or str(p.get("speaker")).strip() != source
+                or not isinstance(p.get("speaker_manual"), bool)):
+            raise InvalidInputError("That undo isn't valid.")
+    restore = {"source": _check_snapshot(drama, undo.get("source_row"), allow_none=False),
+               "target": _check_snapshot(drama, undo.get("target_row"), allow_none=True)}
+    known = known_speakers(drama_id)
+    if target not in known:
+        raise NotFoundError("The speaker these were merged into was renamed or removed; "
+                            "nothing to undo.")
+    if source in known:
+        raise ConflictError("The old speaker label is in use again, so the merge can't be undone.")
+    if drama_service.job_running_for_drama(drama_id):
+        raise ConflictError(_BUSY.format(what="undoing"))
+    by_id = {p["id"]: p for p in previous}
+    if len(by_id) != len(previous):
+        raise InvalidInputError("That undo isn't valid.")
+    on_target = {ln.id: ln for ln in _lines_with_label(drama_id, target)}
+    if not set(by_id) <= set(on_target):
+        raise ConflictError("The lines changed since the merge, so it can't be undone.")
+    updates = [{"id": i, "expect_speaker": target, "expect_manual": bool(on_target[i].speaker_manual),
+                "speaker": source, "manual": by_id[i]["speaker_manual"]} for i in by_id]
+    n = db.merge_speakers_atomic(drama_id, source, target, updates, restore_row=restore)
+    if n == "changed":
+        raise ConflictError("Some lines changed meanwhile; nothing was changed. Try again.")
+    if n == "name_taken":
+        raise ConflictError("The old speaker label is in use again, so the merge can't be undone.")
+    return _merge_result(drama_id, n, None)
