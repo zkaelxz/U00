@@ -288,11 +288,14 @@ class Qwen3ASRVadBackend:
                 f"Qwen3-ASR doesn't cover language={language!r} in this project's usage "
                 f"(supported: {sorted(LANGUAGE_NAMES)}) -- use WhisperBackend instead."
             )
+        # Uses vad_segments' defaults, not the drama's saved vad_threshold/min_silence_ms,
+        # which are tuned for Whisper's own VAD.
         audio = load_audio_16k(audio_path)
         sr = 16000
         spans = vad_segments.cap_spans(
             vad_segments.merge_close(vad_segments.speech_spans(audio, sr, vad_fn=vad_fn)),
             audio, sr)
+        del audio
         if not spans:
             return []
         if cancel_check:

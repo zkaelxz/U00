@@ -166,20 +166,43 @@ def test_backend_is_registered_and_not_experimental():
 
 def test_refine_option_defaults_off_and_saves(isolated_db):
     from services import asr_options_service
+    from services.service_errors import InvalidInputError
     assert asr_options_service.get_asr_options()["qwen_vad_refine_timing"] is False
     assert asr_options_service.set_asr_options(qwen_vad_refine_timing=True)[
         "qwen_vad_refine_timing"] is True
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidInputError):
         asr_options_service.set_asr_options(qwen_vad_refine_timing="yes")
 
 
-def test_run_start_refuses_vad_backend_without_faster_whisper(isolated_db, monkeypatch):
+def test_run_start_and_validate_refuse_vad_backend_without_faster_whisper(isolated_db, monkeypatch):
+    import importlib.util
+    import os
     from services import transcribe_service
     from services.service_errors import DependencyUnavailableError
+    did = isolated_db.create_drama(title_en="D", audio_filename="audio.wav",
+                                   transcript_mode="whisper", asr_backend_choice="qwen3_asr_vad")
+    ddir = isolated_db.drama_dir(did)
+    os.makedirs(ddir, exist_ok=True)
+    open(os.path.join(ddir, "audio.wav"), "wb").close()
+    real_find_spec = importlib.util.find_spec
     monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature: None)
-    monkeypatch.setattr(transcribe_service.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
+                        lambda name, *a: None if name == "faster_whisper" else real_find_spec(name, *a))
     with pytest.raises(DependencyUnavailableError, match="faster-whisper"):
-        transcribe_service._require_vad_packages()
+        transcribe_service.start_transcribe_run(did)
+    with pytest.raises(DependencyUnavailableError, match="faster-whisper"):
+        transcribe_service.validate_transcribe_options(did)
+
+
+def test_refine_trims_the_previous_line_when_a_fallback_line_would_overlap_it(monkeypatch):
+    # Line 1 is aligned all the way to the span end; line 2 gets no units.
+    _aligner(monkeypatch, [FakeUnit("你", 0.0, 2.0), FakeUnit("好", 2.0, 4.0)])
+    out = forced_align.refine_segment_timing(
+        "/a.wav", [[{"start": 10.0, "end": 12.0, "text": "你好"},
+                    {"start": 12.0, "end": 14.0, "text": "再见"}]], "zh")
+    assert out[0]["end"] <= out[1]["start"]
+    assert out[1]["end"] == 14.0
+    assert out[0]["flag"] == out[1]["flag"] == "timing_uncertain"
 
 
 class _Rep:

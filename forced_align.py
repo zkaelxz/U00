@@ -355,6 +355,11 @@ def refine_segment_timing(audio_path: str, groups, language: str, use_gpu: bool 
                 if ln.idx in bad:
                     if prev_end < new["end"]:
                         new["start"] = max(new["start"], prev_end)
+                    elif out and out[-1]["start"] < new["start"] < out[-1]["end"]:
+                        # The previous line was aligned over this line's whole estimate.
+                        out[-1]["end"] = new["start"]
+                        out[-1]["flag"], out[-1]["flag_note"] = (
+                            "timing_uncertain", TIMING_REPAIRED_NOTE)
                     new["flag"], new["flag_note"] = "timing_uncertain", TIMING_FALLBACK_NOTE
                 prev_end = max(prev_end, new["end"])
                 out.append(new)
