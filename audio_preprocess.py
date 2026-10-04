@@ -252,6 +252,27 @@ def _other_live_download(model_dir: str, model: str, own_marker: str = "") -> bo
                for name in names)
 
 
+def _marker_key(path: str):
+    pid, start = _read_marker(path)
+    return (int(start) if str(start).isdigit() else 0, pid or 0, path)
+
+
+def _earlier_live_marker(model_dir: str, model: str, own_marker: str) -> bool:
+    """True if another live download marker for `model` sorts before ours
+    (start time, then pid): the later of two racing starters backs off."""
+    own = _marker_key(own_marker)
+    try:
+        names = os.listdir(model_dir)
+    except OSError:
+        return False
+    for name in names:
+        path = os.path.join(model_dir, name)
+        if name.startswith(model + _PART_MARK) and path != own_marker \
+                and _marker_alive(path) and _marker_key(path) < own:
+            return True
+    return False
+
+
 def _cancelled(cancel_check_cb) -> None:
     if cancel_check_cb and cancel_check_cb():
         raise VocalSeparationCancelled("Vocal separation cancelled.")
@@ -286,31 +307,37 @@ def _load_with_download_guard(model: str, load, cancel_check_cb=None) -> None:
             raise _download_in_progress(model)
     try:
         final = os.path.join(MODEL_DIR, model)
-        _wait_for_other_downloads(model, cancel_check_cb)
-        sweep_interrupted_downloads(MODEL_DIR, model)
-        if os.path.isfile(final) and not _checkpoint_ok(final):
-            _remove(final)  # left by an older cancelled download, no marker
-        if os.path.isfile(final):
-            load()
-            return
-        os.makedirs(MODEL_DIR, exist_ok=True)
-        marker = os.path.join(MODEL_DIR, f"{model}{_PART_MARK}{os.getpid()}-{uuid.uuid4().hex[:8]}")
-        with open(marker, "w", encoding="utf-8") as fh:
-            json.dump({"pid": os.getpid(), "start": _process_start(os.getpid())}, fh)
-        _active_markers.add(marker)
-        try:
-            load()
+        while True:
+            _wait_for_other_downloads(model, cancel_check_cb)
+            sweep_interrupted_downloads(MODEL_DIR, model)
             if os.path.isfile(final) and not _checkpoint_ok(final):
-                raise VocalSeparationError(
-                    f"audio-separator model '{model}' downloaded incompletely; try again.")
-        except BaseException:
-            if os.path.isfile(final) and not _checkpoint_ok(final) \
-                    and not _other_live_download(MODEL_DIR, model, marker):
-                _remove(final)
-            raise
-        finally:
-            _active_markers.discard(marker)
-            _remove(marker)
+                _remove(final)  # left by an older cancelled download, no marker
+            if os.path.isfile(final):
+                load()
+                return
+            os.makedirs(MODEL_DIR, exist_ok=True)
+            marker = os.path.join(
+                MODEL_DIR, f"{model}{_PART_MARK}{os.getpid()}-{uuid.uuid4().hex[:8]}")
+            _active_markers.add(marker)
+            try:
+                with open(marker, "w", encoding="utf-8") as fh:
+                    json.dump({"pid": os.getpid(), "start": _process_start(os.getpid())}, fh)
+                if _earlier_live_marker(MODEL_DIR, model, marker):
+                    continue  # two processes raced to start; the earlier one downloads
+                try:
+                    load()
+                    if os.path.isfile(final) and not _checkpoint_ok(final):
+                        raise VocalSeparationError(
+                            f"audio-separator model '{model}' downloaded incompletely; try again.")
+                except BaseException:
+                    if os.path.isfile(final) and not _checkpoint_ok(final) \
+                            and not _other_live_download(MODEL_DIR, model, marker):
+                        _remove(final)
+                    raise
+                return
+            finally:
+                _active_markers.discard(marker)
+                _remove(marker)
     finally:
         lock.release()
 
@@ -432,6 +459,8 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
             _load_with_download_guard(
                 model, lambda: separator.load_model(model_filename=model),
                 cancel_check_cb=cancel_check_cb)
+        except VocalSeparationError:
+            raise  # a cancel or the guard's own message: not a model-load failure
         except Exception as exc:
             import translate_engines
             raise VocalSeparationError(
