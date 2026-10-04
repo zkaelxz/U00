@@ -1,6 +1,7 @@
 """Re-split over-long lines in place (services/restructure_service.resplit_long_lines and
 POST /api/restructure/dramas/{id}/resplit). Mocked: no GPU, no aligner model, no audio."""
 import os
+import subprocess
 import time
 
 import pytest
@@ -131,6 +132,20 @@ def test_align_falls_back_to_proportional_when_aligner_missing(monkeypatch):
     res = _wait(r["job_id"])["result"]
     assert res["timing"] == "proportional" and "estimated timing" in res["note"]
     assert res["split_lines"] == 1 and len(db.load_lines(did)) == 5
+
+
+@pytest.mark.parametrize("exc", [
+    subprocess.CalledProcessError(1, ["ffmpeg", "-i", "/home/someone/lib/audio.wav"]),
+    ImportError("cannot import name 'X' from 'qwen_asr' (C:\\Users\\someone\\site-packages)"),
+])
+def test_aligner_failure_note_has_no_paths(monkeypatch, exc):
+    did, ids = _seed()
+
+    def align(*a, **k):
+        raise exc
+    _fake_aligner(monkeypatch, align)
+    res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    assert "someone" not in res["note"] and "estimated timing" in res["note"]
 
 
 def test_align_without_audio_splits_immediately_with_note():

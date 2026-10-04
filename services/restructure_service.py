@@ -736,13 +736,13 @@ def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, l
                 got = _aligned_pieces(audio_path, by_id[line_id], pieces, language, use_gpu)
             except (ImportError, core_module.ModelDownloadError) as exc:
                 aligner_down = ("The Qwen3 forced aligner isn't available "
-                                f"({translate_engines.redact_secrets(str(exc))[:200]})")
+                                f"({type(exc).__name__}; see Diagnostics)")
                 break
             except Exception as exc:  # one bad line or a GPU error: that line stays proportional
                 got = None
                 if not isinstance(exc, ValueError):
                     aligner_down = ("The audio alignment failed "
-                                    f"({translate_engines.redact_secrets(str(exc))[:200]})")
+                                    f"({type(exc).__name__})")
                     break
             if got:
                 timed[line_id] = got
