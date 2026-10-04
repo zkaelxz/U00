@@ -18,6 +18,7 @@ class AsrOptions(BaseModel):
     qwen_asr_batching_available: bool = False
     moss_experimental: bool
     qwen_vad_refine_timing: bool = False
+    mixed_languages: bool = False
     # Whether the moss_transcribe_diarize package is importable on the PC.
     moss_installed: bool
 
@@ -27,3 +28,4 @@ class AsrOptionsUpdate(BaseModel):
     qwen_asr_batch_size: Optional[int] = Field(None, ge=1, le=16)
     moss_experimental: Optional[bool] = None
     qwen_vad_refine_timing: Optional[bool] = None
+    mixed_languages: Optional[bool] = None
