@@ -15,12 +15,15 @@ export interface AsrOptions {
   qwen_asr_version: string | null
   qwen_asr_batching_available: boolean
   moss_experimental: boolean
+  // Qwen3 ASR with speech detection: also refine line times with the forced aligner.
+  qwen_vad_refine_timing: boolean
   moss_installed: boolean
 }
 
 export interface AsrOptionsUpdate {
   qwen_asr_batch_size?: number
   moss_experimental?: boolean
+  qwen_vad_refine_timing?: boolean
 }
 
 interface DiarizationConfig {
@@ -65,7 +68,9 @@ export function parseBatchSize(raw: string, min: number, max: number): number | 
 // experimental toggle is on. A drama already set to it still shows it (the
 // select keeps the current value).
 export function asrBackendOptions(mossEnabled: boolean): string[] {
-  return mossEnabled ? ['whisper', 'qwen3_asr', 'moss_td'] : ['whisper', 'qwen3_asr']
+  return mossEnabled
+    ? ['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'moss_td']
+    : ['whisper', 'qwen3_asr', 'qwen3_asr_vad']
 }
 
 // The muted line under the batch-size field (Step 103).
