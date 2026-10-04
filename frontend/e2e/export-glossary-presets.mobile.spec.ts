@@ -33,6 +33,8 @@ async function expectSwitchTarget(loc: Locator) {
   await expect(loc.first()).toBeVisible()
   for (const sw of await loc.all()) {
     await sw.scrollIntoViewIfNeeded()
+    // The section's open slide (240ms) clips its body while it runs; measure the settled page.
+    await sw.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => null))))
     const hit = await sw.evaluate((el) => {
       const r = el.getBoundingClientRect()
       const cx = r.left + r.width / 2
