@@ -76,7 +76,7 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
                         media_type: str = "", quick_filter: str = None, custom_tags=(),
                         principal=None):
     """Every drama matching all the given filters, newest first -- the
-    Library tab's "All dramas" list.
+    Library page's "All dramas" list.
 
     Empty-string filters mean "any" (same as `db.list_dramas`).
     `quick_filter` must be one of `db.ORGANIZATIONAL_TAGS` or None;
@@ -130,7 +130,7 @@ def get_library_drama(drama_id: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Migration E0: the Library tab's remaining read views plus preset /
+# Migration E0: the Library pages' remaining read views plus preset /
 # voice-bank rename. Plain dicts; no file paths or clip filenames leave here.
 # ---------------------------------------------------------------------------
 

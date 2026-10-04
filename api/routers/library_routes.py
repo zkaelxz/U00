@@ -50,7 +50,7 @@ def to_detail(drama: dict) -> DramaDetail:
 
 
 @router.get("/dramas", dependencies=[require_permission("library.read")], response_model=DramaListResponse,
-            summary="List dramas in the library (the Library tab's 'All dramas' list)",
+            summary="List dramas in the library (the Library page's 'All dramas' list)",
             responses={422: {"model": ErrorResponse}})
 def list_dramas(
         request: Request,

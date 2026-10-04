@@ -1,7 +1,7 @@
 """
-services/library_admin_service.py -- the Library tab's destructive and
-admin actions (migration E0 remainder): bulk status/tags/delete, bulk
-translate, export-all zip, full backup, backup of one person's items,
+services/library_admin_service.py -- the Library and Library tools pages'
+destructive and admin actions (migration E0 remainder): bulk
+status/tags/delete, bulk translate, export-all zip, full backup, backup of one person's items,
 restore and storage cleanup.
 
 Service half only; no router yet. Rules this module keeps:

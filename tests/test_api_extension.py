@@ -23,7 +23,7 @@ REMOTE = "https://baihe.example.com"
 @pytest.fixture
 def fakes(isolated_db, monkeypatch):
     from sources import chapter_check
-    calls = {"scheduler": 0, "page_server": 0}
+    calls = {"scheduler": 0, "page_server": 0, "stop": 0}
     state = {"on": False}
 
     def serve(port=page_server.DEFAULT_PORT):
@@ -31,10 +31,16 @@ def fakes(isolated_db, monkeypatch):
         state["on"] = True
         return True
 
+    def stop():
+        calls["stop"] += 1
+        was_on, state["on"] = state["on"], False
+        return was_on
+
     def sched():
         calls["scheduler"] += 1
 
     monkeypatch.setattr(page_server, "ensure_server_started", serve)
+    monkeypatch.setattr(page_server, "stop_server", stop)
     monkeypatch.setattr(page_server, "server_running", lambda: state["on"])
     monkeypatch.setattr(chapter_check, "ensure_scheduler_started", sched)
     monkeypatch.setattr(background, "_started", None)
@@ -60,7 +66,7 @@ def test_create_app_in_tests_starts_nothing(fakes):
     with TestClient(create_app(ApiSettings())) as c:
         assert c.get("/api/extension/status").status_code == 200
         c.post("/api/extension/enabled", json={"enabled": True})
-    assert fakes == {"scheduler": 0, "page_server": 0}
+    assert fakes == {"scheduler": 0, "page_server": 0, "stop": 0}
     assert src_store.get_setting("page_server_enabled") is True
 
 
@@ -77,10 +83,38 @@ def test_status_enable_disable_flow(fakes):
     _no_leak(r, token)
     assert fakes["page_server"] == 1
     r = c.post("/api/extension/enabled", json={"enabled": False})
-    assert r.json() == {"enabled": False, "running": True, "restart_needed": True}
+    assert r.json() == {"enabled": False, "running": False, "restart_needed": False}
     assert src_store.get_setting("page_server_enabled") is False
     _no_leak(r, token)
-    assert fakes["page_server"] == 1
+    assert fakes["page_server"] == 1 and fakes["stop"] == 1
+    assert c.get("/api/extension/status").json() == {"enabled": False, "running": False}
+
+
+def test_off_when_not_running_only_persists(fakes):
+    src_store.set_setting("page_server_enabled", True)
+    c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    r = c.post("/api/extension/enabled", json={"enabled": False})
+    assert r.json() == {"enabled": False, "running": False, "restart_needed": False}
+    assert src_store.get_setting("page_server_enabled") is False
+    assert fakes["page_server"] == 0
+
+
+def test_on_again_after_off_starts_it_again(fakes):
+    c = TestClient(create_app(ApiSettings(background_services=True)),
+                   raise_server_exceptions=False)
+    for enabled, running in ((True, True), (False, False), (True, True)):
+        r = c.post("/api/extension/enabled", json={"enabled": enabled})
+        assert r.json() == {"enabled": enabled, "running": running, "restart_needed": False}
+    assert fakes["page_server"] == 2 and fakes["stop"] == 1
+
+
+def test_off_reports_restart_needed_if_it_could_not_stop(fakes, monkeypatch):
+    c = TestClient(create_app(ApiSettings(background_services=True)),
+                   raise_server_exceptions=False)
+    c.post("/api/extension/enabled", json={"enabled": True})
+    monkeypatch.setattr(page_server, "stop_server", lambda: False)
+    r = c.post("/api/extension/enabled", json={"enabled": False})
+    assert r.json() == {"enabled": False, "running": True, "restart_needed": True}
 
 
 def test_enable_without_background_services_only_persists(fakes):
@@ -94,7 +128,7 @@ def test_startup_hook_starts_page_server_only_when_enabled(fakes):
     app = create_app(ApiSettings(background_services=True))
     with TestClient(app):
         pass
-    assert fakes == {"scheduler": 1, "page_server": 0}
+    assert fakes == {"scheduler": 1, "page_server": 0, "stop": 0}
     background._started = None
     src_store.set_setting("page_server_enabled", True)
     with TestClient(app):

@@ -70,13 +70,11 @@ trade rather than a bug.
 
 ## Where the translation settings come from
 
-The server runs on a background thread, and `st.session_state` does not
-exist there. API keys are also deliberately never persisted to the
-database (see `tabs/settings_tab.py`'s own "nothing here is written to
-disk" note). So the UI *pushes* the current config into this module on
-each render, exactly the way `settings_tab` already pushes into
-`background_jobs.set_gpu_limit_enabled` / `set_notify_on_completion`.
-With no engine configured the endpoint still detects and OCRs, and says
+API keys are never stored in the database, so this module can't read its
+engine from there alone. `services/extension_service.py` registers a
+provider (`set_config_provider`) that resolves the saved engine and its key
+from `.env` on every request, so a key change takes effect without a
+restart. With no engine configured the endpoint still detects and OCRs, and says
 so in its `notes` -- it never silently returns untranslated text as
 though it had translated it.
 """
@@ -121,6 +119,10 @@ _server_lock = threading.Lock()
 _server_started = False
 _server_port = None
 _server = None          # the running ThreadingHTTPServer, for stop_server()
+# Bumped by every start and stop, so a server thread still binding when
+# stop_server() runs knows not to serve, and a failed old start can't mark a
+# newer one as stopped.
+_server_generation = 0
 
 _config_lock = threading.Lock()
 _config = {
@@ -212,9 +214,9 @@ _config_provider = None
 
 
 def set_translation_config(**kwargs):
-    """Called from the Settings sidebar on each render (the established
-    settings->thread bridge). Unknown keys are ignored rather than
-    raising, so adding a field to the UI can't break a running server."""
+    """Sets the base config the provider's values are merged over.
+    Unknown keys are ignored rather than raising, so a caller that sends
+    a field this build lacks can't break a running server."""
     with _config_lock:
         for key, value in kwargs.items():
             if key in _config:
@@ -563,6 +565,10 @@ class _Handler(BaseHTTPRequestHandler):
         return host in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 
     def _check_access(self):
+        if self.server is not _server:
+            # A keep-alive connection accepted before stop_server() would
+            # otherwise go on serving after the bridge was turned off.
+            raise EndpointError(503, "the extension bridge is turned off")
         if not self._client_is_local():
             raise EndpointError(403, "this endpoint only answers requests from this computer")
         if not _token_matches(self.headers.get(TOKEN_HEADER, ""), load_or_create_token()):
@@ -686,7 +692,7 @@ class _Handler(BaseHTTPRequestHandler):
             raise EndpointError(400, "source and target language must differ")
         if "en" not in (source_language, target_language):
             raise EndpointError(400, "one of source/target language must be English -- the same "
-                                     "limit the Standalone translate tab has")
+                                     "limit the Translate page has")
         store = bool(payload.get("store", True))
         return translate_text_block(text, source_language, target_language, store=store)
 
@@ -757,36 +763,45 @@ class _Handler(BaseHTTPRequestHandler):
         self.log_message(fmt, *args)
 
 
-def serve(port: int):
+def serve(port: int, generation=None):
     server = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
     server.timeout = REQUEST_TIMEOUT_SECONDS
+    # Daemon handler threads are not joined by server_close(), so stopping
+    # never waits on an in-flight OCR run.
     server.daemon_threads = True
     global _server_port, _server
-    _server_port = port
-    _server = server
+    with _server_lock:
+        if generation is not None and generation != _server_generation:
+            server.server_close()
+            return
+        _server_port = port
+        _server = server
     server.serve_forever()
 
 
 def ensure_server_started(port: int = DEFAULT_PORT) -> bool:
     """Starts the endpoint once per process, on a daemon thread beside
-    Streamlit -- the same shape `sources/chapter_check.py`'s
-    `ensure_scheduler_started` uses, and safe to call on every rerun.
+    the API -- the same shape `sources/chapter_check.py`'s
+    `ensure_scheduler_started` uses, and safe to call repeatedly.
 
     Returns True if this call started it.
     """
-    global _server_started
+    global _server_started, _server_generation
     with _server_lock:
         if _server_started:
             return False
         _server_started = True
+        _server_generation += 1
+        generation = _server_generation
 
     def run():
         global _server_started
         try:
-            serve(port)
+            serve(port, generation=generation)
         except Exception as e:
             with _server_lock:
-                _server_started = False
+                if generation == _server_generation:
+                    _server_started = False
             try:
                 from applog import get_logger
                 get_logger().warning("page_server could not start on port %s: %s", port, e)
@@ -802,12 +817,14 @@ def ensure_server_started(port: int = DEFAULT_PORT) -> bool:
 
 def stop_server() -> bool:
     """Stops the endpoint if it's running (the app's clean shutdown,
-    services/shutdown_service.py). Call it from any thread but the
-    server's own. True if it stopped one."""
-    global _server, _server_started
+    services/shutdown_service.py, and turning the bridge off). Call it from
+    any thread but the server's own: shutdown() waits for serve_forever()
+    to return. True if it stopped one."""
+    global _server, _server_started, _server_generation
     with _server_lock:
         server, _server = _server, None
         _server_started = False
+        _server_generation += 1
     if server is None:
         return False
     server.shutdown()

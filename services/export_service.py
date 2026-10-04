@@ -210,7 +210,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
 
 def get_export_readiness(drama_id: int) -> dict:
     """Read-only export-readiness summary for one drama: line/translation
-    counts plus counts of the same issues the Export tab's own checks
+    counts plus counts of the same issues the Export stage's own checks
     surface (timing overlaps, Auto QC mismatches, reading-speed-dense
     lines). Raises NotFoundError for an unknown drama id. A drama with no
     lines yet returns all-zero/false counts rather than an error."""
@@ -340,7 +340,7 @@ def flag_dense_lines(drama_id: int) -> dict:
 
 def run_auto_qc_flagging(drama_id: int) -> dict:
     """Runs Auto QC's factual-detail check over this drama's lines and
-    updates flags in place -- the same action as the Export tab's own
+    updates flags in place -- the same action as the Export stage's own
     "Flag these for review" button under the Auto QC warning
     (tabs/workspace_tab.py's `_run_auto_qc`, reused here rather than
     duplicated: same glossary-name-list/banned-terms inputs from
@@ -364,7 +364,7 @@ def run_auto_qc_flagging(drama_id: int) -> dict:
 
 def generate_epub(drama_id: int, field: str = "en") -> bytes:
     """Exports one novel-narration drama's lines as an .epub -- the same
-    action as the Export tab's own "Generate EPUB" button
+    action as the Export stage's own "Generate EPUB" button
     (`epub_io.export_epub`). Read-only from the caller's point of view
     (returns bytes to serve as a download); internally it does write the
     .epub to the drama's own directory as `translated.epub`, same as the
@@ -406,7 +406,7 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
 
 
 def mark_exported(drama_id: int) -> dict:
-    """The Export tab's "Mark as exported": sets only the drama's status
+    """The Export stage's "Mark as exported": sets only the drama's status
     to "exported" (no other field is touched). Raises NotFoundError."""
     if db.get_drama(drama_id) is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
