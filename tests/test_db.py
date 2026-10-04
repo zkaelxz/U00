@@ -1948,7 +1948,9 @@ def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
 
 # Every column init_db() adds with `ALTER TABLE ... ADD COLUMN`, per table,
 # in the order it adds them. Dropping them gives a database shaped like one
-# created before those migrations existed.
+# created before those migrations existed. When you add a column migration to
+# db.py, add the column here too, or that migration is never run by a test
+# (test_every_added_column_is_listed fails otherwise).
 _INIT_DB_MIGRATED_COLUMNS = {
     "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx"),
@@ -1979,6 +1981,8 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "users": ("share_by_default",),
     "translate_history": ("user_id",),
     "auth_sessions": ("device_label",),
+    "benchmark_results": ("scorer",),
+    "benchmark_cases": ("tier", "set_name", "origin_drama_id", "origin_line_id"),
 }
 
 
@@ -2049,6 +2053,34 @@ def _make_old_shape(path, share_by_default_was_on=False):
         conn.close()
 
 
+# Added inside data migrations that rebuild or back up tables (db.py's
+# line-id and profile migrations), so they can't be dropped by hand here.
+_ALTERS_WITH_OWN_MIGRATION = {("reading_history", "line_id"), ("reading_history", "profile_id")}
+
+
+def _alter_columns_in_db_py():
+    """Column names db.py adds to existing tables: every written-out
+    `ALTER TABLE t ADD COLUMN c` as (table, column), plus the loop-driven
+    ones, found as constant ("column", "TYPE ...") or ("table", "column",
+    "TYPE ...") tuples anywhere in db.py, as (None, column)."""
+    import ast
+    import re
+    src = open(os.path.join(os.path.dirname(db.__file__), "db.py"), encoding="utf-8").read()
+    found = {(t, c) for t, c in re.findall(r"ALTER TABLE (\w+) ADD COLUMN (\w+)\b", src)}
+    sql_type = re.compile(r"^(TEXT|INTEGER|REAL|BLOB|NUMERIC)\b")
+    for node in ast.walk(ast.parse(src)):
+        if not (isinstance(node, ast.Tuple) and node.elts
+                and all(isinstance(e, ast.Constant) and isinstance(e.value, str)
+                        for e in node.elts)):
+            continue
+        parts = [e.value for e in node.elts]
+        if len(parts) == 2 and sql_type.match(parts[1]):
+            found.add((None, parts[0]))
+        elif len(parts) == 3 and sql_type.match(parts[2]):
+            found.add((parts[0], parts[1]))
+    return found
+
+
 class TestInitDbSchema:
     """init_db() runs on every user's existing database at startup: a fresh
     database and an upgraded old one must end up with the same schema, and
@@ -2058,6 +2090,18 @@ class TestInitDbSchema:
         before = _exact_snapshot(isolated_db.DB_PATH)
         isolated_db.init_db()
         assert _exact_snapshot(isolated_db.DB_PATH) == before
+
+    def test_every_added_column_is_listed(self):
+        listed = {(t, c) for t, cols in _INIT_DB_MIGRATED_COLUMNS.items() for c in cols}
+        listed_names = {c for _, c in listed}
+        missing = sorted(
+            (t, c) for t, c in _alter_columns_in_db_py()
+            if (t, c) not in listed and (t is not None or c not in listed_names)
+            and (t, c) not in _ALTERS_WITH_OWN_MIGRATION)
+        assert not missing, (
+            f"db.py adds these columns to existing tables but _INIT_DB_MIGRATED_COLUMNS in "
+            f"tests/test_db.py doesn't list them, so no test upgrades an old database "
+            f"through them: {missing}")
 
     def test_old_database_upgrades_to_the_fresh_schema(self, isolated_db):
         fresh = _schema_shape(isolated_db.DB_PATH)
