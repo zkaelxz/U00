@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test'
 
 import { clearLines, seedLines } from './resegmentLlmMocks'
+import { openFoldFor } from './reviewFolds'
 
 export { clearLines, seedLines }
 
@@ -44,6 +45,7 @@ export async function mockResplit(
 export async function openResplit(page: Page) {
   await page.goto('/#/drama/3/review')
   await page.locator('.review-line:not(.review-skeleton)').first().waitFor()
+  await openFoldFor(page, 'Re-split long lines')
   const group = page.getByRole('group', { name: 'Re-split long lines' })
   await group.locator('summary', { hasText: 'Re-split long lines' }).click()
   return group

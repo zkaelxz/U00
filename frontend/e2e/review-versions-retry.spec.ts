@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
+import { openFoldFor } from './reviewFolds'
 
 // Review parity R39 (use a saved translation version) and R10 (retry a
 // content-blocked line). Both run against the real seeded API: the version
@@ -50,6 +51,7 @@ for v in db.list_translation_versions(3):
 const rows = (page: Page) => page.locator('.review-line:not(.review-skeleton)')
 
 async function openSection(page: Page, title: string) {
+  await openFoldFor(page, title)
   // Some sections now start open; click only a closed one, as a user would.
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()

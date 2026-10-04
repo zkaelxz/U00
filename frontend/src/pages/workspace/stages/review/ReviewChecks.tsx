@@ -25,6 +25,15 @@ interface Props {
   onGoTo: GoToLine
   onChanged: () => void
   jobRunning: boolean
+  // Without lines nothing is fetched and no check is shown.
+  enabled: boolean
+  render: (parts: CheckParts) => ReactNode
+}
+
+export interface CheckParts {
+  coverage: ReactNode
+  shorten: ReactNode
+  history: ReactNode
 }
 
 interface Checks {
@@ -39,15 +48,21 @@ const EMPTY: Checks = { coverage: null, pacing: null, tendencies: null, versions
 
 // Small read-only checks, each a folded Section that only appears when it
 // has something to show: coverage and pacing, edit tendencies, a version
-// compare and the notes-as-Markdown link. Refetched after every save; one
+// compare and the notes-as-Markdown link. They are handed to `render` as
+// three groups so the stage can place each in its own fold. Refetched after every save; one
 // failed request does not hide the others. The pacing list can shorten its
 // overlong lines with AI (the only write here).
-export function ReviewChecks({ dramaId, reloads, onGoTo, onChanged, jobRunning }: Props) {
+export function ReviewChecks({ dramaId, reloads, onGoTo, onChanged, jobRunning, enabled, render }: Props) {
   const [checks, setChecks] = useState<Checks>(EMPTY)
   const [error, setError] = useState<unknown>(null)
   const [shortened, setShortened] = useState<ShortenResult | null>(null)
 
   useEffect(() => {
+    if (!enabled) {
+      setChecks(EMPTY)
+      setError(null)
+      return
+    }
     let cancelled = false
     void Promise.allSettled([
       getCoverage(dramaId),
@@ -70,49 +85,55 @@ export function ReviewChecks({ dramaId, reloads, onGoTo, onChanged, jobRunning }
     return () => {
       cancelled = true
     }
-  }, [dramaId, reloads])
+  }, [dramaId, reloads, enabled])
 
   const { coverage, pacing, tendencies, versions, noteCount } = checks
+  const tooLong = pacing?.flags.filter((f) => f.issue === TOO_LONG).length ?? 0
   return (
     <>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      <CoverageSection coverage={coverage} pacing={pacing} onGoTo={onGoTo} keep={shortened !== null}>
-        <ShortenOverlong
-          dramaId={dramaId}
-          count={pacing?.flags.filter((f) => f.issue === TOO_LONG).length ?? 0}
-          jobRunning={jobRunning}
-          onChanged={onChanged}
-          result={shortened}
-          setResult={setShortened}
-        />
-      </CoverageSection>
-      {tendencies && <TendenciesSection t={tendencies} />}
-      {versions.length >= 2 && <CompareSection key={versions.map((v) => v.id).join(',')} dramaId={dramaId} versions={versions} />}
-      {noteCount > 0 && (
-        <Section storageKey="review.notesExport" title="Notes export" count={noteCount} summary="Markdown">
-          <a href={notesMarkdownUrl(dramaId)} target="_blank" rel="noreferrer" className="review-jump" data-testid="notes-markdown">
-            Open translation notes as Markdown
-          </a>
-        </Section>
-      )}
+      {render({
+        coverage: <CoverageSection coverage={coverage} pacing={pacing} onGoTo={onGoTo} />,
+        shorten:
+          tooLong > 0 || shortened !== null ? (
+            <Section storageKey="review.shorten" title="Shorten overlong" count={tooLong} summary="Rewrite lines too long for their time slot">
+              <ShortenOverlong
+                dramaId={dramaId}
+                count={tooLong}
+                jobRunning={jobRunning}
+                onChanged={onChanged}
+                result={shortened}
+                setResult={setShortened}
+              />
+            </Section>
+          ) : null,
+        history: (
+          <>
+            {tendencies && <TendenciesSection t={tendencies} />}
+            {versions.length >= 2 && <CompareSection key={versions.map((v) => v.id).join(',')} dramaId={dramaId} versions={versions} />}
+            {noteCount > 0 && (
+              <Section storageKey="review.notesExport" title="Notes export" count={noteCount} summary="Markdown">
+                <a href={notesMarkdownUrl(dramaId)} target="_blank" rel="noreferrer" className="review-jump" data-testid="notes-markdown">
+                  Open translation notes as Markdown
+                </a>
+              </Section>
+            )}
+          </>
+        ),
+      })}
     </>
   )
 }
 
-function CoverageSection({ coverage, pacing, onGoTo, keep, children }: {
+function CoverageSection({ coverage, pacing, onGoTo }: {
   coverage: Coverage | null
   pacing: Pacing | null
   onGoTo: GoToLine
-  // Stay shown (with children) after the last finding is fixed, e.g. to
-  // keep the shorten result on screen.
-  keep: boolean
-  // The pacing actions (shorten).
-  children: ReactNode
 }) {
   const groups = coverage ? coverageGroups(coverage) : []
   const pace = pacing ? pacingFindings(pacing.flags) : []
   const total = groups.reduce((n, g) => n + g.items.length, 0) + pace.length
-  if (total === 0 && !keep) return null
+  if (total === 0) return null
   const summary = [...groups.map((g) => `${g.title} ${g.items.length}`), ...(pace.length ? [`Pacing ${pace.length}`] : [])]
   return (
     <Section storageKey="review.coverage" title="Coverage and pacing" count={total} summary={summary.join(' · ')}>
@@ -130,7 +151,6 @@ function CoverageSection({ coverage, pacing, onGoTo, keep, children }: {
           <FindingList items={pace} onGoTo={onGoTo} testId="pacing-list" />
         </div>
       )}
-      {(pace.length > 0 || keep) && children}
     </Section>
   )
 }

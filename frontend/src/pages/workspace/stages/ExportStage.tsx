@@ -5,10 +5,10 @@ import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
 import type { AssStyleOptions, ExportReadiness } from '../../../types/export'
+import { routeHref } from '../../../router'
 import { buildAssRequest, emptyAssForm, loadAssForm, saveAssForm, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportAss } from './ExportAss'
-import { ExportFlags } from './ExportFlags'
 import { ExportJellyfin } from './ExportJellyfin'
 import { ExportNotion } from './ExportNotion'
 import { ExportEpub, ExportMediaJobs, MarkExported } from './ExportMedia'
@@ -42,7 +42,6 @@ export default function ExportStage() {
   const { dramaId, drama } = useStage()
   const [readiness, setReadiness] = useState<ExportReadiness | null>(null)
   const [readinessError, setReadinessError] = useState<unknown>(null)
-  const [reloads, setReloads] = useState(0)
   const [options, setOptions] = useState<AssStyleOptions | null>(null)
   const [optionsError, setOptionsError] = useState<unknown>(null)
   const [form, setFormState] = useState<AssForm>(() => ({
@@ -70,7 +69,7 @@ export default function ExportStage() {
     return () => {
       cancelled = true
     }
-  }, [dramaId, reloads])
+  }, [dramaId])
 
   useEffect(() => {
     let cancelled = false
@@ -112,7 +111,9 @@ export default function ExportStage() {
               <ul className="export-warnings" data-testid="readiness-warnings">
                 {untranslated && <li className="muted">Some lines are not translated yet, so English exports will have gaps.</li>}
                 {review.length > 0 && (
-                  <li className="muted">{review.join(', ')}. You can flag them under Flag lines for review.</li>
+                  <li className="muted">
+                    {review.join(', ')}. <a href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks</a> to flag them.
+                  </li>
                 )}
               </ul>
             )}
@@ -129,9 +130,6 @@ export default function ExportStage() {
         <MarkExported />
       </section>
       {fmt === 'ass' && assStyle}
-      <Section storageKey="export.flags" title="Flag lines for review" defaultOpen summary="overlaps, auto-QC, dense lines">
-        <ExportFlags onDone={() => setReloads((n) => n + 1)} />
-      </Section>
       <Section storageKey="export.media" title="Video and audio" summary="burned-in video, audiobook">
         {/* The burned-in video uses the ASS style too; with ASS chosen it sits above instead. */}
         {fmt !== 'ass' && assStyle}
