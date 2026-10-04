@@ -66,6 +66,8 @@ the result to the drama in the job's on_done hook, so the worker never
 writes the database. Hardsub OCR, which already stops between frames,
 stays a thread job (_run_transcribe_and_apply_job).
 """
+import contextlib
+import errno
 import functools
 import importlib.util
 import os
@@ -835,7 +837,13 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
     ("error", type name, redacted message). Writes nothing to the database.
     Every temp file goes under scratch_dir, which the parent removes however
     the run ends. The Groq key is read from the environment here, never
-    passed in."""
+    passed in.
+
+    Not covered by scratch_dir: model downloads go to their own caches. A
+    cancel during audio-separator's first download of its model leaves a
+    truncated file there (the library writes straight to the final path and
+    skips a file that exists), and loading it fails on the next run until
+    that file is deleted."""
     background_jobs.start_own_process_group()
     try:
         os.makedirs(scratch_dir, exist_ok=True)
@@ -851,6 +859,31 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
         result_queue.put(("ok", outcome))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
+
+
+def _move_into_place(src, dst):
+    """Moves src over dst so a reader never sees a partial dst: os.replace
+    on one volume (shutil.move would copy then delete when dst exists on
+    Windows). Across volumes, copies next to dst first and replaces from
+    there."""
+    try:
+        os.replace(src, dst)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+    fd, tmp = tempfile.mkstemp(prefix=".part-", suffix=os.path.splitext(dst)[1],
+                               dir=os.path.dirname(dst) or None)
+    os.close(fd)
+    try:
+        shutil.copyfile(src, tmp)
+        os.replace(tmp, dst)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        raise
+    with contextlib.suppress(OSError):
+        os.remove(src)
 
 
 def _remove_scratch_dir(path, _job_id=None):
@@ -959,7 +992,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 if sep["ticker"]:
                     sep["ticker"].stop()
             if vocals_work_dir and os.path.abspath(separated) != os.path.abspath(vocals_path):
-                shutil.move(separated, vocals_path)
+                _move_into_place(separated, vocals_path)
                 separated = vocals_path
             audio_path = separated
 

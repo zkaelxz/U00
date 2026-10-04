@@ -1412,6 +1412,8 @@ class TestTranscribeProcessJob:
                                       separate_vocals_first=1)
         job_id = f"transcribe_{did}"
         _clear(job_id)
+        with open(os.path.join(ddir, "vocals.wav"), "wb") as f:
+            f.write(b"an earlier run's vocals")
         self._use_spawned_fakes(monkeypatch, isolated_db, "vocals")
         scratch = self._track_scratch(monkeypatch)
 
@@ -1480,6 +1482,47 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
         items.append(result_queue.get_nowait())
     assert seen == ["gsk_env_key"]
     assert items[-1] == ("ok", {"failed_reason": "empty"})
+
+
+class TestMoveIntoPlace:
+    def test_replaces_an_existing_file_with_os_replace(self, tmp_path, monkeypatch):
+        src, dst = tmp_path / "scratch.wav", tmp_path / "vocals.wav"
+        src.write_bytes(b"new")
+        dst.write_bytes(b"old")
+        monkeypatch.setattr(transcribe_service.shutil, "move",
+                            lambda *a, **k: pytest.fail("shutil.move copies then deletes"))
+        transcribe_service._move_into_place(str(src), str(dst))
+        assert dst.read_bytes() == b"new" and not src.exists()
+
+    def test_across_volumes_copies_beside_the_target_then_replaces(self, tmp_path, monkeypatch):
+        import errno
+        src_dir, dst_dir = tmp_path / "scratch", tmp_path / "drama"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        src, dst = src_dir / "vocals.wav", dst_dir / "vocals.wav"
+        src.write_bytes(b"new")
+        dst.write_bytes(b"old")
+        real_replace, calls = os.replace, []
+
+        def replace(a, b):
+            calls.append((os.path.dirname(a), b))
+            if os.path.dirname(a) == str(src_dir):
+                raise OSError(errno.EXDEV, "Invalid cross-device link")
+            real_replace(a, b)
+        monkeypatch.setattr(transcribe_service.os, "replace", replace)
+        transcribe_service._move_into_place(str(src), str(dst))
+        assert dst.read_bytes() == b"new" and not src.exists()
+        assert calls[-1] == (str(dst_dir), str(dst))
+        assert sorted(p.name for p in dst_dir.iterdir()) == ["vocals.wav"]
+
+    def test_another_os_error_is_raised(self, tmp_path, monkeypatch):
+        import errno
+
+        def replace(a, b):
+            raise OSError(errno.EACCES, "Permission denied")
+        monkeypatch.setattr(transcribe_service.os, "replace", replace)
+        with pytest.raises(PermissionError):
+            transcribe_service._move_into_place(str(tmp_path / "a"), str(tmp_path / "b"))
 
 
 def test_the_workers_stage_checks_end_it_once_its_parent_is_gone(monkeypatch):
