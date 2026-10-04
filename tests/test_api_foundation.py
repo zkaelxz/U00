@@ -792,6 +792,7 @@ class TestTranscribeConfigEndpoints:
     everything start action -- see services/transcribe_service.py's own
     docstring for the scope decision and what's deliberately out."""
 
+        from services import transcribe_service
     def test_get_config_contract_shape(self, client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         body = client.get(f"/api/transcribe/dramas/{did}/config").json()
