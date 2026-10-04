@@ -282,14 +282,29 @@ class TestTada:
             dub.synthesize_line_tada("Hi.", "/refs/a.wav", "", str(tmp_path / "a.wav"), ref_language="ko")
 
 
+class _FakeStream:
+    """A streamed requests.Response: a status, a body in chunks, close()."""
+    def __init__(self, status_code, body, headers=None, chunk=1024):
+        self.status_code, self._body, self.headers = status_code, body, headers or {}
+        self._chunk = chunk
+        self.closed = False
+
+    def iter_content(self, size):
+        for i in range(0, len(self._body), self._chunk):
+            yield self._body[i:i + self._chunk]
+
+    def close(self):
+        self.closed = True
+
+
 class TestGptSovits:
     def test_posts_to_the_local_server_with_a_timeout(self, monkeypatch, tmp_path):
         import requests
         posted = {}
 
-        def fake_post(url, json=None, timeout=None):
+        def fake_post(url, json=None, timeout=None, stream=False):
             posted.update(url=url, json=json, timeout=timeout)
-            return types.SimpleNamespace(status_code=200, content=b"RIFFwav", text="")
+            return _FakeStream(200, b"RIFFwav")
         monkeypatch.setattr(requests, "post", fake_post)
 
         out = str(tmp_path / "a.wav")
@@ -306,15 +321,15 @@ class TestGptSovits:
 
     def test_a_server_error_raises_with_its_message(self, monkeypatch, tmp_path):
         import requests
-        monkeypatch.setattr(requests, "post", lambda url, json=None, timeout=None: types.SimpleNamespace(
-            status_code=400, content=b"", text='{"message": "ref audio too long"}'))
+        monkeypatch.setattr(requests, "post", lambda url, json=None, timeout=None, stream=False:
+                            _FakeStream(400, b'{"message": "ref audio too long"}'))
         with pytest.raises(RuntimeError, match="ref audio too long"):
             dub.synthesize_line_gpt_sovits("Hi.", "a.wav", "", str(tmp_path / "a.wav"))
 
     def test_server_not_running_says_how_to_start_it(self, monkeypatch, tmp_path):
         import requests
 
-        def refuse(url, json=None, timeout=None):
+        def refuse(url, json=None, timeout=None, stream=False):
             raise requests.ConnectionError("refused")
         monkeypatch.setattr(requests, "post", refuse)
         with pytest.raises(RuntimeError, match="api_v2.py"):
@@ -794,3 +809,37 @@ class TestExportM4b:
         chapters = json.loads(probe.stdout)["chapters"]
         assert [c["tags"]["title"] for c in chapters] == ["Chapter 1", "Chapter 2"]
         assert float(chapters[1]["start_time"]) == pytest.approx(2.0)
+
+
+class TestGptSovitsResponseCap:
+    def _post(self, monkeypatch, resp):
+        import requests
+        monkeypatch.setattr(requests, "post", lambda url, json=None, timeout=None, stream=False: resp)
+
+    def test_audio_over_the_cap_is_refused_and_nothing_is_written(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(dub, "GPT_SOVITS_AUDIO_MAX_BYTES", 100)
+        resp = _FakeStream(200, b"x" * 500)
+        self._post(monkeypatch, resp)
+        out = tmp_path / "a.wav"
+        with pytest.raises(RuntimeError, match="more audio"):
+            dub.synthesize_line_gpt_sovits("Hi.", "a.wav", "", str(out))
+        assert not out.exists() and resp.closed
+
+    def test_a_declared_length_over_the_cap_is_refused_before_reading(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(dub, "GPT_SOVITS_AUDIO_MAX_BYTES", 100)
+        resp = _FakeStream(200, b"", headers={"Content-Length": "5000"})
+        self._post(monkeypatch, resp)
+        with pytest.raises(RuntimeError, match="more audio"):
+            dub.synthesize_line_gpt_sovits("Hi.", "a.wav", "", str(tmp_path / "a.wav"))
+
+    def test_an_oversized_error_body_is_refused(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(dub, "GPT_SOVITS_ERROR_MAX_BYTES", 100)
+        self._post(monkeypatch, _FakeStream(500, b"e" * 500))
+        with pytest.raises(RuntimeError, match="more audio"):
+            dub.synthesize_line_gpt_sovits("Hi.", "a.wav", "", str(tmp_path / "a.wav"))
+
+    def test_audio_under_the_cap_still_downloads_whole(self, monkeypatch, tmp_path):
+        self._post(monkeypatch, _FakeStream(200, b"x" * 5000))
+        out = tmp_path / "a.wav"
+        dub.synthesize_line_gpt_sovits("Hi.", "a.wav", "", str(out))
+        assert out.read_bytes() == b"x" * 5000
