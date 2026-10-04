@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { startReviewJob } from '../../../../api/review'
 import { getTranslateConfig } from '../../../../api/translateStage'
@@ -87,12 +87,14 @@ interface Props {
   onGoTo: GoToLine
   // Flagged lines in the drama (from the editor); null until known.
   flaggedCount: number | null
+  // More AI-review tools, shown at the end of the fold.
+  children?: ReactNode
 }
 
 // After every job reaches a terminal state (done, error or cancelled) the
 // stage's lines, records and stored results are refetched, so translated
 // text, flags and findings never stay stale until a hard refresh.
-export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCount }: Props) {
+export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCount, children }: Props) {
   const { onJobDone, drama } = useStage()
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   useReattachJob(reviewJobIds(dramaId), adoptJob)
@@ -203,7 +205,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
       {bulkRuns.map((r) => (
         <BulkRun key={r.kind} run={r} onDone={bulkDone} onSubmitted={reloadBatches} />
       ))}
-      <Section storageKey="review.ai" title="AI review" defaultOpen summary="consistency, emotion, notes, flag, fix flagged">
+      <Section storageKey="review.aiFold" title="AI review" defaultOpen summary="checks · flag lines · coverage and pacing">
         {/* One row per check: its Start button, then its Bulk switch. */}
         <div role="list" aria-label="AI checks to run" className="stack">
           {KINDS.map(({ kind, label, what }) => (
@@ -294,9 +296,10 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
             </div>
           </Section>
         </fieldset>
+        <BulkBatchesPanel reloadKey={batchReload} />
+        <ReviewFindings dramaId={dramaId} jobsDone={jobsDone} reloads={reloads} onGoTo={onGoTo} />
+        {children}
       </Section>
-      <BulkBatchesPanel reloadKey={batchReload} />
-      <ReviewFindings dramaId={dramaId} jobsDone={jobsDone} reloads={reloads} onGoTo={onGoTo} />
     </div>
   )
 }

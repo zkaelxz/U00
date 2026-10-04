@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
+import { openFoldFor } from './reviewFolds'
 
 import { clearReviewResults } from './reviewResultsSeed'
 
@@ -65,6 +66,7 @@ const section = (page: Page, title: string) =>
   page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: new RegExp(`^${title}$`) }) })
 
 async function openSection(page: Page, title: string) {
+  await openFoldFor(page, title)
   const s = section(page, title)
   if ((await s.getAttribute('open')) === null) await s.locator(':scope > summary').click()
   return s
@@ -221,7 +223,7 @@ test('shorten overlong lines asks first, then reports what changed', async ({ pa
     } })
   })
   await open(page)
-  const cov = await openSection(page, 'Coverage and pacing')
+  const cov = await openSection(page, 'Shorten overlong')
   const box = cov.getByTestId('shorten-overlong')
   await box.getByRole('button', { name: /Shorten overlong lines/ }).click()
   expect(calls).toBe(0)
