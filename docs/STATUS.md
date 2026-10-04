@@ -53,6 +53,7 @@ Deferred until a need arises (owner decision 2026-09-30):
 - AI-fallback extras: comics, batch confirm, automatic use of a saved profile, and the two text-only adapters.
 - Structural debt: the `init_db` split, private-name reach-ins, import cycles, shared backup helpers, and consolidating the byte-capped reader and redactor.
 - NFO/poster sidecars on Send to Jellyfin (option A, parked); design in docs/archive/media-server-metadata-design.md
+- A main server with an optional second-machine GPU worker (owner decision 2026-10-04): plan only, nothing built. See `docs/specs/gpu-worker-plan.md`; it reopens the parked M8+ job queue.
 
 Live capture and SSRF (owner decision 2026-09-30):
 - #589 (a guarded egress proxy) is parked unmerged. `media.import_url` will be granted to household members (allowlisted Google accounts) and the risk accepted.
