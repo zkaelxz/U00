@@ -1,5 +1,5 @@
 """
-api/routers/library_admin_routes.py -- the Library tab's admin actions
+api/routers/library_admin_routes.py -- the Library pages' admin actions
 (route batch 2A) over services/library_admin_service.py: bulk status, tags,
 delete and translate, export zip, backup, artifact info/download, restore
 and storage scan/cleanup.

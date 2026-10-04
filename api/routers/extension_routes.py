@@ -11,8 +11,7 @@ returned only by `POST /token` with `confirm=true`, with
 Turning the bridge on starts it in this process only when the API's
 background services are on (`BAIHE_API_BACKGROUND`, the same switch the
 startup hook uses); otherwise it is started at the next launch. Turning it
-off persists the setting; a running endpoint keeps serving until the API
-restarts (`restart_needed`), because page_server has no stop.
+off persists the setting and stops a running endpoint at once.
 """
 
 from fastapi import APIRouter, Request, Response

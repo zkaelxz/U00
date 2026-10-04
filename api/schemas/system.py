@@ -689,8 +689,8 @@ class ExtensionEnabledRequest(BaseModel):
 
 
 class ExtensionEnabledResult(BaseModel):
-    """`restart_needed`: turned off, but this process still serves the
-    endpoint until the API restarts (page_server has no stop)."""
+    """`restart_needed`: turned off, but this process could not stop the
+    endpoint, so it serves until the API restarts. Normally False."""
     enabled: bool
     running: bool
     restart_needed: bool

@@ -272,7 +272,8 @@ export function extensionSummary(s: ExtensionStatus): string {
 
 /** The note after a toggle, or null. */
 export function extensionToggleNote(r: ExtensionEnabledResult): string | null {
-  if (!r.enabled && (r.restart_needed || r.running)) return 'Off. Restart Baihe to stop it now.'
+  if (!r.enabled && (r.restart_needed || r.running)) return 'Off, but it could not be stopped. Restart Baihe to stop it.'
+  if (!r.enabled) return "Off. The extension can't reach Baihe now."
   if (r.enabled && !r.running) return 'On. It starts next time Baihe starts.'
   return null
 }

@@ -25,9 +25,9 @@ describe('extension api', () => {
   })
 
   it('enabled sends only the flag', async () => {
-    const { mock, f } = reply(200, { enabled: false, running: true, restart_needed: true })
+    const { mock, f } = reply(200, { enabled: false, running: false, restart_needed: false })
     const out = await setExtensionEnabled(false, f)
-    expect(out.restart_needed).toBe(true)
+    expect(out).toEqual({ enabled: false, running: false, restart_needed: false })
     const [url, init] = mock.mock.calls[0]
     expect(url).toBe('/api/extension/enabled')
     expect(JSON.parse(init.body)).toEqual({ enabled: false })

@@ -58,7 +58,7 @@ async function call(path, { method = "GET", body = null } = {}) {
     // and is worth saying plainly rather than as a network error.
     return {
       ok: false,
-      error: `Couldn't reach Baihe on ${base(port)}. Is the app running, with "Run the local endpoint" ticked in its Settings?`,
+      error: `Couldn't reach Baihe on ${base(port)}. Is the app running, with the Extension bridge switch on in Settings → Browser extension?`,
     };
   }
   let payload = null;
