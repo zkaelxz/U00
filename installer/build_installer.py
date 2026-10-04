@@ -1,7 +1,7 @@
 """
 installer/build_installer.py -- assembles the Windows installer's payload
 and, where Inno Setup is available, compiles BaiheStudio-Setup-<version>.exe
-(Step 80b; design: docs/windows-installer-design.md).
+(design: docs/windows-installer-design.md).
 
     python installer/build_installer.py --version 0.1.0
         [--skip-frontend-build]   # frontend/dist is already built

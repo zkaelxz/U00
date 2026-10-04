@@ -1,6 +1,5 @@
 """
 sources/adapters/miaoqumh.py -- 妙趣漫画 miaoqumh.org (zh manhua),
-roadmap Step 23h.
 
 Technique read from Keiyoushi's actively maintained Mihon extension
 (keiyoushi/extensions-source, src/zh/miaoqu/Miaoqu.kt, built on the shared

@@ -1,6 +1,6 @@
 """
 services/lncrawl_service.py -- optional import of a web novel through the
-user-installed lightnovel-crawler program (Step 115b).
+user-installed lightnovel-crawler program.
 
 lightnovel-crawler (https://github.com/lncrawl/lightnovel-crawler) is
 GPL-3.0-or-later. Baihe never imports, copies or ships any of its code: it

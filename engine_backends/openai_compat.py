@@ -62,7 +62,7 @@ class DeepSeekEngine:
                     "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
                     "cache_read_tokens": cached or 0})
             message = resp.choices[0].message
-            # Step 31: the OpenAI-compatible refusal shape -- content is
+            # The OpenAI-compatible refusal shape -- content is
             # None/empty and a separate `refusal` field explains why,
             # rather than the requested translation. A real, documented
             # signal, not a guess; guards the bare .content.strip() this

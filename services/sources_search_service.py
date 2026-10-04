@@ -11,7 +11,7 @@ adapters build their own URLs. Everything returned is plain dicts with URLs
 reduced to scheme+host+path and free text scrubbed of secrets and paths
 (the helpers in services/sources_registry_service.py).
 
-ToS/robots enforcement is OFF by user decision (Step 90; spec Q1), but each
+ToS/robots enforcement is OFF by user decision, but each
 fetch still goes through `ladder.check_terms(...)` (registry.multi_search
 calls it per source; the series job calls it before fetching), so turning
 that one function back on covers the API too.

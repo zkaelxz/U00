@@ -1,4 +1,4 @@
-// Step 60: labels for the independent review role's verdict.
+// Labels for the independent review role's verdict.
 import type { BadgeTone } from '../../components/labels'
 import type { ReviewVerdict } from '../../types/assistant'
 

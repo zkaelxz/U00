@@ -1,5 +1,5 @@
 """
-sources/health.py -- per-source health (Step 23 item 3): 🟢/🟡/🔴, last
+sources/health.py -- per-source health: 🟢/🟡/🔴, last
 success/failure, error type, latency, and the backoff window that keeps a
 failing source from being hit again too soon.
 """

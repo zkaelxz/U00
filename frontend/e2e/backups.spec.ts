@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { CHOOSE_SNAPSHOT, OTHER_COPY, mockBackups } from './backupsMocks'
 
-// Automatic backups (Step 43), desktop. The settings test runs against the
+// Automatic backups, desktop. The settings test runs against the
 // real seeded API (a throwaway library) and resets what it changed; the
 // Back up now and copies tests use the stateful mocks in backupsMocks.ts.
 // BACKUP_SHOTS_DIR=<dir> also saves review screenshots.

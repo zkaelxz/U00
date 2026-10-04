@@ -1,12 +1,11 @@
 """
-api/routers/drama_routes.py -- create a drama and edit its metadata
-(Migration Slice 35).
+api/routers/drama_routes.py -- create a drama and edit its metadata.
 
 Thin adapters over `services.drama_service`. POST for both writes,
 matching every other mutation endpoint (no PATCH precedent). Update is a
 partial update: only fields present in the JSON body are passed on
 (`exclude_unset`), so an omitted field never means "set to None".
-Delete (Slice 36) needs confirm=true and confirm_text=DELETE as query
+Delete needs confirm=true and confirm_text=DELETE as query
 params, like translate history's confirm gate. Cover art (inventory P14):
 upload is PC-only (local_only, uploads are PC-only) and checked/re-encoded by
 services/cover_art_service.py; reading it is library.read. The upload's

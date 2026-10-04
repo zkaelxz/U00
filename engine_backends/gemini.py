@@ -190,7 +190,7 @@ class GeminiEngine:
             _add_usage(self.last_usage, usage)
             if self.free_tier:
                 self._update_rate_status(resp.headers, usage)
-            # Step 31: a real safety block returns either no candidates at
+            # A real safety block returns either no candidates at
             # all (blocked before generation even started -- the reason is
             # in promptFeedback.blockReason) or a candidate whose
             # finishReason is SAFETY/PROHIBITED_CONTENT with no content --
@@ -212,7 +212,7 @@ class GeminiEngine:
 
 
 # Free-tier limits, confirmed against ai.google.dev/gemini-api/docs/rate-limits
-# in September 2026 -- Step 1d's original "~10 requests/minute on Flash" note
+# in September 2026 -- the original "~10 requests/minute on Flash" note
 # was a full year stale, didn't distinguish Flash from Flash-Lite, and didn't
 # mention the shared token ceiling at all. Three independent limits, not one.
 GEMINI_FREE_TIER_LIMITS = {

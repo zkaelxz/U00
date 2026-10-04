@@ -54,7 +54,7 @@ type Props = {
 type Msg = { tone: 'ok' | 'known' | 'error'; text: string }
 
 /**
- * "Model re-evaluation" (Step 40b): is a newer model better than the one in
+ * "Model re-evaluation": is a newer model better than the one in
  * production? Candidates run against production through the Benchmark Lab,
  * on "Run now" or an opt-in schedule; nothing is promoted without the
  * explicit second press. Writes are PC only.

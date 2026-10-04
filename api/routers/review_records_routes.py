@@ -1,6 +1,6 @@
 """
 api/routers/review_records_routes.py -- Review-stage READ-ONLY records for
-one drama (Migration Slice 48): line history, translation versions
+one drama: line history, translation versions
 (list/compare), translation notes (list/Markdown), stored consistency
 issues, emotion summary, stored edit tendencies, and translation-memory
 suggestions. See services/review_records_service.py.

@@ -1,5 +1,5 @@
 /*
- * Step 101: one muted line under Speakers saying where the last speaker
+ * One muted line under Speakers saying where the last speaker
  * detection ran (GPU or CPU), from GET /api/diarization/dramas/{id}/config.
  * Nothing is shown before a run has recorded a device, or if the read fails.
  */
