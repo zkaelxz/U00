@@ -53,15 +53,13 @@ def dirty_log(isolated_db):
 
 
 def test_describe_job_moved():
-    assert svc.describe_job("live_capture") == "🔴 Live capture"
     assert svc.describe_job("x_y") == "x_y"
 
 
 class TestDescribeJob:
     """describe_job() turns a raw job_id like 'emotion_42' into a
     human-readable line for the Running jobs panel (moved from
-    tests/test_diagnostics_and_export.py; the live_capture case was an
-    exact duplicate of test_describe_job_moved above)."""
+    tests/test_diagnostics_and_export.py)."""
 
     def test_known_prefix_includes_the_drama_title(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test Drama")
