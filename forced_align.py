@@ -149,7 +149,40 @@ def _bucket_into_chunks(coarse_lines, max_chunk_seconds: float = MAX_CHUNK_SECON
     return chunks
 
 
-def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_dir: str):
+def _repair_unit_spans(spans, lo: float, hi: float):
+    """Makes (start, end) spans monotonic, inside [lo, hi], and non-zero where
+    the neighbours leave room. The aligner can return items with start == end
+    (Qwen3-ASR issue #197), which collapse subtitle lines to zero length.
+    A run of zero-length spans is spread evenly over the gap between the
+    previous span's end and the next span's start (or lo/hi at the ends); if
+    that gap is itself empty the spans stay zero-length so _bad_line_timings
+    still sends the line to the coarse-timing fallback."""
+    fixed, prev_end = [], lo
+    for start, end in spans:
+        start = min(max(start, prev_end, lo), hi)
+        end = min(max(end, start), hi)
+        fixed.append([start, end])
+        prev_end = end
+    i = 0
+    while i < len(fixed):
+        if fixed[i][1] > fixed[i][0]:
+            i += 1
+            continue
+        j = i
+        while j < len(fixed) and fixed[j][1] <= fixed[j][0]:
+            j += 1
+        left = fixed[i - 1][1] if i > 0 else lo
+        right = fixed[j][0] if j < len(fixed) else hi
+        if right > left:
+            step = (right - left) / (j - i)
+            for k in range(i, j):
+                fixed[k] = [left + (k - i) * step, left + (k - i + 1) * step]
+        i = j
+    return [tuple(f) for f in fixed]
+
+
+def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_dir: str,
+                 repaired_lines=None):
     """Runs the aligner on one chunk's audio slice against the REAL text
     of the lines assigned to it, and returns {global_line_idx: [times]}.
 
@@ -158,6 +191,9 @@ def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_di
     docs) -- instead it walks each returned unit's own .text field over
     the concatenated input to find its position, so this works the same
     way whether a "unit" is one character or a whole word.
+
+    Indices of lines that had any unit's timing changed by the repair are
+    added to repaired_lines (a set) when one is given.
     """
     chars, line_of_char = [], []
     for ln in chunk_lines:
@@ -178,9 +214,14 @@ def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_di
             os.unlink(slice_path)
 
     units = results[0] if results else []
+    # The upper bound never cuts off a real unit that runs past the coarse
+    # chunk end; it only limits where a zero-length tail can be spread.
+    raw = [(u.start_time, u.end_time) for u in units]
+    spans = _repair_unit_spans(
+        raw, 0.0, max([chunk_end - chunk_start] + [e for _, e in raw]))
     per_line_times = {}
     pos = 0
-    for unit in units:
+    for unit, (unit_start, unit_end), orig in zip(units, spans, raw):
         unit_len = max(len(unit.text), 1)
         for offset in range(unit_len):
             char_pos = pos + offset
@@ -188,14 +229,21 @@ def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_di
                 break
             li = line_of_char[char_pos]
             per_line_times.setdefault(li, []).extend(
-                [chunk_start + unit.start_time, chunk_start + unit.end_time]
+                [chunk_start + unit_start, chunk_start + unit_end]
             )
+            if repaired_lines is not None and (unit_start, unit_end) != orig:
+                repaired_lines.add(li)
         pos += unit_len
     return per_line_times
 
 
 TIMING_FALLBACK_NOTE = ("Forced alignment returned zero-length or out-of-order timing for this "
                         "line, so it uses the approximate timing instead -- check it lines up.")
+
+
+TIMING_REPAIRED_NOTE = ("Forced alignment returned zero-length or out-of-order timing for part of "
+                        "this line; it was estimated from the neighbouring words -- check it "
+                        "lines up.")
 
 
 def _bad_line_timings(per_line_times) -> set:
@@ -237,10 +285,11 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
     model = load_qwen3_aligner(use_gpu=use_gpu)
     language_name = LANGUAGE_NAMES[language]
 
-    per_line_times = {}
+    per_line_times, repaired = {}, set()
     with tempfile.TemporaryDirectory(prefix="baihe_forced_align_") as tmp_dir:
         for chunk in chunks:
-            per_line_times.update(_align_chunk(model, audio_path, chunk, language_name, tmp_dir))
+            per_line_times.update(_align_chunk(model, audio_path, chunk, language_name, tmp_dir,
+                                              repaired_lines=repaired))
 
     # Where the aligner's own output is broken, the coarse diff alignment
     # (already computed above) is the better answer -- flagged, so the
@@ -254,4 +303,6 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
     for ln in lines:
         if ln.idx in bad:
             ln.flag, ln.flag_note = "timing_uncertain", TIMING_FALLBACK_NOTE
+        elif ln.idx in repaired:
+            ln.flag, ln.flag_note = "timing_uncertain", TIMING_REPAIRED_NOTE
     return lines

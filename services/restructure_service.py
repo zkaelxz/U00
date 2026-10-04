@@ -653,7 +653,11 @@ def _aligned_pieces(audio_path, ln, pieces, language, use_gpu):
     spans = [(max(a.start, ln.start), min(a.end, ln.end)) for a in aligned]
     if any(e <= s for s, e in spans) or any(b[0] < a[1] - 1e-6 for a, b in zip(spans, spans[1:])):
         return None
-    return [{**p, "start": s, "end": e} for p, (s, e) in zip(pieces, spans)]
+    # The aligner's timing_uncertain flag (repaired or fallen-back spans) rides
+    # along so the saved piece carries it.
+    return [{**p, "start": s, "end": e,
+             **({"flag": a.flag, "flag_note": a.flag_note} if a.flag else {})}
+            for p, (s, e), a in zip(pieces, spans, aligned)]
 
 
 def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timing: str,
@@ -687,9 +691,12 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
             aligned += ln.id in timed
             first, *rest = pieces
             ln.start, ln.end, ln.zh, ln.en = first["start"], first["end"], first["text"], ""
+            if first.get("flag"):
+                ln.flag, ln.flag_note = first["flag"], first["flag_note"]
             new_pieces = [core_module.Line(idx=0, start=p["start"], end=p["end"], zh=p["text"],
                                            speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                           sfx=ln.sfx)
+                                           sfx=ln.sfx, flag=p.get("flag"),
+                                           flag_note=p.get("flag_note", ""))
                           for p in rest]
             new_lines.append(ln)
             new_lines.extend(new_pieces)

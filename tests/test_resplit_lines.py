@@ -155,6 +155,21 @@ def test_align_without_audio_splits_immediately_with_note():
     assert len(db.load_lines(did)) == 5
 
 
+def test_repaired_alignment_flags_only_the_affected_piece(monkeypatch):
+    did, ids = _seed()
+
+    def align(audio, texts, segs, language, use_gpu=False):
+        out = [Line(idx=i, start=3.0 + 9 * i, end=11.0 + 9 * i, zh=t) for i, t in enumerate(texts)]
+        out[1].flag, out[1].flag_note = "timing_uncertain", "repaired"
+        return out
+    _fake_aligner(monkeypatch, align)
+    job = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])
+    assert job["status"] == "done", job
+    rows = db.load_lines(did)
+    assert [r["flag"] for r in rows[1:4]] == ["unsure", "timing_uncertain", None]
+    assert rows[2]["flag_note"] == "repaired"
+
+
 def test_bad_aligner_timing_keeps_that_line_proportional(monkeypatch):
     did, ids = _seed()
     _fake_aligner(monkeypatch, lambda audio, texts, segs, language, use_gpu=False: [

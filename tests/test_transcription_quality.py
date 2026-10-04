@@ -107,6 +107,8 @@ class TestForcedAlignerReliability:
                          _Unit("再", 3.0, 3.0), _Unit("见", 3.0, 3.0)]]
         monkeypatch.setattr(fa, "_extract_audio_slice", lambda a, s, e, out: open(out, "wb").close())
         monkeypatch.setattr(fa, "load_qwen3_aligner", lambda use_gpu=False: Aligner())
+        # Repair would fix this input; disable it to exercise the fallback.
+        monkeypatch.setattr(fa, "_repair_unit_spans", lambda spans, lo, hi: spans)
 
         result = fa.align_with_qwen3("/fake.wav", user_lines, whisper_segments, language="zh")
         assert (result[0].start, result[0].end, result[0].flag) == (0.0, 2.0, None)
