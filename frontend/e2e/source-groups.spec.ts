@@ -56,7 +56,6 @@ test('Details hide the fields another content type owns, and Add credits reveals
   await expect(page.getByLabel('Voice actors', { exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Content mode')).toHaveCount(0)
   await expect(page.getByLabel('Source URL', { exact: true })).toHaveCount(1)
-  await page.locator('.section-title', { hasText: 'Credits & cover' }).click()
   await expect(page.getByRole('button', { name: 'Romanize credits' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Add credits' }).click()
   await expect(page.getByLabel('Author', { exact: true })).toBeFocused()

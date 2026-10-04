@@ -1,6 +1,6 @@
 // Experimental transcription settings (api/routers/asr_options_routes.py,
 // Steps 103/104) and the Diarize-stage config read (Step 101's device note).
-// Types mirror api/asr_options_schemas.py and api/schemas.py's DiarizationConfig.
+// Types mirror api/asr_options_schemas.py and api/schemas/transcribe.py's DiarizationConfig.
 import { getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
 

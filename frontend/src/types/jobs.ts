@@ -1,4 +1,4 @@
-// Mirrors api/schemas.py JobRecord / JobListResponse / JobCancelResult.
+// Mirrors api/schemas/system.py JobRecord / JobListResponse / JobCancelResult.
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 

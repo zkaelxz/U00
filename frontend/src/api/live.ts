@@ -29,7 +29,7 @@ export const SEGMENT_RANGE: [number, number] = [10, 60]
 export const OVERLAP_RANGE: [number, number] = [0, 8]
 export const MAX_MINUTES_RANGE: [number, number] = [1, 240]
 export const MAX_URL_LEN = 2000
-// The feed shows the newest lines (Streamlit showed 50); the page keeps more
+// The feed shows only the newest lines; the page keeps more
 // in memory so a long session can't grow without bound.
 const FEED_SHOWN = 50
 const CUES_KEPT = 1000

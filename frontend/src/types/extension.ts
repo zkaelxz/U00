@@ -1,4 +1,4 @@
-// Mirrors api/schemas.py Extension* (/api/extension, PC only).
+// Mirrors api/schemas/system.py Extension* (/api/extension, PC only).
 import type { TranslateEngine } from './translate'
 
 // No port and no token, ever.

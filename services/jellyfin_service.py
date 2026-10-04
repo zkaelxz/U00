@@ -23,8 +23,8 @@ Network: the URL must be http(s) with a host, no user name/password, query or
 fragment. Every address it resolves to is checked at call time: loopback and
 private LAN addresses are fine (Jellyfin usually runs on this PC or the LAN),
 but link-local (cloud metadata), multicast, reserved and unspecified
-addresses are refused, and so are Baihe's own ports on this PC
-(settings_service.baihe_own_ports). The check is not pinned to the connection (the address
+addresses are refused, and so are Baihe's own ports on this PC (8600 or
+BAIHE_API_PORT, 8756). The check is not pinned to the connection (the address
 is the PC owner's own choice, and a key-write-gated setting). Requests carry
 timeout=, follow no redirects, ignore proxy settings and read at most
 MAX_RESPONSE_BYTES within READ_DEADLINE. Errors are fixed text: never the URL, a path or the key.

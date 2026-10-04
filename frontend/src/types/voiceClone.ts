@@ -1,4 +1,4 @@
-// Mirrors api/schemas.py VoiceClone* (voice-clone setup, parity C01/C03/C09/C13).
+// Mirrors api/schemas/voice.py VoiceClone* (voice-clone setup).
 // Candidate clips are addressed by an opaque id; no path or filename exists here.
 
 export interface VoiceCloneCandidate {

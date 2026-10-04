@@ -905,6 +905,17 @@ _RESTORE_MIN_TOTAL_BYTES = 1024 ** 3
 RESTORE_DISK_MARGIN_BYTES = 256 * 1024 ** 2
 
 
+def has_disk_room(folder: str, need: int) -> bool:
+    """Whether `folder`'s drive has `need` bytes plus RESTORE_DISK_MARGIN_BYTES
+    free. True when the free space can't be read, so a drive that doesn't
+    report it never blocks a restore."""
+    try:
+        free = shutil.disk_usage(folder).free
+    except OSError:
+        return True
+    return free >= need + RESTORE_DISK_MARGIN_BYTES
+
+
 def _unsafe_member(info: zipfile.ZipInfo) -> bool:
     name = info.filename
     norm = name.replace("\\", "/")
@@ -996,13 +1007,9 @@ def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True
                 if check_limits and total > total_cap:
                     raise InvalidInputError("The backup would expand too large; it looks "
                                             "corrupted or unsafe to extract.")
-            if check_disk:
-                try:
-                    free = shutil.disk_usage(os.path.dirname(os.path.abspath(db.LIBRARY_DIR))).free
-                except OSError:
-                    free = None
-                if free is not None and free < total + RESTORE_DISK_MARGIN_BYTES:
-                    raise InvalidInputError("Not enough free disk space to restore this backup.")
+            if check_disk and not has_disk_room(os.path.dirname(os.path.abspath(db.LIBRARY_DIR)),
+                                                 total):
+                raise InvalidInputError("Not enough free disk space to restore this backup.")
             if zf.testzip() is not None:
                 raise InvalidInputError("The backup zip is corrupted.")
     except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, ValueError, NotImplementedError,

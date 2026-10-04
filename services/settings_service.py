@@ -93,11 +93,10 @@ def resolve_env_names(names, env_path: str = None) -> Optional[str]:
     return None
 
 
-# Default API port (api.api_config.DEFAULT_PORT), 8501 (the retired Streamlit
-# UI's port, still refused) and the extension bridge's 8756
-# (page_server.DEFAULT_PORT). Services may not import
-# api/, so the numbers are repeated here.
-_BAIHE_FIXED_PORTS = (8501, 8600, 8756)
+# Default API port (api.api_config.DEFAULT_PORT) and the extension bridge's
+# 8756 (page_server.DEFAULT_PORT). Services may not import api/, so the
+# numbers are repeated here.
+_BAIHE_FIXED_PORTS = (8600, 8756)
 API_PORT_ENV = "BAIHE_API_PORT"
 HOUSEHOLD_PORT_ENV = "BAIHE_API_HOUSEHOLD_PORT"
 

@@ -1,4 +1,4 @@
-// Comic viewer API (routes C1-C5 under /api/scanlate/dramas/{id}). The page list
+// Comic viewer API (routes under /api/scanlate/dramas/{id}). The page list
 // and progress need library.read, page text lines.read, saving progress
 // lines.edit, and the page images media.stream (so an <img> can fail with 403).
 

@@ -1,5 +1,5 @@
-// Comic viewer API shapes (/api/scanlate/dramas/{id}/..., routes C1-C5 in the
-// comic viewer spec). No filenames or paths ever come back from these routes.
+// Comic viewer API shapes (/api/scanlate/dramas/{id}: pages, regions
+// and progress). No filenames or paths ever come back from these routes.
 
 export type ComicVariant = 'original' | 'rendered'
 

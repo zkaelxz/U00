@@ -72,10 +72,11 @@ for (const vp of [
       await openSection(page, 'Edit details')
       await page.getByLabel('Series', { exact: true }).selectOption({ label: '+ New series…' }, { timeout: 2000 }).catch(() => undefined)
       await shot(page, `source-details-${vp.tag}`, 'section[aria-label="Edit details"]')
-      await openSection(page, 'Analyze media')
+      await openSection(page, 'Fill in details')
+      await page.locator('.segmented label', { hasText: /^From the audio$/ }).click()
       await page.getByRole('button', { name: 'Analyze media' }).click()
       await page.getByTestId('analysis').waitFor()
-      await shot(page, `source-analyze-${vp.tag}`, 'section[aria-label="Analyze media"]')
+      await shot(page, `source-analyze-${vp.tag}`, 'section[aria-label="Fill in details"]')
     })
 
     test('transcribe: speakers with corrections and estimates (D03, D04, D06)', async ({ page }) => {

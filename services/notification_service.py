@@ -33,8 +33,7 @@ https://<host>/<topic>, and the host must resolve to public addresses only
 link-local, so no cloud metadata endpoint) is allowed only when
 `BAIHE_NTFY_ALLOW_LOCAL=1` is set in `.env` or the environment by hand --
 there is deliberately no API route that turns it on. Even then, a target
-on this PC (loopback) may not use one of Baihe's own ports
-(settings_service.baihe_own_ports).
+on this PC (loopback) may not use one of Baihe's own ports (the API 8600 or the configured BAIHE_API_PORT, the extension bridge 8756).
 Every send connects to the address that was validated (no second DNS
 lookup), with no redirects, no proxy, a per-socket timeout and an overall
 SEND_DEADLINE; the reply body is never read (only the status code).

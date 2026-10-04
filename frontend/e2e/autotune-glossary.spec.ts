@@ -26,7 +26,6 @@ async function shot(page: Page, name: string) {
 
 async function openSection(page: Page, title: string) {
   await openFoldFor(page, title)
-  // Some sections now start open; click only a closed one, as a user would.
   if (['Advanced', 'Speakers', 'Auto-tune min silence'].includes(title)) await openTranscribeOptions(page)
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
@@ -412,13 +411,13 @@ test.describe('PC-only stage deletes', () => {
     await page.getByRole('button', { name: 'Confirm remove audio/video' }).click()
     await expect(page.getByText('Removed. Lines are untouched.')).toBeVisible()
     await openSection(page, 'Novel text')
-    await expect(page.getByRole('link', { name: 'Build a glossary from this novel (Translate → Glossary) →' })).toHaveAttribute('href', '#/drama/1/translate')
+    await expect(page.getByRole('link', { name: 'Build the glossary from this novel in Translate →' })).toHaveAttribute('href', '#/drama/1/translate')
     const raw = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })
     await raw.locator('.section-title').click()
     await raw.getByRole('button', { name: 'Remove raw novel', exact: true }).click()
     await raw.getByRole('button', { name: 'Confirm remove raw novel' }).click()
     await expect(raw.getByRole('status')).toHaveText('Removed.')
-    await expect(page.getByRole('link', { name: /Build a glossary from this novel/ })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: /Build the glossary from this novel/ })).toHaveCount(0)
     expect(posted.map((u) => new URL(u).pathname)).toEqual([
       '/api/media/dramas/1/remove',
       '/api/novel/dramas/1/raw-novel/remove',

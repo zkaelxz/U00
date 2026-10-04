@@ -1,10 +1,9 @@
 """
-api/background.py -- the background pieces started once when the API
-process starts (FastAPI lifespan in `api/server.py`).
-
+api/background.py -- the background pieces of the app, started once when the
+API process starts (FastAPI lifespan in `api/server.py`):
 - the chapter-check scheduler (`sources.chapter_check.ensure_scheduler_started`):
-  unconditionally. It is a no-op loop unless `check_interval_hours` > 0 and
-  a series is tracked.
+  always started. It is a no-op loop unless `check_interval_hours` > 0 and a
+  series is tracked.
 - the browser-extension endpoint (`page_server.ensure_server_started`, loopback
   port 8756): only while the Sources setting `page_server_enabled` is on.
 
@@ -34,8 +33,8 @@ and the poller below.
 
 The extension's translation engine is saved as an app setting
 (`services/extension_service.py`, routes under `/api/extension/engine`) and
-`extension_service.push_translation_config` hooks it into page_server here
-at startup, resolving the key from .env on every request.
+`extension_service.push_translation_config` hooks it into page_server here at
+startup, resolving the key from .env on every request.
 """
 
 import threading
@@ -44,8 +43,8 @@ _started = None
 
 # GPU-queue nudge: background_jobs never re-checks its GPU queue on its own
 # (a job queued behind GPU load Baihe didn't start is re-checked only when
-# another GPU job finishes), so the API calls recheck_gpu_queue on a timer,
-# only while background services are on, and stops it at shutdown. The call is a cheap no-op when nothing is queued.
+# another GPU job finishes). The API calls background_jobs.recheck_gpu_queue
+# on a timer, only while background services are on, and stops it at shutdown. The call is a cheap no-op when nothing is queued.
 GPU_QUEUE_POLL_SECONDS = 20.0
 _gpu_poller = None          # (thread, stop_event) while running
 _gpu_lock = threading.Lock()

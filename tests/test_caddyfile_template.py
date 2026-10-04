@@ -203,7 +203,7 @@ def test_proxies_only_to_the_household_port():
 
 def test_no_admin_or_bridge_port_and_no_literal_port_anywhere():
     text = _strip_comments(TEMPLATE.read_text(encoding="utf-8"))
-    for port in ("8600", "8601", "8610", "8756", "8501"):
+    for port in ("8600", "8601", "8610", "8756"):
         assert port not in text
     assert not re.search(r":\d", text), "ports come from placeholders only"
 

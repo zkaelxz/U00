@@ -112,10 +112,10 @@ function Row({ entry, engines, bank, hasSeries, taken, onSaved, onRemembered, on
 
   return (
     <>
-      <tr>
-        <td>{label}</td>
-        <td><input aria-label={`Name for ${label}`} value={form.character_name} onChange={(e) => set('character_name', e.target.value)} /></td>
-        <td>
+      <tr role="row" className="card-main">
+        <td role="cell" data-label="Speaker" className="card-title">{label}</td>
+        <td role="cell" data-label="Name" className="card-wide"><input aria-label={`Name for ${label}`} value={form.character_name} onChange={(e) => set('character_name', e.target.value)} /></td>
+        <td role="cell" data-label="Gender" className="card-half">
           <div className="character-pronouns">
             <select aria-label={`Gender for ${label}`} value={form.pronoun_choice} onChange={(e) => set('pronoun_choice', e.target.value)}>
               <option value="">{unsetPronounsLabel(entry)}</option>
@@ -133,17 +133,17 @@ function Row({ entry, engines, bank, hasSeries, taken, onSaved, onRemembered, on
             )}
           </div>
         </td>
-        <td><input aria-label={`Voice for ${label}`} value={form.tts_voice} onChange={(e) => set('tts_voice', e.target.value)} /></td>
-        <td>{entry.line_count}</td>
-        <td>{reference}</td>
-        <td>
+        <td role="cell" data-label="Voice" className="card-half"><input aria-label={`Voice for ${label}`} value={form.tts_voice} onChange={(e) => set('tts_voice', e.target.value)} /></td>
+        <td role="cell" data-label="Lines" className="card-meta">{entry.line_count}</td>
+        <td role="cell" data-label="Reference" className="card-meta">{reference}</td>
+        <td role="cell" className="card-action">
           <button type="button" className={buttonClass('secondary', 'sm')} disabled={!dirty || busy} title={dirty ? undefined : 'No changes to save.'} onClick={save}>Save</button>
           {problem && <p className="error" role="alert">{problem}</p>}
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </td>
       </tr>
-      <tr>
-        <td colSpan={COLUMNS}>
+      <tr role="row" className="card-extra">
+        <td role="cell" colSpan={COLUMNS}>
           {(samples || entry.series_character_id || canRemember(entry, hasSeries)) && (
             <div className="character-extras" data-testid={`character-extras-${label}`}>
               {samples && <p className="muted character-samples">{samples}</p>}
@@ -323,9 +323,9 @@ export function CharactersPanel() {
         <VoiceSuggestions dramaId={dramaId} refresh={suggestRefresh} onAccepted={replace} />
       ) : null}
       {entries && entries.length > 0 && (
-        <div className="table-scroll"><table>
+        <div className="table-scroll"><table role="table" className="card-table">
           <thead>
-            <tr><th>Speaker</th><th>Name</th><th>Gender</th><th>Voice</th><th>Lines</th><th>Reference</th><th /></tr>
+            <tr role="row"><th role="columnheader">Speaker</th><th role="columnheader">Name</th><th role="columnheader">Gender</th><th role="columnheader">Voice</th><th role="columnheader">Lines</th><th role="columnheader">Reference</th><th role="columnheader"><span className="visually-hidden">Save</span></th></tr>
           </thead>
           <tbody>
             {entries.map((e) => (

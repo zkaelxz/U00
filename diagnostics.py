@@ -1171,10 +1171,15 @@ def get_latest_pypi_version(pip_name: str, timeout: float = 10.0):
     explicit button and cache the result (see check_dependency_versions)."""
     import requests
     try:
-        resp = requests.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout)
+        from services import capped_body
+        resp = requests.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout,
+                            stream=True, allow_redirects=False)
         if resp.status_code != 200:
+            resp.close()
             return None
-        return (resp.json().get("info") or {}).get("version") or None
+        body = capped_body.read_capped(resp, PYPI_JSON_MAX_BYTES, timeout * 3,
+                                       lambda: ValueError("PyPI response too large"))
+        return (json.loads(body).get("info") or {}).get("version") or None
     except Exception:
         return None
 

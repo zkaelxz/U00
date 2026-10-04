@@ -1,4 +1,4 @@
-// Mirrors api/schemas.py UpdateStatus / UpdateInstallResponse (app updates
+// Mirrors api/schemas/system.py UpdateStatus / UpdateInstallResponse (app updates
 // from the public GitHub Releases). Every /api/system/update route is PC
 // only; responses carry names, numbers and booleans, never a URL or a path.
 
