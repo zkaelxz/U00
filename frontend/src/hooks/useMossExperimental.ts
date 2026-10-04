@@ -1,5 +1,5 @@
 /*
- * Step 104: whether Settings > Transcription experiments has the MOSS backend
+ * Whether Settings > Transcription experiments has the MOSS backend
  * on. False until known, and on any failure (another device without
  * admin.settings gets a 403 and simply doesn't see the choice).
  */

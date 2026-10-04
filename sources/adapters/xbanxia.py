@@ -1,5 +1,5 @@
 """
-sources/adapters/xbanxia.py -- xbanxia.cc (zh web novels), roadmap Step 23e.
+sources/adapters/xbanxia.py -- xbanxia.cc (zh web novels).
 
 No Keiyoushi/Mihon extension exists for this site either. Real technique
 read from lncrawl/lightnovel-crawler (GPL-3.0 -- technique only, no code

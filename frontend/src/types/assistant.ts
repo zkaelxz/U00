@@ -1,4 +1,4 @@
-// Step 42: the in-app AI maintenance assistant, read-only v1
+// The in-app AI maintenance assistant, read-only v1
 // (api/routers/assistant_routes.py). Every route is PC only.
 
 export interface AssistantSettings {
@@ -7,7 +7,7 @@ export interface AssistantSettings {
   engine: string | null
   model: string | null
   engine_choices: string[]
-  // Step 60: implement -> independent review on a different engine. Off by default.
+  // Implement -> independent review on a different engine. Off by default.
   roles_enabled?: boolean
   review_engine?: string | null
   review_model?: string | null
@@ -100,7 +100,7 @@ export interface ToolCall {
 
 export type ReviewVerdict = 'agrees' | 'concerns' | 'unclear' | 'unavailable'
 
-// Step 60: the independent review role's view of the proposed fix.
+// The independent review role's view of the proposed fix.
 export interface AssistantReview {
   engine: string | null
   model: string | null

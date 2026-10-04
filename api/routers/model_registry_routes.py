@@ -1,5 +1,5 @@
 """
-api/routers/model_registry_routes.py -- Step 40: model deprecation /
+api/routers/model_registry_routes.py -- model deprecation /
 migration assistant. Thin: see services/model_registry_service.py.
 
 - `GET /api/models/status` (`admin.diagnostics`): every configured model

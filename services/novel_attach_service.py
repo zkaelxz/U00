@@ -1,6 +1,6 @@
 """
 services/novel_attach_service.py -- attach novel text to a drama and OCR
-chapter images (Migration Slice 38) for a novel-narration drama. Text
+chapter images for a novel-narration drama. Text
 lands in `novel_narration_source.txt` (the
 file `narration_service` and `cli.cmd_dub` read).
 

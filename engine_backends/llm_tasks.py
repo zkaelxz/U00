@@ -104,7 +104,7 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     raise RuntimeError(f"{getattr(engine, 'name', type(engine).__name__)} can't run this feature.")
 
 
-# Step 41: part of narration tagging's checkpoint key -- bump it when the
+# Part of narration tagging's checkpoint key -- bump it when the
 # prompt below changes, so labels from the old prompt aren't reused.
 TAG_SPEAKERS_PROMPT_VERSION = "1"
 
@@ -125,7 +125,7 @@ def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size
     This is a best-effort heuristic -- always let the user correct
     labels in the review table afterwards.
 
-    Step 41 resume: `done` ({id: label}) holds labels an earlier,
+    Resume: `done` ({id: label}) holds labels an earlier,
     interrupted run already paid for -- a batch whose ids are all in it is
     not sent again. `on_batch({id: label})` is called after each new batch
     (the caller checkpoints it). `cancel_check` is called before each batch
@@ -239,8 +239,8 @@ def build_consistency_prompt(batch: list) -> str:
     lines. Position-based (1., 2., ...), not id-keyed -- an issue names a
     TERM ("a character's name spelled two ways"), never a specific line,
     so there's no per-line id for the model to echo back here. Shared by
-    check_consistency_llm (live) and bulk_translate.py's bulk submission
-    (Step 9d) -- both send byte-for-byte the same prompt for the same
+    check_consistency_llm (live) and bulk_translate.py's bulk submission:
+    both send byte-for-byte the same prompt for the same
     window of lines."""
     pairs = "\n".join(f"{i+1}. {ln.zh} -> {ln.en}" for i, ln in enumerate(batch))
     return (
@@ -265,7 +265,7 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, ca
     issues is a list of {"term", "variants": [...], "note"} for review --
     doesn't auto-fix anything, since the "right" choice depends on
     context you'd want to confirm yourself. failed_batches/total_batches
-    (Step 55) let the caller tell "nothing to flag" apart from "some
+    let the caller tell "nothing to flag" apart from "some
     batches silently couldn't be checked at all" -- previously a batch
     that errored or came back empty was skipped with no trace, so a run
     that failed on every batch looked identical to one that genuinely
@@ -273,7 +273,7 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, ca
 
     Only meaningful with an LLM-capable engine; pure-MT engines return
     ([], 0, 0) (they don't reason about the whole set at once).
-    cancel_check (B-05): called before each batch; it may raise to stop the
+    cancel_check: called before each batch; it may raise to stop the
     run between batches (a batch already sent still finishes)."""
     if not getattr(engine, "supports_reference", False):
         return [], 0, 0
@@ -309,7 +309,7 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, ca
 
 
 def build_episode_summary_prompt(lines) -> str:
-    """Step 74's per-episode running-summary prompt -- one call over the
+    """The per-episode running-summary prompt -- one call over the
     WHOLE finished episode's English text, not a per-batch window (unlike
     build_consistency_prompt above), since the point is a fixed, once-per-
     episode artifact that the next episode's translation can afford to
@@ -330,7 +330,7 @@ def build_episode_summary_prompt(lines) -> str:
 
 
 def generate_episode_summary(lines, engine, usage_cb=None) -> str:
-    """Step 74: one LLM call per finished episode (never once per
+    """One LLM call per finished episode (never once per
     translation batch) producing a short running summary for cross-
     episode narrative continuity -- distinct from glossary/translation
     memory's terminology-only continuity. Stored on the drama row
@@ -377,6 +377,8 @@ FLAG_REASONS = {
 # Flags the app sets itself (not offered to the LLM as a reason to pick).
 SYSTEM_FLAG_REASONS = {
     "timing_uncertain": "Timing uncertain -- forced alignment fell back to approximate timing",
+    "language_uncertain": ("Language uncertain -- the text doesn't match the language detected "
+                           "for this line"),
     "timing_overlap": "Overlaps the next line -- exports trim it",
     "reading_speed": "Too fast to read -- too many characters for the time it's shown",
     "factual_detail": ("Auto QC: a number, date, name, amount or unit differs between the "
@@ -393,9 +395,9 @@ def flag_reason_label(flag: str) -> str:
 
 
 def matching_glossary_terms(zh: str, glossary_terms) -> list:
-    """Glossary entries whose source term (or a recorded alias, Step 30)
+    """Glossary entries whose source term (or a recorded alias)
     literally appears in zh -- the same "in play for this line" heuristic
-    line_tools.explain_translation already used, factored out so Step 58's
+    line_tools.explain_translation already used, factored out so the
     "what happened here?" view can show the same real, non-fabricated
     match set instead of re-deriving it differently."""
     def _term_forms(t):
@@ -408,7 +410,7 @@ def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     """The review-queue prompt for one batch of already-translated lines,
     each numbered by id_fn(ln) (its position by default, matching what
     flag_uncertain_lines' own by_idx lookup expects back). bulk_translate.py's
-    bulk submission (Step 9d) passes id_fn=lambda ln: ln.id instead --
+    bulk submission passes id_fn=lambda ln: ln.id instead --
     results can come back hours later, by which point a position-based id
     could point at an entirely different line if the drama was edited in
     the meantime, where the permanent line id can't."""
@@ -439,7 +441,7 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
     Only meaningful with an LLM-capable engine; pure-MT engines (NLLB)
     can't reason about their own confidence and are left
     untouched -- every line's .flag stays whatever it already was.
-    cancel_check (B-05): called before each batch; it may raise to stop the
+    cancel_check: called before each batch; it may raise to stop the
     run between batches (a batch already sent still finishes).
     """
     if not getattr(engine, "supports_reference", False):

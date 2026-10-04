@@ -1,5 +1,5 @@
 """
-voice_id.py -- Step 8's recurring-voice suggestions: "SPEAKER_01 sounds
+voice_id.py -- recurring-voice suggestions: "SPEAKER_01 sounds
 like <name> (similarity 0.82)", ranked by cosine similarity between a
 drama's own diarization voice embeddings (diarize.extract_speaker_embeddings)
 and each series character's running-average fingerprint

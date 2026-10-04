@@ -5,7 +5,7 @@ URL routes share.
 
 `check_public_url` runs in the request, before any job or fetch: http(s)
 only, no userinfo, at most 2000 characters, and every resolved address
-public (services.url_guard, B-25). Errors are fixed strings: a pasted URL
+public (services.url_guard). Errors are fixed strings: a pasted URL
 can carry a signed token, so it is never echoed.
 
 `start_preview` wraps sources.front_door.preview in the fixed-id job

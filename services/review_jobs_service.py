@@ -1,5 +1,5 @@
 """
-services/review_jobs_service.py -- Migration Slice 44: the Review stage's
+services/review_jobs_service.py -- the Review stage's
 AI checks as background jobs that do everything themselves (DB write
 included): consistency check, emotion tagging, translation notes, the
 "needs a second look" flag pass, and bulk fix-flagged-lines.

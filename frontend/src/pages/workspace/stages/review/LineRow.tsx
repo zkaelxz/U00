@@ -95,7 +95,7 @@ interface Props {
   ai: PanelMode | null
   // A translation-memory suggestion for this line (R11), if any.
   tm: TmSuggestion | null
-  // Step 99: the stronger engine offered for this hard line, if any.
+  // The stronger engine offered for this hard line, if any.
   stronger?: StrongerOffer | null
   issue: RowIssue | null
   actions: RowActions

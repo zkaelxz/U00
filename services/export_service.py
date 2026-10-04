@@ -68,7 +68,7 @@ _SHADOW_RANGE = (0, 5)
 def get_ass_style_options() -> dict:
     """Everything a UI needs to render ASS style controls without
     hard-coding it: presets, fonts, alignments, numeric ranges, and the
-    default preset name. Migration Slice 27."""
+    default preset name."""
     return {
         "presets": {name: dict(p) for name, p in subtitle_formats.ASS_PRESETS.items()},
         "default_preset": "Clean",
@@ -136,7 +136,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
                       notes_as_separate_line: bool = False,
                       wrap_chars_en: Optional[int] = None,
                       wrap_chars_source: Optional[int] = None) -> str:
-    """Generates ASS subtitle text for one drama (Migration Slice 27) --
+    """Generates ASS subtitle text for one drama --
     pure and read-only, returns text only.
 
     Lines come from the database (saved state), so edits the client has
@@ -259,7 +259,7 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
     include_notes folds in this drama's saved translation notes
     (db.list_translation_notes), appended inline -- ASS's separate-note-line
     option is not modeled here (use
-    generate_ass_text for ASS, Slice 27).
+    generate_ass_text for ASS).
     wrap_chars_en/wrap_chars_source optionally cap characters per line
     (subtitle_formats.wrap_lines); None on either side leaves that
     language unwrapped.

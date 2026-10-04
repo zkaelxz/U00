@@ -4,7 +4,7 @@ import { getImportState } from '../../api/sourcesImport'
 import type { ImportState } from '../../types/sourcesImport'
 
 /**
- * Step 107: the chosen drama's import state for one series (GET
+ * The chosen drama's import state for one series (GET
  * /api/sources/{name}/import-state): chapters already imported, and the
  * ones earlier runs left failed or not attempted. Loads when a drama is
  * chosen and again each time an import stops running (`running` goes

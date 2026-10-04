@@ -1,5 +1,5 @@
 /*
- * Export > Send to Jellyfin (roadmap Step 39). Shown only while the Jellyfin
+ * Export > Send to Jellyfin. Shown only while the Jellyfin
  * connector is on (Settings), and only at the PC. Puts this drama's
  * subtitles next to a matching Jellyfin item's video, or into a new title
  * folder in the library (optionally with the video), then asks Jellyfin to

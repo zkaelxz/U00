@@ -1,5 +1,5 @@
 """
-debug_view.py -- Step 58's "What happened here?" per-line and per-job
+debug_view.py -- the "What happened here?" per-line and per-job
 debugging view.
 
 This is a PRESENTATION layer over data the app already records (line

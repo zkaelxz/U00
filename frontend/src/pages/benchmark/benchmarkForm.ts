@@ -331,7 +331,7 @@ export function compareProblem(selected: number[], runs: BenchmarkRun[], max = 4
   return null
 }
 
-// ---- "Compare in Benchmark Lab" links (Model health on Diagnostics, Step 40) ----
+// ---- "Compare in Benchmark Lab" links (Model health on Diagnostics) ----
 
 /**
  * The raw `compare` query value: "engine:model,engine:model". Each engine and

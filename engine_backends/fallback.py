@@ -12,7 +12,7 @@ from .shared import (
 
 
 # ---------------------------------------------------------------------------
-# Step 97b: translate fallback chain
+# Translate fallback chain
 # ---------------------------------------------------------------------------
 
 # Matched against exception CLASS NAMES (whole MRO) so this module needn't
@@ -25,8 +25,8 @@ _FALLBACK_NAME_HINTS = ("timeout", "connectionerror", "apiconnection", "authenti
 def is_fallback_error(e: Exception) -> bool:
     """True only for a real transient/credential failure worth trying the
     next engine for: auth failure (401/403), rate limit, timeout, or
-    connection error. Never a content-moderation refusal (Step 31 handles
-    that itself) and never a bare/unknown exception, which could be a real
+    connection error. Never a content-moderation refusal (handled
+    separately) and never a bare/unknown exception, which could be a real
     bug rather than a real provider problem."""
     if isinstance(e, ContentModerationBlocked):
         return False
@@ -40,7 +40,7 @@ def is_fallback_error(e: Exception) -> bool:
                for cls in type(e).__mro__ for hint in _FALLBACK_NAME_HINTS)
 
 
-# Bug B-06 (Step 124): transient errors (rate limit, timeout, connection)
+# Transient errors (rate limit, timeout, connection)
 # retry the SAME engine with a short capped backoff before the chain moves
 # on; auth errors still switch immediately (waiting cannot fix a bad key).
 FALLBACK_TRANSIENT_RETRIES = 2

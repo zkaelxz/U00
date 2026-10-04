@@ -1,6 +1,5 @@
 """
-api/routers/artifact_routes.py -- download a job's output file (Migration
-Slice 28). Addressed by drama + whitelisted kind; the newest file in that
+api/routers/artifact_routes.py -- download a job's output file. Addressed by drama + whitelisted kind; the newest file in that
 kind's folder is streamed. No client path is ever accepted.
 """
 
