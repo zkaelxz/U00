@@ -374,6 +374,31 @@ def _gpu_queue_waiting_locked():
     return any(_jobs.get(e["job_id"], {}).get("status") == "queued" for e in _gpu_queue)
 
 
+def _take_queued_locked(job_id=None) -> list:
+    """Caller holds _lock. Removes job_id's entries (every entry for None)
+    from _gpu_queue and returns their (job_id, on_finish) hooks, for the
+    caller to run with _run_finish_hooks once it has released _lock. An
+    entry leaves the queue once, so its hook is handed out once."""
+    hooks, kept = [], []
+    for entry in _gpu_queue:
+        if job_id is None or entry["job_id"] == job_id:
+            if entry.get("on_finish") is not None:
+                hooks.append((entry["job_id"], entry["on_finish"]))
+        else:
+            kept.append(entry)
+    _gpu_queue[:] = kept
+    return hooks
+
+
+def _run_finish_hooks(hooks):
+    """Runs (job_id, on_finish) pairs; a failing hook is logged, never raised."""
+    for job_id, hook in hooks:
+        try:
+            hook(job_id)
+        except Exception as exc:
+            _warn(f"job {job_id}: its finish hook failed", exc)
+
+
 # A queued job's message never names the job holding the GPU (auth B2,
 # review M-1): anyone who can see the waiting job reads its message, and
 # the busy job may be another user's private drama. Also what job_records
@@ -685,6 +710,7 @@ def _start_job_thread(target, name, *args, worker_for=None, **kwargs):
                 _job_threads.discard(thread)
 
     thread = threading.Thread(target=run, daemon=True, name=name)
+    thread.baihe_job_id = worker_for
     # Started under the lock so wait_for_job_threads never sees (and tries
     # to join) a thread that is registered but not yet started.
     with _lock:
@@ -728,15 +754,16 @@ def reconcile_dead_workers() -> list:
     return [job_id for job_id, _ in lost]
 
 
-def wait_for_job_threads(timeout: float) -> bool:
+def wait_for_job_threads(timeout: float, job_ids=None) -> bool:
     """Joins every job thread that has not exited, including one whose job
     already reads as finished or was cleared. True once none is left,
     False if some thread outlived `timeout` seconds. Call it with no job
     running or queued (under acquire_exclusive), before replacing the
-    database, or it waits on real work."""
+    database, or it waits on real work. job_ids: only those jobs' threads."""
     deadline = time.monotonic() + timeout
     with _lock:
-        threads = [t for t in _job_threads if t is not threading.current_thread()]
+        threads = [t for t in _job_threads if t is not threading.current_thread()
+                   and (job_ids is None or getattr(t, "baihe_job_id", None) in job_ids)]
     for t in threads:
         t.join(max(0.0, deadline - time.monotonic()))
     return not any(t.is_alive() for t in threads)
@@ -759,6 +786,17 @@ def _promote_next_queued_gpu_job():
     for this same soft, best-effort guard, not a correctness gap (the GPU
     is never actually shared, it just may sit idle a bit before the queued
     job notices)."""
+    dropped = []
+    try:
+        _promote_one_queued_gpu_job(dropped)
+    finally:
+        _run_finish_hooks(dropped)
+
+
+def _promote_one_queued_gpu_job(dropped):
+    """_promote_next_queued_gpu_job's body. Appends the finish hooks of the
+    entries it drops, and of a promoted process job that fails to start, to
+    `dropped`, which the caller runs once _lock is released."""
     while True:
         with _lock:
             if not _gpu_queue or _running_gpu_job_count_locked(None) >= get_gpu_max_parallel():
@@ -767,6 +805,8 @@ def _promote_next_queued_gpu_job():
             job_id = entry["job_id"]
             if job_id not in _jobs or _jobs[job_id]["status"] != "queued":
                 _gpu_queue.pop(0)
+                if entry.get("on_finish") is not None:
+                    dropped.append((job_id, entry["on_finish"]))
                 continue
             if not _gpu_slot_available_locked(job_id, entry["description"]):
                 return
@@ -802,6 +842,8 @@ def _promote_next_queued_gpu_job():
         # Runs in another job's finishing thread: record it, don't raise.
         if entry.get("kind") == "process":
             _fail_start(job_id, True, exc, proc, result_queue, run=run)
+            if on_finish is not None:
+                dropped.append((job_id, on_finish))
         else:
             _fail_start(job_id, True, exc, run=run)
 
@@ -994,10 +1036,20 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     (the job ends "cancelled" and nothing is applied). A non-None return
     value becomes the job's result instead of the subprocess's.
 
-    on_finish, if given, is called as on_finish(job_id) in the watcher
-    thread once the subprocess has ended, whatever the outcome (done,
-    error, cancelled, cleared): for removing the run's temp files, which a
-    killed subprocess cannot do itself. Its errors are logged, not raised.
+    on_finish, if given, is called as on_finish(job_id) exactly once for a
+    call that returned True, whatever the outcome: for removing the run's
+    temp files, which a killed subprocess cannot do itself. For a job that
+    ran, the watcher thread calls it last, after the subprocess ended and
+    the GPU slot was released (done, error, cancelled, cleared). For a job
+    still waiting in the GPU queue, whichever call ends it calls it before
+    returning: request_cancel/cancel_queued, clear_job/clear_all_jobs, or
+    the promotion whose start of it failed. Never called when this
+    function returns False or raises: the caller still owns its cleanup
+    then. Never under the job lock; its errors are logged, not raised. A
+    clean stop (shutdown_service.wait_for_jobs) waits for the watcher's
+    call within its grace time; a process killed hard skips it (the
+    startup sweep, storage.sweep_stale_temp, removes a library temp folder
+    left behind once it is a day old).
 
     kill_whole_tree=True: a cancel kills the subprocess and everything it
     started (kill_tree) at once, instead of terminate-then-kill on the
@@ -1335,10 +1387,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         _promote_next_queued_gpu_job()
         # Last: removing a large temp folder must not hold the GPU slot.
         if on_finish is not None:
-            try:
-                on_finish(job_id)
-            except Exception as exc:
-                _warn(f"job {job_id}: its finish hook failed", exc)
+            _run_finish_hooks([(job_id, on_finish)])
 
 
 # A running job whose stage reports progress, but has not reported any for
@@ -1599,9 +1648,11 @@ def request_cancel(job_id: str):
     thread in the first place (no cooperative checkpoint to hook into).
 
     A job still waiting in the GPU queue has nothing to stop: it ends
-    "cancelled" at once and never starts. A running job's message becomes
+    "cancelled" at once and never starts (a process job's on_finish runs
+    before this returns). A running job's message becomes
     CANCELLING_MESSAGE (mirrored) until it stops, so a worker blocked in a
     call with no cancel point (a model load) shows the cancel was heard."""
+    hooks = []
     with _lock:
         job = _jobs.get(job_id)
         if job is None:
@@ -1610,12 +1661,13 @@ def request_cancel(job_id: str):
         if job.get("status") == "queued":
             job["status"] = "cancelled"
             job["finished_at"] = time.time()
-            _gpu_queue[:] = [e for e in _gpu_queue if e["job_id"] != job_id]
+            hooks = _take_queued_locked(job_id)
             _mirror_locked(job_id)
             _refresh_queue_messages_locked()
         elif job.get("status") == "running" and job.get("message") != CANCELLING_MESSAGE:
             job["message"] = CANCELLING_MESSAGE
             _mirror_locked(job_id)
+    _run_finish_hooks(hooks)
 
 
 _DB_CANCEL_CHECK_INTERVAL = 2.0
@@ -1744,10 +1796,13 @@ def cancel_queued(job_id: str) -> bool:
     request_cancel(), since the job is now genuinely running."""
     with _lock:
         job = _jobs.get(job_id)
-        if job is None or job["status"] == "queued":
-            clear_job(job_id)
-            return True
-        return False
+        if not (job is None or job["status"] == "queued"):
+            return False
+        hooks = _clear_job_locked(job_id)
+        _delete_job_record(job_id)
+    _emit_change(job_id)
+    _run_finish_hooks(hooks)
+    return True
 
 
 def clear_job(job_id: str):
@@ -1760,12 +1815,26 @@ def clear_job(job_id: str):
     its record disappearing, so clearing it actually terminates the
     subprocess rather than leaving it running invisibly. Also drops it
     from the GPU queue if it was still queued, so a cleared job can't be
-    promoted and started later out of nowhere."""
+    promoted and started later out of nowhere (a queued process job's
+    on_finish runs before this returns)."""
     with _lock:
-        _jobs.pop(job_id, None)
-        _workers.pop(job_id, None)
-        _gpu_queue[:] = [e for e in _gpu_queue if e["job_id"] != job_id]
-        _refresh_queue_messages_locked()
+        hooks = _clear_job_locked(job_id)
+    _delete_job_record(job_id)
+    _emit_change(job_id)
+    _run_finish_hooks(hooks)
+
+
+def _clear_job_locked(job_id) -> list:
+    """Caller holds _lock: clear_job's in-memory part. Returns the finish
+    hooks of the queue entries it dropped (see _take_queued_locked)."""
+    _jobs.pop(job_id, None)
+    _workers.pop(job_id, None)
+    hooks = _take_queued_locked(job_id)
+    _refresh_queue_messages_locked()
+    return hooks
+
+
+def _delete_job_record(job_id):
     try:
         import db
         db.delete_job_record(job_id)
@@ -1773,7 +1842,6 @@ def clear_job(job_id: str):
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to delete its job_records row",
                                     exc_info=True)
-    _emit_change(job_id)
 
 
 def clear_all_jobs():
@@ -1783,7 +1851,7 @@ def clear_all_jobs():
     with _lock:
         _jobs.clear()
         _workers.clear()
-        _gpu_queue.clear()
+        hooks = _take_queued_locked()
     try:
         import db
         db.clear_all_job_records()
@@ -1791,6 +1859,7 @@ def clear_all_jobs():
         import applog
         applog.get_logger().warning("failed to clear job_records", exc_info=True)
     _emit_change(None)
+    _run_finish_hooks(hooks)
 
 
 def list_running_jobs():

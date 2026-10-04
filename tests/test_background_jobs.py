@@ -1427,6 +1427,102 @@ class TestProcessJobOnDone:
                   "test_start_method_gpu_thread", job_id):
             bg.clear_job(j)
 
+    def _queue_behind_a_gpu_thread_job(self, job_id, on_finish):
+        """Starts a GPU thread job that holds the slot until the returned
+        event is set, then queues process job `job_id` behind it."""
+        release, started = threading.Event(), threading.Event()
+        bg.clear_job("test_finish_holder")
+        bg.start_job("test_finish_holder", lambda: (started.set(), release.wait(timeout=5.0)),
+                     gpu_touching=True)
+        started.wait(timeout=2.0)
+        bg.clear_job(job_id)
+        assert bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(),
+                                    gpu_touching=True, on_finish=on_finish) is True
+        assert bg.get_status(job_id)["status"] == "queued"
+        return release
+
+    def _end_holder(self, release):
+        release.set()
+        _wait("test_finish_holder")
+        bg.clear_job("test_finish_holder")
+
+    @pytest.mark.parametrize("end", ["request_cancel", "cancel_queued", "clear_job",
+                                     "clear_all_jobs"])
+    def test_finish_hook_runs_once_when_a_queued_job_ends(self, monkeypatch, end):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        finished = []
+        job_id = "test_finish_queued"
+        release = self._queue_behind_a_gpu_thread_job(job_id, finished.append)
+
+        getattr(bg, end)(*(() if end == "clear_all_jobs" else (job_id,)))
+
+        assert finished == [job_id]
+        self._end_holder(release)
+        time.sleep(0.1)
+        assert finished == [job_id]
+        assert (bg.get_status(job_id) or {}).get("status") in (None, "cancelled")
+        bg.clear_job(job_id)
+
+    def test_finish_hook_runs_once_when_a_promoted_job_fails_to_start(self, monkeypatch):
+        instances = _install_fake_process(monkeypatch, run_target_on_start=True)
+        finished = []
+        job_id = "test_finish_promote_fails"
+        release = self._queue_behind_a_gpu_thread_job(job_id, finished.append)
+
+        def refuse_to_start():
+            raise OSError("cannot start a process")
+        monkeypatch.setattr(_FakeProcess, "start", lambda self: refuse_to_start())
+        self._end_holder(release)
+
+        assert _wait_for(lambda: finished == [job_id])
+        status = bg.get_status(job_id)
+        assert status["status"] == "error" and "cannot start a process" in status["error"]
+        assert len(instances) == 1
+        time.sleep(0.1)
+        assert finished == [job_id]
+        bg.clear_job(job_id)
+
+    def test_a_raising_finish_hook_never_breaks_the_cancel(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+
+        def broken(job_id):
+            raise RuntimeError("cleanup failed")
+        job_id = "test_finish_raises"
+        release = self._queue_behind_a_gpu_thread_job(job_id, broken)
+        bg.request_cancel(job_id)
+        assert bg.get_status(job_id)["status"] == "cancelled"
+        self._end_holder(release)
+        bg.clear_job(job_id)
+
+    def test_clearing_a_running_job_runs_its_finish_hook_once(self, monkeypatch):
+        _install_fake_process(monkeypatch, alive_forever=True)
+        finished = []
+        job_id = "test_finish_cleared_running"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=(), on_finish=finished.append)
+        assert _wait_for(lambda: bg.is_running(job_id))
+        bg.clear_job(job_id)
+        assert _wait_for(lambda: finished == [job_id])
+        time.sleep(0.1)
+        assert finished == [job_id]
+
+    def test_a_clean_stop_waits_for_the_watchers_finish_hook(self, monkeypatch):
+        from services import shutdown_service
+        _install_fake_process(monkeypatch, alive_forever=True)
+        finished = []
+
+        def slow_cleanup(job_id):
+            time.sleep(0.5)
+            finished.append(job_id)
+        job_id = "test_finish_clean_stop"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=(), on_finish=slow_cleanup)
+        assert _wait_for(lambda: bg.is_running(job_id))
+        bg.request_cancel(job_id)
+        assert shutdown_service.wait_for_jobs([job_id], timeout=5) is True
+        assert finished == [job_id]
+        bg.clear_job(job_id)
+
     def test_a_reported_stage_shows_as_a_no_progress_stage(self, monkeypatch):
         """report_stage: the parent runs a stage_ticker (no-progress note,
         longer stall allowance) until the worker's next progress."""
