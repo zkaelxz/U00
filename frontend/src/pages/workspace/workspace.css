@@ -51,8 +51,12 @@
 .stage-tabs a[data-state='current'] .stage-mark { color: var(--accent-text); }
 .stage-tabs .stage-count { color: var(--muted); font-weight: normal; font-size: var(--text-sm); }
 /* Reserved room for "· 32 left" / "· 12 flagged" and for the state mark, so tabs keep their size while progress loads. */
-.stage-tabs .stage-count-slot { display: inline-block; min-width: 10ch; }
+.stage-tabs .stage-count { display: inline-block; min-width: 12ch; }
 .stage-tabs .stage-mark-slot { visibility: hidden; font-size: var(--text-xs); }
+.stage-tabs .stage-mark, .stage-tabs .stage-mark-slot { display: inline-block; min-width: 1rem; text-align: center; }
+/* The label is laid out at its bold width, so the open or "next" tab turning bold doesn't resize the tabs. */
+.stage-tabs .stage-label { display: inline-flex; flex-direction: column; align-items: center; }
+.stage-tabs .stage-label::after { content: attr(data-label); font-weight: var(--weight-bold); height: 0; overflow: hidden; visibility: hidden; }
 .ws-skeleton { min-height: 16rem; }
 
 @media (pointer: coarse) {
