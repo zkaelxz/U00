@@ -35,17 +35,17 @@ button.jobs-menu-btn[aria-expanded='true'] { color: var(--text); }
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-2);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-pop);
 }
 .jobs-panel.align-start { right: auto; left: 0; }
 .jobs-panel-title { margin: 0; font-weight: var(--weight-bold); }
 .jobs-empty, .jobs-note, .jobs-foot { margin: 0; }
-.jobs-note { color: var(--muted); font-size: var(--text-xs); }
+.jobs-note { color: var(--muted); font-size: var(--text-sm); }
 .jobs-list { display: grid; margin: 0; padding: 0; list-style: none; }
 .jobs-item { display: grid; gap: var(--space-1); padding: var(--space-2); border-top: 1px solid var(--border); min-width: 0; }
 .jobs-item:first-child { border-top: 0; }
 .jobs-item-name { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
-.jobs-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--text-xs); }
+.jobs-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--text-sm); }
 .jobs-item-meta .jobs-cancel { margin-left: auto; }
 .jobs-foot a { display: inline-flex; align-items: center; }
 
