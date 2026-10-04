@@ -1277,3 +1277,17 @@ class TestSplitPiecesGetOwnSpeaker:
         diarization_service.reassign_speakers_from_saved_turns(did)
         rows = isolated_db.load_lines(did)
         assert [r["speaker"] for r in rows] == ["S1", "S2", "X"]
+
+    def test_reassign_refuses_while_a_job_runs(self, isolated_db, monkeypatch):
+        import diarize
+        from services import diarization_service
+        from services.service_errors import ConflictError
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        isolated_db.save_lines(did, [
+            transcribe_service.Line(idx=0, start=0.0, end=5.0, zh="a", speaker="X")])
+        diarize.save_turns(ddir, [{"start": 0.0, "end": 6.0, "speaker": "S1"}])
+        monkeypatch.setattr(transcribe_service.background_jobs, "any_job_running_for_drama",
+                            lambda drama_id: True)
+        with pytest.raises(ConflictError):
+            diarization_service.reassign_speakers_from_saved_turns(did)
+        assert isolated_db.load_lines(did)[0]["speaker"] == "X"
