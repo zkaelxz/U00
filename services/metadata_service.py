@@ -156,7 +156,7 @@ def check_public_url(url: str) -> str:
         raise InvalidInputError(_BAD_URL) from None
 
 
-def pinned_get(url: str, ip: str, headers: dict):
+def pinned_get(url: str, ip: str, headers: dict, timeout: float = FETCH_TIMEOUT):
     """GET url connecting to the validated ip, not a fresh DNS lookup."""
     import requests
     from requests.adapters import HTTPAdapter
@@ -182,7 +182,7 @@ def pinned_get(url: str, ip: str, headers: dict):
     session = requests.Session()
     session.trust_env = False  # a proxy would re-resolve the hostname itself
     session.mount(f"{parts.scheme}://", _PinnedAdapter())
-    return session.get(url, headers=headers, timeout=FETCH_TIMEOUT,
+    return session.get(url, headers=headers, timeout=timeout,
                        allow_redirects=False, stream=True)
 
 

@@ -8,6 +8,8 @@ string, with none of the actual listings.
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pytest
+
 import page_fetch as pf
 
 SPA_SHELL_HTML = ('<html><head>' + ('<script src="x.js"></script>' * 12) +
@@ -111,46 +113,194 @@ class TestApiCaptureEntryLogic:
         assert entry["body"] == body
 
 
+PUBLIC_IP = "93.184.216.34"
+
+
+def _dns(monkeypatch, mapping=None):
+    import socket
+
+    def fake(host, port, **kw):
+        return [(2, 1, 6, "", ((mapping or {}).get(host, PUBLIC_IP), port))]
+    monkeypatch.setattr(socket, "getaddrinfo", fake)
+
+
+def _pinned(monkeypatch, responses, calls=None):
+    from services import metadata_service
+    it = iter(responses)
+
+    def fake(url, ip, headers, timeout=None):
+        assert timeout is not None
+        if calls is not None:
+            calls.append((url, ip))
+        return next(it)
+    monkeypatch.setattr(metadata_service, "pinned_get", fake)
+
+
+class _Page:
+    def __init__(self, body=b"", status=200, headers=None, encoding="utf-8"):
+        self.status_code = status
+        self.headers = headers or {}
+        self.encoding = encoding
+        self.body = body
+        self.closed = False
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def iter_content(self, size):
+        yield self.body
+
+    def close(self):
+        self.closed = True
+
+
+def _redirect(location, status=302):
+    return _Page(status=status, headers={"Location": location})
+
+
 class TestFetchStaticCap:
-    def _get(self, monkeypatch, resp):
-        import requests
-        monkeypatch.setattr(requests, "get", lambda *a, **k: resp)
-
     def test_an_oversized_page_is_refused(self, monkeypatch):
-        class Endless:
-            headers = {}
-            encoding = "utf-8"
-            closed = False
-
-            def raise_for_status(self):
-                pass
-
+        class Endless(_Page):
             def iter_content(self, size):
                 while True:
                     yield b"<p>x</p>" * 100
-
-            def close(self):
-                Endless.closed = True
+        page = Endless()
         monkeypatch.setattr(pf, "STATIC_FETCH_MAX_BYTES", 1000)
-        self._get(monkeypatch, Endless())
-        import pytest
+        _dns(monkeypatch)
+        _pinned(monkeypatch, [page])
         with pytest.raises(ValueError, match="too large"):
             pf.fetch_static("https://example.com/")
-        assert Endless.closed
+        assert page.closed
 
     def test_a_page_under_the_cap_is_decoded(self, monkeypatch):
-        class Small:
-            headers = {}
-            encoding = None
-
-            def raise_for_status(self):
-                pass
-
-            def iter_content(self, size):
-                yield "<p>你好</p>".encode()
-
-            def close(self):
-                pass
-        self._get(monkeypatch, Small())
+        _dns(monkeypatch)
+        _pinned(monkeypatch, [_Page("<p>你好</p>".encode(), encoding=None)])
         html, text = pf.fetch_static("https://example.com/")
         assert text == "你好"
+
+
+class TestFetchStaticRedirectGuard:
+    """Every hop -- the first included -- goes through url_guard and is
+    fetched pinned to the validated IP; nothing non-public is ever
+    connected to."""
+
+    @pytest.mark.parametrize("target, mapping", [
+        ("http://127.0.0.1/admin", {}),
+        ("http://localhost:8600/api/settings", {"localhost": "127.0.0.1"}),
+        ("http://[::1]/", {"::1": "::1"}),
+        ("http://169.254.169.254/latest/meta-data/", {"169.254.169.254": "169.254.169.254"}),
+        ("http://metadata.google.internal/", {"metadata.google.internal": "169.254.169.254"}),
+        ("http://intranet.example/", {"intranet.example": "10.0.0.5"}),
+        ("http://router.example/", {"router.example": "192.168.1.1"}),
+        ("file:///etc/passwd", {}),
+        ("ftp://files.example/x", {}),
+        ("http://user:pass@public.example/", {}),
+    ])
+    def test_redirect_to_a_non_public_target_is_refused(self, monkeypatch, target, mapping):
+        from services import url_guard
+        mapping = {"127.0.0.1": "127.0.0.1", **mapping}
+        _dns(monkeypatch, mapping)
+        calls = []
+        first = _redirect(target)
+        _pinned(monkeypatch, [first], calls)
+        with pytest.raises(url_guard.UnsafeURLError):
+            pf.fetch_static("https://public.example/start")
+        assert calls == [("https://public.example/start", PUBLIC_IP)]
+        assert first.closed
+
+    def test_a_private_first_url_is_refused_without_connecting(self, monkeypatch):
+        from services import url_guard
+        _dns(monkeypatch, {"127.0.0.1": "127.0.0.1"})
+        calls = []
+        _pinned(monkeypatch, [], calls)
+        with pytest.raises(url_guard.UnsafeURLError):
+            pf.fetch_static("http://127.0.0.1:8600/")
+        assert calls == []
+
+    def test_dns_rebinding_on_a_later_hop_is_refused(self, monkeypatch):
+        """The redirect target is re-resolved and re-checked, not trusted
+        because an earlier hop was public."""
+        from services import url_guard
+        _dns(monkeypatch, {"rebind.example": "127.0.0.1"})
+        _pinned(monkeypatch, [_redirect("http://rebind.example/")])
+        with pytest.raises(url_guard.UnsafeURLError):
+            pf.fetch_static("https://public.example/")
+
+    def test_a_safe_redirect_is_followed_and_pinned(self, monkeypatch):
+        _dns(monkeypatch, {"cdn.example": "93.184.216.35"})
+        calls = []
+        first = _redirect("https://cdn.example/page", status=301)
+        _pinned(monkeypatch, [first, _redirect("/final", status=307),
+                              _Page(b"<p>arrived</p>")], calls)
+        _html, text = pf.fetch_static("https://public.example/start")
+        assert text == "arrived"
+        assert calls == [("https://public.example/start", PUBLIC_IP),
+                         ("https://cdn.example/page", "93.184.216.35"),
+                         ("https://cdn.example/final", "93.184.216.35")]
+        assert first.closed
+
+    def test_too_many_redirects_are_refused(self, monkeypatch):
+        from services import url_guard
+        _dns(monkeypatch)
+        calls = []
+        hops = [_redirect(f"https://public.example/{i}")
+                for i in range(pf.STATIC_FETCH_MAX_REDIRECTS + 1)]
+        _pinned(monkeypatch, hops, calls)
+        with pytest.raises(url_guard.UnsafeURLError):
+            pf.fetch_static("https://public.example/start")
+        assert len(calls) == pf.STATIC_FETCH_MAX_REDIRECTS + 1
+        assert all(h.closed for h in hops)
+
+
+class TestSmartFetchRedaction:
+    def test_failure_text_never_echoes_the_fetched_url_or_its_query(self, monkeypatch):
+        def boom(url, timeout=20):
+            raise RuntimeError("404 Client Error: Not Found for url: "
+                               "https://93.184.216.34/list?sig=abc123secret")
+        monkeypatch.setattr(pf, "fetch_static", boom)
+        r = pf.smart_fetch("https://public.example/", allow_render=False)
+        assert "abc123secret" not in r["message"]
+        assert "93.184.216.34" not in r["message"]
+
+    def test_http_status_and_guard_reasons_are_kept(self, monkeypatch):
+        class Resp:
+            status_code = 403
+
+        class HTTPErr(Exception):
+            response = Resp()
+
+        from services import url_guard
+
+        def refused(url, timeout=20):
+            raise url_guard.UnsafeURLError("That address isn't allowed.")
+        monkeypatch.setattr(pf, "fetch_static", refused)
+        assert "isn't allowed" in pf.smart_fetch("https://x.example/", allow_render=False)["message"]
+
+        def forbidden(url, timeout=20):
+            raise HTTPErr("403 for url: https://1.2.3.4/?t=zzz")
+        monkeypatch.setattr(pf, "fetch_static", forbidden)
+        msg = pf.smart_fetch("https://x.example/", allow_render=False)["message"]
+        assert "HTTP 403" in msg and "zzz" not in msg
+
+    def test_exception_text_with_credentials_is_redacted(self, monkeypatch):
+        def boom(url, timeout=20):
+            raise RuntimeError("connect failed: https://alice:hunter2@proxy.example/x "
+                               "Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz123456")
+        monkeypatch.setattr(pf, "fetch_static", boom)
+        r = pf.smart_fetch("https://public.example/", allow_render=False)
+        assert r["method"] == "failed"
+        assert "hunter2" not in r["message"]
+        assert "alice" not in r["message"]
+        assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in r["message"]
+
+    def test_render_failure_text_is_redacted(self, monkeypatch):
+        monkeypatch.setattr(pf, "fetch_static", lambda url, timeout=20: (SPA_SHELL_HTML,
+                                                                         SPA_SHELL_TEXT))
+
+        def boom(url, timeout=30):
+            raise RuntimeError("navigation to https://bob:s3cret@site.example/ failed")
+        monkeypatch.setattr(pf, "fetch_rendered", boom)
+        r = pf.smart_fetch("https://public.example/", allow_render=True)
+        assert r["needs_manual"] is True
+        assert "s3cret" not in r["message"]
