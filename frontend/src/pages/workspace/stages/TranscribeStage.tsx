@@ -477,6 +477,11 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
         </Field>
       )}
+      <div className="setting-list">
+        <Field label="Detect speakers after transcribing">
+          <Toggle checked={runDiarize} onChange={setRunDiarize} />
+        </Field>
+      </div>
       <div className="actions">
         <button
           type="button"
@@ -531,7 +536,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       <Section
         storageKey="source.transcribe"
         title="More options"
-        summary={`${cf?.whisper_size ?? 'model'}${runDiarize ? ' · detect speakers' : ''} · speakers and tuning`}
+        summary={`${cf?.whisper_size ?? 'model'} · speakers and tuning`}
       >
       <div className="source-grid">
         {cf && (
@@ -545,11 +550,6 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         )}
       </div>
       {turboWarning && <p className="muted" role="note">{turboWarning}</p>}
-      <div className="setting-list">
-        <Field label="Detect speakers after transcribing">
-          <Toggle checked={runDiarize} onChange={setRunDiarize} />
-        </Field>
-      </div>
       <Section storageKey="source.speakers" title="Speakers" summary={speakersSummary(speakers, minSpeakers, maxSpeakers)}>
         <div className="source-grid">
           <Field label="Expected speakers" help="0-20. Blank lets the app decide." error={fieldError('speakers')}>
