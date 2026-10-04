@@ -203,7 +203,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     pyannote's own min_speakers/max_speakers; mutually exclusive with
     num_speakers (validate_speaker_hints). run_info: an optional dict this
     fills with {"device": "cuda"|"cpu"}, the device actually used, plus
-    "fell_back_to_cpu" (bool) and, when True, "fallback_reason" (short,
+    "fell_back_to_cpu": True and "fallback_reason" (short, only after a fallback;
     secrets redacted). A CUDA out-of-memory during the run is retried once on
     CPU (loudly, via on_progress and the log); the device selection is
     otherwise unchanged. If the CPU retry fails too, RuntimeError.
@@ -218,7 +218,6 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     device = _place_pipeline(pipeline, use_gpu)
     if run_info is not None:
         run_info["device"] = device
-        run_info["fell_back_to_cpu"] = False
     import applog
     applog.get_logger().info(f"diarization: running {model} on {device}")
     import soundfile as sf

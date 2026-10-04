@@ -482,7 +482,7 @@ class TestCudaOomFallback:
                             lambda *a, **k: _FakeDiarizationResult([(0.0, 1.0, "S")]))
         info = {}
         diarize.diarize("/a.wav", "hf_x", use_gpu=True, run_info=info)
-        assert info == {"device": "cuda", "fell_back_to_cpu": False} and state["loads"] == 1
+        assert info == {"device": "cuda"} and state["loads"] == 1
 
 
 class TestOomFallbackFollowUps:
