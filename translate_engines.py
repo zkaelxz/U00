@@ -9,7 +9,8 @@ engines that support instructions vs. engines that are pure MT.
 The code lives in the engine_backends package, grouped by provider and role
 (see engine_backends/__init__.py); this module re-exports every public and
 private name so `import translate_engines` and `from translate_engines import X`
-keep working.
+keep working. A patch must target the module that uses the name (for example
+engine_backends.llm_tasks.call_llm_json), not this re-export.
 """
 
 import re  # noqa: F401  (kept as module attributes: callers and tests reach translate_engines.time etc.)
@@ -17,25 +18,9 @@ import json  # noqa: F401
 import time  # noqa: F401
 import contextvars  # noqa: F401
 import inspect  # noqa: F401
-import sys
-import types
 
 from core import LANGUAGE_NAMES  # noqa: F401
 
-from engine_backends import (
-    pricing,
-    shared,
-    prompts,
-    claude,
-    openai_compat,
-    gemini,
-    local,
-    llm_tasks,
-    engine_registry,
-    fallback,
-    standalone,
-    translate_pipeline,
-)
 from engine_backends.pricing import (  # noqa: F401
     CACHE_READ_PRICE_FACTOR,
     CACHE_WRITE_PRICE_FACTOR,
@@ -220,41 +205,3 @@ from engine_backends.translate_pipeline import (  # noqa: F401
     reflect_translate_batch,
     translate_lines_with_engine,
 )
-
-_BACKENDS = (
-    pricing,
-    shared,
-    prompts,
-    claude,
-    openai_compat,
-    gemini,
-    local,
-    llm_tasks,
-    engine_registry,
-    fallback,
-    standalone,
-    translate_pipeline,
-)
-
-
-class _ForwardingModule(types.ModuleType):
-    """Setting or deleting an attribute here also does so in each backend module
-    that holds that name. Callers and tests patch translate_engines.X (an engine
-    function, a sleep hook, a cache dict) expecting every use of X inside the
-    engine code to see it, as when this was one file; a plain re-export would
-    leave the backend modules' own references pointing at the original."""
-
-    def __setattr__(self, name, value):
-        super().__setattr__(name, value)
-        for mod in _BACKENDS:
-            if name in vars(mod):
-                setattr(mod, name, value)
-
-    def __delattr__(self, name):
-        super().__delattr__(name)
-        for mod in _BACKENDS:
-            if name in vars(mod):
-                delattr(mod, name)
-
-
-sys.modules[__name__].__class__ = _ForwardingModule

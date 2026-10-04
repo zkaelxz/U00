@@ -79,7 +79,7 @@ class TestBackoffCancelAndDeadlines:
 
     def test_exhausted_fallback_chain_is_not_backed_off_again(self, monkeypatch):
         slept = self._sleeps(monkeypatch)
-        monkeypatch.setattr(te, "_fallback_sleep", lambda s: None)
+        monkeypatch.setattr("engine_backends.fallback._fallback_sleep", lambda s: None)
         calls = {"n": 0}
 
         class Always429:
@@ -2508,7 +2508,7 @@ class TestReflectModeInTranslateLinesWithEngine:
 
     def test_reflect_false_never_touches_reflect_translate_batch(self, monkeypatch):
         called = []
-        monkeypatch.setattr(te, "reflect_translate_batch", lambda *a, **k: called.append(1))
+        monkeypatch.setattr("engine_backends.translate_pipeline.reflect_translate_batch", lambda *a, **k: called.append(1))
 
         class PlainEngine:
             supports_reference = True
@@ -2961,7 +2961,7 @@ def test_failed_flag_batches_are_logged_not_silently_clean(monkeypatch):
 
     def boom(*a, **k):
         raise RuntimeError("down")
-    monkeypatch.setattr(te, "call_llm_json", boom)
+    monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json", boom)
     lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(4)]
     te.flag_uncertain_lines(lines, FakeFlaggingEngine(), batch_size=2)
     assert seen == ["flag check failed for 2 of 2 batches; their lines were not checked"]

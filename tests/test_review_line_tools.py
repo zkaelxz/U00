@@ -247,7 +247,7 @@ class TestShorten:
                 usage_cb(10, 5)
             # reordered on purpose: matched by id, never by position
             return json.dumps({"2": "Short two.", "1": "Short one."})
-        monkeypatch.setattr(translate_engines, "call_llm_json", fake_llm)
+        monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json", fake_llm)
         r = client.post(_shorten(did), json={"confirm": True, "engine": "ollama"})
         assert r.status_code == 200, r.text
         body = r.json()
