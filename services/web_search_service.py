@@ -38,12 +38,11 @@ import json
 import logging
 import socket
 import threading
-import time
 from typing import Optional
 from urllib.parse import urlsplit
 
 import db
-from services import settings_service
+from services import capped_body, settings_service
 from services.auth_service import SlidingWindowRateLimiter
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
@@ -141,14 +140,9 @@ def _check_target(url: str):
 
 
 def _read_capped(resp) -> bytes:
-    """The body, at most MAX_RESPONSE_BYTES and READ_DEADLINE seconds in
-    all (the per-read timeout alone restarts on every trickled chunk)."""
-    started, body = time.monotonic(), bytearray()
-    for chunk in resp.iter_content(64 * 1024):
-        body.extend(chunk)
-        if len(body) > MAX_RESPONSE_BYTES or time.monotonic() - started > READ_DEADLINE:
-            raise DependencyUnavailableError(_BAD_REPLY)
-    return bytes(body)
+    """The body, at most MAX_RESPONSE_BYTES and READ_DEADLINE seconds in all."""
+    return capped_body.read_capped(resp, MAX_RESPONSE_BYTES, READ_DEADLINE,
+                                   lambda: DependencyUnavailableError(_BAD_REPLY))
 
 
 def _query_server(base_url: str, query: str) -> dict:
