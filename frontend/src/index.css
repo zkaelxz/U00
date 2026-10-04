@@ -29,6 +29,7 @@
   --speaker-4-bg: hsl(170 55% 90%); --speaker-4-fg: hsl(170 65% 24%);
   --shadow-1: none;
   --shadow-pop: 0 2px 8px color-mix(in srgb, #000 16%, transparent);
+  --content-max: 1200px;
   --radius: 8px;
   --radius-sm: 6px;
   --space-1: 4px;
@@ -191,7 +192,7 @@ html { scrollbar-gutter: stable; font-size: 93.75%; }
 :lang(ko) { font-family: var(--font-ko), var(--font-sans); line-height: var(--leading-cjk); }
 body {
   margin: 0 auto;
-  max-width: 1800px;
+  max-width: var(--content-max);
   padding: var(--space-4);
   background: var(--bg);
   font-size: var(--text-md);
