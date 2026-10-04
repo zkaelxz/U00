@@ -35,7 +35,7 @@ button.notify-bell-btn[aria-expanded='true'] { color: var(--text); }
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-2);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-pop);
 }
 .notify-panel.align-start { right: auto; left: 0; }
 .notify-panel-title { margin: 0; font-weight: var(--weight-bold); }

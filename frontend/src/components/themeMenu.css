@@ -20,7 +20,7 @@ button.theme-menu-btn[aria-expanded='true'] { color: var(--text); }
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-2);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-pop);
 }
 button.theme-menu-item {
   display: grid;

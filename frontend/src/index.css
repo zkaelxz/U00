@@ -1,19 +1,35 @@
-/* Same restrained palette as the Streamlit app (.streamlit/config.toml). */
+/* Indigo ink palette (owner pick). Token names are the app's own; --ink, --line,
+   --accent-ink and --err are aliases of --text, --border, --on-accent and --bad. */
 :root {
-  --accent: #7c5cbf;
-  --accent-text: #6a48b0;
+  --accent: #3d4fa8;
+  --accent-text: var(--accent);
+  --accent-ink: var(--on-accent);
+  --ink: var(--text);
+  --line: var(--border);
+  --err: var(--bad);
   --on-accent: #ffffff;
   --field-bg: #ffffff;
-  --focus: color-mix(in srgb, var(--accent) 55%, transparent);
-  --bg: #fcfcfd;
-  --surface: #f4f4f7;
-  --text: #1f1f23;
-  --muted: #6b6b76;
-  --border: #e2e2e8;
+  --field-edge: var(--border);
+  --focus: color-mix(in srgb, var(--accent) 35%, transparent);
+  --bg: #f4f5f9;
+  --surface: #ffffff;
+  --surface-2: #f8f9fc;
+  --text: #1a1d2b;
+  --muted: #585e76;
+  --border: #dcdfea;
+  --highlight: #e8ebfa;
   --bad: #b3261e;
-  --ok: #1e7b3a;
-  --warn: #8a5a00;
-  --radius: 10px;
+  --ok: #1f7a4d;
+  --warn: #9a5b00;
+  --info: #2563a8;
+  /* Speaker chips: hue 230 from the accent, offsets 0/150/210/300. */
+  --speaker-1-bg: hsl(230 55% 90%); --speaker-1-fg: hsl(230 65% 24%);
+  --speaker-2-bg: hsl(20 55% 90%); --speaker-2-fg: hsl(20 65% 24%);
+  --speaker-3-bg: hsl(80 55% 90%); --speaker-3-fg: hsl(80 65% 24%);
+  --speaker-4-bg: hsl(170 55% 90%); --speaker-4-fg: hsl(170 65% 24%);
+  --shadow-1: none;
+  --shadow-pop: 0 2px 8px color-mix(in srgb, #000 16%, transparent);
+  --radius: 8px;
   --radius-sm: 6px;
   --space-1: 4px;
   --space-2: 8px;
@@ -37,14 +53,11 @@
   --text-2xl: 1.75rem;
   --weight-medium: 500;
   --weight-bold: 600;
-  --surface-2: #ffffff;
-  --info: #1d5fa8;
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --ok-soft: color-mix(in srgb, var(--ok) 14%, transparent);
   --warn-soft: color-mix(in srgb, var(--warn) 16%, transparent);
   --bad-soft: color-mix(in srgb, var(--bad) 14%, transparent);
   --info-soft: color-mix(in srgb, var(--info) 14%, transparent);
-  --shadow-1: 0 1px 2px color-mix(in srgb, #000 8%, transparent), 0 2px 8px color-mix(in srgb, #000 6%, transparent);
   --ease: 150ms cubic-bezier(0.2, 0, 0, 1);
   --font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans CJK SC', sans-serif;
@@ -57,36 +70,48 @@
    sepia (data-theme, src/theme.ts), and always when it chose dark or oled. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"], [data-theme="sepia"]) {
-    --bg: #16161a;
-    --accent-text: #b8a3ea;
-    --field-bg: #17171c;
-    --surface: #202026;
-    --text: #ececf1;
-    --muted: #9d9daa;
-    --border: #33333c;
-    --bad: #f2b8b5;
-    --ok: #8fd6a0;
-    --warn: #f0c36d;
-    --surface-2: #28282f;
-    --info: #9cc3f5;
-    --shadow-1: 0 1px 2px color-mix(in srgb, #000 40%, transparent), 0 4px 14px color-mix(in srgb, #000 25%, transparent);
+    --bg: #12141d;
+    --accent: #9aa7ee;
+    --on-accent: #10142c;
+    --field-bg: #151823;
+    --surface: #1a1d29;
+    --surface-2: #212536;
+    --text: #e7e9f3;
+    --muted: #9aa0b8;
+    --border: #2b3042;
+    --highlight: #232845;
+    --bad: #ef7b73;
+    --ok: #5fc08c;
+    --warn: #e0a24a;
+    --info: #7aa2ec;
+    --speaker-1-bg: hsl(230 45% 24%); --speaker-1-fg: hsl(230 80% 80%);
+    --speaker-2-bg: hsl(20 45% 24%); --speaker-2-fg: hsl(20 80% 80%);
+    --speaker-3-bg: hsl(80 45% 24%); --speaker-3-fg: hsl(80 80% 80%);
+    --speaker-4-bg: hsl(170 45% 24%); --speaker-4-fg: hsl(170 80% 80%);
+    --shadow-pop: 0 4px 14px color-mix(in srgb, #000 40%, transparent);
   }
 }
 
 :root:is([data-theme="dark"], [data-theme="oled"]) {
-  --bg: #16161a;
-  --accent-text: #b8a3ea;
-  --field-bg: #17171c;
-  --surface: #202026;
-  --text: #ececf1;
-  --muted: #9d9daa;
-  --border: #33333c;
-  --bad: #f2b8b5;
-  --ok: #8fd6a0;
-  --warn: #f0c36d;
-  --surface-2: #28282f;
-  --info: #9cc3f5;
-  --shadow-1: 0 1px 2px color-mix(in srgb, #000 40%, transparent), 0 4px 14px color-mix(in srgb, #000 25%, transparent);
+  --bg: #12141d;
+  --accent: #9aa7ee;
+  --on-accent: #10142c;
+  --field-bg: #151823;
+  --surface: #1a1d29;
+  --surface-2: #212536;
+  --text: #e7e9f3;
+  --muted: #9aa0b8;
+  --border: #2b3042;
+  --highlight: #232845;
+  --bad: #ef7b73;
+  --ok: #5fc08c;
+  --warn: #e0a24a;
+  --info: #7aa2ec;
+  --speaker-1-bg: hsl(230 45% 24%); --speaker-1-fg: hsl(230 80% 80%);
+  --speaker-2-bg: hsl(20 45% 24%); --speaker-2-fg: hsl(20 80% 80%);
+  --speaker-3-bg: hsl(80 45% 24%); --speaker-3-fg: hsl(80 80% 80%);
+  --speaker-4-bg: hsl(170 45% 24%); --speaker-4-fg: hsl(170 80% 80%);
+  --shadow-pop: 0 4px 14px color-mix(in srgb, #000 40%, transparent);
   color-scheme: dark;
 }
 
@@ -94,42 +119,38 @@
   color-scheme: light;
 }
 
-/* True black page so OLED pixels are off; surfaces step up from it. Text and
-   status colours are the dark ones, all >= 4.5:1 on every surface here;
-   borders are lifted so cards stay visible without a lighter fill. */
+/* True black page so OLED pixels are off; surfaces step up from it. */
 :root[data-theme="oled"] {
   --bg: #000000;
-  --field-bg: #0a0a0a;
-  --surface: #0a0a0a;
-  --surface-2: #121212;
-  --border: #2e2e36;
-  --muted: #a3a3b0;
-  --shadow-1: none;
+  --surface: #0b0b0b;
+  --surface-2: #141414;
+  --field-bg: #0b0b0b;
+  --text: #ececec;
+  --muted: #a0a0a0;
+  --border: #262626;
+  --highlight: #10161f;
+  --shadow-pop: none;
 }
 
-/* Warm paper. Page colour and ink match the Reader's sepia page (reader.py
-   THEMES); every other token is chosen for WCAG AA on --bg and --surface. */
+/* Warm paper with the light accent and status colours; warn (owner pick) and ok are darker for contrast on the paper. */
 :root[data-theme="sepia"] {
-  --bg: #f4ecd8;
+  --bg: #efe4cb;
   --surface: #ebe0c6;
-  --surface-2: #fbf6e6;
-  --field-bg: #fbf6e6;
-  --text: #3a3226;
-  --muted: #66593f;
-  --border: #c4b48c;
-  --accent: #6f4fb0;
-  --accent-text: #5d3fa0;
-  --bad: #a3231b;
+  --surface-2: #f6eed8;
+  --field-bg: #f6eed8;
+  --field-edge: #8c7d5c;
+  --text: #3b3220;
+  --muted: #5f5238;
+  --border: #cdbf9d;
+  --highlight: #e2d3ae;
+  --warn: #7a4600;
   --ok: #1b6b35;
-  --warn: #7a4d00;
-  --info: #1a548f;
-  --shadow-1: 0 1px 2px color-mix(in srgb, #3a3226 14%, transparent), 0 2px 8px color-mix(in srgb, #3a3226 10%, transparent);
+  --shadow-pop: 0 2px 8px color-mix(in srgb, #3b3220 20%, transparent);
   color-scheme: light;
 }
 /* Field edges are UI components (3:1 against the field), unlike the hairline dividers. */
-:root[data-theme="sepia"] :is(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']), select, textarea):not(:focus) {
-  border-color: #8c7d5c;
-}
+input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']):not(:focus),
+select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -340,7 +361,7 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .field-unit { color: var(--muted); font-size: var(--font-sm); white-space: nowrap; }
 .field-help { position: relative; display: inline-flex; }
 .field-help-btn { width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 999px; font-size: 0.75rem; line-height: 1; font-style: italic; color: var(--muted); }
-.field-help-text { position: absolute; z-index: 5; top: calc(100% + var(--space-1)); left: 0; width: max-content; max-width: min(18rem, 80vw); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: var(--font-sm); font-weight: 400; box-shadow: 0 2px 8px color-mix(in srgb, var(--text) 18%, transparent); }
+.field-help-text { position: absolute; z-index: 5; top: calc(100% + var(--space-1)); left: 0; width: max-content; max-width: min(18rem, 80vw); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: var(--font-sm); font-weight: 400; box-shadow: var(--shadow-pop); }
 .panel:has(.field-help-text:not([hidden])) { overflow: visible; }
 .field-help-text[hidden] { display: none; }
 .field-error { margin: 0; font-size: var(--font-sm); }
@@ -403,7 +424,7 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .bar-actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; flex: 1 1 auto; }
 .bar-group { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
 .bar-group select { width: auto; }
-.selection-bar.phone { grid-column: 1 / -1; bottom: env(safe-area-inset-bottom, 0); box-shadow: 0 -2px 8px color-mix(in srgb, var(--text) 14%, transparent); }
+.selection-bar.phone { grid-column: 1 / -1; bottom: env(safe-area-inset-bottom, 0); box-shadow: var(--shadow-pop); }
 .selection-bar.phone .bar-row { flex-wrap: nowrap; justify-content: space-between; }
 /* The menu body is placed against the bar (sticky is already a positioned box), so it never overflows the screen. */
 .selection-bar.phone .bar-menu { position: static; }
