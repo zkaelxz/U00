@@ -1,5 +1,5 @@
 /*
- * Maintenance assistant (Step 42, read-only v1). PC only, behind Developer
+ * Maintenance assistant (read-only v1). PC only, behind Developer
  * Mode (Settings). Ask questions about the app's code and logs; the
  * assistant reads through a fixed set of read-only tools. It can suggest a
  * fix as a patch (shown, never applied) and backlog notes (added only when

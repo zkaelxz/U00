@@ -1,5 +1,5 @@
-// Automatic backups and single-drama restore (api/routers/backup_routes.py,
-// roadmap Step 43). Every route is PC only, so every call, reads included,
+// Automatic backups and single-drama restore (api/routers/backup_routes.py).
+// Every route is PC only, so every call, reads included,
 // goes through pcOnlyFetch: X-Baihe-Local, CSRF when signed in, and a 403
 // marks the tab remote so the cards switch to "Run this on the main PC."
 import type {

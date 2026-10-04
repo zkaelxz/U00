@@ -1,4 +1,4 @@
-// Structural line changes (/api/restructure/..., Migration Slice 45). Every
+// Structural line changes (/api/restructure/...). Every
 // write is refused (409) while a job runs on the drama or when the drama's
 // line ids differ from `expected_line_ids`.
 import type { ReviewLine, ReviewLinesPage } from '../types/review'

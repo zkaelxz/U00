@@ -1,6 +1,5 @@
 """
-sources/adapters/ranobes.py -- ranobes.net (en-translated web/light novels),
-roadmap Step 91.
+sources/adapters/ranobes.py -- ranobes.net (en-translated web/light novels).
 
 Real technique read directly from the live site while building this adapter
 (no reference scraper existed to read from -- independently investigated):

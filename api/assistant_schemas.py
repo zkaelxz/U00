@@ -1,6 +1,6 @@
 """
 api/assistant_schemas.py -- request/response models for the maintenance
-assistant routes (api/routers/assistant_routes.py, roadmap Step 42). No
+assistant routes (api/routers/assistant_routes.py). No
 model carries a key, a token or an absolute path.
 """
 
@@ -110,7 +110,7 @@ class AssistantToolCall(BaseModel):
 
 
 class AssistantReview(BaseModel):
-    """Step 60: the independent review role's view of a proposed fix."""
+    """The independent review role's view of a proposed fix."""
     engine: Optional[str] = None
     model: Optional[str] = None
     verdict: Literal["agrees", "concerns", "unclear", "unavailable"]

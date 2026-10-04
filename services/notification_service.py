@@ -1,5 +1,5 @@
 """
-services/notification_service.py -- Step 44: push a short "job finished /
+services/notification_service.py -- push a short "job finished /
 job failed" message to a Discord webhook and/or an ntfy topic.
 
 UI-free. `background_jobs._notify_job_finished` calls
@@ -38,7 +38,7 @@ Every send connects to the address that was validated (no second DNS
 lookup), with no redirects, no proxy, a per-socket timeout and an overall
 SEND_DEADLINE; the reply body is never read (only the status code).
 
-In-app list (roadmap Step 44 item 5): every job that finishes or fails is
+In-app list: every job that finishes or fails is
 also kept in a short in-memory list (RECENT_KEEP events, at most RECENT_MAX
 shown to one viewer, lost on a restart), whether or not a channel is configured, for the header bell
 (`GET /api/notifications`). `list_recent(principal)` shows a job event only

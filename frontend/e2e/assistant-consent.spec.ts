@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { mockAssistant } from './assistantMocks'
 import { openSettingsGroups } from './settingsNav'
 
-// Lead review of Step 42: a cloud engine needs the owner's per-provider OK to receive code and logs.
+// A cloud engine needs the owner's per-provider OK to receive code and logs.
 
 test('a cloud engine without consent is refused with a plain message, then allowed from the Engine section', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true, cloudConsent: { claude: false, gemini: false } })

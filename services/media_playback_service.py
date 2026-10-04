@@ -1,6 +1,6 @@
 """
 services/media_playback_service.py -- locate the file behind a drama's audio
-or source video for seekable playback (Migration Slice 52). Returns a real
+or source video for seekable playback. Returns a real
 path for the router to hand to Starlette's FileResponse (which streams in
 chunks and handles Range/HEAD); the path never reaches a response body.
 
@@ -52,7 +52,7 @@ def resolve_media(drama_id: int, kind: str):
 
 
 def burn_preview_ass(lines, line, style_state, pad=2.0):
-    """Step 12c: (start, end, ass_text) for a short burned-subtitle preview
+    """(start, end, ass_text) for a short burned-subtitle preview
     around `line` -- `pad` seconds either side -- timed to the clip the
     same way the vertical export is. style_state: optional {style,
     speaker_colors, speaker_names, wrap_chars}; None or no style = the

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { mockAssistant } from './assistantMocks'
 
-// Step 60: the independent review role. Every /api/assistant call is mocked.
+// The independent review role. Every /api/assistant call is mocked.
 
 const CONCERNS = {
   engine: 'gemini',

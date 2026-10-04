@@ -134,7 +134,7 @@ def check_stream_url(stream_url) -> None:
 
 
 def _require_public(url, bad_message: str) -> None:
-    """url_guard.resolve_public, the one public-address policy (B-25),
+    """url_guard.resolve_public, the one public-address policy,
     mapped to service errors with fixed text."""
     try:
         url_guard.resolve_public(url)

@@ -23,7 +23,7 @@ def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: st
     (start, end) 0-indexed chapter slice, for importing just part of a
     long book instead of the whole thing at once.
 
-    images_dir: Step 23c item 1 -- when given, any image an in-range
+    images_dir: when given, any image an in-range
     chapter's HTML references is extracted there (its own filename,
     de-duplicated across chapters by that filename) and its position in
     the returned text is marked with a [[IMG:filename]] placeholder, so
@@ -79,7 +79,7 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
     translation, 'zh' for the raw text (e.g. exporting a bilingual
     reading copy would need two calls or a custom merge).
 
-    images_dir: Step 23c item 1 -- a directory (e.g. import_epub_text's
+    images_dir: a directory (e.g. import_epub_text's
     own images_dir, or a drama's Scanlate page images) to resolve
     [[IMG:filename]] placeholders in a line's text against, embedding
     the matching file inline at that exact position instead of as plain

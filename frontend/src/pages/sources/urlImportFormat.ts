@@ -197,7 +197,7 @@ export function urlImportText(r: UrlImportResult): string {
   return `Added ${plural(r.char_count, 'character')} to the drama’s novel text.`
 }
 
-// ---------------------------------------------------------------- import state (Step 107)
+// ---------------------------------------------------------------- import state
 
 export type ChapterMark = { label: string; tone: 'ok' | 'bad' | 'warn'; note: string | null }
 

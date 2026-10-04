@@ -895,7 +895,7 @@ _BUSY = ("A background job is running -- wait for it to finish or cancel it befo
          "restoring.")
 
 # Restore-specific limits for an uploaded (network) zip, tighter than
-# workspace_job_service's generous Step 25k guardrails: expanded total at
+# workspace_job_service's generous guardrails: expanded total at
 # most max(factor x upload size, 2 x current library size, 1 GiB), a
 # member-count cap, and enough free disk for the expanded total plus a
 # margin before anything is extracted.
@@ -956,7 +956,7 @@ def _restore_total_cap(upload_size: int) -> int:
 def validate_backup_zip(zip_bytes) -> None:
     """Every check restore runs before touching the library: a real zip,
     library.db present, no absolute/traversal/symlink/encrypted member,
-    within the Step 52 limits and the tighter restore limits above
+    within the upload limits and the tighter restore limits above
     (member count, expanded total, free disk), no corrupt member.
     Fixed-text InvalidInputError on failure (no member names or paths
     echoed). The library.db itself is checked with SQLite after extraction
