@@ -250,6 +250,90 @@ class Qwen3ASRBackend:
                     os.unlink(path)
 
 
+def load_audio_16k(audio_path):
+    """The file as a 16 kHz mono float32 waveform (what the Silero VAD takes).
+    Raises VadNotInstalledError when faster-whisper (which decodes it) is missing."""
+    from vad_segments import VadNotInstalledError
+    try:
+        from faster_whisper.audio import decode_audio
+    except ImportError as exc:
+        raise VadNotInstalledError(str(exc)) from exc
+    return decode_audio(audio_path, sampling_rate=16000)
+
+
+class Qwen3ASRVadBackend:
+    """Qwen3-ASR with its own segment boundaries: speech spans from the Silero
+    VAD (vad_segments), capped at ~15 s, each transcribed by Qwen3ASRBackend.
+    Unlike Qwen3ASRBackend it does not need Whisper at all. A line's start and
+    end are its span's bounds (a long span's text is split into several lines
+    with estimated times), or, with refine_timing, the forced aligner's times.
+    Opt-in only (asr_backend_choice "qwen3_asr_vad")."""
+    name = "qwen3_asr_vad"
+
+    def __init__(self, model_size: str = "1.7B"):
+        self.model_size = model_size
+
+    def transcribe(self, audio_path, language, use_gpu=False, batch_size=1, progress_cb=None,
+                   cancel_check=None, refine_timing=False, vad_fn=None):
+        """Segments as {"start", "end", "text"} (plus "flag"/"flag_note" where
+        refined timing is uncertain). cancel_check() is called between batches
+        and between aligned spans and should raise to stop; nothing is written
+        here, so a cancel leaves the caller's lines untouched.
+        progress_cb(fraction) is as for Qwen3ASRBackend.transcribe, scaled to
+        the transcription part (the last 10% when refine_timing is on)."""
+        import vad_segments
+        from core import filter_hallucinated_segments, split_long_segments
+        if language not in LANGUAGE_NAMES:
+            raise ValueError(
+                f"Qwen3-ASR doesn't cover language={language!r} in this project's usage "
+                f"(supported: {sorted(LANGUAGE_NAMES)}) -- use WhisperBackend instead."
+            )
+        # Uses vad_segments' defaults, not the drama's saved vad_threshold/min_silence_ms,
+        # which are tuned for Whisper's own VAD.
+        audio = load_audio_16k(audio_path)
+        sr = 16000
+        spans = vad_segments.cap_spans(
+            vad_segments.merge_close(vad_segments.speech_spans(audio, sr, vad_fn=vad_fn)),
+            audio, sr)
+        del audio
+        if not spans:
+            return []
+        if cancel_check:
+            cancel_check()
+        span_segments = [{"start": s.start_s, "end": s.end_s, "text": ""} for s in spans]
+        scale = 0.9 if refine_timing else 1.0
+
+        def _progress(frac):
+            if cancel_check:
+                cancel_check()
+            if progress_cb:
+                progress_cb(frac * scale)
+
+        transcribed = Qwen3ASRBackend(model_size=self.model_size).transcribe(
+            audio_path, language, span_segments, use_gpu=use_gpu, batch_size=batch_size,
+            progress_cb=_progress)
+
+        # Filter after splitting: a loop shows up as identical consecutive pieces.
+        pieces = []
+        for n, seg in enumerate(transcribed):
+            text = (seg["text"] or "").strip()
+            if text:
+                pieces.extend({**p, "span": n} for p in split_long_segments(
+                    [{"start": seg["start"], "end": seg["end"], "text": text}]))
+        pieces = filter_hallucinated_segments(pieces)
+        groups = {}
+        for p in pieces:
+            groups.setdefault(p.pop("span"), []).append(p)
+        if refine_timing and groups:
+            import forced_align
+            lines = forced_align.refine_segment_timing(
+                audio_path, list(groups.values()), language, use_gpu=use_gpu,
+                cancel_check=cancel_check,
+                progress_cb=(lambda f: progress_cb(0.9 + 0.1 * f)) if progress_cb else None)
+            return lines
+        return [p for group in groups.values() for p in group]
+
+
 # ---------------------------------------------------------------------------
 # Step 104 (experimental pilot): MOSS-Transcribe-Diarize
 # ---------------------------------------------------------------------------
@@ -371,6 +455,7 @@ class MossTranscribeDiarizeBackend:
 BACKENDS = {
     WhisperBackend.name: WhisperBackend,
     Qwen3ASRBackend.name: Qwen3ASRBackend,
+    Qwen3ASRVadBackend.name: Qwen3ASRVadBackend,
     MossTranscribeDiarizeBackend.name: MossTranscribeDiarizeBackend,
 }
 EXPERIMENTAL_BACKENDS = frozenset({MossTranscribeDiarizeBackend.name})
