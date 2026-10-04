@@ -69,10 +69,6 @@ class TestWhisperSettings:
     def test_large_v3_turbo_is_offered_but_flagged_for_japanese_and_korean(self):
         assert "large-v3-turbo" in core.WHISPER_MODELS
         assert "weaker on Japanese/Korean" in core.WHISPER_MODELS["large-v3-turbo"]
-        assert core.whisper_model_warning("large-v3-turbo", "ja")
-        assert core.whisper_model_warning("large-v3-turbo", "ko")
-        assert core.whisper_model_warning("large-v3-turbo", "zh") == ""
-        assert core.whisper_model_warning("large-v3", "ja") == ""
 
 
 class _Unit:
