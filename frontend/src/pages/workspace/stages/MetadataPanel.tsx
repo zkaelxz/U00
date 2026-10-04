@@ -130,7 +130,7 @@ export function AutofillPanel() {
 
   return (
     <section className="panel" aria-label="Auto-fill metadata">
-      <Section storageKey="source.autofill" defaultOpen={arrived} title="Auto-fill metadata" summary="from a listing page or pasted text">
+      <Section storageKey="source.autofill" defaultOpen={arrived} title="Auto-fill metadata" summary="From a listing page or pasted text">
         <div className="source-panel">
           <Field label="Listing URL" help="A public http(s) page. Nothing is saved until you accept the suggestions.">
             <input ref={urlInput} type="url" value={url} onChange={(e) => setUrl(e.target.value)} />

@@ -29,6 +29,7 @@
  * every access is wrapped, and the section then just uses defaultOpen.
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { capFirst } from '../labels'
 import { announceOpen, joinGroup } from './sectionGroup'
 import { readSectionOpen, writeSectionOpen, type StorageLike } from './sectionStorage'
 
@@ -101,7 +102,7 @@ export function Section({ title, summary, count, defaultOpen = false, storageKey
       <summary>
         <span className="section-title">{title}</span>
         {count !== undefined && <span className="badge section-count">{count}</span>}
-        {!open && summary && <span className="section-summary">{summary}</span>}
+        {!open && summary && <span className="section-summary">{capFirst(summary)}</span>}
       </summary>
       <div className="section-body">{children}</div>
     </details>

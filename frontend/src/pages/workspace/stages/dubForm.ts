@@ -65,11 +65,11 @@ export function dubSettingsLine(cfg: DubConfig, form: DubForm): string {
 }
 
 export function formatMs(ms: number | null | undefined): string {
-  return typeof ms === 'number' && Number.isFinite(ms) ? `${Math.round(ms)} ms` : 'n/a'
+  return typeof ms === 'number' && Number.isFinite(ms) ? `${Math.round(ms)} ms` : 'N/A'
 }
 
 export function formatFactor(f: number | null | undefined): string {
-  return typeof f === 'number' && Number.isFinite(f) ? `${f.toFixed(2)}x` : 'n/a'
+  return typeof f === 'number' && Number.isFinite(f) ? `${f.toFixed(2)}x` : 'N/A'
 }
 
 export function pacingSummary(counts: Record<string, number>): string {

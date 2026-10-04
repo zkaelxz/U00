@@ -82,7 +82,7 @@ test('Users: lists accounts, explains the guards, and deactivates after a confir
   await expect(list.locator('li').nth(2).getByRole('button', { name: 'Activate guest@example.com' })).toBeEnabled()
 
   const kid = list.locator('li').nth(1)
-  await expect(kid).toContainText('signed in on 2 devices')
+  await expect(kid).toContainText(/signed in on 2 devices/i)
   await kid.getByRole('button', { name: 'Deactivate kid@example.com' }).click()
   expect(sent).toHaveLength(0) // the first press only arms
   await kid.getByRole('button', { name: 'Confirm deactivate kid@example.com' }).click()

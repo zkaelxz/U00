@@ -75,8 +75,8 @@ describe('P05 analysis details', () => {
   })
   it('handles audio only and an older server without the new fields', () => {
     const d = Object.fromEntries(analysisDetails({ drama_id: 1, duration_seconds: 5, has_video: false, has_audio: true, audio_track_count: 1, sample_rate: null }))
-    expect(d.Resolution).toBe('audio only')
-    expect(d['Subtitle tracks']).toBe('none')
+    expect(d.Resolution).toBe('Audio only')
+    expect(d['Subtitle tracks']).toBe('None')
     expect(d['Frame rate']).toBe('—')
   })
   it('offers the guessed content type only when it is a known, different media type', () => {

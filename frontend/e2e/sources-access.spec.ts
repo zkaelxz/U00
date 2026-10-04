@@ -89,7 +89,7 @@ test('proxy section: closed by default showing none, open state remembered', asy
   await settings.getByText('Source settings').first().click()
   const details = page.locator('details.section:has(> summary > .section-title:text-is("Proxy"))')
   await expect(details).not.toHaveAttribute('open', '')
-  await expect(details.locator('summary')).toContainText('none')
+  await expect(details.locator('summary')).toContainText(/none/i)
   await details.locator('summary').click()
   await expect(details).toHaveAttribute('open', '')
   await page.waitForFunction(() => localStorage.getItem('baihe.section.sources.proxy') === '1')

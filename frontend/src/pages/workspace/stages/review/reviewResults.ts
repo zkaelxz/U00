@@ -94,7 +94,7 @@ export function fixFormSummary(f: FixForm, defaultEngine: string): string {
 export interface Finding {
   key: string
   lineId: number | null // null: the line is gone, nothing to open
-  where: string // "#12" or "after #12"
+  where: string // "#12" or "After #12"
   text: string
 }
 
@@ -125,7 +125,7 @@ export function coverageGroups(c: Coverage): { title: string; hint: string; item
       items: c.large_gaps.map((e, i) => ({
         key: `gap-${e.after_id ?? 'x'}-${i}`,
         lineId: e.after_id ?? null,
-        where: where(e.after_idx, 'after '),
+        where: where(e.after_idx, 'After '),
         text: e.gap_seconds != null ? `${e.gap_seconds.toFixed(1)}s silent` : 'gap',
       })),
     },

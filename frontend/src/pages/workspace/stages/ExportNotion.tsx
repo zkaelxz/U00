@@ -78,7 +78,7 @@ export function ExportNotion({ field }: { field: NotionField }) {
 
   return (
     <div role="region" aria-label="Export to Notion">
-      <Section storageKey="export.notion" title="Export to Notion" summary="a page per drama in your Notion">
+      <Section storageKey="export.notion" title="Export to Notion" summary="A page per drama in your Notion">
         <div className="source-panel">
           {!readyToExport(cfg) ? (
             <p className="muted">Finish the Notion setup in Settings (integration token and a page or database).</p>

@@ -304,7 +304,7 @@ function StorageBlock() {
             {scan.categories.map((c) => (
               <li key={c.key}>
                 {c.label}: {formatBytes(c.bytes)}{' '}
-                <span className="muted">{c.selected ? 'cleaned' : 'kept'}</span>
+                <span className="muted">{c.selected ? 'Cleaned' : 'Kept'}</span>
               </li>
             ))}
           </ul>

@@ -34,18 +34,18 @@ export const modelLabel = (m: Pick<ProductionModel, 'engine' | 'model'>) => conf
 export const sameModel = (a: Pick<ProductionModel, 'engine' | 'model'>, b: Pick<ProductionModel, 'engine' | 'model'>) =>
   a.engine === b.engine && (a.model ?? null) === (b.model ?? null)
 
-/** Where the production model comes from: "from Settings" or "promoted 2026-09-30". */
+/** Where the production model comes from: "From Settings" or "Promoted 2026-09-30". */
 export function productionSource(overview: Pick<ReevalOverview, 'production' | 'candidates'>): string {
   const { production, candidates } = overview
-  if (production.source !== 'promoted') return 'from Settings'
-  if (production.promoted_at) return `promoted ${production.promoted_at.slice(0, 10)}`
+  if (production.source !== 'promoted') return 'From Settings'
+  if (production.promoted_at) return `Promoted ${production.promoted_at.slice(0, 10)}`
   // Older records have no date: the promote decision carries one.
   const promoted = candidates
     .filter((c) => c.status === 'promoted' && sameModel(c, production) && c.last_decision?.decided_at)
     .map((c) => c.last_decision!.decided_at as string)
     .sort()
   const when = promoted.length ? promoted[promoted.length - 1].slice(0, 10) : null
-  return when ? `promoted ${when}` : 'promoted'
+  return when ? `Promoted ${when}` : 'Promoted'
 }
 
 // ---- signed deltas (candidate minus production) ----

@@ -6,6 +6,7 @@ import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
+import { capFirst } from '../../labels'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import type {
@@ -390,7 +391,7 @@ function PackageText({ name, text, info, torchInstalled, installed = false, upda
     <span className="pkg-text">
       <span>
         <strong>{name}</strong>{version && <> <span className="pkg-version" data-testid="pkg-version">{version}</span></>}{' '}
-        <span className="muted">{text}</span>
+        <span className="muted">{capFirst(text)}</span>
       </span>
       {line && <span className={line.tone === 'muted' ? 'muted' : line.tone} data-testid="pkg-update">{line.text}</span>}
       {installed && belowMinText(info) && <span className="warn" data-testid="pkg-below-min">{belowMinText(info)}</span>}

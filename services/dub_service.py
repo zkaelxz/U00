@@ -29,7 +29,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError, 
 NARRATION_LANGUAGE_OPTIONS = ["translation", "original"]
 
 TTS_ENGINES = [
-    {"key": "edge_tts", "label": "edge-tts (free, online, more natural)", "requires_internet": True},
+    {"key": "edge_tts", "label": "Edge TTS (free, online, more natural)", "requires_internet": True},
     {"key": "offline", "label": "Offline / Piper (fully local, no internet, lower quality)",
      "requires_internet": False},
 ]

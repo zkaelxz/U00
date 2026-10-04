@@ -77,13 +77,13 @@ test('job progress arrives over the stream, with no polling while it is up', asy
     await expect.poll(() => stream.clients.length).toBe(1)
     await page.getByRole('button', { name: 'Generate dub' }).click()
     const status = page.getByTestId('job-status')
-    await expect(status).toContainText('running · starting')
+    await expect(status).toContainText('Running · starting')
     const reads = gets.length
 
     // The server's GET would still say 10%: what the page shows next can only
     // have come over the stream.
     stream.push('job', job('running', 0.6, 'line 6 of 10'))
-    await expect(status).toContainText('running · line 6 of 10')
+    await expect(status).toContainText('Running · line 6 of 10')
     await expect(page.getByTestId('job-percent')).toHaveText('60%')
     stream.ping()
     stream.push('job', { ...job('running', 0.9, 'other job'), job_id: 'someone-else' })
@@ -94,7 +94,7 @@ test('job progress arrives over the stream, with no polling while it is up', asy
     await expect(page.getByTestId('job-percent')).toHaveText('60%')
 
     stream.push('job', job('done', 1, 'all lines spoken'))
-    await expect(status).toContainText('done · all lines spoken')
+    await expect(status).toContainText('Done · all lines spoken')
     await expect(page.getByTestId('job-outcome')).toContainText('Finished')
     expect(gets.length).toBe(reads)
   } finally {
@@ -111,14 +111,14 @@ test('a dropped stream reconnects and re-reads the job once', async ({ page }) =
     await page.goto('/#/drama/1/dub')
     await expect.poll(() => stream.clients.length).toBe(1)
     await page.getByRole('button', { name: 'Generate dub' }).click()
-    await expect(page.getByTestId('job-status')).toContainText('running · working')
+    await expect(page.getByTestId('job-status')).toContainText('Running · working')
 
     // The job finishes while the connection is down: the resync GET after
     // the reconnect is what shows it.
     const reads = gets.length
     server.job = job('done', 1, 'finished while away')
     stream.clients.forEach((c) => c.destroy())
-    await expect(page.getByTestId('job-status')).toContainText('done · finished while away')
+    await expect(page.getByTestId('job-status')).toContainText('Done · finished while away')
     expect(gets.length).toBe(reads + 1)
   } finally {
     await stream.close()
@@ -132,10 +132,10 @@ test('falls back to polling when the stream cannot be opened', async ({ page }) 
     route.fulfill({ status: 429, json: { error: { code: 'rate_limited', message: 'Too many.' } } }))
   await page.goto('/#/drama/1/dub')
   await page.getByRole('button', { name: 'Generate dub' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('running · working')
+  await expect(page.getByTestId('job-status')).toContainText('Running · working')
   await expect.poll(() => gets.length, { timeout: 8000 }).toBeGreaterThanOrEqual(3)
   server.job = job('done', 1, 'finished by polling')
-  await expect(page.getByTestId('job-status')).toContainText('done · finished by polling')
+  await expect(page.getByTestId('job-status')).toContainText('Done · finished by polling')
 })
 
 test('the bell shows a pushed notification without polling', async ({ page }) => {

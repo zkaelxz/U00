@@ -29,7 +29,7 @@ describe('gpuTorch', () => {
   it('labels builds', () => {
     expect(packageVersionText({ name: 'torch', version: '2.11.0+cu128', build: 'cuda' })).toBe('2.11.0+cu128 (CUDA build)')
     expect(packageVersionText({ name: 'torch', version: '2.11.0+cpu', build: 'cpu' })).toBe('2.11.0+cpu (CPU only)')
-    expect(packageVersionText({ name: 'torch', version: null, build: null })).toBe('not installed')
+    expect(packageVersionText({ name: 'torch', version: null, build: null })).toBe('Not installed')
   })
 
   it('states and problems', () => {
@@ -49,7 +49,7 @@ describe('gpuTorch', () => {
 
   it('describes a CUDA check', () => {
     const v = { torch: '2.11.0+cu128', torchvision: null, torchaudio: null, cuda_build: '12.8', cuda_available: true, device: 'RTX', error: null }
-    expect(verifyText(v)).toBe('torch 2.11.0+cu128: CUDA works on RTX.')
+    expect(verifyText(v)).toBe('PyTorch 2.11.0+cu128: CUDA works on RTX.')
     expect(verifyText({ ...v, cuda_available: false })).toContain('no GPU is available')
     expect(verifyText({ ...v, cuda_available: false, cuda_build: null })).toContain('CPU-only')
     expect(verifyText({ ...v, torch: null, error: 'ImportError: x' })).toBe("PyTorch didn't import: ImportError: x")
@@ -68,9 +68,9 @@ describe('gpuTorch', () => {
 
   it('summarises the fold in one line', () => {
     const installed = [{ name: 'torch', version: '2.11.0+cu128', build: 'cuda' as const }]
-    expect(gpuTorchSummary(status({ installed, state: 'recommended' }))).toBe('torch 2.11.0+cu128 · CUDA build · RTX 3080 Ti')
+    expect(gpuTorchSummary(status({ installed, state: 'recommended' }))).toBe('PyTorch 2.11.0+cu128 · CUDA build · RTX 3080 Ti')
     expect(gpuTorchSummary(status({ installed, probe: { torch: '2.11.0', cuda_available: true, cuda_build: '12.8', device: 'RTX 3080 Ti', error: null } as never })))
       .toContain('CUDA OK')
-    expect(gpuTorchSummary(status({ nvidia: { ...status().nvidia, found: false, gpu_name: null } }))).toBe('torch not installed · no NVIDIA GPU')
+    expect(gpuTorchSummary(status({ nvidia: { ...status().nvidia, found: false, gpu_name: null } }))).toBe('PyTorch not installed · no NVIDIA GPU')
   })
 })

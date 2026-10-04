@@ -128,7 +128,7 @@ describe('labels', () => {
     expect(auditActionLabel('something.new')).toBe('something.new')
     expect(auditTime('2026-09-30T12:34:56Z')).toBe('2026-09-30 12:34 UTC')
     expect(auditTime('yesterday')).toBe('yesterday')
-    expect([0, 1, 3].map(sessionsText)).toEqual(['not signed in', 'signed in on 1 device', 'signed in on 3 devices'])
+    expect([0, 1, 3].map(sessionsText)).toEqual(['Not signed in', 'Signed in on 1 device', 'Signed in on 3 devices'])
   })
 
   it('appends an older page without repeating rows', () => {
