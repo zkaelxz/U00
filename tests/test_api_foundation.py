@@ -870,7 +870,7 @@ class TestTranscribeConfigEndpoints:
         background_jobs.clear_job(job_id)
 
     def test_run_already_running_is_409(self, client, isolated_db, monkeypatch):
-        # start_job spawning a real thread makes "still running" a race to
+        # start_process_job spawning a real process makes "still running" a race to
         # assert on directly (the real transcribe_for_timing would run and
         # the job could finish before the second request lands) -- mocked
         # here the same way TestStartTranscribeRun mocks it at the service
@@ -880,7 +880,7 @@ class TestTranscribeConfigEndpoints:
         os.makedirs(ddir, exist_ok=True)
         open(os.path.join(ddir, "audio.wav"), "wb").close()
         isolated_db.update_drama(did, audio_filename="audio.wav")
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        monkeypatch.setattr(background_jobs, "start_process_job", lambda *a, **k: False)
 
         resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})
         assert resp.status_code == 409

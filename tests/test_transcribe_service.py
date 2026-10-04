@@ -7,7 +7,12 @@ The job body (_run_transcribe_and_apply_job) is called directly, the same
 way tests/test_workspace_tab.py exercises run_transcribe_job -- transcribe_
 for_timing is mocked throughout, so no real model/GPU/audio is involved.
 """
+import multiprocessing
 import os
+import subprocess
+import sys
+import tempfile
+import time
 
 import pytest
 
@@ -45,6 +50,22 @@ def _drama_with_video(isolated_db, with_audio=False, **fields):
 
 def _clear(job_id):
     background_jobs.clear_job(job_id)
+
+
+def _capture_worker_start(monkeypatch, started=True):
+    """Fakes start_process_job for an audio transcribe run: records the
+    worker's arguments by parameter name, the on_done hook's options and the
+    start call itself (job_id, target, start_kwargs)."""
+    import inspect
+    captured = {}
+
+    def fake_start_process_job(job_id, target, args=(), **k):
+        captured.update(dict(zip(inspect.signature(target).parameters, args)))
+        captured.update(k["on_done"].keywords)
+        captured.update(job_id=job_id, target=target, start_kwargs=k)
+        return started
+    monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
+    return captured
 
 
 def _seed_running_job(job_id):
@@ -246,42 +267,54 @@ class TestStartTranscribeRun:
 
     def test_starts_the_background_job(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
-        calls = []
-        monkeypatch.setattr(
-            background_jobs, "start_job",
-            lambda job_id, target, *a, **k: calls.append((job_id, target, a, k)) or True)
+        captured = _capture_worker_start(monkeypatch)
 
         result = transcribe_service.start_transcribe_run(did)
 
         assert result == {"job_id": f"transcribe_{did}"}
-        assert len(calls) == 1
-        assert calls[0][0] == f"transcribe_{did}"
-        assert calls[0][1] is transcribe_service._run_transcribe_and_apply_job
+        assert captured["job_id"] == f"transcribe_{did}"
+        assert captured["target"] is transcribe_service._transcribe_worker
+        k = captured["start_kwargs"]
+        assert k["gpu_touching"] is True and k["kill_tree"] is True
+        assert callable(k["on_done"]) and callable(k["on_finish"])
+        assert captured["drama_id"] == did
+
+    def test_no_key_is_passed_to_the_worker_process(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", use_groq=1)
+        keys = {"groq": "gsk_test_groq_key_value", "hf_token": "hf_test_token_value"}
+        monkeypatch.setattr(transcribe_service.settings_service, "resolve_key",
+                            lambda key, env_path=None: keys.get(key))
+        captured = _capture_worker_start(monkeypatch)
+
+        transcribe_service.start_transcribe_run(did, run_diarize=True)
+
+        import inspect
+        names = list(inspect.signature(transcribe_service._transcribe_worker).parameters)
+        worker_args = [captured[n] for n in names[:-1]]
+        assert not set(keys.values()) & {a for a in worker_args if isinstance(a, str)}
+        assert captured["use_groq"] is True
+        # The token stays in this process, for the chained speaker detection.
+        assert captured["hf_token"] == "hf_test_token_value"
 
     def test_already_running_raises_conflict(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        captured = _capture_worker_start(monkeypatch, started=False)
         with pytest.raises(ConflictError):
             transcribe_service.start_transcribe_run(did)
+        assert not os.path.exists(captured["scratch_dir"])
 
     def test_language_and_script_default_to_the_dramas_own(self, isolated_db, monkeypatch):
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper",
                                       source_language="ja", chinese_script="traditional")
-        calls = []
-        monkeypatch.setattr(background_jobs, "start_job",
-                            lambda job_id, target, *a, **k: calls.append(a) or True)
+        captured = _capture_worker_start(monkeypatch)
         transcribe_service.start_transcribe_run(did)
-        args = calls[0]
-        # (job_id, drama_id, audio_path, mode, text, language, script, ...)
-        assert args[5] == "ja" and args[6] == "traditional"
+        assert captured["source_language"] == "ja" and captured["chinese_script"] == "traditional"
 
     def test_explicit_language_overrides_the_dramas_own(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", source_language="ja")
-        calls = []
-        monkeypatch.setattr(background_jobs, "start_job",
-                            lambda job_id, target, *a, **k: calls.append(a) or True)
+        captured = _capture_worker_start(monkeypatch)
         transcribe_service.start_transcribe_run(did, source_language="ko")
-        assert calls[0][5] == "ko"
+        assert captured["source_language"] == "ko"
 
     def test_unknown_language_raises_invalid_input(self, isolated_db):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
@@ -316,14 +349,7 @@ class TestStartTranscribeRun:
             isolated_db, transcript_mode="whisper", whisper_size="small", beam_size=7,
             min_silence_ms=900, vad_threshold=0.4, separate_vocals_first=1,
             separation_backend="demucs", realign_long_segments=1, whisper_fast_mode=1)
-        captured = {}
-
-        def fake_start_job(job_id, target, *a, **k):
-            import inspect
-            names = list(inspect.signature(target).parameters)
-            captured.update(dict(zip(names, a)))
-            return True
-        monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+        captured = _capture_worker_start(monkeypatch)
 
         transcribe_service.start_transcribe_run(did, initial_prompt="names")
 
@@ -338,9 +364,12 @@ class TestStartTranscribeRun:
         assert captured["use_groq"] is False
         assert captured["initial_prompt"] == "names"
         assert captured["use_gpu"] is False
-        assert list(captured)[-3:] == ["use_gpu", "asr_backend_choice", "alignment_method"]
         assert captured["asr_backend_choice"] == "whisper"
         assert captured["alignment_method"] == "whisper_diff"
+        # Every worker parameter but the queue is passed.
+        import inspect
+        names = list(inspect.signature(transcribe_service._transcribe_worker).parameters)
+        assert names[-1] == "result_queue" and all(n in captured for n in names[:-1])
 
 
 @pytest.fixture(autouse=True)
@@ -1084,11 +1113,10 @@ class TestQwen3Backends:
         monkeypatch.setattr(importlib.util, "find_spec", lambda *a, **k: object())
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper",
                                    asr_backend_choice="qwen3_asr")
-        captured = []
-        monkeypatch.setattr(background_jobs, "start_job",
-                            lambda job_id, target, *a, **k: captured.extend(a) or True)
+        captured = _capture_worker_start(monkeypatch)
         transcribe_service.start_transcribe_run(did)
-        assert captured[-2:] == ["qwen3_asr", "whisper_diff"]
+        assert (captured["asr_backend_choice"], captured["alignment_method"]) == (
+            "qwen3_asr", "whisper_diff")
 
 
 class TestMossBackend:
@@ -1248,6 +1276,193 @@ class TestMossBackend:
         transcribe_service.update_transcribe_config(did, asr_backend_choice="whisper")
         with pytest.raises(InvalidInputError, match="experimental"):
             transcribe_service.update_transcribe_config(did, asr_backend_choice="moss_td")
+
+
+def _wait_until(predicate, timeout=10.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.05)
+    return bool(predicate())
+
+
+def _wait_finished(job_id, timeout=20.0):
+    _wait_until(lambda: (background_jobs.get_status(job_id) or {}).get("status")
+                not in ("queued", "running"), timeout)
+    return background_jobs.get_status(job_id)
+
+
+def _process_gone(pid):
+    """True once pid has exited (a zombie counts: it runs nothing)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] == "Z"
+    except FileNotFoundError:
+        return True
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux")
+                    or multiprocessing.get_start_method() != "fork",
+                    reason="the test's fakes reach the worker process only through fork")
+class TestTranscribeProcessJob:
+    """An audio transcription runs in its own process (start_process_job),
+    with a fake Whisper; nothing loads a real model."""
+
+    def _track_scratch(self, monkeypatch):
+        made = []
+        real_new = transcribe_service.storage.new_workdir
+        monkeypatch.setattr(transcribe_service.storage, "new_workdir",
+                            lambda job_id=None: made.append(real_new(job_id)) or made[-1])
+        return made
+
+    def test_a_run_applies_lines_and_reports_progress(self, isolated_db, monkeypatch):
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _clear(job_id)
+
+        def fake_whisper(*a, progress_cb=None, **k):
+            progress_cb(0.5)
+            return [{"start": 0.0, "end": 1.0, "text": "hi"},
+                    {"start": 1.0, "end": 2.0, "text": "there"}]
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", fake_whisper)
+        messages = []
+        real_update = background_jobs.update_progress
+        monkeypatch.setattr(background_jobs, "update_progress",
+                            lambda j, f, m="": (messages.append((f, m)), real_update(j, f, m)))
+        scratch = self._track_scratch(monkeypatch)
+
+        transcribe_service.start_transcribe_run(did)
+        status = _wait_finished(job_id)
+
+        assert status["status"] == "done", status
+        assert status["result"]["line_count"] == 2
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["hi", "there"]
+        assert isolated_db.get_drama(did)["status"] == "aligned"
+        assert os.path.exists(os.path.join(ddir, "raw_transcript.json"))
+        assert messages[0][1].startswith("Loading Whisper model medium")
+        assert background_jobs.stage_ticker.NOTE in messages[0][1]
+        assert any(f == pytest.approx(0.5 * transcribe_service.RUNNING_MAX)
+                   and m.startswith("Transcribing... 50%") for f, m in messages)
+        assert max(f for f, _ in messages) < 1.0
+        assert _wait_until(lambda: not os.path.exists(scratch[0]))
+        assert _wait_until(lambda: isolated_db.gpu_lock_holder_count() == 0)
+        _clear(job_id)
+
+    def test_vocals_are_separated_in_the_scratch_folder_then_kept(self, isolated_db, monkeypatch):
+        import audio_preprocess
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper",
+                                      separate_vocals_first=1)
+        job_id = f"transcribe_{did}"
+        _clear(job_id)
+        scratch = self._track_scratch(monkeypatch)
+
+        def fake_separate(in_path, out_path, **k):
+            assert os.path.dirname(out_path) == scratch[0]
+            with open(out_path, "wb") as f:
+                f.write(b"vocals")
+            return out_path
+        monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda path, *a, **k: [{"start": 0.0, "end": 1.0, "text": path}])
+
+        transcribe_service.start_transcribe_run(did)
+        status = _wait_finished(job_id)
+
+        assert status["status"] == "done", status
+        vocals = os.path.join(ddir, "vocals.wav")
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == [vocals]
+        with open(vocals, "rb") as f:
+            assert f.read() == b"vocals"
+        assert _wait_until(lambda: not os.path.exists(scratch[0]))
+        _clear(job_id)
+
+    def test_cancel_kills_the_run_and_writes_nothing(self, isolated_db, monkeypatch, tmp_path):
+        import json
+        from core import Line
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="旧的")])
+        job_id = f"transcribe_{did}"
+        _clear(job_id)
+        marker = str(tmp_path / "worker.json")
+
+        def stuck_whisper(*a, progress_cb=None, **k):
+            # One long model call with no cancel point, which has started a
+            # helper process and written a temp file of its own.
+            progress_cb(0.1)
+            helper = subprocess.Popen(["sleep", "120"])
+            fd, temp_path = tempfile.mkstemp(suffix=".wav")
+            os.close(fd)
+            with open(marker + ".tmp", "w") as f:
+                json.dump({"worker": os.getpid(), "helper": helper.pid, "temp": temp_path}, f)
+            os.replace(marker + ".tmp", marker)
+            time.sleep(120)
+            return [{"start": 0.0, "end": 1.0, "text": "新的"}]
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", stuck_whisper)
+
+        transcribe_service.start_transcribe_run(did)
+        assert _wait_until(lambda: os.path.exists(marker), timeout=20)
+        with open(marker) as f:
+            info = json.load(f)
+        assert info["temp"].startswith(transcribe_service.storage.temp_root())
+        assert background_jobs.get_status(job_id)["status"] == "running"
+        assert isolated_db.gpu_lock_holder_count() == 1
+
+        started = time.monotonic()
+        background_jobs.request_cancel(job_id)
+        status = _wait_finished(job_id, timeout=10)
+
+        assert status["status"] == "cancelled"
+        assert time.monotonic() - started < 5
+        assert status["message"] == background_jobs.CANCELLED_MESSAGE
+        assert _wait_until(lambda: _process_gone(info["worker"]) and _process_gone(info["helper"]))
+        assert _wait_until(lambda: not os.path.exists(info["temp"]))
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧的"]
+        assert not os.path.exists(os.path.join(ddir, "raw_transcript.json"))
+        assert _wait_until(lambda: isolated_db.gpu_lock_holder_count() == 0)
+        _clear(job_id)
+
+
+def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeypatch, tmp_path):
+    """Run in this process: the key comes from settings_service.resolve_key
+    inside the worker, as for a thread job, not from its arguments."""
+    import queue
+    seen = []
+    monkeypatch.setattr(transcribe_service.settings_service, "resolve_key",
+                        lambda key, env_path=None: "gsk_env_key" if key == "groq" else None)
+    monkeypatch.setattr(core_module, "transcribe_with_groq",
+                        lambda path, lang, key, progress_cb=None: seen.append(key) or [])
+    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
+    result_queue = queue.Queue()
+    transcribe_service._transcribe_worker(
+        str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
+        False, "auto", False, False, True, "", False, "whisper", "whisper_diff", None, 1,
+        str(tmp_path / "scratch"), result_queue)
+    items = []
+    while not result_queue.empty():
+        items.append(result_queue.get_nowait())
+    assert seen == ["gsk_env_key"]
+    assert items[-1] == ("ok", {"failed_reason": "empty"})
+
+
+def test_the_worker_pickles_and_runs_in_a_spawned_process(tmp_path):
+    """Windows starts process jobs with spawn: the worker and its arguments
+    must cross a fresh interpreter. An unknown separation backend fails
+    before any model or network is touched."""
+    ctx = multiprocessing.get_context("spawn")
+    result_queue = ctx.Queue()
+    proc = ctx.Process(target=transcribe_service._transcribe_worker, daemon=True, args=(
+        str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
+        True, "no_such_backend", False, False, False, "", False, "whisper", "whisper_diff", None,
+        1, str(tmp_path / "scratch"), result_queue))
+    proc.start()
+    items = [result_queue.get(timeout=60)]
+    while items[-1][0] == "progress":
+        items.append(result_queue.get(timeout=60))
+    proc.join(timeout=10)
+    assert items[0] == ("progress", 0.0, "Separating vocals from background music...")
+    assert items[-1] == ("error", "KeyError", "'no_such_backend'")
 
 
 class TestCoverageWarning:

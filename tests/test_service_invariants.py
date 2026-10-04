@@ -4,8 +4,8 @@ tests/test_workspace_tab.py. Each class names the Streamlit test class it
 came from, so the invariant survives when the tab and its tests are deleted
 (docs/archive/streamlit-test-triage.md, section 1 notes). Fully mocked: isolated_db,
 no model, GPU or network."""
+import multiprocessing
 import os
-import threading
 import time
 
 import pytest
@@ -84,7 +84,8 @@ class TestTranscriptionCompletionInvariants:
         session" case), and the text used is the one passed at start, not
         re-read later: a later change to the request/UI can't reach it."""
         did, _ = _transcript_drama()
-        release = threading.Event()
+        # Shared with the transcription's worker process.
+        release = multiprocessing.Event()
         monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
                             lambda *a, **k: (release.wait(5.0),
                                              [{"start": 0.0, "end": 1.0, "text": "你好"}])[1])
