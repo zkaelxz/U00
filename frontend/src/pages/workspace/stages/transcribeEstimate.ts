@@ -1,7 +1,7 @@
 // Rough, conservative run-time captions for the Transcribe stage. The
 // figures below are typical ranges, not measurements: real times depend on
 // the PC. They scale off the media's duration by Whisper model size and GPU
-// on/off, and a speed measured on this PC's last run replaces them.
+// on/off, and the speed measured on this PC's recent runs replaces them.
 
 // Processing time as a fraction of the audio length: [fast, slow].
 const WHISPER_CPU: Record<string, [number, number]> = {
@@ -46,7 +46,14 @@ export interface WhisperEstimateInput {
   whisperSize: string
   useGpu: boolean | null // null = unknown, estimated as CPU (the slower case)
   fastMode?: boolean
-  measuredSpeed?: number | null // seconds of audio per second of work, from the last run here
+  measuredSpeed?: number | null // seconds of audio per second of work: the median of the recent runs here
+  measuredRuns?: number // how many runs that median covers; more runs, a narrower range
+}
+
+// Room left around a measured time: a single run is not exact either, while
+// the median of several is steadier.
+function measuredSpread(runs: number | undefined): [number, number] {
+  return (runs ?? 1) >= 3 ? [0.9, 1.15] : [0.8, 1.3]
 }
 
 // Seconds of work as [low, high], or null when it can't be estimated (no length, or a model with no table entry).
@@ -54,9 +61,9 @@ export function whisperEstimateSeconds(i: WhisperEstimateInput): { low_s: number
   if (!i.audioSeconds || i.audioSeconds <= 0) return null
   const speed = i.measuredSpeed
   if (typeof speed === 'number' && Number.isFinite(speed) && speed > 0) {
-    // One measurement is not exact either: leave room both ways.
     const t = i.audioSeconds / speed
-    return { low_s: t * 0.8, high_s: t * 1.3 }
+    const [lo, hi] = measuredSpread(i.measuredRuns)
+    return { low_s: t * lo, high_s: t * hi }
   }
   const factor = (i.useGpu ? WHISPER_GPU : WHISPER_CPU)[i.whisperSize]
   if (!factor) return null
@@ -96,7 +103,7 @@ export function transcribeEstimate(i: TranscribeEstimateInput): string | null {
   const measured = typeof i.measuredSpeed === 'number' && i.measuredSpeed > 0
   const where = i.useGpu ? 'GPU' : 'CPU'
   const speakers = i.detectSpeakers ? `, plus ${range(i.audioSeconds, DIARIZE)} to detect speakers` : ''
-  const basis = measured ? ', based on your last run' : ''
+  const basis = !measured ? '' : (i.measuredRuns ?? 1) >= 2 ? `, based on your last ${i.measuredRuns} runs` : ', based on your last run'
   const download = i.modelCached === false ? ' First use also downloads the model.' : ''
   return `Rough estimate: ${roughRange(est.low_s, est.high_s)} for this audio (${i.whisperSize} on ${where}${basis})${speakers}.${download}`
 }
@@ -125,11 +132,19 @@ const ETA_MAX_SPREAD = 2
 // (time since the first percent, over the progress made since then) and the
 // median of the recent ones is shown, so one slow poll doesn't move it. Hidden
 // when those readings disagree by more than 2x or progress has stopped.
-export function liveEtaSeconds(samples: EtaSample[], now: number): number | null {
-  if (samples.length < 2) return null
-  const first = samples[0]
+//
+// `priorSeconds` is the whole run's expected time from this PC's recorded
+// speed. It only fills the early gap, before the readings above are steady
+// enough to show; once they are, they win.
+export function liveEtaSeconds(samples: EtaSample[], now: number, priorSeconds?: number | null): number | null {
   const last = samples[samples.length - 1]
-  if (first.p <= 0 || now - first.t < ETA_MIN_SECONDS) return null
+  const early = () =>
+    priorSeconds && priorSeconds > 0 && last && last.p > 0 && last.p < 1
+      ? Math.max(priorSeconds * (1 - last.p), 0)
+      : null
+  if (samples.length < 2) return early()
+  const first = samples[0]
+  if (first.p <= 0 || now - first.t < ETA_MIN_SECONDS) return early()
   if (last.p - first.p < ETA_MIN_PROGRESS || last.p >= 1) return null
   const sinceChange = samples.find((s) => s.p === last.p)!.t
   const stalledFor = now - sinceChange

@@ -303,7 +303,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
                 local_model_path=local_model_path, hf_token=hf_token,
                 initial_prompt=initial_prompt, beam_size=beam_size,
                 min_silence_duration_ms=min_silence_duration_ms, vad_threshold=vad_threshold,
-                on_gpu_fallback=lambda exc: gpu_fallback_msg.append(str(exc)),
+                on_gpu_fallback=lambda exc: gpu_fallback_msg.append(core_module.short_reason(exc)),
                 progress_cb=lambda frac: background_jobs.update_progress(
                     job_id, frac, f"Transcribing... {frac * 100:.0f}%"),
                 fast_mode=fast_mode)
@@ -338,11 +338,14 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
             word_align_error = str(exc)
 
     core_module.release_gpu_models()  # transcription stage done
-    background_jobs.set_result(job_id, {
+    result = {
         "segments": segments,
         "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
         "word_align_error": word_align_error,
-    })
+    }
+    if gpu_fallback_msg:
+        result["device_notice"] = core_module.gpu_fallback_notice("Transcription", gpu_fallback_msg[0])
+    background_jobs.set_result(job_id, result)
 
 
 def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backend,

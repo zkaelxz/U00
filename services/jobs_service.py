@@ -41,7 +41,7 @@ STALE_JOB_SECONDS = background_jobs.STALE_JOB_SECONDS
 RESULT_ALLOWED_KEYS = (
     "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
     "fixed_count", "total_flagged", "existing_line_count", "line_count",
-    "gpu_fallback", "device", "word_align_error", "forced_align_error",
+    "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
     "coverage_warning",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
@@ -342,7 +342,10 @@ def derive_outcome(status, error, result):
     # Transcribe warnings (Streamlit warned on these): the job worked, but
     # not the way the user asked, so it is reported as partial, not ok.
     warned = False
-    if result.get("gpu_fallback"):
+    if result.get("device_notice"):
+        parts.append(str(result["device_notice"]))
+        warned = True
+    elif result.get("gpu_fallback"):
         parts.append(f"Ran on CPU because the GPU wasn't available ({result['gpu_fallback']}).")
         warned = True
     if result.get("word_align_error"):

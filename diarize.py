@@ -163,6 +163,11 @@ OOM_FALLBACK_MESSAGE = ("Speaker detection ran out of GPU memory and is running 
 # Past tense, fixed text: for a finished run's result and the CLI summary.
 OOM_FALLBACK_DONE_MESSAGE = ("Speaker detection ran out of GPU memory and ran on CPU, "
                              "which is slower.")
+# The speaker model could not be moved onto the GPU at all (driver or CUDA
+# build problem); the reason goes to the log, not into this fixed text.
+PLACEMENT_FALLBACK_DONE_MESSAGE = ("Speaker detection ran on the CPU because the speaker "
+                                   "model couldn't be moved to the GPU. This was slower than "
+                                   "on the GPU.")
 
 
 def is_cuda_oom(exc: BaseException) -> bool:
@@ -203,9 +208,9 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     pyannote's own min_speakers/max_speakers; mutually exclusive with
     num_speakers (validate_speaker_hints). run_info: an optional dict this
     fills with {"device": "cuda"|"cpu"}, the device actually used, plus
-    "fell_back_to_cpu": True and "fallback_reason" (short, only after a fallback;
-    secrets redacted). A CUDA out-of-memory during the run is retried once on
-    CPU (loudly, via on_progress and the log); the device selection is
+    "fell_back_to_cpu": True, "fallback_kind" ("oom" or "placement") and
+    "fallback_reason" (short, only after a fallback; secrets redacted). A CUDA
+    out-of-memory during the run is retried once on CPU (loudly, via on_progress and the log); the device selection is
     otherwise unchanged. If the CPU retry fails too, RuntimeError.
     on_progress: optional on_progress(fraction 0-1, message), called as the
     stages change and (where pyannote's hook reports it) as each step advances.
@@ -218,6 +223,9 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     device = _place_pipeline(pipeline, use_gpu)
     if run_info is not None:
         run_info["device"] = device
+        if device == "cpu" and use_gpu and select_device(use_gpu) == "cuda":
+            run_info.update(fell_back_to_cpu=True, fallback_kind="placement",
+                            fallback_reason="Couldn't move the speaker model to the GPU")
     import applog
     applog.get_logger().info(f"diarization: running {model} on {device}")
     import soundfile as sf
@@ -246,7 +254,8 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
         _free_gpu_memory()
         applog.get_logger().error(f"diarization: {OOM_FALLBACK_MESSAGE} ({oom_reason})")
         if run_info is not None:
-            run_info.update(device="cpu", fell_back_to_cpu=True, fallback_reason=oom_reason)
+            run_info.update(device="cpu", fell_back_to_cpu=True, fallback_kind="oom",
+                            fallback_reason=oom_reason)
         _say(0.08, OOM_FALLBACK_MESSAGE)
 
         def cpu_progress(frac, message):
@@ -312,7 +321,8 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
         result_queue.put(("ok", {"segments": segments, "model": model, "embeddings": embeddings,
                                  "device": run_info.get("device", "cpu"),
                                  "fell_back_to_cpu": bool(run_info.get("fell_back_to_cpu")),
-                                 "fallback_reason": run_info.get("fallback_reason")}))
+                                 "fallback_reason": run_info.get("fallback_reason"),
+                                 "fallback_kind": run_info.get("fallback_kind")}))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, str(exc)))
 
@@ -432,3 +442,8 @@ def load_embeddings(drama_dir: str) -> dict:
     the last detection run, or {} if there are none (no run yet, an
     older save from before Step 8, or pyannote 3.x with nothing to save)."""
     return _read_turns_file(drama_dir).get("embeddings") or {}
+
+
+def fallback_done_message(kind) -> str:
+    """The past-tense sentence for a finished run that fell back to CPU."""
+    return PLACEMENT_FALLBACK_DONE_MESSAGE if kind == "placement" else OOM_FALLBACK_DONE_MESSAGE

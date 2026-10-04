@@ -423,6 +423,14 @@ def describe_whisper_device(info: dict) -> str:
     return f"Using CPU ({info.get('compute_type')})"
 
 
+def gpu_fallback_notice(task: str, reason: str) -> str:
+    """The plain past-tense sentence every silent GPU->CPU fallback reports
+    (job result, CLI line). `reason` is already one redacted line (short_reason)."""
+    reason = " ".join(str(reason or "").split()).rstrip(".")
+    why = f" ({reason})" if reason else ""
+    return f"{task} ran on the CPU because the GPU couldn't be used{why}. This was slower than on the GPU."
+
+
 def gpu_status() -> dict:
     """Whether ctranslate2 (faster-whisper) sees a CUDA device and whether
     torch.cuda is available. Never raises; each half is None when its

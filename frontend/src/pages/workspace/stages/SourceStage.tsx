@@ -36,6 +36,7 @@ export default function SourceStage() {
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null)
   const [reloads, setReloads] = useState(0)
   const pc = usePcOnly()
   const [removeError, setRemoveError] = useState<unknown>(null)
@@ -221,7 +222,12 @@ export default function SourceStage() {
       title="Transcribe audio or video"
       summary={hasMedia ? 'audio attached' : 'upload or download a file'}
     >
-      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
+      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy}
+        onJobStarted={(id, expected) => {
+          setExpectedSeconds(expected ?? null)
+          setJobId(id)
+        }}
+      />
       <AnalyzePanel hasMedia={hasMedia} onNeedMedia={needMedia} />
     </Section>
   )
@@ -249,7 +255,7 @@ export default function SourceStage() {
         <AutofillPanel />
         <ResearchPanel />
       </Section>
-      {jobId && <JobPanel job={job} pollError={pollError} liveEta={jobId.startsWith('transcribe_')} />}
+      {jobId && <JobPanel job={job} pollError={pollError} liveEta={jobId.startsWith('transcribe_')} expectedSeconds={expectedSeconds} />}
     </div>
   )
 }
