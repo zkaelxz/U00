@@ -193,7 +193,11 @@ class TestUninstall:
 
     def test_each_deletion_is_guarded(self, iss):
         step = _func(iss, "CurUninstallStepChanged")
-        assert re.search(r"if DeleteLibrary then\s+DeleteTree\(UninstDataDir \+ '\\library'", step)
+        # Both the library and the Trash (items cleared from it wait there) go
+        # under the same DeleteLibrary guard, and nowhere else.
+        assert re.search(r"if DeleteLibrary then\s+begin\s+DeleteTree\(UninstDataDir \+ '\\library'[^\n]*\n"
+                         r"\s*(//[^\n]*\n\s*)*DeleteTree\(UninstDataDir \+ '\\baihe_trash'[^\n]*\n\s*end;", step)
+        assert step.count("'\\baihe_trash'") == 1
         assert re.search(r"if DeleteSettings and FileExists\(UninstDataDir \+ '\\\.env'\) then\s+"
                          r"if DeleteFile\(UninstDataDir \+ '\\\.env'\)", step)
         assert re.search(r"if DeleteModels then\s+DeleteTree\(UninstDataDir \+ '\\model_cache'", step)
