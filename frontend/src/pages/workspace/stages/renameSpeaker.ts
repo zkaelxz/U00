@@ -47,11 +47,20 @@ export function saveRenameUndo(dramaId: number, undo: RenameUndo | null, store: 
   }
 }
 
+const norm = (x: string) => x.normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean).join(' ')
+
+/** Names that would clash with `label`: every other speaker's label and name. */
+export function takenNames(entries: { speaker_label: string; character_name: string }[], label: string): string[] {
+  return entries.filter((e) => e.speaker_label !== label).flatMap((e) => [e.speaker_label, e.character_name]).filter(Boolean)
+}
+
 /** A plain-English reason the name can't be used, or null when it can. */
 export function renameProblem(label: string, name: string, taken: string[]): string | null {
   const n = name.trim()
   if (!n) return 'Type a name.'
   if (n === label) return 'That is already its name.'
-  if (taken.includes(n)) return 'Another speaker already has that name.'
+  if (n.length > 100) return 'Use 100 characters or fewer.'
+  if (n.includes('..') || /[\\/\u0000-\u001f\u007f]/.test(n)) return "Names can't contain slashes, '..' or control characters."
+  if (taken.some((t) => norm(t) === norm(n))) return 'Another speaker already has that name.'
   return null
 }

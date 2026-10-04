@@ -23,7 +23,7 @@ import {
   unsetPronounsLabel,
   type CharacterForm,
 } from './characterForm'
-import { readRenameUndo, renameProblem, saveRenameUndo } from './renameSpeaker'
+import { readRenameUndo, renameProblem, saveRenameUndo, takenNames } from './renameSpeaker'
 import './characters.css'
 
 const COLUMNS = 7
@@ -165,8 +165,11 @@ function Row({ entry, engines, bank, hasSeries, taken, onSaved, onRemembered, on
           )}
           <div className="character-extras">
             {renaming === null ? (
-              <button type="button" disabled={busy}
-                title="Gives this speaker a name on every one of its lines and in translation."
+              <button type="button" disabled={busy || Boolean(entry.series_character_id) || entry.line_count === 0}
+                title={entry.series_character_id
+                  ? 'This speaker is linked to a series character; unlink it first or rename the series character.'
+                  : entry.line_count === 0 ? 'This speaker has no lines to rename.'
+                    : 'Gives this speaker a name on every one of its lines and in translation.'}
                 onClick={() => setRenaming(entry.character_name || '')}>
                 Rename speaker
               </button>
@@ -331,7 +334,7 @@ export function CharactersPanel() {
                 engines={engines}
                 bank={bank}
                 hasSeries={Boolean(drama.series_id)}
-                taken={entries.map((x) => x.speaker_label)}
+                taken={takenNames(entries, e.speaker_label)}
                 onSaved={(saved) => {
                   replace(saved)
                   setSuggestRefresh((n) => n + 1)

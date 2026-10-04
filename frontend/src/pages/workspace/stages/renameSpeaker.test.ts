@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { RenameUndo } from '../../../types/characters'
-import { readRenameUndo, renameProblem, saveRenameUndo } from './renameSpeaker'
+import { readRenameUndo, renameProblem, saveRenameUndo, takenNames } from './renameSpeaker'
 
 const undo: RenameUndo = {
   speaker_label: 'Mei', previous_label: 'Speaker 1', previous_character_name: null,
@@ -36,5 +36,20 @@ describe('renameProblem', () => {
     expect(renameProblem('A', ' A ', [])).toBe('That is already its name.')
     expect(renameProblem('A', 'B', ['A', 'B'])).toBe('Another speaker already has that name.')
     expect(renameProblem('A', ' Mei ', ['A', 'B'])).toBeNull()
+  })
+})
+
+describe('renameProblem rules', () => {
+  it('compares normalised and checks characters', () => {
+    expect(renameProblem('A', ' ａｎｎａ ', ['Anna'])).toBe('Another speaker already has that name.')
+    expect(renameProblem('A', 'speaker   2', ['Speaker 2'])).toBe('Another speaker already has that name.')
+    expect(renameProblem('A', 'a/b', [])).toMatch(/slashes/)
+    expect(renameProblem('A', 'x..y', [])).toMatch(/slashes/)
+    expect(renameProblem('A', 'n'.repeat(101), [])).toMatch(/100/)
+  })
+
+  it('takenNames lists other speakers labels and names', () => {
+    const e = [{ speaker_label: 'A', character_name: 'Mei' }, { speaker_label: 'B', character_name: 'Lin' }, { speaker_label: 'C', character_name: '' }]
+    expect(takenNames(e, 'A')).toEqual(['B', 'Lin', 'C'])
   })
 })
