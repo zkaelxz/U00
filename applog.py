@@ -84,7 +84,7 @@ def tail(n: int = 50):
 def filter_lines(lines: list, keyword: str = "") -> list:
     """Returns only the entries of `lines` containing `keyword`
     (case-insensitive) -- every line unchanged if `keyword` is blank. Used
-    by Diagnostics' log keyword filter box (Step 18 item 4), so finding
+    by Diagnostics' log keyword filter box, so finding
     "what happened with drama X" doesn't mean reading every line by eye."""
     keyword = (keyword or "").strip()
     if not keyword:

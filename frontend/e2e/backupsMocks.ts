@@ -1,6 +1,6 @@
 import type { Page, Route } from '@playwright/test'
 
-// Stateful page.route mocks for /api/backups/* (automatic backups, Step 43)
+// Stateful page.route mocks for /api/backups/* (automatic backups)
 // and the backup job's /api/jobs poll. Every write is recorded in `posts`;
 // settings changes are kept, so a reload shows what was saved.
 

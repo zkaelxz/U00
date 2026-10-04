@@ -1,5 +1,5 @@
 """
-bulk_translate.py -- Step 9's "Bulk (cheaper, slower)" translation, for
+bulk_translate.py -- the "Bulk (cheaper, slower)" translation, for
 work nobody is waiting on.
 
   - Claude: Message Batches API (50% off, most batches within an hour,
@@ -9,8 +9,8 @@ work nobody is waiting on.
     is scheduled into the next off-peak window and runs as a normal
     translation then.
 
-Every batch request is submitted at once, numbered by permanent line id
-(Step 2), and the batch id is saved on disk (db.bulk_jobs) with each
+Every batch request is submitted at once, numbered by permanent line id,
+and the batch id is saved on disk (db.bulk_jobs) with each
 line's id, a hash of its source text and its English at submission, so a
 restarted app can pick the batch back up. Results can come back hours
 later and in any order, so they're applied by line id only, and only to
@@ -110,7 +110,7 @@ class ClaudeBatchProvider:
         return {"custom_id": key, "params": self.engine.build_request_params(context, numbered)}
 
     def build_prompt_request(self, key: str, prompt: str, max_tokens: int = 3000) -> dict:
-        """Step 9d: a plain single-user-message request, no system prompt
+        """A plain single-user-message request, no system prompt
         and no glossary/style context -- the same shape call_llm_json's
         own Claude branch sends, used by flag/consistency/emotion/
         translation-notes and Reflect's own three passes, none of which
@@ -161,7 +161,7 @@ class GeminiBatchProvider:
                 "metadata": {"key": key}}
 
     def build_prompt_request(self, key: str, prompt: str, max_tokens: int = 3000) -> dict:
-        """Step 9d: see ClaudeBatchProvider.build_prompt_request's own
+        """See ClaudeBatchProvider.build_prompt_request's own
         docstring -- same plain-prompt shape, no systemInstruction."""
         return {"request": {"contents": [{"parts": [{"text": prompt}]}]},
                 "metadata": {"key": key}}
@@ -283,7 +283,7 @@ def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_siz
         ctx["upcoming_lines"] = [ln.zh for ln in lines[last_pos + 1:last_pos + 1 + context_window_ahead]
                                  if ln.zh.strip() and ln.id not in batch_ids] if context_window_ahead > 0 else []
         speaker_labels = [character_names.get(ln.speaker) for ln in batch]
-        # Step 50: same per-batch signal the live translation loop already
+        # Same per-batch signal the live translation loop already
         # sets, so build_stable_prompt()'s bounded novel-reference retrieval
         # works identically for a bulk-submitted batch.
         ctx["batch_source_lines"] = [ln.zh for ln in batch]
@@ -337,7 +337,7 @@ def schedule_offpeak_translation(drama_id: int, lines, engine_choice: str, model
 
 
 # ---------------------------------------------------------------------------
-# Step 9d: generic per-line LLM batch kinds -- flag_uncertain_lines,
+# Generic per-line LLM batch kinds -- flag_uncertain_lines,
 # check_consistency_llm, detect_emotions and generate_translation_notes_llm
 # all already batch-process a drama's lines through one LLM call per
 # window; this reuses everything above (the providers, db.bulk_jobs/
@@ -352,7 +352,7 @@ def schedule_offpeak_translation(drama_id: int, lines, engine_choice: str, model
 # numbers its prompt by permanent line id (id_fn=lambda
 # ln: ln.id on the id-aware builders; consistency's own prompt has no
 # per-line id at all -- see build_consistency_prompt's docstring), never
-# by ln.idx -- exactly the reason Step 2 moved translation off idx in the
+# by ln.idx -- exactly the reason translation moved off idx in the
 # first place: a bulk result can land hours later, by which point a
 # position could point at a completely different line.
 
@@ -499,7 +499,7 @@ def submit_bulk_translation_notes(drama_id: int, lines: list, engine, engine_cho
 
 
 # ---------------------------------------------------------------------------
-# Step 9d: Reflect mode, bulk -- the same faithfulness -> reflection ->
+# Reflect mode, bulk -- the same faithfulness -> reflection ->
 # expressiveness pipeline as translate_engines.reflect_translate_batch,
 # but as three SEQUENTIAL bulk submissions instead of three in-process
 # calls. Confirmed directly against both Claude's Message Batches and
@@ -1469,7 +1469,7 @@ def cancel_bulk_job(bulk_job_id: int, provider=None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 25c: after a normal (non-bulk) whole-drama translation run
+# After a normal (non-bulk) whole-drama translation run
 # ---------------------------------------------------------------------------
 
 def untranslated_line_count(drama_id: int) -> int:
@@ -1527,7 +1527,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     untranslated selection. A cancelled run saves no version: it isn't a
     finished translation to compare against.
 
-    summary_engine (Step 74), if given, generates this episode's running
+    summary_engine, if given, generates this episode's running
     summary ONCE, here -- only once the drama actually reaches "translated"
     and only for a non-cancelled run -- and stores it on the drama row for
     the next episode of the same series to read forward. None (the
@@ -1537,7 +1537,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     spending cap; a paid summary engine is skipped once it's used up
     (checked right before the call). None or 0 means no cap.
 
-    line_scoped (B-27) marks a run restricted to some lines (e.g. a retry
+    line_scoped marks a run restricted to some lines (e.g. a retry
     of one content-blocked line on another engine): it must not replace
     the drama's recorded translation_engine, which describes the whole-
     drama run, nor its last_translate_errors, nor save a new active
@@ -1608,7 +1608,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # the review queue like any other flag (never replacing an existing one).
     # Unconditional (not just when flag_dense_lines finds something new):
     # translate_lines_with_engine may already have set a content_blocked flag
-    # on some lines (Step 31), and that has to reach the database too, or it
+    # on some lines, and that has to reach the database too, or it
     # only ever exists on this run's in-memory copies.
     import subtitle_formats
     subtitle_formats.flag_dense_lines(lines)

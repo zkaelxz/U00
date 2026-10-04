@@ -1,4 +1,4 @@
-// Step 115b: the "Import with lightnovel-crawler" form, checked before it is
+// The "Import with lightnovel-crawler" form, checked before it is
 // sent. The server checks everything again (and that the host is public).
 import type { LncrawlChapters, LncrawlImportRequest, NovelMode } from '../../../types/workspace'
 

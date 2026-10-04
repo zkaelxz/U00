@@ -7,7 +7,7 @@
 //      POST /api/sources/{name}/save            {series_id, chapter_ids} -> {job_id: 'sources_save'}
 //   POST /api/sources/tracked                {source, series_id, tracked: true, drama_id?} -> TrackedSeries[]
 //   POST /api/sources/{name}/import/{chapter_id}/ai-recover {series_id, drama_id, engine, confirm} -> same job id
-//   GET /api/sources/{name}/import-state?series_id=&drama_id= -> ImportState (Step 107)
+//   GET /api/sources/{name}/import-state?series_id=&drama_id= -> ImportState
 //   POST /api/media/dramas/{id}/download-url {url, audio_only, confirm_replace_audio} -> {job_id: 'urlmedia_<drama>'}
 //
 // All but the last (download-url) are `sources.import`; their job results come from

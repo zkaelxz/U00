@@ -1,9 +1,9 @@
 """
 action_tiers.py -- the shared 🟢/🟡/🔴 action-permission-tier classification
 for anything an AI-driven feature in this app (starting with the future
-in-app maintenance assistant, Step 42) might do on its own.
+in-app maintenance assistant) might do on its own.
 
-The problem this solves: Step 42's maintenance assistant and Step 43's
+The problem this solves: the maintenance assistant and the
 soft-delete/confirm-and-review feature each need to decide "can this run
 automatically, does it need a diff shown first, or does it need a
 separate, explicit yes" -- and without one shared place to check, every
@@ -87,8 +87,7 @@ ACTION_TIERS: dict[str, ActionTier] = {
 # to modify than the rest of the app" guarantee.
 _PROTECTED_MODULE_NAMES = frozenset({
     "action_tiers.py",
-    # Step 42's maintenance assistant: its own tool table and routes
-    # (roadmap Step 42 item 6).
+    # The maintenance assistant: its own tool table and routes.
     "maintenance_assistant_service.py", "assistant_pytest_guard.py",
     "assistant_roles_service.py", "assistant_github_service.py", "assistant_github_routes.py",
     "assistant_routes.py", "assistant_schemas.py",

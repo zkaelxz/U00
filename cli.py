@@ -106,10 +106,10 @@ def _replace_drama_lines(drama_id: int, lines, snapshot_label: str) -> bool:
 
 @contextlib.contextmanager
 def _gpu_lock(description: str, poll_interval: float = 5.0):
-    """Step 25w: cross-process GPU guard, shared with the live UI's
+    """Cross-process GPU guard, shared with the live UI's
     background_jobs.py through the gpu_lock table in the shared library.db
     (see db.try_acquire_gpu_lock's own docstring). The CLI never starts
-    background jobs, so the in-process guard (Step 5c) never covers a CLI
+    background jobs, so the in-process guard never covers a CLI
     run; it takes a slot through background_jobs.try_take_gpu_slot, so the
     "GPU jobs at once" setting and its free-VRAM check apply to a CLI run
     the same as to the app's jobs. Waits and
@@ -612,7 +612,7 @@ def cmd_translate(args):
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
     # Same default as the service: an explicit --engine, else the drama's
     # saved translation_engine, else the Settings engine for everyday
-    # translation (Step 36 capability "translation.cheap").
+    # translation (capability "translation.cheap").
     def _engine_name_for(d):
         return (args.engine or d.get("translation_engine")
                 or engine_routing_service.resolve_capability("translation.cheap"))
@@ -632,7 +632,7 @@ def cmd_translate(args):
                 free_tier=_gemini_free_tier(name),
                 base_url=_ollama_url(args) if name == "ollama" else None)
         return _engines[name]
-    # Step 74: UI parity -- Workspace's own Translate button builds this
+    # UI parity -- Workspace's own Translate button builds this
     # same optional summary_engine before starting the job (defaulting to
     # local Ollama); a missing/unreachable one just skips the summary
     # rather than failing the translate command.
@@ -690,7 +690,7 @@ def cmd_translate(args):
         # match the API: she/her off, genre notes on). Everything else --
         # series glossary, learned style profile, emotion guidance, gender
         # hints, speaker names -- comes from the same builder the translate
-        # run service uses (B-20).
+        # run service uses.
         style_preset = args.style_preset or (
             "novel" if d.get("content_mode") == "novel_narration" else "audio_drama")
         glossary_terms, style_guidelines, character_names = \
@@ -755,7 +755,7 @@ def cmd_translate(args):
         cap_reached = {}
         def _progress(frac, did=d["id"]):
             if _gpu_holder:
-                # Step 25w: --engine ollama holds the cross-process GPU
+                # --engine ollama holds the cross-process GPU
                 # lock for this whole batch (see below) -- refreshed here,
                 # on every batch's own progress tick, so a long run doesn't
                 # look abandoned to another process before it's done.
@@ -813,7 +813,7 @@ def cmd_translate(args):
             cost_cap_usd=cost_cap,
             cap_cb=lambda spent: cap_reached.update(spent=spent),
         )
-        # Same post-translate steps as the Workspace Translate job (Step 25c):
+        # Same post-translate steps as the Workspace Translate job:
         # enforce_exact glossary terms, density flags, a saved version,
         # persisted batch errors -- and "translated" only once no line is
         # left, so the retry suggested below (default --status aligned)
@@ -840,7 +840,7 @@ def cmd_translate(args):
         else:
             print(f"\n#{d['id']} translated.")
 
-    # Step 25w: only --engine ollama actually touches the GPU here (every
+    # Only --engine ollama actually touches the GPU here (every
     # other translate engine is a remote API call) -- the cross-process
     # lock only needs to guard that case, not every translate run.
     _gpu_ctx = (_gpu_lock(f"CLI translate --engine ollama ({len(dramas)} drama(s))")
@@ -854,7 +854,7 @@ def cmd_dub(args):
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="translated")
 
     def step(d):
-        # Step 26c: original-language narration speaks ln.zh, so it needs
+        # Original-language narration speaks ln.zh, so it needs
         # source text, not a translation -- matches the Workspace tab's
         # own dub button, which has no "must be translated first" gate.
         is_narration = d.get("content_mode") == "novel_narration"
@@ -898,7 +898,7 @@ def cmd_dub(args):
                 return
         print(f"#{d['id']} generating {'narration' if is_narration else 'dub'} track...")
 
-        # Step 25w: same clone_map_uses_local_model check the Workspace tab's
+        # Same clone_map_uses_local_model check the Workspace tab's
         # own Dub job uses to decide gpu_touching -- only some clone/TTS
         # backends actually load a local model onto the GPU (GPT-SoVITS,
         # OmniVoice, ...); edge-tts/cloud backends don't, and don't need to
@@ -923,7 +923,7 @@ def cmd_dub(args):
                 **stretch, **narration_kwargs,
             )
         if bg_source:
-            # Step 95: same background mix the Dub API job does; a failed
+            # Same background mix the Dub API job does; a failed
             # separation keeps the plain dub track.
             try:
                 dub_module.mix_original_background(
@@ -950,7 +950,7 @@ def cmd_dub(args):
 
 
 def cmd_inspect_line(args):
-    """Step 58's "what happened here?" view, headless -- same real data
+    """The "what happened here?" view, headless -- same real data
     the Workspace Review & edit tab's 🔍 What happened? button shows."""
     import debug_view
     drama = db.get_drama(args.id)
@@ -986,7 +986,7 @@ def cmd_run(args):
 
 
 def cmd_doctor(args):
-    """Step 97: pre-flight one engine's credentials/reachability before
+    """Pre-flight one engine's credentials/reachability before
     committing a batch job to it -- catches a dead API key or an
     unreachable local Ollama server up front, with a real (but minimal,
     single-line) call, instead of discovering it mid-job."""
@@ -1018,7 +1018,7 @@ def main():
     p_list.add_argument("--status", default=None)
     p_list.set_defaults(func=cmd_list)
 
-    p_inspect = sub.add_parser("inspect-line", help="Step 58: \"what happened here?\" for one line")
+    p_inspect = sub.add_parser("inspect-line", help="Show \"what happened here?\" for one line")
     p_inspect.add_argument("--id", type=int, required=True)
     p_inspect.add_argument("--line", type=int, required=True, help="1-based line number")
     p_inspect.set_defaults(func=cmd_inspect_line)
@@ -1057,7 +1057,7 @@ def main():
     p_translate.add_argument("--model", default=None)
     p_translate.add_argument("--episode-summary-engine", default=None,
                              choices=list(translate_engines.ENGINES),
-                             help="Step 74: engine for the once-per-episode running-summary call "
+                             help="Engine for the once-per-episode running-summary call "
                                   "made after a drama finishes translating, fed forward as "
                                   "continuity context into the next episode of the same series. "
                                   "Defaults to the Settings episode-summary engine (local Ollama "
@@ -1102,7 +1102,7 @@ def main():
     p_translate.add_argument("--ollama-url", default=None,
                              help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
     p_translate.add_argument("--reflect", action="store_true",
-                             help="Step 7 'High quality' Reflect mode: three passes per batch "
+                             help="'High quality' Reflect mode: three passes per batch "
                                   "(faithful draft, critique, rewrite) instead of one -- costs "
                                   "about 3x as much. The critique is saved as a translation note "
                                   "per line.")
@@ -1113,7 +1113,7 @@ def main():
                            default=None,
                            help="Refuse to start / stop once this calendar month's logged spend "
                                 "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
-    # Step 32: matches the Workspace tab's own three sliders. Unset means
+    # Matches the Workspace tab's own three sliders. Unset means
     # the service's per-drama defaults (translate_run_service.
     # get_translate_config_defaults): 6/3/20, or 10/6/30 for novel narration.
     p_translate.add_argument("--context-window", type=int, default=None,
@@ -1154,8 +1154,7 @@ def main():
     p_dub.add_argument("--tts-engine", default="edge_tts", choices=["edge_tts", "offline"],
                        help="Fallback TTS engine used where a character has no cloned voice "
                             "reference set (same choice as Workspace's own 8. AI dub / "
-                            "narration section). Step 25d item 10: this command used to have "
-                            "no such flag at all, so it could only ever use edge-tts.")
+                            "narration section). Defaults to edge-tts.")
     p_dub.add_argument("--gpt-sovits-url", default=None,
                        help="GPT-SoVITS server for characters using it "
                             f"(default {dub_module.GPT_SOVITS_DEFAULT_URL})")
@@ -1220,7 +1219,7 @@ def main():
     p_export_video.add_argument("--subs", default="english", choices=["english", "bilingual", "chinese"])
     p_export_video.set_defaults(func=cmd_export_video)
 
-    p_doctor = sub.add_parser("doctor", help="Step 97: pre-flight one engine's credentials/"
+    p_doctor = sub.add_parser("doctor", help="Pre-flight one engine's credentials/"
                               "reachability with a real, minimal translate call")
     p_doctor.add_argument("--engine", required=True, choices=list(translate_engines.ENGINES))
     p_doctor.add_argument("--api-key", default=None)

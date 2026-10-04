@@ -1,6 +1,5 @@
 """
-sources/adapters/52shuku.py -- 52shuku.net (zh, BL/GL/romance novels),
-roadmap Step 23e.
+sources/adapters/52shuku.py -- 52shuku.net (zh, BL/GL/romance novels).
 
 No Keiyoushi/Mihon extension exists for this site (checked directly, a
 full local clone grepped for the name -- zero matches). Technique read

@@ -1,7 +1,7 @@
 """
 sensevoice_tags.py -- optional audio-derived emotion and sound-event tags
 per line, from SenseVoiceSmall (https://github.com/FunAudioLLM/SenseVoice),
-run alongside Whisper transcription (Step 6).
+run alongside Whisper transcription.
 
 SenseVoiceSmall labels each clip with one of 7 emotions (happy, sad, angry,
 neutral, fearful, disgusted, surprised) and audio events (background music,

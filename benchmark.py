@@ -184,7 +184,7 @@ def run_suite(cases: list, stage: str, **kwargs):
 
 def compare_configs(case: dict, stage: str, configs: list):
     """
-    Step 24: runs ONE case through each config back to back, for a
+    Runs ONE case through each config back to back, for a
     side-by-side view. configs: [(label, kwargs), ...] -- e.g. two
     translation engines, two OCR backends, two Whisper sizes.
 
