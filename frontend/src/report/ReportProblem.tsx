@@ -225,6 +225,7 @@ function ReportResult({ result, hadScreenshot, onClose }: {
     } else {
       setShowText(true)
       setNote(touch ? 'Long-press the text below to copy it.' : 'Press Ctrl+C to copy the selected text.')
+      // The textarea only exists once showText has rendered; wait a frame so textRef is set.
       requestAnimationFrame(() => {
         textRef.current?.focus()
         textRef.current?.select()

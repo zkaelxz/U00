@@ -1,8 +1,8 @@
 /*
  * Client-side .epub -> plain text for the Translate page's "Open a file".
- * Parity with tabs/translate_tab.py, which called core.load_novel_text_for_context
- * -> epub_io.import_epub_text: every chapter's text, script/style dropped,
- * chapters joined by a blank line. Differences, on purpose: chapters follow the
+ * Every chapter's text, script/style dropped, chapters joined by a blank line
+ * (the server-side reference is epub_io.import_epub_text). Differences from it,
+ * on purpose: chapters follow the
  * OPF spine (reading order) rather than manifest order, only each chapter's
  * <body> is read (no <title> repeats), and each paragraph becomes one line
  * instead of get_text(separator="\n")'s one-line-per-text-node.
@@ -87,7 +87,7 @@ export function nodeText(root: TextNode): string {
 
 /**
  * Parse as XHTML first, so self-closed tags like <title/> or <script src=""/>
- * close (as BeautifulSoup did for the Streamlit tab); fall back to the lenient
+ * close (as BeautifulSoup does server-side); fall back to the lenient
  * HTML parser when the chapter is not well-formed XML.
  */
 function domHtmlToText(markup: string): string {

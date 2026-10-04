@@ -2,7 +2,7 @@
 
 import type { GlossaryImportResult } from '../../../types/translateStage'
 
-// Same cap as api/schemas.py GlossaryImportRequest.text.
+// Same cap as api/schemas/characters.py GlossaryImportRequest.text.
 export const MAX_IMPORT_CHARS = 1_000_000
 export const GLOSSARY_FILE_ACCEPT = '.csv,.tsv,.json,.txt,text/csv,text/tab-separated-values,application/json,text/plain'
 

@@ -5,7 +5,6 @@ import { mockDiscover, openTab, posts } from './discoverMocks'
 // Desktop: Discover bulk import's manual fallback (DI07): paste the listing
 // text a plain fetch couldn't read; the same review and add follow.
 
-// Some sections now start open; click only a closed one, as a user would.
 const openSection = async (page: Page, title: string) => {
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()

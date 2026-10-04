@@ -57,6 +57,9 @@ function DiskUsageLive() {
   const latest = useRef(0)
   const latestTrash = useRef(0)
 
+  // A new scan aborts the previous one, and the ticket drops the aborted scan's late answer so it cannot
+  // overwrite the newer scan or set `cancelled`. Only the user's Cancel aborts without bumping the ticket,
+  // so it is the only abort that reaches setCancelled.
   const load = useCallback((path: string, keepNotice = false) => {
     abort.current?.abort()
     const ctl = new AbortController()

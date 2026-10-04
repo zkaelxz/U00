@@ -1,7 +1,7 @@
 import { DEFAULT_STAGE } from '../../router'
 
-// Pipeline stages of the Workspace. Streamlit's Transcript and Diarize tabs
-// live inside 'source' here. To add a stage: an id here, a label, and one
+// Pipeline stages of the Workspace. Transcript and Diarize live inside
+// 'source'. To add a stage: an id here, a label, and one
 // line in stageRegistry.ts.
 export const STAGE_IDS = ['source', 'translate', 'review', 'dub', 'export'] as const
 export type StageId = (typeof STAGE_IDS)[number]

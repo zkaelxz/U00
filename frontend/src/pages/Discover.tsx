@@ -1,6 +1,5 @@
 /*
- * Discover page (#/discover), ported from tabs/discover_tab.py
- * (inventory section 9, DI01-DI10).
+ * Discover page (#/discover).
  *
  * One engine picker at the top is used by every AI action on the page
  * (DI01); only its name is sent, the key stays on the PC. Three tabs, the

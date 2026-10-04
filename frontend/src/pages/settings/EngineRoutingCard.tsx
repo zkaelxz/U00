@@ -77,6 +77,9 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
     }
   }, [refreshToken])
 
+  // Optimistic: the choice shows at once and rolls back if the save fails. Both the update and the rollback
+  // replace just this capability by id, never a snapshot of the whole routing, because other rows may have been
+  // saved or refreshed while this request was in flight.
   async function choose(cap: CapabilityRoute, engine: string | null) {
     setError(null)
     setRouting((cur) => (cur ? replaceCapability(cur, withChoice(cap, engine)) : cur)) // optimistic

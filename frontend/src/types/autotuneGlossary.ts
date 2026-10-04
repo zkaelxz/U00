@@ -1,6 +1,6 @@
-// Mirrors api/schemas.py: Autotune* (route batch 2C, transcribe_routes.py),
-// NovelGlossary* (glossary_routes.py) and the PC-only stage deletes
-// (delete_routes.py) plus CharactersSeriesEntry (characters_routes.py).
+// Mirrors api/schemas/transcribe.py Autotune* (transcribe_routes.py),
+// characters.py NovelGlossary* (glossary_routes.py) and CharactersSeriesEntry
+// (characters_routes.py), plus the PC-only stage deletes (delete_routes.py).
 
 export interface AutotuneRunRequest {
   candidates?: number[]

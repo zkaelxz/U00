@@ -60,6 +60,7 @@ export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLab
 
   const on = (event: ConfirmEvent) => {
     const next = confirmStep(live, event, blocked)
+    // Refocus only after a disarm the user made; after a blur or timeout focus has moved on and must not be pulled back.
     if (live && !next.armed && event !== 'blur' && event !== 'timeout') refocus.current = true
     setArmed(next.armed)
     if (next.run) onConfirm()

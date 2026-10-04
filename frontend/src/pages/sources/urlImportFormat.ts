@@ -9,12 +9,12 @@ import type {
   ChapterImportResult, ChapterImportRow, ChapterSaveResult, ChapterSaveRow, ImportState, UrlImportResult, UrlPreview,
 } from '../../types/sourcesImport'
 
-// Remote viewers may not import from sources yet (docs/remote-access-decision.md:
-// S-3..S-6 stay off non-local clients), same as searching (SEARCH_REMOTE_ALLOWED).
+// While false, other devices cannot import or track from the UI (PC only),
+// same as searching (SEARCH_REMOTE_ALLOWED); see docs/remote-access-decision.md.
 export const IMPORT_REMOTE_ALLOWED = false
 
 export const MAX_URL_LEN = 2000
-// R3 accepts 1..200 chapter ids per request.
+// The chapter import route accepts 1..200 chapter ids per request.
 export const MAX_CHAPTERS = 200
 
 // ---------------------------------------------------------------- links
@@ -179,7 +179,7 @@ export const outcomeTone = (outcome: string) =>
     : outcome === 'failed' ? 'bad'
       : outcome === 'not_found' || outcome === 'not_attempted' || outcome === 'needs_ai' ? 'warn' : 'muted'
 
-/** Comic imports: pages are stored, but React has no page viewer yet. */
+/** Comic imports: the note shown after pages are stored. */
 export function comicNote(r: ChapterImportResult): string | null {
   const pages = r.chapters.reduce((n, c) => n + (c.outcome === 'imported' && typeof c.pages === 'number' ? c.pages : 0), 0)
   if (!pages) return null

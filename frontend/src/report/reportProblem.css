@@ -46,6 +46,7 @@ button.report-btn:hover:not(:disabled) { color: var(--text); }
 .report-row:first-child { border-top: 0; }
 .report-row dt { font-weight: 600; }
 .report-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+/* Lists here reset padding with `!important` for the same reason: `.panel ul` out-ranks a single class (see index.css). */
 .report-items { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: 2px; }
 .report-items.mono { font-family: var(--font-mono); font-size: var(--text-sm); }
 .report-item-name { font-weight: 500; }

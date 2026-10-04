@@ -1,5 +1,5 @@
-// Hand-written mirrors of api/schemas.py's Review AI extras (MergeShort*,
-// Style*, SenseVoice*, BurnPreview*). Routes: /api/review-extras/dramas/{id}/...
+// Hand-written mirrors of the Review AI extras in api/schemas/review.py (MergeShort*,
+// Style*, SenseVoice*) and library.py (BurnPreview*). Routes: /api/review-extras/dramas/{id}/...
 import type { AssStyleOverrides } from './export'
 import type { RestructureResult } from './restructure'
 

@@ -28,7 +28,7 @@ export function testLine(s: DiagnosticsUpgradeCheckState | null, name: string, t
   }
 }
 
-/** The detail lists, only the non-empty ones, in the Streamlit order. */
+/** The detail lists, only the non-empty ones. */
 export function testDetails(s: DiagnosticsUpgradeCheckState): { title: string; lines: string[] }[] {
   const r = s.result
   const out: { title: string; lines: string[] }[] = []

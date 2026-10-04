@@ -1,5 +1,5 @@
-// Pure helpers for the Library list's "More filters" (inventory L07): the
-// Streamlit tab's Studio, Author, Voice actor, Language, Type and Custom tags.
+// Pure helpers for the Library list's "More filters": Studio, Author, Voice
+// actor, Language, Type and Custom tags.
 import type { DramaFilters } from '../api/types'
 
 export interface MoreFilters {

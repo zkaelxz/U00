@@ -1,8 +1,6 @@
 import { expect, test } from './fixtures'
 import { openSettingsGroups } from './settingsNav'
 
-// Needs SettingsPage wired at #/settings (the lead does that); until then
-// the placeholder is shown and this spec fails by design.
 test('settings toggles round-trip and keys are yes/no only', async ({ page }) => {
   await page.goto('/#/settings')
   const box = page.getByRole('switch', { name: /Notify when a job finishes/ })

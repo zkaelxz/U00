@@ -75,6 +75,7 @@ function SelectCards({ items, checked, onToggle }: {
       {items.map((d) => {
         const title = dramaName(d)
         const on = !!checked?.has(d.id)
+        // The card (li) toggles selection on click; without stopPropagation on the checkbox label a click on it would toggle twice.
         return (
           <li key={d.id} className={on ? 'drama-card selected' : 'drama-card'} onClick={() => onToggle(d.id)}>
             <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true">{tileText(d)}</div>

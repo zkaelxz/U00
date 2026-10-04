@@ -1,4 +1,5 @@
-// Mirrors api/schemas.py for the Workspace Source/Transcribe stage:
+// Mirrors api/schemas/library.py (Media*), transcribe.py (Transcribe*, Diarization*) and
+// reader.py (Novel*) for the Workspace Source/Transcribe stage:
 // MediaStatus, MediaUploadResult, UploadAndTranscribeResult, TranscribeConfig(Update),
 // TranscribeRunRequest/Result, DiarizationRunResult, NovelAttach*, NovelStatus.
 
@@ -79,7 +80,7 @@ export interface TranscribeRunRequest {
   tesseract_cmd?: string | null
 }
 
-// GET /api/diarization/dramas/{id}/config (api/schemas.py DiarizationConfig).
+// GET /api/diarization/dramas/{id}/config (api/schemas/transcribe.py DiarizationConfig).
 export interface DiarizationConfig {
   drama_id: number
   hf_token_configured: boolean
@@ -139,7 +140,7 @@ export interface KnownPlatform {
 
 export type NovelMode = 'replace' | 'append'
 
-// Step 115b: mirrors api/schemas.py LncrawlStatus / LncrawlImportRequest.
+// Mirrors api/schemas/sources.py LncrawlStatus / LncrawlImportRequest.
 export interface LncrawlStatus {
   installed: boolean
   path_configured: boolean
@@ -162,7 +163,7 @@ export interface NovelStatus {
   ocr_running: boolean
 }
 
-// Mirrors api/schemas.py MediaAnalysis / AutofillRequest / AutofillSuggestion (Slice 37).
+// Mirrors api/schemas/library.py MediaAnalysis / AutofillRequest / AutofillSuggestion.
 export interface MediaAnalysis {
   drama_id: number
   duration_seconds: number
@@ -197,7 +198,7 @@ export interface AutofillSuggestion {
   found: boolean
 }
 
-// api/schemas.py SourceConfig / SourceConfigUpdate (Source-stage config).
+// api/schemas/transcribe.py SourceConfig / SourceConfigUpdate (Source-stage config).
 export interface SourceConfig {
   drama_id: number
   source_language: string
@@ -215,7 +216,7 @@ export type SourceConfigUpdate = Partial<
   Pick<SourceConfig, 'source_language' | 'chinese_script' | 'content_mode' | 'transcript_mode'>
 >
 
-// api/schemas.py RetranscribeLineRequest / RetranscribeLineResult (parity audit B1, R23).
+// api/schemas/transcribe.py RetranscribeLineRequest / RetranscribeLineResult.
 export interface RetranscribeLineRequest {
   initial_prompt?: string
   extra_names?: string
@@ -227,7 +228,7 @@ export interface RetranscribeLineResult {
   line_id: number
 }
 
-// api/schemas.py RetranscribeResult: the finished proposal, raw (GET .../retranscribe).
+// api/schemas/transcribe.py RetranscribeResult: the finished proposal, raw (GET .../retranscribe).
 export interface RetranscribeResult {
   job_id: string
   line_id: number
@@ -236,7 +237,7 @@ export interface RetranscribeResult {
   base_zh: string
 }
 
-// api/schemas.py RetranscribeApplyRequest / RetranscribeApplyResult: "Use this"
+// api/schemas/transcribe.py RetranscribeApplyRequest / RetranscribeApplyResult: "Use this"
 // for exactly the proposal shown (expected_zh = base_zh, expected_proposed = proposed_zh).
 export interface RetranscribeApplyRequest {
   job_id: string
@@ -250,7 +251,7 @@ export interface RetranscribeApplyResult {
   zh: string
 }
 
-// GET /api/workflow/dramas/{id}/progress (api/schemas.py WorkflowProgress).
+// GET /api/workflow/dramas/{id}/progress (api/schemas/library.py WorkflowProgress).
 type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
 
 export interface WorkflowStageState {

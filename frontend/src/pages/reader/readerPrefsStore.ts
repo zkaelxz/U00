@@ -179,7 +179,7 @@ export function metricsLine(ov: Pick<ReaderOverview, 'percent_complete' | 'lengt
 }
 
 const MAX_CHAT_TURNS = 40
-// Server caps (api/schemas.py ReaderChatTurn/ReaderAskRequest): 20,000
+// Server caps (api/schemas/reader.py ReaderChatTurn/ReaderAskRequest): 20,000
 // characters per turn, and about 100,000 across the history.
 const MAX_TURN_CHARS = 20_000
 const MAX_HISTORY_CHARS = 100_000

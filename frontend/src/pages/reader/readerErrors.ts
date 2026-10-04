@@ -1,4 +1,4 @@
-// Reader-specific error copy (UX spec, Reader page "Errors"). Everything
+// Reader-specific error copy. Everything
 // else goes through the shared describeError, which never shows paths or keys.
 
 import { describeError, safeDetail } from '../../components/errorMessages'

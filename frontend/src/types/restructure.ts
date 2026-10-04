@@ -1,4 +1,4 @@
-// Hand-written mirrors of api/schemas.py (Restructure*, Resegment*,
+// Hand-written mirrors of api/schemas/review.py (Restructure*, Resegment*,
 // RestoreVersion*). Every write sends `expected_line_ids`: the drama's line
 // ids, in order, as the client last saw them; any difference is a 409.
 import type { ReviewLine } from './review'

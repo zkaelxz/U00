@@ -39,6 +39,7 @@ function focusPicker() {
   if (!box) return
   const details = box.closest('details')
   if (details && !details.open) details.open = true
+  // Wait a frame: a <details> that was just opened is not laid out yet, so it cannot be scrolled to or focused.
   requestAnimationFrame(() => {
     const select = box.querySelector('select')
     select?.scrollIntoView({ block: 'center' })

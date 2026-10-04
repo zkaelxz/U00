@@ -112,8 +112,8 @@ function appliedText(t: WorkflowTierApplied): string {
   return `Applied ${t.label}: ${humanize('engine', t.translation_engine)}${model}, Reflect ${t.reflect ? 'on' : 'off'}.${qc} Nothing has started.`
 }
 
-// Parity X02: Streamlit's "Starting tier" + "Apply tier". Saves the tier's
-// engine on the drama and fills the form; never starts a run.
+// "Starting tier" + "Apply tier". Saves the tier's engine on the drama and
+// fills the form; never starts a run.
 function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onApplied: (t: WorkflowTierApplied) => void }) {
   const { dramaId } = useStage()
   const tiers = config.workflow_tiers ?? []
@@ -147,7 +147,7 @@ function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onAppli
   )
 }
 
-// Parity X03: Streamlit's "Apply a preset" on an existing drama. Saves the
+// "Apply a preset" on an existing drama. Saves the
 // preset's engine on the drama, fills the form and keeps its values for later
 // visits (as a preset chosen at creation does); never starts a run.
 function PresetPicker({ onApplied }: { onApplied: (p: TranslatePresetApplied) => void }) {
@@ -197,7 +197,7 @@ function PresetPicker({ onApplied }: { onApplied: (p: TranslatePresetApplied) =>
   )
 }
 
-// Parity X22: Streamlit's "Save as preset". Captures engine, model, style,
+// "Save as preset". Captures engine, model, style,
 // locale and the two toggles. A taken name asks before replacing it.
 function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string }) {
   const [open, setOpen] = useState(false)
@@ -265,8 +265,8 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
   )
 }
 
-// Parity X24: Streamlit's "Can't reach Ollama" warning. A warning only (Streamlit
-// disabled Translate; here the run stays startable). No URL is shown: the
+// "Can't reach Ollama" warning. A warning only: the run stays startable, so
+// the server's own error is the final word. No URL is shown: the
 // server only sends a boolean. "Check again" re-reads just that flag.
 function OllamaNotice({ onRecheck }: { onRecheck: () => Promise<void> }) {
   const [pending, setPending] = useState(false)
@@ -623,7 +623,7 @@ function RunPanel({
   )
 }
 
-// Parity X01: Streamlit's warning about the last run's failed batches, with
+// Warning about the last run's failed batches, with
 // Dismiss (clears only that record; the lines stay untranslated, so running
 // Translate again retries just those).
 function FailedBatchesNotice({ config, onDismissed }: { config: TranslateRunConfig; onDismissed: () => void }) {

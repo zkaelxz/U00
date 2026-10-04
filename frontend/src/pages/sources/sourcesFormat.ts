@@ -21,8 +21,9 @@ import type {
   TierTestResult,
 } from '../../types/sources'
 
-// Remote viewers may not search sources until step 133 (docs/remote-access-
-// decision.md: S-3..S-6 stay off non-local clients). Pending a user decision.
+// While false, other devices cannot search sources from the UI (search stays
+// PC only). The server's permissions (docs/remote-access-decision.md) still
+// decide what a request may do; this is the owner's call on the UI side.
 export const SEARCH_REMOTE_ALLOWED = false
 
 export const RESULTS_PAGE = 30

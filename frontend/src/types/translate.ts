@@ -1,4 +1,4 @@
-// Hand-written mirrors of api/schemas.py (Translate-standalone models).
+// Hand-written mirrors of api/schemas/translate.py and common.py (Translate-standalone models).
 
 export interface TranslateEngine {
   name: string

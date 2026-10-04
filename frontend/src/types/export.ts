@@ -1,4 +1,4 @@
-// Mirrors api/schemas.py: ExportReadiness, FlagActionResult, AutoQcFlagResult,
+// Mirrors api/schemas/library.py: ExportReadiness, FlagActionResult, AutoQcFlagResult,
 // AssStyleOverrides, AssExportRequest, AssStyleOptions, MediaExportStarted, ArtifactInfo.
 
 export interface ExportReadiness {

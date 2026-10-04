@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { buildEpub } from '../src/pages/translateEpubFixture'
 
-// Reaches the page at `#/translate`, the route the lead wires to TranslatePage.
+// Reaches the page at `#/translate`.
 test('translates with the offline engine and lists it in history', async ({ page }) => {
   await page.goto('/#/translate')
   await expect(page.getByRole('region', { name: 'Quick translate' })).toBeVisible()

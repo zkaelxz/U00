@@ -118,6 +118,7 @@ export function SupportReportPanel() {
       document.body.appendChild(a)
       a.click()
       a.remove()
+      // Revoke after the click task, not synchronously, so the browser can start the download first.
       setTimeout(() => URL.revokeObjectURL(url), 0)
       setNote('Saved.')
     } catch {

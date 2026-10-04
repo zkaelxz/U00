@@ -1,4 +1,4 @@
-// Discover page shapes (api/schemas.py KnownTitle*, Discover*).
+// Discover page shapes (api/schemas/sources.py KnownTitle*, Discover*).
 
 export interface KnownTitle {
   id: number

@@ -1,7 +1,7 @@
-// Mirrors the S-4/S-5 import contract (docs spec s4-s5-url-import §2): the
-// paste-a-URL preview (R1), the novel-text URL import (R2), the chapter
-// import (R3), tracking (R4, existing TrackedSeries shape) and the Workspace
-// video-URL download (R5). Server text is scrubbed; URLs are scheme+host+path.
+// Mirrors api/schemas/sources.py and api/sources_import_schemas.py (contract: docs/specs/discover-sources-live-api-spec.md,
+// S-4/S-5): the paste-a-URL preview, the novel-text URL import, the chapter
+// import, tracking (existing TrackedSeries shape) and the Workspace
+// video-URL download. Server text is scrubbed; URLs are scheme+host+path.
 
 export type UrlContentType = 'video' | 'novel' | 'comic' | 'unknown'
 export type UrlRoute = 'series' | 'chapter' | 'video' | 'page'

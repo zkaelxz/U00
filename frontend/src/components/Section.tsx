@@ -59,6 +59,8 @@ export function Section({ title, summary, count, defaultOpen = false, storageKey
   )
 
   const id = useId()
+  // The group's close callback outlives renders; it reads the latest `open` through this ref so the
+  // subscription below does not re-run on every toggle.
   const openRef = useRef(open)
   useEffect(() => {
     openRef.current = open
@@ -93,6 +95,8 @@ export function Section({ title, summary, count, defaultOpen = false, storageKey
       open={open}
       onToggle={(e) => {
         const next = e.currentTarget.open
+        // React sets the `open` attribute itself and the browser then fires `toggle`; ignore that echo so
+        // storage and onToggle only see toggles made by the viewer.
         if (next === open) return
         setOpen(next)
         if (storageKey) writeSectionOpen(browserStorage(), storageKey, next)

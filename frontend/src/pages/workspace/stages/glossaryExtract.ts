@@ -42,7 +42,7 @@ export const extractionProgressText = (source: GlossarySource, status: string, p
   source === 'novel' ? novelGlossaryProgressText(status, progress) : linesGlossaryProgressText(status)
 
 // Review before translating uses the novel when one is attached, else the
-// source lines (Streamlit's "novel text, or else the lines" rule).
+// source lines.
 export const reviewSource = (hasNovel: boolean): GlossarySource => (hasNovel ? 'novel' : 'lines')
 
 // --- Edits --------------------------------------------------------------

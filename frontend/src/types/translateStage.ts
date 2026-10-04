@@ -1,5 +1,5 @@
-// Hand-written mirrors of api/schemas.py (Translate stage: translate-run,
-// glossary and characters models). Booleans and numbers only, never keys.
+// Hand-written mirrors of api/schemas/translate.py and characters.py (Translate stage:
+// translate-run, glossary and characters models). Booleans and numbers only, never keys.
 
 import type { LibraryPreset } from './library'
 import type { TranslateEngine } from './translate'

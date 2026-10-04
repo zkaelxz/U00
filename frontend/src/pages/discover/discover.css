@@ -27,6 +27,7 @@
 .discover-ok { color: var(--ok); margin: 0; }
 .discover-empty { display: grid; gap: var(--space-2); justify-items: start; }
 
+/* Lists here reset padding with `!important` for the same reason: `.panel ul` out-ranks a single class (see index.css). */
 ul.discover-list, ul.discover-review { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); }
 .discover-card {
   padding: var(--space-2) var(--space-3) !important;

@@ -171,7 +171,6 @@ async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string
 }
 
 const openSection = async (page: Page, title: RegExp) => {
-  // Some sections now start open; click only a closed one, as a user would.
   const summary = page.locator('summary', { hasText: title }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }

@@ -4,7 +4,6 @@ import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
 
-// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })

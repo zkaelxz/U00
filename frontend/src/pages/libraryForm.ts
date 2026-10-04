@@ -1,6 +1,6 @@
 import type { DramaCreateRequest, DramaDeleteResult } from '../types/library'
 
-// Caps mirror api/schemas.py DramaCreateRequest.
+// Caps mirror api/schemas/library.py DramaCreateRequest.
 export const MAX_NAME_LEN = 300
 export const MAX_SUMMARY_LEN = 5000
 export const SOURCE_LANGUAGES = ['zh', 'ja', 'ko']
