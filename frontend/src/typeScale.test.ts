@@ -1,9 +1,10 @@
+/// <reference types="node" />
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 function cssFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((n) => {
+  return readdirSync(dir).flatMap((n: string) => {
     const p = join(dir, n)
     return statSync(p).isDirectory() ? cssFiles(p) : p.endsWith('.css') ? [p] : []
   })
