@@ -46,8 +46,8 @@ class TestExplainLine:
         assert info["translation_notes"][0]["note"] == "A poetic given name."
         # Real data, not placeholders -- and every "we don't record this
         # yet" note names the actual gap rather than staying silent.
-        assert "Step 41" in info["glossary_matches_note"]
-        assert "Step 41" in info["context_window_note"]
+        assert "reproducibility metadata" in info["glossary_matches_note"]
+        assert "reproducibility metadata" in info["context_window_note"]
         assert "No per-line record" in info["prompt_version_note"]
         assert info["provenance"] is None
         assert info["context_window_used"] is None
@@ -111,7 +111,7 @@ class TestExplainJob:
             assert info["found"] is True
             assert info["duration_seconds"] == 42.5
             assert info["per_stage_breakdown"] is None
-            assert "Step 41" in info["per_stage_breakdown_note"]
+            assert "Per-stage timing" in info["per_stage_breakdown_note"]
         finally:
             background_jobs.clear_job(job_id)
 

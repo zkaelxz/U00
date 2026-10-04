@@ -26,8 +26,7 @@ def get_narration_config(drama_id: int = Path(ge=1)):
 def post_start_narration(payload: NarrationRunRequest, request: Request,
                          drama_id: int = Path(ge=1),
                          fresh: bool = Query(False, description=(
-                             "Drop an interrupted run's saved batches and start over "
-                             "(Step 41)"))):
+                             "Drop an interrupted run's saved batches and start over"))):
     require_engines_allowed(request, payload.engine)
     return narration_service.start_narration_run(
         drama_id, engine_name=payload.engine, model=payload.model, fresh=fresh)
