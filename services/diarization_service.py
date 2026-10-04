@@ -179,13 +179,17 @@ def reassign_speakers_from_saved_turns(drama_id: int) -> dict:
     return relabel_from_saved_turns(drama_id)
 
 
-def relabel_from_saved_turns(drama_id: int) -> dict:
+def relabel_from_saved_turns(drama_id: int, only_ids=None) -> dict:
     """reassign_speakers_from_saved_turns without the busy check, for a caller
-    that already holds the drama (the re-split action, whose own job is running)."""
+    that already holds the drama (the re-split action, whose own job is running).
+    only_ids: relabel just these lines; every other line keeps its speaker."""
     turns = diarize.load_turns(db.drama_dir(drama_id))
     if turns is None:
         raise ConflictError("No saved speaker detection for this drama; run Detect speakers first.")
     lines = db.load_line_objects(drama_id)
+    if only_ids is not None:
+        keep = set(only_ids)
+        lines = [ln for ln in lines if ln.id in keep]
     counts = diarize.merge_speakers(lines, turns)
     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
         db.upsert_character(drama_id, label)

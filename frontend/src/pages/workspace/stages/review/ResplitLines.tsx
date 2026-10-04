@@ -31,8 +31,8 @@ interface Props {
 }
 
 // Cuts over-long lines in place from the text already saved, and relabels
-// speakers from the detection already saved: nothing is transcribed or
-// detected again. A snapshot is taken first (Records -> Line history).
+// only the split lines from the detection already saved: nothing is
+// transcribed or detected again. A snapshot is taken first (Records -> Line history).
 export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
   const { onJobDone } = useStage()
   const [align, setAlign] = useState(false)
@@ -109,8 +109,8 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
     <div role="group" aria-label="Re-split long lines">
       <Section storageKey="review.resplit" title="Re-split long lines" summary="Cut long blocks · re-assign speakers">
         <p className="muted">
-          Cuts over-long lines at sentence ends using the text you already have, and keeps each piece's speaker from the
-          saved detection. Nothing is transcribed or detected again.
+          Cuts over-long lines at sentence ends using the text you already have. Only the split lines get speakers from
+          the saved detection; other lines keep theirs. Nothing is transcribed or detected again.
         </p>
         <div className="setting-list review-toggles">
           <Field

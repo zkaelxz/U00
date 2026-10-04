@@ -49,7 +49,7 @@ from services import (diarization_service, drama_service, settings_service, tran
 from services.review_lines_service import _line_dict
 from services.review_records_service import get_line_history_snapshot
 from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, NotFoundError,
+                                      InvalidInputError, NotFoundError, ServiceError,
                                       UnsupportedOperationError)
 
 MAX_LINE_TEXT_CHARS = 2000
@@ -630,6 +630,12 @@ def _resplit_plan(lines) -> dict:
     return plan
 
 
+def _resplit_snapshot(lines, plan) -> dict:
+    """{line_id: (start, end, zh, en)} of the planned lines, compared at commit
+    so a timing, text or translation edit made meanwhile is never overwritten."""
+    return {ln.id: (ln.start, ln.end, ln.zh, ln.en) for ln in lines if ln.id in plan}
+
+
 def _check_resplit_confirm(lines, plan, confirm):
     if confirm is not True and any(ln.en.strip() for ln in lines if ln.id in plan):
         raise InvalidInputError(_RESPLIT_CONFIRM)
@@ -651,19 +657,26 @@ def _aligned_pieces(audio_path, ln, pieces, language, use_gpu):
 
 
 def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timing: str,
-                   note: str, expected_zh: dict) -> dict:
+                   note: str, expected: dict, own_job_id: Optional[str] = None) -> dict:
     """Commit step shared by both modes: fresh lines, id check, plan check,
-    snapshot, one save, then speakers from the saved turns."""
+    snapshot, one save, then speakers from the saved turns for the split
+    lines only. `expected` is _resplit_snapshot from when the split was asked."""
     with _drama_lock(drama_id):
+        # Another job (e.g. a translation) started while aligning would write
+        # its per-line result onto the first piece, which keeps the parent's id.
+        if own_job_id and drama_service.job_running_for_drama(drama_id, own_job_id):
+            raise ConflictError("Another job started on this drama while the lines were being "
+                                "aligned -- nothing was changed; wait for it to finish and try "
+                                "again.")
         current = db.load_line_objects(drama_id)
         _check_expected(current, expected_line_ids)
-        if any(ln.id in expected_zh and ln.zh != expected_zh[ln.id] for ln in current):
-            raise ConflictError("A line's text changed while splitting -- nothing was changed; "
-                                "reload and try again.")
         plan = _resplit_plan(current)
+        if set(plan) != set(expected) or _resplit_snapshot(current, plan) != expected:
+            raise ConflictError("A line's text, timing or translation changed while splitting "
+                                "-- nothing was changed; reload and try again.")
         _check_resplit_confirm(current, plan, confirm)
         work = [dataclasses.replace(ln, orig=dict(ln.orig), merged_ids=[]) for ln in current]
-        new_lines, cleared, aligned = [], 0, 0
+        new_lines, split_out, cleared, aligned = [], [], 0, 0
         for ln in work:
             pieces = timed.get(ln.id) or plan.get(ln.id)
             if ln.id not in plan or not pieces:
@@ -674,11 +687,13 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
             aligned += ln.id in timed
             first, *rest = pieces
             ln.start, ln.end, ln.zh, ln.en = first["start"], first["end"], first["text"], ""
+            new_pieces = [core_module.Line(idx=0, start=p["start"], end=p["end"], zh=p["text"],
+                                           speaker=ln.speaker, speaker_manual=ln.speaker_manual,
+                                           sfx=ln.sfx)
+                          for p in rest]
             new_lines.append(ln)
-            new_lines.extend(
-                core_module.Line(idx=0, start=p["start"], end=p["end"], zh=p["text"],
-                                 speaker=ln.speaker, speaker_manual=ln.speaker_manual, sfx=ln.sfx)
-                for p in rest)
+            new_lines.extend(new_pieces)
+            split_out += [ln, *new_pieces]
         split = sum(1 for ln in work if ln.id in plan)
         if not split:
             return {"split_lines": 0, "line_count": len(current), "lines_before": len(current),
@@ -686,9 +701,16 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
                     "speakers_reassigned": False, "note": "No line is over the length limits."}
         _commit(drama_id, current, new_lines, "before re-split")
         reassigned = False
-        if diarize.load_turns(db.drama_dir(drama_id)) is not None:
-            diarization_service.relabel_from_saved_turns(drama_id)
-            reassigned = True
+        try:
+            if diarize.load_turns(db.drama_dir(drama_id)) is not None:
+                # save_lines wrote the new pieces' ids back onto them
+                diarization_service.relabel_from_saved_turns(
+                    drama_id, only_ids=[ln.id for ln in split_out])
+                reassigned = True
+        except Exception as exc:  # the split is saved: report it, never "nothing changed"
+            reason = (str(exc).rstrip(".") if isinstance(exc, ServiceError)
+                      else "the saved speaker detection couldn't be read")
+            note = f"Split saved; speakers were not re-assigned: {reason}. {note}".strip()
     return {"split_lines": split, "line_count": len(new_lines), "lines_before": len(current),
             "timing": timing, "aligned_lines": aligned, "cleared_translations": cleared,
             "speakers_reassigned": reassigned, "note": note}
@@ -698,31 +720,34 @@ def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, l
     lines = db.load_line_objects(drama_id)
     plan = _resplit_plan(lines)
     by_id = {ln.id: ln for ln in lines}
+    expected = _resplit_snapshot(lines, plan)
     timed, notes, aligner_down = {}, [], None
-    for n, (line_id, pieces) in enumerate(plan.items()):
-        if background_jobs.is_cancel_requested(job_id):
-            background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
-            return
-        background_jobs.update_progress(
-            job_id, min(0.95, 0.05 + 0.9 * n / len(plan)),
-            f"Aligning line {n + 1} of {len(plan)} to the audio...")
-        if aligner_down:
-            break
-        try:
-            got = _aligned_pieces(audio_path, by_id[line_id], pieces, language, use_gpu)
-        except (ImportError, core_module.ModelDownloadError) as exc:
-            aligner_down = ("The Qwen3 forced aligner isn't available "
-                            f"({translate_engines.redact_secrets(str(exc))[:200]})")
-            break
-        except Exception as exc:  # one bad line or a GPU error: that line stays proportional
-            got = None
-            if not isinstance(exc, ValueError):
-                aligner_down = ("The audio alignment failed "
+    try:
+        for n, (line_id, pieces) in enumerate(plan.items()):
+            if background_jobs.is_cancel_requested(job_id):
+                background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+                return
+            background_jobs.update_progress(
+                job_id, min(0.95, 0.05 + 0.9 * n / len(plan)),
+                f"Aligning line {n + 1} of {len(plan)} to the audio...")
+            if aligner_down:
+                break
+            try:
+                got = _aligned_pieces(audio_path, by_id[line_id], pieces, language, use_gpu)
+            except (ImportError, core_module.ModelDownloadError) as exc:
+                aligner_down = ("The Qwen3 forced aligner isn't available "
                                 f"({translate_engines.redact_secrets(str(exc))[:200]})")
                 break
-        if got:
-            timed[line_id] = got
-    core_module.release_gpu_models()
+            except Exception as exc:  # one bad line or a GPU error: that line stays proportional
+                got = None
+                if not isinstance(exc, ValueError):
+                    aligner_down = ("The audio alignment failed "
+                                    f"({translate_engines.redact_secrets(str(exc))[:200]})")
+                    break
+            if got:
+                timed[line_id] = got
+    finally:  # a cancelled or failed run must not leave the aligner holding VRAM
+        core_module.release_gpu_models()
     if background_jobs.is_cancel_requested(job_id):
         background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
         return
@@ -735,7 +760,7 @@ def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, l
     timing = "aligned" if timed else "proportional"
     try:
         result = _apply_resplit(drama_id, expected_line_ids, confirm, timed, timing,
-                                " ".join(notes), {i: by_id[i].zh for i in plan})
+                                " ".join(notes), expected, own_job_id=job_id)
     except (ConflictError, InvalidInputError) as exc:
         background_jobs.set_result(job_id, {"failed_reason": "not_applied", "detail": str(exc)})
         return
@@ -747,8 +772,8 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     """Cuts the drama's over-long lines (the limits of a fresh transcription)
     at sentence/comma boundaries in place -- no transcription, no speaker
     detection. The first piece keeps the line's id and flag; the pieces take
-    the parent's speaker, then saved diarization turns (if any) relabel them,
-    manual speakers kept. Translations can't be shared across pieces: a long
+    the parent's speaker, then saved diarization turns (if any) relabel the
+    split lines only, manual speakers kept. Translations can't be shared across pieces: a long
     line that has one needs confirm=true, and its pieces start empty.
 
     Timing is proportional to text length (instant, returned as the summary
@@ -768,13 +793,13 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     _check_resplit_confirm(lines, plan, confirm)
     if not align_to_audio or not plan:
         return _apply_resplit(drama_id, expected_line_ids, confirm, {}, "proportional", "",
-                              {i: ln.zh for ln in lines for i in [ln.id] if i in plan})
+                              _resplit_snapshot(lines, plan))
     audio_path = transcribe_service._drama_audio_path(drama_id, drama)
     if audio_path is None:
         return _apply_resplit(
             drama_id, expected_line_ids, confirm, {}, "proportional",
             "This drama has no stored audio, so the lines were split with estimated timing.",
-            {ln.id: ln.zh for ln in lines if ln.id in plan})
+            _resplit_snapshot(lines, plan))
     job_id = f"{RESPLIT_JOB_PREFIX}{drama_id}"
     started = background_jobs.start_job(
         job_id, _run_resplit_job, job_id, drama_id, expected_line_ids, confirm, audio_path,

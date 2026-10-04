@@ -1402,13 +1402,15 @@ def count_active_jobs(prefix: str) -> int:
                    if jid.startswith(prefix) and job["status"] in ("running", "queued"))
 
 
-def any_job_running_for_drama(drama_id) -> bool:
+def any_job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
     """True if any job scoped to this drama is currently running or
     queued -- for warning before a destructive, whole-drama action (e.g.
     deleting it) rather than letting that job error out against a drama
-    that no longer exists."""
+    that no longer exists. exclude_job_id: a job checking for others."""
     with _lock:
         for prefix in DRAMA_JOB_PREFIXES:
+            if f"{prefix}{drama_id}" == exclude_job_id:
+                continue
             job = _jobs.get(f"{prefix}{drama_id}")
             if job and job["status"] in ("running", "queued"):
                 return True

@@ -77,7 +77,10 @@ def test_saved_turns_relabel_pieces_and_keep_manual():
                                            {"start": 12.0, "end": 40.0, "speaker": "S2"}])
     r = svc.resplit_long_lines(did, ids)
     assert r["speakers_reassigned"] is True
-    assert [x["speaker"] for x in db.load_lines(did)[1:4]] == ["S1", "S2", "S2"]
+    rows = db.load_lines(did)
+    assert [x["speaker"] for x in rows[1:4]] == ["S1", "S2", "S2"]
+    # unsplit lines keep their speakers even where the saved turns disagree
+    assert (rows[0]["speaker"], rows[4]["speaker"]) == ("A", "A")
     did, ids = _seed(manual=True)
     diarize.save_turns(db.drama_dir(did), [{"start": 0.0, "end": 40.0, "speaker": "S1"}])
     svc.resplit_long_lines(did, ids)
@@ -154,6 +157,81 @@ def test_cancelled_job_writes_nothing(monkeypatch):
     _fake_aligner(monkeypatch, align)
     res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
     assert res["failed_reason"] == "cancelled" and len(db.load_lines(did)) == 3
+
+
+def _edit(did, line_id, **fields):
+    ln = next(x for x in db.load_line_objects(did) if x.id == line_id)
+    for k, v in fields.items():
+        setattr(ln, k, v)
+    db.save_lines(did, [ln], fields=tuple(fields))
+
+
+def _aligned(texts):
+    return [Line(idx=i, start=2.0 + 9 * i + 1, end=2.0 + 9 * (i + 1), zh=t)
+            for i, t in enumerate(texts)]
+
+
+def test_job_started_during_alignment_blocks_the_commit(monkeypatch):
+    did, ids = _seed()
+
+    def align(audio, texts, segs, language, use_gpu=False):
+        background_jobs.start_job(f"translate_{did}", lambda: time.sleep(0.5))
+        return _aligned(texts)
+    _fake_aligner(monkeypatch, align)
+    res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    assert res["failed_reason"] == "not_applied" and "nothing was changed" in res["detail"]
+    assert len(db.load_lines(did)) == 3
+    _wait(f"translate_{did}")
+
+
+@pytest.mark.parametrize("field,value,en", [("start", 2.5, ""), ("end", 31.0, ""),
+                                            ("en", "new", "old")])
+def test_timing_or_translation_edit_during_alignment_is_kept(monkeypatch, field, value, en):
+    did, ids = _seed(en=en)
+
+    def align(audio, texts, segs, language, use_gpu=False):
+        _edit(did, ids[1], **{field: value})
+        return _aligned(texts)
+    _fake_aligner(monkeypatch, align)
+    job_id = svc.resplit_long_lines(did, ids, align_to_audio=True, confirm=True)["job_id"]
+    res = _wait(job_id)["result"]
+    assert res["failed_reason"] == "not_applied" and "nothing was changed" in res["detail"]
+    rows = db.load_lines(did)
+    assert len(rows) == 3 and rows[1][field] == value
+
+
+def test_cancelled_job_releases_the_aligner(monkeypatch):
+    did, ids = _seed()
+    db.save_lines(did, [*db.load_line_objects(did),
+                        Line(idx=3, start=34.0, end=64.0, zh=LONG, speaker="C")])
+    ids = [r["id"] for r in db.load_lines(did)]
+    calls = {"align": 0, "release": 0}
+
+    def align(audio, texts, segs, language, use_gpu=False):
+        calls["align"] += 1
+        background_jobs.request_cancel(f"resplit_{did}")
+        return _aligned(texts)
+    _fake_aligner(monkeypatch, align)
+    monkeypatch.setattr(svc.core_module, "release_gpu_models",
+                        lambda: calls.__setitem__("release", calls["release"] + 1))
+    res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    assert res["failed_reason"] == "cancelled" and len(db.load_lines(did)) == 4
+    assert calls == {"align": 1, "release": 1}
+
+
+def test_relabel_failure_after_commit_keeps_the_split(monkeypatch):
+    did, ids = _seed()
+    diarize.save_turns(db.drama_dir(did), [{"start": 0.0, "end": 40.0, "speaker": "S1"}])
+
+    def boom(*a, **k):
+        raise RuntimeError("disk error at /secret/path")
+    monkeypatch.setattr(svc.diarization_service, "relabel_from_saved_turns", boom)
+    r = svc.resplit_long_lines(did, ids)
+    assert r["split_lines"] == 1 and r["speakers_reassigned"] is False
+    assert r["note"].startswith("Split saved; speakers were not re-assigned:")
+    assert "/secret" not in r["note"]
+    rows = db.load_lines(did)
+    assert len(rows) == 5 and [x["speaker"] for x in rows[1:4]] == ["B"] * 3
 
 
 def test_refused_while_a_job_runs():
