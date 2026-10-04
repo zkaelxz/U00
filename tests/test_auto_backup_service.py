@@ -2032,8 +2032,8 @@ class TestRestoreRejectsUnsafeSnapshot:
         """The whole-zip caps (expanded total, member count, member size)
         still apply to validate_backup_file's default (an upload); only
         the app's own snapshot skips them (check_limits=False)."""
-        a = self._craft(lambda a: [(f"dramas/{a}/bomb.bin", b"\0" * 20_000_000)] +
-                        [(f"dramas/{a}/f{i}", b"x") for i in range(10)])
+        self._craft(lambda a: [(f"dramas/{a}/bomb.bin", b"\0" * 20_000_000)] +
+                    [(f"dramas/{a}/f{i}", b"x") for i in range(10)])
         path = _default_path()
         assert os.path.getsize(path) < 2_000_000   # compresses hard
         las.validate_backup_file(path, check_disk=False)   # within the real caps

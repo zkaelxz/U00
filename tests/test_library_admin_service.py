@@ -374,7 +374,6 @@ import threading  # noqa: E402
 
 import page_server  # noqa: E402
 from services import auth_service  # noqa: E402
-from services.service_errors import NotFoundError  # noqa: E402
 from sources import store as src_store  # noqa: E402
 
 
