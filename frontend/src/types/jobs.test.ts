@@ -25,6 +25,8 @@ describe('job outcome helpers', () => {
     expect(jobOutcomeText({ outcome: 'failed', outcome_message: 'The speech model could not be downloaded.' })).toBe(
       'Failed: The speech model could not be downloaded.',
     )
+    const notice = 'Transcription ran on the CPU because the GPU couldn\'t be used (RuntimeError: cuDNN failed). This was slower than on the GPU.'
+    expect(jobOutcomeText({ outcome: 'partial', outcome_message: notice })).toBe(`Finished with problems: ${notice}`)
     expect(jobOutcomeText({ outcome: 'kept_existing', outcome_message: null })).toBe('Nothing new; existing lines kept')
     expect(jobOutcomeText({ outcome: null })).toBeNull()
     expect(jobOutcomeText({})).toBeNull()
