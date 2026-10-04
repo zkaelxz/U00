@@ -390,6 +390,22 @@ class AutoQcFlagResult(BaseModel):
     checked: int
 
 
+class SpeakerTime(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str
+    seconds: float
+    percent: float
+    turns: int
+
+
+class SpeakerTimeSummary(BaseModel):
+    """Per-speaker share of the saved detection's turns (no paths)."""
+    model_config = ConfigDict(extra="forbid")
+    speakers: List[SpeakerTime]
+    total_speech_seconds: float
+    uncovered_seconds: Optional[float] = None
+
+
 class DiarizationConfig(BaseModel):
     """Read-only Diarize-stage summary for one drama (Migration Slice
     16) -- hf_token_configured is a boolean only, never the token value
@@ -404,6 +420,7 @@ class DiarizationConfig(BaseModel):
     last_device: Optional[str] = None
     audio_available: bool
     manual_speaker_count: int = 0   # parity D06: hand-corrected speakers
+    speaker_summary: Optional[SpeakerTimeSummary] = None   # None: no saved detection
 
 
 class DiarizationRunResult(BaseModel):
@@ -1820,6 +1837,26 @@ class ResegmentStart(_RestructureBase):
     use_preview: StrictBool = False
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
+
+
+class ResplitStart(_RestructureBase):
+    align_to_audio: StrictBool = False
+    confirm: StrictBool = False
+
+
+class ResplitResult(BaseModel):
+    """Either the finished summary (estimated timing) or, with align_to_audio,
+    the started job (job_id; its result carries the same summary)."""
+    job_id: Optional[str] = None
+    drama_id: Optional[int] = None
+    split_lines: Optional[int] = None
+    lines_before: Optional[int] = None
+    line_count: Optional[int] = None
+    timing: Optional[str] = None
+    aligned_lines: Optional[int] = None
+    cleared_translations: Optional[int] = None
+    speakers_reassigned: Optional[bool] = None
+    note: Optional[str] = None
 
 
 class ResegmentStarted(BaseModel):

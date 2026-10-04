@@ -273,13 +273,16 @@ LEFTOVER_FILES_MESSAGE = ("The drama was deleted from the library, but some of i
                            "using them and remove the leftover folder manually.")
 
 
-def job_running_for_drama(drama_id) -> bool:
+def job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
     """In-process jobs, plus fresh running/queued job_records rows written
     by another process (the API server and Streamlit are separate
-    processes; the in-memory tracker only sees its own)."""
-    if background_jobs.any_job_running_for_drama(drama_id):
+    processes; the in-memory tracker only sees its own). exclude_job_id:
+    a running job asking whether any other job is on its drama."""
+    if (background_jobs.any_job_running_for_drama(drama_id, exclude_job_id=exclude_job_id)
+            if exclude_job_id else background_jobs.any_job_running_for_drama(drama_id)):
         return True
-    job_ids = {f"{prefix}{drama_id}" for prefix in background_jobs.DRAMA_JOB_PREFIXES}
+    job_ids = {f"{prefix}{drama_id}" for prefix in background_jobs.DRAMA_JOB_PREFIXES} - {
+        exclude_job_id}
     cutoff = time.time() - STALE_JOB_RECORD_SECONDS
     for rec in db.list_job_records():
         if (rec.get("job_id") in job_ids and rec.get("status") in ("running", "queued")

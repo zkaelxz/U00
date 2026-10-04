@@ -17,7 +17,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - Frontend: `cd frontend && npx tsc --noEmit && npx vitest run`; Playwright in `frontend/e2e/` (use the preinstalled Chromium; never `playwright install`).
 - Tests are mocked: no network, GPU, real models or real keys. Use the `isolated_db` fixture for anything touching the database, and `pytest.importorskip` for optional libraries.
 - Wait for background job threads before asserting. Poll a background process with `kill -0 <pid>`, never `pgrep -f` on a pattern that also matches your own command line.
-- GitHub Actions minutes work while the repo is public (until about 2026-10-03), so CI is the merge gate. If minutes run out later, the full local suite is the gate. Never skip or weaken a test.
+- CI is the merge gate while the repo is public; if it becomes private or Actions minutes run out, the full local suite (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands is the gate. Never skip or weaken a test.
 
 ## Rules learned from real bugs
 - Match LLM results back to lines by explicit id, never by list position (`translate_engines.request_translations_with_retry`, `parse_id_keyed_json`).

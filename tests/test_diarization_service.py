@@ -52,6 +52,7 @@ class TestGetDiarizationConfig:
             "last_device": None,
             "audio_available": False,
             "manual_speaker_count": 0,
+            "speaker_summary": None,
         }
 
     def test_audio_present_is_reported(self, isolated_db, monkeypatch):

@@ -53,6 +53,9 @@ RESULT_ALLOWED_KEYS = (
     # Own-lines re-translate: line ids whose review flag wasn't saved because
     # the line's text, timing or flag changed while the job ran.
     "flags_needing_recheck",
+    # Re-split long lines: counts, the timing mode and a one-line note.
+    "split_lines", "lines_before", "aligned_lines", "cleared_translations",
+    "speakers_reassigned", "timing", "note",
 )
 _MAX_STR = 500
 _MAX_LIST = 20

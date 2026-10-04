@@ -1,6 +1,7 @@
 # Scanlate API spec (proposal)
 
 Status: proposal from a read-only architecture pass (2026-09-29), for the planning session and the user to confirm.
+Note (2026-10-04): the Streamlit app and the `tabs/` files this refers to were deleted in #502, so those `tabs/` paths and line numbers no longer resolve; the text is kept as the record of the comparison.
 No code was written. Slice ids S0-S8 are local to this doc; the master index will assign real step numbers.
 Evidence is `file:line` on `baihe-subtitler` at that date. "HYP" marks a hypothesis that was not verified.
 Goal: expose Scanlate (page import, bubble detection, OCR, translate, cleanup, typeset, export) through FastAPI so a React canvas editor (frontend phase 7) can drive it.

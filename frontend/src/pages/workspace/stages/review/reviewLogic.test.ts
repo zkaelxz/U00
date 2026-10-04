@@ -4,6 +4,10 @@ import { ApiError } from '../../../../api/client'
 import type { ReviewLine } from '../../../../types/review'
 import {
   adjacentRun,
+  resplitNeedsConfirm,
+  resplitSummary,
+  speakerTimeFooter,
+  speakerTimeLines,
   buildPatch,
   canResegmentWith,
   droppedText,
@@ -235,5 +239,41 @@ describe('AI re-segmentation preview (R47)', () => {
       expect(text).not.toMatch(/confirm=|use_preview|_/)
     }
     expect(llmApplyProblemText('job')).toBe(JOB_RUNNING_MESSAGE)
+  })
+})
+
+describe('re-split summary', () => {
+  const base = { split_lines: 31, lines_before: 260, line_count: 347, timing: 'proportional', speakers_reassigned: true }
+  it('says how many lines became how many pieces', () => {
+    expect(resplitSummary(base)).toBe('Split 31 lines into 118; speakers re-assigned.')
+    expect(resplitSummary({ ...base, split_lines: 1, line_count: 262, speakers_reassigned: false })).toBe('Split 1 line into 3.')
+  })
+  it('adds aligned, cleared and note parts', () => {
+    expect(resplitSummary({ ...base, timing: 'aligned', aligned_lines: 30, cleared_translations: 1, note: 'x' })).toBe(
+      'Split 31 lines into 118; 30 timed from the audio; speakers re-assigned; 1 translation cleared. x',
+    )
+  })
+  it('reports nothing to split', () => {
+    expect(resplitSummary({ split_lines: 0 })).toMatch(/Nothing changed/)
+  })
+  it('spots the confirm refusal only', () => {
+    const e = (s: number, m: string) => new ApiError(s, { code: 'x', message: m })
+    expect(resplitNeedsConfirm(e(422, 'pass confirm=true.'))).toBe(true)
+    expect(resplitNeedsConfirm(e(409, 'pass confirm=true.'))).toBe(false)
+    expect(resplitNeedsConfirm(new Error('confirm'))).toBe(false)
+  })
+})
+
+describe('speaker time summary', () => {
+  const sum = {
+    speakers: [{ label: 'Anna', seconds: 220, percent: 84.6, turns: 41 }, { label: 'Bo', seconds: 40, percent: 15.4, turns: 1 }],
+    total_speech_seconds: 260, uncovered_seconds: 3700,
+  }
+  it('lists each speaker', () => {
+    expect(speakerTimeLines(sum)).toEqual(['Anna  3:40 · 84.6% · 41 turns', 'Bo  0:40 · 15.4% · 1 turn'])
+  })
+  it('footer mentions the uncovered audio only when known', () => {
+    expect(speakerTimeFooter(sum)).toBe('4:20 of speech in the saved detection; 1:01:40 of the audio has no speaker turn.')
+    expect(speakerTimeFooter({ ...sum, uncovered_seconds: null })).toBe('4:20 of speech in the saved detection.')
   })
 })
