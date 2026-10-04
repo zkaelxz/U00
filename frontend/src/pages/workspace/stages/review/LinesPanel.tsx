@@ -145,7 +145,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const listRef = useRef<HTMLUListElement>(null)
   const pending = useRef<Pending | null>(null)
   const loadedOnce = useRef(false)
-  const focusActive = useRef(false)
+  // The line a keyboard move asked to focus; only a render that has made it the
+  // active line may spend the request (a late effect from an earlier render must not).
+  const focusActive = useRef<number | null>(null)
   const scrollActive = useRef(false)
   const sectionRef = useRef<HTMLElement>(null)
   // The line just opened from a search result, highlighted for a moment (R05).
@@ -187,7 +189,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       const target = p ? pick(lines, p.target) : undefined
       if (target) {
         setActiveId(target.id)
-        focusActive.current = true
+        focusActive.current = target.id
         if (p?.edit) setEdit({ lineId: target.id, base: target, draft: draftFromLine(target), details: false, note: null })
       } else {
         const first = !loadedOnce.current
@@ -229,11 +231,12 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // first load only scrolls. Rows keep clear of the sticky toolbar through
   // scroll-margin-top, which follows the toolbar's measured height.
   useEffect(() => {
-    if ((!focusActive.current && !scrollActive.current) || activeId === null) return
+    if ((focusActive.current === null && !scrollActive.current) || activeId === null) return
+    if (focusActive.current !== null && focusActive.current !== activeId) return
     const el = listRef.current?.querySelector<HTMLElement>(`[data-line-id="${activeId}"]`)
     if (!el) return
-    if (focusActive.current) el.focus({ preventScroll: true })
-    focusActive.current = false
+    if (focusActive.current !== null) el.focus({ preventScroll: true })
+    focusActive.current = null
     scrollActive.current = false
     el.scrollIntoView?.({ block: 'nearest' })
   })
@@ -333,7 +336,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     }
 
     const focusTo = (id: number) => {
-      focusActive.current = true
+      focusActive.current = id
       setActiveId(id)
     }
 
