@@ -5,6 +5,12 @@ import { mockTranscription } from './transcriptionMissingMocks'
 // A fresh install has no faster-whisper: the Transcribe card says so and links
 // to the Install by task flow; once installed neither the note nor the block shows.
 
+// A config request still in flight when a test ends would call route.fulfill on a
+// disposed response; let those handlers finish and ignore their errors.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+})
+
 test('not installed: the card says so, and Diagnostics leads with the same install', async ({ page }) => {
   const m = await mockTranscription(page, false)
   await page.goto('/#/drama/1/source')
