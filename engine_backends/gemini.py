@@ -10,6 +10,7 @@ from .shared import (
     _cancellable_sleep,
     _empty_usage,
     gemini_usage,
+    read_json_capped,
     request_translations_with_retry,
 )
 
@@ -182,9 +183,9 @@ class GeminiEngine:
         def call_model(numbered):
             self._throttle_for_free_tier()
             resp = requests.post(url, headers={"x-goog-api-key": self.api_key},
-                                 json=self.build_request_body(context, numbered), timeout=120)
-            resp.raise_for_status()
-            data = resp.json()
+                                 json=self.build_request_body(context, numbered), timeout=120,
+                                 stream=True)
+            data = read_json_capped(resp, 120)
             usage = gemini_usage(data.get("usageMetadata"))
             _add_usage(self.last_usage, usage)
             if self.free_tier:

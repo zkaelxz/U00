@@ -117,3 +117,13 @@ def test_error_text_is_the_callers_only():
     with pytest.raises(Boom) as ei:
         _read(r)
     assert str(ei.value) == ""
+
+
+def test_reads_an_httpx_response():
+    httpx = pytest.importorskip("httpx")
+    resp = httpx.Response(200, stream=httpx.ByteStream(b"x" * 10))
+    with pytest.raises(Boom):
+        capped_body.read_capped(resp, 5, 10.0, Boom)
+    assert resp.is_closed
+    assert capped_body.read_capped(httpx.Response(200, stream=httpx.ByteStream(b"ok")),
+                                   5, 10.0, Boom) == b"ok"

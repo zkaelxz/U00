@@ -64,6 +64,7 @@ from engine_backends.shared import (  # noqa: F401
     gemini_usage,
     parse_id_keyed_json,
     parse_json_array,
+    read_json_capped,
     redact_for_storage,
     redact_secrets,
     request_translations_with_retry,
