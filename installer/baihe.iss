@@ -850,7 +850,11 @@ begin
       // Only these named items, never the folder's other contents: the
       // folder may be one the user picked and shares with other files.
       if DeleteLibrary then
+      begin
         DeleteTree(UninstDataDir + '\library', 'your library (projects, backups, logs, caches, browser profiles)', Removed, Left);
+        // Items cleared from the library wait here until deleted from Trash.
+        DeleteTree(UninstDataDir + '\baihe_trash', 'items you moved to Trash', Removed, Left);
+      end;
       if DeleteSettings and FileExists(UninstDataDir + '\.env') then
         if DeleteFile(UninstDataDir + '\.env') then
           AddLine(Removed, 'your settings and API keys (.env)');

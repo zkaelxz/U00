@@ -70,6 +70,7 @@ class TestGetTranscribeConfig:
             "asr_backend_choice": "whisper",
             "whisper_size": core_module.DEFAULT_WHISPER_SIZE,
             "whisper_model_cached": core_module.is_whisper_model_cached(core_module.DEFAULT_WHISPER_SIZE),
+            "measured_speed": None,
             "whisper_installed": result["whisper_installed"],
             "beam_size": 5,
             "min_silence_ms": 300,
@@ -844,7 +845,7 @@ class TestQwen3Backends:
 
         class FakeQwen3ASR:
             def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
-                           batch_size=1):
+                           batch_size=1, progress_cb=None):
                 calls.append((language, whisper_segments, use_gpu, batch_size))
                 return [{"start": s["start"], "end": s["end"], "text": "qwen text"}
                         for s in whisper_segments]
@@ -867,6 +868,63 @@ class TestQwen3Backends:
         assert (raw["backend"], raw["model"]) == ("qwen3_asr", "Qwen3-ASR")
         assert any("Qwen3-ASR" in m for m in messages)
         assert background_jobs.get_status(job_id)["result"]["asr_backend"] == "qwen3_asr"
+        _clear(job_id)
+
+    def test_progress_never_hits_100_before_done_and_never_goes_back(
+            self, isolated_db, monkeypatch):
+        """Whisper fills 0-85%, the Qwen3 step 85-99% (no percent until its
+        first batch), and only completion reports 100%."""
+        import asr_backend
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        seen = []
+        real_update = background_jobs.update_progress
+
+        def record(j, f, m=""):
+            seen.append((f, m))
+            real_update(j, f, m)
+        monkeypatch.setattr(background_jobs, "update_progress", record)
+
+        def fake_whisper(*a, progress_cb=None, **k):
+            for f in (0.25, 1.0):
+                progress_cb(f)
+            return [{"start": 0.0, "end": 1.5, "text": "w"}, {"start": 2.0, "end": 3.0, "text": "w2"}]
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", fake_whisper)
+
+        class FakeQwen3ASR:
+            def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
+                           batch_size=1, progress_cb=None):
+                progress_cb(0.5)
+                progress_cb(1.0)
+                return [{"start": s["start"], "end": s["end"], "text": "q"} for s in whisper_segments]
+        monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", FakeQwen3ASR)
+
+        job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr")
+
+        fracs = [f for f, m in seen if m]
+        assert max(fracs) < 1.0
+        whisper_fracs = [f for f, m in seen if m.startswith("Transcribing (step 1 of 2)")]
+        assert whisper_fracs and max(whisper_fracs) == pytest.approx(0.85)
+        qwen_fracs = [f for f, m in seen if "step 2 of 2)... " in m]
+        assert qwen_fracs and min(qwen_fracs) > 0.85 and max(qwen_fracs) <= 0.99
+        # Monotonic from the first Whisper percent onward (the ticker's own
+        # no-percent message holds the value at the split).
+        later = [f for f, m in seen if m.startswith(("Transcribing", "Re-transcribing"))]
+        assert later == sorted(later)
+        _clear(job_id)
+
+    def test_whisper_only_run_stays_below_100_until_done(self, isolated_db, monkeypatch):
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        seen = []
+        real_update = background_jobs.update_progress
+        monkeypatch.setattr(background_jobs, "update_progress",
+                            lambda j, f, m="": (seen.append(f), real_update(j, f, m)))
+
+        def fake_whisper(*a, progress_cb=None, **k):
+            progress_cb(1.0)
+            return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", fake_whisper)
+        job_id = self._run(did, ddir, "whisper")
+        assert max(seen) < 1.0
         _clear(job_id)
 
     def test_song_with_one_whisper_segment_gives_one_qwen3_line_and_warns(
@@ -1233,4 +1291,74 @@ class TestCancelReachesWhisper:
                 "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None)
         assert seen == [0, 1, 2, 3]
         assert isolated_db.load_lines(did) == []
+        _clear(job_id)
+
+
+class TestTranscribeSpeedCalibration:
+    def test_record_then_read_per_model_and_device(self, isolated_db):
+        assert transcribe_service.measured_transcribe_speed("large-v3", False) is None
+        transcribe_service.record_transcribe_speed("large-v3", False, 600, 300)
+        assert transcribe_service.measured_transcribe_speed("large-v3", False) == 2.0
+        assert transcribe_service.measured_transcribe_speed("large-v3", True) is None
+        assert transcribe_service.measured_transcribe_speed("small", False) is None
+
+    def test_next_reading_is_averaged_with_the_last(self, isolated_db):
+        transcribe_service.record_transcribe_speed("small", True, 600, 300)   # 2.0
+        transcribe_service.record_transcribe_speed("small", True, 600, 100)   # 6.0
+        assert transcribe_service.measured_transcribe_speed("small", True) == 4.0
+
+    @pytest.mark.parametrize("audio,work", [
+        (None, 100), (100, None), ("100", 50), (100, "50"), (True, 50), (100, True),
+        (0, 100), (-5, 100), (100, 0), (100, 1.0),          # too little work to trust
+        (float("nan"), 100), (100, float("inf")),
+        (1.0, 1000.0), (1e9, 10.0),                         # outside the speed bounds
+    ])
+    def test_bad_readings_are_ignored(self, isolated_db, audio, work):
+        transcribe_service.record_transcribe_speed("base", False, audio, work)
+        assert transcribe_service.measured_transcribe_speed("base", False) is None
+
+    def test_bad_stored_values_read_as_none(self, isolated_db):
+        for stored in ("fast", {"base|cpu": "x"}, {"base|cpu": -3}, {"base|cpu": True}, [1]):
+            isolated_db.set_app_setting("transcribe_speed", stored)
+            assert transcribe_service.measured_transcribe_speed("base", False) is None
+        # A bad stored blob does not stop the next good reading from being kept.
+        transcribe_service.record_transcribe_speed("base", False, 600, 300)
+        assert transcribe_service.measured_transcribe_speed("base", False) == 2.0
+
+    def test_a_settings_failure_never_raises(self, isolated_db, monkeypatch):
+        def boom(*a, **k):
+            raise RuntimeError("db locked")
+        monkeypatch.setattr(isolated_db, "get_app_setting", boom)
+        assert transcribe_service.measured_transcribe_speed("base", False) is None
+        transcribe_service.record_transcribe_speed("base", False, 600, 300)
+
+    def test_config_reports_the_speed_for_the_stored_model_and_device(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        model = core_module.DEFAULT_WHISPER_SIZE
+        transcribe_service.record_transcribe_speed(model, False, 600, 300)
+        assert transcribe_service.get_transcribe_config(did)["measured_speed"] == 2.0
+        transcribe_service.record_transcribe_speed(model, True, 3000, 100)
+        isolated_db.set_app_setting("use_gpu", True)
+        assert transcribe_service.get_transcribe_config(did)["measured_speed"] == 30.0
+
+    def test_a_finished_whisper_job_records_its_speed(self, isolated_db, monkeypatch):
+        # Only this module's clock is faked: first percent at t=100, done at t=220.
+        now = {"t": 100.0}
+        monkeypatch.setattr(transcribe_service, "time", type("T", (), {"monotonic": staticmethod(lambda: now["t"])}))
+        monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda p: 600.0)
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+
+        def fake_whisper(*a, progress_cb=None, **k):
+            progress_cb(0.0)
+            progress_cb(0.1)   # the clock starts here, at 10%
+            now["t"] = 220.0
+            return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", fake_whisper)
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh",
+            *TestQwen3Backends._AUDIO_ARGS)
+        # 90% of 600 s of audio in 120 s of work.
+        assert transcribe_service.measured_transcribe_speed("medium", False) == pytest.approx(4.5)
         _clear(job_id)

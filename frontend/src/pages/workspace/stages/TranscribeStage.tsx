@@ -452,9 +452,12 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   const notInstalled = whisperRun && config?.whisper_installed === false
   const estimate = cf && whisperRun && !file && hasMedia
     ? transcribeEstimate({
-        durationSeconds: duration,
+        audioSeconds: duration,
         whisperSize: cf.whisper_size,
         useGpu,
+        fastMode: cf.whisper_fast_mode,
+        modelCached: config?.whisper_model_cached,
+        measuredSpeed: config?.whisper_size === cf.whisper_size ? config.measured_speed : null,
         useGroq: cf.use_groq,
         detectSpeakers: runDiarize,
       })
@@ -475,7 +478,10 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         >
           Transcribe
         </button>
-        {estimate && !busy && <span className="muted" data-testid="transcribe-estimate">{estimate}</span>}
+        {estimate && !busy && <span className="muted" role="note" data-testid="transcribe-estimate">{estimate}</span>}
+        {cf?.separate_vocals_first && whisperRun && !busy && (
+          <span className="muted" role="note" data-testid="separation-note">Vocal separation adds time, a lot on CPU.</span>
+        )}
       </div>
       {notInstalled && (
         <div className="source-needed" id="transcribe-not-installed" role="note">

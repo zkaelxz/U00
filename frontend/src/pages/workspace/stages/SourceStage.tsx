@@ -249,7 +249,7 @@ export default function SourceStage() {
         <AutofillPanel />
         <ResearchPanel />
       </Section>
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      {jobId && <JobPanel job={job} pollError={pollError} liveEta={jobId.startsWith('transcribe_')} />}
     </div>
   )
 }
