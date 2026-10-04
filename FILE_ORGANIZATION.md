@@ -77,6 +77,8 @@ baihe-subtitler/
 │   ├── build_release.py          packages the built React app as a release zip (baihe-frontend-<version>.zip)
 │   ├── dependency_canary.py      tests one package upgrade in a throwaway venv against the offline suite;
 │   │                             --write-pin caps constraints.txt on FAIL (docs/testing-and-ci.md)
+│   ├── smoke_pack.py             run on your PC (GPU, real models): checks the transcription pipeline on your own clip
+│   │                             against an approved baseline before/after an upgrade (docs/testing-and-ci.md)
 │   ├── source_status.py          regenerates the board in docs/known-working-sources.md from the adapter registry +
 │   │                             docs/source-status.json; --check exits 1 if the doc is stale
 │   ├── source_probe.py           manual reachability probe (one GET per source host, 2 s apart); prints a table or
