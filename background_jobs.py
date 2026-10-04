@@ -494,22 +494,31 @@ def _gpu_slot_available_locked(job_id, description):
         return False
 
 
-def _release_gpu_slot(job_id, gpu_touching):
+def _release_gpu_slot(job_id, gpu_touching, run=None):
     """Releases job_id's cross-process GPU lock, if it is gpu_touching and
     actually still holds one -- a safe no-op otherwise (never held one,
     already released, or went stale and was taken over by someone else).
-    Called whenever a GPU-touching job's real work actually ends, so
-    unlike the promotion helpers above this deliberately does NOT require
-    holding _lock first (it's independent in-process bookkeeping vs. a
-    separate cross-process record, and the job dict entry for job_id may
-    already be gone by the time this runs). Best-effort, same reasoning as
+    Called whenever a GPU-touching job's real work actually ends; the job
+    dict entry for job_id may already be gone by the time this runs.
+
+    `run` is the ending run's own job dict. The lock row is named after the
+    job id, and a new run of the same id can start (and take the row over)
+    as soon as this run's status is final, before this release: when the
+    id's current dict is another, running run, the row is that run's and is
+    left alone. Checked and released under _lock, the lock a promotion takes
+    the slot under. Best-effort, same reasoning as
     _gpu_slot_available_locked above -- never raises into a job's own
     runner thread."""
     if not gpu_touching:
         return
     try:
         import db
-        db.release_gpu_lock(f"ui:{job_id}")
+        with _lock:
+            current = _jobs.get(job_id)
+            if (run is not None and current is not None and current is not run
+                    and current.get("status") == "running"):
+                return
+            db.release_gpu_lock(f"ui:{job_id}")
     except Exception:
         pass
 
@@ -544,7 +553,7 @@ def _timing_finish(job_id, token, thread_job=True):
         pass
 
 
-def _spawn(job_id, target, args, kwargs, gpu_touching=False):
+def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
     def runner():
         import applog
         from translate_engines import redact_secrets
@@ -592,7 +601,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
             _notify_job_finished(_description, "error", job_id=job_id, owner_user_id=_owner)
         finally:
             _timing_finish(job_id, _timing)
-            _release_gpu_slot(job_id, gpu_touching)
+            _release_gpu_slot(job_id, gpu_touching, run)
             _promote_next_queued_gpu_job()
 
     _start_job_thread(runner, f"job:{job_id}", worker_for=job_id)
@@ -606,7 +615,7 @@ def _still_running_locked(job_id) -> bool:
     return job is not None and job.get("status") == "running"
 
 
-def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None):
+def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=None):
     """The job was marked "running" but its thread or process could not be
     started (thread limit, fork or pickling failure). Without this the
     record stays "running" forever: the id can't be restarted, a restore
@@ -638,7 +647,7 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None):
             job["finished_at"] = time.time()
             _mirror_locked(job_id)
     applog.get_logger().error(f"job {job_id} failed to start: {error_msg}")
-    _release_gpu_slot(job_id, gpu_touching)
+    _release_gpu_slot(job_id, gpu_touching, run)
     _promote_next_queued_gpu_job()
 
 
@@ -713,7 +722,7 @@ def reconcile_dead_workers() -> list:
                 _stop_process(proc)
         except Exception as exc:
             _warn(f"job {job_id}: could not stop its process", exc)
-        _release_gpu_slot(job_id, job.get("gpu_touching"))
+        _release_gpu_slot(job_id, job.get("gpu_touching"), job)
     if lost:
         _promote_next_queued_gpu_job()
     return [job_id for job_id, _ in lost]
@@ -771,27 +780,30 @@ def _promote_next_queued_gpu_job():
                 on_done = entry.get("on_done")
                 on_finish = entry.get("on_finish")
                 kill_whole_tree = entry.get("kill_whole_tree", False)
+                run = _jobs[job_id]
                 break
             _jobs[job_id]["status"] = "running"
             _jobs[job_id]["message"] = "Starting..."
             _jobs[job_id]["started_at"] = time.time()
             _mirror_locked(job_id)
             target, args, kwargs = entry["target"], entry["args"], entry["kwargs"]
+            run = _jobs[job_id]
             break
     try:
         if entry.get("kind") == "process":
             proc.start()
             _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                               job_id, proc, result_queue, True, on_done=on_done,
-                              on_finish=on_finish, kill_whole_tree=kill_whole_tree, worker_for=job_id)
+                              on_finish=on_finish, kill_whole_tree=kill_whole_tree, run=run,
+                              worker_for=job_id)
         else:
-            _spawn(job_id, target, args, kwargs, gpu_touching=True)
+            _spawn(job_id, target, args, kwargs, gpu_touching=True, run=run)
     except Exception as exc:
         # Runs in another job's finishing thread: record it, don't raise.
         if entry.get("kind") == "process":
-            _fail_start(job_id, True, exc, proc, result_queue)
+            _fail_start(job_id, True, exc, proc, result_queue, run=run)
         else:
-            _fail_start(job_id, True, exc)
+            _fail_start(job_id, True, exc, run=run)
 
 
 # Set while a library restore swaps the library folder: no job may start
@@ -931,11 +943,12 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
             "owner_user_id": owner_user_id,
         }
         _mirror_locked(job_id)
+        run = _jobs[job_id]
 
     try:
-        _spawn(job_id, target, args, kwargs, gpu_touching=gpu_touching)
+        _spawn(job_id, target, args, kwargs, gpu_touching=gpu_touching, run=run)
     except Exception as exc:
-        _fail_start(job_id, gpu_touching, exc)
+        _fail_start(job_id, gpu_touching, exc, run=run)
         raise
     return True
 
@@ -1029,13 +1042,15 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
                                                    owner_user_id, start_method=start_method)
+        run = _jobs[job_id]
     try:
         proc.start()
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                           job_id, proc, result_queue, gpu_touching, on_done=on_done,
-                          on_finish=on_finish, kill_whole_tree=kill_whole_tree, worker_for=job_id)
+                          on_finish=on_finish, kill_whole_tree=kill_whole_tree, run=run,
+                          worker_for=job_id)
     except Exception as exc:
-        _fail_start(job_id, gpu_touching, exc, proc, result_queue)
+        _fail_start(job_id, gpu_touching, exc, proc, result_queue, run=run)
         raise
     return True
 
@@ -1141,7 +1156,7 @@ def _mark_cancelled_locked(job_id):
 
 
 def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interval=0.3,
-                     on_done=None, on_finish=None, kill_whole_tree=False):
+                     on_done=None, on_finish=None, kill_whole_tree=False, run=None):
     """Runs in this (the main) process, not the child -- a
     multiprocessing.Process can't write back into this process's _jobs
     dict itself (separate memory space), so this polls proc.is_alive()
@@ -1309,7 +1324,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         except Exception:
             pass
         _timing_finish(job_id, _timing, thread_job=False)
-        _release_gpu_slot(job_id, gpu_touching)
+        _release_gpu_slot(job_id, gpu_touching, run)
         _promote_next_queued_gpu_job()
         # Last: removing a large temp folder must not hold the GPU slot.
         if on_finish is not None:

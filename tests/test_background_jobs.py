@@ -1314,6 +1314,42 @@ class TestProcessJobOnDone:
         assert killed == [instances[0]]
         bg.clear_job(job_id)
 
+    def test_an_ended_runs_late_release_keeps_a_rerun_s_gpu_lock(self, monkeypatch):
+        """The lock row is named after the job id: a re-run started between
+        the first run's final status and its watcher's release takes the
+        same row over, and the old watcher must not delete it."""
+        job_id = "transcribe_9999"
+        instances = []
+
+        def factory(target, args, daemon=True):
+            first = not instances
+            instances.append(_FakeProcess(target, args, daemon=daemon,
+                                          run_target_on_start=first, alive_forever=not first))
+            return instances[-1]
+        monkeypatch.setattr(bg.multiprocessing, "Process", factory)
+        real_notify = bg._notify_job_finished
+        reran, finished = [], []
+
+        def notify_then_rerun(*a, **k):
+            real_notify(*a, **k)
+            if not reran:
+                reran.append(bg.start_process_job(job_id, lambda q: None, args=(),
+                                                  gpu_touching=True))
+        monkeypatch.setattr(bg, "_notify_job_finished", notify_then_rerun)
+        bg.clear_job(job_id)
+
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(), gpu_touching=True,
+                             on_finish=finished.append)
+        assert _wait_for(lambda: finished == [job_id])
+        assert reran == [True]
+        assert bg.get_status(job_id)["status"] == "running"
+        assert db.gpu_lock_holder_count() == 1
+
+        bg.request_cancel(job_id)
+        assert _wait_for(lambda: bg.get_status(job_id)["status"] == "cancelled")
+        assert _wait_for(lambda: db.gpu_lock_holder_count() == 0)
+        bg.clear_job(job_id)
+
     def test_start_method_picks_the_context_also_through_the_gpu_queue(self, monkeypatch):
         contexts = []
 
