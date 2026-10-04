@@ -885,3 +885,18 @@ class TestTranscribeConfigEndpoints:
         resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})
         assert resp.status_code == 409
 
+
+
+def test_auth_module_imports_no_router():
+    """api.auth holds the loopback helpers itself; importing a router from it
+    (even lazily, inside a function) brings back the settings_routes <->
+    api.auth import cycle."""
+    import ast
+    import api.auth
+    import api.routers.settings_routes as settings_routes
+    with open(api.auth.__file__, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    imported = [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
+    imported += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
+    assert not [m for m in imported if m and m.startswith("api.routers")]
+    assert settings_routes.is_loopback_peer is api.auth.is_loopback_peer

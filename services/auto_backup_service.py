@@ -103,6 +103,7 @@ import zlib
 
 import background_jobs
 import db
+from db import fsync_dir as _fsync_dir
 from services import delete_service
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
@@ -388,18 +389,6 @@ def _fsync_file(path: str):
     # r+b: Windows can't flush a handle opened read-only.
     with open(path, "r+b") as fh:
         os.fsync(fh.fileno())
-
-
-def _fsync_dir(folder: str):
-    """Makes a rename into `folder` durable. POSIX only: Windows can't open
-    a directory for this and commits the rename with the file."""
-    if os.name != "posix":
-        return
-    fd = os.open(folder, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
 
 
 def _get_state() -> dict:
@@ -1607,12 +1596,7 @@ def stage_media(zf: zipfile.ZipFile, old_id: int, staging: str):
             i.file_size > _MAX_MEMBER_BYTES for i in members):
         raise InvalidInputError("The drama's files in the snapshot look corrupted or unsafe "
                                 "to extract.")
-    need = sum(i.file_size for i in members)
-    try:
-        free = shutil.disk_usage(db.DRAMAS_DIR).free
-    except OSError:
-        free = None
-    if free is not None and free < need + las.RESTORE_DISK_MARGIN_BYTES:
+    if not las.has_disk_room(db.DRAMAS_DIR, sum(i.file_size for i in members)):
         raise InvalidInputError("Not enough free disk space to restore this drama's files.")
     folder = os.path.join(staging, f"drama-{int(old_id)}")
     os.makedirs(folder)

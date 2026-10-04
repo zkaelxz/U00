@@ -696,6 +696,31 @@ def test_restore_caps(isolated_db, monkeypatch):
     monkeypatch.setattr(las.shutil, "disk_usage", lambda p: usage(1, 1, 10 ** 12))
     las.restore_backup(data, confirm=True, confirm_text="RESTORE")
     assert len(called) == 1
+    # The library's parent folder is checked; free space that can't be read
+    # doesn't block the restore.
+    asked = []
+
+    def unreadable(path):
+        asked.append(path)
+        raise OSError("not reported")
+    monkeypatch.setattr(las.shutil, "disk_usage", unreadable)
+    las.restore_backup(data, confirm=True, confirm_text="RESTORE")
+    assert len(called) == 2
+    assert asked == [os.path.dirname(os.path.abspath(db.LIBRARY_DIR))]
+
+
+def test_has_disk_room_needs_the_margin(monkeypatch):
+    usage = collections.namedtuple("usage", "total used free")
+    need = 1000
+    monkeypatch.setattr(las.shutil, "disk_usage",
+                        lambda p: usage(1, 1, need + las.RESTORE_DISK_MARGIN_BYTES))
+    assert las.has_disk_room("x", need)
+    assert not las.has_disk_room("x", need + 1)
+
+    def unreadable(path):
+        raise OSError("not reported")
+    monkeypatch.setattr(las.shutil, "disk_usage", unreadable)
+    assert las.has_disk_room("x", 10 ** 18)
 
 
 def test_encrypted_member_is_invalid_input(isolated_db):
