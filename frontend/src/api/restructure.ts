@@ -8,6 +8,9 @@ import type {
   ResegmentPreview,
   ResegmentStart,
   ResegmentStarted,
+  ReassignResult,
+  ResplitResult,
+  ResplitStart,
   RestoreVersionResult,
   RestructureAddLine,
   RestructureResult,
@@ -95,3 +98,10 @@ export async function listAllLines(id: number, f?: Fetch): Promise<ReviewLine[]>
     if (r.lines.length === 0 || out.length >= r.total) return out
   }
 }
+
+export const resplitLines = (id: number, body: ResplitStart, f?: Fetch) =>
+  postJson<ResplitResult>(`${base(id)}/resplit`, body, f)
+
+// Relabels lines from the speaker detection already saved; runs nothing.
+export const reassignSpeakersFromSaved = (id: number, f?: Fetch) =>
+  postJson<ReassignResult>(`/api/diarization/dramas/${id}/reassign`, {}, f)
