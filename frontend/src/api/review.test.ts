@@ -7,7 +7,7 @@ import * as review from './review'
 
 const line: ReviewLine = {
   id: 7, idx: 3, start: 1, end: 2.5, zh: '你好', en: 'Hello', speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null,
 }
 
 function fakeFetch(status: number, body: unknown, calls: { url: string; init?: RequestInit }[] = []) {
@@ -41,6 +41,17 @@ describe('review logic', () => {
 })
 
 describe('review api', () => {
+  it('posts set-language by ids or by speaker', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const ok = { updated: 1, line_ids: [7], skipped_ids: [] }
+    await review.setLinesLanguage(1, { lang: 'ko', line_ids: [7] }, fakeFetch(200, ok, calls))
+    await review.setLinesLanguage(1, { lang: null, speaker: 'Ann' }, fakeFetch(200, ok, calls))
+    expect(calls.map((c) => c.url)).toEqual(['/api/lines/dramas/1/set-language', '/api/lines/dramas/1/set-language'])
+    expect(calls.map((c) => JSON.parse(String(c.init?.body)))).toEqual([
+      { lang: 'ko', line_ids: [7] },
+      { lang: null, speaker: 'Ann' },
+    ])
+  })
   it('builds list and search urls', async () => {
     const calls: { url: string }[] = []
     await review.listLines(1, 2, 40, 'flagged', fakeFetch(200, {}, calls))

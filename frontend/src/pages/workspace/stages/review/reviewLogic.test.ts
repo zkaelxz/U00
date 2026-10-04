@@ -39,11 +39,44 @@ import {
   splitPieces,
   stepFrom,
   structureErrorText,
+  languageSetText,
+  LINE_LANGUAGES,
+  lineLangChip,
+  titleDefaultLabel,
 } from './reviewLogic'
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id, start: id, end: id + 1, zh: `句${id}`, en: `Line ${id}`, speaker: null,
-  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, ...over,
+  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, ...over,
+})
+
+describe('spoken language', () => {
+  it('shows a chip only for a line in another language than the title', () => {
+    expect(lineLangChip(null, 'ja')).toBeNull()
+    expect(lineLangChip('ja', 'ja')).toBeNull()
+    expect(lineLangChip('ko', 'ja')).toBe('KO')
+    expect(lineLangChip('en', 'zh')).toBe('EN')
+    // A drama without a stored source language is Chinese, as on the server.
+    expect(lineLangChip('zh', null)).toBeNull()
+  })
+  it('offers the server-side list and names the title default', () => {
+    expect([...LINE_LANGUAGES]).toEqual(['zh', 'ja', 'ko', 'en'])
+    expect(titleDefaultLabel('ja')).toBe('Title default (Japanese)')
+    expect(titleDefaultLabel(null)).toBe('Title default (Chinese)')
+  })
+  it('drafts and patches lang, with "" as the title default', () => {
+    const line = mk(1, { lang: 'ko' })
+    expect(draftFromLine(line).lang).toBe('ko')
+    expect(draftFromLine(mk(2)).lang).toBe('')
+    expect(buildPatch(line, draftFromLine(line))).toBeNull()
+    expect(buildPatch(line, { ...draftFromLine(line), lang: '' })).toEqual({ lang: '', expected: { lang: 'ko' } })
+    expect(buildPatch(mk(2), { ...draftFromLine(mk(2)), lang: 'en' })).toEqual({ lang: 'en', expected: { lang: '' } })
+  })
+  it('describes a bulk set in sentence case', () => {
+    expect(languageSetText(1, 'ko', 'ja')).toBe('Set 1 line to Korean.')
+    expect(languageSetText(3, '', 'ja')).toBe('Set 3 lines to the title default (Japanese).')
+    expect(languageSetText(0, 'en', 'ja')).toBe('Nothing changed: already English.')
+  })
 })
 
 describe('drafts', () => {

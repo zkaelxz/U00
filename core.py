@@ -15,13 +15,16 @@ from dataclasses import dataclass, field, replace
 # prompts use for them. Callers fall back to "Chinese" for anything else.
 SOURCE_LANGUAGES = ("zh", "ja", "ko")
 LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
+# What one line's spoken language (Line.lang) may be: a title can mix
+# speakers of several languages, English among them.
+LINE_LANGUAGES = SOURCE_LANGUAGES + ("en",)
 
 
 # The per-line columns db.save_lines writes. `idx` is the line's current
 # position (display order) -- it changes on every merge/split; `id` is the
 # permanent identity notes, emotions and background jobs attach to.
 LINE_FIELDS = ("idx", "start", "end", "zh", "en", "speaker", "dub_filename", "flag", "flag_note",
-               "speaker_manual", "sfx")
+               "speaker_manual", "sfx", "lang")
 
 
 @dataclass
@@ -42,6 +45,10 @@ class Line:
     # Step 12c: a non-verbal/SFX cue ("door slams") rather than dialogue --
     # exported bracketed and styled apart from speech (see sfx_cue_text).
     sfx: bool = False
+    # This line's spoken language, a LINE_LANGUAGES code; None means the
+    # title's source_language, so titles saved before this field existed
+    # behave exactly as before.
+    lang: str = None
     # Permanent row id (lines.id). None for a line not saved yet.
     id: int = field(default=None, compare=False)
     # Field values as last loaded from / saved to the database. db.save_lines
@@ -70,6 +77,28 @@ def atomic_write(path: str, data, binary: bool = False) -> None:
         raise
 
 
+def normalize_line_lang(value):
+    """A Line.lang value from outside (API body, CLI): None or "" -> None,
+    a LINE_LANGUAGES code in any case -> that code lower-cased. Anything
+    else raises InvalidInputError."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    code = value.strip().lower() if isinstance(value, str) else None
+    if code not in LINE_LANGUAGES:
+        from services.service_errors import InvalidInputError
+        raise InvalidInputError(f"lang must be one of {', '.join(LINE_LANGUAGES)} or empty.",
+                                details={"allowed": list(LINE_LANGUAGES)})
+    return code
+
+
+def _stored_line_lang(value):
+    # A row from an imported backup (or a hand-edited database) may hold a
+    # code this version doesn't know; reading it as the title's default is
+    # safer than refusing to load the lines.
+    code = value.strip().lower() if isinstance(value, str) else None
+    return code if code in LINE_LANGUAGES else None
+
+
 def line_from_row(row) -> "Line":
     """The one shared db row (db.load_lines dict) -> Line conversion. Carries
     id and every field through, so nothing (flags, speaker, dub clip) is
@@ -79,7 +108,7 @@ def line_from_row(row) -> "Line":
               en=row.get("en") or "", speaker=row.get("speaker"),
               dub_filename=row.get("dub_filename"), flag=row.get("flag"),
               flag_note=row.get("flag_note") or "", speaker_manual=bool(row.get("speaker_manual")),
-              sfx=bool(row.get("sfx")), id=row.get("id"))
+              sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"))
     ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
     return ln
 
@@ -89,7 +118,7 @@ def lines_from_rows(rows) -> list:
 
 
 # Fields a snapshot/version records since the undo fix; older ones lack them.
-SAVED_MARK_FIELDS = ("flag", "flag_note", "sfx")
+SAVED_MARK_FIELDS = ("flag", "flag_note", "sfx", "lang")
 
 
 def adopt_ids(restored, current, recorded=()) -> list:
@@ -99,7 +128,7 @@ def adopt_ids(restored, current, recorded=()) -> list:
     by position (snapshots from before Step 2 have no ids) -- so notes and
     emotions stay attached instead of being deleted with the old rows.
     Fields a snapshot doesn't store (dub_filename in a version; flag,
-    flag_note and sfx in one saved before they were recorded) are carried
+    flag_note, sfx and lang in one saved before they were recorded) are carried
     over from the matched line rather than wiped. `recorded` names the
     SAVED_MARK_FIELDS the snapshot did store: those keep the snapshot's own
     value, since after a merge the matched line may hold another line's flag.
@@ -128,7 +157,7 @@ def adopt_ids(restored, current, recorded=()) -> list:
             continue
         used.add(match.id)
         ln.id, ln.orig = match.id, match.orig
-        for f in ("flag", "flag_note", "dub_filename"):
+        for f in ("flag", "flag_note", "dub_filename", "lang"):
             if f not in recorded and getattr(ln, f) in (None, ""):
                 setattr(ln, f, getattr(match, f))
         if "sfx" not in recorded:
@@ -148,7 +177,8 @@ def lines_from_saved(rows) -> list:
                  en=r.get("en") or "", speaker=r.get("speaker"),
                  dub_filename=r.get("dub_filename"), flag=r.get("flag") or None,
                  flag_note=r.get("flag_note") or "", sfx=bool(r.get("sfx")),
-                 speaker_manual=bool(r.get("speaker_manual")), id=r.get("id"))
+                 speaker_manual=bool(r.get("speaker_manual")),
+                 lang=_stored_line_lang(r.get("lang")), id=r.get("id"))
             for r in rows]
 
 
@@ -1022,6 +1052,8 @@ def merge_adjacent_short_lines(lines, min_duration: float = 1.2, max_gap: float 
             prev.end = ln.end
             if not prev.flag and ln.flag:
                 prev.flag, prev.flag_note = ln.flag, ln.flag_note
+            if getattr(prev, "lang", None) != getattr(ln, "lang", None):
+                prev.lang = None
             if getattr(ln, "id", None) is not None:
                 prev.merged_ids = list(prev.merged_ids) + [ln.id] + list(ln.merged_ids)
         else:
