@@ -454,6 +454,22 @@ def _create_series_tables(conn):
             FOREIGN KEY (series_character_id) REFERENCES series_characters(id) ON DELETE CASCADE,
             UNIQUE(drama_id, speaker_label, series_character_id)
         );
+
+        -- One undo for a speaker merge, kept here so the browser never holds
+        -- the Characters rows (reference-clip names, transcripts). Single-use
+        -- and short-lived; scoped to the drama and the user who merged.
+        CREATE TABLE IF NOT EXISTS speaker_merge_undos (
+            id TEXT PRIMARY KEY,
+            drama_id INTEGER NOT NULL,
+            user_id INTEGER,
+            source_label TEXT NOT NULL,
+            target_label TEXT NOT NULL,
+            snapshot TEXT NOT NULL,
+            stale INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );
     """)
 
 
@@ -2659,6 +2675,258 @@ def rename_speaker_atomic(drama_id: int, old_label: str, new_label: str, charact
                      "WHERE drama_id = ? AND speaker_label = ?", (new_label, drama_id, old_label))
         conn.commit()
         return written
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+MERGE_ROW_FIELDS = ("character_name", "voice_actor", "tts_voice", "offline_voice",
+                    "ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
+                    "voice_design", "pronouns", "series_character_id")
+# One reference voice: a clip, its transcript, the engine it was made for, or a
+# designed voice. Merging takes all four from one speaker, never a mix, since
+# dubbing clones from the clip using the transcript and engine stored with it.
+_MERGE_VOICE_GROUP = ("ref_audio_filename", "ref_text", "clone_engine", "voice_design")
+MERGE_UNDO_TTL_SECONDS = 15 * 60
+
+
+def _blank(value) -> bool:
+    return value is None or value == ""
+
+
+def _merge_row(conn, drama_id: int, label: str):
+    row = conn.execute("SELECT * FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                       (drama_id, label)).fetchone()
+    return None if row is None else {c: row[c] for c in MERGE_ROW_FIELDS}
+
+
+def _merge_dismissals(conn, drama_id: int, labels: tuple) -> list:
+    marks = ", ".join("?" * len(labels))
+    return [dict(r) for r in conn.execute(
+        "SELECT speaker_label, series_character_id, created_at FROM voice_suggestion_dismissals "
+        f"WHERE drama_id = ? AND speaker_label IN ({marks}) ORDER BY id", (drama_id, *labels))]
+
+
+def _folded_row(src: dict, tgt: dict) -> dict:
+    out = dict(tgt)
+    for col in MERGE_ROW_FIELDS:
+        if col not in _MERGE_VOICE_GROUP and _blank(tgt[col]):
+            out[col] = src[col]
+    if (_blank(tgt["ref_audio_filename"]) and _blank(tgt["voice_design"])
+            and not (_blank(src["ref_audio_filename"]) and _blank(src["voice_design"]))):
+        for col in _MERGE_VOICE_GROUP:
+            out[col] = src[col]
+    return out
+
+
+def merge_speakers_atomic(drama_id: int, source: str, target: str, user_id, now: float,
+                          undo_id: str):
+    """Merges speaker `source` into `target` in ONE transaction and records
+    the undo server-side. The lines on source, and both Characters rows, are
+    read inside the transaction, so what is merged is exactly what is stored.
+    Lines get target as speaker (marked set by hand); source's row is folded
+    into target's (a blank target field takes source's value, a filled one is
+    kept; the reference voice moves as one group, see _MERGE_VOICE_GROUP) and
+    deleted; source's dismissed voice matches move to target.
+
+    The undo record holds both rows as they were, the target row as the merge
+    wrote it, the moved lines' previous flags and both labels' dismissed voice
+    matches, scoped to drama_id and user_id. Returns "link_conflict" (the rows
+    are linked to different series characters; nothing written) or
+    {"moved": n}. Undo records of this drama naming either speaker are
+    retired in the same transaction."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        src, tgt = _merge_row(conn, drama_id, source), _merge_row(conn, drama_id, target)
+        blank_row = {c: None for c in MERGE_ROW_FIELDS}
+        src_full, tgt_full = src or blank_row, tgt or blank_row
+        if (src_full["series_character_id"] and tgt_full["series_character_id"]
+                and src_full["series_character_id"] != tgt_full["series_character_id"]):
+            conn.rollback()
+            return "link_conflict"
+        _retire_merge_undos(conn, drama_id, (source, target))
+        moved = [{"id": r["id"], "speaker_manual": bool(r["speaker_manual"])} for r in conn.execute(
+            "SELECT id, speaker_manual FROM lines WHERE drama_id = ? AND COALESCE(speaker, '') = ? "
+            "ORDER BY id", (drama_id, source))]
+        conn.execute("UPDATE lines SET speaker = ?, speaker_manual = 1 "
+                     "WHERE drama_id = ? AND COALESCE(speaker, '') = ?", (target, drama_id, source))
+        dismissals_before = _merge_dismissals(conn, drama_id, (source, target))
+        merged = _folded_row(src_full, tgt_full)
+        conn.execute("INSERT OR IGNORE INTO characters (drama_id, speaker_label) VALUES (?, ?)",
+                     (drama_id, target))
+        conn.execute(
+            f"UPDATE characters SET {', '.join(c + ' = ?' for c in MERGE_ROW_FIELDS)} "
+            "WHERE drama_id = ? AND speaker_label = ?",
+            (*(merged[c] for c in MERGE_ROW_FIELDS), drama_id, target))
+        conn.execute("DELETE FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                     (drama_id, source))
+        conn.execute("UPDATE OR IGNORE voice_suggestion_dismissals SET speaker_label = ? "
+                     "WHERE drama_id = ? AND speaker_label = ?", (target, drama_id, source))
+        conn.execute("DELETE FROM voice_suggestion_dismissals WHERE drama_id = ? "
+                     "AND speaker_label = ?", (drama_id, source))
+        src_clip = src_full["ref_audio_filename"]
+        orphan = src_clip if src_clip and merged["ref_audio_filename"] != src_clip else None
+        record = {"source_row": src, "target_before": tgt, "target_after": merged, "moved": moved,
+                  "dismissals_before": dismissals_before,
+                  "dismissals_after": _merge_dismissals(conn, drama_id, (target,)),
+                  "orphan_clip": orphan}
+        conn.execute(
+            "INSERT INTO speaker_merge_undos (id, drama_id, user_id, source_label, target_label, "
+            "snapshot, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (undo_id, drama_id, user_id, source, target, json.dumps(record), now,
+             now + MERGE_UNDO_TTL_SECONDS))
+        conn.commit()
+        return {"moved": len(moved)}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def undo_merge_speakers_atomic(drama_id: int, undo_id: str, user_id, now, clip_exists):
+    """Reverses the merge recorded under undo_id, in ONE transaction. The
+    record must belong to this drama and user and be unexpired; it is
+    single-use, deleted whatever the outcome.
+
+    Nothing is written unless everything the merge left is still as it left
+    it: the target row (all fields) and its dismissed voice matches, the
+    source label unused, and every moved line still on target and marked
+    manual. Otherwise "stale". clip_exists(rel) checks the stored clip file
+    before the source row gets its clip link back; a missing file is
+    "clip_missing". Returns {"status": "ok" | "missing" | "stale" |
+    "clip_missing", "moved": n}."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if now is None:
+            # Read after the write lock is held: waiting for the lock can take
+            # seconds, and an expiry decided before it would let an undo run
+            # after live_speaker_merge_undo_clips already reported its clip unused.
+            now = time.time()
+        rec = conn.execute(
+            "SELECT * FROM speaker_merge_undos WHERE id = ? AND drama_id = ? "
+            "AND COALESCE(user_id, -1) = COALESCE(?, -1)", (undo_id, drama_id, user_id)).fetchone()
+        if rec is None:
+            conn.rollback()
+            return {"status": "missing", "moved": 0}
+        snap = json.loads(rec["snapshot"])
+        conn.execute("DELETE FROM speaker_merge_undos WHERE id = ?", (undo_id,))
+        source, target = rec["source_label"], rec["target_label"]
+        if rec["expires_at"] <= now:
+            conn.commit()
+            return {"status": "missing", "moved": 0}
+        if rec["stale"]:
+            conn.commit()
+            return {"status": "stale", "moved": 0}
+
+        def refuse(status):
+            conn.commit()
+            return {"status": status, "moved": 0}
+
+        moved_ids = [m["id"] for m in snap["moved"]]
+        on_target = {r["id"]: r for r in conn.execute(
+            "SELECT id, speaker_manual FROM lines WHERE drama_id = ? AND COALESCE(speaker, '') = ?",
+            (drama_id, target))}
+        if (_merge_row(conn, drama_id, target) != snap["target_after"]
+                or _merge_row(conn, drama_id, source) is not None
+                or conn.execute("SELECT 1 FROM lines WHERE drama_id = ? AND COALESCE(speaker, '') = ?",
+                                (drama_id, source)).fetchone()
+                or _merge_dismissals(conn, drama_id, (target,)) != snap["dismissals_after"]
+                or any(i not in on_target or not on_target[i]["speaker_manual"] for i in moved_ids)):
+            return refuse("stale")
+        src = snap["source_row"]
+        if src and src["ref_audio_filename"] and not clip_exists(src["ref_audio_filename"]):
+            return refuse("clip_missing")
+        for m in snap["moved"]:
+            conn.execute("UPDATE lines SET speaker = ?, speaker_manual = ? "
+                         "WHERE id = ? AND drama_id = ?",
+                         (source, int(m["speaker_manual"]), m["id"], drama_id))
+        if src is not None:
+            conn.execute(
+                f"INSERT INTO characters (drama_id, speaker_label, {', '.join(MERGE_ROW_FIELDS)}) "
+                f"VALUES (?, ?{', ?' * len(MERGE_ROW_FIELDS)})",
+                (drama_id, source, *(src[c] for c in MERGE_ROW_FIELDS)))
+        before = snap["target_before"]
+        if before is None:
+            conn.execute("DELETE FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                         (drama_id, target))
+        else:
+            conn.execute(
+                f"UPDATE characters SET {', '.join(c + ' = ?' for c in MERGE_ROW_FIELDS)} "
+                "WHERE drama_id = ? AND speaker_label = ?",
+                (*(before[c] for c in MERGE_ROW_FIELDS), drama_id, target))
+        conn.execute("DELETE FROM voice_suggestion_dismissals WHERE drama_id = ? "
+                     "AND speaker_label IN (?, ?)", (drama_id, source, target))
+        for d in snap["dismissals_before"]:
+            conn.execute(
+                "INSERT INTO voice_suggestion_dismissals (drama_id, speaker_label, "
+                "series_character_id, created_at) VALUES (?, ?, ?, ?)",
+                (drama_id, d["speaker_label"], d["series_character_id"], d["created_at"]))
+        conn.commit()
+        return {"status": "ok", "moved": len(moved_ids)}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def drop_speaker_merge_undos(expired_before: float):
+    """Deletes undo records expired before the given time (database rows only)."""
+    conn = get_conn()
+    try:
+        # Characters writes call this; skip the write lock when nothing expired.
+        if conn.execute("SELECT 1 FROM speaker_merge_undos WHERE expires_at <= ? LIMIT 1",
+                        (expired_before,)).fetchone() is None:
+            return
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("DELETE FROM speaker_merge_undos WHERE expires_at <= ?", (expired_before,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def live_speaker_merge_undo_clips(drama_id: int, now: float) -> set:
+    """Clip files that a live (unexpired, not retired) undo record of the
+    drama would give back to the source row. Listing unused clips must count
+    these as in use: a merge never deletes a clip file."""
+    conn = get_conn()
+    try:
+        rows = conn.execute("SELECT snapshot FROM speaker_merge_undos "
+                            "WHERE drama_id = ? AND stale = 0 AND expires_at > ?",
+                            (drama_id, now)).fetchall()
+        return {c for c in (json.loads(r["snapshot"])["orphan_clip"] for r in rows) if c}
+    finally:
+        conn.close()
+
+
+def _retire_merge_undos(conn, drama_id: int, labels: tuple):
+    marks = ", ".join("?" * len(labels))
+    conn.execute(
+        "UPDATE speaker_merge_undos SET stale = 1 WHERE drama_id = ? AND stale = 0 "
+        f"AND (source_label IN ({marks}) OR target_label IN ({marks}))",
+        (drama_id, *labels, *labels))
+
+
+def retire_speaker_merge_undos(drama_id: int, labels: tuple):
+    """Marks the drama's live undo records that name one of labels as stale
+    (an edit to those speakers means they can't be applied). The record stays
+    until its id is used or it expires, so the undo answers with a plain 409
+    rather than looking like an unknown id."""
+    if not labels:
+        return
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        _retire_merge_undos(conn, drama_id, labels)
+        conn.commit()
     except Exception:
         conn.rollback()
         raise

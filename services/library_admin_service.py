@@ -658,6 +658,7 @@ USER_BACKUP_TABLES = {
     "bulk_job_lines": ("empty", "belongs to bulk_jobs"),
     "voice_bank": ("empty", "household clips; the clip files are not copied either"),
     "job_records": ("empty", "this PC's job history"),
+    "speaker_merge_undos": ("empty", "short-lived undo records"),
     "job_checkpoints": ("empty", "this PC's job state"),
     "job_stage_timings": ("empty", "this PC's job history"),
     "gpu_lock": ("empty", "this PC's job state"),

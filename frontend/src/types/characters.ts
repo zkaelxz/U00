@@ -36,3 +36,17 @@ export interface RenameResult {
   renamed: number
   undo: RenameUndo | null
 }
+
+// Merge two speakers: the source's lines and Characters row move into the
+// target. The server keeps what undo needs; the client only gets an opaque,
+// single-use id (it expires after expires_in seconds).
+export interface MergeUndo {
+  undo_id: string
+  expires_in: number
+}
+
+export interface MergeResult {
+  characters: CharacterEntry[]
+  moved: number
+  undo: MergeUndo | null
+}

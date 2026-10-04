@@ -32,7 +32,10 @@ Deliberately NOT here:
 
 No FastAPI import.
 """
+import logging
 import os
+import secrets
+import time
 import unicodedata
 
 import db
@@ -44,6 +47,8 @@ from db import (apply_voice_bank_entry as _db_apply_voice_bank_entry, drama_dir,
                 list_voice_bank_entries, load_lines, upsert_character)
 from services import drama_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+
+log = logging.getLogger(__name__)
 
 MAX_NAME_LEN = 200
 MAX_PRONOUNS_LEN = 40
@@ -203,6 +208,7 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
 
     if fields:
         upsert_character(drama_id, speaker_label, **fields)
+        _sweep_merge_undos(drama_id, (speaker_label,))
     return get_one(drama_id, speaker_label)
 
 
@@ -545,6 +551,7 @@ def rename_speaker(drama_id: int, speaker_label: str, new_name: str) -> dict:
     updates = [{"id": p["id"], "expect_speaker": speaker_label, "expect_manual": p["speaker_manual"],
                 "speaker": name, "manual": True} for p in previous]
     n = _move(drama_id, speaker_label, name, name, updates)
+    _sweep_merge_undos(drama_id, (speaker_label, name))
     undo = {"speaker_label": name, "previous_label": speaker_label,
             "previous_character_name": row.get("character_name"), "previous": previous}
     return {"characters": list_characters(drama_id), "renamed": n, "undo": undo}
@@ -589,3 +596,99 @@ def undo_rename_speaker(drama_id: int, undo: dict) -> dict:
                 "speaker": old_label, "manual": by_id[ln.id]["speaker_manual"]} for ln in lines]
     n = _move(drama_id, new_label, old_label, old_name, updates)
     return {"characters": list_characters(drama_id), "renamed": n, "undo": None}
+
+
+# --- Merge two speakers -------------------------------------------------------
+
+_STALE_MERGE = ("The speakers changed since the merge (renamed, edited or re-split), "
+                "so it can't be undone.")
+
+
+def _sweep_merge_undos(drama_id=None, labels: tuple = ()):
+    """Best-effort bookkeeping after the edit it follows has committed: drops
+    expired undo records (all dramas; expiry has no timer of its own, so any
+    Characters write does it) and retires those of drama_id naming one of
+    labels, so an edit to those speakers answers the old undo id with 409.
+    Database rows only: no clip file is ever deleted here. A failure (a locked
+    database) must not turn the committed edit into an error, and an expired
+    id is refused on use anyway; a retire that fails is retried by the
+    undo's own stale checks."""
+    try:
+        db.drop_speaker_merge_undos(time.time())
+        if drama_id is not None and labels:
+            db.retire_speaker_merge_undos(drama_id, tuple(labels))
+    except Exception as exc:
+        log.warning("Speaker merge undo bookkeeping failed (%s)", type(exc).__name__)
+
+
+def _clip_exists(drama_id: int, rel: str) -> bool:
+    from services import voice_clone_service
+    return voice_clone_service._safe_file(drama_dir(drama_id), rel) is not None
+
+
+def merge_speakers(drama_id: int, source: str, target: str, *, user_id=None) -> dict:
+    """Merges speaker `source` into `target`: every line labelled source gets
+    target as its speaker (marked set by hand, like a rename), and the
+    source's Characters row is folded into the target's -- a blank target
+    field (name, voice, pronouns, series link...) takes the source's value, a
+    filled one is kept -- then removed, so no duplicate or orphaned row is
+    left. The reference voice (clip, its transcript, engine, designed voice)
+    moves as one group, and only when the target has neither a clip nor a
+    design. Only the speaker columns of lines change. One database
+    transaction; the rows and lines it merges are read inside it.
+
+    The undo is kept in the database, not returned: the result carries an
+    opaque, single-use undo id that expires, scoped to this drama and user.
+    Raises NotFoundError (unknown drama or speaker), InvalidInputError (same
+    speaker twice, or a label undo couldn't restore), ConflictError (job
+    running, or the two are linked to different series characters). Returns
+    {"characters": ..., "moved": n lines, "undo": {"undo_id", "expires_in"}}."""
+    require_drama(drama_id)
+    known = known_speakers(drama_id)
+    for label in (source, target):
+        if not isinstance(label, str) or label not in known:
+            raise NotFoundError("No such speaker in this drama.")
+    if source == target:
+        raise InvalidInputError("Pick two different speakers.")
+    if _clean_label("source", source) != source or _clean_label("target", target) != target:
+        raise InvalidInputError("A speaker name has characters that can't be merged here; "
+                                "fix it in the line editor first.")
+    if drama_service.job_running_for_drama(drama_id):
+        raise ConflictError(_BUSY.format(what="merging speakers"))
+    undo_id = secrets.token_urlsafe(24)
+    out = db.merge_speakers_atomic(drama_id, source, target, user_id, time.time(), undo_id)
+    if out == "link_conflict":
+        raise ConflictError("These speakers are linked to different series characters; "
+                            "unlink one of them first.")
+    _sweep_merge_undos()
+    return {"characters": list_characters(drama_id), "moved": out["moved"],
+            "undo": {"undo_id": undo_id, "expires_in": db.MERGE_UNDO_TTL_SECONDS}}
+
+
+def undo_merge_speakers(drama_id: int, undo_id: str, *, user_id=None) -> dict:
+    """Reverses merge_speakers from its undo id: the moved lines get their
+    label and manual flag back, the source's Characters row returns, the
+    target's fields go back to what they were and the dismissed voice matches
+    come back as they were. The id works once, within the time limit, for the
+    drama and user that merged. Refused (409, nothing written, the id spent)
+    when anything the merge left has changed since: the target row or its
+    dismissed matches, a moved line's speaker or flag, or the old label in
+    use again. No clip file is deleted. Raises
+    NotFoundError (unknown drama, or an id that is unknown, spent, expired or
+    someone else's), InvalidInputError, ConflictError. Returns {"characters": ..., "moved": n, "undo": None}."""
+    require_drama(drama_id)
+    if not isinstance(undo_id, str) or not 20 <= len(undo_id) <= 64:
+        raise InvalidInputError("That undo isn't valid.")
+    if drama_service.job_running_for_drama(drama_id):
+        # The id is kept in this case, so the UI keeps its undo button.
+        raise ConflictError(_BUSY.format(what="undoing"), details={"reason": "job_running"})
+    _sweep_merge_undos()
+    out = db.undo_merge_speakers_atomic(drama_id, undo_id, user_id, None,
+                                        lambda rel: _clip_exists(drama_id, rel))
+    if out["status"] == "missing":
+        raise NotFoundError("There is nothing to undo; the undo was used or has expired.")
+    if out["status"] == "clip_missing":
+        raise ConflictError("The voice clip is gone, so the merge can't be undone.")
+    if out["status"] == "stale":
+        raise ConflictError(_STALE_MERGE)
+    return {"characters": list_characters(drama_id), "moved": out["moved"], "undo": None}

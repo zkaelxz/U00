@@ -275,7 +275,7 @@ class TestLocal:
         assert body["drama_id"] == a and body["restored_as_new"] is False
         assert body["title"] == "Alpha" and body["snapshot_kind"] == "db-only"
         assert body["snapshot"] == first        # the copy used when none was named
-        assert body["skipped_tables"] == ["bulk_jobs", "metadata_research_results", "usage_log"]
+        assert body["skipped_tables"] == ["bulk_jobs", "metadata_research_results", "speaker_merge_undos", "usage_log"]
         assert db.get_drama(a)["title_en"] == "Alpha"
 
         r = _clean(client.post(f"{BASE}/snapshot/restore-drama",
