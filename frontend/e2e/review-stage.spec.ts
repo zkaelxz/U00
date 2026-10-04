@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
+import { openFoldFor } from './reviewFolds'
 
 // The seeded API has dramas but no lines, so before every test this spec
 // writes three lines for drama 3 straight into the throwaway library the test
@@ -500,7 +501,8 @@ test('re-segment previews, then needs the typed word', async ({ page }) => {
   })
   await page.route('**/api/jobs/rj', (route) => route.fulfill({ json: job('done') }))
   await open(page)
-  await page.locator('summary', { hasText: 'Structure' }).click()
+  await openFoldFor(page, 'Structure')
+  await page.locator('summary', { hasText: /^Structure/ }).click()
   await page.getByRole('button', { name: 'Preview re-segmentation' }).click()
   await expect(page.getByTestId('resegment-preview')).toContainText('3 → 4 lines; 1 change; 0 translated, 1 flagged, 0 notes would be split')
   const run = page.getByRole('button', { name: 'Re-segment lines' })
@@ -521,6 +523,7 @@ test('restore a line-history snapshot with the typed word', async ({ page }) => 
   })
   await open(page)
   const ids = await rows(page).evaluateAll((els) => els.map((e) => Number(e.getAttribute('data-line-id'))))
+  await openFoldFor(page, 'Records')
   await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }).click()
   await page.getByTestId('history-list').getByRole('button', { name: 'Restore…' }).click()
   await page.getByLabel('Type restore to confirm').fill('restore')
@@ -860,4 +863,24 @@ test('Compact rows is remembered for the next visit', async ({ page }) => {
   await page.reload()
   await expect(rows(page)).toHaveCount(3)
   await expect(page.locator('.review-lines.is-compact')).toHaveCount(1)
+})
+
+test('flag lines for review runs only on click and reports each result', async ({ page }) => {
+  const posts: string[] = []
+  await page.route('**/api/export/dramas/3/flag-*', (route) => {
+    const name = route.request().url().split('/').pop() ?? ''
+    posts.push(name)
+    return route.fulfill({
+      json: name === 'flag-auto-qc' ? { flagged: 1, cleared: 0, already_flagged: 0, checked: 3 } : { flagged_count: 0 },
+    })
+  })
+  await open(page)
+  expect(posts).toEqual([])
+  const flags = page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: /^Flag lines for review$/ }) })
+  await flags.locator(':scope > summary').click()
+  await flags.getByRole('button', { name: 'Flag overlapping lines' }).click()
+  await expect(flags.getByTestId('flag-result-overlaps')).toHaveText('Flagged 0 lines.')
+  await flags.getByRole('button', { name: 'Run auto-QC and flag' }).click()
+  await expect(flags.getByTestId('flag-result-qc')).toContainText('Checked 3 lines: flagged 1')
+  expect(posts).toEqual(['flag-overlaps', 'flag-auto-qc'])
 })

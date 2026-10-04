@@ -1,4 +1,5 @@
 import { type Page } from '@playwright/test'
+import { openFoldFor } from './reviewFolds'
 
 import { expect, test } from './fixtures'
 
@@ -16,6 +17,7 @@ const section = (page: Page, title: string) =>
   page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: new RegExp(`^${title}$`) }) })
 
 async function open(page: Page, title: string) {
+  await openFoldFor(page, title)
   const s = section(page, title)
   if ((await s.getAttribute('open')) === null) await s.locator(':scope > summary').click()
   await expect(s).toHaveAttribute('open', '')

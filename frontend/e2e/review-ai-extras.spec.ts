@@ -4,6 +4,7 @@ import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 
 import { ME, maybeScreenshot } from './authMocks'
+import { openFoldFor } from './reviewFolds'
 
 // Review → AI extras. Drama 3 gets three lines (the first two short and
 // close, so they merge) written straight into the seeded throwaway library.
@@ -44,20 +45,23 @@ const job = (id: string, status: string) => ({
 async function openExtras(page: Page) {
   await page.goto('/#/drama/3/review')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(3)
-  const extras = page.getByRole('group', { name: 'AI extras' })
-  await extras.locator('details.section > summary', { hasText: 'AI extras' }).first().click()
-  return extras
 }
 
+const FULL: Record<string, string> = { 'Audio tags': 'Audio tags (SenseVoice)' }
+
+// Opens the fold that holds the tool, then the tool's own section.
 async function openSub(page: Page, title: string) {
-  const extras = page.getByRole('group', { name: 'AI extras' })
-  // The inner sections (the outer group's summary lists every title too).
-  await extras.locator('details.section details.section > summary', { hasText: title }).first().click()
+  const full = FULL[title] ?? title
+  await openFoldFor(page, full)
+  const exact = new RegExp(`^${full.replace(/[()]/g, '\\$&')}$`)
+  const sub = page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: exact }) })
+  if ((await sub.getAttribute('open')) === null) await sub.locator(':scope > summary').click()
+  return sub
 }
 
 test('merge short lines: preview is read-only, apply merges against the real API', async ({ page }) => {
-  const extras = await openExtras(page)
-  await openSub(page, 'Merge short lines')
+  await openExtras(page)
+  const extras = await openSub(page, 'Merge short lines')
 
   // Bad option: caught before any request.
   await extras.getByLabel('Max length', { exact: true }).fill('5')
@@ -78,8 +82,8 @@ test('merge short lines: preview is read-only, apply merges against the real API
 })
 
 test('merge apply refuses when the lines changed after the preview', async ({ page }) => {
-  const extras = await openExtras(page)
-  await openSub(page, 'Merge short lines')
+  await openExtras(page)
+  const extras = await openSub(page, 'Merge short lines')
   await extras.getByRole('button', { name: 'Preview merge' }).click()
   await expect(page.getByTestId('merge-short-preview')).toContainText('1 merge')
   python(`
@@ -119,8 +123,8 @@ test('learn my style: learn, pause, reset, restore (LLM mocked)', async ({ page 
     return route.fulfill({ json: { ...base, profile, message: 'Restored an earlier learned style.' } })
   })
 
-  const extras = await openExtras(page)
-  await openSub(page, 'Learn my style')
+  await openExtras(page)
+  const extras = await openSub(page, 'Learn my style')
   await expect(page.getByTestId('style-summary')).toContainText('Nothing learned yet')
   await extras.getByRole('button', { name: 'Learn my style' }).click()
   await expect(page.getByTestId('style-preferences')).toContainText('Keep lines short')
@@ -158,8 +162,8 @@ test('learn my style when remote: pausing works, Reset is PC only', async ({ pag
     return route.fulfill({ json: { ...base, profile: { ...profile, applied: b.apply } } })
   })
 
-  const extras = await openExtras(page)
-  await openSub(page, 'Learn my style')
+  await openExtras(page)
+  const extras = await openSub(page, 'Learn my style')
   await expect(page.getByTestId('style-preferences')).toContainText('Keep lines short')
   await expect(extras.getByText('Resetting or restoring the learned style is PC only.')).toBeVisible()
   await expect(extras.getByRole('button', { name: /Reset/ })).toHaveCount(0)
@@ -176,8 +180,8 @@ test('learn my style when remote: the all-projects style is PC only to learn or 
     route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await page.route('**/api/review-extras/dramas/3/style', (route) => route.fulfill({ json: { ...base, profile } }))
 
-  const extras = await openExtras(page)
-  await openSub(page, 'Learn my style')
+  await openExtras(page)
+  const extras = await openSub(page, 'Learn my style')
   await expect(page.getByTestId('style-preferences')).toContainText('Keep lines short')
   await expect(extras.getByText('Learning or pausing the style for all projects is PC only.')).toBeVisible()
   await expect(extras.getByRole('button', { name: 'Learn again' })).toBeDisabled()
@@ -209,8 +213,8 @@ test('SenseVoice: start the job, then show the side-by-side table (model mocked)
     return route.fulfill({ json: job('sensevoice_3', 'done') })
   })
 
-  const extras = await openExtras(page)
-  await openSub(page, 'Audio tags')
+  await openExtras(page)
+  const extras = await openSub(page, 'Audio tags')
   await expect(page.getByTestId('sensevoice-summary')).toHaveText('Not tagged yet.')
   await extras.getByRole('button', { name: 'Tag from the audio' }).click()
   await expect(page.getByTestId('sensevoice-table')).toContainText('crying')
@@ -220,8 +224,8 @@ test('SenseVoice: start the job, then show the side-by-side table (model mocked)
 test('SenseVoice without funasr explains why the button is off', async ({ page }) => {
   await page.route('**/api/review-extras/dramas/3/sensevoice', (route) =>
     route.fulfill({ json: { drama_id: 3, installed: false, has_audio: true, license_note: '', tagged: 0, disagree: 0, rows: [] } }))
-  const extras = await openExtras(page)
-  await openSub(page, 'Audio tags')
+  await openExtras(page)
+  const extras = await openSub(page, 'Audio tags')
   await expect(extras.getByRole('button', { name: 'Tag from the audio' })).toBeDisabled()
   await expect(extras.getByText(/pip install funasr/)).toBeVisible()
 })
@@ -246,8 +250,8 @@ test('burned preview: a line number resolves to its id, then the clip plays (ffm
   await page.route('**/api/review-extras/dramas/3/burn-preview/clip*', (route) =>
     route.fulfill({ status: 200, contentType: 'video/mp4', body: Buffer.from('not really a video') }))
 
-  const extras = await openExtras(page)
-  await openSub(page, 'Burned subtitle preview')
+  await openExtras(page)
+  const extras = await openSub(page, 'Burned subtitle preview')
   await extras.getByLabel('Line', { exact: true }).fill('9')
   await extras.getByRole('button', { name: 'Render preview' }).click()
   await expect(extras.getByText('No line #9 in this drama.')).toBeVisible()
@@ -266,7 +270,7 @@ test('burned preview: a line number resolves to its id, then the clip plays (ffm
 test.describe('phone width', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
 
-  test('every AI extras section fits without sideways scrolling', async ({ page }) => {
+  test('every Review extras section fits without sideways scrolling', async ({ page }) => {
     await page.route('**/api/review-extras/dramas/3/sensevoice', (route) =>
       route.fulfill({
         json: {
@@ -274,9 +278,9 @@ test.describe('phone width', () => {
           rows: [{ line_id: lineIds[0], idx: 0, text: '这是一个相当长的句子用来测试表格的宽度', text_emotion: 'happy', audio_emotion: 'sad', audio_events: 'background music, laughter', disagree: true }],
         },
       }))
-    const extras = await openExtras(page)
+    await openExtras(page)
     for (const title of ['Merge short lines', 'Learn my style', 'Audio tags', 'Burned subtitle preview']) await openSub(page, title)
-    await extras.getByRole('button', { name: 'Preview merge' }).click()
+    await page.getByRole('button', { name: 'Preview merge' }).click()
     await expect(page.getByTestId('merge-short-preview')).toBeVisible()
     await expect(page.getByTestId('sensevoice-table')).toBeVisible()
     const { scroll, client } = await page.evaluate(() => ({

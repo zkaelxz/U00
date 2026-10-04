@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import type { Page, Route } from '@playwright/test'
 import { untilTestEnds } from './stageLineMocks'
+import { openFoldFor } from './reviewFolds'
 
 // Shared by review-resegment-llm(.mobile).spec.ts (parity R47): three real
 // lines for drama 3 in the throwaway library, and mocks for the AI preview
@@ -113,6 +114,7 @@ export async function mockAiResegment(
 export async function openAiStructure(page: Page) {
   await page.goto('/#/drama/3/review')
   await page.locator('.review-line:not(.review-skeleton)').first().waitFor()
+  await openFoldFor(page, 'Structure')
   const group = page.getByRole('group', { name: 'Structure' })
   await group.locator('summary', { hasText: 'Structure' }).click()
   await group.getByRole('switch', { name: 'Use AI' }).click()

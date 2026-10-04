@@ -69,17 +69,14 @@ test('bad ASS settings are explained before any request', async ({ page }) => {
   await expect(page.getByRole('alert').filter({ hasText: '#RRGGBB' })).toBeVisible()
 })
 
-test('flag actions run only on click and report the result', async ({ page }) => {
-  let posts = 0
-  page.on('request', (r) => r.method() === 'POST' && r.url().includes('/flag-') && posts++)
+test('the readiness warning links to Review checks instead of hosting flag buttons', async ({ page }) => {
+  await page.route('**/api/export/dramas/1/readiness', (route) =>
+    route.fulfill({ json: { drama_id: 1, total_lines: 10, zh_filled: 10, en_filled: 10, fully_translated: true, overlap_count: 2, auto_qc_issue_count: 0, dense_line_count: 1 } }))
   await page.goto('/#/drama/1/export')
-  await expect(page.getByTestId('readiness')).toBeVisible()
-  expect(posts).toBe(0)
-  await page.getByRole('button', { name: 'Flag overlapping lines' }).click()
-  await expect(page.getByTestId('flag-result-overlaps')).toHaveText('Flagged 0 lines.')
-  await page.getByRole('button', { name: 'Run auto-QC and flag' }).click()
-  await expect(page.getByTestId('flag-result-qc')).toContainText('Checked 0 lines')
-  expect(posts).toBe(2)
+  await expect(page.getByTestId('readiness-warnings')).toContainText('2 overlapping lines, 1 dense line.')
+  await expect(page.getByRole('button', { name: 'Flag overlapping lines' })).toHaveCount(0)
+  await page.getByRole('link', { name: 'Open Review checks' }).click()
+  await expect(page).toHaveURL(/#\/drama\/1\/review$/)
 })
 
 test('the ASS style shows at the top only when ASS is chosen', async ({ page }) => {
@@ -192,6 +189,9 @@ async function exportAss(page: Page, noCopy: boolean) {
   await withExportLines(page)
   await page.goto('/#/drama/1/export')
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
+  // The style options arrive after the page paints; Export before then is refused.
+  await expect(page.getByText('ASS style', { exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   await expect(page.getByTestId('export-text')).toContainText('[Script Info]')
 }

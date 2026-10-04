@@ -4,6 +4,7 @@ import path from 'node:path'
 import { test, type Page } from '@playwright/test'
 
 import { mockAiResegment } from './resegmentLlmMocks'
+import { openFoldFor } from './reviewFolds'
 
 // Before/after screenshots for the B5 Review gaps (R05 search jump, R49 bulk,
 // R47 AI re-segmentation preview). Skipped unless B5_SHOTS_DIR=<dir> is set.
@@ -48,6 +49,7 @@ async function mockBulk(page: Page) {
 }
 
 async function open(page: Page, name: string) {
+  await openFoldFor(page, name)
   const s = page.locator('summary', { hasText: name }).first()
   const d = s.locator('xpath=..')
   if (!(await d.getAttribute('open'))) await s.click()

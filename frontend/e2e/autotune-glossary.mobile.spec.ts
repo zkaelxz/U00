@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { openFoldFor } from './reviewFolds'
 import { openTranscribeOptions } from './sourceHelpers'
 
 // Phone project (390x844, touch): the auto-tune results, glossary-from-novel
@@ -39,6 +40,7 @@ async function expectTall(loc: Locator) {
 }
 
 async function openSection(page: Page, title: string) {
+  await openFoldFor(page, title)
   // Some sections now start open; click only a closed one, as a user would.
   if (['Advanced', 'Speakers', 'Auto-tune min silence'].includes(title)) await openTranscribeOptions(page)
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()

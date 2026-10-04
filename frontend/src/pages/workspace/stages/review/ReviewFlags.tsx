@@ -1,9 +1,10 @@
 import { useState } from 'react'
 
-import { flagAutoQc, flagDenseLines, flagOverlaps } from '../../../api/export'
-import { ErrorBanner } from '../../../components/ErrorBanner'
-import { buttonClass } from '../../../components/uiClasses'
-import { useStage } from '../StageContext'
+import { flagAutoQc, flagDenseLines, flagOverlaps } from '../../../../api/export'
+import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { buttonClass } from '../../../../components/uiClasses'
+import { Section } from '../../../../components/Section'
+import { useStage } from '../../StageContext'
 
 interface Action {
   id: string
@@ -39,7 +40,8 @@ const ACTIONS: Action[] = [
   },
 ]
 
-export function ExportFlags({ onDone }: { onDone: () => void }) {
+// Writes only flags and flag notes; the same endpoints Export used to host.
+export function ReviewFlags({ onDone }: { onDone: () => void }) {
   const { dramaId } = useStage()
   const [busy, setBusy] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, string>>({})
@@ -62,15 +64,17 @@ export function ExportFlags({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="export-block" aria-label="Flag lines">
+    <Section storageKey="review.flags" title="Flag lines for review" summary="overlaps, auto-QC, dense lines">
+      <div className="review-flags" aria-label="Flag lines">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {ACTIONS.map((a) => (
-        <div className="export-flag-row" key={a.id}>
+        <div className="review-flag-row" key={a.id}>
           <button type="button" className={buttonClass('secondary')} disabled={busy !== null} onClick={() => run(a)}>{a.label}</button>
           <span className="muted">{a.writes}</span>
           {results[a.id] && <span role="status" data-testid={`flag-result-${a.id}`}>{results[a.id]}</span>}
         </div>
       ))}
-    </div>
+      </div>
+    </Section>
   )
 }

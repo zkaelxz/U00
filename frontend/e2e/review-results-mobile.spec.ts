@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openFoldFor } from './reviewFolds'
 
 import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 
@@ -16,6 +17,7 @@ const TITLES = ['AI review', 'Check options', 'Options', 'Consistency', 'Emotion
 
 async function openAll(page: Page) {
   for (const t of TITLES) {
+    await openFoldFor(page, t)
     const s = section(page, t)
     if ((await s.getAttribute('open')) === null) await s.locator(':scope > summary').click()
     await expect(s).toHaveAttribute('open', '')
