@@ -682,11 +682,10 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
         db.save_translation_version(
             job["drama_id"], current, label=f"{job['engine']} bulk · {args.get('style_preset', '')}",
             engine=job["engine"], model=job["model"] or "", make_active=True)
-        # Step 25d item 13: same root cause as item 4's -- a batch that
-        # applied SOME lines (dropped/flagged/kept-your-edit lines aside)
-        # used to mark the whole drama "translated" even with lines still
-        # missing, same as the CLI/Workspace bug Step 25c already fixed
-        # there via this same untranslated_line_count() == 0 gate.
+        # Mark the drama "translated" only when no line is left
+        # untranslated: a batch that applied SOME lines (dropped/flagged/
+        # kept-your-edit lines aside) must not claim the whole drama. Same
+        # untranslated_line_count() == 0 gate as finish_translation_run.
         _status = dict(translation_engine=job["engine"])
         if untranslated_line_count(job["drama_id"]) == 0:
             _status["status"] = "translated"
@@ -993,7 +992,7 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
         db.save_translation_version(
             job["drama_id"], current, label=f"{job['engine']} bulk reflect", engine=job["engine"],
             model=job["model"] or "", make_active=True)
-        # Step 25d item 13: see apply_bulk_results' own comment above.
+        # Same "translated" gate as apply_bulk_results above.
         _status = dict(translation_engine=job["engine"])
         if untranslated_line_count(job["drama_id"]) == 0:
             _status["status"] = "translated"
@@ -1336,9 +1335,8 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
     summary = {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
                "batch_errors": len(errors), "cap_reached": cap.get("spent")}
-    # Step 25d item 13: see apply_bulk_results' own comment above -- a run
-    # with batch failures or skipped (source-changed) lines used to be
-    # marked "translated" anyway.
+    # Same gate as apply_bulk_results above: a run with batch failures or
+    # skipped (source-changed) lines must stay re-runnable, not "translated".
     _status = dict(translation_engine=job["engine"])
     if untranslated_line_count(job["drama_id"]) == 0:
         _status["status"] = "translated"
@@ -1511,7 +1509,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                            enforce_ids=None, flags_needing_recheck: set = None) -> bool:
     """What happens after translate_engines.translate_lines_with_engine
     returns, shared by Workspace's run_translate_job and `cli.py translate`
-    so the two can't drift (the CLI used to skip most of it): applies
+    so the two can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
     the run as the active translation version, and persists its batch
     failures (dramas.last_translate_errors).
@@ -1537,7 +1535,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     of one content-blocked line on another engine): it must not replace
     the drama's recorded translation_engine, which describes the whole-
     drama run, nor its last_translate_errors, nor save a new active
-    translation version (the Streamlit retry touched only its line).
+    translation version.
 
     Returns False, recording nothing, if every line this run translated
     has since been replaced (e.g. a new transcription finished meanwhile)
@@ -1566,13 +1564,11 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                      and (ln.en or "") == run_en[ln.id]]
         landed = {ln.id for ln in own_fresh}
     if enforced:
-        # Step 25d item 5: this used to substitute into `lines` -- the
-        # job's own in-memory copies, which can be stale by the time the
-        # job actually finishes (a user can edit a line's English while
-        # the job is still running). Writing that back unconditionally
-        # meant a live edit could be clobbered by a substitution computed
-        # from a baseline that was no longer current, with no warning.
-        # Loading fresh here and substituting into *that* means this only
+        # Substitute into a fresh DB read, not `lines` -- the job's own
+        # in-memory copies, which can be stale by the time the job finishes
+        # (a user can edit a line's English while the job is still running),
+        # so writing those back could clobber a live edit. Substituting into
+        # the fresh read means this only
         # ever overwrites whatever is actually in the database right now,
         # and db.save_lines' own orig-comparison (see its docstring) then
         # skips writing any line the substitution didn't actually change.
@@ -1625,10 +1621,10 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     if line_ids and not db.line_ids_exist(drama_id, line_ids):
         return False
 
-    # A line-scoped run (a one-line retry, B-27) matches the Streamlit
-    # retry: it touches only its own lines, so it neither saves a new
-    # active version (which would be labelled with the retry engine) nor
-    # replaces the drama's persisted record of a whole run's failures.
+    # A line-scoped run (e.g. a one-line retry) touches only its own
+    # lines, so it neither saves a new active version (which would be
+    # labelled with the retry engine) nor replaces the drama's persisted
+    # record of a whole run's failures.
     if not cancelled and not line_scoped:
         label = f"{engine_choice} · {style_preset}"
         if engine_choice in translate_engines.FREE_ENGINES or getattr(engine, "free_tier", False):

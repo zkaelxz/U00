@@ -47,7 +47,7 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
 
 def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 1000) -> str:
     """Shared multi-engine chat dispatch, factored out of ask_about_drama
-    so app_help.ask_about_app (Step 18b) can reuse the exact same
+    so services/maintenance_assistant_service.py can reuse the exact same
     Claude/OpenAI-shaped/Gemini/Ollama request handling -- only the
     system_prompt/grounding differs per caller, the dispatch mechanics
     (auth shape, free-tier throttling, Ollama's num_ctx estimate) don't."""

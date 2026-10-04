@@ -189,7 +189,7 @@ IMPORT_JOB_PREFIX = "sourceimport_"
 
 def import_job_id(drama_id: int) -> str:
     """One import job per drama, the same id the API's import routes use
-    (background_jobs.DRAMA_JOB_PREFIXES has the prefix), so Streamlit, the
+    (background_jobs.DRAMA_JOB_PREFIXES has the prefix), so the
     chapter-check auto-import and the API never write one drama at once."""
     return f"{IMPORT_JOB_PREFIX}{int(drama_id)}"
 

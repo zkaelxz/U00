@@ -179,10 +179,8 @@ _lock = threading.RLock()
 # project is built around); a Settings toggle can turn it off for anyone
 # on higher-VRAM hardware.
 #
-# Migration Slice 9 (D1 fix 2): this used to be a bare module global,
-# invisible to a separately-running `python -m api` process and reset to
-# the hardcoded default on every restart -- D1's own two named examples
-# of this exact problem. Now backed by db.app_settings, read fresh on
+# Backed by db.app_settings, not a module global, so a separately-running
+# process sees the same setting and it survives a restart. Read fresh on
 # each check rather than cached: these checks happen only at job
 # start/finish, never in a hot per-tick loop, so a DB read each time
 # costs nothing worth avoiding.
@@ -209,7 +207,7 @@ def get_gpu_limit_enabled() -> bool:
     except Exception as exc:
         # Never let a DB hiccup block a job from starting -- the GPU
         # guard is a soft, best-effort convenience, not a correctness
-        # requirement. Fails open (limit stays on, the safer default).
+        # requirement. On a read error the limit stays on (the default).
         _warn("could not read the GPU-limit setting; keeping the limit on", exc)
         return True
 
@@ -306,9 +304,8 @@ def try_take_gpu_slot(holder: str, description: str = None, check_external_load:
 # Step 23c item 4: an optional local desktop notification when a
 # background job finishes, so a long job (especially Step 9b's bulk
 # series-translate, which can run unattended for a while) doesn't
-# require watching the tab. Off by default -- a Settings toggle
-# (settings_tab.py) turns it on via set_notify_on_completion() below.
-# Migration Slice 9 (D1 fix 2): also now backed by db.app_settings, same
+# require watching the page. Off by default -- a Settings toggle turns it
+# on via set_notify_on_completion() below. Backed by db.app_settings, same
 # reasoning as get/set_gpu_limit_enabled() above.
 
 
@@ -964,7 +961,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
 
     The job records who started it (auth B2): the user id of the API
     request this runs in (ownership_service.acting_user_id), or None for
-    the PC owner, auth off, Streamlit, the CLI and jobs started by jobs.
+    the PC owner, auth off, the CLI and jobs started by jobs.
 
     Raises ConflictError once the server's clean stop has begun
     (refuse_new_jobs).
@@ -1044,8 +1041,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     returns a successful result and BEFORE the job is marked "done" (so
     nobody polling sees "done" while the hook is still applying it).
     A process job's result otherwise lives only in this process's memory
-    and only Streamlit's render loop persists it -- an API-started job
-    passes on_done so it can apply its own result. If on_done raises, the
+    and nothing applies it (e.g. saves it to the drama) -- a caller that
+    needs it applied passes on_done. If on_done raises, the
     job ends "error" with a redacted message. Not called on error/cancel,
     and not called when a cancel arrived after the subprocess finished
     (the job ends "cancelled" and nothing is applied). A non-None return
@@ -1177,6 +1174,9 @@ def report_stage(result_queue, message: str, frac: float = 0.0):
 # and its pid, so the worker can tell that it has been orphaned.
 _worker_parent = None
 _worker_parent_pid = None
+# How often the worker's watchdog thread looks for a dead parent: an
+# orphaned worker (its server killed) would otherwise keep running, and
+# keep its GPU memory, with nobody left to read its result.
 PARENT_CHECK_INTERVAL = 2.0
 
 
@@ -1599,6 +1599,9 @@ def set_result(job_id: str, result, mirror: bool = False):
     once via get_status(job_id)["result"] after the job finishes.
     mirror=True also writes it to job_records at once, for a result that
     other pollers (GET /api/jobs/{id}) must see while the job still runs."""
+    # mirror defaults off: the status-transition mirrors (finish included)
+    # already carry the result, so an extra SQLite write from the job thread
+    # is only worth it for a result other processes need mid-run.
     with _lock:
         if job_id in _jobs:
             _jobs[job_id]["result"] = result
@@ -1766,6 +1769,8 @@ def request_cancel(job_id: str):
     _run_finish_hooks(hooks)
 
 
+# A cancel from another process can take up to this long to be seen; the
+# trade for not reading job_records on every call from a per-line loop.
 _DB_CANCEL_CHECK_INTERVAL = 2.0
 _last_db_cancel_check = {}
 _db_cancel_check_failed = set()   # job ids whose check failure was already logged

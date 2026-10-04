@@ -34,10 +34,10 @@ sudachipy/kiwipiepy, already built for Reader ruby-text) rather than
 raw text, matching torchaudio's own documented MMS_FA usage pattern of
 aligning a pre-split word list, not inferring boundaries itself.
 
-EXPERIMENTAL, off by default: written against torchaudio's documented
-MMS_FA API and uroman's documented Python API, but NOT run against real
-Chinese/Japanese/Korean speech in this environment (no GPU, no real
-audio, no network for the ~1.1GB model download). There IS a confirmed
+Experimental and opt-in per drama (realign_long_segments, off by
+default): written against torchaudio's documented MMS_FA API and uroman's
+documented Python API rather than tuned on real Chinese/Japanese/Korean
+speech. There IS a confirmed
 real GitHub issue (m-bain/whisperX#84) of a DIFFERENT but related CTC
 aligner failing outright on some Japanese text ("no characters in this
 segment found in model dictionary") -- so realign_long_segment() fails

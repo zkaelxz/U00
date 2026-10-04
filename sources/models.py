@@ -60,7 +60,7 @@ class FailureReason(str, Enum):
     ENCRYPTED_RESOURCE = "ENCRYPTED_RESOURCE"
     SIGNED_RESOURCE = "SIGNED_RESOURCE"
     NOT_INSTALLED = "NOT_INSTALLED"      # the tier's own tooling isn't set up here
-    TOS_PROHIBITED = "TOS_PROHIBITED"    # refused before any request: the source's terms forbid it
+    TOS_PROHIBITED = "TOS_PROHIBITED"    # terms forbid it; recorded only, check_terms is a no-op
     # Every domain on the source's domain list failed to connect or kept erroring
     # (sources/domains.py); a challenge on any of them is never this.
     ALL_DOMAINS_UNREACHABLE = "ALL_DOMAINS_UNREACHABLE"
@@ -340,9 +340,9 @@ class AttemptRecord:
     # but it means the text here is a translation, not the source.
     machine_translated: list = field(default_factory=list)
     # How strongly the page looked like an unrendered JS shell, and why.
-    # `page_fetch.looks_like_unrendered_shell` works both out and
-    # `detect.classify` used to keep only its boolean; they are the
-    # closest thing here to "is the text really in the DOM?".
+    # `page_fetch.looks_like_unrendered_shell` works both out (not just a
+    # boolean); they are the closest thing here to "is the text really in
+    # the DOM?".
     shell_confidence: Optional[float] = None
     shell_reasons: list = field(default_factory=list)
 

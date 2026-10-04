@@ -139,9 +139,9 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
     NOTE: same honesty as scanlate.detect_bubbles_ml()'s own docstring --
     written against the documented `transformers` VLM-loading pattern
     (AutoProcessor + AutoModelForCausalLM, trust_remote_code=True, the
-    common shape for a HF-hosted vision-language OCR model), not run
-    end-to-end in this environment (no network/GPU here). Sanity-check
-    against manga_ocr's output on a real page before relying on it.
+    common shape for a HF-hosted vision-language OCR model), not verified
+    end-to-end. Sanity-check against manga_ocr's output on a real page
+    before relying on it.
     """
     from PIL import Image
     from transformers import AutoModelForCausalLM, AutoProcessor

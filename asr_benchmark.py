@@ -15,9 +15,8 @@ Deliberately standalone -- it doesn't touch the drama library/database
 (db.py), because a benchmark clip usually isn't a drama you've imported
 yet. Point it at any audio/video file directly.
 
-Not run inside this sandbox (no GPU, no models, no real audio to analyze)
--- this is real code, written to run on your machine against your own
-test clip.
+Runs on your machine against your own test clip (it needs the models and
+real audio).
 
 Usage:
     # Transcription-only comparison (Whisper vs Qwen3-ASR text, same

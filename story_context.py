@@ -116,8 +116,8 @@ def build_relationship_map(lines, engine, max_context_lines: int = 400):
 
 
 def relationship_map_to_mermaid(rel_map: dict) -> str:
-    """Renders a relationship map as a Mermaid graph, which Streamlit
-    and most Markdown viewers can display directly."""
+    """Renders a relationship map as a Mermaid graph, which most
+    Markdown viewers can display directly."""
     chars = rel_map.get("characters", [])
     rels = rel_map.get("relationships", [])
     if not chars and not rels:

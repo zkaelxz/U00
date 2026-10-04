@@ -1254,14 +1254,11 @@ def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Step 47 item 5: when an "Upgrade" action can't actually reach the latest
-# release for a real, known reason (a constraints.txt cap, or a package
-# with no published wheel for the running Python version), say so instead
-# of silently offering an upgrade that would fail, or offering nothing
-# with no explanation. Seeded with the one real, already-confirmed case
-# (Step 61's audio-separator/diffq-fixed/Python-3.14 finding) rather than
-# a hypothetical one -- add to this dict as more real cases turn up, the
-# same way OPTIONAL_DEPENDENCIES itself grows.
+# When an "Upgrade" action can't actually reach the latest release for a
+# real, known reason (a constraints.txt cap, or a package with no published
+# wheel for the running Python version), say so instead of silently
+# offering an upgrade that would fail, or offering nothing with no
+# explanation. Only confirmed cases go here, not hypothetical ones.
 # ---------------------------------------------------------------------------
 
 KNOWN_UPGRADE_LIMITATIONS = {

@@ -26,6 +26,9 @@ import time
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
+# source_status is the sibling scripts/source_status.py, not a package
+# module: put this file's own folder on the path so the import works when
+# the script is run from any working directory.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import source_status  # noqa: E402
 

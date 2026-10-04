@@ -76,7 +76,7 @@ def standalone_translate(text: str, engine, source_language: str, target_languag
     own batch_size, just simpler since there's no cross-batch context
     window here), and reassembled using each engine's own translate_batch
     -- which already resolves a response back to its own chunk by id
-    rather than by position (see _request_translations_with_retry's own
+    rather than by position (see request_translations_with_retry's own
     docstring for the exact bug that protects against) -- built once
     there, not reimplemented here.
 

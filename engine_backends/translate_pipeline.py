@@ -459,6 +459,9 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
 def translate_lines_with_engine(*args, **kwargs):
     """Runs _translate_lines_with_engine with the job's cancel check
     visible to the backoff and throttle waits (see _cancellable_sleep)."""
+    # Bind against the real signature so cancel_check_cb is found whether
+    # the caller passed it positionally or by keyword; the context var lets
+    # sleeps deep in shared.py see it without threading it through every call.
     bound = inspect.signature(_translate_lines_with_engine).bind(*args, **kwargs)
     token = _cancel_check_var.set(bound.arguments.get("cancel_check_cb"))
     try:

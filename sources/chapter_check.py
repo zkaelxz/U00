@@ -86,11 +86,11 @@ def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = 
     """One pass over every tracked series. `adapter_factory(name)` is
     injectable for tests; defaults to the registry.
 
-    Safe to run from two processes (the API and Streamlit each run a
-    scheduler): the cycle is claimed first (store.claim_check_cycle), and a
-    cycle that can't claim returns {"skipped": True, ...} without checking
-    anything. A `scheduled` cycle is also skipped when another process
-    finished one within the interval since this one was found due.
+    Safe to run from two processes that each run a scheduler: the cycle
+    is claimed first (store.claim_check_cycle), and a cycle that can't
+    claim returns {"skipped": True, ...} without checking anything. A
+    `scheduled` cycle is also skipped when another process finished one
+    within the interval since this one was found due.
 
     `allow_browser=False` (a manual check from another device) keeps every
     adapter from launching a browser on this PC; scheduled cycles are local."""

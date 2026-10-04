@@ -281,7 +281,7 @@ def parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     Returns {id_str: text} for whichever of expected_ids actually came
     back with an actual string translation -- a missing id (or one
     whose value isn't a string, e.g. null or a nested list) just isn't
-    a key here, it's the caller's job (_request_translations_with_retry)
+    a key here, it's the caller's job (request_translations_with_retry)
     to decide what to do about that, not this function's.
 
     A plain JSON array (a model ignoring the object-shape instruction) is
@@ -303,14 +303,14 @@ def parse_id_keyed_json(text: str, expected_ids: list) -> dict:
 def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retries: int = 1,
                             engine_name: str = None) -> dict:
     """The actual id-keyed request/parse/retry-missing loop shared by
-    _request_translations_with_retry below (every engine's own
+    request_translations_with_retry below (every engine's own
     translate_batch) and Step 7's reflect_translate_batch (three passes,
     each with its own prompt shape). build_batch_text(batch_ids) returns
     the prompt-ready text for just those ids -- a retry only re-sends
     whichever ids came back missing, not the whole batch. Returns
     {str(id): value} for whichever ids actually came back with a usable
     value; a still-missing id after max_retries just isn't a key here,
-    same contract _parse_id_keyed_json already documents.
+    same contract parse_id_keyed_json already documents.
 
     engine_name (Step 31): opts into the best-effort soft-refusal text
     heuristic (see _detect_soft_refusal_text) -- deliberately not passed
@@ -325,6 +325,8 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
         if not remaining_ids:
             break
         text = call_model_fn(build_batch_text(remaining_ids))
+        # By id, never position: a short, padded or reordered reply would
+        # otherwise shift translations onto the wrong lines.
         parsed = parse_id_keyed_json(text, remaining_ids)
         if engine_name and text.strip() and not parsed:
             # A real structural refusal signal (stop_reason/refusal) is
@@ -382,6 +384,8 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
 
     result_map = _id_keyed_batch_request(ids, build_batch_text, call_model_fn, max_retries,
                                          engine_name=engine_name)
+    # Back to input order by id; a still-missing id is "" (untranslated),
+    # never filled from a neighbour's slot.
     return [result_map.get(str(i), "") for i in ids]
 
 

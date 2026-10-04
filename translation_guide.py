@@ -315,10 +315,9 @@ def _sample_lines_across_text(zh_lines: list, max_lines: int) -> list:
     extract_glossary_from_novel further down this file for the same
     "spread across the whole thing, not a truncating prefix" idea, applied
     to a list of individual lines instead of one long string): max_lines
-    lines evenly spread across the WHOLE list. A drama longer than
-    max_lines used to only ever show the model its first max_lines lines,
-    so a name or relationship introduced later was invisible to extraction
-    no matter how long the drama actually was. Spreading the sample means
+    lines evenly spread across the WHOLE list, not a prefix: a prefix
+    would hide any name or relationship introduced after the first
+    max_lines lines from extraction. Spreading the sample means
     the model sees the range of names/relationships across beginning,
     middle and end in one combined view -- the real mechanism VideoLingo's
     own whole-document pass uses (not a separate prose summary first)."""
@@ -541,6 +540,9 @@ def apply_hard_term_substitutions(text: str, glossary_terms) -> str:
     produced with the canonical form. Longest terms first, so a longer
     term containing a shorter one isn't partially clobbered.
     """
+    # enforce_exact terms only, with variants from `notes`. A glossary term's
+    # banned_translations are separate and flag-only (auto_qc.build_banned_terms
+    # flags the line for review); never rewrite text from them here.
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
     for t in sorted(enforced, key=lambda x: len(x.get("term_translation") or ""), reverse=True):
         canonical = t.get("term_translation")

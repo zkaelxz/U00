@@ -64,9 +64,8 @@ DEFAULT_SETTINGS = {
     "http_proxy_url": "",
     # Step 34: whether the browser extension's localhost endpoint runs.
     # Off by default -- it opens a port, so it's opt-in, never something
-    # a fresh install starts on its own. Lives here because this is the
-    # app's only persisted settings store and the flag has to survive a
-    # restart (the sidebar's own settings are session-only by design);
+    # a fresh install starts on its own. Persisted here because the flag
+    # has to survive a restart (api/background.py reads it at startup);
     # it is not a secret, and the endpoint's token is deliberately NOT
     # stored here -- see page_server.token_path().
     "page_server_enabled": False,
@@ -85,8 +84,9 @@ BROWSER_PROFILES_DIRNAME = "profiles"
 
 
 def browser_profiles_root() -> str:
-    """Step 23k's persistent browser profiles (sign-in state). Left out of
-    library backups -- see tabs/library_tab.py."""
+    """Persistent browser profiles (sign-in state). A library restore keeps
+    the current ones rather than taking them from the upload
+    (services/workspace_job_service.restore_kept_names)."""
     return os.path.join(db.LIBRARY_DIR, BROWSER_PROFILES_DIRNAME)
 
 
@@ -646,7 +646,7 @@ def record_new_chapters(source: str, series_id: str, chapters) -> list:
     """Records chapters as known and adds one notification for each chapter
     that was not known yet. Returns the chapters actually recorded.
 
-    Idempotent, including across processes (the API and Streamlit can both
+    Idempotent, including across processes (two processes can both
     run a check): the known_chapters primary key decides, and each
     notification is inserted in the same write transaction as the
     known_chapters row it depends on, so a chapter two checks find at once
