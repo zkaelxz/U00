@@ -457,3 +457,88 @@ class TestModelDirRespectsPortableModeOverride:
         importlib.reload(audio_preprocess)
         assert audio_preprocess.MODEL_DIR == os.path.join(
             os.path.expanduser("~"), ".cache", "audio-separator-models")
+
+
+class TestModelDownloadGuard:
+    """audio-separator downloads the checkpoint to its final name itself, so
+    the guard around load_model must keep a cut-off file from surviving."""
+
+    MODEL = audio_preprocess.MEL_ROFORMER_VOCAL_MODEL
+
+    @pytest.fixture
+    def model_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(tmp_path))
+        monkeypatch.setattr(audio_preprocess, "MIN_CHECKPOINT_BYTES", 100)
+        return tmp_path
+
+    def test_cancel_mid_download_leaves_no_final_file(self, model_dir):
+        def load():
+            (model_dir / self.MODEL).write_bytes(b"x" * 10)  # half-written
+            raise KeyboardInterrupt  # cancel arrives mid-download
+
+        with pytest.raises(KeyboardInterrupt):
+            audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert os.listdir(model_dir) == []
+
+    def test_failed_download_leaves_no_final_file(self, model_dir):
+        def load():
+            (model_dir / self.MODEL).write_bytes(b"x" * 10)
+            raise OSError("connection reset")
+
+        with pytest.raises(OSError):
+            audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert os.listdir(model_dir) == []
+
+    def test_killed_download_is_redownloaded_next_run(self, model_dir):
+        (model_dir / self.MODEL).write_bytes(b"x" * 500)  # long enough to look valid
+        (model_dir / f"{self.MODEL}.part-99999999-abcd").write_text("0")  # dead pid
+        seen = []
+
+        def load():
+            seen.append((model_dir / self.MODEL).exists())
+            (model_dir / self.MODEL).write_bytes(b"y" * 500)
+
+        audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert seen == [False]
+        assert (model_dir / self.MODEL).read_bytes() == b"y" * 500
+        assert os.listdir(model_dir) == [self.MODEL]
+
+    def test_marker_of_a_live_process_is_left_alone(self, model_dir):
+        marker = model_dir / f"{self.MODEL}.part-{os.getpid()}-abcd"
+        marker.write_text("0")
+        (model_dir / self.MODEL).write_bytes(b"x" * 500)
+        assert audio_preprocess.sweep_interrupted_downloads(str(model_dir)) == 0
+        assert marker.exists() and (model_dir / self.MODEL).exists()
+
+    def test_truncated_file_is_detected_and_replaced(self, model_dir):
+        (model_dir / self.MODEL).write_bytes(b"x" * 10)
+        seen = []
+
+        def load():
+            seen.append((model_dir / self.MODEL).exists())
+            (model_dir / self.MODEL).write_bytes(b"y" * 500)
+
+        audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert seen == [False]
+        assert (model_dir / self.MODEL).stat().st_size == 500
+
+    def test_complete_file_is_kept(self, model_dir):
+        (model_dir / self.MODEL).write_bytes(b"x" * 500)
+        audio_preprocess._load_with_download_guard(self.MODEL, lambda: None)
+        assert (model_dir / self.MODEL).read_bytes() == b"x" * 500
+        assert os.listdir(model_dir) == [self.MODEL]
+
+    def test_incomplete_result_is_an_error_and_removed(self, model_dir):
+        def load():
+            (model_dir / self.MODEL).write_bytes(b"x" * 10)
+
+        with pytest.raises(audio_preprocess.VocalSeparationError):
+            audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert os.listdir(model_dir) == []
+
+    def test_startup_sweep_removes_a_killed_download(self, model_dir, isolated_db):
+        import storage
+        (model_dir / self.MODEL).write_bytes(b"x" * 500)
+        (model_dir / f"{self.MODEL}.part-99999999-abcd").write_text("0")
+        storage.sweep_stale_temp()
+        assert os.listdir(model_dir) == []

@@ -34,6 +34,8 @@ so it stays only as the fallback. Requires `pip install audio-separator`.
 import os
 import shutil
 import tempfile
+import time
+import uuid
 
 SEPARATION_BACKENDS = {
     "auto": "Auto -- Mel-Band RoFormer if installed, otherwise Demucs",
@@ -58,6 +60,111 @@ MODEL_DIR = os.environ.get("BAIHE_AUDIO_SEP_MODEL_DIR") or os.path.join(
 # seam isn't audible.
 DEFAULT_CHUNK_SECONDS = 30.0
 DEFAULT_CHUNK_OVERLAP_SECONDS = 1.0
+
+
+# audio-separator downloads the checkpoint straight to its final name and
+# gives us no hook to download elsewhere, so a cancel or kill mid-download
+# leaves a truncated file that a later run would treat as present. A
+# "<model>.part-<pid>-<uuid>" marker beside the model says "a download is in
+# flight"; a failed load removes the file, and a marker whose process is gone
+# (kill -9, power loss) makes the next run delete the file and download again.
+# Demucs needs no guard: torch.hub downloads to a temp file in the same
+# directory and renames it only once complete.
+_PART_MARK = ".part-"
+# Far below the real size (~900 MB for the RoFormer vocal model); only
+# catches a zero-length or obviously cut-off file.
+MIN_CHECKPOINT_BYTES = 10 * 1024 * 1024
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid == os.getpid():
+        return True
+    if os.name == "nt":
+        import ctypes
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def _marker_pid(name: str):
+    try:
+        return int(name.rsplit(_PART_MARK, 1)[1].split("-", 1)[0])
+    except (IndexError, ValueError):
+        return None
+
+
+def _remove(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def sweep_interrupted_downloads(model_dir: str = None, model: str = None) -> int:
+    """Deletes every checkpoint (or only `model`) whose download marker was
+    left by a process that is gone, with the marker; markers of live
+    processes are left alone. Returns the number of files removed."""
+    model_dir = model_dir or MODEL_DIR
+    removed = 0
+    try:
+        names = os.listdir(model_dir)
+    except OSError:
+        return 0
+    for name in names:
+        if _PART_MARK not in name:
+            continue
+        target = name.rsplit(_PART_MARK, 1)[0]
+        pid = _marker_pid(name)
+        if (model and target != model) or pid is None or _pid_alive(pid):
+            continue
+        for stale in (target, name):
+            path = os.path.join(model_dir, stale)
+            if os.path.isfile(path):
+                _remove(path)
+                removed += stale == target
+    return removed
+
+
+def _checkpoint_ok(path: str) -> bool:
+    try:
+        return os.path.getsize(path) >= MIN_CHECKPOINT_BYTES
+    except OSError:
+        return False
+
+
+def _load_with_download_guard(model: str, load) -> None:
+    """Runs load() (which may download `model` into MODEL_DIR), keeping a
+    truncated file from ever surviving under the final name."""
+    final = os.path.join(MODEL_DIR, model)
+    sweep_interrupted_downloads(MODEL_DIR, model)
+    if os.path.isfile(final) and not _checkpoint_ok(final):
+        _remove(final)
+    if os.path.isfile(final):
+        load()
+        return
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    marker = os.path.join(MODEL_DIR, f"{model}{_PART_MARK}{os.getpid()}-{uuid.uuid4().hex[:8]}")
+    with open(marker, "w", encoding="utf-8") as fh:
+        fh.write(str(time.time()))
+    try:
+        load()
+        if os.path.isfile(final) and not _checkpoint_ok(final):
+            raise VocalSeparationError(
+                f"audio-separator model '{model}' downloaded incompletely; try again.")
+    except BaseException:
+        _remove(final)
+        raise
+    finally:
+        _remove(marker)
 
 
 class VocalSeparationError(RuntimeError):
@@ -174,10 +281,13 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
         try:
             separator = Separator(output_dir=work_dir, model_file_dir=MODEL_DIR,
                                   output_single_stem="Vocals")
-            separator.load_model(model_filename=model)
+            _load_with_download_guard(
+                model, lambda: separator.load_model(model_filename=model))
         except Exception as exc:
+            import translate_engines
             raise VocalSeparationError(
-                f"audio-separator failed to load model '{model}': {exc}") from exc
+                f"audio-separator failed to load model '{model}': "
+                f"{translate_engines.redact_secrets(str(exc))}") from exc
         if event_cb:
             event_cb("device", _device_kind(getattr(separator, "torch_device", None)))
 
