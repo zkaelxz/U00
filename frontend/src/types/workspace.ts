@@ -89,6 +89,13 @@ export interface DiarizationConfig {
   last_device: string | null
   audio_available: boolean
   manual_speaker_count?: number // lines whose speaker was corrected by hand (D06)
+  speaker_summary?: SpeakerTimeSummary | null // null: no saved detection
+}
+
+export interface SpeakerTimeSummary {
+  speakers: { label: string; seconds: number; percent: number; turns: number }[]
+  total_speech_seconds: number
+  uncovered_seconds: number | null
 }
 
 export interface JobStarted {
