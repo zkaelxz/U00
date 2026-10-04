@@ -3,7 +3,6 @@ build_auto_initial_prompt is shared by cli.cmd_align, the config response
 and a transcribe run whose prompt is empty. Fully mocked."""
 import argparse
 import contextlib
-import inspect
 import io
 import os
 
@@ -85,13 +84,8 @@ def _audio_drama(db):
 
 
 def _capture(monkeypatch):
-    captured = {}
-
-    def fake_start_job(job_id, target, *a, **k):
-        captured.update(dict(zip(inspect.signature(target).parameters, a)))
-        return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
-    return captured
+    from tests.test_transcribe_service import _capture_worker_start
+    return _capture_worker_start(monkeypatch)
 
 
 class TestRunUsesAutoPrompt:

@@ -2,7 +2,6 @@
 transcribing" (TranscribeRunRequest min_speakers/max_speakers). The range
 reaches the chained diarization job's worker options and its on_done hook,
 and bad combinations are refused before anything starts. No model runs."""
-import inspect
 import os
 
 import pytest
@@ -23,16 +22,9 @@ def _drama(isolated_db, **fields):
 
 @pytest.fixture
 def captured(monkeypatch):
-    """Captures start_job's arguments by the job body's parameter names."""
-    out = {}
-
-    def fake_start_job(job_id, target, *a, gpu_touching=False, description=None, **k):
-        names = list(inspect.signature(target).parameters)
-        out.update(dict(zip(names, a)))
-        out.update(k)
-        return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
-    return out
+    """Captures the transcribe worker's arguments and its on_done options."""
+    from tests.test_transcribe_service import _capture_worker_start
+    return _capture_worker_start(monkeypatch)
 
 
 def test_start_passes_the_range_to_the_job(isolated_db, captured):

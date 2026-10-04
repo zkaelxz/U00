@@ -467,8 +467,8 @@ def test_bulk_library_translate_uses_default_locale_and_saved_cap(isolated_db, e
 
 def test_transcribe_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch):
     from services import transcribe_service
-    from tests.test_transcribe_service import _drama_with_audio
-    did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+    from tests.test_transcribe_service import _drama_with_video
+    did, _ = _drama_with_video(isolated_db)
     captured = {}
 
     def fake_start_job(job_id, target, *a, **k):
@@ -504,14 +504,23 @@ def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monke
     monkeypatch.setattr(transcribe_service, "transcribe_for_timing", fake_transcribe)
     captured = {}
 
-    def fake_start_job(job_id, target, *a, **k):
-        captured["call"] = (target, a)
+    def fake_start_process_job(job_id, target, args=(), **k):
+        captured["call"] = (target, args)
         return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
     transcribe_service.start_transcribe_run(did)
     target, args = captured["call"]
-    with pytest.raises(RuntimeError, match="stop here"):
-        target(*args)
+    # Run the worker in this process: keep this process's group and temp dir.
+    import queue
+    import tempfile
+    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
+    result_queue = queue.Queue()
+    target(*args, result_queue)
+    items = []
+    while not result_queue.empty():
+        items.append(result_queue.get_nowait())
+    assert items[-1] == ("error", "RuntimeError", "stop here")
     assert seen == {"load": "/models/faster-whisper-small",
                     "info": "/models/faster-whisper-small",
                     "transcribe": "/models/faster-whisper-small"}
