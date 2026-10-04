@@ -2970,3 +2970,66 @@ class TestSeriesIdReuse:
         assert res["series"] == "dropped_private"
         assert db.get_drama(a)["series_id"] is None
         assert _series_rows() == before
+
+
+class TestSharedBackupHelpers:
+    """The directory flush and the restore free-space check are shared with
+    db and library_admin_service; these pin how this module uses them."""
+
+    @staticmethod
+    def _snapshot(tmp_path):
+        path = tmp_path / "snap.zip"
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("dramas/7/a.txt", b"x" * 100)
+        return zipfile.ZipFile(path)
+
+    def test_stage_media_checks_the_dramas_folder_with_the_margin(self, isolated_db, tmp_path,
+                                                                  monkeypatch):
+        usage = collections.namedtuple("usage", "total used free")
+        asked = []
+        free = 100 + las.RESTORE_DISK_MARGIN_BYTES - 1
+        monkeypatch.setattr(las.shutil, "disk_usage",
+                            lambda p: (asked.append(p), usage(1, 1, free))[1])
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with self._snapshot(tmp_path) as zf:
+            with pytest.raises(InvalidInputError, match="disk space"):
+                abs_.stage_media(zf, 7, str(staging))
+            assert asked == [db.DRAMAS_DIR]
+            assert list(staging.iterdir()) == []
+            free += 1
+            folder = abs_.stage_media(zf, 7, str(staging))
+        assert _read_bytes(os.path.join(folder, "a.txt")) == b"x" * 100
+
+    def test_stage_media_goes_ahead_when_free_space_is_unreadable(self, isolated_db, tmp_path,
+                                                                 monkeypatch):
+        def unreadable(path):
+            raise OSError("not reported")
+        monkeypatch.setattr(las.shutil, "disk_usage", unreadable)
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with self._snapshot(tmp_path) as zf:
+            folder = abs_.stage_media(zf, 7, str(staging))
+        assert _read_bytes(os.path.join(folder, "a.txt")) == b"x" * 100
+
+    def test_one_directory_flush_for_backups_and_the_media_journal(self, tmp_path, monkeypatch):
+        assert abs_._fsync_dir is db.fsync_dir
+        flushed = []
+        monkeypatch.setattr(db, "fsync_dir", flushed.append)
+        db.write_media_journal(str(tmp_path), {})
+        assert flushed == [str(tmp_path)]
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX-only directory flush")
+    def test_directory_flush_raises_for_a_missing_folder(self, tmp_path):
+        db.fsync_dir(str(tmp_path))
+        with pytest.raises(OSError):
+            db.fsync_dir(str(tmp_path / "missing"))
+
+    def test_directory_flush_is_skipped_off_posix(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db.os, "name", "nt")
+        db.fsync_dir(str(tmp_path / "missing"))     # no OSError: nothing is opened
+
+
+def _read_bytes(path):
+    with open(path, "rb") as fh:
+        return fh.read()

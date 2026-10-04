@@ -258,12 +258,29 @@ def local_only():
     return _marked(dependency, "local_only")
 
 
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
+PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded",
+                  "x-real-ip", "tailscale-user-login", "cf-connecting-ip", "cf-ray", "via")
+
+
+def host_name(netloc: str) -> str:
+    """Host part of a Host header / URL netloc, port removed, lower-cased."""
+    netloc = (netloc or "").strip().lower()
+    if netloc.startswith("["):
+        end = netloc.find("]")
+        return netloc[:end + 1] if end != -1 else netloc
+    return netloc.rsplit(":", 1)[0] if netloc.count(":") == 1 else netloc
+
+
+def is_loopback_peer(host) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except (ValueError, TypeError):
+        return False
+
+
 def _is_local_scope(client_host, headers) -> bool:
-    """Reuses the loopback helpers from settings_routes (imported lazily:
-    that module imports this one). `headers` is any case-insensitive
-    mapping (Starlette Headers)."""
-    from api.routers.settings_routes import (LOOPBACK_HOSTS, PROXY_HEADERS, host_name,
-                                             is_loopback_peer)
+    """`headers` is any case-insensitive mapping (Starlette Headers)."""
     if not is_loopback_peer(client_host):
         return False
     host_header = headers.get("host", "")
@@ -380,7 +397,6 @@ def client_ip(request: Request) -> str:
     rightmost `X-Forwarded-For` entry (the one Caddy itself appends; a client
     can only add entries to the left of it) is used instead -- but only when
     the peer is loopback, so a remote client can't pick its own bucket."""
-    from api.routers.settings_routes import is_loopback_peer
     peer = request.client.host if request.client else ""
     if not is_loopback_peer(peer):
         return peer or "unknown"
