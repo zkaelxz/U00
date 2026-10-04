@@ -15,6 +15,7 @@ test('phone: strip sticks, Next is a 44px bottom bar, no sideways scroll', async
   const box = (await next.boundingBox())!
   expect(box.height).toBeGreaterThanOrEqual(44)
   expect(box.y + box.height).toBeGreaterThan(800)
+  await page.evaluate(() => { (document.querySelector('section.workspace') as HTMLElement).style.minHeight = '3000px' })
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
   expect((await page.locator('.ws-strip').boundingBox())!.y).toBeLessThanOrEqual(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)

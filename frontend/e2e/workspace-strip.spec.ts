@@ -15,6 +15,8 @@ test('the title and stage tabs stay visible after scrolling', async ({ page }) =
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(SOURCE_DONE) }))
   await page.goto('/#/drama/1/translate')
   await expect(page.getByTestId('drama-title')).toBeVisible()
+  // The seeded drama's stage is short; make the page tall enough to scroll.
+  await page.evaluate(() => { (document.querySelector('section.workspace') as HTMLElement).style.minHeight = '3000px' })
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(100)
   const strip = page.locator('.ws-strip')
