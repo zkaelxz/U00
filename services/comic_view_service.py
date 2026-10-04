@@ -57,7 +57,7 @@ def _visible(bubble: dict) -> bool:
     return not (bubble.get("kind") == "sfx" and not bubble.get("include_sfx"))
 
 
-def _safe_file(drama_id: int, name):
+def safe_file(drama_id: int, name):
     """(real path, os.stat_result) for a stored page file, or None."""
     if not name or not isinstance(name, str) or "\x00" in name:
         return None
@@ -111,8 +111,8 @@ def list_pages(drama_id: int) -> dict:
             visible_counts[b["page_id"]] = visible_counts.get(b["page_id"], 0) + 1
     pages = []
     for i, page in enumerate(db.list_pages(drama_id)):
-        original = _safe_file(drama_id, page.get("filename"))
-        rendered = _safe_file(drama_id, page.get("rendered_filename"))
+        original = safe_file(drama_id, page.get("filename"))
+        rendered = safe_file(drama_id, page.get("rendered_filename"))
         mtimes = [int(f[1].st_mtime * 1000) for f in (original, rendered) if f]
         pages.append({
             "id": page["id"], "ordinal": i + 1,
@@ -136,7 +136,7 @@ def resolve_page_image(drama_id: int, page_id: int, variant: str = "original") -
     if db.get_drama(drama_id) is None:
         raise NotFoundError(_IMAGE_MISSING)
     ordinal, page, _count = _find_page(drama_id, page_id, _IMAGE_MISSING)
-    found = _safe_file(drama_id, page.get(_VARIANT_FIELD[variant]))
+    found = safe_file(drama_id, page.get(_VARIANT_FIELD[variant]))
     if found is None:
         raise NotFoundError(_IMAGE_MISSING)
     path, st = found

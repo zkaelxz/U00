@@ -18,7 +18,7 @@ depend on context only a person reading the story can settle.
 import re
 import json
 from core import LANGUAGE_NAMES
-from translate_engines import call_llm_json, _parse_json_array
+from translate_engines import call_llm_json, parse_json_array
 
 
 # ---------------------------------------------------------------------------
@@ -395,7 +395,7 @@ def extract_terms_llm(zh_lines, engine, source_language: str = "zh", max_lines: 
     )
 
     text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]", usage_cb=usage_cb)
-    entries = _parse_json_array(text, 0)
+    entries = parse_json_array(text, 0)
     if not isinstance(entries, list):
         return []
     # Normalize/validate category and policy so bad values can't corrupt the glossary
@@ -474,7 +474,7 @@ def generate_translation_notes_llm(lines, engine, batch_size: int = 40, usage_cb
         batch = translated[start:start + batch_size]
         prompt = build_translation_notes_prompt(batch)
         text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb)
-        notes = _parse_json_array(text, 0)
+        notes = parse_json_array(text, 0)
         if isinstance(notes, list):
             for n in notes:
                 if isinstance(n, dict) and n.get("note"):
@@ -657,7 +657,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         if not cached:
             text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]",
                                  usage_cb=usage_cb)
-        entries = _parse_json_array(text, 0)
+        entries = parse_json_array(text, 0)
         if (response_cache and not cached and isinstance(entries, list)
                 and any(isinstance(e, dict) and e.get("term") for e in entries)):
             response_cache[1](prompt, text)

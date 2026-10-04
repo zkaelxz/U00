@@ -382,7 +382,7 @@ class TestModelFolders:
         monkeypatch.setenv("XDG_CACHE_HOME", tmp_path_str)
         assert diagnostics.model_folder("torch") == os.path.join(
             tmp_path_str, "torch", "hub", "checkpoints")
-        monkeypatch.setattr(audio_preprocess, "_MODEL_DIR", tmp_path_str)
+        monkeypatch.setattr(audio_preprocess, "MODEL_DIR", tmp_path_str)
         assert diagnostics.model_folder("audio_separator") == tmp_path_str
 
     def test_lists_files_and_folders_largest_first_skipping_symlinks(self, tmp_path_str):

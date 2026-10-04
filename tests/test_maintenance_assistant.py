@@ -407,7 +407,7 @@ def real_build(monkeypatch):
     """The real build_engine, with the engine constructor and cap check faked."""
     from services import line_ai_service, reader_service
     built = []
-    monkeypatch.setattr(reader_service, "_llm_engine", lambda name, model: built.append(name) or object())
+    monkeypatch.setattr(reader_service, "llm_engine", lambda name, model: built.append(name) or object())
     monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", lambda *a: None)
     return built
 
@@ -692,7 +692,7 @@ def test_a_failed_tier_offers_the_next_without_calling_it(dev_mode, real_build, 
         engines.append(engine)
         raise raised
 
-    monkeypatch.setattr(qa, "_dispatch_chat", boom)
+    monkeypatch.setattr(qa, "dispatch_chat", boom)
     with pytest.raises(svc.ServiceError) as e:
         svc.ask("x")
     assert e.value.details == {"reason": reason, "engine": "ollama", "tier": 1,
@@ -719,7 +719,7 @@ def test_a_used_up_spending_cap_is_reported_and_nothing_is_sent(dev_mode, keys, 
     def capped(*a):
         raise svc.UnsupportedOperationError("This month's spending cap ($5.00) is already used up.")
 
-    monkeypatch.setattr(reader_service, "_llm_engine", lambda name, model: object())
+    monkeypatch.setattr(reader_service, "llm_engine", lambda name, model: object())
     monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", capped)
     chat = ScriptedChat("y")
     with pytest.raises(svc.UnsupportedOperationError) as e:
@@ -746,7 +746,7 @@ def test_api_escalation_consent_and_errors_carry_no_key(isolated_db, real_build,
     def rate_limited(*a, **k):
         raise RuntimeError(f"429 Too Many Requests {FAKE_KEY}")
 
-    monkeypatch.setattr(qa, "_dispatch_chat", rate_limited)
+    monkeypatch.setattr(qa, "dispatch_chat", rate_limited)
     r = c.post("/api/assistant/ask", json={"question": "x"})
     assert r.status_code == 500 and FAKE_KEY not in r.text
     assert r.json()["error"]["details"] == {"reason": "rate_limited", "engine": "ollama", "tier": 1,

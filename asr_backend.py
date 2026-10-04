@@ -42,7 +42,7 @@ import os
 import tempfile
 
 from core import (
-    ModelDownloadError, _is_gpu_error, _is_network_error, diagnose_hostname,
+    ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname,
     extract_audio_slice, transcribe_for_timing,
 )
 from forced_align import LANGUAGE_NAMES
@@ -136,12 +136,12 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B"):
             model_id, dtype=torch.bfloat16, device_map=device, max_new_tokens=256,
         )
     except Exception as exc:
-        if use_gpu and _is_gpu_error(exc):
+        if use_gpu and is_gpu_error(exc):
             model = Qwen3ASRModel.from_pretrained(
                 model_id, dtype=torch.bfloat16, device_map="cpu", max_new_tokens=256,
             )
             cache_key = f"{model_size}_cpu"
-        elif _is_network_error(exc):
+        elif is_network_error(exc):
             diag = diagnose_hostname("huggingface.co")
             if diag["status"] == "blocked":
                 raise ModelDownloadError(
@@ -312,7 +312,7 @@ def load_moss_transcribe_diarize(use_gpu: bool = False):
         processor = AutoProcessor.from_pretrained(MOSS_MODEL_ID, revision=MOSS_HF_REVISION,
                                                   trust_remote_code=True)
     except Exception as exc:
-        if _is_network_error(exc):
+        if is_network_error(exc):
             raise ModelDownloadError(
                 f"Couldn't download the {MOSS_MODEL_ID} model.\n\nThis is a network problem, "
                 "not a problem with your audio. The model is fetched from Hugging Face the "

@@ -2185,7 +2185,7 @@ def list_dramas_by_series(series_id: int):
 from core import LINE_FIELDS as _LINE_COLUMNS  # noqa: E402 -- core has no db dependency
 
 
-def _line_value(ln, f):
+def line_value(ln, f):
     v = getattr(ln, f, None)
     if f in ("speaker_manual", "sfx"):
         return int(bool(v))
@@ -2315,7 +2315,7 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
             orig = getattr(ln, "orig", None)
             if lid in existing and lid not in kept:
                 changed = [f for f in cols
-                           if orig is None or _line_value(ln, f) != orig.get(f)]
+                           if orig is None or line_value(ln, f) != orig.get(f)]
                 if changed and only_if_unchanged:
                     if orig is None:
                         unwritten.add(lid)
@@ -2324,14 +2324,14 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
                         # to a Line, so a text field compares through COALESCE.
                         expected = [(f, orig.get(f)) for f in changed]
                         # A guard with no value is empty text, as NULL is to a Line.
-                        expected += [(f, "" if _line_value(ln, f) is None else _line_value(ln, f))
+                        expected += [(f, "" if line_value(ln, f) is None else line_value(ln, f))
                                      for f in guard_cols]
                         guards = [f"COALESCE({f}, '') = ?" if isinstance(v, str)
                                   else f"{f} IS ?" for f, v in expected]
                         cur = conn.execute(
                             f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
                             f"WHERE id = ? AND drama_id = ? AND {' AND '.join(guards)}",
-                            [_line_value(ln, f) for f in changed] + [lid, drama_id]
+                            [line_value(ln, f) for f in changed] + [lid, drama_id]
                             + [v for _f, v in expected])
                         if cur.rowcount == 0:
                             unwritten.add(lid)
@@ -2339,13 +2339,13 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
                     conn.execute(
                         f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
                         f"WHERE id = ? AND drama_id = ?",
-                        [_line_value(ln, f) for f in changed] + [lid, drama_id])
+                        [line_value(ln, f) for f in changed] + [lid, drama_id])
                 kept.add(lid)
             elif fields is None:
                 cur = conn.execute(
                     f"INSERT INTO lines (drama_id, {', '.join(_LINE_COLUMNS)}) "
                     f"VALUES (?, {', '.join('?' for _ in _LINE_COLUMNS)})",
-                    [drama_id] + [_line_value(ln, f) for f in _LINE_COLUMNS])
+                    [drama_id] + [line_value(ln, f) for f in _LINE_COLUMNS])
                 ln.id = cur.lastrowid
                 kept.add(ln.id)
             else:
@@ -2370,7 +2370,7 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
             continue
         # What this caller last wrote/saw is now the baseline, so its next
         # save only writes what changes after this point.
-        ln.orig = {**(ln.orig or {}), **{f: _line_value(ln, f) for f in cols}}
+        ln.orig = {**(ln.orig or {}), **{f: line_value(ln, f) for f in cols}}
         if fields is None:
             ln.merged_ids = []
     return unwritten

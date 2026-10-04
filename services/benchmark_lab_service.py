@@ -405,7 +405,7 @@ def _cap_applies(engine: str) -> bool:
         engine == "gemini" and settings_service.get_gemini_free_tier())
 
 
-def _check_config(stage: str, cfg) -> dict:
+def check_config(stage: str, cfg) -> dict:
     if not isinstance(cfg, dict):
         raise InvalidInputError("Each config needs an engine.")
     engine, model = cfg.get("engine"), cfg.get("model")
@@ -421,7 +421,7 @@ def _check_config(stage: str, cfg) -> dict:
                 if not model or len(model) > 100 or any(ch.isspace() for ch in model) \
                         or ".." in model or model.startswith("/"):
                     raise InvalidInputError("That model isn't offered for this engine.")
-            elif entry["models"] is None and model == _default_model(engine):
+            elif entry["models"] is None and model == default_model(engine):
                 model = None   # an engine without a model picker: its built-in model
             elif entry["models"] is None or model not in entry["models"]:
                 raise InvalidInputError("That model isn't offered for this engine.")
@@ -446,7 +446,7 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
         raise InvalidInputError("Pick at least one engine to run.")
     if len(configs) > MAX_CONFIGS:
         raise InvalidInputError(f"At most {MAX_CONFIGS} engines at once.")
-    checked = [_check_config(stage, c) for c in configs]
+    checked = [check_config(stage, c) for c in configs]
     keys = [(c["engine"], c["model"]) for c in checked]
     if len(set(keys)) != len(keys):
         raise InvalidInputError("The same engine and model is picked twice.")
@@ -464,14 +464,14 @@ def _estimate_config(cfg: dict, cases: list):
     engine_cls = translate_engines.ENGINES[cfg["engine"]]
     probe = type("Probe", (), {})()
     probe.name = getattr(engine_cls, "name", cfg["engine"])
-    probe.model = cfg["model"] or _default_model(cfg["engine"])
+    probe.model = cfg["model"] or default_model(cfg["engine"])
     probe.free_tier = False
     # One call per case, so the fixed instructions overhead is paid per case.
     return sum(translate_engines.estimate_translation_cost(probe, [c.get("source_text") or ""])
                for c in cases)
 
 
-def _default_model(engine: str):
+def default_model(engine: str):
     return translate_engines.effective_default_model(engine)
 
 
@@ -539,7 +539,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     for cfg in checked:
         session_ids.append(db.create_benchmark_session({
             "label": label, "stage": stage, "engine": cfg["engine"], "model": cfg["model"]
-            or (_default_model(cfg["engine"]) if stage == "translation" else None),
+            or (default_model(cfg["engine"]) if stage == "translation" else None),
             "prompt_version": prompt_version, "context_settings": json.dumps(context),
             "case_filter": case_filter, "arena_group": arena_group, "status": "queued",
             "case_count": len(cases)}))
@@ -563,7 +563,7 @@ def _now() -> str:
     return datetime.datetime.utcnow().isoformat()
 
 
-def _redact(text, key=None):
+def redact(text, key=None):
     """Secrets (redact_secrets, plus the run's own key by value, since a key
     without a recognisable prefix would otherwise slip through) and absolute
     paths / the OS user name (diagnostics.redact_for_support, via
@@ -574,7 +574,7 @@ def _redact(text, key=None):
     if key and len(key) >= 8:
         text = text.replace(key, "[redacted]")
     from services import jobs_service
-    return jobs_service._redact_text(text)
+    return jobs_service.redact_text(text)
 
 
 def _translation_context(case: dict) -> dict:
@@ -599,7 +599,7 @@ def _run_translation(engine, case: dict, key: str = None) -> dict:
         error = None
         usage = getattr(engine, "last_usage", None)
     except Exception as exc:
-        output_text, error = "", _redact(exc, key)
+        output_text, error = "", redact(exc, key)
     cost = 0.0
     if usage:
         cost = translate_engines.estimate_cost_for_engine(
@@ -618,14 +618,14 @@ def _run_file_case(stage: str, cfg: dict, case: dict, use_gpu: bool) -> dict:
         r = benchmark.run_transcription_case(prepared, whisper_size=cfg["model"], use_gpu=use_gpu)
     else:
         r = benchmark.run_ocr_case(prepared, backend=cfg["engine"])
-    r["error"] = _redact(r.get("error"))
+    r["error"] = redact(r.get("error"))
     return r
 
 
 def _peak_vram_mb():
     try:
         import asr_benchmark
-        return asr_benchmark._peak_vram_mb()
+        return asr_benchmark.read_peak_vram_mb()
     except Exception:
         return None
 
@@ -633,7 +633,7 @@ def _peak_vram_mb():
 def _reset_vram():
     try:
         import asr_benchmark
-        asr_benchmark._reset_vram_counter()
+        asr_benchmark.reset_vram_counter()
     except Exception:
         pass
 
@@ -667,7 +667,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                     base_url=(settings_service.resolve_key("ollama_url") or None)
                     if cfg["engine"] == "ollama" else None)
             except Exception as exc:
-                db.update_benchmark_session(session_id, status="failed", note=_redact(exc, api_key),
+                db.update_benchmark_session(session_id, status="failed", note=redact(exc, api_key),
                                             finished_at=_now())
                 step += len(ordered)
                 continue
@@ -761,11 +761,11 @@ def _session_out(s: dict) -> dict:
             out[k] = json.loads(s.get(k) or "{}")
         except ValueError:
             out[k] = {}
-    out["note"] = _redact(out["note"])
+    out["note"] = redact(out["note"])
     return out
 
 
-def _close_stale_runs():
+def close_stale_runs():
     """A run left queued/running with no live job (the app was closed
     mid-run) is marked interrupted, so it doesn't read "running" forever."""
     if _job_active():
@@ -779,7 +779,7 @@ def _close_stale_runs():
 def list_runs(stage: str = None, limit: int = 50) -> dict:
     if stage is not None and stage not in STAGES:
         raise InvalidInputError("Unknown stage.")
-    _close_stale_runs()
+    close_stale_runs()
     limit = max(1, min(int(limit or 50), 200))
     return {"runs": [_session_out(s) for s in db.list_benchmark_sessions(limit, stage)]}
 
@@ -789,7 +789,7 @@ def _result_out(r: dict) -> dict:
             "output_text": r.get("output_text") or "", "score": r.get("score"),
             "metric": r.get("metric"), "scorer": r.get("scorer"), "passed": None if r.get("passed") is None else bool(r["passed"]),
             "duration_seconds": r.get("duration_seconds"), "cost_usd": r.get("cost_usd") or 0.0,
-            "error": _redact(r.get("error"))}
+            "error": redact(r.get("error"))}
 
 
 def get_run(run_id: int) -> dict:

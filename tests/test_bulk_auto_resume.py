@@ -85,7 +85,7 @@ def test_used_up_spending_cap_is_skipped_and_noted(isolated_db, monkeypatch):
     did = _setup(monkeypatch)
     bid = _pending_batch(did)
     settings_service.set_settings({"bulk_auto_resume": True})
-    monkeypatch.setattr(svc, "_monthly_cap", lambda: 5.0)
+    monkeypatch.setattr(svc, "month_cap_usd", lambda: 5.0)
     monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 9.0)
     assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 0, "skipped": 1}
     assert not background_jobs.is_running(bt.poll_job_id(bid))

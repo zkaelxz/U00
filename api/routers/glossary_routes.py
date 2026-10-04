@@ -26,7 +26,7 @@ export as CSV, and bulk delete by id.
 from typing import List
 
 from fastapi import APIRouter, Path, Query, Request, Response
-from api.auth import _auth_enabled, is_local_request, require_engines_allowed, require_permission
+from api.auth import is_auth_enabled, is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
                          GlossaryCatalogues, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
@@ -79,7 +79,7 @@ def post_import_glossary(payload: GlossaryImportRequest, request: Request,
                          drama_id: int = Path(ge=1)):
     # Overwriting is the LAN exception in docs/remote-access-decision.md; with
     # no LAN zone yet (only PC vs not-PC) it stays at the PC.
-    if payload.overwrite_existing and _auth_enabled(request.app) and not is_local_request(request):
+    if payload.overwrite_existing and is_auth_enabled(request.app) and not is_local_request(request):
         raise ForbiddenError("Replacing existing glossary terms is only allowed at the PC.")
     if payload.overwrite_existing and not payload.confirm:
         raise InvalidInputError("Overwriting existing terms needs confirm=true.")

@@ -1911,7 +1911,7 @@ class TestSwallowedFailuresAreVisible:
                 raise OSError("kill failed")
 
         monkeypatch.setattr(os, "killpg", denied)
-        bg._kill_tree(_Proc())
+        bg.kill_tree(_Proc())
         log = _log_text()
         assert "could not kill process tree 999999" in log
         assert "could not kill process 999999" in log

@@ -294,7 +294,7 @@ class TestAuthOff:
     def test_unbuilt_settings_fail_closed(self, isolated_db):
         app = FastAPI()
         app.state.settings = None
-        assert api_auth._auth_enabled(app) is True
+        assert api_auth.is_auth_enabled(app) is True
 
     def test_mode_parsing(self):
         from api.api_config import load_settings

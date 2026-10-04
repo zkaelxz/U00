@@ -111,7 +111,7 @@ def test_model_cache_names_and_sizes_only(monkeypatch, tmp_path):
     sep = tmp_path / "sep"
     sep.mkdir()
     (sep / "vocals_mel_band_roformer.ckpt").write_bytes(b"x" * 20)
-    monkeypatch.setattr(audio_preprocess, "_MODEL_DIR", str(sep))
+    monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(sep))
     out = svc.get_model_cache(piper_voices_dir=str(tmp_path))
     assert out["hf_total_bytes"] == 100
     assert out["piper_voices"] == [{"voice": "en_US-voice", "size_bytes": 15}]
@@ -219,7 +219,7 @@ def test_log_tail_and_support_report_strip_ansi(isolated_db, monkeypatch):
 
 def _no_jobs(monkeypatch, running=False):
     from services import library_admin_service
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: running)
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: running)
 
 
 def _fake_pip(monkeypatch, returncode=0, timed_out=False, seen=None):
@@ -228,7 +228,7 @@ def _fake_pip(monkeypatch, returncode=0, timed_out=False, seen=None):
             seen.append((cmd, timeout))
         yield {"line": DIRTY}
         yield {"returncode": returncode, "timed_out": timed_out}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
 
 
 def test_log_keyword_filter_runs_on_redacted_text(dirty_log):
@@ -246,7 +246,7 @@ def test_log_keyword_filter_runs_on_redacted_text(dirty_log):
 ])
 def test_admin_requires_confirm(call, monkeypatch):
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     _no_jobs(monkeypatch)
     for bad in (False, None, "yes", 1):
         with pytest.raises(svc.AdminActionRefused):
@@ -256,7 +256,7 @@ def test_admin_requires_confirm(call, monkeypatch):
 def test_admin_refuses_while_jobs_run_here_or_elsewhere(monkeypatch):
     _no_jobs(monkeypatch, running=True)
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     with pytest.raises(svc.AdminActionJobsRunning):
         svc.reset_library(confirm=True)
     with pytest.raises(svc.AdminActionJobsRunning):
@@ -313,7 +313,7 @@ def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_fi
             contents["pins"] = f.read().split()
         contents["path"] = path
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
     assert svc.install_dependency("edge_tts", confirm=True)["ok"] is True
     assert contents["pins"] == ["torch==2.11.0+cpu", "torchaudio==2.11.0+cpu"]
     assert not os.path.exists(contents["path"])      # removed after the run
@@ -394,7 +394,7 @@ def test_pip_holds_the_library_exclusively(monkeypatch):
         seen["job_started"] = background_jobs.start_job("l7_probe", lambda: None)
         seen["maintenance"] = background_jobs.enter_maintenance()
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
     assert svc.install_dependency("edge_tts", confirm=True)["ok"] is True
     assert seen == {"exclusive": True, "job_started": False, "maintenance": False}
     assert background_jobs.exclusive_active() is False
@@ -416,7 +416,7 @@ def test_pip_releases_the_hold_when_it_fails(monkeypatch):
     def boom(cmd, timeout):
         raise OSError("no pip")
         yield  # noqa
-    monkeypatch.setattr(svc, "_stream_tree", boom)
+    monkeypatch.setattr(svc, "stream_tree", boom)
     with pytest.raises(OSError):
         svc.install_dependency("edge_tts", confirm=True)
     assert background_jobs.exclusive_active() is False
@@ -434,7 +434,7 @@ def test_stream_tree_kills_the_whole_tree_on_timeout(tmp_path):
               "print('started', flush=True)\n"
               "time.sleep(60)\n")
     t0 = _t.monotonic()
-    items = list(svc._stream_tree([sys.executable, "-c", script], timeout=1.0))
+    items = list(svc.stream_tree([sys.executable, "-c", script], timeout=1.0))
     assert _t.monotonic() - t0 < 30
     assert items[-1]["timed_out"] is True and items[0] == {"line": "started"}
     gpid = int(marker.read_text())
@@ -463,7 +463,7 @@ def test_reset_runs_when_confirmed(monkeypatch):
 def test_admin_refuses_during_exclusive_hold_or_maintenance(monkeypatch):
     _no_jobs(monkeypatch)
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     assert background_jobs.acquire_exclusive("Library restore")
     try:
         for call in (lambda: svc.reset_library(confirm=True, confirm_text="RESET"),
@@ -572,7 +572,7 @@ def test_stream_tree_drain_is_bounded_when_a_survivor_holds_the_pipe(tmp_path):
     marker = tmp_path / "gc.pid"
     try:
         t0 = _t.monotonic()
-        items = list(svc._stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 60)],
+        items = list(svc.stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 60)],
                                       timeout=1.0, drain_seconds=1.0))
         assert _t.monotonic() - t0 < 15
         assert items[0] == {"line": "started"} and items[-1]["timed_out"] is True
@@ -587,7 +587,7 @@ def test_stream_tree_returns_when_pip_exits_but_a_child_holds_the_pipe(tmp_path)
     marker = tmp_path / "gc.pid"
     try:
         t0 = _t.monotonic()
-        items = list(svc._stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 0)],
+        items = list(svc.stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 0)],
                                       timeout=60.0, drain_seconds=1.0))
         assert _t.monotonic() - t0 < 15
         assert items[-1] == {"returncode": 0, "timed_out": False}
@@ -603,10 +603,10 @@ def test_hold_released_when_a_hung_install_is_cut_off(monkeypatch, tmp_path):
         pytest.skip("POSIX sessions")
     _no_jobs(monkeypatch)
     marker = tmp_path / "gc.pid"
-    real = svc._stream_tree
+    real = svc.stream_tree
     monkeypatch.setattr(svc, "_install_commands", lambda n: [
         ([sys.executable, "-c", _pipe_holder_script(marker, 60)], 1.0)])
-    monkeypatch.setattr(svc, "_stream_tree",
+    monkeypatch.setattr(svc, "stream_tree",
                         lambda cmd, timeout: real(cmd, timeout, drain_seconds=1.0))
     try:
         out = svc.install_dependency("edge_tts", confirm=True)
@@ -619,8 +619,8 @@ def test_hold_released_when_a_hung_install_is_cut_off(monkeypatch, tmp_path):
 def test_pip_rechecks_other_process_jobs_under_the_hold(monkeypatch):
     from services import library_admin_service
     answers = iter([False, True])      # _guard: none; under the hold: one appeared
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: next(answers))
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: next(answers))
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     with pytest.raises(svc.AdminActionJobsRunning):
         svc.install_dependency("edge_tts", confirm=True)
     assert background_jobs.exclusive_active() is False

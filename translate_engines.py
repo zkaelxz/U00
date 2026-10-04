@@ -780,7 +780,7 @@ def build_batch_user_message(context: dict, numbered: str) -> str:
     return (batch_ctx + "\n" if batch_ctx else "") + "Translate these lines:\n\n" + numbered
 
 
-def _parse_json_array(text: str, fallback_count: int):
+def parse_json_array(text: str, fallback_count: int):
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
         arr = json.loads(text)
@@ -793,7 +793,7 @@ def _parse_json_array(text: str, fallback_count: int):
     return lines[:fallback_count] if lines else [""] * fallback_count
 
 
-def _build_numbered_lines(ids: list, zh_lines: list, speaker_names: list = None) -> str:
+def build_numbered_lines(ids: list, zh_lines: list, speaker_names: list = None) -> str:
     """
     Builds the numbered-line block shown to the model, e.g.:
         1. [Xiaoling] 你好
@@ -812,7 +812,7 @@ def _build_numbered_lines(ids: list, zh_lines: list, speaker_names: list = None)
     return "\n".join(out)
 
 
-def _extract_first_json_value(text: str):
+def extract_first_json_value(text: str):
     """Finds and parses the first valid JSON object/array anywhere in
     text, tolerating surrounding prose ("Here you go:\n{...}\nHope that
     helps!") -- small local models wrap their JSON in commentary like
@@ -832,7 +832,7 @@ def _extract_first_json_value(text: str):
     return None
 
 
-def _parse_id_keyed_json(text: str, expected_ids: list) -> dict:
+def parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     """
     Parses a response expected to be a JSON object mapping each line's
     id (as a string) to its translation, e.g. {"1": "Hello.", "2": "Hi."}.
@@ -849,7 +849,7 @@ def _parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     """
     stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     expected_str = {str(i) for i in expected_ids}
-    data = _extract_first_json_value(stripped)
+    data = extract_first_json_value(stripped)
     if data is None:
         return {}
     if isinstance(data, dict):
@@ -883,7 +883,7 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
         if not remaining_ids:
             break
         text = call_model_fn(build_batch_text(remaining_ids))
-        parsed = _parse_id_keyed_json(text, remaining_ids)
+        parsed = parse_id_keyed_json(text, remaining_ids)
         if engine_name and text.strip() and not parsed:
             # A real structural refusal signal (stop_reason/refusal) is
             # already checked -- and raises directly -- inside each
@@ -899,7 +899,7 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
     return result_map
 
 
-def _request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
+def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
                                      line_ids=None, engine_name: str = None):
     """
     The shared id-keyed request/parse/retry-missing logic behind every
@@ -936,7 +936,7 @@ def _request_translations_with_retry(zh_lines: list, speaker_names, call_model_f
     def build_batch_text(batch_ids):
         batch_lines = [zh_lines[pos[i]] for i in batch_ids]
         batch_names = ([speaker_names[pos[i]] for i in batch_ids] if speaker_names else None)
-        return _build_numbered_lines(batch_ids, batch_lines, batch_names)
+        return build_numbered_lines(batch_ids, batch_lines, batch_names)
 
     result_map = _id_keyed_batch_request(ids, build_batch_text, call_model_fn, max_retries,
                                          engine_name=engine_name)
@@ -1016,7 +1016,7 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
             "format": "json",
-            "options": {"num_ctx": _estimate_ollama_num_ctx(prompt, "")},
+            "options": {"num_ctx": estimate_ollama_num_ctx(prompt, "")},
         })
         data = resp.json()
         if usage_cb:
@@ -1128,7 +1128,7 @@ class ClaudeEngine:
                 raise ContentModerationBlocked("claude", "refusal")
             return "".join(b.text for b in resp.content if b.type == "text").strip()
 
-        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
+        return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="claude")
 
 
@@ -1184,7 +1184,7 @@ class DeepSeekEngine:
                 raise ContentModerationBlocked("deepseek", refusal)
             return (message.content or "").strip()
 
-        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
+        return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="deepseek")
 
 
@@ -1322,7 +1322,7 @@ class GeminiEngine:
                 raise ContentModerationBlocked("gemini", finish_reason)
             return candidates[0]["content"]["parts"][0]["text"].strip()
 
-        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
+        return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="gemini")
 
 
@@ -1403,7 +1403,7 @@ class OpenAIEngine:
                 {"role": "user", "content": build_batch_user_message(context, numbered)},
             ])
 
-        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
+        return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="openai")
 
 
@@ -1553,7 +1553,7 @@ def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size
         # blank.
         result_map = _id_keyed_batch_request(
             batch_ids,
-            lambda ids: _build_numbered_lines(ids, [id_to_zh[i] for i in ids]),
+            lambda ids: build_numbered_lines(ids, [id_to_zh[i] for i in ids]),
             call_model)
         for i in batch_ids:
             labels[i] = (result_map.get(str(i)) or "").strip() or "Narrator"
@@ -1612,7 +1612,7 @@ def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15, usage_cb=
         # line if the response comes back short, long, or reordered.
         # Missing ids retry once, then fall back to leaving that line's
         # existing .en untouched rather than blanking it.
-        rewritten = _request_translations_with_retry([ln.en for ln in batch], None, call_model)
+        rewritten = request_translations_with_retry([ln.en for ln in batch], None, call_model)
         for ln, new_text in zip(batch, rewritten):
             if new_text.strip():
                 ln.en = new_text.strip()
@@ -1687,7 +1687,7 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, ca
             applog.get_logger().warning(
                 f"consistency check batch {total_batches} failed: {redact_secrets(str(e))}")
             continue
-        batch_issues = _parse_json_array(text, 0)
+        batch_issues = parse_json_array(text, 0)
         if isinstance(batch_issues, list):
             issues.extend(i for i in batch_issues if isinstance(i, dict) and i.get("term"))
     return issues, failed_batches, total_batches
@@ -1742,7 +1742,7 @@ def generate_episode_summary(lines, engine, usage_cb=None) -> str:
         import applog
         applog.get_logger().warning(f"episode summary generation failed: {redact_secrets(str(e))}")
         return ""
-    data = _extract_first_json_value(text)
+    data = extract_first_json_value(text)
     if isinstance(data, dict) and isinstance(data.get("summary"), str):
         return data["summary"].strip()
     return ""
@@ -1851,7 +1851,7 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
         if progress_cb:
             progress_cb((bi + 1) / n_batches)
 
-        flagged = _parse_json_array(text, 0)
+        flagged = parse_json_array(text, 0)
         if not isinstance(flagged, list):
             continue
         by_idx = {ln.idx: ln for ln in batch}
@@ -1882,7 +1882,7 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
 OLLAMA_MIN_NUM_CTX = 16384
 
 
-def _estimate_ollama_num_ctx(system_text: str, numbered: str, floor: int = OLLAMA_MIN_NUM_CTX) -> int:
+def estimate_ollama_num_ctx(system_text: str, numbered: str, floor: int = OLLAMA_MIN_NUM_CTX) -> int:
     """Rough token-count estimate for sizing num_ctx -- not precise (CJK
     and English tokenize very differently), so it deliberately errs
     generous (~1 token per 3 characters, then +20% headroom) rather than
@@ -1996,7 +1996,7 @@ class OllamaEngine:
 
         def call_model(numbered):
             user_text = build_batch_user_message(context, numbered)
-            estimated = _estimate_ollama_num_ctx(system_text, user_text)
+            estimated = estimate_ollama_num_ctx(system_text, user_text)
             # The override can only raise the window, never lower it below
             # what's actually needed -- a manual value smaller than the
             # estimate would silently reintroduce the exact truncation bug
@@ -2020,7 +2020,7 @@ class OllamaEngine:
             })
             return resp.json()["message"]["content"].strip()
 
-        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
+        return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="ollama")
 
 
@@ -2473,7 +2473,7 @@ def engine_picker_label(engine_name: str, gemini_free_tier: bool = False) -> str
 # built-in value for anything missing or odd-shaped.
 MODEL_OVERRIDE_DEFAULTS_KEY = "model_overrides.defaults"
 MODEL_OVERRIDE_TIERS_KEY = "model_overrides.tiers"
-_MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}")
+MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}")
 
 
 def _read_overrides(setting_key: str, valid_keys) -> dict:
@@ -2485,7 +2485,7 @@ def _read_overrides(setting_key: str, valid_keys) -> dict:
     if not isinstance(raw, dict):
         return {}
     return {k: v for k, v in raw.items()
-            if k in valid_keys and isinstance(v, str) and _MODEL_ID_RE.fullmatch(v) and ".." not in v}
+            if k in valid_keys and isinstance(v, str) and MODEL_ID_RE.fullmatch(v) and ".." not in v}
 
 
 def model_override_for_default(engine_name: str):
@@ -2617,7 +2617,7 @@ def build_reflect_faithful_prompt(instructions: str, batch_ctx: str, ids: list, 
     Shared by reflect_translate_batch (live, in-process) and
     bulk_translate.py's Reflect pipeline (Step 9d) -- both build
     byte-for-byte the same prompt for the same ids/lines."""
-    numbered = _build_numbered_lines(
+    numbered = build_numbered_lines(
         ids, [zh_by_id[i] for i in ids],
         [speaker_by_id.get(i) for i in ids] if speaker_by_id else None)
     return (

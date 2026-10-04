@@ -87,7 +87,7 @@ def get_production(capability: str = "translation") -> dict:
     if isinstance(saved, dict) and saved.get("engine") == engine:
         return {"engine": saved["engine"], "model": saved.get("model"), "source": "promoted",
                 "promoted_at": saved.get("promoted_at")}
-    return {"engine": engine, "model": benchmark_lab_service._default_model(engine),
+    return {"engine": engine, "model": benchmark_lab_service.default_model(engine),
             "source": "settings"}
 
 
@@ -231,8 +231,8 @@ def add_candidate(engine: str, model: str = None, note: str = "",
     rejected) comes back as-is with its recorded decision rather than being
     added again as if it were new."""
     _check_capability(capability)
-    cfg = benchmark_lab_service._check_config("translation", {"engine": engine, "model": model})
-    model = cfg["model"] or benchmark_lab_service._default_model(cfg["engine"])
+    cfg = benchmark_lab_service.check_config("translation", {"engine": engine, "model": model})
+    model = cfg["model"] or benchmark_lab_service.default_model(cfg["engine"])
     note = (note or "").strip()[:200]
     with _decision_lock:
         return _add_candidate_locked(capability, cfg, model, note)
@@ -355,7 +355,7 @@ def run_if_due() -> bool:
     except Exception as exc:
         db.set_app_setting(_LAST_ATTEMPT_KEY, json.dumps({
             "started_at": _now(), "scheduled": True,
-            "error": benchmark_lab_service._redact(str(exc))[:300]}))
+            "error": benchmark_lab_service.redact(str(exc))[:300]}))
         return False
 
 
@@ -366,7 +366,7 @@ def _delta(a, b):
 def report(capability: str = "translation") -> dict:
     """The latest re-evaluation: each candidate against production."""
     _check_capability(capability)
-    benchmark_lab_service._close_stale_runs()
+    benchmark_lab_service.close_stale_runs()
     last = _last_run()
     attempt = _json_setting(_LAST_ATTEMPT_KEY, {})
     prod_run = db.get_benchmark_session(last["production_run_id"]) \

@@ -39,7 +39,7 @@ def env(tmp_path, monkeypatch, isolated_db):
     earlier test in this worker can't queue an event into this test; the
     tests that exercise the hook ask for `job_hook` as well."""
     path = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(path))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
     for names in list(ns.ENV_VARS.values()) + [(ns.ALLOW_LOCAL_NTFY_ENV,), (ns.DISABLED_ENV,),
                                                (settings_service.API_PORT_ENV,), (settings_service.HOUSEHOLD_PORT_ENV,)]:
         for n in names:

@@ -260,7 +260,7 @@ def test_set_tracked_records_the_actor_as_link_owner(env, monkeypatch):
     b = _user("b@example.com")
     did = db.create_drama(title_en="Shared", media_type="novel",
                           content_mode="novel_narration", is_private=0)
-    monkeypatch.setattr(sources_registry_service, "_require_source", lambda name: None)
+    monkeypatch.setattr(sources_registry_service, "require_source", lambda name: None)
     result = {"kind": "series", "series_id": SERIES, "info": {"title": "Series T"},
               "chapters": [{"chapter_id": "c1", "title": "Chapter c1"}]}
     real_status = background_jobs.get_status

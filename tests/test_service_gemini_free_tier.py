@@ -31,7 +31,7 @@ def built(monkeypatch):
 
 BUILDERS = {
     "restructure": lambda: restructure_service._build_engine({}, "gemini", None),
-    "reader": lambda: reader_service._llm_engine("gemini"),
+    "reader": lambda: reader_service.llm_engine("gemini"),
     "live": lambda: live_service._build_engine("gemini", None),
     "discover_lookup": lambda: discover_lookup_service._build_engine("gemini"),
 }

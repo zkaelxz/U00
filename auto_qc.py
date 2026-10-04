@@ -77,7 +77,7 @@ _CJK_RUN_RE = re.compile(f"[{_CJK_NUM_CHARS}]+")
 _CJK_CHAR_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]")
 
 
-def _normalize(text: str) -> str:
+def normalize(text: str) -> str:
     # Full-width digits/symbols (０-９, ￥, ％) -> their ASCII forms.
     return unicodedata.normalize("NFKC", text or "")
 
@@ -152,7 +152,7 @@ def source_numbers(src: str):
                is expected to carry over;
     pool    -- every numeric value mentioned in any form (including bare
                CJK numerals that aren't checked), for the reverse check."""
-    src = _normalize(src)
+    src = normalize(src)
     checked, pool = [], set()
     for m in _ARABIC_RE.finditer(src):
         value = _number(m.group())
@@ -242,7 +242,7 @@ def target_numbers(tgt: str):
     context being "amount" (a $ before or "dollars"/"yuan"/... after),
     "unit" (a measurement word after) or None. Digits and number words
     ("three hundred and five", "30 thousand", "a hundred") both count."""
-    tokens = [(m.group(), m.group().lower()) for m in _TGT_TOKEN_RE.finditer(_normalize(tgt))]
+    tokens = [(m.group(), m.group().lower()) for m in _TGT_TOKEN_RE.finditer(normalize(tgt))]
     out = []
     i = 0
     while i < len(tokens):
@@ -304,7 +304,7 @@ def target_numbers(tgt: str):
 
 
 def _target_words(tgt: str) -> set:
-    return set(re.findall(r"[a-z]+", _normalize(tgt).lower()))
+    return set(re.findall(r"[a-z]+", normalize(tgt).lower()))
 
 
 # ------------------------------------------------------------------ names
@@ -368,7 +368,7 @@ def build_banned_terms(glossary_terms=None) -> list:
     return out
 
 
-def _banned_hit(banned_forms, tgt_lower: str):
+def banned_hit(banned_forms, tgt_lower: str):
     """The first banned variant found in the (already-lowercased) target
     text, or None."""
     for form in banned_forms:
@@ -440,7 +440,7 @@ def check_line(src: str, tgt: str, names=(), banned_terms=()) -> list:
         issues.append({"direction": "extra", "kind": "number", "text": text})
 
     if names:
-        src_norm, tgt_lower = _normalize(src), _normalize(tgt).lower()
+        src_norm, tgt_lower = normalize(src), normalize(tgt).lower()
         masked = src_norm
         # Longest forms first, masking each hit, so a full name isn't also
         # re-checked as the shorter name inside it.
@@ -453,11 +453,11 @@ def check_line(src: str, tgt: str, names=(), banned_terms=()) -> list:
                 issues.append({"direction": "missing", "kind": "name", "text": hit})
 
     if banned_terms:
-        src_norm2 = _normalize(src).lower()
-        tgt_lower2 = _normalize(tgt).lower()
+        src_norm2 = normalize(src).lower()
+        tgt_lower2 = normalize(tgt).lower()
         for src_forms, banned_forms in banned_terms:
             if any(f.lower() in src_norm2 for f in src_forms):
-                hit = _banned_hit(banned_forms, tgt_lower2)
+                hit = banned_hit(banned_forms, tgt_lower2)
                 if hit:
                     issues.append({"direction": "banned", "kind": "banned_translation", "text": hit})
     return issues

@@ -156,9 +156,9 @@ def test_notifications_and_profiles(client, isolated_db):
 def test_scrub_and_safe_url_units():
     assert svc.safe_url("https://u:p@h.example:8080/a/b?q=1#f") == "https://h.example:8080/a/b"
     assert svc.safe_url("not a url") == ""
-    out = svc._scrub("open /home/kae/lib/x.db and C:\\a\\b, \\\\srv\\share\\f, ~/x/y")
+    out = svc.scrub("open /home/kae/lib/x.db and C:\\a\\b, \\\\srv\\share\\f, ~/x/y")
     assert "/home/kae" not in out and "C:\\a" not in out and "srv" not in out and "~/x" not in out
-    assert svc._scrub("https://example.com/a/b is down") == "https://example.com/a/b is down"
+    assert svc.scrub("https://example.com/a/b is down") == "https://example.com/a/b is down"
 
 
 def test_removed_source_stored_data_still_lists_and_is_skipped(client, isolated_db):

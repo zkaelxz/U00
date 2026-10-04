@@ -441,10 +441,10 @@ def _override_error(engine: str, model) -> "str | None":
     """Why `model` can't replace one of `engine`'s models, or None. An engine
     with a picker takes its picker models or ones its provider listed in the
     last check; one without (DeepSeek) takes a same-provider id of a safe shape."""
-    if not isinstance(model, str) or not translate_engines._MODEL_ID_RE.fullmatch(model) \
+    if not isinstance(model, str) or not translate_engines.MODEL_ID_RE.fullmatch(model) \
             or ".." in model:
         return "That isn't a valid model name."
-    picker = translate_service._ENGINE_MODEL_DICTS.get(engine)
+    picker = translate_service.ENGINE_MODEL_DICTS.get(engine)
     if picker is not None:
         ok = model in picker or model in _listed_extras(engine)
     else:

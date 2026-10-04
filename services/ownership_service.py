@@ -75,12 +75,12 @@ def _everything(principal, writing: bool) -> bool:
     return _may_override(principal) if writing else _sees_everything(principal)
 
 
-def _user_id(principal):
+def user_id(principal):
     return None if principal is None else principal.get("user_id")
 
 
 def _is_owner(principal, row) -> bool:
-    uid = _user_id(principal)
+    uid = user_id(principal)
     return uid is not None and row.get("owner_user_id") == uid
 
 
@@ -91,7 +91,7 @@ def _visible(principal, kind: str, row: dict, writing: bool = False) -> bool:
     if _everything(principal, writing):
         return True
     if kind == "drama":
-        uid = _user_id(principal)
+        uid = user_id(principal)
         if row.get("series_id") is not None and uid is not None \
                 and row.get("series_owner_user_id") == uid:
             return True
@@ -168,7 +168,7 @@ def visible_to_filter(principal):
     principal with no id, so only shared items match)."""
     if _sees_everything(principal):
         return None
-    uid = _user_id(principal)
+    uid = user_id(principal)
     return -1 if uid is None else uid
 
 
@@ -189,9 +189,9 @@ def filter_visible_drama_ids(principal, drama_ids) -> list:
 def get_share_by_default(principal) -> bool:
     """Off unless chosen: new items are private by default (user decision
     2026-09-30). A stored value, even from before that decision, is kept."""
-    if principal is None or principal.get("is_local_owner") or _user_id(principal) is None:
+    if principal is None or principal.get("is_local_owner") or user_id(principal) is None:
         return bool(db.get_app_setting(HOUSEHOLD_SHARE_KEY, False))
-    user = db.auth_get_user(_user_id(principal))
+    user = db.auth_get_user(user_id(principal))
     if not user:
         raise NotFoundError("User not found.")
     return bool(user.get("share_by_default"))
@@ -199,9 +199,9 @@ def get_share_by_default(principal) -> bool:
 
 def set_share_by_default(principal, share: bool) -> bool:
     share = bool(share)
-    if principal is None or principal.get("is_local_owner") or _user_id(principal) is None:
+    if principal is None or principal.get("is_local_owner") or user_id(principal) is None:
         db.set_app_setting(HOUSEHOLD_SHARE_KEY, share)
-    elif not db.auth_update_user(_user_id(principal), share_by_default=int(share)):
+    elif not db.auth_update_user(user_id(principal), share_by_default=int(share)):
         raise NotFoundError("User not found.")
     return share
 
@@ -209,7 +209,7 @@ def set_share_by_default(principal, share: bool) -> bool:
 def new_item_defaults(principal) -> dict:
     """Fields to stamp on a new drama/series: its creator (None for the
     local owner / auth off) and `is_private = not share_by_default`."""
-    return {"owner_user_id": _user_id(principal),
+    return {"owner_user_id": user_id(principal),
             "is_private": int(not get_share_by_default(principal))}
 
 
@@ -234,7 +234,7 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
         raise ConflictError(_PC_DRAMA_IN_SERIES_MESSAGE)
     if db.set_item_private(kind, item_id, private):
         from services import auth_service
-        auth_service.write_audit(_user_id(principal), "sharing.set_private",
+        auth_service.write_audit(user_id(principal), "sharing.set_private",
                                  f"{kind} {item_id}: private={bool(private)}")
         return {"kind": kind, "id": item_id, "is_private": bool(private)}
     if kind == "drama":
@@ -389,7 +389,7 @@ def acting_user_id():
     """The signed-in user this code runs for, or None (the local owner,
     auth off, Streamlit, the CLI, a background thread)."""
     holder = _ACTING.get()
-    return _user_id(holder.get("principal")) if holder else None
+    return user_id(holder.get("principal")) if holder else None
 
 
 def drama_id_of_job(job_id):
@@ -423,7 +423,7 @@ def can_see_job(principal, job_id, owner_user_id, writing: bool = False) -> bool
     drama_id = drama_id_of_job(job_id)
     if drama_id is not None:
         return (can_edit_drama if writing else can_see_drama)(principal, drama_id)
-    uid = _user_id(principal)
+    uid = user_id(principal)
     return uid is not None and owner_user_id == uid
 
 
@@ -436,7 +436,7 @@ def owns_job(principal, job_id, owner_user_id) -> bool:
     which is not theirs. Computed from the principal only."""
     if principal is None or principal.get("is_local_owner"):
         return True
-    uid = _user_id(principal)
+    uid = user_id(principal)
     if uid is None or not can_see_job(principal, job_id, owner_user_id, writing=True):
         return False
     if owner_user_id == uid:

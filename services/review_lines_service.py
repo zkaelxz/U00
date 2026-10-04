@@ -47,7 +47,7 @@ def _load_drama_and_lines(drama_id: int):
     return drama, lines
 
 
-def _line_dict(ln) -> dict:
+def line_dict(ln) -> dict:
     return {
         "id": ln.id, "idx": ln.idx, "start": ln.start, "end": ln.end,
         "zh": ln.zh, "en": ln.en, "speaker": ln.speaker,
@@ -98,7 +98,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     visible = _visible(lines, only)
     start = (page - 1) * page_size
     return {
-        "lines": [_line_dict(ln) for ln in visible[start:start + page_size]],
+        "lines": [line_dict(ln) for ln in visible[start:start + page_size]],
         "page": page, "page_size": page_size, "total": len(visible),
         "flagged_count": flagged, "untranslated_count": untranslated,
     }
@@ -118,7 +118,7 @@ def search_lines(drama_id: int, term: str, limit: int = 50) -> list:
         return []
     hits = [ln for ln in lines
             if term in (ln.zh or "").lower() or term in (ln.en or "").lower()]
-    return [_line_dict(ln) for ln in hits[:limit]]
+    return [line_dict(ln) for ln in hits[:limit]]
 
 
 def _has_nested_quantifier(pattern: str) -> bool:

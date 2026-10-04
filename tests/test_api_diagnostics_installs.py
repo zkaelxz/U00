@@ -73,7 +73,7 @@ def env(isolated_db, monkeypatch, tmp_path):
     served by `routes` (URL -> response factory)."""
     from services import library_admin_service
     state = {"running": False, "which": None, "routes": {}, "requests": [], "timeouts": []}
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: state["running"])
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: state["running"])
     monkeypatch.setattr(svc.platform, "system", lambda: "Linux")
     monkeypatch.setattr(svc.platform, "machine", lambda: "x86_64")
     real_which = svc.shutil.which
@@ -81,7 +81,7 @@ def env(isolated_db, monkeypatch, tmp_path):
                         lambda n, *a, **k: state["which"] if n in ("deno", "winget")
                         else real_which(n, *a, **k))
     dest = tmp_path / "home" / ".deno" / "bin" / "deno"
-    monkeypatch.setattr(diagnostics, "_deno_default_install_path", lambda: str(dest))
+    monkeypatch.setattr(diagnostics, "deno_default_install_path", lambda: str(dest))
     monkeypatch.setattr(diagnostics, "check_js_runtime",
                         lambda: {"found": False, "name": None, "path": None})
     import requests
@@ -228,7 +228,7 @@ def test_deno_winget_on_windows(client, env, monkeypatch):
         ran.append((cmd, timeout))
         yield {"line": f"Found Deno at {ABS_PATH} {SECRET}"}
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(gaps, "_stream_tree", fake_tree)
+    monkeypatch.setattr(gaps, "stream_tree", fake_tree)
     assert client.post("/api/diagnostics/deno/install", json={"confirm": True}).status_code == 200
     assert _wait(svc.DENO_JOB_ID)["status"] == "done"
     assert ran and ran[0][0][:5] == ["winget", "install", "-e", "--id", "DenoLand.Deno"]

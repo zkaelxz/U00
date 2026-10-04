@@ -39,7 +39,7 @@ def cache(monkeypatch):
         {"name": {"torch": "htdemucs.th", "audio_separator": "model.ckpt"}[kind], "size_bytes": 7}])
     monkeypatch.setattr(diagnostics, "delete_model_folder_entry",
                         lambda kind, name, *a, **k: deleted.append(f"{kind}:{name}") or True)
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
     return deleted
 
 
@@ -105,7 +105,7 @@ class TestModelCacheDelete:
         assert cache == []
 
     def test_refused_while_a_job_runs(self, client, cache, monkeypatch):
-        monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: True)
+        monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
         r = client.post(f"/api/diagnostics/model-cache/hf/{REV}/delete", json={"confirm": True})
         assert r.status_code == 409 and cache == []
 

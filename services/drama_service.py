@@ -266,9 +266,9 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
 # long is treated as left behind by a crashed process (records have no
 # resume, see db.save_job_record), so it must not block a delete forever.
 # Live owners heartbeat every background_jobs.HEARTBEAT_INTERVAL.
-_STALE_JOB_RECORD_SECONDS = background_jobs.STALE_JOB_SECONDS
+STALE_JOB_RECORD_SECONDS = background_jobs.STALE_JOB_SECONDS
 _DELETE_CONFIRM_TEXT = "DELETE"
-_LEFTOVER_FILES_MESSAGE = ("The drama was deleted from the library, but some of its files "
+LEFTOVER_FILES_MESSAGE = ("The drama was deleted from the library, but some of its files "
                            "could not be removed (a file may be in use). Close anything "
                            "using them and remove the leftover folder manually.")
 
@@ -280,7 +280,7 @@ def job_running_for_drama(drama_id) -> bool:
     if background_jobs.any_job_running_for_drama(drama_id):
         return True
     job_ids = {f"{prefix}{drama_id}" for prefix in background_jobs.DRAMA_JOB_PREFIXES}
-    cutoff = time.time() - _STALE_JOB_RECORD_SECONDS
+    cutoff = time.time() - STALE_JOB_RECORD_SECONDS
     for rec in db.list_job_records():
         if (rec.get("job_id") in job_ids and rec.get("status") in ("running", "queued")
                 and (rec.get("updated_at") or 0) >= cutoff):
@@ -288,7 +288,7 @@ def job_running_for_drama(drama_id) -> bool:
     return False
 
 
-def _hard_delete_drama(drama_id) -> bool:
+def hard_delete_drama(drama_id) -> bool:
     """The single place a drama is actually removed, so roadmap Step 43's
     soft-delete can replace just this function. Order (B-14): rename the
     drama folder to a tombstone name, drop the DB row (db.delete_drama's own
@@ -395,8 +395,8 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
     if job_running_for_drama(drama_id):
         raise ConflictError("A background job is still running for this drama -- wait for it "
                             "to finish or cancel it before deleting.")
-    leftover = _hard_delete_drama(drama_id)
+    leftover = hard_delete_drama(drama_id)
     result = {"deleted": True, "drama_id": drama_id}
     if leftover:
-        result["warning"] = _LEFTOVER_FILES_MESSAGE
+        result["warning"] = LEFTOVER_FILES_MESSAGE
     return result

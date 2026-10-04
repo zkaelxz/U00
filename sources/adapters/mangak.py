@@ -30,7 +30,7 @@ import re
 from urllib.parse import quote, urljoin, urlsplit
 
 from ..base import SourceAdapter
-from ..http import _header
+from ..http import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError)
 from ..registry import register
@@ -185,7 +185,7 @@ class MangaKSource(SourceAdapter):
     def download_page(self, page):
         resp = self.client.get(page.url, classify_body=False, headers=page.headers,
                                action=f"Downloading page {page.index + 1}")
-        ctype = _header(resp.headers, "content-type").split(";")[0].strip().lower()
+        ctype = header(resp.headers, "content-type").split(";")[0].strip().lower()
         if ctype and not ctype.startswith("image/"):
             # An error or block page sent with a 200: never saved as a page.
             raise SourceError(f"Page {page.index + 1} came back as {ctype[:40]}, not an image.",

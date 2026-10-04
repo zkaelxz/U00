@@ -241,7 +241,7 @@ def css_for(el, soup=None, allow_multi: bool = False, _depth: int = 0):
     return sel if found and found[0] is el else None
 
 
-def _select_one(soup, sel):
+def select_one(soup, sel):
     if not sel:
         return None
     try:
@@ -294,7 +294,7 @@ def infer_novel_rules(page, data: dict):
 def _resolve_link(page, rule):
     if not rule:
         return None
-    el = _select_one(page.soup, rule.get("selector"))
+    el = select_one(page.soup, rule.get("selector"))
     if el is not None and el.get("href"):
         return urljoin(page.url, el["href"].strip())
     text = (rule.get("text") or "").strip()
@@ -307,7 +307,7 @@ def _resolve_link(page, rule):
 
 def apply_novel_rules(page, rules: dict) -> tuple:
     """(data, "") or (None, plain-language reason it couldn't be applied)."""
-    container = _select_one(page.soup, rules.get("content_selector"))
+    container = select_one(page.soup, rules.get("content_selector"))
     if container is None:
         return None, (f"the saved content container ({rules.get('content_selector')}) "
                       "isn't on this page")
@@ -319,7 +319,7 @@ def apply_novel_rules(page, rules: dict) -> tuple:
             continue
     body = [b for b in page.blocks if _inside(b.el, container)
             and not any(_inside(b.el, x) for x in excluded)]
-    title_el = _select_one(page.soup, rules.get("title_selector"))
+    title_el = select_one(page.soup, rules.get("title_selector"))
     title_block = next((b for b in page.blocks if title_el is not None and b.el is title_el), None)
     chapter_title = title_el.get_text(" ", strip=True) if title_el is not None else None
     number = None
@@ -327,7 +327,7 @@ def apply_novel_rules(page, rules: dict) -> tuple:
         nums = re.findall(r"\d+", urlsplit(page.url).path)
         number = str(int(nums[-1])) if nums else None
     else:
-        number = ax._chapter_num_str(chapter_title)
+        number = ax.chapter_num_str(chapter_title)
     data = ax.novel_data(page, body, method="profile", chapter_title=chapter_title or None,
                          chapter_title_id=title_block.id if title_block else None,
                          chapter_number=number, next_url=_resolve_link(page, rules.get("next")),
@@ -362,7 +362,7 @@ def container_options(page, limit: int = 8) -> list:
 def exclusion_options(page, content_selector: str, limit: int = 15) -> list:
     """[(selector, preview)] of named elements inside the container a
     person might want to drop (nav bars, comment boxes, ad slots)."""
-    container = _select_one(page.soup, content_selector)
+    container = select_one(page.soup, content_selector)
     if container is None:
         return []
     out, seen = [], set()
@@ -423,7 +423,7 @@ def infer_comic_rules(candidates, data: dict):
             name = _name_pattern(p["resource_url"])
             if name not in page_names and name not in excluded_names:
                 excluded_names.append(name)
-    nums = [ax._file_number(c.url) for c in content]
+    nums = [ax.file_number(c.url) for c in content]
     doc_order = sorted(content, key=lambda c: c.order)
     order_by = "document"
     if content != doc_order and all(n is not None for n in nums) and nums == sorted(nums) and \
@@ -442,7 +442,7 @@ def apply_comic_rules(candidates, rules: dict) -> tuple:
     if rules.get("container_selector"):
         tagged = [c for c in candidates if c.tag is not None]
         root = _root(tagged[0].tag) if tagged else None
-        container = _select_one(root, rules["container_selector"]) if root is not None else None
+        container = select_one(root, rules["container_selector"]) if root is not None else None
         if container is None and not rules.get("use_manifest"):
             return None, (f"the saved page container ({rules['container_selector']}) "
                           "isn't on this page")
@@ -466,8 +466,8 @@ def apply_comic_rules(candidates, rules: dict) -> tuple:
     roles = {c.url: "content" for c in picked}
     ax.dedupe_content(picked, roles, {})
     picked = [c for c in picked if roles[c.url] == "content"]
-    if rules.get("order_by") == "filename" and all(ax._file_number(c.url) is not None for c in picked):
-        picked.sort(key=lambda c: ax._file_number(c.url))
+    if rules.get("order_by") == "filename" and all(ax.file_number(c.url) is not None for c in picked):
+        picked.sort(key=lambda c: ax.file_number(c.url))
     if not picked:
         return None, "the saved profile matched no images on this page"
     return picked, ""

@@ -613,9 +613,9 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
 # exist to catch a corrupted or accidentally-huge zip failing safely
 # (before it fills the disk), not to defend against a malicious upload in
 # this single-user app.
-_MAX_RESTORE_MEMBERS = 500_000
-_MAX_RESTORE_MEMBER_BYTES = 50 * 1024 ** 3  # 50 GiB, any one file
-_MAX_RESTORE_TOTAL_BYTES = 200 * 1024 ** 3  # 200 GiB, expanded total
+MAX_RESTORE_MEMBERS = 500_000
+MAX_RESTORE_MEMBER_BYTES = 50 * 1024 ** 3  # 50 GiB, any one file
+MAX_RESTORE_TOTAL_BYTES = 200 * 1024 ** 3  # 200 GiB, expanded total
 
 
 # Top-level library entries a restore never takes from an upload and
@@ -623,7 +623,7 @@ _MAX_RESTORE_TOTAL_BYTES = 200 * 1024 ** 3  # 200 GiB, expanded total
 # saved site sign-ins, approved source profiles and the browser-extension
 # token, plus the temp folder of in-flight work. (Upload members under these names are skipped, so a planted
 # backups/exports/x.zip can never become the "latest export".)
-def _restore_kept_names():
+def restore_kept_names():
     import page_server
     import storage
     from sources import store as src_store
@@ -710,9 +710,9 @@ def _current_state_marker(library_dir: str):
     return tuple(marker)
 
 
-_BAD_LIBRARY_DB = ("The backup's library.db is not a readable Baihe library "
+BAD_LIBRARY_DB = ("The backup's library.db is not a readable Baihe library "
                    "database.")
-_BAD_SOURCES_DB = "The backup's sources.db is not a readable database."
+BAD_SOURCES_DB = "The backup's sources.db is not a readable database."
 
 def _schema_sql_allowed(sql: str) -> bool:
     """True only for CREATE TABLE / CREATE [UNIQUE] INDEX text (comments
@@ -772,7 +772,7 @@ def validate_staged_library_db(db_path: str) -> None:
     """ValueError (fixed text, no path) unless an uploaded library.db is
     SQLite, passes quick_check, holds only plain tables/indexes and has a
     dramas table."""
-    _check_uploaded_db(db_path, _BAD_LIBRARY_DB, need_table="dramas")
+    _check_uploaded_db(db_path, BAD_LIBRARY_DB, need_table="dramas")
 
 
 def _rebuild_from_upload(fresh_path: str, upload_path: str, skip_tables=(),
@@ -877,11 +877,11 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
         except Exception:
             logging.getLogger(__name__).warning("Restore: staged database migration failed",
                                                 exc_info=True)
-            raise ValueError(_BAD_LIBRARY_DB) from None
+            raise ValueError(BAD_LIBRARY_DB) from None
         _rebuild_from_upload(staged, scratch, skip_tables=_RESTORE_KEPT_AUTH_TABLES,
                              live_path=os.path.join(library_dir, "library.db"),
                              live_tables=("users", "user_permissions", "audit_log"),
-                             message=_BAD_LIBRARY_DB)
+                             message=BAD_LIBRARY_DB)
         try:
             conn = _open_carry_conn(staged)
             try:
@@ -894,7 +894,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
             finally:
                 conn.close()
         except sqlite3.Error:
-            raise ValueError(_BAD_LIBRARY_DB) from None
+            raise ValueError(BAD_LIBRARY_DB) from None
     finally:
         for path in (upload, scratch, scratch + "-wal", scratch + "-shm"):
             if os.path.lexists(path):
@@ -909,14 +909,14 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
         try:
             conn = _open_carry_conn(staged_src)
             try:
-                conn.executescript(src_store._SCHEMA)
+                conn.executescript(src_store.SCHEMA)
             finally:
                 conn.close()
         except sqlite3.Error:
-            raise ValueError(_BAD_SOURCES_DB) from None
+            raise ValueError(BAD_SOURCES_DB) from None
         _rebuild_from_upload(staged_src, upload_src, skip_tables=("settings",),
                              live_path=os.path.join(library_dir, "sources.db"),
-                             live_tables=("settings",), message=_BAD_SOURCES_DB)
+                             live_tables=("settings",), message=BAD_SOURCES_DB)
     finally:
         os.remove(upload_src)
 
@@ -964,7 +964,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
 
     from services.service_errors import ConflictError
 
-    kept = _restore_kept_names()
+    kept = restore_kept_names()
     staging_dir = None
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
@@ -973,24 +973,24 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
                                   "backup (no library.db found inside the zip).")
 
             infos = zf.infolist()
-            if len(infos) > _MAX_RESTORE_MEMBERS:
+            if len(infos) > MAX_RESTORE_MEMBERS:
                 raise ValueError(
                     f"Backup zip contains {len(infos):,} files, more than the "
-                    f"{_MAX_RESTORE_MEMBERS:,}-file limit -- this looks corrupted "
+                    f"{MAX_RESTORE_MEMBERS:,}-file limit -- this looks corrupted "
                     "or unsafe to extract.")
             total_size = 0
             for info in infos:
-                if info.file_size > _MAX_RESTORE_MEMBER_BYTES:
+                if info.file_size > MAX_RESTORE_MEMBER_BYTES:
                     raise ValueError(
                         f"Backup zip contains a file ({info.filename}) that would "
                         f"expand to {info.file_size / 1024 ** 3:.1f} GiB, more than "
-                        f"the {_MAX_RESTORE_MEMBER_BYTES / 1024 ** 3:.0f} GiB "
+                        f"the {MAX_RESTORE_MEMBER_BYTES / 1024 ** 3:.0f} GiB "
                         "per-file limit -- this looks corrupted or unsafe to extract.")
                 total_size += info.file_size
-                if total_size > _MAX_RESTORE_TOTAL_BYTES:
+                if total_size > MAX_RESTORE_TOTAL_BYTES:
                     raise ValueError(
                         f"Backup zip would expand to more than "
-                        f"{_MAX_RESTORE_TOTAL_BYTES / 1024 ** 3:.0f} GiB total -- "
+                        f"{MAX_RESTORE_TOTAL_BYTES / 1024 ** 3:.0f} GiB total -- "
                         "this looks corrupted or unsafe to extract.")
 
             if zf.testzip() is not None:
@@ -1013,7 +1013,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
         validate_staged_library_db(os.path.join(staging_dir, "library.db"))
         staged_src = os.path.join(staging_dir, "sources.db")
         if os.path.lexists(staged_src):
-            _check_uploaded_db(staged_src, _BAD_SOURCES_DB)
+            _check_uploaded_db(staged_src, BAD_SOURCES_DB)
         marker = _current_state_marker(library_dir)
         _build_staged_databases(staging_dir, library_dir)
         if before_swap is not None:
@@ -1097,7 +1097,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     from services import settings_service, translate_run_service
     # Same Settings episode-summary engine as a single run (None if it
     # can't be built), at this job's own Ollama URL.
-    summary_engine, summary_choice = translate_run_service._summary_engine(
+    summary_engine, summary_choice = translate_run_service.pick_summary_engine(
         ollama_base_url, allow_paid=allow_paid_summary)
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
@@ -1143,7 +1143,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         # month's spend-so-far right before each drama, not just once for
         # the whole batch, since earlier dramas in this same run add to
         # that spend too.
-        cap_applies = translate_run_service._cap_applies(engine_choice, gemini_free_tier)
+        cap_applies = translate_run_service.engine_cap_applies(engine_choice, gemini_free_tier)
         cost_cap = None
         if cap_applies and monthly_cap:
             cost_cap, refusal = translate_engines.resolve_cost_cap(

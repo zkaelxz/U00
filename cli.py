@@ -63,7 +63,7 @@ from services import (engine_routing_service, glossary_retranslate_service,
                       transcribe_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
 from services.service_errors import DependencyUnavailableError
-from services.translate_run_service import _cap_applies, get_translate_config_defaults
+from services.translate_run_service import engine_cap_applies, get_translate_config_defaults
 
 
 def _gemini_free_tier(engine_name: str) -> bool:
@@ -450,7 +450,7 @@ def cmd_align(args):
         if alignment_method == "qwen3_forced_align":
             # Checked before any transcription, as the API does.
             try:
-                transcribe_service._require_qwen3_packages("Qwen3 forced alignment")
+                transcribe_service.require_qwen3_packages("Qwen3 forced alignment")
             except DependencyUnavailableError as exc:
                 raise _qwen3_missing(exc) from exc
         # Glossary names plus raw-novel excerpt, shared with the API path.
@@ -701,7 +701,7 @@ def cmd_translate(args):
         month_spend = db.get_month_spend() if monthly_setting else 0.0
         caps = []
         for name in chain_names:
-            monthly_cap = (monthly_setting if _cap_applies(name, _gemini_free_tier(name))
+            monthly_cap = (monthly_setting if engine_cap_applies(name, _gemini_free_tier(name))
                            else None)
             cap, refusal = translate_engines.resolve_cost_cap(
                 getattr(args, "cost_cap", None), monthly_cap, month_spend if monthly_cap else 0.0)

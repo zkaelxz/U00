@@ -41,7 +41,7 @@ def translate_labels(labels, target_language: str, engine):
     translation for is left out rather than guessed at. Results are
     matched back by id, never by list position."""
     from translate_engines import (call_with_backoff, call_llm_json,
-                                   _request_translations_with_retry)
+                                   request_translations_with_retry)
     if not labels:
         return {}
     if not getattr(engine, "supports_reference", False):
@@ -59,7 +59,7 @@ def translate_labels(labels, target_language: str, engine):
         )
         return call_llm_json(engine, prompt, max_tokens=2000, fallback="{}")
 
-    translations = _request_translations_with_retry(labels, None, call_model)
+    translations = request_translations_with_retry(labels, None, call_model)
     return {l: t for l, t in zip(labels, translations) if t}
 
 

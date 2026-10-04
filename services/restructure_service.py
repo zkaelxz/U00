@@ -44,7 +44,7 @@ import raw_transcript
 import resegment
 import translate_engines
 from services import drama_service, settings_service, translate_service
-from services.review_lines_service import _line_dict
+from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
@@ -124,7 +124,7 @@ def _commit(drama_id: int, current, new_lines, label: str):
     db.save_lines(drama_id, new_lines)
 
 
-def _structural_write(drama_id: int, expected_line_ids, label: str, build):
+def structural_write(drama_id: int, expected_line_ids, label: str, build):
     """load fresh -> check ids -> build(current) -> snapshot -> save, under
     the drama lock. build returns (new_lines, result_line_objects)."""
     _require_drama(drama_id)
@@ -138,7 +138,7 @@ def _structural_write(drama_id: int, expected_line_ids, label: str, build):
         new_lines, touched = build(work)
         _commit(drama_id, current, new_lines, label)
     return {"line_ids": [ln.id for ln in new_lines],
-            "lines": [_line_dict(ln) for ln in touched]}
+            "lines": [line_dict(ln) for ln in touched]}
 
 
 def _index_of(lines, line_id) -> int:
@@ -169,7 +169,7 @@ def add_line(drama_id: int, expected_line_ids, *, after_line_id: Optional[int] =
         new = core_module.Line(idx=pos, start=start, end=end, zh=zh, en=en, speaker=speaker,
                                speaker_manual=speaker is not None)
         return lines[:pos] + [new] + lines[pos:], [new]
-    return _structural_write(drama_id, expected_line_ids, "before add line", build)
+    return structural_write(drama_id, expected_line_ids, "before add line", build)
 
 
 def delete_line(drama_id: int, line_id: int, expected_line_ids, confirm: bool = False) -> dict:
@@ -181,7 +181,7 @@ def delete_line(drama_id: int, line_id: int, expected_line_ids, confirm: bool = 
     def build(lines):
         i = _index_of(lines, line_id)
         return lines[:i] + lines[i + 1:], []
-    return _structural_write(drama_id, expected_line_ids, "before delete line", build)
+    return structural_write(drama_id, expected_line_ids, "before delete line", build)
 
 
 def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
@@ -209,7 +209,7 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             head.merged_ids = list(head.merged_ids) + [ln.id]
         head.end = max(head.end, rest[-1].end)
         return lines[:first + 1] + lines[first + len(line_ids):], [head]
-    return _structural_write(drama_id, expected_line_ids, "before merge", build)
+    return structural_write(drama_id, expected_line_ids, "before merge", build)
 
 
 def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
@@ -252,7 +252,7 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
                                   sfx=ln.sfx)
         ln.zh, ln.en, ln.end = pieces[0], en_first, cut
         return lines[:i + 1] + [second] + lines[i + 1:], [ln, second]
-    return _structural_write(drama_id, expected_line_ids, "before split", build)
+    return structural_write(drama_id, expected_line_ids, "before split", build)
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +270,7 @@ def _candidate_ids(lines, language: str) -> set:
     """Lines resegment_lines could split at all (longer than the cap) -- a
     superset of what any run (rules or LLM) actually changes."""
     cap = resegment.max_line_chars(language)
-    return {ln.id for ln in lines if resegment._length(ln.zh or "") > cap}
+    return {ln.id for ln in lines if resegment.length(ln.zh or "") > cap}
 
 
 _CONFIRM_NEEDED = ("Re-segmenting would clear translations, flags or notes on the lines being "
@@ -601,5 +601,5 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids) -> dict:
     def build(lines):
         restored = core_module.restore_saved_lines(rows, lines)
         return restored, []
-    out = _structural_write(drama_id, expected_line_ids, "before restore", build)
+    out = structural_write(drama_id, expected_line_ids, "before restore", build)
     return {"history_id": history_id, "line_ids": out["line_ids"]}

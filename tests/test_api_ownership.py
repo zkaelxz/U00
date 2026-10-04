@@ -587,14 +587,14 @@ class TestDramaIdsInBodies:
         from services.service_errors import NotFoundError
         b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
         with pytest.raises(NotFoundError):
-            svc._require_drama(world["private"], b)
-        assert svc._require_drama(world["shared"], b)["id"] == world["shared"]
-        assert svc._require_drama(world["private"], None)["id"] == world["private"]
+            svc.require_drama(world["private"], b)
+        assert svc.require_drama(world["shared"], b)["id"] == world["shared"]
+        assert svc.require_drama(world["private"], None)["id"] == world["private"]
 
     def test_tracking_into_invisible_drama_404(self, world, monkeypatch):
         from services import sources_registry_service as reg
         from services.service_errors import ConflictError, NotFoundError
-        monkeypatch.setattr(reg, "_require_source", lambda name: None)
+        monkeypatch.setattr(reg, "require_source", lambda name: None)
         b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
         with pytest.raises(NotFoundError, match="No drama"):
             reg.set_tracked("x", "s1", True, drama_id=world["private"], principal=b)

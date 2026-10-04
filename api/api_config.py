@@ -229,8 +229,8 @@ def _sign_in_values(env, from_env_file: bool) -> dict:
     the process environment, like `settings_service.resolve_key`."""
     file_env = {}
     if from_env_file:
-        from services.settings_service import _read_env_file
-        file_env = _read_env_file()
+        from services.settings_service import read_env_file
+        file_env = read_env_file()
     return {name: (file_env.get(name) or env.get(name) or "").strip()
             for name in SIGN_IN_ENV_NAMES}
 
