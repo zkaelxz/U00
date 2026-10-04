@@ -243,7 +243,7 @@ def _seed_world():
 
 
 # From the spec, deliberately not read from the module under test.
-SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results"}
+SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results", "speaker_merge_undos"}
 LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
 PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
@@ -1593,7 +1593,8 @@ def test_child_tables_cover_every_fk_to_dramas(isolated_db):
                      if fk["table"] == "dramas"}
     assert fk_tables == set(abs_.CHILD_TABLES) | set(abs_._SKIPPED_TABLES)
     assert not set(abs_.CHILD_TABLES) & set(abs_._SKIPPED_TABLES)
-    assert set(abs_._SKIPPED_TABLES) == {"usage_log", "bulk_jobs", "metadata_research_results"}
+    assert set(abs_._SKIPPED_TABLES) == {"usage_log", "bulk_jobs", "metadata_research_results",
+                                            "speaker_merge_undos"}
 
 
 class TestRestoreRoundTrip:
@@ -1614,7 +1615,8 @@ class TestRestoreRoundTrip:
         assert res["drama_id"] == a and res["restored_as_new"] is False
         assert res["title"] == "Alpha" and res["media_restored"] is False
         assert res["snapshot_kind"] == "db-only"
-        assert res["skipped_tables"] == ["bulk_jobs", "metadata_research_results", "usage_log"]
+        assert res["skipped_tables"] == ["bulk_jobs", "metadata_research_results",
+                                         "speaker_merge_undos", "usage_log"]
         # P2 is gone, so its profile rows are not restored
         for t in PROFILE_TABLES:
             expected[t] = [r for r in expected[t] if "'P2'" not in r]
