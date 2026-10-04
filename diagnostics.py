@@ -47,7 +47,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
     "sensevoice_tags.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
     "translation_memory.py", "action_tiers.py", "media_inspect.py",
-    "process_guard.py",   # Step 80b: the installed server's Job Object (python -m api imports it)
+    "vad_segments.py", "process_guard.py",   # Step 80b: the installed server's Job Object (python -m api imports it)
 ]
 
 # name -> (import name, feature it powers, required vs optional)
