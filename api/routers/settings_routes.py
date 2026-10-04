@@ -21,7 +21,8 @@ the separate admin listener (D5): on the household listener it always refuses.
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
-from api.auth import is_local_request, local_only, require_permission
+from api.auth import (LOOPBACK_HOSTS, PROXY_HEADERS, host_name, is_local_request,
+                      is_loopback_peer, local_only, require_permission)
 from api.schemas import (EndpointUrlResult, EndpointUrlSetRequest, EngineKeyClearRequest,
                          EngineKeyResult, EngineKeySetRequest, SettingsOverview,
                          SettingsUpdateRequest)
@@ -57,28 +58,6 @@ def _with_path_flags(overview: dict, local: bool) -> dict:
         if not local:
             prefs[name] = ""
     return overview
-
-
-LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
-PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded",
-                  "x-real-ip", "tailscale-user-login", "cf-connecting-ip", "cf-ray", "via")
-
-
-def host_name(netloc: str) -> str:
-    """Host part of a Host header / URL netloc, port removed, lower-cased."""
-    netloc = (netloc or "").strip().lower()
-    if netloc.startswith("["):
-        end = netloc.find("]")
-        return netloc[:end + 1] if end != -1 else netloc
-    return netloc.rsplit(":", 1)[0] if netloc.count(":") == 1 else netloc
-
-
-def is_loopback_peer(host) -> bool:
-    import ipaddress
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except (ValueError, TypeError):
-        return False
 
 
 def require_local_admin(request: Request):
