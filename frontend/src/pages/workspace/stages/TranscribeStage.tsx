@@ -6,7 +6,6 @@ import { getSettings } from '../../../api/settings'
 import {
   getDiarizationConfig,
   getTranscribeConfig,
-  getWorkflowProgress,
   startDiarization,
   startTranscribe,
   updateTranscribeConfig,
@@ -154,8 +153,6 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   const [error, setError] = useState<unknown>(null)
   // A refused option, shown on its own field instead of a generic banner.
   const [fieldProblem, setFieldProblem] = useState<RunFieldProblem | null>(null)
-  // Lines already in the drama: null until known. Once it has some, the settings start folded.
-  const [lineCount, setLineCount] = useState<number | null>(null)
   const panelRef = useRef<HTMLElement>(null)
   const transcriptRef = useRef<HTMLTextAreaElement>(null)
   // D03/D06: the last run's speaker count and the hand-corrected speakers.
@@ -231,17 +228,6 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       () => undefined,
     )
   }
-
-  useEffect(() => {
-    let cancelled = false
-    getWorkflowProgress(dramaId).then(
-      (p) => !cancelled && setLineCount(p.line_count),
-      () => !cancelled && setLineCount(0), // advisory: unknown reads as "no lines", settings stay open
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [dramaId])
 
   // Open the folded sections around the flagged field and bring it into view.
   useEffect(() => {
@@ -468,6 +454,34 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       <h3>Transcribe</h3>
       <TranscriptModePicker onChanged={(m) => setConfig((c) => (c ? { ...c, transcript_mode: m } : c))} />
       {mediaSlot}
+      <div className="source-grid">
+        <Field label="Source language">
+          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+            <option value="zh">Chinese</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+          </select>
+        </Field>
+        {language === 'zh' && (
+          <Field label="Chinese script">
+            <select value={script} onChange={(e) => setScript(e.target.value)}>
+              <option value="">Keep current</option>
+              <option value="simplified">Simplified (Mainland)</option>
+              <option value="traditional">Traditional (Taiwan, Hong Kong)</option>
+            </select>
+          </Field>
+        )}
+      </div>
+      {haveTranscript && (
+        <Field label="Transcript text">
+          <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
+        </Field>
+      )}
+      <div className="setting-list">
+        <Field label="Detect speakers after transcribing">
+          <Toggle checked={runDiarize} onChange={setRunDiarize} />
+        </Field>
+      </div>
       <div className="actions">
         <button
           type="button"
@@ -519,25 +533,12 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         </p>
       )}
 
-      {lineCount !== null && (
-      <Section storageKey="source.transcribe" title="Transcribe settings" defaultOpen={lineCount === 0}>
+      <Section
+        storageKey="source.transcribe"
+        title="More options"
+        summary={`${cf?.whisper_size ?? 'model'} · speakers and tuning`}
+      >
       <div className="source-grid">
-        <Field label="Source language">
-          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-            <option value="zh">Chinese</option>
-            <option value="ja">Japanese</option>
-            <option value="ko">Korean</option>
-          </select>
-        </Field>
-        {language === 'zh' && (
-          <Field label="Chinese script">
-            <select value={script} onChange={(e) => setScript(e.target.value)}>
-              <option value="">Keep current</option>
-              <option value="simplified">Simplified (Mainland)</option>
-              <option value="traditional">Traditional (Taiwan, Hong Kong)</option>
-            </select>
-          </Field>
-        )}
         {cf && (
           <Field label="Whisper model" help={config && !config.whisper_model_cached ? 'This model will be downloaded on first use.' : undefined}>
             <select value={cf.whisper_size} onChange={(e) => setC('whisper_size', e.target.value)}>
@@ -549,16 +550,6 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         )}
       </div>
       {turboWarning && <p className="muted" role="note">{turboWarning}</p>}
-      {haveTranscript && (
-        <Field label="Transcript text">
-          <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
-        </Field>
-      )}
-      <div className="setting-list">
-        <Field label="Detect speakers after transcribing">
-          <Toggle checked={runDiarize} onChange={setRunDiarize} />
-        </Field>
-      </div>
       <Section storageKey="source.speakers" title="Speakers" summary={speakersSummary(speakers, minSpeakers, maxSpeakers)}>
         <div className="source-grid">
           <Field label="Expected speakers" help="0-20. Blank lets the app decide." error={fieldError('speakers')}>
@@ -688,7 +679,6 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         </Section>
       )}
       </Section>
-      )}
       <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />
     </section>
   )

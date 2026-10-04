@@ -134,17 +134,23 @@ class TestStart:
         did, ids = _drama(isolated_db)
         isolated_db.update_drama(did, whisper_size=planted)
         transcribe_service.start_retranscribe_line(did, ids[1])
-        assert captured["args"]["whisper_size"] == core.DEFAULT_WHISPER_SIZE
+        assert captured["args"]["whisper_size"] == transcribe_service.CPU_DEFAULT_WHISPER_SIZE
         logged = "\n".join(applog.tail(20))
         assert "whisper_size" in logged and planted not in logged
 
     @pytest.mark.parametrize("stored,expected", [
-        (None, core.DEFAULT_WHISPER_SIZE), ("", core.DEFAULT_WHISPER_SIZE),
-        ("small", "small"), ("../models/x", core.DEFAULT_WHISPER_SIZE),
-        ("org/model", core.DEFAULT_WHISPER_SIZE)])
+        (None, "medium"), ("", "medium"),
+        ("small", "small"), ("../models/x", "medium"),
+        ("org/model", "medium"), ("large-v3", "large-v3")])
     def test_stored_whisper_size(self, isolated_db, stored, expected):
         assert transcribe_service.stored_whisper_size(
             {"id": 1, "whisper_size": stored}) == expected
+
+    def test_default_is_large_with_gpu_on_and_saved_choice_never_changes(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(transcribe_service.settings_service, "get_use_gpu", lambda: True)
+        assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": ""}) == core.DEFAULT_WHISPER_SIZE
+        monkeypatch.setattr(transcribe_service.settings_service, "get_use_gpu", lambda: False)
+        assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": "large-v3"}) == "large-v3"
 
     def test_explicit_prompt_overrides(self, isolated_db, captured):
         did, ids = _drama(isolated_db)

@@ -1,3 +1,4 @@
+import { openTranscribeOptions } from './sourceHelpers'
 import { test, type Page } from '@playwright/test'
 
 // Review screenshots for the B4 Workspace stage gaps (P05, P10, P11/X09,
@@ -88,6 +89,7 @@ for (const vp of [
           },
         }))
       await page.goto('/#/drama/1/source')
+      await openTranscribeOptions(page)
       await openSection(page, 'Speakers')
       await shot(page, `transcribe-speakers-${vp.tag}`, 'section[aria-label="Transcribe"]')
     })

@@ -47,13 +47,13 @@ test('a refused option is flagged on the phone without sideways scroll', async (
 })
 
 test('folded settings on the phone', async ({ page }) => {
-  await page.route('**/api/workflow/dramas/1/progress', async (route) => {
-    const resp = await route.fetch()
-    await route.fulfill({ response: resp, json: { ...(await resp.json()), line_count: 42 } })
-  })
   await page.goto('/#/drama/1/source')
   await expect(page.getByTestId('settings-summary')).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Transcribe' }).getByLabel('Source language')).toBeHidden()
+  const card = page.getByRole('region', { name: 'Transcribe' })
+  await expect(card.getByLabel('Source language', { exact: true })).toBeVisible()
+  await expect(card.getByLabel('Whisper model', { exact: true })).toBeHidden()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await shot(page, 'transcribe-folded-phone')
 })

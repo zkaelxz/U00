@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test'
 
 import { expect, test } from './fixtures'
+import { openTranscribeOptions } from './sourceHelpers'
 
 // Novel reference (Translate) and raw novel (Transcribe, on the Source page):
 // the novel-files endpoints are mocked with an in-memory store, and every
@@ -103,6 +104,7 @@ test('Transcribe: uploading the raw novel refreshes the automatic prompt', async
   await expect(page.getByTestId('novel-file-status-raw')).toContainText('Saved:')
   expect(uploads.map((u) => u.kind)).toEqual(['raw-novel'])
   const transcribe = page.getByRole('region', { name: 'Transcribe' })
+  await openTranscribeOptions(page)
   await transcribe.locator('.section-title', { hasText: 'Advanced' }).click()
   await expect(page.getByTestId('auto-prompt')).toContainText('云隐宗、沈清疑')
 })

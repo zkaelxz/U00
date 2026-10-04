@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openTranscribeOptions } from './sourceHelpers'
 
 // Step 105: the "Detect speakers only" control sends a min/max speaker
 // range. The run and job endpoints are mocked; reads hit the seeded API.
@@ -21,6 +22,7 @@ test('detect speakers only sends a speaker range and catches a bad one', async (
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
   // Speaker counts and "Detect speakers only" live in the Speakers section.
+  await openTranscribeOptions(page)
   await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
   const detect = page.getByRole('button', { name: 'Detect speakers only' })
 
@@ -68,6 +70,7 @@ test('transcribe with speaker detection sends the speaker range', async ({ page 
 
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
+  await openTranscribeOptions(page)
   const detectAfter = page.getByRole('switch', { name: 'Detect speakers after transcribing' })
   if (!(await detectAfter.isChecked())) await detectAfter.click()
   await page.locator('.section-title', { hasText: /^Speakers$/ }).click()

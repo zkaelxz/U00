@@ -68,8 +68,8 @@ class TestGetTranscribeConfig:
             "audio_available": False,
             "alignment_method": "whisper_diff",
             "asr_backend_choice": "whisper",
-            "whisper_size": core_module.DEFAULT_WHISPER_SIZE,
-            "whisper_model_cached": core_module.is_whisper_model_cached(core_module.DEFAULT_WHISPER_SIZE),
+            "whisper_size": transcribe_service.CPU_DEFAULT_WHISPER_SIZE,
+            "whisper_model_cached": core_module.is_whisper_model_cached(transcribe_service.CPU_DEFAULT_WHISPER_SIZE),
             "measured_speed": None,
             "whisper_installed": result["whisper_installed"],
             "beam_size": 5,
@@ -1391,10 +1391,10 @@ class TestTranscribeSpeedCalibration:
 
     def test_config_reports_the_speed_for_the_stored_model_and_device(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        model = core_module.DEFAULT_WHISPER_SIZE
-        transcribe_service.record_transcribe_speed(model, False, 600, 300)
+        # An unsaved drama's model follows the GPU setting, so each device has its own default.
+        transcribe_service.record_transcribe_speed(transcribe_service.CPU_DEFAULT_WHISPER_SIZE, False, 600, 300)
         assert transcribe_service.get_transcribe_config(did)["measured_speed"] == 2.0
-        transcribe_service.record_transcribe_speed(model, True, 3000, 100)
+        transcribe_service.record_transcribe_speed(core_module.DEFAULT_WHISPER_SIZE, True, 3000, 100)
         isolated_db.set_app_setting("use_gpu", True)
         assert transcribe_service.get_transcribe_config(did)["measured_speed"] == 30.0
 
