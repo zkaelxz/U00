@@ -717,3 +717,36 @@ def test_every_notion_route_is_pc_only(isolated_db, notion, drama):
                     headers={"X-Baihe-Local": "1"})
     assert r.status_code in (401, 403)
     assert background_jobs.get_status(f"notion_export_{drama}") is None
+
+
+class TestReadCapped:
+    def test_oversized_body_is_refused_and_closed(self, monkeypatch):
+        monkeypatch.setattr(ns, "MAX_RESPONSE_BYTES", 100)
+
+        class R(Resp):
+            closed = False
+
+            def close(self):
+                R.closed = True
+        r = R(200, data={"pad": "x" * 500})
+        with pytest.raises(DependencyUnavailableError):
+            ns._read_capped(r)
+        assert R.closed
+
+    def test_declared_length_over_the_cap_is_refused_unread(self, monkeypatch):
+        monkeypatch.setattr(ns, "MAX_RESPONSE_BYTES", 100)
+        r = Resp(200, data={"a": 1}, headers={"Content-Length": "5000"})
+        r.iter_content = lambda size: pytest.fail("must not read")
+        with pytest.raises(DependencyUnavailableError):
+            ns._read_capped(r)
+
+    def test_slow_body_hits_the_deadline(self, monkeypatch):
+        from services import capped_body
+        ticks = iter([0.0, 1.0, ns.READ_DEADLINE + 1])
+        monkeypatch.setattr(capped_body.time, "monotonic", lambda: next(ticks))
+        r = Resp(200, data={"pad": "x" * 100_000})
+        with pytest.raises(DependencyUnavailableError):
+            ns._read_capped(r)
+
+    def test_normal_body_is_returned(self):
+        assert json.loads(ns._read_capped(Resp(200, data={"ok": True}))) == {"ok": True}

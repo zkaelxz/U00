@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import settings_service
+from services import capped_body, settings_service
 from services import web_search_service as ws
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
@@ -172,7 +172,7 @@ def test_response_size_is_capped(fake, monkeypatch):
 def test_slow_trickle_hits_the_read_deadline(fake, monkeypatch):
     _on()
     clock = iter([0.0, 1.0, ws.READ_DEADLINE + 1])
-    monkeypatch.setattr(ws.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(capped_body.time, "monotonic", lambda: next(clock))
     fake.reply = Resp(200, raw=b"x" * (3 * 64 * 1024))
     with pytest.raises(DependencyUnavailableError):
         ws.search("x")

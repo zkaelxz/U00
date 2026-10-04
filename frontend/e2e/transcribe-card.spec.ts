@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openTranscribeOptions } from './sourceHelpers'
 
 // The Transcribe card: a refused option is flagged on its own field, the
 // settings fold once the drama has lines, "Still needed" is a callout, and
@@ -69,24 +70,22 @@ test('an unnamed 422 shows the server sentence in the banner', async ({ page }) 
   await expect(page.locator('.error-banner')).toContainText('Unknown source_language.')
 })
 
-test('the settings start folded once the drama has lines, with the model line still visible', async ({ page }) => {
-  await page.route('**/api/workflow/dramas/1/progress', async (route) => {
-    const resp = await route.fetch()
-    await route.fulfill({ response: resp, json: { ...(await resp.json()), line_count: 42 } })
-  })
+test('the language is always in view; model, speakers and advanced start folded under More options', async ({ page }) => {
   await page.goto('/#/drama/1/source')
+  const card = page.getByRole('region', { name: 'Transcribe' })
   await expect(page.getByTestId('settings-summary')).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Transcribe' }).getByLabel('Source language')).toBeHidden()
+  await expect(card.getByLabel('Source language', { exact: true })).toBeVisible()
+  await expect(card.getByLabel('Whisper model', { exact: true })).toBeHidden()
   await shot(page, 'transcribe-folded-desktop')
-  await page.locator('.section-title', { hasText: /^Transcribe settings$/ }).click()
-  await expect(page.getByRole('region', { name: 'Transcribe' }).getByLabel('Source language')).toBeVisible()
+  await page.locator('.section-title', { hasText: /^More options$/ }).click()
+  await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
   // Remembered: still open after a reload. Section saves the state in its toggle
   // handler, which runs after the open attribute changes, so wait for the save.
   await expect
     .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.source.transcribe')))
     .toBe('1')
   await page.reload()
-  await expect(page.getByRole('region', { name: 'Transcribe' }).getByLabel('Source language')).toBeVisible()
+  await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
 })
 
 test('"Still needed" is a callout with its fix button', async ({ page }) => {
@@ -110,6 +109,7 @@ test('a running auto-tune shows elapsed time and an estimate', async ({ page }) 
     }),
   )
   await page.goto('/#/drama/1/source')
+  await openTranscribeOptions(page)
   await page.locator('.section-title', { hasText: /^Advanced$/ }).first().click()
   await page.locator('.section-title', { hasText: /^Auto-tune min silence$/ }).click()
   await expect(page.getByTestId('autotune-elapsed')).toContainText(/0:0\d elapsed/)

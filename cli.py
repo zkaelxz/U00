@@ -445,7 +445,7 @@ def cmd_align(args):
         # same section, only affects transcripts with no user-supplied
         # script -- this command always requires transcript.txt, so it
         # never applies here and there's nothing to read for it.)
-        whisper_size = args.whisper_size or d.get("whisper_size") or DEFAULT_WHISPER_SIZE
+        whisper_size = args.whisper_size or transcribe_service.stored_whisper_size(d)
         alignment_method = d.get("alignment_method") or "whisper_diff"
         if alignment_method == "qwen3_forced_align":
             # Checked before any transcription, as the API does.
@@ -995,8 +995,8 @@ def main():
     p_align.add_argument("--id", type=int, default=None)
     p_align.add_argument("--whisper-size", default=None, choices=list(WHISPER_MODELS),
                          help="Defaults to the drama's own saved choice (Workspace's own "
-                              f"'3. Recognition accuracy'), or '{DEFAULT_WHISPER_SIZE}' if it "
-                              "has none.")
+                              f"'3. Recognition accuracy'), or '{DEFAULT_WHISPER_SIZE}' (medium with "
+                              "the GPU off) if it has none.")
     p_align.add_argument("--fast", action="store_true",
                          help="Batched decoding (~4x faster on a GPU, more VRAM)")
     p_align.add_argument("--transcript", default=None, metavar="FILE",
