@@ -60,7 +60,7 @@ for (const stage of ['source', 'translate', 'review', 'dub', 'export']) {
     expect(new Set(boxes.map((b) => b.top)).size).toBe(1)
     for (const b of boxes) expect(b.right).toBeLessThanOrEqual(390)
     // §3.3: the app header and Workspace header are compact enough that stage content starts by y=300.
-    const contentTop = await page.locator('nav.stage-tabs').evaluate((n) => {
+    const contentTop = await page.locator('.ws-strip').evaluate((n) => {
       let s = n.nextElementSibling
       while (s && s.getBoundingClientRect().height === 0) s = s.nextElementSibling
       return s ? s.getBoundingClientRect().top : Infinity

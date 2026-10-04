@@ -1,5 +1,16 @@
 /* Workspace shell (§3.3): drama header and the stage stepper. */
 
+/* Title and stage tabs are one sticky strip; --bar-h (set from its height in
+   WorkspaceShell) lets Review's sticky pieces sit below it. */
+.ws-strip {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: calc(var(--z-sticky, 3) + 1);
+  margin-inline: calc(-1 * var(--space-4));
+  padding: 0 var(--space-4);
+  background: var(--bg);
+}
+
 /* Header: one row -- back, title, badges, Read on the right. */
 .workspace-header { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; }
 .workspace-header h2 {
@@ -39,6 +50,14 @@
 .stage-tabs a[data-state='done'] .stage-mark { color: var(--ok); font-size: var(--text-sm); }
 .stage-tabs a[data-state='current'] .stage-mark { color: var(--accent-text); }
 .stage-tabs .stage-count { color: var(--muted); font-weight: normal; font-size: var(--text-sm); }
+/* Reserved room for "· 32 left" / "· 12 flagged" and for the state mark, so tabs keep their size while progress loads. */
+.stage-tabs .stage-count { display: inline-block; min-width: 12ch; }
+.stage-tabs .stage-mark-slot { visibility: hidden; font-size: var(--text-xs); }
+.stage-tabs .stage-mark, .stage-tabs .stage-mark-slot { display: inline-block; min-width: 1rem; text-align: center; }
+/* The label is laid out at its bold width, so the open or "next" tab turning bold doesn't resize the tabs. */
+.stage-tabs .stage-label { display: inline-flex; flex-direction: column; align-items: center; }
+.stage-tabs .stage-label::after { content: attr(data-label); font-weight: var(--weight-bold); height: 0; overflow: hidden; visibility: hidden; }
+.ws-skeleton { min-height: 16rem; }
 
 @media (pointer: coarse) {
   .stage-tabs a { min-height: 44px; }
@@ -67,5 +86,18 @@
     line-height: 1.2;
   }
   .stage-tabs .stage-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-  .stage-tabs .stage-count { display: none; }
+  .stage-tabs .stage-count,
+  .stage-tabs .stage-count-slot { display: none; }
+}
+
+/* Next step: at the end of the strip on desktop, a sticky bottom bar on phones. */
+.workspace-header .ws-next { flex: 0 0 auto; }
+@media (max-width: 640px) {
+  .workspace.has-next-bar { padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--space-3)); }
+  .ws-next-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-sticky, 3);
+    display: flex; padding: var(--space-1) var(--space-2) calc(var(--space-1) + env(safe-area-inset-bottom, 0px));
+    background: var(--surface); border-top: 1px solid var(--border);
+  }
+  .ws-next-bar .ws-next { flex: 1 1 auto; justify-content: center; min-height: 44px; }
 }
