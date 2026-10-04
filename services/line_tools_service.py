@@ -95,7 +95,7 @@ def _snapshot_row(ln) -> dict:
             "dub_filename": getattr(ln, "dub_filename", None),
             "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
             "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
-            "sfx": bool(getattr(ln, "sfx", False))}
+            "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None)}
 
 
 def _shorten_pass_key(drama_id: int) -> str:

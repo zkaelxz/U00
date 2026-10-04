@@ -7,6 +7,8 @@ import type {
   LineImprovement,
   LineNoteCreate,
   LinePatch,
+  SetLanguageRequest,
+  SetLanguageResult,
   NoteDeleteResult,
   ConsistencyIssue,
   Coverage,
@@ -57,6 +59,9 @@ export const applyFindReplace = (id: number, matches: ReviewMatch[], f?: Fetch) 
 
 export const patchLine = (id: number, lineId: number, patch: LinePatch, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}`, patch, f)
+
+export const setLinesLanguage = (id: number, req: SetLanguageRequest, f?: Fetch) =>
+  postJson<SetLanguageResult>(`${lines(id)}/set-language`, req, f)
 
 export const dismissFlag = (id: number, lineId: number, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/dismiss-flag`, undefined, f)

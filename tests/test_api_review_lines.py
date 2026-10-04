@@ -62,7 +62,7 @@ class TestLines:
         assert client.get(f"{BASE}/{did}/lines?page=4&page_size=40").json()["lines"] == []
         assert set(body["lines"][0]) == {"id", "idx", "start", "end", "zh", "en", "speaker",
                                          "speaker_manual", "sfx", "flag", "flag_note",
-                                         "dub_filename"}
+                                         "dub_filename", "lang"}
 
     def test_only_filters(self, client):
         did = _seed_big()

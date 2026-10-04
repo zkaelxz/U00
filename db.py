@@ -1080,6 +1080,10 @@ def _migrate_line_columns(conn):
         # 1 for a non-verbal/SFX cue line ("[door slams]") -- exported
         # bracketed and styled apart from dialogue (Step 12c).
         _safe_alter(conn, "ALTER TABLE lines ADD COLUMN sfx INTEGER DEFAULT 0")
+    if "lang" not in existing_cols:
+        # The line's spoken language (core.Line.lang); NULL is the title's
+        # source_language, so existing lines keep their meaning.
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN lang TEXT")
 
 
 def _migrate_drama_columns(conn):
@@ -2288,12 +2292,16 @@ def list_dramas_by_series(series_id: int):
 # ---------------------------------------------------------------------------
 
 from core import LINE_FIELDS as _LINE_COLUMNS  # noqa: E402 -- core has no db dependency
+from core import LINE_LANGUAGES as _LINE_LANGUAGES  # noqa: E402
 
 
 def line_value(ln, f):
     v = getattr(ln, f, None)
     if f in ("speaker_manual", "sfx"):
         return int(bool(v))
+    if f == "lang":
+        # "" and None both mean "the title's language"; store one of them.
+        return v or None
     return "" if (f == "flag_note" and v is None) else v
 
 
@@ -2358,6 +2366,15 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
         elif col == "sfx":
             conds.append("COALESCE(sfx, 0) = ?")
             cargs.append(int(bool(val)))
+        elif col == "lang":
+            # Stored rows are read leniently (core._stored_line_lang): an
+            # imported "KO" reads as "ko" and an unknown code as the title
+            # default, so the check must see the same value or the line could
+            # never be saved again.
+            codes = ", ".join("?" for _ in _LINE_LANGUAGES)
+            conds.append(f"CASE WHEN LOWER(lang) IN ({codes}) THEN LOWER(lang) ELSE '' END = ?")
+            cargs.extend(_LINE_LANGUAGES)
+            cargs.append(val or "")
         elif col in ("zh", "en", "speaker", "flag", "flag_note"):
             conds.append(f"COALESCE({col}, '') = ?")
             cargs.append(val or "")
@@ -2506,7 +2523,7 @@ def load_lines(drama_id: int):
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute(
             "SELECT id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, speaker_manual, "
-            "sfx FROM lines WHERE drama_id = ? ORDER BY idx, id",
+            "sfx, lang FROM lines WHERE drama_id = ? ORDER BY idx, id",
             (drama_id,)
         ).fetchall()
     return [dict(r) for r in rows]
@@ -3757,7 +3774,8 @@ def save_translation_version(drama_id: int, lines, label: str, engine: str = "",
                 "speaker": getattr(ln, "speaker", None),
                 "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
                 "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
-                "sfx": bool(getattr(ln, "sfx", False))} for ln in lines]
+                "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None)}
+               for ln in lines]
     with contextlib.closing(get_conn()) as conn:
         if make_active:
             conn.execute("UPDATE translation_versions SET is_active = 0 WHERE drama_id = ?", (drama_id,))
@@ -4219,7 +4237,7 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
          "speaker": getattr(ln, "speaker", None), "dub_filename": getattr(ln, "dub_filename", None),
          "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
          "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
-         "sfx": bool(getattr(ln, "sfx", False))}
+         "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None)}
         for ln in lines
     ]
     conn = get_conn()

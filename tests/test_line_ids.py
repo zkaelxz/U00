@@ -438,10 +438,10 @@ class TestRestoreSavedLines:
 # One distinct saved value and one different "since then" value per field.
 _SAVED = {"idx": 0, "start": 1.0, "end": 2.0, "zh": "saved zh", "en": "saved en",
           "speaker": "Saved", "dub_filename": "saved.wav", "flag": "idiom",
-          "flag_note": "saved note", "speaker_manual": True, "sfx": True}
+          "flag_note": "saved note", "speaker_manual": True, "sfx": True, "lang": "ko"}
 _SINCE = {"idx": 0, "start": 3.0, "end": 4.0, "zh": "later zh", "en": "later en",
           "speaker": "Later", "dub_filename": "later.wav", "flag": "name",
-          "flag_note": "later note", "speaker_manual": False, "sfx": False}
+          "flag_note": "later note", "speaker_manual": False, "sfx": False, "lang": "en"}
 # A version is a pick of translation; the dub clip from when it was saved may
 # have been regenerated or deleted since, so it isn't stored and the line
 # keeps its current clip.
@@ -491,7 +491,7 @@ class TestEveryLineFieldRoundTrips:
                                        "dub_filename", "speaker_manual")}]
         old[0]["id"] = isolated_db.load_line_objects(did)[0].id
         got = self._restore_after_change(isolated_db, did, old)
-        # flag, note and SFX mark stay as the line has them now
+        # flag, note, SFX mark and language stay as the line has them now
         expected = dict(_SAVED, flag=_SINCE["flag"], flag_note=_SINCE["flag_note"],
-                        sfx=_SINCE["sfx"])
+                        sfx=_SINCE["sfx"], lang=_SINCE["lang"])
         assert {f: getattr(got, f) for f in LINE_FIELDS} == expected

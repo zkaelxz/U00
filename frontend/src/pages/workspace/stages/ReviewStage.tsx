@@ -80,6 +80,7 @@ export default function ReviewStage() {
         onChanged={changed}
         jobRunning={jobRunning}
         mediaKind={mediaKind}
+        sourceLanguage={drama.source_language}
         onLineCount={setLineCount}
         onFlaggedCount={setFlaggedCount}
         goTo={goTo}

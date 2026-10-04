@@ -46,7 +46,7 @@ def line_dict(ln) -> dict:
         "id": ln.id, "idx": ln.idx, "start": ln.start, "end": ln.end,
         "zh": ln.zh, "en": ln.en, "speaker": ln.speaker,
         "speaker_manual": bool(ln.speaker_manual), "sfx": bool(ln.sfx),
-        "flag": ln.flag, "flag_note": ln.flag_note,
+        "flag": ln.flag, "flag_note": ln.flag_note, "lang": ln.lang,
         # bare filename only, never the relative folder layout (D2)
         "dub_filename": os.path.basename(ln.dub_filename) if ln.dub_filename else None,
     }

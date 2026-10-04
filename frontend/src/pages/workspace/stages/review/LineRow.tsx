@@ -6,7 +6,7 @@ import { Badge } from '../../../../components/Badge'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { humanize, humanizeValue } from '../../../../components/labels'
-import { capFirst } from '../../../../labels'
+import { capFirst, languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine, TmSuggestion } from '../../../../types/review'
@@ -16,7 +16,18 @@ import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
-import { buildPatch, CONFLICT_MESSAGE, formatTime, isToolMode, JOB_RUNNING_MESSAGE, type LineDraft, type PanelMode } from './reviewLogic'
+import {
+  buildPatch,
+  CONFLICT_MESSAGE,
+  formatTime,
+  isToolMode,
+  JOB_RUNNING_MESSAGE,
+  LINE_LANGUAGES,
+  lineLangChip,
+  titleDefaultLabel,
+  type LineDraft,
+  type PanelMode,
+} from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface NoteDraft {
@@ -72,6 +83,8 @@ export interface RowActions {
 interface Props {
   dramaId: number
   line: ReviewLine
+  // The drama's source_language: what a line with no lang of its own is spoken in.
+  sourceLanguage: string | null
   active: boolean
   isPhone: boolean
   hasMedia: boolean
@@ -102,8 +115,9 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // One line: meta, source and translation. The active row (roving tabIndex)
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped }: Props) {
+function LineRowImpl({ dramaId, line, sourceLanguage, active, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped }: Props) {
   const draft = edit?.draft ?? null
+  const langChip = lineLangChip(line.lang, sourceLanguage)
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
@@ -147,6 +161,12 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           {!isPhone && <>–{formatTime(line.end)}</>}
         </span>
         {line.speaker && <span className="review-speaker">{line.speaker}</span>}
+        {langChip && (
+          <span data-testid="line-lang" title={`Spoken in ${languageLabel(line.lang)}`}>
+            <span aria-hidden="true"><Badge>{langChip}</Badge></span>
+            <span className="sr-only"> Spoken in {languageLabel(line.lang)}</span>
+          </span>
+        )}
         {line.sfx && <Badge>Sound cue</Badge>}
         {line.dub_filename && !isPhone && <span>Dub: {line.dub_filename}</span>}
         {line.flag && (
@@ -324,6 +344,14 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           <div className="review-edit-row">
             <Field label="Speaker">
               <input value={draft.speaker} onChange={(e) => actions.setDraft({ speaker: e.target.value })} />
+            </Field>
+            <Field label="Spoken language">
+              <select value={draft.lang} onChange={(e) => actions.setDraft({ lang: e.target.value })}>
+                <option value="">{titleDefaultLabel(sourceLanguage)}</option>
+                {LINE_LANGUAGES.map((l) => (
+                  <option key={l} value={l}>{languageLabel(l)}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Start (s)">
               <input inputMode="decimal" value={draft.start} onChange={(e) => actions.setDraft({ start: e.target.value })} />

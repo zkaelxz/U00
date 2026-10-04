@@ -21,7 +21,7 @@ import {
 
 const line = (id: number, idx: number): ReviewLine => ({
   id, idx, start: 0, end: 1, zh: 'z', en: 'e', speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null,
 })
 
 describe('AI check bodies (R50/R33)', () => {

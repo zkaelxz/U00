@@ -36,6 +36,8 @@ __all__ = [
     "LinesMatchIn",
     "LinesFindReplaceApplyRequest",
     "LinesFindReplaceApplyResult",
+    "LinesSetLangRequest",
+    "LinesSetLangResult",
     "LinesAcceptTmRequest",
     "LinesNoteCreate",
     "LinesNote",
@@ -110,6 +112,8 @@ class ReviewLinesLine(BaseModel):
     flag: Optional[str] = None
     flag_note: Optional[str] = None
     dub_filename: Optional[str] = None
+    lang: Optional[str] = Field(default=None, description=(
+        "This line's spoken language (zh/ja/ko/en); null means the drama's source_language."))
 
 
 class ReviewLinesPage(BaseModel):
@@ -355,6 +359,8 @@ class LinesPatchRequest(BaseModel):
     en: Optional[str] = Field(default=None, max_length=2000)
     speaker: Optional[str] = Field(default=None, max_length=100)
     sfx: Optional[bool] = None
+    lang: Optional[str] = Field(default=None, max_length=8,
+                                description="zh/ja/ko/en; \"\" sets the drama's source_language.")
     expected: Optional[Dict[str, Any]] = None
 
 
@@ -375,6 +381,21 @@ class LinesFindReplaceApplyResult(BaseModel):
     stale: int
     applied_ids: List[int]
     stale_ids: List[int]
+
+
+class LinesSetLangRequest(BaseModel):
+    """Exactly one of line_ids / speaker picks the lines."""
+    model_config = ConfigDict(extra="forbid")
+    lang: Optional[str] = Field(max_length=8,
+                                description="zh/ja/ko/en; null or \"\" sets the drama's source_language.")
+    line_ids: Optional[List[int]] = Field(default=None, max_length=10000)
+    speaker: Optional[str] = Field(default=None, max_length=100)
+
+
+class LinesSetLangResult(BaseModel):
+    updated: int = Field(description="Lines whose language changed.")
+    line_ids: List[int]
+    skipped_ids: List[int] = Field(description="Requested ids that are not lines of this drama.")
 
 
 class LinesAcceptTmRequest(BaseModel):
