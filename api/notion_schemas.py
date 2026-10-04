@@ -1,7 +1,6 @@
 """
 api/notion_schemas.py -- request/response models for the Notion export
-(roadmap item 112, api/routers/notion_routes.py). Kept out of api/schemas.py
-on purpose, like api/jellyfin_schemas.py.
+(roadmap item 112, api/routers/notion_routes.py).
 """
 from typing import Literal, Optional
 

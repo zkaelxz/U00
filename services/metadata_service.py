@@ -23,7 +23,7 @@ timeout=, keys are resolved server-side and never sent by clients, and
 exception text is never echoed (fixed messages only), so no secret can reach
 an error.
 
-No Streamlit or FastAPI import: plain dicts in, plain dicts out.
+No FastAPI import: plain dicts in, plain dicts out.
 """
 import math
 import os
@@ -112,7 +112,7 @@ def analyze_media(drama_id: int) -> dict:
         except (TypeError, ValueError):
             sample_rate = None
     # Parity P05: resolution, subtitle tracks and the suggested (never
-    # applied) pipeline, as the tab's media analysis shows them.
+    # applied) pipeline.
     try:
         info = media_inspect.analysis_from_probe(probe, os.path.basename(path))
     except (TypeError, ValueError, AttributeError):
@@ -341,7 +341,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
     romanized = {k: v.strip()[:drama_service.MAX_NAME_LEN] for k, v in (found or {}).items()
                  if k in CREDIT_FIELDS and credits.get(k) and isinstance(v, str) and v.strip()}
     if romanized:
-        # All four, as the Streamlit button did: a credit not returned (e.g.
+        # All four: a credit not returned (e.g.
         # one since removed) loses its stale romanized form.
         db.update_drama(drama_id, **{f"{k}_romanized": romanized.get(k) for k in CREDIT_FIELDS})
     return {"drama_id": drama_id, "romanized": romanized, "updated": bool(romanized)}

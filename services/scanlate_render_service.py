@@ -19,7 +19,7 @@ export for the API (docs/specs/scanlate-api-spec.md S6 and S8).
 
 Files are only ever read from inside the drama folder (the comic viewer's
 resolver: no `..`, no symlinks, png/jpg only, size-capped). No path reaches
-a response, a note or a job message. No FastAPI or Streamlit import.
+a response, a note or a job message. No FastAPI import.
 """
 import os
 import zipfile
@@ -53,7 +53,7 @@ def _pages_dir(drama_id: int) -> str:
 
 
 def _custom_fonts(drama_id: int) -> dict:
-    """The drama's own saved fonts (`fonts/<category>.ttf`), as the tab."""
+    """The drama's own saved fonts (`fonts/<category>.ttf`)."""
     import scanlate
     folder = os.path.join(db.drama_dir(drama_id), "fonts")
     return {cat: os.path.join(folder, f"{cat}.ttf") for cat in scanlate.FONT_CATEGORIES

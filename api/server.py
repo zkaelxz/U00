@@ -20,7 +20,7 @@ every reply (`api.auth.HouseholdGate`).
 """
 
 # Must run before any other app import -- same rule, and same reason, as
-# app.py and cli.py (see portable.py's docstring).
+# cli.py (see portable.py's docstring).
 import portable
 portable.activate_portable_mode()
 
