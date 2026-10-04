@@ -117,6 +117,7 @@ def test_http_error_is_redacted_and_keeps_the_response(posts):
         engine.chat([{"role": "user", "content": "hi"}])
     assert KEY not in str(exc.value)
     assert "401" in str(exc.value)
+    assert "Incorrect API key provided" in str(exc.value)  # the provider's explanation still comes through the capped read
     assert exc.value.response.status_code == 401
 
 

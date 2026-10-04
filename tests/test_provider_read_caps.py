@@ -83,7 +83,7 @@ class TestEngines:
     def test_gemini_translate_batch(self, posts):
         r = posts(_oversized())
         engine = gemini.GeminiEngine(SECRET)
-        with pytest.raises(Exception) as exc:
+        with pytest.raises(shared.ProviderResponseTooLarge) as exc:
             engine.translate_batch(["你好"], {})
         assert SECRET not in str(exc.value)
         assert r.chunks_read == 0 and r.closed

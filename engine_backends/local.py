@@ -169,7 +169,18 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
             "ollama_model_missing",
             f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
             "or pick another model in Settings.") from None
-    return read_json_capped(resp, OLLAMA_CHAT_TIMEOUT)
+    try:
+        return read_json_capped(resp, OLLAMA_CHAT_TIMEOUT)
+    except requests.ConnectionError:
+        # The body is read after the headers now, so a stall or reset there
+        # raises from the read, not from post(), and its text names the host.
+        raise OllamaUnavailableError(
+            "ollama_unreachable",
+            "Ollama isn't running. Start it, or pick another translator in Settings.") from None
+    except requests.ReadTimeout:
+        raise OllamaUnavailableError(
+            "ollama_timeout",
+            "Ollama took too long to answer. Try a smaller model, or pick another translator in Settings.") from None
 
 
 class OllamaEngine:

@@ -1384,6 +1384,38 @@ class TestOllamaUnavailableErrors:
             assert "10.1.2.3" not in str(info.value)
 
 
+    def test_a_stalled_or_reset_body_read_is_mapped_too(self, monkeypatch):
+        # The body is read after post() returns, so a drop there raises from
+        # the read; requests' text for it names the host.
+        import requests
+
+        class Dropped:
+            status_code = 200
+            ok = True
+            headers = {}
+            closed = False
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, size):
+                raise requests.ConnectionError(
+                    "HTTPConnectionPool(host='192.168.7.9', port=11434): Read timed out.")
+                yield b""
+
+            def close(self):
+                self.closed = True
+
+        resp = Dropped()
+        monkeypatch.setattr("requests.post", lambda *a, **k: resp)
+        engine = te.OllamaEngine(base_url="http://192.168.7.9:11434")
+        with pytest.raises(te.OllamaUnavailableError) as info:
+            engine.translate_batch(["你好"], {})
+        assert info.value.reason == "ollama_unreachable"
+        assert "192.168" not in str(info.value)
+        assert resp.closed
+
+
 class TestOllamaReachability:
     """Regression coverage for a real gap: Ollama is exempted from the
     API-key check entirely (workspace_tab.py's _needs_key), with nothing
