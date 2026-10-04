@@ -27,7 +27,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`browser-extension.md`** — the Translate-the-page-you're-reading
   feature (Step 34/34b/96): what it does, what was verified against a
   real site.
-- **`react-ui-guidelines.md`** — concise-UI rules for the React app and a per-screen change list.
+- **`react-ui-guidelines.md`** — concise-UI rules for the React app.
 - **`engineering-standards.md`** — shared principles: precedence, scope,
   review policy, verification, git/safety.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
