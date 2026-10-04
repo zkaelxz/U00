@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { openGroup } from './source-groups'
+import { openFillIn, openGroup } from './source-groups'
 
 // Workspace preamble/Source parity (inventory P04, P13, P14, S12, S13).
 // The drama reads, the platforms list and the cover upload hit the real
@@ -12,7 +12,7 @@ const PNG = Buffer.from(
   'base64',
 )
 
-test('romanize credits sends one request and shows the credits bilingually', async ({ page }) => {
+test('romanize credits sends one request and keeps the original credits in their fields', async ({ page }) => {
   const bodies: unknown[] = []
   await page.route('**/api/metadata/dramas/1/romanize-credits', (r) => {
     bodies.push(r.request().postDataJSON())
@@ -20,8 +20,8 @@ test('romanize credits sends one request and shows the credits bilingually', asy
   })
   await page.goto('/#/drama/1/source')
   await openGroup(page, 'Details and credits')
-  await page.locator('.section-title', { hasText: 'Credits & cover' }).click()
-  await expect(page.getByTestId('credits')).toContainText('Mo Xiang Tong Xiu (墨香铜臭)')
+  await page.locator('.section-title', { hasText: 'Edit details' }).click()
+  await expect(page.getByLabel('Author', { exact: true })).toHaveValue('墨香铜臭')
   await page.getByRole('button', { name: 'Romanize credits' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Credits romanized' })).toBeVisible()
   expect(bodies).toEqual([{}])
@@ -30,7 +30,7 @@ test('romanize credits sends one request and shows the credits bilingually', asy
 test('cover upload checks the type, then saves and shows the cover', async ({ page }) => {
   await page.goto('/#/drama/3/source')
   await openGroup(page, 'Details and credits')
-  await page.locator('.section-title', { hasText: 'Credits & cover' }).click()
+  await page.locator('.section-title', { hasText: 'Edit details' }).click()
   await expect(page.getByText('No cover.')).toBeVisible()
   const input = page.getByLabel('Cover image', { exact: true })
   await input.setInputFiles({ name: 'x.gif', mimeType: 'image/gif', buffer: Buffer.from('GIF89a') })
@@ -48,8 +48,7 @@ test('cover upload checks the type, then saves and shows the cover', async ({ pa
 
 test('auto-fill lists the known official platforms', async ({ page }) => {
   await page.goto('/#/drama/1/source')
-  await openGroup(page, 'Details and credits')
-  await page.locator('.section-title', { hasText: 'Auto-fill metadata' }).click()
+  await openFillIn(page, 'From a page or text')
   await page.getByText('Known official platforms', { exact: true }).click()
   const list = page.getByRole('list', { name: 'Known official platforms' })
   const link = list.getByRole('link', { name: 'JJWXC (晋江文学城)' })

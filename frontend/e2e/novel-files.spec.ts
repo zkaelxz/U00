@@ -160,7 +160,7 @@ test('raw novel saved in Transcribe shows the glossary link in Novel text', asyn
   await mockNovelFiles(page)
   await page.goto('/#/drama/1/source')
   await page.locator('.section-title', { hasText: /^Novel text$/ }).click()
-  const link = page.getByRole('link', { name: 'Build a glossary from this novel (Translate → Glossary) →' })
+  const link = page.getByRole('link', { name: 'Build the glossary from this novel in Translate →' })
   await expect(page.getByTestId('novel-status')).toBeVisible()
   await expect(link).toHaveCount(0)
   const panel = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })

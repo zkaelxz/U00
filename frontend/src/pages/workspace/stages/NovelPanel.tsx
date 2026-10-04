@@ -158,7 +158,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
         </p>
         {(status?.has_novel_text || hasRaw) && (
           <p className="muted">
-            <a href={`#/drama/${dramaId}/translate`}>Build a glossary from this novel (Translate → Glossary) →</a>
+            <a href={`#/drama/${dramaId}/translate`}>Build the glossary from this novel in Translate →</a>
           </p>
         )}
         <Field label="Mode" help="Replace overwrites any attached novel text; Append adds to it.">

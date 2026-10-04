@@ -26,9 +26,10 @@ import {
   type DetailsForm,
 } from '../detailsForm'
 import { useStage } from '../StageContext'
+import { CreditsCover } from './CreditsCoverPanel'
 import { ContentModeField } from './SourceModes'
 
-export function DetailsPanel({ openSignal }: { openSignal?: number }) {
+export function DetailsPanel({ openSignal, onAddCredits }: { openSignal?: number; onAddCredits?: () => void }) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [initial, setInitial] = useState<DetailsForm>(() => formFromDrama(drama))
   const [form, setForm] = useState<DetailsForm>(initial)
@@ -221,6 +222,7 @@ export function DetailsPanel({ openSignal }: { openSignal?: number }) {
             </Field>
           </Section>
         </form>
+        <CreditsCover onAddCredits={onAddCredits} />
       </Section>
     </section>
   )

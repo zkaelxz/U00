@@ -4,7 +4,6 @@ import { coverUrl, romanizeCredits, uploadCover } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
-import { Section } from '../../../components/Section'
 import { buttonClass } from '../../../components/uiClasses'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { COVER_ACCEPT, coverFileProblem, creditRows, hasCredits } from '../preambleForm'
@@ -12,12 +11,12 @@ import { useStage } from '../StageContext'
 import './preamble.css'
 
 /**
- * Credits and cover (inventory P13, P14). Romanize asks the drama's
+ * Romanize and cover upload inside Edit details (inventory P13, P14). Romanize asks the drama's
  * translation engine for readable forms of the author, studio, director and
  * cast; the originals are kept and both are shown. The cover upload is PC
  * only; the server accepts PNG, JPEG or WebP up to 10 MB and strips metadata.
  */
-export function CreditsCoverPanel({ onAddCredits }: { onAddCredits?: () => void }) {
+export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
   const { dramaId, drama, refetchDrama } = useStage()
   const pc = usePcOnly()
   const [romanizing, setRomanizing] = useState(false)
@@ -29,7 +28,8 @@ export function CreditsCoverPanel({ onAddCredits }: { onAddCredits?: () => void 
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
-  const rows = creditRows(drama)
+  // The originals are in the Author, Studio, Director and Voice actors fields; only romanized forms are new.
+  const rows = creditRows(drama).filter((r) => r.romanized)
   const canRomanize = hasCredits(drama)
   const problem = coverFileProblem(file)
   const engine = humanize('engine', drama.translation_engine || 'claude')
@@ -73,17 +73,10 @@ export function CreditsCoverPanel({ onAddCredits }: { onAddCredits?: () => void 
     )
   }
 
-  const summary = [
-    rows.some((r) => r.romanized) ? 'romanized' : rows.length ? 'credits' : 'no credits',
-    drama.has_cover_art ? 'cover' : 'no cover',
-  ].join(' · ')
-
   return (
-    <section className="panel" aria-label="Credits and cover">
-      <Section storageKey="source.creditsCover" title="Credits & cover" summary={summary}>
         <div className="source-panel credits-cover">
           {rows.length > 0 && (
-            <dl className="credit-rows" data-testid="credits">
+            <dl className="credit-rows" data-testid="credits" aria-label="Romanized credits">
               {rows.map((r) => (
                 <div key={r.key}>
                   <dt>{r.label}</dt>
@@ -150,7 +143,5 @@ export function CreditsCoverPanel({ onAddCredits }: { onAddCredits?: () => void 
           {notice && <p role="status">{notice}</p>}
           <ErrorBanner error={error} describe={{ pcOnly: true }} onDismiss={() => setError(null)} />
         </div>
-      </Section>
-    </section>
   )
 }

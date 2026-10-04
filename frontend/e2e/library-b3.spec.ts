@@ -118,7 +118,7 @@ test('Create and auto-fill lands on the Source stage with Auto-fill open (P03)',
   try {
     // The flag is read, then dropped from the address.
     await expect(page).toHaveURL(new RegExp(`#/drama/${id}/source$`))
-    const panel = page.getByRole('region', { name: 'Auto-fill metadata' })
+    const panel = page.getByRole('region', { name: 'Fill in details' })
     await expect(panel.getByRole('textbox', { name: 'Listing URL' })).toBeVisible()
     await expect(panel.getByRole('textbox', { name: 'Listing URL' })).toBeFocused()
   } finally {
