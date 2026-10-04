@@ -1,5 +1,5 @@
-// Mirrors api/schemas.py: the Sources registry (Slice 56) and the Sources
-// search/series jobs (API batch 1, spec S-3). No proxy URL, path, key or
+// Mirrors api/schemas/sources.py: the Sources registry and the Sources
+// search/series jobs. No proxy URL, path, key or
 // query string is ever part of these shapes.
 
 export interface SourceSupports {

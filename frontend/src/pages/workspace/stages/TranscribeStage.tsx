@@ -57,6 +57,7 @@ const OPTION_LABELS: Record<string, string> = {
   qwen3_forced_align: 'Qwen3 forced alignment',
   whisper: 'Whisper',
   qwen3_asr: 'Qwen3 ASR',
+  qwen3_asr_vad: 'Qwen3 ASR with speech detection (no Whisper)',
   moss_td: 'MOSS-Transcribe-Diarize (experimental)',
   auto: 'Automatic',
   audio_separator: 'Audio separator',
@@ -451,7 +452,6 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
 
   return (
     <section className="panel source-panel" aria-label="Transcribe" ref={panelRef}>
-      <h3>Transcribe</h3>
       <TranscriptModePicker onChanged={(m) => setConfig((c) => (c ? { ...c, transcript_mode: m } : c))} />
       {mediaSlot}
       <div className="source-grid">
@@ -462,6 +462,15 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             <option value="ko">Korean</option>
           </select>
         </Field>
+        {cf && (
+          <Field label="Whisper model" help={config && !config.whisper_model_cached ? 'This model will be downloaded on first use.' : undefined}>
+            <select value={cf.whisper_size} onChange={(e) => setC('whisper_size', e.target.value)}>
+              {(WHISPER_SIZES.includes(cf.whisper_size) ? WHISPER_SIZES : [cf.whisper_size, ...WHISPER_SIZES]).map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </Field>
+        )}
         {language === 'zh' && (
           <Field label="Chinese script">
             <select value={script} onChange={(e) => setScript(e.target.value)}>
@@ -472,6 +481,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           </Field>
         )}
       </div>
+      {turboWarning && <p className="muted" role="note">{turboWarning}</p>}
       {haveTranscript && (
         <Field label="Transcript text">
           <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
@@ -535,23 +545,6 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         <p className="muted source-summary" aria-hidden="true">&nbsp;</p>
       )}
 
-      <Section
-        storageKey="source.transcribe"
-        title="More options"
-        summary={`Whisper ${cf?.whisper_size ?? 'model'} · speakers and tuning`}
-      >
-      <div className="source-grid">
-        {cf && (
-          <Field label="Whisper model" help={config && !config.whisper_model_cached ? 'This model will be downloaded on first use.' : undefined}>
-            <select value={cf.whisper_size} onChange={(e) => setC('whisper_size', e.target.value)}>
-              {(WHISPER_SIZES.includes(cf.whisper_size) ? WHISPER_SIZES : [cf.whisper_size, ...WHISPER_SIZES]).map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </select>
-          </Field>
-        )}
-      </div>
-      {turboWarning && <p className="muted" role="note">{turboWarning}</p>}
       <Section storageKey="source.speakers" title="Speakers" summary={speakersSummary(speakers, minSpeakers, maxSpeakers)}>
         <div className="source-grid">
           <Field label="Expected speakers" help="0-20. Blank lets the app decide." error={fieldError('speakers')}>
@@ -681,7 +674,6 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           />
           </>}
         </Section>
-      </Section>
       <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />
     </section>
   )

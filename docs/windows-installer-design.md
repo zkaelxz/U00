@@ -506,7 +506,7 @@ per-user.
   user environment can't change it while the service runs. To change it,
   open **"Baihe Studio service"** in the Start menu and choose "Change Baihe
   Studio's port", or run `set-port N` (Commands, below) in an administrator
-  prompt: any port from 1024 to 65535 except 8501, 8756, 8610 and the
+  prompt: any port from 1024 to 65535 except 8756, 8610 and the
   household port while remote access is on. A port that is refused or
   already in use changes nothing (exit code 2), and so does running it while
   the launcher's own server holds the service's port (stop it first); the

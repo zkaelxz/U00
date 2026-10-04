@@ -88,9 +88,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# Deliberately not adjacent to the app's own port (8600, start.bat) -- a
-# person reading a port number in a browser URL bar should not have to
-# wonder which of the two they are looking at.
+# Deliberately not adjacent to the API's port (8600), so a person reading a
+# port number in a browser URL bar can tell which of the two they are looking at.
 DEFAULT_PORT = 8756
 TOKEN_HEADER = "X-Baihe-Token"
 TOKEN_FILENAME = "extension_token.txt"

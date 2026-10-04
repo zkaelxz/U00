@@ -1,5 +1,5 @@
-// Mirrors the Library* admin models (route batch 2A) and the PC-only delete
-// results for presets and voice bank entries in api/schemas.py.
+// Mirrors the Library* admin models and the PC-only delete
+// results for presets and voice bank entries in api/schemas/library.py.
 
 // services/library_admin_service.py STATUSES and db.ORGANIZATIONAL_TAGS.
 export const LIBRARY_STATUSES = ['not started', 'aligned', 'translated', 'dubbed', 'exported'] as const

@@ -1767,9 +1767,11 @@ def _is_journalled_folder(final: str, entry: dict) -> bool:
     return ident is not None and _folder_identity(final) == ident
 
 
-def _fsync_dir(path: str):
+def fsync_dir(path: str):
+    """Makes a rename into `path` durable; raises OSError. POSIX only:
+    Windows can't open a directory and commits the rename with the file."""
     if os.name != "posix":
-        return      # Windows can't open a directory; it commits the rename with the file
+        return
     fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(fd)
@@ -1852,7 +1854,7 @@ def write_media_journal(staging: str, folders: dict):
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, os.path.join(staging, _MEDIA_JOURNAL))
-    _fsync_dir(staging)
+    fsync_dir(staging)
 
 
 def move_staged_folder(staging: str, drama_id: int, staged: str) -> bool:

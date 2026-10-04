@@ -2,9 +2,8 @@ import { useEffect, useState } from 'react'
 
 import type { TmSuggestion } from '../../../../types/review'
 
-// Review parity R11: "Dismiss" hides a translation-memory suggestion for this
-// browser tab's session, as the Streamlit tab did (nothing is written to the
-// server). Keyed by the line's source text and the suggested translation, so
+// "Dismiss" hides a translation-memory suggestion for this browser tab's
+// session only (nothing is written to the server). Keyed by the line's source text and the suggested translation, so
 // the same pair on another line is hidden too, and a new suggestion shows.
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>

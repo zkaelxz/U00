@@ -1,6 +1,6 @@
 // Experimental transcription settings (api/routers/asr_options_routes.py,
 // Steps 103/104) and the Diarize-stage config read (Step 101's device note).
-// Types mirror api/asr_options_schemas.py and api/schemas.py's DiarizationConfig.
+// Types mirror api/asr_options_schemas.py and api/schemas/transcribe.py's DiarizationConfig.
 import { getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
@@ -15,12 +15,15 @@ export interface AsrOptions {
   qwen_asr_version: string | null
   qwen_asr_batching_available: boolean
   moss_experimental: boolean
+  // Qwen3 ASR with speech detection: also refine line times with the forced aligner.
+  qwen_vad_refine_timing: boolean
   moss_installed: boolean
 }
 
 export interface AsrOptionsUpdate {
   qwen_asr_batch_size?: number
   moss_experimental?: boolean
+  qwen_vad_refine_timing?: boolean
 }
 
 interface DiarizationConfig {
@@ -65,7 +68,9 @@ export function parseBatchSize(raw: string, min: number, max: number): number | 
 // experimental toggle is on. A drama already set to it still shows it (the
 // select keeps the current value).
 export function asrBackendOptions(mossEnabled: boolean): string[] {
-  return mossEnabled ? ['whisper', 'qwen3_asr', 'moss_td'] : ['whisper', 'qwen3_asr']
+  return mossEnabled
+    ? ['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'moss_td']
+    : ['whisper', 'qwen3_asr', 'qwen3_asr_vad']
 }
 
 // The muted line under the batch-size field (Step 103).

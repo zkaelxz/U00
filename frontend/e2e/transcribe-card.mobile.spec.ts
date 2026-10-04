@@ -1,7 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
 
-// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })
@@ -56,9 +55,10 @@ test('folded settings on the phone', async ({ page }) => {
   await expect(page.getByTestId('settings-summary')).toBeVisible()
   const card = page.getByRole('region', { name: 'Transcribe' })
   await expect(card.getByLabel('Source language', { exact: true })).toBeVisible()
-  await expect(card.getByLabel('Whisper model', { exact: true })).toBeHidden()
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
   await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
+  await expect(card.getByLabel('Expected speakers', { exact: true })).toBeHidden()
+  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
+  await expect(card.getByLabel('Expected speakers', { exact: true })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await shot(page, 'transcribe-folded-phone')
 })

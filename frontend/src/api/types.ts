@@ -1,6 +1,5 @@
-// Mirrors api/schemas.py -- the API contract. Hand-written for now; once
-// more than a handful of endpoints exist, generate this file from
-// /api/openapi.json instead of keeping two copies in sync by hand.
+// Hand-maintained mirrors of the API contract (api/schemas/ and the
+// api/*_schemas.py modules). There is no codegen: change both sides together.
 
 export interface ErrorInfo {
   code:

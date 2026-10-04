@@ -368,18 +368,28 @@ def _guarded_page(browser):
     return context.new_page()
 
 
+STATIC_FETCH_MAX_BYTES = 5_000_000
+
+
 def fetch_static(url: str, timeout: int = 20):
     """Plain fetch. Returns (html, text). Raises on network failure."""
     import requests
     from bs4 import BeautifulSoup
 
     headers = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"}
-    # No URL validation and no redirect guard here, unlike the browser
-    # path's pinning proxy: requests follows redirects, so any public-host
-    # check is the caller's.
-    resp = requests.get(url, headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    html = resp.text
+    resp = requests.get(url, headers=headers, timeout=timeout, stream=True)
+    try:
+        resp.raise_for_status()
+        encoding = resp.encoding or "utf-8"
+    except Exception:
+        resp.close()
+        raise
+    from services import capped_body
+
+    def too_big():
+        return ValueError("The page is too large to fetch.")
+    html = capped_body.read_capped(resp, STATIC_FETCH_MAX_BYTES, max(timeout, 1) * 3,
+                                   too_big).decode(encoding, errors="replace")
 
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):

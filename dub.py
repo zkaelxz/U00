@@ -339,6 +339,9 @@ GPT_SOVITS_DEFAULT_URL = "http://127.0.0.1:9880"
 # GPT-SoVITS's own language codes -- used both for the reference clip's
 # transcript (prompt_lang) and, since Step 26c, the text actually being
 # spoken (text_lang, previously hardcoded to "en").
+# One spoken line as WAV is a few MB; the cap leaves room for a very long one.
+GPT_SOVITS_AUDIO_MAX_BYTES = 128 * 1024 * 1024
+GPT_SOVITS_ERROR_MAX_BYTES = 64 * 1024
 _GPT_SOVITS_LANGUAGES = {"zh": "zh", "ja": "ja", "ko": "ko", "en": "en"}
 
 
@@ -360,14 +363,21 @@ def synthesize_line_gpt_sovits(text: str, ref_audio_path: str, ref_text: str, ou
             "prompt_text": ref_text or "",
             "prompt_lang": _GPT_SOVITS_LANGUAGES.get(ref_language, "zh"),
             "media_type": "wav",
-        }, timeout=300)
+        }, timeout=300, stream=True)
     except requests.ConnectionError as e:
         raise RuntimeError(f"GPT-SoVITS server isn't reachable at {base_url} -- start it with "
                            "`python api_v2.py` in your GPT-SoVITS folder") from e
+    from services import capped_body
+
+    def too_big():
+        return RuntimeError("GPT-SoVITS sent back more audio than one line can need.")
     if resp.status_code != 200:
-        raise RuntimeError(f"GPT-SoVITS server error {resp.status_code}: {resp.text[:300]}")
+        detail = capped_body.read_capped(resp, GPT_SOVITS_ERROR_MAX_BYTES, 300,
+                                         too_big).decode("utf-8", errors="replace")
+        raise RuntimeError(f"GPT-SoVITS server error {resp.status_code}: {detail[:300]}")
+    audio = capped_body.read_capped(resp, GPT_SOVITS_AUDIO_MAX_BYTES, 300, too_big)
     with open(out_path, "wb") as f:
-        f.write(resp.content)
+        f.write(audio)
     return out_path
 
 

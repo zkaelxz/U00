@@ -8,6 +8,8 @@ settings (Steps 103 and 104), stored in db.app_settings like use_gpu.
   user's real GPU comparison shows it doesn't change the text.
 - moss_experimental (Step 104): allows MOSS-Transcribe-Diarize as a drama's
   ASR backend. Off by default; with it off the backend can't be chosen or run.
+- qwen_vad_refine_timing: with the "Qwen3 ASR with speech detection" backend, also
+  tightens each line's times with Qwen3-ForcedAligner. Off by default.
 
 UI-free. Writes are PC-only (the router uses local_only()).
 """
@@ -19,6 +21,7 @@ from services.service_errors import InvalidInputError
 
 QWEN_ASR_BATCH_KEY = "qwen_asr_batch_size"
 MOSS_EXPERIMENTAL_KEY = "moss_experimental"
+VAD_REFINE_KEY = "qwen_vad_refine_timing"
 MIN_BATCH_SIZE = 1
 MAX_BATCH_SIZE = 16
 
@@ -38,6 +41,15 @@ def get_moss_experimental() -> bool:
     Fails closed (off) on a DB hiccup."""
     try:
         return db.get_app_setting(MOSS_EXPERIMENTAL_KEY, False) is True
+    except Exception:
+        return False
+
+
+def get_vad_refine_timing() -> bool:
+    """Whether the speech-detection Qwen3 backend refines timing with the
+    forced aligner. Off on a DB hiccup."""
+    try:
+        return db.get_app_setting(VAD_REFINE_KEY, False) is True
     except Exception:
         return False
 
@@ -72,11 +84,13 @@ def get_asr_options() -> dict:
         "qwen_asr_batch_min": MIN_BATCH_SIZE,
         "qwen_asr_batch_max": MAX_BATCH_SIZE,
         "moss_experimental": get_moss_experimental(),
+        "qwen_vad_refine_timing": get_vad_refine_timing(),
         "moss_installed": moss_installed(),
     }
 
 
-def set_asr_options(qwen_asr_batch_size=None, moss_experimental=None) -> dict:
+def set_asr_options(qwen_asr_batch_size=None, moss_experimental=None,
+                    qwen_vad_refine_timing=None) -> dict:
     """Saves whichever option is passed (None = unchanged). Raises
     InvalidInputError for a batch size outside 1..16 or a non-boolean
     toggle. Returns get_asr_options()."""
@@ -88,8 +102,12 @@ def set_asr_options(qwen_asr_batch_size=None, moss_experimental=None) -> dict:
                 f"to {MAX_BATCH_SIZE}.")
     if moss_experimental is not None and not isinstance(moss_experimental, bool):
         raise InvalidInputError("moss_experimental must be true or false.")
+    if qwen_vad_refine_timing is not None and not isinstance(qwen_vad_refine_timing, bool):
+        raise InvalidInputError("qwen_vad_refine_timing must be true or false.")
     if qwen_asr_batch_size is not None:
         db.set_app_setting(QWEN_ASR_BATCH_KEY, qwen_asr_batch_size)
     if moss_experimental is not None:
         db.set_app_setting(MOSS_EXPERIMENTAL_KEY, moss_experimental)
+    if qwen_vad_refine_timing is not None:
+        db.set_app_setting(VAD_REFINE_KEY, qwen_vad_refine_timing)
     return get_asr_options()
