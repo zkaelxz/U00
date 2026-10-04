@@ -105,6 +105,8 @@
   }
 }
 
+/* Same tokens as the prefers-color-scheme block above, repeated on purpose: a media query cannot be combined with
+   an attribute selector, and an explicit dark or oled choice must win over the OS setting. Edit both together. */
 :root:is([data-theme="dark"], [data-theme="oled"]) {
   --bg: #12141d;
   --accent: #9aa7ee;
@@ -251,6 +253,8 @@ a { color: var(--accent-text); }
 /* Standalone pages (Translate, Settings, Diagnostics) keep a readable line length. */
 .page-narrow, #root > .panel { max-width: 860px; margin-inline: auto; }
 .panel > :last-child { margin-bottom: 0; }
+/* Specificity 0,1,1: a list class that wants no indent has to use `padding: 0 !important` to win, so those
+   `!important`s across the stylesheets are required. */
 .panel ul { margin: 0; padding-left: 1.2rem; }
 .panel li { padding: 2px 0; }
 
@@ -486,6 +490,7 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .bar-menu-body .bar-actions, .bar-menu-body .bar-group { flex-direction: column; align-items: stretch; }
 .bar-menu-body .bar-group select { width: 100%; }
 .bar-menu-body button:not(.link), .bar-menu-body select { min-height: 48px; }
+/* `!important` on the list padding reset: `.panel ul` (index.css) out-ranks a single class, and removing it brings the indent back. */
 .deletable-list { list-style: none; padding: 0 !important; }
 .deletable-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .deletable-list .row-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
@@ -739,6 +744,9 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .drama-tile[class*='tile-h'], .continue-tile[class*='tile-h'] { background: linear-gradient(160deg, color-mix(in srgb, var(--tile) 34%, var(--surface-2)), color-mix(in srgb, var(--tile) 12%, var(--surface-2))); }
 .drama-card-main { display: flex; flex-direction: column; gap: var(--space-1); flex: 1 1 auto; min-width: 0; padding: var(--space-3) var(--space-4) var(--space-2); }
 .drama-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--text); font-weight: var(--weight-bold); line-height: 1.35; text-decoration: none; }
+/* Stretched link: the title link's ::after covers the whole card (.drama-card is position: relative), so the card is
+   one hit area; the foot controls sit above it at z-index 1. The link's own focus outline is hidden and the card
+   draws the focus ring instead (:has below). */
 a.drama-card-title::after { content: ''; position: absolute; inset: 0; z-index: 0; }
 a.drama-card-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 a.drama-card-title:focus-visible { outline: none; box-shadow: none; }

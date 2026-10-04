@@ -1,5 +1,5 @@
-// Mirrors api/schemas.py: LinesGlossaryRunResult, GlossaryProposalEdit and
-// GlossaryProposalsApplyRequest (glossary_routes.py, parity X10/X28). The
+// Mirrors api/schemas/characters.py: LinesGlossaryRunResult, GlossaryProposalEdit and
+// GlossaryProposalsApplyRequest (glossary_routes.py). The
 // lines extraction's status and apply result reuse the NovelGlossary* types.
 import type { NovelGlossaryApplyRequest } from './autotuneGlossary'
 

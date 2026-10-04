@@ -4,7 +4,7 @@ import { humanize } from '../../components/labels'
 import { MAX_NAME_LEN, MAX_SUMMARY_LEN, MEDIA_TYPES, SOURCE_LANGUAGES } from '../libraryForm'
 
 // Pure logic for the Source stage's "Edit details" form. Caps mirror
-// api/schemas.py DramaMetadataUpdate; the server re-validates everything.
+// api/schemas/library.py DramaMetadataUpdate; the server re-validates everything.
 
 const MAX_TAGS_LEN = 2000
 const MAX_URL_LEN = 2000
