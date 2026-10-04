@@ -1944,3 +1944,151 @@ def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
     isolated_db.init_db()
     assert isolated_db.get_drama(did)["translation_engine"] == "claude"
     assert isolated_db.get_drama(other)["translation_engine"] == "deepseek"
+
+
+# Every column init_db() adds with `ALTER TABLE ... ADD COLUMN`, per table,
+# in the order it adds them. Dropping them gives a database shaped like one
+# created before those migrations existed.
+_INIT_DB_MIGRATED_COLUMNS = {
+    "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id"),
+    "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx"),
+    "dramas": (
+        "translation_engine", "content_mode", "narration_language", "source_video_filename",
+        "source_language", "chinese_script", "media_type", "series_id", "episode_number",
+        "episode_summary", "updated_at", "last_translate_errors", "author_romanized",
+        "studio_romanized", "voice_actors_romanized", "director_romanized",
+        "cover_art_filename", "genre", "publication_status", "chapter_count", "custom_tags",
+        "personal_notes", "source_url", "transcript_mode", "whisper_size",
+        "alignment_method", "asr_backend_choice", "min_silence_ms", "vad_threshold",
+        "beam_size", "separate_vocals_first", "separation_backend", "realign_long_segments",
+        "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
+        "project_instructions", "notion_page_id", "owner_user_id", "is_private"),
+    "series": ("instructions", "owner_user_id", "is_private"),
+    "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
+                   "voice_design", "offline_voice", "series_character_id", "pronouns"),
+    "glossary_terms": ("category", "policy", "enforce_exact", "aliases", "banned_translations"),
+    "series_characters": ("gender", "voice_fingerprint", "voice_fingerprint_samples"),
+    "usage_log": ("cache_read_tokens",),
+    "bubbles": ("font_category", "kind", "kind_confidence", "confidence", "language",
+                "orientation", "panel_id", "include_sfx"),
+    "pages": ("rev", "context_summary", "run_notes"),
+    "bulk_jobs": ("kind", "stage", "pipeline_id"),
+    "bulk_job_lines": ("result_text", "state_at_submit"),
+    "vocab_lookups": ("export_rich",),
+    "style_profile": ("history_json",),
+    "users": ("share_by_default",),
+    "translate_history": ("user_id",),
+    "auth_sessions": ("device_label",),
+}
+
+
+def _schema_shape(path):
+    """Every table's columns (name, type, not-null, default, pk) and every
+    index, ignoring column order and CREATE text, which an ALTER-upgraded
+    database legitimately differs from a fresh one in."""
+    conn = sqlite3.connect(path)
+    try:
+        master = conn.execute(
+            "SELECT type, name, tbl_name FROM sqlite_master "
+            "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").fetchall()
+        indexes = conn.execute(
+            "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'index' "
+            "ORDER BY name").fetchall()
+        columns = {
+            name: sorted(tuple(r[1:]) for r in conn.execute(f"PRAGMA table_info({name})"))
+            for kind, name, _ in master if kind == "table"}
+    finally:
+        conn.close()
+    return {"master": master, "indexes": indexes, "columns": columns}
+
+
+def _exact_snapshot(path):
+    """Everything init_db() leaves behind, byte for byte: sqlite_master,
+    each table's ordered columns and rows, and the persistent pragmas."""
+    conn = sqlite3.connect(path)
+    try:
+        master = conn.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name").fetchall()
+        tables = {}
+        for kind, name, _, _ in master:
+            if kind != "table":
+                continue
+            info = conn.execute(f"PRAGMA table_info({name})").fetchall()
+            rows = conn.execute(f"SELECT * FROM {name}").fetchall()
+            tables[name] = (info, sorted(rows, key=repr))
+        pragmas = {p: conn.execute(f"PRAGMA {p}").fetchone()[0]
+                   for p in ("user_version", "journal_mode", "auto_vacuum", "page_size")}
+    finally:
+        conn.close()
+    return {"master": master, "tables": tables, "pragmas": pragmas}
+
+
+def _make_old_shape(path, share_by_default_was_on=False):
+    """Turns a freshly initialised database into one from before every
+    init_db() column migration, holding the rows its data migrations act on:
+    a user, a session that still stores its raw user agent, a drama
+    predating every added column, and a preset on the removed test engine.
+    share_by_default_was_on: users.share_by_default exists with the old
+    default of 1 instead of being missing."""
+    conn = sqlite3.connect(path)
+    try:
+        for table, cols in _INIT_DB_MIGRATED_COLUMNS.items():
+            for col in reversed(cols):
+                conn.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
+        if share_by_default_was_on:
+            conn.execute("ALTER TABLE users ADD COLUMN share_by_default INTEGER DEFAULT 1")
+        conn.execute("INSERT INTO users (id, email, created_at) VALUES (1, 'a@example.com', 'x')")
+        conn.execute(
+            "INSERT INTO auth_sessions (id_hash, user_id, created_at, expires_at, last_seen_at, "
+            "user_agent_short, csrf_hash) VALUES ('h', 1, 0, 9e9, 0, "
+            "'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0', 'c')")
+        conn.execute("INSERT INTO dramas (id, title_en) VALUES (1, 'Old')")
+        conn.execute("INSERT INTO presets (name, translation_engine) VALUES ('p', 'test_offline')")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class TestInitDbSchema:
+    """init_db() runs on every user's existing database at startup: a fresh
+    database and an upgraded old one must end up with the same schema, and
+    running it again must change nothing."""
+
+    def test_running_init_db_again_changes_nothing(self, isolated_db):
+        before = _exact_snapshot(isolated_db.DB_PATH)
+        isolated_db.init_db()
+        assert _exact_snapshot(isolated_db.DB_PATH) == before
+
+    def test_old_database_upgrades_to_the_fresh_schema(self, isolated_db):
+        fresh = _schema_shape(isolated_db.DB_PATH)
+        _make_old_shape(isolated_db.DB_PATH)
+        old = _schema_shape(isolated_db.DB_PATH)
+        for table, cols in _INIT_DB_MIGRATED_COLUMNS.items():
+            names = {c[0] for c in old["columns"][table]}
+            assert not names & set(cols), table
+
+        isolated_db.init_db()
+
+        upgraded = _schema_shape(isolated_db.DB_PATH)
+        assert upgraded == fresh
+        upgraded_exact = _exact_snapshot(isolated_db.DB_PATH)
+        isolated_db.init_db()
+        assert _exact_snapshot(isolated_db.DB_PATH) == upgraded_exact
+
+    def test_old_database_data_migrations_run(self, isolated_db):
+        _make_old_shape(isolated_db.DB_PATH, share_by_default_was_on=True)
+        isolated_db.init_db()
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:
+            assert conn.execute("SELECT share_by_default FROM users").fetchone() == (0,)
+            assert conn.execute(
+                "SELECT value FROM app_settings WHERE key = 'migrations.share_by_default_off'"
+            ).fetchone() == ("true",)
+            agent, label = conn.execute(
+                "SELECT user_agent_short, device_label FROM auth_sessions").fetchone()
+            assert agent == "" and label
+            assert conn.execute("SELECT translation_engine FROM presets").fetchone() == ("claude",)
+            assert conn.execute(
+                "SELECT translation_engine, is_private FROM dramas").fetchone() == ("claude", 0)
+        finally:
+            conn.close()
