@@ -127,6 +127,21 @@ class TestQwen3ASRBackendTranscription:
         assert result[1]["text"] == "qwen3 text"
         assert len(calls) == 1
 
+    def test_progress_cb_reports_the_share_of_segments_done_per_batch(self, monkeypatch):
+        import asr_backend as ab
+        self._stub_audio_slicing(monkeypatch, ab)
+        segs = [{"start": float(i), "end": i + 1.0, "text": "w"} for i in range(3)]
+
+        class FakeModel:
+            def transcribe(self, audio, language):
+                return [FakeResult("q")]
+
+        monkeypatch.setattr(ab, "load_qwen3_asr", lambda use_gpu=False, model_size="1.7B": FakeModel())
+        seen = []
+        ab.Qwen3ASRBackend().transcribe("/fake.wav", "zh", whisper_segments=segs,
+                                        progress_cb=seen.append)
+        assert seen == pytest.approx([1 / 3, 2 / 3, 1.0])
+
     def test_empty_model_result_becomes_empty_text(self, monkeypatch):
         import asr_backend as ab
         self._stub_audio_slicing(monkeypatch, ab)

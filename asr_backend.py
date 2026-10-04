@@ -166,7 +166,8 @@ class Qwen3ASRBackend:
     def __init__(self, model_size: str = "1.7B"):
         self.model_size = model_size
 
-    def transcribe(self, audio_path, language, whisper_segments, use_gpu=False, batch_size=1):
+    def transcribe(self, audio_path, language, whisper_segments, use_gpu=False, batch_size=1,
+                   progress_cb=None):
         """whisper_segments: the segmentation from WhisperBackend.transcribe()
         (or core.transcribe_for_timing() directly) -- see module docstring
         for why this backend needs Whisper's boundaries rather than
@@ -176,7 +177,10 @@ class Qwen3ASRBackend:
         in one call. 1 (the default) is the original one-segment-at-a-time
         behaviour. Timing is Whisper's either way; only throughput changes.
         Only used with the tested qwen-asr version (effective_qwen_batch_size);
-        not yet validated on real audio -- see docs/asr-experiments.md."""
+        not yet validated on real audio -- see docs/asr-experiments.md.
+
+        progress_cb(fraction): called after each batch, 0..1 of the segments
+        to re-transcribe."""
         if language not in LANGUAGE_NAMES:
             raise ValueError(
                 f"Qwen3-ASR doesn't cover language={language!r} in this project's usage "
@@ -205,6 +209,8 @@ class Qwen3ASRBackend:
                 for i, text in texts.items():
                     seg = whisper_segments[i]
                     out[i] = {"start": seg["start"], "end": seg["end"], "text": text}
+                if progress_cb:
+                    progress_cb(min(pos + len(batch), len(todo)) / len(todo))
         return out
 
     def _transcribe_batch(self, model, audio_path, segments, indices, language_name, tmp_dir):

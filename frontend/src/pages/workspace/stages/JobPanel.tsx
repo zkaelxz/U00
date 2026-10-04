@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { cancelJob } from '../../../api/jobs'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
 import type { ApiError } from '../../../api/client'
 import type { JobRecord } from '../../../types/jobs'
+import { etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, type EtaSample } from './transcribeEstimate'
+import { formatElapsed } from './autotuneGlossary'
 import { TERMINAL_STATUSES, jobFailed, jobOutcomeText } from '../../../types/jobs'
 
 interface Props {
@@ -12,9 +14,54 @@ interface Props {
   pollError: ApiError | null
   // Optional muted line under the status message.
   note?: string | null
+  // Transcribe only: show elapsed time and, once the percent has moved for a
+  // while, "about N min left".
+  liveEta?: boolean
 }
 
-export function JobPanel({ job, pollError, note }: Props) {
+// Elapsed time and the ETA for a running job; null until the job exists.
+// Percent readings are kept per stage, so a new stage starts a fresh clock.
+function useLiveProgress(job: JobRecord | null, enabled: boolean) {
+  const running = enabled && job !== null && !TERMINAL_STATUSES.includes(job.status)
+  const [now, setNow] = useState(() => Date.now() / 1000)
+  const [firstSeen, setFirstSeen] = useState<number | null>(null)
+  const [samples, setSamples] = useState<{ stage: string; list: EtaSample[] }>({ stage: '0', list: [] })
+  const progress = job?.progress ?? null
+  const message = job?.message ?? ''
+  useEffect(() => {
+    if (!running) {
+      setFirstSeen(null)
+      setSamples({ stage: '0', list: [] })
+      return
+    }
+    const t = Date.now() / 1000
+    setNow(t)
+    setFirstSeen((f) => f ?? t)
+    const id = setInterval(() => setNow(Date.now() / 1000), 1000)
+    return () => clearInterval(id)
+  }, [running])
+  useEffect(() => {
+    if (!running) return
+    const t = Date.now() / 1000
+    const stage = etaStage(message)
+    setSamples((cur) => {
+      const list = cur.stage === stage ? cur.list : []
+      if (progress === null || progress <= 0 || isNoPercentStage(message)) return { stage, list }
+      const last = list[list.length - 1]
+      if (last && last.p === progress && t - last.t < 5) return { stage, list }
+      return { stage, list: [...list, { t, p: progress }].slice(-60) }
+    })
+  }, [running, progress, message, now])
+  if (!running || !job) return { elapsed: null, left: null }
+  const started = job.started_at ?? firstSeen ?? now
+  const left = isNoPercentStage(message) || samples.stage !== etaStage(message)
+    ? null
+    : liveEtaSeconds(samples.list, now)
+  return { elapsed: Math.max(0, now - started), left }
+}
+
+export function JobPanel({ job, pollError, note, liveEta = false }: Props) {
+  const { elapsed, left } = useLiveProgress(job, liveEta)
   const [cancelError, setCancelError] = useState<unknown>(null)
   const active = job !== null && !TERMINAL_STATUSES.includes(job.status)
   // Server text goes through safeDetail like job.error; if it is unsafe or
@@ -34,6 +81,12 @@ export function JobPanel({ job, pollError, note }: Props) {
             {job.status}
             {job.message ? ` · ${job.message}` : ''}
           </p>
+          {elapsed !== null && !/\(elapsed /.test(job.message) && (
+            <p className="muted" role="note" data-testid="job-elapsed">
+              {formatElapsed(elapsed)} elapsed
+              {left !== null && ` · ${formatLeft(left)}${/step 1 of 2/i.test(job.message) ? ' in this step' : ''}`}
+            </p>
+          )}
           {note && <p className="muted" data-testid="job-note">{note}</p>}
           {job.progress !== null && (
             <p>
