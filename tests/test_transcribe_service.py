@@ -281,6 +281,28 @@ class TestStartTranscribeRun:
         assert callable(k["on_done"]) and callable(k["on_finish"])
         assert captured["drama_id"] == did
 
+    def test_on_finish_removes_the_scratch_folder_and_a_leftover_part_file(self, isolated_db,
+                                                                         monkeypatch):
+        """A worker killed during the cross-volume move of vocals.wav leaves
+        a .part- file beside it; the finish hook removes that too."""
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        folder = os.path.dirname(captured["audio_path"])
+        leftover = os.path.join(folder, ".part-abc123.wav")
+        open(leftover, "wb").close()
+        kept = [os.path.join(folder, name) for name in ("vocals.wav", ".part-notes.txt")]
+        for path in kept:
+            open(path, "wb").close()
+        scratch = captured["scratch_dir"]
+        assert os.path.isdir(scratch)
+
+        captured["start_kwargs"]["on_finish"](f"transcribe_{did}")
+
+        assert not os.path.exists(scratch) and not os.path.exists(leftover)
+        assert all(os.path.exists(path) for path in kept)
+        assert os.path.exists(captured["audio_path"])
+
     def test_no_key_is_passed_to_the_worker_process(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", use_groq=1)
         keys = {"groq": "gsk_test_groq_key_value", "hf_token": "hf_test_token_value"}

@@ -69,6 +69,7 @@ stays a thread job (_run_transcribe_and_apply_job).
 import contextlib
 import errno
 import functools
+import glob
 import importlib.util
 import os
 import shutil
@@ -591,7 +592,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                     alignment_method=alignment_method, hf_token=hf_token,
                     diarize_audio_path=diarize_audio_path, expected_speakers=expected_speakers,
                     min_speakers=min_speakers, max_speakers=max_speakers),
-                on_finish=functools.partial(_remove_scratch_dir, scratch_dir))
+                on_finish=functools.partial(_remove_scratch_dir, scratch_dir,
+                                            part_dir=os.path.dirname(audio_path)))
         except BaseException:
             _remove_scratch_dir(scratch_dir)
             raise
@@ -886,8 +888,14 @@ def _move_into_place(src, dst):
         os.remove(src)
 
 
-def _remove_scratch_dir(path, _job_id=None):
+def _remove_scratch_dir(path, _job_id=None, part_dir=None):
     shutil.rmtree(path, ignore_errors=True)
+    if part_dir:
+        # A worker killed during _move_into_place's cross-volume copy leaves
+        # its .part- file beside vocals.wav, outside the scratch folder.
+        for leftover in glob.glob(os.path.join(glob.escape(part_dir), ".part-*.wav")):
+            with contextlib.suppress(OSError):
+                os.remove(leftover)
 
 
 def _apply_on_done(job_id, outcome, **apply_kwargs):
