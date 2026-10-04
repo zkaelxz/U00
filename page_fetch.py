@@ -981,8 +981,19 @@ def open_login_window(url: str, profile_dir: str, launcher=None):
 
 
 def _redact(exc) -> str:
+    """A fixed-text reason for a failed fetch. str(exc) is never echoed: a
+    requests error carries the URL it connected to (the pinned IP, or a
+    redirect target the site chose) and may hold query-string tokens, which
+    redact_secrets does not mask. Only the guard's own fixed messages and
+    the install hint for a missing browser are passed through."""
     from engine_backends.shared import redact_secrets
-    return redact_secrets(str(exc))
+    from services import url_guard
+    if isinstance(exc, (url_guard.UnsafeURLError, url_guard.URLResolveError, ImportError)):
+        return redact_secrets(str(exc))
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status, int):
+        return f"the site answered HTTP {status}"
+    return "the connection failed"
 
 
 def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):

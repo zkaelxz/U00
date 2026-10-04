@@ -254,6 +254,35 @@ class TestFetchStaticRedirectGuard:
 
 
 class TestSmartFetchRedaction:
+    def test_failure_text_never_echoes_the_fetched_url_or_its_query(self, monkeypatch):
+        def boom(url, timeout=20):
+            raise RuntimeError("404 Client Error: Not Found for url: "
+                               "https://93.184.216.34/list?sig=abc123secret")
+        monkeypatch.setattr(pf, "fetch_static", boom)
+        r = pf.smart_fetch("https://public.example/", allow_render=False)
+        assert "abc123secret" not in r["message"]
+        assert "93.184.216.34" not in r["message"]
+
+    def test_http_status_and_guard_reasons_are_kept(self, monkeypatch):
+        class Resp:
+            status_code = 403
+
+        class HTTPErr(Exception):
+            response = Resp()
+
+        from services import url_guard
+
+        def refused(url, timeout=20):
+            raise url_guard.UnsafeURLError("That address isn't allowed.")
+        monkeypatch.setattr(pf, "fetch_static", refused)
+        assert "isn't allowed" in pf.smart_fetch("https://x.example/", allow_render=False)["message"]
+
+        def forbidden(url, timeout=20):
+            raise HTTPErr("403 for url: https://1.2.3.4/?t=zzz")
+        monkeypatch.setattr(pf, "fetch_static", forbidden)
+        msg = pf.smart_fetch("https://x.example/", allow_render=False)["message"]
+        assert "HTTP 403" in msg and "zzz" not in msg
+
     def test_exception_text_with_credentials_is_redacted(self, monkeypatch):
         def boom(url, timeout=20):
             raise RuntimeError("connect failed: https://alice:hunter2@proxy.example/x "
