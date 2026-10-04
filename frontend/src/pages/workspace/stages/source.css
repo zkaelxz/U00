@@ -19,7 +19,7 @@
    Native radios stay (arrow keys, radio semantics), visually hidden; the label is the segment. */
 .source-media-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .segmented { display: inline-flex; max-width: 100%; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
-.segmented label { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 4px 14px; border-radius: calc(var(--radius-md) - 2px); color: var(--muted); font-weight: var(--weight-medium); cursor: pointer; white-space: nowrap; transition: background var(--ease), color var(--ease); }
+.segmented label { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 4px 14px; border-radius: calc(var(--radius-md) - 2px); color: var(--muted); font-weight: var(--weight-medium); cursor: pointer; white-space: nowrap; transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease); }
 .segmented label:hover { color: var(--text); }
 .segmented label.segmented-on { background: var(--accent-soft); color: var(--accent-text); }
 .segmented input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }

@@ -62,7 +62,12 @@
   --warn-soft: color-mix(in srgb, var(--warn) 16%, transparent);
   --bad-soft: color-mix(in srgb, var(--bad) 14%, transparent);
   --info-soft: color-mix(in srgb, var(--info) 14%, transparent);
-  --ease: 150ms cubic-bezier(0.2, 0, 0, 1);
+  /* Calm motion: short, no bounce. The global reduced-motion rule below turns all of it off. */
+  --dur-1: 100ms;
+  --dur-2: 160ms;
+  --dur-3: 240ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  interpolate-size: allow-keywords;
   --font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   --font-sans: 'Atkinson Hyperlegible', system-ui, 'Segoe UI Variable', 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
   --font-zh: 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans CJK SC';
@@ -271,6 +276,7 @@ textarea {
   border-radius: var(--radius);
   background: var(--field-bg);
   color: var(--text);
+  transition: border-color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
 }
 textarea { min-height: 0; resize: vertical; font-size: var(--text-edit); line-height: var(--leading); }
 input:focus, select:focus, textarea:focus { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 4px var(--focus); }
@@ -298,6 +304,7 @@ button, a.button-link {
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
+  transition: background-color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
 }
 button:where(:not(.link, .toggle, .field-help-btn, .review-hint)), a.button-link { min-height: 40px; }
 button:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
@@ -385,6 +392,16 @@ details.section { border: 1px solid var(--border); border-radius: var(--radius);
 .card details.section, details.section details.section { border: 0; border-radius: 0; padding-inline: 0; }
 details.section > summary { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; cursor: pointer; min-width: 0; }
 .section-title { font-weight: 600; }
+/* Progressive enhancement: where ::details-content exists, opening slides the body (240ms). */
+@supports selector(::details-content) {
+  details.section::details-content {
+    block-size: 0;
+    overflow: clip;
+    overflow-clip-margin: 8px;
+    transition: block-size var(--dur-3) var(--ease), content-visibility var(--dur-3) allow-discrete;
+  }
+  details.section[open]::details-content { block-size: auto; }
+}
 .section-summary { color: var(--muted); font-size: var(--text-sm); min-width: 0; flex: 1 1 12rem; }
 .section-body { display: grid; gap: var(--space-3); margin-top: var(--space-3); min-width: 0; }
 
@@ -492,6 +509,9 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 @media (max-width: 640px) {
   .confirm-button { display: flex; flex: 1 1 100%; justify-content: flex-end; }
 }
+/* Stage content cross-fades on a stage change: opacity only, no slide. */
+@keyframes stage-fade { from { opacity: 0; } }
+:is(.stage-source, .stage-translate, .stage-review, .stage-dub, .stage-export) { animation: stage-fade 120ms var(--ease); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
@@ -527,7 +547,7 @@ button.toggle {
   border: 1px solid var(--toggle-off);
   border-radius: var(--radius-pill);
   background: var(--toggle-off);
-  transition: background var(--ease), border-color var(--ease);
+  transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
 }
 button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--toggle-off) 85%, var(--text)); border-color: color-mix(in srgb, var(--toggle-off) 85%, var(--text)); }
 button.toggle[aria-checked='true'] { background: var(--toggle-on); border-color: var(--toggle-on); }
@@ -554,7 +574,7 @@ button.toggle[aria-checked='true']::before {
   border-radius: 50%;
   background: var(--toggle-knob);
   box-shadow: 0 1px 2px color-mix(in srgb, #000 35%, transparent);
-  transition: transform var(--ease);
+  transition: transform var(--dur-2) var(--ease);
 }
 button.toggle[aria-checked='true'] .toggle-thumb { transform: translateX(20px); }
 button.toggle:disabled { border-style: solid; opacity: 0.6; }
@@ -589,7 +609,7 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--ease), border-color var(--ease), color var(--ease);
+  transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
 }
 .btn.btn-sm { min-height: 32px; padding: 4px 10px; font-size: var(--text-sm); }
 .btn.btn-secondary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
@@ -629,7 +649,7 @@ button.primary {
   padding-inline: 16px;
   font-weight: var(--weight-bold);
   line-height: 1.2;
-  transition: background var(--ease), border-color var(--ease), color var(--ease);
+  transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
 }
 button.primary:hover:not(:disabled) { border-color: var(--accent); color: var(--on-accent); }
 button.primary:disabled { background: var(--accent); border-color: var(--accent); color: var(--on-accent); opacity: 0.6; border-style: solid; }
@@ -709,7 +729,7 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 
 /* Drama grid: cover-style cards; the title link covers the card. */
 .drama-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-5); }
-.drama-card { position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-1); transition: border-color var(--ease); }
+.drama-card { position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-1); transition: border-color var(--dur-2) var(--ease); }
 .drama-card:hover, .drama-card:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .drama-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow-1); }
 .drama-tile { display: grid; place-items: center; aspect-ratio: 3 / 4; font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1; color: var(--text); background: var(--surface-2); user-select: none; }

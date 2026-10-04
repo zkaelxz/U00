@@ -10,6 +10,10 @@ dialog.sheet {
   overflow-y: auto;
 }
 dialog.sheet::backdrop { background: color-mix(in srgb, black 45%, transparent); }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes sheet-backdrop-in { from { opacity: 0; } }
+dialog.sheet[open] { animation: sheet-in var(--dur-3) var(--ease); }
+dialog.sheet[open]::backdrop { animation: sheet-backdrop-in var(--dur-3) var(--ease); }
 .sheet-body { display: grid; gap: var(--space-3); padding: var(--space-3) var(--space-4) var(--space-4); }
 .sheet-head { display: flex; align-items: center; gap: var(--space-2); }
 .sheet-head h3 { margin: 0; flex: 1 1 auto; min-width: 0; }

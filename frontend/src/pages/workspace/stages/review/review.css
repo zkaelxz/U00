@@ -125,7 +125,7 @@ button.review-play { min-width: 2.75rem; padding-inline: 10px; }
 .review-line[data-flagged='true'] { border-left: 3px solid var(--warn); }
 .review-hit { display: flex; justify-content: flex-end; margin-top: var(--space-1); }
 /* A line just opened from a search result (R05): a brief tint, then the usual active row. */
-.review-line.is-jumped { animation: review-jumped 4s ease-out; }
+.review-line.is-jumped { animation: review-jumped 1.2s ease-out; }
 @keyframes review-jumped { from, 40% { background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); } }
 @media (prefers-reduced-motion: reduce) { .review-line.is-jumped { animation: none; background: var(--accent-soft); } }
 .review-line-meta { font-size: var(--text-sm); color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: center; min-width: 0; }
