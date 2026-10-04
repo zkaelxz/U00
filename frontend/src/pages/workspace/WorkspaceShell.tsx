@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { getWorkflowProgress } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
@@ -50,10 +50,27 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     [id, drama, refetch],
   )
 
+  // The sticky strip's height is --bar-h, which Review's own sticky toolbar
+  // and side card offset from so they sit below the strip, not under it.
+  const sectionRef = useRef<HTMLElement>(null)
+  const stripRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const section = sectionRef.current
+    const strip = stripRef.current
+    if (!section || !strip) return
+    const apply = () => section.style.setProperty('--bar-h', `${strip.offsetHeight}px`)
+    apply()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(apply)
+    ro.observe(strip)
+    return () => ro.disconnect()
+  }, [])
+
   const title = drama ? drama.title_en || drama.title_zh || `Drama #${id}` : `Drama #${id}`
 
   return (
-    <section className="workspace" aria-label={`Drama ${id} workspace`}>
+    <section className="workspace" ref={sectionRef} aria-label={`Drama ${id} workspace`}>
+      <div className="ws-strip" ref={stripRef}>
       <header className="workspace-header">
         <ButtonLink href={routeHref({ name: 'library' })} variant="ghost" size="sm" className="ws-back" aria-label="Back to Library">
           <span aria-hidden="true">‹</span>
@@ -86,7 +103,6 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           </ButtonLink>
         )}
       </header>
-      <ErrorBanner error={error} />
       <nav className="stage-tabs" aria-label="Stages">
         {STAGE_IDS.map((s) => {
           const st = states[s]
@@ -117,6 +133,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           )
         })}
       </nav>
+      </div>
+      <ErrorBanner error={error} />
       {ctx && Stage ? (
         <StageContext.Provider value={ctx}>
           <Stage />
