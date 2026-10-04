@@ -5,7 +5,7 @@
 .reseg-ai-item { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); min-width: 0; overflow-wrap: anywhere; }
 .reseg-ai-from { margin-bottom: var(--space-1); }
 .reseg-ai-pieces { margin: 0; padding-left: var(--space-5); display: grid; gap: 2px; }
-.reseg-ai-pieces li::marker { color: var(--muted); font-size: var(--font-sm); }
+.reseg-ai-pieces li::marker { color: var(--muted); font-size: var(--text-sm); }
 .reseg-ai-warn { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); }
 
 .resplit-speakers { min-width: 0; overflow-wrap: anywhere; }

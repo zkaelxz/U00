@@ -32,7 +32,7 @@ details.gear-menu > summary[aria-current='page'] {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-2);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-pop);
 }
 .gear-menu-panel a {
   display: flex;

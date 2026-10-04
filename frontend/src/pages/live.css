@@ -7,7 +7,7 @@
 .live-feed > p { margin: 0; }
 .live-cues { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); }
 .live-cues li { display: grid; grid-template-columns: auto 1fr; column-gap: var(--space-3); row-gap: 2px; padding: var(--space-2) var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); min-width: 0; }
-.live-ts { grid-row: span 2; color: var(--muted); font-family: var(--font-mono); font-size: var(--font-sm); }
+.live-ts { grid-row: span 2; color: var(--muted); font-family: var(--font-mono); font-size: var(--text-sm); }
 .live-src, .live-en { min-width: 0; overflow-wrap: anywhere; }
 .live-src { color: var(--muted); }
 /* Video beside the lines on wide screens, above them on phones. */
@@ -19,7 +19,7 @@
 .live-video-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: black; border-radius: var(--radius-sm); overflow: hidden; }
 .live-video-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .live-video-note { margin: 0; }
-.live-video input[type='range'] { width: 100%; min-height: 2.75rem; }
+.live-video input[type='range'] { width: 100%; min-height: 44px; }
 @media (min-width: 641px) {
   .live-body.has-video { grid-template-columns: minmax(0, 1fr) minmax(18rem, 26rem); align-items: start; }
   .live-body.has-video .live-video { grid-column: 2; grid-row: 1; position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2)); }

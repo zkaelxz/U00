@@ -6,7 +6,7 @@
 .bench-page h4 { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); }
 .bench-page .num { font-variant-numeric: tabular-nums; }
 .bench-note { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.bench-note-text { font-size: var(--text-xs); max-width: 18rem; overflow-wrap: anywhere; }
+.bench-note-text { font-size: var(--text-sm); max-width: 18rem; overflow-wrap: anywhere; }
 
 /* Tables: dense, numbers right-aligned. */
 .bench-table { font-size: var(--text-sm); }
@@ -151,7 +151,7 @@
 .reeval-effects > li::before { content: '· '; }
 .reeval-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); margin: 0; }
 .reeval-stats > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 0; min-width: 0; }
-.reeval-stats dt { font-size: var(--text-xs); color: var(--muted); }
+.reeval-stats dt { font-size: var(--text-sm); color: var(--muted); }
 .reeval-stats dd { margin: 0; font-size: var(--text-sm); }
 .reeval-rows-phone .reeval-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .reeval-add { display: grid; gap: var(--space-2); min-width: 0; }

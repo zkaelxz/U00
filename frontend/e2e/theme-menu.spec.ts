@@ -32,7 +32,7 @@ test('each theme sets data-theme and changes the page colour', async ({ page }) 
   await pick(page, 'Sepia')
   await expect(html(page)).toHaveAttribute('data-theme', 'sepia')
   const sepia = await bg(page)
-  expect(sepia).toBe('rgb(244, 236, 216)')
+  expect(sepia).toBe('rgb(239, 228, 203)')
   expect(sepia).not.toBe(system)
   expect(sepia).not.toBe(dark)
 
@@ -56,7 +56,7 @@ test('the choice survives a reload and is set before the app renders', async ({ 
   await page.reload()
   await expect(html(page)).toHaveAttribute('data-theme', 'sepia')
   await expect(button(page)).toHaveAccessibleName('Theme: Sepia. Change theme')
-  expect(await bg(page)).toBe('rgb(244, 236, 216)')
+  expect(await bg(page)).toBe('rgb(239, 228, 203)')
 
   // The inline script in index.html sets it while the page is still loading.
   await page.addInitScript(() => {
