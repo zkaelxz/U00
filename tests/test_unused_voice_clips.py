@@ -346,8 +346,28 @@ def test_clip_held_by_an_undo_record_is_not_offered_or_moved(c, monkeypatch):
     assert r.json()["moved_count"] == 0 and os.path.exists(path)
 
 
-def test_undo_hook_is_empty_until_records_exist(isolated_db):
-    assert dus._clips_held_by_undo(1) == set()
+def test_a_live_undo_record_protects_its_clip_and_an_expired_one_does_not(c):
+    import json, time
+    did = _drama()
+    live, dead = f"clone_ref_{HEX}.wav", f"clone_ref_{HEX2}.wav"
+    _clip(did, live)
+    _clip(did, dead)
+    conn = db.get_conn()
+    try:
+        for uid, clip, expires in (("u" * 24, f"voice_refs/{live.upper()}", time.time() + 600),
+                                   ("v" * 24, f"voice_refs/{dead}", time.time() - 5)):
+            conn.execute("INSERT INTO speaker_merge_undos (id, drama_id, user_id, source_label, "
+                         "target_label, snapshot, stale, created_at, expires_at) "
+                         "VALUES (?, ?, NULL, 'S3', 'S1', ?, 0, ?, ?)",
+                         (uid, did, json.dumps({"orphan_clip": clip}), time.time(), expires))
+        conn.commit()
+    finally:
+        conn.close()
+    assert dus._clips_held_by_undo(did) == {live.casefold()}
+    names = [x["id"] for x in _ids(c)[1]]
+    assert len(names) == 1  # only the expired record's clip is offered
+    assert dus._clip_still_unused(did, live) is False
+    assert dus._clip_still_unused(did, dead) is True
 
 
 def test_drive_root_data_folder_says_why_instead_of_skipping(c, monkeypatch):

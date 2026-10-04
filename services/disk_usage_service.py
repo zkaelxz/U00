@@ -1518,11 +1518,10 @@ def _ref_key(stored) -> str:
 
 def _clips_held_by_undo(drama_id: int) -> set:
     """Last-name-part keys (see _ref_key) of clips a live "merge two speakers"
-    undo record can bring back after the merge cleared its Characters row.
-    HOOK: no such record exists in the database yet, so this is empty; when
-    undo records land, return their clip names here (the listing and both
-    re-checks already consult it)."""
-    return set()
+    undo record can bring back after the merge cleared the source's Characters
+    row: until the undo expires or is used, no row points at them, yet undoing
+    would link them again."""
+    return {_ref_key(c) for c in db.live_speaker_merge_undo_clips(drama_id, time.time())}
 
 
 def _clip_still_unused(drama_id: int, name: str) -> bool:
