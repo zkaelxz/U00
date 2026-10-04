@@ -275,13 +275,19 @@ class Qwen3ASRVadBackend:
         self.model_size = model_size
 
     def transcribe(self, audio_path, language, use_gpu=False, batch_size=1, progress_cb=None,
-                   cancel_check=None, refine_timing=False, vad_fn=None):
+                   cancel_check=None, refine_timing=False, vad_fn=None,
+                   mixed_languages=False):
         """Segments as {"start", "end", "text"} (plus "flag"/"flag_note" where
         refined timing is uncertain). cancel_check() is called between batches
         and between aligned spans and should raise to stop; nothing is written
         here, so a cancel leaves the caller's lines untouched.
         progress_cb(fraction) is as for Qwen3ASRBackend.transcribe, scaled to
-        the transcription part (the last 10% when refine_timing is on)."""
+        the transcription part (the last 10% when refine_timing is on).
+
+        mixed_languages: each span is transcribed with Qwen3-ASR's own
+        language detection (one span per call, no batching) and a line's
+        "lang" is set where it differs from `language` (mixed_language.py).
+        refine_timing is ignored then: the aligner takes one language per run."""
         import vad_segments
         from core import filter_hallucinated_segments, split_long_segments
         if language not in LANGUAGE_NAMES:
@@ -302,6 +308,7 @@ class Qwen3ASRVadBackend:
         if cancel_check:
             cancel_check()
         span_segments = [{"start": s.start_s, "end": s.end_s, "text": ""} for s in spans]
+        refine_timing = refine_timing and not mixed_languages
         scale = 0.9 if refine_timing else 1.0
 
         def _progress(frac):
@@ -310,9 +317,13 @@ class Qwen3ASRVadBackend:
             if progress_cb:
                 progress_cb(frac * scale)
 
-        transcribed = Qwen3ASRBackend(model_size=self.model_size).transcribe(
-            audio_path, language, span_segments, use_gpu=use_gpu, batch_size=batch_size,
-            progress_cb=_progress)
+        if mixed_languages:
+            transcribed = self._transcribe_mixed(audio_path, language, spans, use_gpu,
+                                                 _progress, cancel_check)
+        else:
+            transcribed = Qwen3ASRBackend(model_size=self.model_size).transcribe(
+                audio_path, language, span_segments, use_gpu=use_gpu, batch_size=batch_size,
+                progress_cb=_progress)
 
         # Filter after splitting: a loop shows up as identical consecutive pieces.
         pieces = []
@@ -320,7 +331,7 @@ class Qwen3ASRVadBackend:
             text = (seg["text"] or "").strip()
             if text:
                 pieces.extend({**p, "span": n} for p in split_long_segments(
-                    [{"start": seg["start"], "end": seg["end"], "text": text}]))
+                    [{**seg, "text": text}]))
         pieces = filter_hallucinated_segments(pieces)
         groups = {}
         for p in pieces:
@@ -333,6 +344,35 @@ class Qwen3ASRVadBackend:
                 progress_cb=(lambda f: progress_cb(0.9 + 0.1 * f)) if progress_cb else None)
             return lines
         return [p for group in groups.values() for p in group]
+
+    def _transcribe_mixed(self, audio_path, language, spans, use_gpu, progress_cb, cancel_check):
+        """Up to one segment per span (none when it has no text), with
+        "lang"/"flag" set per mixed_language.transcribe_spans."""
+        import mixed_language
+        model = load_qwen3_asr(use_gpu=use_gpu, model_size=self.model_size)
+        with tempfile.TemporaryDirectory(prefix="baihe_qwen3_asr_") as tmp_dir:
+            def transcribe(span, language_name):
+                path = os.path.join(tmp_dir, "span.wav")
+                extract_audio_slice(audio_path, span.start_s, span.end_s, path)
+                try:
+                    results = model.transcribe(audio=path, language=language_name)
+                finally:
+                    if os.path.exists(path):
+                        os.unlink(path)
+                first = results[0] if results else None
+                text = (getattr(first, "text", "") or "").strip()
+                seg = {"start": span.start_s, "end": span.end_s, "text": text}
+                return ([seg] if text else []), getattr(first, "language", None)
+
+            def run_span(span):
+                # language=None: Qwen3-ASR detects this span's language itself.
+                segments, name = transcribe(span, None)
+                return segments, mixed_language.qwen_language_code(name)
+
+            return mixed_language.transcribe_spans(
+                spans, language, run_span,
+                lambda span, lang: transcribe(span, LANGUAGE_NAMES[lang])[0],
+                cancel_check=cancel_check, progress_cb=progress_cb)
 
 
 # ---------------------------------------------------------------------------

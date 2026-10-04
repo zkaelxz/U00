@@ -17,6 +17,7 @@ const OPTS = {
   qwen_asr_batching_available: true,
   moss_experimental: false,
   qwen_vad_refine_timing: false,
+  mixed_languages: false,
   moss_installed: false,
 }
 
@@ -48,6 +49,13 @@ describe('asr options API', () => {
     expect(calls[1].url).toContain('/api/settings/asr-options')
     expect(calls[1].init?.method).toBe('POST')
     expect(JSON.parse(String(calls[1].init?.body))).toEqual({ qwen_asr_batch_size: 4 })
+  })
+
+  it('saves the mixed languages switch on its own', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const saved = await updateAsrOptions({ mixed_languages: true }, fakeFetch(200, { ...OPTS, mixed_languages: true }, calls))
+    expect(saved.mixed_languages).toBe(true)
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ mixed_languages: true })
   })
 
   it('reads the diarization config for the device note', async () => {

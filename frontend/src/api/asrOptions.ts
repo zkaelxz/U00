@@ -17,6 +17,8 @@ export interface AsrOptions {
   moss_experimental: boolean
   // Qwen3 ASR with speech detection: also refine line times with the forced aligner.
   qwen_vad_refine_timing: boolean
+  // Detect the spoken language of each speech span and mark lines that differ from the title's.
+  mixed_languages: boolean
   moss_installed: boolean
 }
 
@@ -24,6 +26,7 @@ export interface AsrOptionsUpdate {
   qwen_asr_batch_size?: number
   moss_experimental?: boolean
   qwen_vad_refine_timing?: boolean
+  mixed_languages?: boolean
 }
 
 interface DiarizationConfig {

@@ -896,6 +896,7 @@ baihe-subtitler/
 | `asr_backend.py` | pluggable transcription (BACKENDS/get_backend): Whisper (default), Qwen3-ASR (optional batching, Step 103), MOSS-Transcribe-Diarize (experimental, Step 104) |
 | `asr_benchmark.py` | Whisper vs Qwen3-ASR/ForcedAligner, one clip at a time |
 | `audio_preprocess.py` | optional audio preprocessing before transcription |
+| `mixed_language.py` | per-speech-span language detection for titles that mix spoken languages, with a script check that retries a span in the title's language |
 | `vad_segments.py` | pure VAD speech-span builder: Silero spans via faster-whisper, long spans cut at the quietest point (not yet wired into the pipeline) |
 | `forced_align.py` | Qwen3-ForcedAligner timing (alternative to `core.py`'s Whisper-diff alignment) |
 | `word_align.py` | word-level forced alignment of Whisper's own transcribed text |

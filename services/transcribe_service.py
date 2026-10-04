@@ -649,7 +649,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       use_gpu, asr_backend_choice, alignment_method,
                       settings_service.get_whisper_model_path(),
                       asr_options_service.get_qwen_asr_batch_size(),
-                      asr_options_service.get_vad_refine_timing(), scratch_dir),
+                      asr_options_service.get_vad_refine_timing(),
+                      asr_options_service.get_mixed_languages(), scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
                 # Spawn, not Linux's default fork: a forked child of a process
                 # that has already initialised CUDA cannot use the GPU.
@@ -902,7 +903,7 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
                        separate_vocals_first, separation_backend, realign_long_segments,
                        whisper_fast_mode, use_groq, initial_prompt, use_gpu, asr_backend_choice,
                        alignment_method, local_model_path, qwen_batch_size, vad_refine_timing,
-                       scratch_dir, result_queue):
+                       mixed_languages, scratch_dir, result_queue):
     """Process-job target, started with spawn on every platform (top level
     and plain arguments only, so it pickles; nothing here may depend on
     state set up in the parent process after import): runs the pipeline for
@@ -930,7 +931,7 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             whisper_fast_mode, use_groq, groq_api_key, initial_prompt, use_gpu,
             asr_backend_choice, alignment_method, local_model_path=local_model_path,
             qwen_batch_size=qwen_batch_size, vad_refine_timing=vad_refine_timing,
-            vocals_work_dir=scratch_dir)
+            mixed_languages=mixed_languages, vocals_work_dir=scratch_dir)
         result_queue.put(("ok", outcome))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
@@ -984,7 +985,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                          asr_backend_choice, alignment_method, local_model_path=None,
                          qwen_batch_size=1, video_path=None, hardsub_ocr_backend=None,
                          hardsub_interval=1.0, tesseract_cmd=None, vocals_work_dir=None,
-                         vad_refine_timing=False) -> dict:
+                         vad_refine_timing=False, mixed_languages=False) -> dict:
     """Runs ASR (or hardsub OCR, thread jobs only) and returns a plain dict:
     {"failed_reason", ...} when nothing should be applied, else the lines
     and everything _apply_transcription needs. Touches no database row.
@@ -997,7 +998,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     local_model_path is Settings > Offline Whisper model folder (a folder
     holding an already-downloaded faster-whisper model, used instead of a
     Hugging Face download); qwen_batch_size is the saved Qwen3-ASR batch
-    size; vad_refine_timing is the saved forced-aligner timing option of the
+    size; mixed_languages is the saved per-span language detection option (Whisper and
+    "qwen3_asr_vad" backends only: other backends and Groq ignore it); vad_refine_timing is the saved forced-aligner timing option of the
     "qwen3_asr_vad" backend. vocals_work_dir: where vocal separation writes before its result
     is moved next to the audio, so a killed worker leaves no partial file.
 
@@ -1086,6 +1088,10 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             return {"failed_reason": "cancelled"}
 
         qwen_run = transcript_mode == "whisper" and asr_backend_choice == "qwen3_asr" and not moss_run
+        # Groq and the Qwen3-on-Whisper-segments backend transcribe a whole
+        # file in one language, so only the local Whisper path switches.
+        mixed_whisper_run = (mixed_languages and transcript_mode == "whisper"
+                             and asr_backend_choice == "whisper" and not use_groq)
         stage_max = QWEN_SPLIT if qwen_run else RUNNING_MAX
         step_label = " (step 1 of 2)" if qwen_run else ""
 
@@ -1109,7 +1115,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 segments = asr_backend.get_backend("qwen3_asr_vad").transcribe(
                     audio_path, source_language, use_gpu=use_gpu, batch_size=qwen_batch_size,
                     progress_cb=_vad_progress, cancel_check=rep.raise_if_cancelled,
-                    refine_timing=vad_refine_timing)
+                    refine_timing=vad_refine_timing, mixed_languages=mixed_languages)
             except vad_segments.VadNotInstalledError as exc:
                 return {"failed_reason": "dependency_missing",
                         "detail": "Speech detection needs faster-whisper (it bundles the Silero "
@@ -1200,16 +1206,28 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     rep.progress(min(frac, 1.0) * stage_max,
                                  f"Transcribing{step_label}... {frac * 100:.0f}%{device_suffix}")
                 transcribe_started = time.monotonic()
-                segments = transcribe_for_timing(
-                    audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
-                    local_model_path=local_model_path, hf_token=None,
-                    initial_prompt=initial_prompt,
-                    beam_size=beam_size,
-                    min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
-                    on_gpu_fallback=lambda exc: gpu_fallback_msg.append(core_module.short_reason(exc)),
-                    progress_cb=_whisper_progress,
-                    fast_mode=whisper_fast_mode)
-                if "t" in whisper_clock:
+                if mixed_whisper_run:
+                    import mixed_language
+                    segments = mixed_language.transcribe_mixed_whisper(
+                        audio_path, source_language, whisper_size, use_gpu=use_gpu,
+                        local_model_path=local_model_path, initial_prompt=initial_prompt,
+                        beam_size=beam_size,
+                        on_gpu_fallback=lambda exc: gpu_fallback_msg.append(
+                            core_module.short_reason(exc)),
+                        progress_cb=_whisper_progress, cancel_check=rep.raise_if_cancelled)
+                else:
+                    segments = transcribe_for_timing(
+                        audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
+                        local_model_path=local_model_path, hf_token=None,
+                        initial_prompt=initial_prompt,
+                        beam_size=beam_size,
+                        min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
+                        on_gpu_fallback=lambda exc: gpu_fallback_msg.append(
+                            core_module.short_reason(exc)),
+                        progress_cb=_whisper_progress,
+                        fast_mode=whisper_fast_mode)
+                # Not recorded for the speed estimate: a per-span detection run is slower.
+                if "t" in whisper_clock and not mixed_whisper_run:
                     whisper_clock["work"] = time.monotonic() - whisper_clock["t"]
                     stage_seconds["transcribe"] = whisper_clock["work"]
             except core_module.ModelDownloadError as exc:
@@ -1221,7 +1239,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         if not segments:
             return {"failed_reason": "empty"}
 
-        if realign_long_segments and not moss_run and not vad_run and not rep.cancelled():
+        if (realign_long_segments and not moss_run and not vad_run and not mixed_whisper_run
+                and not rep.cancelled()):
             import word_align
             align_started = time.monotonic()
             try:
@@ -1274,7 +1293,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 raw_backend, raw_model = "qwen3_asr", "Qwen3-ASR"
             lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                           speaker=seg.get("speaker") or None, flag=seg.get("flag"),
-                          flag_note=seg.get("flag_note") or "")
+                          flag_note=seg.get("flag_note") or "", lang=seg.get("lang"))
                      for i, seg in enumerate(
                          s for s in core_module.split_long_segments(segments)
                          if s["text"].strip())]

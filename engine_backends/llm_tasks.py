@@ -377,6 +377,8 @@ FLAG_REASONS = {
 # Flags the app sets itself (not offered to the LLM as a reason to pick).
 SYSTEM_FLAG_REASONS = {
     "timing_uncertain": "Timing uncertain -- forced alignment fell back to approximate timing",
+    "language_uncertain": ("Language uncertain -- the text doesn't match the language detected "
+                           "for this line"),
     "timing_overlap": "Overlaps the next line -- exports trim it",
     "reading_speed": "Too fast to read -- too many characters for the time it's shown",
     "factual_detail": ("Auto QC: a number, date, name, amount or unit differs between the "
