@@ -1,8 +1,7 @@
 """
 api/admin_users_schemas.py -- response models for user administration and
-the audit log view (api/routers/admin_users_routes.py). Kept out of
-api/schemas.py. No model carries a session token, hash, full IP address,
-user agent or filesystem path.
+the audit log view (api/routers/admin_users_routes.py). No model carries a
+session token, hash, full IP address, user agent or filesystem path.
 """
 
 from typing import List, Optional

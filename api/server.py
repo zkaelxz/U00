@@ -1,12 +1,8 @@
 """
 api/server.py -- the FastAPI application: Baihe's HTTP API.
 
-Stage one of the React + FastAPI migration (see
-`docs/archive/migration-react-fastapi.md`). This runs *alongside* the Streamlit
-app, not instead of it: both import the same modules and read the same
-`library/` folder, and neither calls the other over HTTP. Streamlit
-still owns every feature; this API exposes only what has been moved
-into `services/` so far.
+Every UI feature goes through it. It shares the `library/` folder and the
+same modules with `cli.py`; neither calls the other over HTTP.
 
 Run it with `python -m api` (reads `BAIHE_API_*`, see
 `api/api_config.py`). With `BAIHE_API_AUTH=off` (the default) every
@@ -23,7 +19,7 @@ every reply (`api.auth.HouseholdGate`).
 """
 
 # Must run before any other app import -- same rule, and same reason, as
-# app.py and cli.py (see portable.py's docstring).
+# cli.py (see portable.py's docstring).
 import portable
 portable.activate_portable_mode()
 
@@ -123,8 +119,8 @@ from services import auth_service
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Starts the background pieces Streamlit used to start (chapter-check
-    scheduler, extension endpoint when enabled, the GPU-queue re-check),
+    """Starts the background pieces (chapter-check scheduler, extension
+    endpoint when enabled, the GPU-queue re-check),
     only when `settings.background_services` is on -- never in tests.
     Idempotent. The GPU-queue re-check is stopped at shutdown, any
     running lightnovel-crawler import is cancelled and its program killed,

@@ -40,7 +40,7 @@ _FFMPEG_MISSING = "ffmpeg is not installed or not on PATH, which this export req
 # Stream-copy and audio-only re-encodes are fast; this only stops a hung ffmpeg.
 _VIDEO_TIMEOUT_S = 4 * 3600
 _VIDEO_JOB_PREFIXES = ("burned_video_", "softsub_video_", "dubbed_video_")
-_DUB_ORIGINAL_DB = -20.0   # tabs/workspace_tab.py's "mix original audio in quietly"
+_DUB_ORIGINAL_DB = -20.0   # "mix original audio in quietly"
 
 
 def _get_drama(drama_id: int) -> dict:
@@ -215,7 +215,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
     thread job `softsub_video_<drama_id>`: the SRT for `field` (en, zh or
     bilingual) is added as a selectable subtitle track, video and audio
     are stream-copied. .mp4/.mkv sources keep their container, anything
-    else becomes .mp4 (mov_text), as in the tab. Output kind "softsub_video".
+    else becomes .mp4 (mov_text). Output kind "softsub_video".
     Raises NotFoundError, InvalidInputError (no lines, no source video,
     bad field), DependencyUnavailableError (ffmpeg missing), ConflictError
     (a video export already running). Returns {"job_id": ...}."""

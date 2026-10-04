@@ -1,11 +1,10 @@
 """
-services/settings_service.py -- Streamlit-free settings resolution shared
-between the Settings sidebar (tabs/settings_tab.py) and the FastAPI
-settings endpoint (api/routers/settings_routes.py), so both read the same
-env-var mapping instead of maintaining two copies that could drift.
+services/settings_service.py -- settings resolution for the settings
+endpoint (api/routers/settings_routes.py) and every service that needs a
+key or preference, so all of them read the same env-var mapping.
 
 Per D2 (docs/archive/migration-review.md §6): API keys are server-side only.
-resolve_key() is for server-side use (e.g. a future translate route) --
+resolve_key() is for server-side use (e.g. the translate route) --
 never return its result over an HTTP response. key_status() and
 get_settings_overview() are what an API route may expose: booleans only.
 """
@@ -19,11 +18,9 @@ import portable
 from services.service_errors import InvalidInputError
 
 # Per settings key, the env var name(s) to read, in priority order -- the
-# first entry is also the canonical name tabs/settings_tab.py's
-# save_key_to_env() writes back, so a saved key round-trips through the
-# exact same name it would be read back under. Kept in sync with
-# tabs/settings_tab.py, which imports this dict rather than keeping its
-# own copy.
+# first entry is also the canonical name set_engine_key()/set_endpoint_url()
+# write back, so a saved key round-trips through the exact same name it
+# would be read back under.
 ENV_NAMES = {
     "claude": ("BAIHE_CLAUDE_KEY", "ANTHROPIC_API_KEY"),
     "deepseek": ("BAIHE_DEEPSEEK_KEY", "DEEPSEEK_API_KEY"),
@@ -53,8 +50,7 @@ def default_env_path() -> str:
 
 
 def read_env_file(env_path: str = None) -> dict:
-    """Parses the project's .env file the same way tabs/settings_tab.py's
-    _load_env_defaults() does: utf-8-sig (BOM-safe, since Notepad-saved
+    """Parses the project's .env file: utf-8-sig (BOM-safe, since Notepad-saved
     .env files often carry one), skips comments/blank lines, strips
     surrounding quotes. Returns {} if the file is missing or malformed --
     a broken .env should never crash a caller.
@@ -97,8 +93,9 @@ def resolve_env_names(names, env_path: str = None) -> Optional[str]:
     return None
 
 
-# Default API port (api.api_config.DEFAULT_PORT), Streamlit's 8501 and the
-# extension bridge's 8756 (page_server.DEFAULT_PORT). Services may not import
+# Default API port (api.api_config.DEFAULT_PORT), 8501 (the retired Streamlit
+# UI's port, still refused) and the extension bridge's 8756
+# (page_server.DEFAULT_PORT). Services may not import
 # api/, so the numbers are repeated here.
 _BAIHE_FIXED_PORTS = (8501, 8600, 8756)
 API_PORT_ENV = "BAIHE_API_PORT"
@@ -276,8 +273,7 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
 
 
 # --- Persisted PC-side preferences (settings parity G05, G08, G09, G13,
-# G14, G15). Streamlit kept these in session state only; here they live in
-# db.app_settings under "pref.<name>" and the services that use them read
+# G14, G15). They live in db.app_settings under "pref.<name>" and the services that use them read
 # them through the getters below. Written only through set_settings
 # (POST /api/settings, local_only). A stored value that no longer
 # validates (e.g. an engine that was removed) reads back as the default.
@@ -658,8 +654,9 @@ def _line_var(line: str) -> str:
 
 
 def set_engine_key(engine: str, value: str, env_path: str = None) -> dict:
-    """Writes `value` to .env under the engine's canonical name (same name
-    tabs/settings_tab.save_key_to_env uses), preserving other lines.
+    """Writes `value` to .env under the engine's canonical name (the first
+    ENV_NAMES entry, the one resolve_key reads first), preserving other
+    lines.
     Returns {engine, configured} only -- never the value."""
     _validate_engine(engine)
     value = _validate_key_value(value)

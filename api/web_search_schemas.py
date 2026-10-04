@@ -1,7 +1,6 @@
 """
 api/web_search_schemas.py -- request/response models for the optional
 web-search fallback (roadmap item 114, api/routers/web_search_routes.py).
-Kept out of api/schemas.py on purpose (separate owner).
 """
 from typing import List, Literal, Optional
 

@@ -4,7 +4,7 @@ may make one private (auth slice B1; plan section B).
 
 UI-free. A `principal` is the dict `api/auth.py` puts on
 `request.state.principal` (`user_id`, `is_admin`, `is_local_owner`), or
-None, which means auth is off (Streamlit, the CLI, an auth-off API) and
+None, which means auth is off (the CLI, an auth-off API) and
 everything is visible. With auth on, callers (B2 onward) must always pass
 the request's principal -- never None for a missing one, which would
 grant full visibility.
@@ -387,7 +387,7 @@ def note_acting_principal(principal) -> None:
 
 def acting_user_id():
     """The signed-in user this code runs for, or None (the local owner,
-    auth off, Streamlit, the CLI, a background thread)."""
+    auth off, the CLI, a background thread)."""
     holder = _ACTING.get()
     return user_id(holder.get("principal")) if holder else None
 

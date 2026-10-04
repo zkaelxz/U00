@@ -1,11 +1,12 @@
 """
 services/page_import_limits.py -- the page-upload rules for comic pages
 (user decision 2026-09-29), meant to be shared by every path that adds
-pages to a drama. Used today by the pasted-URL comic import and its reviewed import
-(Sources parity SO06/SO10, services/sources_import_service.py and
-services/sources_extraction_service.py). To adopt them: the S-4 adapter
-chapter import (sources/pipeline.py run_import_job's page downloads) and
-the Scanlate upload route. UI-free.
+pages to a drama. Used today by the pasted-URL comic import and its reviewed
+import (Sources parity SO06/SO10, services/sources_import_service.py and
+services/sources_extraction_service.py) and the Scanlate page upload
+(services/scanlate_pages_service.py). Not yet adopted: the S-4 adapter
+chapter import (sources/pipeline.py run_import_job's page downloads).
+UI-free.
 
   * Accepted: PNG, JPEG and WebP images (PDF too where a path can receive
     one; the pasted-URL import can't). Anything else is skipped.

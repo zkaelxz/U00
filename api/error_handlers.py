@@ -17,6 +17,7 @@ so the React client (and later the browser extension) can branch on
 | 429  | rate_limited            | `RateLimitedError`                          |
 | 404  | not_found               | `NotFoundError`, unknown route              |
 | 400  | unsupported_operation   | `UnsupportedOperationError`                 |
+| 405  | unsupported_operation   | a method the route does not allow           |
 | 409  | conflict                | `ConflictError`                             |
 | 413  | too_large               | an over-cap request body (HTTPException)    |
 | 503  | dependency_unavailable  | `DependencyUnavailableError`                |
@@ -27,8 +28,7 @@ so the React client (and later the browser extension) can branch on
 What never reaches a client: a traceback, an exception's raw text for
 an unexpected error (it can carry a path or a key), or the offending
 input value on a validation error. Unexpected errors are logged in full
-to the app's own log file (`applog`) instead, where they already go for
-the Streamlit UI. Known messages are still passed through
+to the app's own log file (`applog`) instead. Known messages are still passed through
 `translate_engines.redact_secrets` in case a service slipped one in.
 """
 

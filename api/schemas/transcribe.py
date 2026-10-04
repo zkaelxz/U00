@@ -233,8 +233,6 @@ class LiveSessionStopped(BaseModel):
 
 # ---------------------------------------------------------------------------
 # Route batch 2C: auto-tune speech splitting + glossary from novel
-# (imports kept local to this section so parallel slices don't collide on
-# the module's import line)
 # ---------------------------------------------------------------------------
 AutotuneCandidateMs = Annotated[StrictInt, Field(ge=300, le=3000)]
 

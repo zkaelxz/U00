@@ -1,6 +1,6 @@
 """
 services/sources_extraction_service.py -- the pasted-URL extraction extras
-for the API (Streamlit Sources parity SO09, SO10): the optional AI-assisted
+for the API (SO09, SO10): the optional AI-assisted
 fallback engine and the Review extraction step.
 
 SO09, the AI fallback. The extraction ladder (sources/adaptive.py) tries a
@@ -88,7 +88,7 @@ _ENGINE_FAILED = "The AI engine could not be set up."
 
 def ai_engines() -> list:
     """Engine names the AI fallback may use (those that take a reference
-    prompt, like the Streamlit picker)."""
+    prompt)."""
     return [e for e, cls in translate_engines.ENGINES.items()
             if getattr(cls, "supports_reference", False)]
 

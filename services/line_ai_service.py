@@ -1,10 +1,10 @@
 """
 services/line_ai_service.py -- Migration Slice 50: the two per-line AI
-helpers from the Review tab's line popover, "Improve translation" and
-"Why this?". Streamlit-free; plain dicts in and out.
+helpers from the Review line popover, "Improve translation" and
+"Why this?". Plain dicts in and out.
 
-Both are synchronous single-line LLM calls (like the tab's spinner calls,
-not background jobs) and NEVER write: improve returns a suggestion and the
+Both are synchronous single-line LLM calls (not background jobs) and NEVER
+write: improve returns a suggestion and the
 caller applies it through the Slice 43 field-scoped compare-and-set line
 patch. The line is looked up by permanent `Line.id`; the text sent to the
 model is the line's stored zh/en, not client-supplied text. Keys are
@@ -12,7 +12,7 @@ resolved server-side (never accepted or returned), and any engine failure
 message is passed through `translate_engines.redact_secrets`. The prompts
 are `line_tools.improve_line` / `explain_translation`, reused unchanged;
 the drama's glossary, style guidelines and character gender hints are fed
-in as the translate run does (the tab passes only the source language).
+in as the translate run does.
 Not supported by the helpers, so not applied: the English-variant locale.
 
 Also here (review parity R17/R18): "Alternatives" (other valid renderings,

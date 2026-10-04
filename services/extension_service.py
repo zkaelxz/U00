@@ -1,8 +1,6 @@
 """
 services/extension_service.py -- the browser-extension bridge's on/off
-switch and token, for the PC-only React control that replaces the Settings
-sidebar's "Browser extension" expander (tabs/settings_tab.py:430-484) once
-Streamlit is gone. User decision, 2026-09-29.
+switch and token, for the PC-only Browser extension control in Settings.
 
 The bridge is `page_server.py`: a loopback-only HTTP endpoint (port 8756)
 that needs its own shared token on every request. Its on/off state is the
@@ -12,17 +10,13 @@ API startup hook (api/background.py) reads.
 Every function here is meant for `local_only()` routes. `get_status` never
 returns the port or the token; only `reveal_token` returns the token.
 
-Translation engine (inventory row G16): Streamlit pushed the extension's
-engine and key into `page_server` from session state, so nothing was saved
-and the API ran the bridge untranslated. The engine and model are now an
+Translation engine (inventory row G16): the engine and model are an
 app setting (`extension_translation_engine`); `push_translation_config`
 registers a provider with `page_server` that resolves them, and the key from
 .env, on every request. Keys never leave the PC: no function here returns a
 key, only whether one is configured.
 
-Stopping: `page_server` has no stop function (Streamlit never stopped it
-either; unticking the box only stopped the tab from starting it again), so
-turning the bridge off persists the setting and reports `restart_needed`
+Stopping: turning the bridge off persists the setting and reports `restart_needed`
 while this process still serves it. It stops at the next API restart.
 """
 

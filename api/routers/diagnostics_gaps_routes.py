@@ -1,7 +1,6 @@
 """
 api/routers/diagnostics_gaps_routes.py -- the Diagnostics features the
-read-only overview (diagnostics_routes.py) lacks (Streamlit retirement M1;
-API batch 1). Thin: see services/diagnostics_gaps_service.py.
+read-only overview (diagnostics_routes.py) lacks (API batch 1). Thin: see services/diagnostics_gaps_service.py.
 
 Reads are `admin.diagnostics`: setup checks (Q01), model cache (Q14, list
 only), pyannote readiness (Q15; `check_access=true` asks Hugging Face with

@@ -1,16 +1,12 @@
 """
-api/background.py -- the background pieces the Streamlit app used to start,
-started once when the API process starts (FastAPI lifespan in
-`api/server.py`), so they keep running after Streamlit is retired.
+api/background.py -- the background pieces started once when the API
+process starts (FastAPI lifespan in `api/server.py`).
 
-What Streamlit starts, and when (read from the tabs, since `app.py` itself
-only renders them):
 - the chapter-check scheduler (`sources.chapter_check.ensure_scheduler_started`):
-  unconditionally, on every Sources tab render. It is a no-op loop unless
-  `check_interval_hours` > 0 and a series is tracked.
+  unconditionally. It is a no-op loop unless `check_interval_hours` > 0 and
+  a series is tracked.
 - the browser-extension endpoint (`page_server.ensure_server_started`, loopback
-  port 8756): only while the Sources setting `page_server_enabled` is on,
-  from the Settings sidebar. The API starts it under the same setting.
+  port 8756): only while the Sources setting `page_server_enabled` is on.
 
 Also at startup (Step 43): the automatic-backup due-check
 (`services/auto_backup_service.check_and_run`, a no-op unless the owner
@@ -36,12 +32,10 @@ Both are daemon threads; the clean stop (`services/shutdown_service.py`,
 run when `python -m api` stops) stops the scheduler, the extension endpoint
 and the poller below.
 
-The extension's translation engine: Streamlit pushed it (and its key) into
-`page_server.set_translation_config` from session state. The API saves the
-choice as an app setting (`services/extension_service.py`, routes under
-`/api/extension/engine`) and `extension_service.push_translation_config`
-hooks it into page_server here at startup, resolving the key from .env on
-every request, so the endpoint translates without Streamlit.
+The extension's translation engine is saved as an app setting
+(`services/extension_service.py`, routes under `/api/extension/engine`) and
+`extension_service.push_translation_config` hooks it into page_server here
+at startup, resolving the key from .env on every request.
 """
 
 import threading
@@ -50,10 +44,8 @@ _started = None
 
 # GPU-queue nudge: background_jobs never re-checks its GPU queue on its own
 # (a job queued behind GPU load Baihe didn't start is re-checked only when
-# another GPU job finishes). The Streamlit Diagnostics tab's auto-refresh
-# called background_jobs.recheck_gpu_queue on every tick; with the tab gone
-# the API does it on a timer, only while background services are on, and
-# stops it at shutdown. The call is a cheap no-op when nothing is queued.
+# another GPU job finishes), so the API calls recheck_gpu_queue on a timer,
+# only while background services are on, and stops it at shutdown. The call is a cheap no-op when nothing is queued.
 GPU_QUEUE_POLL_SECONDS = 20.0
 _gpu_poller = None          # (thread, stop_event) while running
 _gpu_lock = threading.Lock()
