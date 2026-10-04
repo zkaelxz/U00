@@ -158,6 +158,31 @@ def _run_pipeline(pipeline, audio, hints: dict, on_progress=None):
         return pipeline(audio, **hints)
 
 
+OOM_FALLBACK_MESSAGE = ("Speaker detection ran out of GPU memory and is running on CPU, "
+                        "this will be slower")
+
+
+def is_cuda_oom(exc: BaseException) -> bool:
+    """True for a CUDA out-of-memory failure: torch.cuda.OutOfMemoryError, or
+    the plain RuntimeError older/other torch builds raise with the same text."""
+    if type(exc).__name__ == "OutOfMemoryError":
+        return True
+    return isinstance(exc, RuntimeError) and "out of memory" in str(exc).lower()
+
+
+def _free_gpu_memory() -> None:
+    """Best effort: collect the dropped pipeline and hand cached CUDA blocks
+    back so the CPU retry (and whatever else shares the card) can use them."""
+    import gc
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
 def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_model: bool = False,
            return_embeddings: bool = False, use_gpu: bool = False,
            min_speakers: int = None, max_speakers: int = None, run_info: dict = None,
@@ -174,7 +199,11 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     min_speakers/max_speakers (Step 105): a speaker-count range passed to
     pyannote's own min_speakers/max_speakers; mutually exclusive with
     num_speakers (validate_speaker_hints). run_info: an optional dict this
-    fills with {"device": "cuda"|"cpu"}, the device actually used.
+    fills with {"device": "cuda"|"cpu"}, the device actually used, plus
+    "fell_back_to_cpu" (bool) and, when True, "fallback_reason" (short,
+    secrets redacted). A CUDA out-of-memory during the run is retried once on
+    CPU (loudly, via on_progress and the log); the device selection is
+    otherwise unchanged. If the CPU retry fails too, RuntimeError.
     on_progress: optional on_progress(fraction 0-1, message), called as the
     stages change and (where pyannote's hook reports it) as each step advances.
     """
@@ -186,6 +215,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     device = _place_pipeline(pipeline, use_gpu)
     if run_info is not None:
         run_info["device"] = device
+        run_info["fell_back_to_cpu"] = False
     import applog
     applog.get_logger().info(f"diarization: running {model} on {device}")
     import soundfile as sf
@@ -199,7 +229,33 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
         hints["max_speakers"] = max_speakers
     audio = {"waveform": waveform, "sample_rate": sample_rate}
     _say(0.08, "Detecting speakers...")
-    result = _run_pipeline(pipeline, audio, hints, on_progress)
+    oom_reason = None
+    try:
+        result = _run_pipeline(pipeline, audio, hints, on_progress)
+    except Exception as exc:
+        if device != "cuda" or not is_cuda_oom(exc):
+            raise
+        from translate_engines import redact_secrets
+        oom_reason = redact_secrets(f"{type(exc).__name__}: {exc}")[:200]
+    if oom_reason is not None:
+        # Retried outside the except block so the failed run's traceback no
+        # longer pins the GPU pipeline in memory.
+        pipeline = None
+        _free_gpu_memory()
+        applog.get_logger().error(f"diarization: {OOM_FALLBACK_MESSAGE} ({oom_reason})")
+        if run_info is not None:
+            run_info.update(device="cpu", fell_back_to_cpu=True, fallback_reason=oom_reason)
+        _say(0.08, OOM_FALLBACK_MESSAGE)
+
+        def cpu_progress(frac, message):
+            _say(frac, f"Running on CPU (out of GPU memory, slower). {message}")
+        try:
+            pipeline, model = load_pipeline(hf_token)  # loads on CPU; never moved to the GPU
+            result = _run_pipeline(pipeline, audio, hints, cpu_progress if on_progress else None)
+        except Exception as cpu_exc:
+            raise RuntimeError(
+                "Speaker detection ran out of GPU memory and the retry on CPU failed too: "
+                + redact_secrets(f"{type(cpu_exc).__name__}: {cpu_exc}")[:200]) from cpu_exc
     # pyannote.audio 4.x's pipeline(audio) returns a DiarizeOutput dataclass
     # (its .speaker_diarization attribute holds the actual Annotation)
     # instead of an Annotation directly, so .itertracks() would otherwise
@@ -252,7 +308,9 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
             on_progress=lambda frac, message: background_jobs.report_progress(
                 result_queue, frac, message))
         result_queue.put(("ok", {"segments": segments, "model": model, "embeddings": embeddings,
-                                 "device": run_info.get("device", "cpu")}))
+                                 "device": run_info.get("device", "cpu"),
+                                 "fell_back_to_cpu": bool(run_info.get("fell_back_to_cpu")),
+                                 "fallback_reason": run_info.get("fallback_reason")}))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, str(exc)))
 

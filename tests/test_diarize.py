@@ -254,7 +254,8 @@ class TestDiarizeSubprocessWorker:
         outcome = _final(result_queue)
 
         assert outcome == ("ok", {"segments": direct_segments, "model": direct_model,
-                                  "embeddings": direct_embeddings, "device": "cpu"})
+                                  "embeddings": direct_embeddings, "device": "cpu",
+                                  "fell_back_to_cpu": False, "fallback_reason": None})
 
     def test_reports_an_exception_instead_of_raising(self):
         pytest.importorskip("torch")
@@ -387,3 +388,98 @@ class TestLoadLastSpeakerCount:
 
     def test_none_before_any_run_not_an_error(self, tmp_path):
         assert diarize.load_last_speaker_count(str(tmp_path)) is None
+
+
+class _FakeTorchOOM(RuntimeError):
+    pass
+
+
+_FakeTorchOOM.__name__ = "OutOfMemoryError"
+
+
+def _patch_oom_run(monkeypatch, first_error, cpu_error=None):
+    """Fakes for diarize(): the first (GPU) run raises first_error, the retry
+    on CPU raises cpu_error or returns a result. Needs numpy only; torch and
+    soundfile are stubbed."""
+    import types
+    np = pytest.importorskip("numpy")
+    state = {"loads": 0, "emptied": False, "runs": []}
+    fake_torch = types.SimpleNamespace(
+        from_numpy=lambda a: a,
+        cuda=types.SimpleNamespace(is_available=lambda: True,
+                                   empty_cache=lambda: state.__setitem__("emptied", True)))
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    fake_sf = types.ModuleType("soundfile")
+    fake_sf.read = lambda *a, **k: (np.zeros((1, 1), dtype="float32"), 16000)
+    monkeypatch.setitem(sys.modules, "soundfile", fake_sf)
+
+    def load(token):
+        state["loads"] += 1
+        return f"pipe{state['loads']}", "pyannote/fake"
+
+    def run(pipeline, audio, hints, on_progress=None):
+        state["runs"].append(pipeline)
+        if len(state["runs"]) == 1:
+            raise first_error
+        if cpu_error:
+            raise cpu_error
+        if on_progress:
+            on_progress(0.5, "Detecting speakers: segmentation")
+        return _FakeDiarizationResult([(0.0, 1.0, "SPEAKER_00")])
+
+    monkeypatch.setattr(diarize, "load_pipeline", load)
+    monkeypatch.setattr(diarize, "_place_pipeline", lambda p, use_gpu: "cuda")
+    monkeypatch.setattr(diarize, "_run_pipeline", run)
+    return state
+
+
+class TestCudaOomFallback:
+    def test_is_cuda_oom(self):
+        assert diarize.is_cuda_oom(_FakeTorchOOM("CUDA error"))
+        assert diarize.is_cuda_oom(RuntimeError("CUDA out of memory. Tried to allocate"))
+        assert not diarize.is_cuda_oom(RuntimeError("something else"))
+        assert not diarize.is_cuda_oom(ValueError("out of memory"))
+
+    @pytest.mark.parametrize("err", [_FakeTorchOOM("x"), RuntimeError("CUDA out of memory.")])
+    def test_retries_once_on_cpu_and_records_it(self, monkeypatch, err):
+        state = _patch_oom_run(monkeypatch, err)
+        info, messages = {}, []
+        out = diarize.diarize("/a.wav", "hf_x", use_gpu=True, run_info=info,
+                              on_progress=lambda f, m: messages.append(m))
+        assert out == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
+        assert state["loads"] == 2 and state["emptied"] and state["runs"] == ["pipe1", "pipe2"]
+        assert info["device"] == "cpu" and info["fell_back_to_cpu"] is True
+        assert info["fallback_reason"]
+        assert diarize.OOM_FALLBACK_MESSAGE in messages
+        assert any(m.startswith("Running on CPU") for m in messages)
+
+    def test_reason_is_redacted(self, monkeypatch):
+        _patch_oom_run(monkeypatch, RuntimeError(
+            "CUDA out of memory. Authorization: Bearer sk-abcdefghijklmnopqrstuvwx"))
+        info = {}
+        diarize.diarize("/a.wav", "hf_x", use_gpu=True, run_info=info)
+        assert "sk-abcdefghijklmnopqrstuvwx" not in info["fallback_reason"]
+
+    def test_cpu_retry_failure_raises_clear_error(self, monkeypatch):
+        _patch_oom_run(monkeypatch, _FakeTorchOOM("x"), cpu_error=ValueError("boom"))
+        with pytest.raises(RuntimeError, match="ran out of GPU memory and the retry on CPU failed"):
+            diarize.diarize("/a.wav", "hf_x", use_gpu=True)
+
+    def test_other_errors_and_cpu_runs_are_not_retried(self, monkeypatch):
+        state = _patch_oom_run(monkeypatch, ValueError("bad"))
+        with pytest.raises(ValueError):
+            diarize.diarize("/a.wav", "hf_x", use_gpu=True)
+        assert state["loads"] == 1
+        state = _patch_oom_run(monkeypatch, RuntimeError("out of memory"))
+        monkeypatch.setattr(diarize, "_place_pipeline", lambda p, use_gpu: "cpu")
+        with pytest.raises(RuntimeError, match="out of memory"):
+            diarize.diarize("/a.wav", "hf_x")
+        assert state["loads"] == 1
+
+    def test_no_oom_leaves_run_info_unchanged(self, monkeypatch):
+        state = _patch_oom_run(monkeypatch, ValueError("unused"))
+        monkeypatch.setattr(diarize, "_run_pipeline",
+                            lambda *a, **k: _FakeDiarizationResult([(0.0, 1.0, "S")]))
+        info = {}
+        diarize.diarize("/a.wav", "hf_x", use_gpu=True, run_info=info)
+        assert info == {"device": "cuda", "fell_back_to_cpu": False} and state["loads"] == 1

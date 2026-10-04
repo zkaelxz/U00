@@ -369,6 +369,8 @@ def cmd_diarize(args):
                 min_speakers=min_speakers, max_speakers=max_speakers, run_info=run_info)
         finally:
             release_gpu_models()
+        if run_info.get("fell_back_to_cpu"):
+            print(f"#{d['id']} WARNING: {diarize.OOM_FALLBACK_MESSAGE}.")
         diarize.save_turns(ddir, turns, num_speakers=num_speakers, model=model,
                           embeddings=embeddings, min_speakers=min_speakers,
                           max_speakers=max_speakers, device=run_info.get("device"))
