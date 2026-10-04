@@ -96,7 +96,7 @@ _DENIED_DIRS = frozenset({
     ".ruff_cache",
 })
 # Dot-directories that are ordinary project content.
-_ALLOWED_DOT_DIRS = frozenset({".claude", ".github", ".streamlit"})
+_ALLOWED_DOT_DIRS = frozenset({".claude", ".github"})
 # On top of translate_engines.redact_secrets: GitHub tokens and PEM keys.
 _EXTRA_SECRET_PATTERNS = [
     re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"),
