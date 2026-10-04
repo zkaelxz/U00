@@ -4,6 +4,7 @@ import { rememberSeriesCharacter, renameSpeaker, undoRenameSpeaker } from '../..
 import { applyVoiceBankEntry, getCharacters, getCloneEngines, getVoiceBank, saveCharacter } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { buttonClass } from '../../../components/uiClasses'
 import { Section } from '../../../components/Section'
 import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
 import type { RememberResult, RenameResult, RenameUndo } from '../../../types/characters'
@@ -136,7 +137,7 @@ function Row({ entry, engines, bank, hasSeries, taken, onSaved, onRemembered, on
         <td>{entry.line_count}</td>
         <td>{reference}</td>
         <td>
-          <button type="button" disabled={!dirty || busy} title={dirty ? undefined : 'No changes to save.'} onClick={save}>Save</button>
+          <button type="button" className={buttonClass('secondary', 'sm')} disabled={!dirty || busy} title={dirty ? undefined : 'No changes to save.'} onClick={save}>Save</button>
           {problem && <p className="error" role="alert">{problem}</p>}
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </td>
@@ -154,6 +155,7 @@ function Row({ entry, engines, bank, hasSeries, taken, onSaved, onRemembered, on
               {canRemember(entry, hasSeries) && (
                 <button
                   type="button"
+                  className={buttonClass('ghost', 'sm')}
                   disabled={busy || nameEdited}
                   title={nameEdited ? 'Save the name first.' : 'Adds this name to the series cast so later dramas can pick it.'}
                   onClick={remember}
@@ -225,7 +227,7 @@ function Row({ entry, engines, bank, hasSeries, taken, onSaved, onRemembered, on
                       {bankId && (
                         <VoiceBankPlayButton key={bankId} entryId={Number(bankId)} name={bank.find((b) => String(b.id) === bankId)?.name ?? 'voice'} />
                       )}
-                      <button type="button" disabled={!bankId || busy} title={bankId ? undefined : 'Choose a voice first.'} onClick={apply}>
+                      <button type="button" className={buttonClass('secondary', 'sm')} disabled={!bankId || busy} title={bankId ? undefined : 'Choose a voice first.'} onClick={apply}>
                         Apply
                       </button>
                     </div>

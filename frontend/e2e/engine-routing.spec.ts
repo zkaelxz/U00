@@ -1,4 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Settings > "Which engine does what" (Step 36) against the real API on the
 // seeded throwaway library. SHOTS_DIR, when set, receives desktop and phone
@@ -48,8 +54,7 @@ test('the card fits a phone with 44px controls', async ({ page }) => {
   await expect(task(page)).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   for (const el of [task(page), card(page).getByRole('button', { name: 'Test Fake' })]) {
-    const box = await el.boundingBox()
-    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(el)).toBeGreaterThanOrEqual(44)
   }
   if (SHOTS) await card(page).screenshot({ path: `${SHOTS}/routing-phone.png` })
 })

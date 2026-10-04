@@ -101,3 +101,8 @@
   }
   .ws-next-bar .ws-next { flex: 1 1 auto; justify-content: center; min-height: 44px; }
 }
+
+/* The back arrow is already a 44px button; it needs no extra hit area. */
+@media (max-width: 640px) {
+  .workspace-header .btn.ws-back::after { content: none; }
+}

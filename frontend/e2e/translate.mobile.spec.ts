@@ -1,4 +1,10 @@
 import { expect, test } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone: the Translate page stacks (result under the Translate button), has no
 // sideways scroll at 390 and 360 px, and its controls are >=44px tall.
@@ -33,8 +39,7 @@ for (const width of [390, 360]) {
       page.getByLabel('Source language'),
     ]
     for (const t of targets) {
-      const box = await t.boundingBox()
-      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+      expect(await hitHeight(t)).toBeGreaterThanOrEqual(44)
     }
   })
 }

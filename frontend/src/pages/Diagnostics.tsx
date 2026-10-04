@@ -160,12 +160,12 @@ export default function DiagnosticsPage() {
         <p className="page-meta pill-row" data-testid="diagnostics-summary">
           {badges.length ? badges.map((b) => <Badge key={b.key} tone={b.tone}>{b.text}</Badge>) : 'Loading…'}
         </p>
-        <p className="page-meta">
+        <div className="diag-lab-link">
           <ButtonLink href={routeHref({ name: 'benchmark' })} variant="secondary" size="sm">
             Benchmark Lab
-          </ButtonLink>{' '}
-          Test engines and prompts against golden sets.
-        </p>
+          </ButtonLink>
+          <p className="page-meta">Test engines and prompts against golden sets.</p>
+        </div>
         <RemoteHealthLine />
       </header>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />

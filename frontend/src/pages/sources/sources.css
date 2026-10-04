@@ -248,3 +248,8 @@ ul.source-cards > li {
 .source-domain-add input { flex: 1 1 auto; min-width: 0; }
 .source-domain-proposals { display: grid; gap: var(--space-1); }
 .source-domain-proposals p { margin: 0; }
+
+/* Phone: result rows each hold dense buttons whose 44px hit areas must not overlap. */
+@media (max-width: 640px) {
+  ul.source-results { gap: var(--space-3); }
+}

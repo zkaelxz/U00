@@ -73,3 +73,21 @@
 
 /* Advanced sits inside the run panel: a divider, not a second box. */
 .stage-translate .panel > details.section { border: 0; border-top: 1px solid var(--border); border-radius: 0; padding-inline: 0; }
+
+/* Phone rhythm: the run panel is a stack with 16px between fields, 24px before the action row and the Advanced divider.
+   The primary button has its own row with its blocker 8px under it; Estimate follows on the next row. */
+@media (max-width: 640px) {
+  .stage-translate { gap: var(--space-5); }
+  .stage-translate > .panel > * { margin: 0; }
+  .stage-translate > .panel > * + * { margin-top: var(--space-4); }
+  .stage-translate > .panel > h3:first-child { margin-bottom: var(--space-3); }
+  .stage-translate > .panel > h3:first-child + * { margin-top: 0; }
+  .stage-translate > .panel > .translate-go { margin-top: var(--space-5); }
+  .stage-translate > .panel > details.section:not(:first-child) { margin-top: var(--space-5); }
+  .stage-translate .translate-basics { gap: var(--space-4); margin-bottom: 0; }
+  .stage-translate .advanced-grid { gap: var(--space-4); }
+  .stage-translate .voice-grid { gap: var(--space-4); margin-top: var(--space-4); }
+  .stage-translate .translate-go { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: var(--space-2); }
+  .stage-translate .stage-blocker { flex: 0 1 auto; align-self: stretch; }
+  .stage-translate .fallback-row { gap: var(--space-2) var(--space-3); }
+}

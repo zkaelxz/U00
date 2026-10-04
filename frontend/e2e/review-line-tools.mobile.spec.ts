@@ -4,6 +4,12 @@ import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 
 import { clearReviewResults } from './reviewResultsSeed'
+import { installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the per-line tools (sheet entries, the
 // alternatives and grammar panels, the TM bar) and the flagged-line buttons
@@ -51,7 +57,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 
 async function expectTouchTargets(page: Page, selector: string, min = 1) {
   const sizes = await page.locator(selector).evaluateAll((els) =>
-    els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => [e.getBoundingClientRect().height, e.outerHTML.slice(0, 80)] as const),
+    els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => [window.hitHeight(e), e.outerHTML.slice(0, 80)] as const),
   )
   expect(sizes.length).toBeGreaterThanOrEqual(min)
   for (const [h, html] of sizes) expect(h, html).toBeGreaterThanOrEqual(44)

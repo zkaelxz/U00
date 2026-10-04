@@ -2,6 +2,12 @@ import { expect, test, type Page } from '@playwright/test'
 import { openSection } from './diagnosticsInstallsMocks'
 
 import { guardWrites, mockDiagnostics } from './diagnosticsConsolidateMocks'
+import { installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the consolidated Diagnostics folds fit.
 
@@ -28,7 +34,7 @@ test('Setup with models, speaker detection and a task fit a phone with 44px targ
   const small = await page.locator('button:not(.field-help-btn):not(.toggle), summary, a.btn').evaluateAll((els) =>
     els.filter((e) => {
       const r = e.getBoundingClientRect()
-      return r.width > 0 && r.height > 0 && r.height < 43.5
+      return r.width > 0 && r.height > 0 && window.hitHeight(e) < 43.5
     }).map((e) => `${e.tagName} ${(e.textContent ?? '').trim().slice(0, 30)}`))
   expect(small).toEqual([])
   expect(unmocked).toEqual([])

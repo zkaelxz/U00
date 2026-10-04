@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test'
 
 import { mockTranscription } from './transcriptionMissingMocks'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone: the not-installed note and the Diagnostics block fit (no sideways scroll, 44 px targets).
 
@@ -11,12 +17,12 @@ test('phone: transcription note and install block fit the screen', async ({ page
   await page.goto('/#/drama/1/source')
   const link = page.locator('#transcribe-not-installed').getByRole('link', { name: 'Install transcription' })
   await expect(link).toBeVisible()
-  expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(link))).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(noSideScroll)).toBe(true)
 
   await link.click()
   const install = page.getByTestId('transcription-missing').getByRole('button', { name: 'Install for Transcribe speech (Whisper)' })
   await expect(install).toBeVisible()
-  expect((await install.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(install))).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(noSideScroll)).toBe(true)
 })

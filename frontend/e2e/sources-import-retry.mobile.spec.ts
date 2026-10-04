@@ -2,6 +2,12 @@ import { expect as baseExpect, test, type Page } from '@playwright/test'
 
 import { chapterImportResult, mockImports } from './sourcesImportMocks'
 import { mockSources, posted } from './sourcesMocks'
+import { installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Step 107, phone project (390x844, touch): the marked chapter picker and
 // "Retry failed chapters (N)" fit one column, keep 44 px targets, and Retry
@@ -26,7 +32,7 @@ async function tallTargets(page: Page) {
     const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, .sources-pick label, .sources-select-all'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.tagName).trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.tagName).trim().slice(0, 30) }))
       .filter((x) => x.h < 44)
   })
   expect(small).toEqual([])

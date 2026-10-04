@@ -1,4 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone (390x844): the Library parity batch B3 additions (dashboard lines,
 // cost rows, series view, New drama summary) fit the width and keep 44px
@@ -28,9 +34,9 @@ test('dashboard, costs and series fit a phone', async ({ page }) => {
   await tools.locator('summary', { hasText: 'Cost by drama' }).click()
   const open = tools.getByRole('link', { name: 'Open Second' })
   await expect(open).toBeVisible()
-  expect((await open.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(open))).toBeGreaterThanOrEqual(44)
   const cost = tools.getByRole('region', { name: 'Cost by drama' }).getByRole('link').first()
-  expect((await cost.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(cost))).toBeGreaterThanOrEqual(44)
   await expectNoHorizontalOverflow(page)
 })
 
@@ -41,8 +47,8 @@ test('New drama: Summary and Create and auto-fill fit a phone', async ({ page })
   await sheet.getByText('Credits, summary, series and preset').click()
   const summary = sheet.getByRole('textbox', { name: 'Summary' })
   await expect(summary).toBeVisible()
-  expect((await summary.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(summary))).toBeGreaterThanOrEqual(44)
   const autofill = sheet.getByRole('button', { name: 'Create and auto-fill' })
-  expect((await autofill.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(autofill))).toBeGreaterThanOrEqual(44)
   await expectNoHorizontalOverflow(page)
 })

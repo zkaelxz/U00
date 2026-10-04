@@ -233,7 +233,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
     <div className="advanced-wide">
       {!open ? (
         <div className="check-row">
-          <button type="button" className={buttonClass('secondary')} onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
           <span className="muted">Saves the engine, model, style, English variant and the two guidance toggles for any drama.</span>
           {saved && <span role="status">{saved}</span>}
         </div>

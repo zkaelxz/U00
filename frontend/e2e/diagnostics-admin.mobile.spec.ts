@@ -1,6 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openSection } from './diagnosticsInstallsMocks'
 import { openSettingsGroups } from './settingsNav'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): Diagnostics admin with the Log, the
 // support report and a failed install's Output open. Every POST is mocked;
@@ -49,11 +55,11 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
   const card = page.locator('ul.job-cards > li').first()
   await expect(card).toContainText('Running 40% · 3m')
   const cancel = card.getByRole('button', { name: 'Cancel' })
-  expect((await cancel.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(cancel))).toBeGreaterThanOrEqual(44)
   // A failed job's card: readable name, Delete on its own 44px line, no sideways scroll.
   const failed = page.locator('ul.job-cards > li').nth(1)
   expect((await failed.locator('strong').boundingBox())!.width).toBeGreaterThan(150)
-  expect((await failed.getByRole('button', { name: /^Delete/ }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(failed.getByRole('button', { name: /^Delete/ })))).toBeGreaterThanOrEqual(44)
 
   await page.locator('summary', { hasText: /^Log/ }).click()
   await expect(page.getByLabel('Log lines')).toContainText('INFO fine')
@@ -77,7 +83,7 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
 
   const small = await page.locator('button:not(.link):not(.field-help-btn):not(.toggle), summary').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent ?? '').trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
   expect(small).toEqual([])
   await noSideways(page)
@@ -96,7 +102,7 @@ test('Settings on a phone: the extension section fits and its targets are 44px',
   await ext.getByRole('button', { name: 'Confirm show extension token' }).click()
   await expect(ext.getByLabel('Extension token', { exact: true })).toHaveValue('tok-phone')
   for (const name of ['Copy', 'Hide']) {
-    expect((await ext.getByRole('button', { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect((await hitHeight(ext.getByRole('button', { name })))).toBeGreaterThanOrEqual(44)
   }
   await noSideways(page)
   expect(unmocked).toEqual([])
@@ -130,7 +136,7 @@ test('Diagnostics at 360px: Setup card, Packages with GPU PyTorch fit', async ({
   expect(table.scroll).toBeLessThanOrEqual(table.client)
   const small = await page.locator('button:not(.field-help-btn):not(.toggle), summary, a.btn').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent ?? '').trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
   expect(small).toEqual([])
   await noSideways(page)
@@ -166,7 +172,7 @@ test('Job history time by stage fits a phone and its summaries are 44px', async 
     expect(nums.x + nums.width).toBeLessThanOrEqual(row.x + row.width + 1)
   }
   const small = await history.locator('summary').evaluateAll((els) =>
-    els.map((e) => e.getBoundingClientRect().height).filter((h) => h < 44))
+    els.map((e) => window.hitHeight(e)).filter((h) => h < 44))
   expect(small).toEqual([])
   await noSideways(page)
   expect(unmocked).toEqual([])

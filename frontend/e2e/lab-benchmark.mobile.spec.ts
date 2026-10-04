@@ -1,4 +1,10 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the Benchmark Lab with a golden set and two
 // finished runs of the fake engine, seeded through the real API
@@ -22,7 +28,7 @@ async function noSideways(page: Page) {
 async function smallTargets(page: Page) {
   return page.locator('.bench-page button:not(.link):not(.field-help-btn):not(.toggle), .bench-page summary, .bench-page select, .bench-page input:not([type=checkbox]), .bench-page a.btn').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
 }
 
