@@ -2592,20 +2592,34 @@ def clear_character_series_link(drama_id: int, speaker_label: str):
         conn.commit()
 
 
-def rename_character_label(drama_id: int, old_label: str, new_label: str,
-                           character_name) -> bool:
-    """Moves one speaker's characters row (voice, pronouns, series link) and
-    its dismissed voice matches from old_label to new_label, and sets the
-    row's character_name (None clears it); in one transaction. A speaker with
-    no row gets one. False, nothing written, when new_label already has a
-    row."""
+def rename_speaker_atomic(drama_id: int, old_label: str, new_label: str, character_name,
+                          line_updates: list):
+    """Renames a speaker in ONE transaction: each of line_updates ({id,
+    expect_speaker, expect_manual, speaker, manual}) is written only while the
+    row still holds the expected speaker and manual flag, then the characters
+    row (voice, pronouns, series link) and dismissed voice matches move from
+    old_label to new_label with character_name set (None clears it; a speaker
+    with no row gets one). Returns the number of lines written, or "changed"
+    (a line no longer matched) / "name_taken" (new_label already has a row);
+    in those cases, and on any error, nothing is written."""
     conn = get_conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
+        written = 0
+        for u in line_updates:
+            cur = conn.execute(
+                "UPDATE lines SET speaker = ?, speaker_manual = ? WHERE id = ? AND drama_id = ? "
+                "AND COALESCE(speaker, '') = ? AND COALESCE(speaker_manual, 0) = ?",
+                (u["speaker"], int(bool(u["manual"])), u["id"], drama_id,
+                 u["expect_speaker"], int(bool(u["expect_manual"]))))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return "changed"
+            written += 1
         if conn.execute("SELECT 1 FROM characters WHERE drama_id = ? AND speaker_label = ?",
                         (drama_id, new_label)).fetchone():
             conn.rollback()
-            return False
+            return "name_taken"
         conn.execute("INSERT OR IGNORE INTO characters (drama_id, speaker_label) VALUES (?, ?)",
                      (drama_id, old_label))
         conn.execute("UPDATE characters SET speaker_label = ?, character_name = ? "
@@ -2614,7 +2628,7 @@ def rename_character_label(drama_id: int, old_label: str, new_label: str,
         conn.execute("UPDATE OR IGNORE voice_suggestion_dismissals SET speaker_label = ? "
                      "WHERE drama_id = ? AND speaker_label = ?", (new_label, drama_id, old_label))
         conn.commit()
-        return True
+        return written
     except Exception:
         conn.rollback()
         raise

@@ -165,11 +165,10 @@ function Row({ entry, engines, bank, hasSeries, taken, onSaved, onRemembered, on
           )}
           <div className="character-extras">
             {renaming === null ? (
-              <button type="button" disabled={busy || Boolean(entry.series_character_id) || entry.line_count === 0}
+              <button type="button" disabled={busy || Boolean(entry.series_character_id)}
                 title={entry.series_character_id
                   ? 'This speaker is linked to a series character; unlink it first or rename the series character.'
-                  : entry.line_count === 0 ? 'This speaker has no lines to rename.'
-                    : 'Gives this speaker a name on every one of its lines and in translation.'}
+                  : 'Gives this speaker a name on every one of its lines and in translation.'}
                 onClick={() => setRenaming(entry.character_name || '')}>
                 Rename speaker
               </button>
@@ -178,7 +177,7 @@ function Row({ entry, engines, bank, hasSeries, taken, onSaved, onRemembered, on
                 <input aria-label={`New name for ${label}`} value={renaming} autoFocus
                   onChange={(e) => setRenaming(e.target.value)} />
                 <button type="submit" disabled={busy || renameProblemText !== null} title={renameProblemText ?? undefined}>
-                  Rename on all {entry.line_count} lines
+                  {entry.line_count ? `Rename on all ${entry.line_count} lines` : 'Rename'}
                 </button>
                 <button type="button" disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
               </form>

@@ -45,6 +45,8 @@ describe('renameProblem rules', () => {
     expect(renameProblem('A', 'speaker   2', ['Speaker 2'])).toBe('Another speaker already has that name.')
     expect(renameProblem('A', 'a/b', [])).toMatch(/slashes/)
     expect(renameProblem('A', 'x..y', [])).toMatch(/slashes/)
+    expect(renameProblem('A', 'a\u200bb', [])).toMatch(/invisible/)
+    expect(renameProblem('A', 'Sp\u200beaker 2', ['Speaker 2'])).toMatch(/invisible/)
     expect(renameProblem('A', 'n'.repeat(101), [])).toMatch(/100/)
   })
 

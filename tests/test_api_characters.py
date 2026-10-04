@@ -360,25 +360,120 @@ class TestRenameSpeaker:
         assert [ln.speaker for ln in isolated_db.load_line_objects(did)] == ["Mei"] * 3
         assert any(c["speaker_label"] == "Mei" for c in isolated_db.list_characters(did))
 
-    def test_character_move_failure_rolls_the_lines_back(self, client, isolated_db, monkeypatch):
+    @staticmethod
+    def _fail_on(monkeypatch, db, fragment):
         import sqlite3
+        real = db.get_conn
+
+        class Proxy:
+            def __init__(self, conn):
+                self._c = conn
+
+            def execute(self, sql, *a):
+                if fragment in sql:
+                    raise sqlite3.OperationalError("database is locked")
+                return self._c.execute(sql, *a)
+
+            def __getattr__(self, name):
+                return getattr(self._c, name)
+        monkeypatch.setattr(db, "get_conn", lambda: Proxy(real()))
+
+    def _state(self, db, did):
+        return ([(ln.speaker, ln.speaker_manual) for ln in db.load_line_objects(did)],
+                sorted((c["speaker_label"], c["character_name"]) for c in db.list_characters(did)))
+
+    @pytest.mark.parametrize("fragment", ["UPDATE characters SET", "UPDATE lines SET speaker"])
+    def test_a_failure_anywhere_changes_nothing(self, client, isolated_db, monkeypatch, fragment):
         did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 2"))
+        isolated_db.upsert_character(did, "Speaker 1", tts_voice="v")
+        before = self._state(isolated_db, did)
+        self._fail_on(monkeypatch, isolated_db, fragment)
+        assert self._rename(client, did, "Speaker 1", "Mei").status_code >= 400
+        monkeypatch.undo()
+        assert self._state(isolated_db, did) == before
 
-        def boom(*_a, **_k):
-            raise sqlite3.OperationalError("database is locked")
-        monkeypatch.setattr(isolated_db, "rename_character_label", boom)
-        r = self._rename(client, did, "Speaker 1", "Mei")
-        assert r.status_code >= 400
-        assert [(ln.speaker, ln.speaker_manual) for ln in isolated_db.load_line_objects(did)] == \
-            [("Speaker 1", False), ("Speaker 2", False)]
-
-    def test_undo_failure_rolls_the_lines_forward_again(self, client, isolated_db, monkeypatch):
-        did = _drama(isolated_db, speakers=("Speaker 1",))
+    @pytest.mark.parametrize("fragment", ["UPDATE characters SET", "UPDATE lines SET speaker"])
+    def test_an_undo_failure_changes_nothing(self, client, isolated_db, monkeypatch, fragment):
+        did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 2"))
         undo = self._rename(client, did, "Speaker 1", "Mei").json()["undo"]
-        monkeypatch.setattr(isolated_db, "rename_character_label", lambda *_a, **_k: False)
+        before = self._state(isolated_db, did)
+        self._fail_on(monkeypatch, isolated_db, fragment)
+        r = client.post(f"/api/characters/dramas/{did}/rename-speaker/undo", json={"undo": undo})
+        assert r.status_code >= 400
+        monkeypatch.undo()
+        assert self._state(isolated_db, did) == before
+
+    def test_a_compare_and_set_miss_changes_nothing(self, client, isolated_db, monkeypatch):
+        from services import characters_service as cs
+        did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 1"))
+        real = cs._lines_with_label
+
+        def racing(drama_id, label):
+            found = real(drama_id, label)
+            lines = isolated_db.load_line_objects(drama_id)
+            lines[1].speaker = "Someone"
+            isolated_db.save_lines(drama_id, lines, fields=("speaker",))
+            return found
+        monkeypatch.setattr(cs, "_lines_with_label", racing)
+        r = self._rename(client, did, "Speaker 1", "Mei")
+        assert r.status_code == 409
+        assert [ln.speaker for ln in isolated_db.load_line_objects(did)] == ["Speaker 1", "Someone"]
+
+    def test_undo_restores_each_original_manual_flag(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 1"))
+        lines = isolated_db.load_line_objects(did)
+        lines[0].speaker_manual = True
+        isolated_db.save_lines(did, lines, fields=("speaker_manual",))
+        undo = self._rename(client, did, "Speaker 1", "Mei").json()["undo"]
+        client.post(f"/api/characters/dramas/{did}/rename-speaker/undo", json={"undo": undo})
+        assert [ln.speaker_manual for ln in isolated_db.load_line_objects(did)] == [True, False]
+
+    def test_a_current_label_undo_could_not_restore_is_refused(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("a/b", "x\u200by"))
+        assert self._rename(client, did, "a/b", "Mei").status_code == 422
+        assert self._rename(client, did, "x\u200by", "Mei").status_code == 422
+        assert [ln.speaker for ln in isolated_db.load_line_objects(did)] == ["a/b", "x\u200by"]
+
+    def test_undo_is_not_a_free_rename(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 2"))
+        undo = self._rename(client, did, "Speaker 1", "Mei").json()["undo"]
+        url = f"/api/characters/dramas/{did}/rename-speaker/undo"
+        assert client.post(url, json={"undo": {**undo, "previous_label": "speaker  2", "previous": [{**undo["previous"][0], "speaker": "speaker  2"}]}}).status_code == 409
+        assert client.post(url, json={"undo": {**undo, "previous_label": "a/b"}}).status_code == 422
+        assert client.post(url, json={"undo": {**undo, "previous_label": "a\u202eb"}}).status_code == 422
+
+    def test_a_series_name_on_another_speaker_is_taken(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 2"))
+        sid = isolated_db.insert_series_character(isolated_db.create_series("S"), "Lin")
+        isolated_db.upsert_character(did, "Speaker 2", series_character_id=sid)
+        assert self._rename(client, did, "Speaker 1", "lin").status_code == 409
+
+    def test_zero_width_characters_do_not_dodge_the_clash(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 2"))
+        assert self._rename(client, did, "Speaker 1", "Speaker\u200b 2").status_code == 422
+
+    def test_a_speaker_with_no_lines_can_be_renamed_and_undone(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1",))
+        isolated_db.upsert_character(did, "Ghost", tts_voice="v")
+        r = self._rename(client, did, "Ghost", "Mei")
+        assert r.status_code == 200 and r.json()["renamed"] == 0
+        assert [c["speaker_label"] for c in r.json()["characters"]] == ["Mei", "Speaker 1"]
+        assert self._rename(client, did, "Speaker 1", "mei").status_code == 409
+        undo = r.json()["undo"]
+        assert undo["previous"] == []
+        r = client.post(f"/api/characters/dramas/{did}/rename-speaker/undo", json={"undo": undo})
+        assert r.status_code == 200
+        assert "Ghost" in [c["speaker_label"] for c in r.json()["characters"]]
+
+    def test_a_zero_line_undo_is_refused_once_lines_carry_the_name(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1",))
+        isolated_db.upsert_character(did, "Ghost")
+        undo = self._rename(client, did, "Ghost", "Mei").json()["undo"]
+        lines = isolated_db.load_line_objects(did)
+        lines[0].speaker = "Mei"
+        isolated_db.save_lines(did, lines, fields=("speaker",))
         r = client.post(f"/api/characters/dramas/{did}/rename-speaker/undo", json={"undo": undo})
         assert r.status_code == 409
-        assert isolated_db.load_line_objects(did)[0].speaker == "Mei"
 
     def test_names_compare_normalised_against_labels_and_names(self, client, isolated_db):
         did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 2", "Speaker 3"))
@@ -388,7 +483,7 @@ class TestRenameSpeaker:
 
     def test_bad_names_are_422(self, client, isolated_db):
         did = _drama(isolated_db, speakers=("Speaker 1",))
-        for bad in ("a/b", "a\\b", "x..y", "a\x07b", "n" * 101):
+        for bad in ("a/b", "a\\b", "x..y", "a\x07b", "a\u200bb", "a\u2028b", "n" * 101):
             assert self._rename(client, did, "Speaker 1", bad).status_code == 422, bad
 
     def test_series_linked_speaker_is_refused(self, client, isolated_db):
