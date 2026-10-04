@@ -2616,6 +2616,14 @@ def rename_speaker_atomic(drama_id: int, old_label: str, new_label: str, charact
                 conn.rollback()
                 return "changed"
             written += 1
+        # A line outside the update still on either label would end up merged
+        # with the renamed speaker or stranded on the old label.
+        ids = {u["id"] for u in line_updates}
+        if any(r["id"] not in ids for r in conn.execute(
+                "SELECT id FROM lines WHERE drama_id = ? AND COALESCE(speaker, '') IN (?, ?)",
+                (drama_id, old_label, new_label)).fetchall()):
+            conn.rollback()
+            return "changed"
         if conn.execute("SELECT 1 FROM characters WHERE drama_id = ? AND speaker_label = ?",
                         (drama_id, new_label)).fetchone():
             conn.rollback()

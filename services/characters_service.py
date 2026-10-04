@@ -461,14 +461,14 @@ _BUSY = ("A background job is still running for this drama -- wait for it "
          "to finish or cancel it before {what}.")
 
 
-_BAD_CATEGORIES = ("Cc", "Cf", "Zl", "Zp")
+_BAD_CATEGORIES = ("Cc", "Cf", "Cs", "Cn", "Co", "Zl", "Zp")
 
 
 def _clean_label(field: str, value) -> str:
     """Strip and check a speaker name by the voice-bank label rules (it can end
     up in a filename): 1..MAX_SPEAKER_LABEL_LEN chars, no slashes or '..', and
-    no control, format (zero-width, bidi) or line/paragraph separator
-    characters."""
+    no control, format (zero-width, bidi), surrogate, unassigned, private-use or
+    line/paragraph separator characters."""
     if not isinstance(value, str):
         raise InvalidInputError(f"{field} must be a string.")
     v = value.strip()
@@ -573,8 +573,6 @@ def undo_rename_speaker(drama_id: int, undo: dict) -> dict:
     old_label = _clean_label("previous_label", old_label)
     if old_name is not None:
         check_len("previous_character_name", old_name, MAX_NAME_LEN)
-        if any(unicodedata.category(ch) in _BAD_CATEGORIES for ch in old_name):
-            raise InvalidInputError("That undo isn't valid.")
     for p in previous:
         if (not isinstance(p, dict) or isinstance(p.get("id"), bool)
                 or not isinstance(p.get("id"), int) or str(p.get("speaker")).strip() != old_label

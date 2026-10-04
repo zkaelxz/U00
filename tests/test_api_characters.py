@@ -492,3 +492,63 @@ class TestRenameSpeaker:
         isolated_db.upsert_character(did, "Speaker 1", series_character_id=sid)
         assert self._rename(client, did, "Speaker 1", "Mei").status_code == 409
         assert isolated_db.load_line_objects(did)[0].speaker == "Speaker 1"
+
+    def test_a_lone_surrogate_is_422_not_500(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1",))
+        r = client.post(f"/api/characters/dramas/{did}/rename-speaker",
+                        content=b'{"speaker_label":"Speaker 1","new_name":"a\\ud800b"}',
+                        headers={"content-type": "application/json"})
+        assert r.status_code == 422
+        assert isolated_db.load_line_objects(did)[0].speaker == "Speaker 1"
+
+    def test_in_transaction_name_taken_changes_nothing(self, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1",))
+        isolated_db.upsert_character(did, "Speaker 1")
+        isolated_db.upsert_character(did, "Mei")
+        line = isolated_db.load_line_objects(did)[0]
+        r = isolated_db.rename_speaker_atomic(did, "Speaker 1", "Mei", "Mei", [
+            {"id": line.id, "expect_speaker": "Speaker 1", "expect_manual": False,
+             "speaker": "Mei", "manual": True}])
+        assert r == "name_taken"
+        assert isolated_db.load_line_objects(did)[0].speaker == "Speaker 1"
+
+    def test_a_line_outside_the_update_on_either_label_blocks_it(self, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 1", "Mei"))
+        lines = isolated_db.load_line_objects(did)
+        up = [{"id": lines[0].id, "expect_speaker": "Speaker 1", "expect_manual": False,
+               "speaker": "Mei", "manual": True}]
+        assert isolated_db.rename_speaker_atomic(did, "Speaker 1", "Mei", "Mei", up) == "changed"
+        assert [ln.speaker for ln in isolated_db.load_line_objects(did)] == ["Speaker 1", "Speaker 1", "Mei"]
+
+    def test_undo_payload_with_a_duplicate_or_extra_id_is_refused(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 1"))
+        undo = self._rename(client, did, "Speaker 1", "Mei").json()["undo"]
+        url = f"/api/characters/dramas/{did}/rename-speaker/undo"
+        first = undo["previous"][0]
+        dup = {**undo, "previous": undo["previous"] + [first]}
+        extra = {**undo, "previous": undo["previous"] + [{**first, "id": 9999}]}
+        assert client.post(url, json={"undo": dup}).status_code == 409
+        assert client.post(url, json={"undo": extra}).status_code == 409
+        assert [ln.speaker for ln in isolated_db.load_line_objects(did)] == ["Mei", "Mei"]
+
+    def test_dismissed_voice_matches_move_with_the_speaker(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1",))
+        sid = isolated_db.insert_series_character(isolated_db.create_series("S"), "Lin")
+        isolated_db.dismiss_voice_suggestion(did, "Speaker 1", sid)
+        undo = self._rename(client, did, "Speaker 1", "Mei").json()["undo"]
+        assert isolated_db.list_dismissed_voice_suggestions(did) == {("Mei", sid)}
+        client.post(f"/api/characters/dramas/{did}/rename-speaker/undo", json={"undo": undo})
+        assert isolated_db.list_dismissed_voice_suggestions(did) == {("Speaker 1", sid)}
+
+    def test_an_existing_label_with_a_zero_width_char_still_clashes(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1", "Spe\u200baker 2"))
+        assert self._rename(client, did, "Speaker 1", "Speaker 2").status_code == 409
+
+    def test_a_stored_name_with_a_zwj_sequence_is_restored_by_undo(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("Speaker 1",))
+        name = "Mei \U0001F469\u200d\U0001F4BB"
+        assert _post(client, did, "Speaker 1", character_name=name).status_code == 200
+        undo = self._rename(client, did, "Speaker 1", "Mei").json()["undo"]
+        r = client.post(f"/api/characters/dramas/{did}/rename-speaker/undo", json={"undo": undo})
+        assert r.status_code == 200, r.text
+        assert _by_label(r.json()["characters"], "Speaker 1")["character_name"] == name

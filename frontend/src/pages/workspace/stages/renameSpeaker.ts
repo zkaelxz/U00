@@ -60,7 +60,7 @@ export function renameProblem(label: string, name: string, taken: string[]): str
   if (!n) return 'Type a name.'
   if (n === label) return 'That is already its name.'
   if (n.length > 100) return 'Use 100 characters or fewer.'
-  if (n.includes('..') || /[\\/\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(n)) return "Names can't contain slashes, '..' or invisible characters."
+  if (n.includes('..') || /[\\/\p{Cc}\p{Cf}\p{Cs}\p{Cn}\p{Co}\p{Zl}\p{Zp}]/u.test(n)) return "Names can't contain slashes, '..' or invisible characters."
   if (taken.some((t) => norm(t) === norm(n))) return 'Another speaker already has that name.'
   return null
 }
