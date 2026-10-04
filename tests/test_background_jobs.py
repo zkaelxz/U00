@@ -1240,6 +1240,110 @@ class TestProcessJobOnDone:
         bg.clear_job("test_ondone_gpu_thread")
         bg.clear_job(job_id)
 
+    def test_hook_return_value_becomes_the_result(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        job_id = "test_ondone_returns"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {"raw": 1})), args=(),
+                             on_done=lambda j, r: {"applied": r["raw"] + 1})
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "done" and status["result"] == {"applied": 2}
+        bg.clear_job(job_id)
+
+    def test_cancel_after_the_subprocess_finished_applies_nothing(self, monkeypatch):
+        """A cancel landing between the worker's result and the hook: the
+        hook never runs and the job ends cancelled, not done."""
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        job_id = "test_ondone_late_cancel"
+
+        class CancelOnResultQueue(queue.Queue):
+            def get(self, *a, **k):
+                item = super().get(*a, **k)
+                if item[0] == "ok":
+                    bg.request_cancel(job_id)
+                return item
+
+            def close(self):
+                pass
+        monkeypatch.setattr(bg.multiprocessing, "Queue", CancelOnResultQueue)
+        seen, finished = [], []
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {"v": 1})), args=(),
+                             on_done=lambda j, r: seen.append(j), on_finish=finished.append)
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "cancelled"
+        assert status["message"] == bg.CANCELLED_MESSAGE
+        assert seen == []
+        assert _wait_for(lambda: finished == [job_id])
+        bg.clear_job(job_id)
+
+    def test_finish_hook_runs_on_done_and_on_cancel(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        finished = []
+        bg.clear_job("test_finish_done")
+        bg.start_process_job("test_finish_done", lambda q: q.put(("ok", {})), args=(),
+                             on_finish=finished.append)
+        assert _wait_for_status("test_finish_done", "running")["status"] == "done"
+        assert _wait_for(lambda: finished == ["test_finish_done"])
+        bg.clear_job("test_finish_done")
+
+        _install_fake_process(monkeypatch, alive_forever=True)
+        bg.clear_job("test_finish_cancel")
+        bg.start_process_job("test_finish_cancel", lambda q: None, args=(),
+                             on_finish=finished.append)
+        assert _wait_for(lambda: bg.is_running("test_finish_cancel"))
+        bg.request_cancel("test_finish_cancel")
+        assert _wait_for_status("test_finish_cancel", "running")["status"] == "cancelled"
+        assert _wait_for(lambda: finished == ["test_finish_done", "test_finish_cancel"])
+        bg.clear_job("test_finish_cancel")
+
+    def test_kill_tree_job_cancel_kills_the_whole_tree(self, monkeypatch):
+        instances = _install_fake_process(monkeypatch, alive_forever=True)
+        killed = []
+
+        def fake_kill_tree(proc):
+            killed.append(proc)
+            proc.terminate()
+        monkeypatch.setattr(bg, "_kill_tree", fake_kill_tree)
+        job_id = "test_kill_tree_cancel"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=(), kill_tree=True)
+        assert _wait_for(lambda: bg.is_running(job_id))
+        bg.request_cancel(job_id)
+        assert _wait_for_status(job_id, "running")["status"] == "cancelled"
+        assert killed == [instances[0]]
+        bg.clear_job(job_id)
+
+    def test_a_reported_stage_shows_as_a_no_progress_stage(self, monkeypatch):
+        """report_stage: the parent runs a stage_ticker (no-progress note,
+        longer stall allowance) until the worker's next progress."""
+        release = threading.Event()
+        snapshots = []
+
+        def worker(q):
+            bg.report_stage(q, "Loading the model")
+            release.wait(timeout=2.0)
+            bg.report_progress(q, 0.5, "Working... 50%")
+            q.put(("ok", {}))
+        _install_fake_process(monkeypatch, alive_forever=True)
+        job_id = "test_reported_stage"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=(),
+                             on_done=lambda j, r: snapshots.append(bg.get_status(j)))
+        assert _wait_for(lambda: bg.is_running(job_id))
+        q = bg.get_status(job_id)["process"]._args[-1]
+        threading.Thread(target=worker, args=(q,), daemon=True).start()
+        assert _wait_for(lambda: "Loading the model" in (bg.get_status(job_id)["message"] or ""))
+        status = bg.get_status(job_id)
+        assert bg.stage_ticker.NOTE in status["message"]
+        assert status["can_report_progress"] is False
+        release.set()
+        assert _wait_for(lambda: snapshots)
+        assert snapshots[0]["message"] == "Working... 50%"
+        assert snapshots[0]["can_report_progress"] is True
+        bg.request_cancel(job_id)
+        bg.clear_job(job_id)
+
 
 def _large_result_worker(size_bytes, result_queue):
     """Real, top-level (picklable) worker for TestProcessWatcherLargeResult

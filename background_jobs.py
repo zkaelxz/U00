@@ -769,6 +769,8 @@ def _promote_next_queued_gpu_job():
                     _jobs[job_id]["gpu_touching"], entry["description"],
                     _jobs[job_id].get("owner_user_id"))
                 on_done = entry.get("on_done")
+                on_finish = entry.get("on_finish")
+                kill_tree = entry.get("kill_tree", False)
                 break
             _jobs[job_id]["status"] = "running"
             _jobs[job_id]["message"] = "Starting..."
@@ -781,7 +783,7 @@ def _promote_next_queued_gpu_job():
             proc.start()
             _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                               job_id, proc, result_queue, True, on_done=on_done,
-                              worker_for=job_id)
+                              on_finish=on_finish, kill_tree=kill_tree, worker_for=job_id)
         else:
             _spawn(job_id, target, args, kwargs, gpu_touching=True)
     except Exception as exc:
@@ -939,7 +941,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
 
 
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
-                      description: str = None, on_done=None) -> bool:
+                      description: str = None, on_done=None, on_finish=None,
+                      kill_tree: bool = False) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -958,8 +961,10 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     tuple onto that queue before returning: ("ok", <result...>) or
     ("error", <exception type name>, <message>). It may also send any
     number of intermediate ("progress", <fraction 0-1>, <message>) tuples
-    first (see report_progress()); the watcher applies them to the job's
-    progress/message and they are never mistaken for the final result.
+    first (see report_progress()), and ("stage", <fraction>, <message>)
+    tuples for a stage that cannot report progress (see report_stage());
+    the watcher applies them to the job's progress/message and they are
+    never mistaken for the final result.
 
     Same job_id/queued/gpu_touching semantics as start_job(); returns
     False if job_id is already running or queued.
@@ -971,9 +976,24 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     A process job's result otherwise lives only in this process's memory
     and only Streamlit's render loop persists it -- an API-started job
     passes on_done so it can apply its own result. If on_done raises, the
-    job ends "error" with a redacted message. Not called on error/cancel.
-    Carried through the GPU queue like target/args. Records its starter
-    and refuses during a clean stop like start_job().
+    job ends "error" with a redacted message. Not called on error/cancel,
+    and not called when a cancel arrived after the subprocess finished
+    (the job ends "cancelled" and nothing is applied). A non-None return
+    value becomes the job's result instead of the subprocess's.
+
+    on_finish, if given, is called as on_finish(job_id) in the watcher
+    thread once the subprocess has ended, whatever the outcome (done,
+    error, cancelled, cleared): for removing the run's temp files, which a
+    killed subprocess cannot do itself. Its errors are logged, not raised.
+
+    kill_tree=True: a cancel kills the subprocess and everything it
+    started (_kill_tree) at once, instead of terminate-then-kill on the
+    subprocess alone. On POSIX the target must call
+    start_own_process_group() first so its children share its group.
+
+    on_done/on_finish/kill_tree are carried through the GPU queue like
+    target/args. Records its starter and refuses during a clean stop like
+    start_job().
     """
     owner_user_id = _acting_user_id()
     with _lock:
@@ -996,7 +1016,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
-                                "on_done": on_done})
+                                "on_done": on_done, "on_finish": on_finish,
+                                "kill_tree": kill_tree})
             _note_gpu_wait_reason_locked(job_id)
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
@@ -1005,7 +1026,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         proc.start()
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                           job_id, proc, result_queue, gpu_touching, on_done=on_done,
-                          worker_for=job_id)
+                          on_finish=on_finish, kill_tree=kill_tree, worker_for=job_id)
     except Exception as exc:
         _fail_start(job_id, gpu_touching, exc, proc, result_queue)
         raise
@@ -1044,23 +1065,73 @@ def report_progress(result_queue, frac: float, message: str = ""):
         pass
 
 
-def _apply_progress_item(job_id, item) -> bool:
-    """True if `item` was a ("progress", frac, message) tuple (applied to
-    the job, with the message secret-redacted); False for anything else,
-    which is the worker's final result tuple."""
-    if not (isinstance(item, tuple) and item and item[0] == "progress"):
+def report_stage(result_queue, message: str, frac: float = 0.0):
+    """For a process-job worker: starts a stage that cannot report progress
+    (a model download/load). The parent shows it with a stage_ticker
+    (elapsed time, the no-progress note, the longer stall allowance) until
+    the worker's next progress or stage item; an empty message just ends
+    the stage. Best effort, like report_progress."""
+    try:
+        result_queue.put(("stage", frac, message))
+    except Exception:
+        pass
+
+
+def start_own_process_group():
+    """For a kill_tree=True process-job worker, called first: on POSIX the
+    worker leads a new process group, so a cancel's _kill_tree also reaches
+    the processes it starts (ffmpeg, ffprobe). A no-op on Windows, where
+    _kill_tree walks the process tree instead. Never raises."""
+    if os.name == "nt":
+        return
+    try:
+        os.setsid()
+    except Exception:
+        pass
+
+
+def _apply_progress_item(job_id, item, stage=None) -> bool:
+    """True if `item` was a ("progress", frac, message) or ("stage", frac,
+    message) tuple (applied to the job, with the message secret-redacted);
+    False for anything else, which is the worker's final result tuple.
+    `stage` holds the watcher's running stage_ticker under "ticker": any
+    progress or stage item stops it, a stage item with a message starts a
+    new one."""
+    if not (isinstance(item, tuple) and item and item[0] in ("progress", "stage")):
         return False
     try:
-        _, frac, message = item
+        kind, frac, message = item
         from translate_engines import redact_secrets
-        update_progress(job_id, float(frac), redact_secrets(str(message or "")))
+        message = redact_secrets(str(message or ""))
+        if stage is not None and stage.get("ticker") is not None:
+            stage.pop("ticker").stop()
+        if kind == "progress":
+            update_progress(job_id, float(frac), message)
+        elif message and stage is not None:
+            stage["ticker"] = stage_ticker(job_id, message, frac=float(frac)).start()
     except Exception:
         pass   # malformed progress must never kill the watcher
     return True
 
 
+CANCELLED_MESSAGE = "Cancelled."
+
+
+def _mark_cancelled_locked(job_id):
+    """Caller holds _lock. A process job's subprocess was stopped (or its
+    result dropped) because of a cancel: the record stops saying
+    "Cancelling..."."""
+    if _still_running_locked(job_id):
+        job = _jobs[job_id]
+        job["status"] = "cancelled"
+        job["finished_at"] = time.time()
+        if job.get("cancel_requested"):
+            job["message"] = CANCELLED_MESSAGE
+        _mirror_locked(job_id)
+
+
 def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interval=0.3,
-                     on_done=None):
+                     on_done=None, on_finish=None, kill_tree=False):
     """Runs in this (the main) process, not the child -- a
     multiprocessing.Process can't write back into this process's _jobs
     dict itself (separate memory space), so this polls proc.is_alive()
@@ -1073,6 +1144,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     import applog
     logger = applog.get_logger()
     _timing = _timing_start(job_id, thread_job=False)
+    stage = {}
     try:
         outcome = None
         while True:
@@ -1086,12 +1158,12 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 # for real seconds, and nothing else here should have to wait
                 # on that (another job's update_progress, a UI's get_status).
                 was_cleared = job is None
-                _stop_process(proc)
+                if kill_tree:
+                    _kill_tree(proc)
+                else:
+                    _stop_process(proc)
                 with _lock:
-                    if _still_running_locked(job_id):
-                        _jobs[job_id]["status"] = "cancelled"
-                        _jobs[job_id]["finished_at"] = time.time()
-                        _mirror_locked(job_id)
+                    _mark_cancelled_locked(job_id)
                 logger.info(f"job {job_id} {'cleared' if was_cleared else 'cancelled'} "
                            f"(subprocess terminated)")
                 return
@@ -1111,7 +1183,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             except queue.Empty:
                 item = None
             else:
-                if _apply_progress_item(job_id, item):
+                if _apply_progress_item(job_id, item, stage):
                     continue
                 outcome = item
                 break
@@ -1131,16 +1203,28 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 item = result_queue.get(timeout=1)
             except queue.Empty:
                 break
-            if not _apply_progress_item(job_id, item):
+            if not _apply_progress_item(job_id, item, stage):
                 outcome = item
+        if stage.get("ticker") is not None:
+            stage.pop("ticker").stop()
         hook_error = None
+        result = outcome[1] if outcome and outcome[0] == "ok" else None
         if outcome and outcome[0] == "ok" and on_done is not None:
             with _lock:
                 if job_id not in _jobs:
                     return
+            # A cancel that arrived while the subprocess was finishing: the
+            # job applies nothing.
+            if is_cancel_requested(job_id):
+                with _lock:
+                    _mark_cancelled_locked(job_id)
+                logger.info(f"job {job_id} cancelled (after its subprocess finished)")
+                return
             # Outside the lock: the hook does real DB/file work.
             try:
-                on_done(job_id, outcome[1])
+                returned = on_done(job_id, outcome[1])
+                if returned is not None:
+                    result = returned
             except Exception as exc:
                 from translate_engines import redact_secrets
                 hook_error = redact_secrets(f"{type(exc).__name__}: {exc}")
@@ -1156,7 +1240,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             elif outcome and outcome[0] == "ok":
                 _jobs[job_id]["status"] = "done"
                 _jobs[job_id]["progress"] = 1.0
-                _jobs[job_id]["result"] = outcome[1]
+                _jobs[job_id]["result"] = result
                 _jobs[job_id]["finished_at"] = time.time()
                 logger.info(f"job {job_id} finished")
             elif outcome and outcome[0] == "error":
@@ -1203,6 +1287,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 job["finished_at"] = time.time()
                 _mirror_locked(job_id)
     finally:
+        if stage.get("ticker") is not None:
+            stage.pop("ticker").stop()
         # Reap the child (no zombie) and close the queue's pipe fds.
         try:
             proc.join(timeout=5)
@@ -1215,6 +1301,12 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         _timing_finish(job_id, _timing, thread_job=False)
         _release_gpu_slot(job_id, gpu_touching)
         _promote_next_queued_gpu_job()
+        # Last: removing a large temp folder must not hold the GPU slot.
+        if on_finish is not None:
+            try:
+                on_finish(job_id)
+            except Exception as exc:
+                _warn(f"job {job_id}: its finish hook failed", exc)
 
 
 # A running job whose stage reports progress, but has not reported any for
