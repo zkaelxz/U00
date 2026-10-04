@@ -59,6 +59,34 @@ test('lists saved series, reads a chapter, continues where it left off', async (
   expect(s.unmocked).toEqual([])
 })
 
+// A scroll callback that lands after the user left (the router re-renders a
+// moment after hashchange) must not rewrite the hash back to the reader.
+test('leaving the reader mid-scroll stays on the list', async ({ page }) => {
+  const s = await mockManga(page)
+  await page.addInitScript(() => {
+    const w = window as unknown as { __io: IntersectionObserverCallback[] }
+    const Orig = window.IntersectionObserver
+    w.__io = []
+    window.IntersectionObserver = class extends Orig {
+      constructor(cb: IntersectionObserverCallback, o?: IntersectionObserverInit) {
+        super(cb, o)
+        w.__io.push(cb)
+      }
+    } as typeof IntersectionObserver
+  })
+  await page.goto('/#/manga/MangaK/Test%20Camp/0001%20Chapter%201?page=1')
+  await expect(label(page)).toHaveText('Page 1 of 4')
+  await page.evaluate(() => {
+    const w = window as unknown as { __io: IntersectionObserverCallback[] }
+    window.location.hash = '#/manga'
+    const target = document.querySelector('[data-page="4"]')!
+    w.__io[w.__io.length - 1]([{ isIntersecting: true, target } as unknown as IntersectionObserverEntry], null as never)
+  })
+  await expect(page.getByRole('list', { name: 'Saved series' })).toBeVisible()
+  await expect(page).toHaveURL('/#/manga')
+  expect(s.unmocked).toEqual([])
+})
+
 test('save folder: pick one, go back to the default, open it', async ({ page }) => {
   const s = await mockManga(page, { empty: true })
   await page.goto('/#/manga')

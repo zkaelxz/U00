@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MANGA_DEFAULTS, chapterCount, loadLastRead, loadMangaPrefs, mangaReadHref, mangaSeriesHref, pageInfos,
+  MANGA_DEFAULTS, chapterCount, hashIsReading, loadLastRead, loadMangaPrefs, mangaReadHref, mangaSeriesHref, pageInfos,
   saveLastRead, saveMangaPrefs, seriesTitle,
 } from './mangaLogic'
 
@@ -65,5 +65,14 @@ describe('seriesTitle', () => {
   it('leaves a name without one, or only an id, alone', () => {
     expect(seriesTitle('Test Camp')).toBe('Test Camp')
     expect(seriesTitle('[id]')).toBe('[id]')
+  })
+
+  it('knows whether the address bar still shows a chapter reader', () => {
+    const at = (h: string) => hashIsReading(h, 'MangaK', 'Test Camp', '0001 Chapter 1')
+    expect(at(mangaReadHref('MangaK', 'Test Camp', '0001 Chapter 1', 2))).toBe(true)
+    expect(at(mangaReadHref('MangaK', 'Test Camp', '0001 Chapter 1'))).toBe(true)
+    expect(at('#/manga')).toBe(false)
+    expect(at(mangaSeriesHref('MangaK', 'Test Camp'))).toBe(false)
+    expect(at(mangaReadHref('MangaK', 'Test Camp', '0002 Chapter 2', 1))).toBe(false)
   })
 })

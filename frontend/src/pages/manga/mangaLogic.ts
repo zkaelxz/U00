@@ -5,7 +5,7 @@
 
 import type { StorageLike } from '../../components/sectionStorage'
 import { readPref, writePref } from '../../hooks/usePersistedState'
-import { routeHref } from '../../router'
+import { parseRoute, routeHref } from '../../router'
 import type { ComicPageInfo } from '../../types/comic'
 import type { SavedPage } from '../../types/savedComics'
 import { sanitizePrefs, type ComicPrefs } from '../comic/comicLogic'
@@ -60,4 +60,15 @@ export function pageInfos(pages: SavedPage[]): ComicPageInfo[] {
 
 export function chapterCount(n: number): string {
   return `${n} chapter${n === 1 ? '' : 's'}`
+}
+
+/**
+ * True while the address bar still shows this chapter's reader. A late scroll
+ * or effect callback may only rewrite the hash then: after hashchange the
+ * router re-renders asynchronously, and a replace in that gap would pull the
+ * user back from the page they just left.
+ */
+export function hashIsReading(hash: string, source: string, series: string, chapter: string): boolean {
+  const r = parseRoute(hash)
+  return r.name === 'manga-read' && r.source === source && r.series === series && r.chapter === chapter
 }
