@@ -467,6 +467,8 @@ class TranscribeConfig(BaseModel):
     asr_backend_choice: str
     whisper_size: str
     whisper_model_cached: bool
+    # Audio seconds per second of work on the last finished run of this model and device.
+    measured_speed: Optional[float] = None
     # False when faster-whisper isn't installed, so a run can't start.
     whisper_installed: bool = True
     beam_size: int

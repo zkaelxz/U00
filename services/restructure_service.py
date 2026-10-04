@@ -687,7 +687,7 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
         _commit(drama_id, current, new_lines, "before re-split")
         reassigned = False
         if diarize.load_turns(db.drama_dir(drama_id)) is not None:
-            diarization_service.reassign_speakers_from_saved_turns(drama_id)
+            diarization_service.relabel_from_saved_turns(drama_id)
             reassigned = True
     return {"split_lines": split, "line_count": len(new_lines), "lines_before": len(current),
             "timing": timing, "aligned_lines": aligned, "cleared_translations": cleared,

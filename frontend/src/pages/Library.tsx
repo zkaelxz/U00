@@ -31,6 +31,8 @@ import {
   MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice,
   validateCreate, type CreateExtras,
 } from './libraryForm'
+import { GetStarted } from './libraryParity/GetStarted'
+import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
   autofillHref, countsLine, usageLine,
 } from './libraryParity/libraryParity'
@@ -255,6 +257,7 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
+  const [startedDismissed, setStartedDismissed] = usePersistedState(GET_STARTED_PREF, false)
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
   const recent = useLoad(getRecent, reloadKey)
@@ -343,6 +346,10 @@ export default function LibraryPage() {
           <span>{notice}</span>
           {dismiss(() => setNotice(null))}
         </p>
+      )}
+
+      {showGetStarted(stats.data?.total_dramas, startedDismissed) && (
+        <GetStarted pc={pc} onNew={() => setCreating(true)} onDismiss={() => setStartedDismissed(true)} />
       )}
 
       <ContinueShelf continuing={continuing} recent={recent} mediaTypes={mediaTypes} phone={phone} />
