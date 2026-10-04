@@ -85,8 +85,7 @@ for the folder the previous install already used.
 `db.LIBRARY_DIR`, `dictionary.CEDICT_PATH` and `settings_service`'s `.env` path
 come from `data_dir()`. The app log already follows `db.LIBRARY_DIR`.
 For an installed copy, `activate_portable_mode()` also points `HF_HOME`,
-`TORCH_HOME` and `BAIHE_AUDIO_SEP_MODEL_DIR` at `<data>\model_cache\…`
-, always via `setdefault`, so a user's own `HF_HOME` wins.
+`TORCH_HOME` and `BAIHE_AUDIO_SEP_MODEL_DIR` at `<data>\model_cache\…`, always via `setdefault`, so a user's own `HF_HOME` wins.
 Portable mode (the `PORTABLE` marker) is unchanged.
 
 **Keys stay on the PC.** The payload never contains a `.env` (see §3). Keys
