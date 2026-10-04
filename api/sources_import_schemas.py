@@ -1,5 +1,5 @@
 """
-api/sources_import_schemas.py -- response models for the Step 107 import
+api/sources_import_schemas.py -- response models for the import
 state route (GET /api/sources/{name}/import-state). Text is scrubbed by
 the service; no URL field exists on any model.
 """

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { openFillIn } from './source-groups'
 
-// Auto-fill and Analyze media: the Slice 37 endpoints are mocked (no LLM,
+// Auto-fill and Analyze media: the metadata endpoints are mocked (no LLM,
 // no ffprobe); the drama read and its refetch hit the real seeded API.
 
 test('auto-fill suggests, never pre-ticks a field that would overwrite, applies only the ticked ones', async ({ page }) => {

@@ -1,6 +1,6 @@
 """
 api/model_reeval_schemas.py -- request/response models for scheduled model
-re-evaluation and promotion (api/routers/model_reeval_routes.py, Step 40b).
+re-evaluation and promotion (api/routers/model_reeval_routes.py).
 No key field exists on any model.
 """
 

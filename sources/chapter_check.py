@@ -1,6 +1,6 @@
 """
 sources/chapter_check.py -- scheduled checks for new chapters on tracked
-series (Step 23 item 5), the same simple shape as Mihon's library update:
+series, the same simple shape as Mihon's library update:
 re-fetch each tracked title's chapter list, diff by chapter id against
 what's already known, and tell the person about anything new.
 
@@ -38,7 +38,7 @@ def check_series(adapter, row: dict) -> list:
     """Returns the ChapterInfo list of chapters that are new since the last
     check, and records them (known + a notification each).
 
-    Step 106: the chapter list is fetched as a conditional re-poll. When
+    The chapter list is fetched as a conditional re-poll. When
     the last poll was one plain GET that returned an ETag or Last-Modified,
     this poll sends them back; a 304 means nothing changed, so the list is
     neither downloaded nor parsed."""

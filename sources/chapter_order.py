@@ -1,6 +1,6 @@
 """
 sources/chapter_order.py -- sorting chapter lists the way a reader
-expects (Step 23 item 12).
+expects.
 
 "Chapter 1, 2, 10" -- not "1, 10, 2". Understands CJK chapter markers
 (第1章 / 第十章 / 第001話 / 제3화), full-width digits, fractional

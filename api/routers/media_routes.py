@@ -1,9 +1,8 @@
 """
-api/routers/media_routes.py -- audio/video upload (Slice 31), Range playback (Slice 52) and
-the PC-only URL download (yt-dlp; services/url_media_service.py) for one drama (Migration
-Slice 31). Multipart body; see services/media_upload_service.py for the
+api/routers/media_routes.py -- audio/video upload, Range playback and
+the PC-only URL download (yt-dlp; services/url_media_service.py) for one drama. Multipart body; see services/media_upload_service.py for the
 filename/size/atomic-write rules. Returns name, size, kind and, for a
-video, the job_id of the background audio extraction (B-09).
+video, the job_id of the background audio extraction.
 """
 
 import os

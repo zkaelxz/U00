@@ -1,5 +1,5 @@
 """
-sources/adapters/toonkor.py -- 툰코 ToonKor (ko manhwa), roadmap Step 23h.
+sources/adapters/toonkor.py -- 툰코 ToonKor (ko manhwa).
 
 Technique read from Keiyoushi's actively maintained Mihon extension
 (keiyoushi/extensions-source, src/ko/toonkor, Apache-2.0) and

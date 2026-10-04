@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { ANSWER, mockAssistant } from './assistantMocks'
 import { gearLink, openGear, openSettingsGroups } from './settingsNav'
 
-// Desktop: the Maintenance assistant (Step 42). Every /api/assistant call is mocked.
+// Desktop: the Maintenance assistant. Every /api/assistant call is mocked.
 
 const SHOTS = '/tmp/claude-0/-home-user-U00/780be93c-8b60-5332-b9fb-fd0d9036666f/scratchpad/shots'
 

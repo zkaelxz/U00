@@ -1,4 +1,4 @@
-// Step 99 "Try with a stronger engine": pure helpers for StrongerEngine.tsx.
+// "Try with a stronger engine": pure helpers for StrongerEngine.tsx.
 // Suggest only (user decision 2026-09-29): nothing here calls an engine.
 import { ApiError } from '../../../../api/client'
 import { safeDetail } from '../../../../components/errorMessages'

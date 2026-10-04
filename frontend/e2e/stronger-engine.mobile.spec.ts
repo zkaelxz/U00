@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 // Phone project (390x844, touch): the stronger-engine offer and its result
-// fit the width with 44px targets (Step 99). The try is mocked.
+// fit the width with 44px targets. The try is mocked.
 
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')

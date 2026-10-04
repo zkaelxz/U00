@@ -1,6 +1,5 @@
 """
-sources/adapters/bilibili.py -- Bilibili as a real VideoSource adapter
-(Step 23d).
+sources/adapters/bilibili.py -- Bilibili as a real VideoSource adapter.
 
 Built on yt-dlp's own maintained Bilibili extractor as the extraction
 backend, not a hand-rolled scraper against Bilibili's private API/signing
@@ -151,7 +150,7 @@ class BilibiliSource(SourceAdapter):
     content_types = [ContentType.VIDEO.value]
     languages = ["zh"]
     url_patterns = _URL_PATTERNS
-    auth_supported = True  # cookie-based, reusing Step 9b's planned mechanism (item 6)
+    auth_supported = True  # cookie-based
 
     def __init__(self, client=None, ydl_factory=None, url_resolver=None, sleep=time.sleep,
                 **client_kwargs):
@@ -183,7 +182,7 @@ class BilibiliSource(SourceAdapter):
         url = (url or "").strip()
         if host_url_search([r"b23\.tv/"], url):
             url = self._url_resolver(url)
-            # B-25: the short link may redirect anywhere; only a real
+            # The short link may redirect anywhere; only a real
             # bilibili video/bangumi URL may reach yt-dlp.
             if not host_url_search(_URL_PATTERNS[:2], url or ""):
                 raise BilibiliDownloadError(

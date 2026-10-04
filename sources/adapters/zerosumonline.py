@@ -1,13 +1,13 @@
 """
 sources/adapters/zerosumonline.py -- Zero-Sum Online (zerosumonline.com,
-Ichijinsha, ja manga), roadmap Step 23l.
+Ichijinsha, ja manga).
 
 **A genuine protocol-level obstacle, not another HTML site.** Confirmed
 against the real, actively-maintained Keiyoushi extension
 (keiyoushi/extensions-source, src/ja/zerosumonline, class `ZerosumOnline`,
 Apache-2.0): this site's content API returns **Protocol Buffers, not
 JSON** (`parseAsProto<TitleListView>()` / `parseAsProto<ViewerView>()`).
-No generic HTML scraper or LLM-on-rendered-DOM step (Step 23g's adaptive
+No generic HTML scraper or LLM-on-rendered-DOM step (the adaptive
 pipeline) can read this -- something has to own the wire-format decode,
 which is exactly the "genuine protocol-level obstacle" the roadmap
 carved this step out for.

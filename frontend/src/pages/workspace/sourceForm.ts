@@ -52,7 +52,7 @@ interface ParsedSpeakerHints {
 }
 
 // Exact count (0-20, blank or 0 = auto) or a min/max range (each 1-20,
-// either may be blank), mirroring diarize.validate_speaker_hints (Step 105).
+// either may be blank), mirroring diarize.validate_speaker_hints.
 // Returns the parsed hints, or a plain-English problem string.
 export function parseSpeakerHints(expectedRaw: string, minRaw: string, maxRaw: string): ParsedSpeakerHints | string {
   const expected = parseExpectedSpeakers(expectedRaw)
@@ -131,7 +131,7 @@ interface SourceFormState {
   transcriptText: string
   runDiarize: boolean
   speakers: string
-  // Speaker-count range for "Detect speakers only" (Step 105).
+  // Speaker-count range for "Detect speakers only".
   minSpeakers?: string
   maxSpeakers?: string
   // Extra names added to the automatic Whisper prompt.

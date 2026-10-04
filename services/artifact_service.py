@@ -1,6 +1,5 @@
 """
-services/artifact_service.py -- job-output file convention and safe lookup
-(Migration Slice 28).
+services/artifact_service.py -- job-output file convention and safe lookup.
 
 Convention: a job that produces a downloadable file writes it to
 `<drama folder>/exports/<kind>/<filename>` (get it from `output_path`,

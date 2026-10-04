@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { openFillIn } from './source-groups'
 
-// "Research online" (Step 37): the grounded-research endpoints are mocked
+// "Research online": the grounded-research endpoints are mocked
 // (no Gemini, no network); the drama read hits the real seeded API.
 
 const budget = {
