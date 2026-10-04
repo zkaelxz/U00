@@ -1,5 +1,5 @@
 // Pure form logic for the Translate stage (no React), so it can be unit
-// tested. Ranges mirror api/schemas.py TranslateRunStart.
+// tested. Ranges mirror api/schemas/translate.py TranslateRunStart.
 
 import type {
   EstimateParams,
@@ -256,8 +256,7 @@ export function splitLines(raw: string): string[] {
   return [...new Set(raw.split('\n').map((s) => s.trim()).filter(Boolean))]
 }
 
-// Parity X02: fill the form from an applied workflow tier, the way Streamlit's
-// apply_workflow_tier set the engine, model and Reflect widgets. The engine is
+// Fill the form from an applied workflow tier (engine, model and Reflect). The engine is
 // set explicitly (the drama's saved engine changed on the server, so the
 // loaded config's default is stale). A model the engine doesn't list falls
 // back to the engine default. Bulk is kept only if it still fits; nothing else
@@ -279,8 +278,7 @@ export function withSavedEngine(c: TranslateRunConfig, t: WorkflowTierApplied): 
   return c.translation_engine === t.translation_engine ? c : { ...c, translation_engine: t.translation_engine }
 }
 
-// Parity X03: fill the form from an applied preset, the way Streamlit's
-// apply_preset_to_session set the style/locale/toggle widgets. With an engine
+// Fill the form from an applied preset (style, locale and toggles). With an engine
 // the preset's engine is set explicitly (the drama's saved engine changed on
 // the server) and its model is kept only if that engine lists it; without
 // one the engine and model stay as they are. Values this server no longer
@@ -317,10 +315,10 @@ export function withPresetEngine(c: TranslateRunConfig, p: TranslatePresetApplie
   return !e || c.translation_engine === e ? c : { ...c, translation_engine: e }
 }
 
-// Parity X24: warn that Ollama can't be reached, only when the engine in use
+// Warn that Ollama can't be reached, only when the engine in use
 // is Ollama and the server actually checked and got no answer. null/undefined
 // means not checked (the drama's saved engine isn't Ollama), so no warning.
-// A warning only: unlike Streamlit, Translate stays enabled.
+// A warning only: Translate stays enabled, so the server's own error is the final word.
 export function ollamaWarning(effEngine: string, reachable: boolean | null | undefined): boolean {
   return effEngine === 'ollama' && reachable === false
 }
@@ -339,7 +337,7 @@ export function validatePresetName(name: string): string | null {
   return null
 }
 
-// Parity X22: the same fields Streamlit's "Save as preset" captured (engine,
+// The fields "Save as preset" captures (engine,
 // model, style, locale, the she/her and genre toggles). A blank model means
 // the engine default and is saved as null.
 export function buildPresetBody(
@@ -360,7 +358,7 @@ export function buildPresetBody(
   }
 }
 
-// X01: Streamlit's notice for the last run's failed batches. Line numbers
+// The notice for the last run's failed batches. Line numbers
 // are 1-based and de-duplicated; tolerant of a malformed stored record
 // (the API passes the stored JSON through as-is).
 interface FailedBatches {

@@ -70,22 +70,28 @@ test('an unnamed 422 shows the server sentence in the banner', async ({ page }) 
   await expect(page.locator('.error-banner')).toContainText('Unknown source_language.')
 })
 
-test('the language is always in view; model, speakers and advanced start folded under More options', async ({ page }) => {
+test('the language and Whisper model are always in view; speakers and advanced start folded', async ({ page }) => {
   await page.goto('/#/drama/1/source')
   const card = page.getByRole('region', { name: 'Transcribe' })
   await expect(page.getByTestId('settings-summary')).toBeVisible()
   await expect(card.getByLabel('Source language', { exact: true })).toBeVisible()
-  await expect(card.getByLabel('Whisper model', { exact: true })).toBeHidden()
-  await shot(page, 'transcribe-folded-desktop')
-  await page.locator('.section-title', { hasText: /^More options$/ }).click()
   await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
+  await expect(card.getByLabel('Expected speakers', { exact: true })).toBeHidden()
+  await expect(card.getByLabel('Beam size', { exact: true })).toBeHidden()
+  await expect(card.locator('.section-title', { hasText: /^More options$/ })).toHaveCount(0)
+  await expect(card.getByRole('heading', { name: 'Transcribe' })).toHaveCount(0)
+  await shot(page, 'transcribe-folded-desktop')
+  await card.locator('.section-title', { hasText: /^Speakers$/ }).click()
+  await expect(card.getByLabel('Expected speakers', { exact: true })).toBeVisible()
   // Remembered: still open after a reload. Section saves the state in its toggle
   // handler, which runs after the open attribute changes, so wait for the save.
   await expect
-    .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.source.transcribe')))
+    .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.source.speakers')))
     .toBe('1')
   await page.reload()
-  await expect(card.getByLabel('Whisper model', { exact: true })).toBeVisible()
+  await expect(card.getByLabel('Expected speakers', { exact: true })).toBeVisible()
+  // Speakers and Advanced are siblings: opening one does not open the other.
+  await expect(card.getByLabel('Beam size', { exact: true })).toBeHidden()
 })
 
 test('"Still needed" is a callout with its fix button', async ({ page }) => {

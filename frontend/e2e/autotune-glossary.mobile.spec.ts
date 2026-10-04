@@ -41,7 +41,6 @@ async function expectTall(loc: Locator) {
 
 async function openSection(page: Page, title: string) {
   await openFoldFor(page, title)
-  // Some sections now start open; click only a closed one, as a user would.
   if (['Advanced', 'Speakers', 'Auto-tune min silence'].includes(title)) await openTranscribeOptions(page)
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()

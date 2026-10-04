@@ -1,19 +1,20 @@
 """
-services/diagnostics_gaps_service.py -- the parts of the Streamlit
-Diagnostics tab that services/diagnostics_service.py's read-only overview
-does not cover yet: setup checks (as check_setup.py reports them), model
+services/diagnostics_gaps_service.py -- the Diagnostics features
+services/diagnostics_service.py's read-only overview does not cover: setup
+checks (as check_setup.py reports them), model
 versions, model-cache listing, pyannote/HF-token readiness, finished-job
 history, a shareable support report, a capped log tail, and thin
 confirm-gated wrappers over the admin actions that already exist as
 non-UI functions (dependency install/upgrade, library reset).
 
-No Streamlit import, no HTTP types. Every string that could carry a
+No HTTP types. Every string that could carry a
 secret, a token, the OS username or a local path goes through
 diagnostics.redact_for_support (which applies
 translate_engines.redact_secrets first); nothing here returns a path.
 
-Not ported (Streamlit-only by decision): accuracy benchmark, App Assistant,
-and the source-access tests.
+The benchmark, the maintenance assistant and the source-access tests have
+their own services (benchmark_lab_service, maintenance_assistant_service,
+sources_signin_service).
 """
 
 import os
@@ -260,8 +261,9 @@ class AdminActionNotPossible(AdminActionRefused, InvalidInputError):
 
 
 def _maintenance_active() -> bool:
-    # background_jobs has no public reader for the counter that
-    # enter_maintenance()/exit_maintenance() keep.
+    # Reads the counter enter_maintenance()/exit_maintenance() keep without
+    # background_jobs' lock; background_jobs.maintenance_active() is the
+    # locked reader.
     return bool(getattr(background_jobs, "_maintenance_count", 0))
 
 
@@ -859,10 +861,9 @@ def get_install_presets() -> dict:
 
 
 def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
-    """Irreversible. Unlike the Streamlit button it does not cancel
-    running jobs; it refuses instead, so a caller must stop them first.
-    `confirm_text`, when given (the API always gives it), must be exactly
-    "RESET", the word the Streamlit button made the user type."""
+    """Irreversible. It does not cancel running jobs; it refuses instead,
+    so a caller must stop them first. `confirm_text`, when given (the API
+    always gives it), must be exactly "RESET"."""
     if confirm_text is not None and confirm_text != RESET_CONFIRM_TEXT:
         raise AdminActionUnconfirmed(
             f'Resetting the library needs confirm=true and confirm_text "{RESET_CONFIRM_TEXT}".')

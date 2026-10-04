@@ -1,7 +1,7 @@
 """
 cli.py -- headless batch driver. Runs align + translate (+ optionally
 dub) across your whole library, or a filtered subset, without opening
-the Streamlit GUI. Meant for unattended overnight/background runs
+the web app. Meant for unattended overnight/background runs
 across 50-100+ dramas.
 
 Reliability: every per-drama step in a batch is isolated -- if one
@@ -32,7 +32,7 @@ Examples:
 """
 
 # Must run before any other import in this file -- see portable.py's own
-# docstring (app.py does the same, as the literal first thing it does).
+# docstring (api/__main__.py does the same, before its other imports).
 import portable
 portable.activate_portable_mode()
 
@@ -94,7 +94,7 @@ def _replace_drama_lines(drama_id: int, lines, snapshot_label: str) -> bool:
         return False
     background_jobs.cancel_line_jobs(drama_id)
     # cancel_line_jobs only sees this process's in-memory jobs; flag the
-    # cross-process job_records rows too, so a Streamlit/API job running
+    # cross-process job_records rows too, so an API job running
     # on this drama notices the cancel. (Only queued/running rows change.)
     for prefix in background_jobs.LINE_WRITING_JOB_PREFIXES:
         db.request_job_record_cancel(f"{prefix}{drama_id}")
@@ -219,8 +219,8 @@ def cmd_narrate_prep(args):
 
 
 def _resolve_export_options(args):
-    """(mode, preset) for export-video. --style used to mean hardsub/softsub;
-    those two values still work there, anything else is an ASS preset name."""
+    """(mode, preset) for export-video. --style accepts hardsub/softsub for
+    backward compatibility; anything else is an ASS preset name."""
     mode = getattr(args, "mode", None)
     style = getattr(args, "style", None)
     if style in ("hardsub", "softsub"):
@@ -450,15 +450,11 @@ def cmd_align(args):
             print(f"#{d['id']} skipped: no transcript. Pass --transcript FILE (or - for stdin), "
                   f"or place your Chinese transcript at {transcript_path}")
             return
-        # UI parity (Step 25d item 10): this command used to always use
-        # args.whisper_size (or its own hardcoded default), plain
-        # character-diff alignment, and no recognition priming at all --
-        # ignoring the drama's own saved Whisper size / alignment method
-        # (Workspace's own "3. Recognition accuracy" section) and its
-        # series glossary. (asr_backend_choice, the other setting in that
-        # same section, only affects transcripts with no user-supplied
-        # script -- this command always requires transcript.txt, so it
-        # never applies here and there's nothing to read for it.)
+        # UI parity: use the drama's saved Whisper size and alignment
+        # method plus its series glossary for recognition priming, as the
+        # app does. (asr_backend_choice is not read: it only affects
+        # transcripts with no user-supplied script, and this command always
+        # requires transcript.txt.)
         whisper_size = args.whisper_size or transcribe_service.stored_whisper_size(d)
         alignment_method = d.get("alignment_method") or "whisper_diff"
         if alignment_method == "qwen3_forced_align":

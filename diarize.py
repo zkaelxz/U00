@@ -11,8 +11,7 @@ lines can be grouped by character. Uses pyannote.audio, which needs:
 
 This requires internet access on YOUR machine (to download the model
 the first time) and works better with a GPU, but runs on CPU too --
-just slower. Not run inside this sandbox since it has no network; the
-code is here for you to run locally.
+just slower.
 
 pyannote.audio 4.x needs Python 3.10+. Its pipeline(audio) call also
 returns a different result type than 3.x -- see the getattr() in
@@ -300,7 +299,7 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
     couldn't cross the process boundary at all.
 
     Called as (audio_path, hf_token, num_speakers, result_queue) -- the
-    original shape, still used by the frozen Streamlit tab -- or as
+    original shape, still accepted -- or as
     (audio_path, hf_token, num_speakers, options, result_queue), where
     options is a plain dict with any of use_gpu/min_speakers/max_speakers
     (Steps 101/105). The result also carries "device", the device the
@@ -335,9 +334,8 @@ def extract_speaker_embeddings(result, annotation) -> dict:
     suggestions, never something a diarization run itself should fail
     over just because embeddings couldn't be read out.
 
-    NOT verified against a real pyannote 4 install -- this sandbox has no
-    network (see this module's own top-of-file docstring), so this is
-    written directly against pyannote's documented DiarizeOutput shape:
+    Written directly against pyannote's documented DiarizeOutput shape
+    rather than checked against a real pyannote 4 install:
     speaker_embeddings is one row per speaker, in the same order
     annotation.labels() returns them in. Confirm this against a real run
     before relying on it.
@@ -386,8 +384,7 @@ def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
               embeddings: dict = None, min_speakers: int = None, max_speakers: int = None,
               device: str = None) -> str:
     """Stores pyannote's output next to the drama, so speakers can be
-    re-merged (or voice clips extracted) later without re-running it --
-    it used to live only in st.session_state and vanish on a refresh.
+    re-merged (or voice clips extracted) later without re-running it.
     Replaced on each detection run; it's the current result, not history.
 
     embeddings: Step 8's optional {speaker_label: [float, ...]} voice

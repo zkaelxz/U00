@@ -1,22 +1,12 @@
 """
 services/transcribe_service.py -- the Transcript-stage action for one
-drama: the real trigger/apply logic that (despite the tab's name) lives
-inside `tabs/workspace_tab.py`'s `with tab_translate:` block, not
-`with tab_transcript:` (which holds only settings widgets). Shared by the
-FastAPI /api/transcribe routes (a later integration step, not this file)
-and that Streamlit block's own "Transcribe & Align" / "Transcribe with
-Whisper" button (`run_prep`, `workspace_tab.py:3005`, handled at
-`3154-3234` and applied at `3304-3497`).
+drama, for the /api/transcribe routes (api/routers/transcribe_routes.py)
+and media_upload_service's upload-and-transcribe.
 
-Migration Slice 20 (Phase 6's third Workspace stage), built on Slice 19's
-Source-stage config. A migration-architect scoping pass on this stage
-found a real problem this slice had to solve, not just port: today's
-"apply the finished job's result to the drama's lines" step runs as a
-side effect of Streamlit's own render loop the next time it reruns while
-the job shows "done" -- there's no clean way to expose that over a
-stateless API. The user's resolved decision (2026-09-28): the background
-job itself does the whole pipeline (ASR, alignment, the DB write, and the
-optional diarization chain-start) and reports a single "done" outcome a
+Applying a finished result can't depend on a client coming back for it
+over a stateless API. The user's resolved decision (2026-09-28): the
+background job itself does the whole pipeline (ASR, alignment, the DB
+write, and the optional diarization chain-start) and reports a single "done" outcome a
 client can poll for via the existing GET /api/jobs/{id} -- no separate
 "apply" call, and no risk of "job succeeded but nothing was saved" if a
 client never follows up.
@@ -27,9 +17,8 @@ subtitles (the OCR cues already carry real per-cue timing, so unlike
 Whisper's own text there's no separate alignment step -- same reasoning
 as run_hardsub_ocr_job's own docstring).
 
-Migration Slice 34 makes the run honour the two experimental Qwen3 choices
-exactly as the Streamlit apply block does: asr_backend_choice ==
-"qwen3_asr" (whisper transcript_mode) re-transcribes Whisper's VAD segments
+Migration Slice 34 makes the run honour the two experimental Qwen3 choices:
+asr_backend_choice == "qwen3_asr" (whisper transcript_mode) re-transcribes Whisper's VAD segments
 with asr_backend.Qwen3ASRBackend, replacing only the text; alignment_method
 == "qwen3_forced_align" (have_transcript mode) aligns the supplied
 transcript with forced_align.align_with_qwen3. Built with mocks only -- the
@@ -38,26 +27,19 @@ transcript, so requesting it in Whisper-text-only mode is an
 InvalidInputError; a missing qwen-asr/torch package is a
 DependencyUnavailableError, both raised at start (not inside the job).
 
-Deliberately out of scope for this slice (each a real, separately
-buildable follow-up, not an oversight):
-  - The `chunk_and_tag` novel_narration path -- now Slice 33, see
-    services/narration_service.py (a job-does-everything background job).
-  - Audio/video upload (per Slice 19 -- unchanged: this slice still
-    requires audio already on disk, i.e. source_service's
-    audio_available == True).
+The `chunk_and_tag` novel_narration path is services/narration_service.py.
+A run needs its media already on disk; upload is media_upload_service.
 
 Auto-tune (Step 6h's "🪄 Auto-tune" speech-splitting sensitivity) is a
 separate action, not chained off the transcribe run: start_autotune_run
 re-transcribes the drama's audio once per candidate min_silence_ms in ONE
-process job (so Cancel terminates it mid-decode, as the tab's per-candidate
-process jobs do) and scores each with score_autotune_segments (moved here
-from the tab, which imports it back). Nothing is applied by the job itself
-(the tab never auto-applies either); apply_autotune_candidate writes only
-the drama's own min_silence_ms column (db.update_drama, one field), and
+process job (so Cancel terminates it mid-decode) and scores each with
+score_autotune_segments. Nothing is applied by the job itself;
+apply_autotune_candidate writes only the drama's own min_silence_ms column (db.update_drama, one field), and
 only for a candidate the finished job actually measured. No paid engine is
 used (PAID_ENGINE_FUNCTIONS is empty): the run is local ASR.
 
-No Streamlit or FastAPI import: plain functions, plain dicts in, plain
+No FastAPI import: plain functions, plain dicts in, plain
 values out. The one exception to "plain dicts" is start_transcribe_run,
 which starts a real background job. Audio transcription runs in its own
 process (background_jobs.start_process_job, _transcribe_worker) so Cancel
@@ -93,11 +75,7 @@ from translate_engines import redact_secrets
 # Auto-tune functions that may spend on a paid engine: none (local ASR only).
 PAID_ENGINE_FUNCTIONS = ()
 
-# Matches the Streamlit widgets' own hardcoded defaults exactly (see
-# tabs/workspace_tab.py: beam_size slider ~2184, min_silence_ms slider
-# ~2189 default 300, vad_threshold slider ~2203 default 0.5,
-# separate_vocals_first/realign_long_segments/whisper_fast_mode/use_groq
-# checkboxes default False, separation_backend selectbox default "auto").
+# The per-drama tuning values used when the drama has none stored.
 _DEFAULT_TUNING = {
     "whisper_size": core_module.DEFAULT_WHISPER_SIZE,
     "beam_size": 5,
@@ -279,8 +257,8 @@ def _drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
 
 
 def _drama_video_path(drama_id: int, drama: dict) -> Optional[str]:
-    """Mirrors tab_source's own video-source check (source_service.
-    get_source_config's has_video_source) -- source_video_filename set,
+    """Same video-source check as source_service.get_source_config's
+    has_video_source -- source_video_filename set,
     no existence check on disk (matching source_service, which also only
     checks presence of the filename for video, unlike audio)."""
     video_filename = drama.get("source_video_filename")
@@ -290,15 +268,14 @@ def _drama_video_path(drama_id: int, drama: dict) -> Optional[str]:
 
 
 def _default_hardsub_backend(source_language: str) -> str:
-    """Mirrors tab_transcript's own selectbox default (workspace_tab.py
-    ~1855-1858): PaddleOCR for Chinese (confirmed more accurate on
+    """PaddleOCR for Chinese (confirmed more accurate on
     stylized/small captions), Tesseract otherwise."""
     return "paddle" if source_language == "zh" else "tesseract"
 
 
 def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
-    """Whisper's automatic initial_prompt for one drama, built the way the
-    Streamlit Transcript stage builds it: the series glossary's names
+    """Whisper's automatic initial_prompt for one drama: the series
+    glossary's names
     (core.build_initial_prompt) and any extra_names the user typed, joined
     with "、" and ended with "。"; then, when the drama has a
     raw_novel_context.txt, a bounded novel excerpt merged in names-first and
@@ -336,8 +313,8 @@ def get_transcribe_config(drama_id: int) -> dict:
     """Read-only Transcript-stage summary for one drama: which action the
     "Transcribe & Align" button would run (from Slice 19's transcript_mode),
     whether its Whisper model is already downloaded, and every tuning knob
-    with its current per-drama value (falling back to the same defaults the
-    Streamlit widgets use). Raises NotFoundError for an unknown drama id."""
+    with its current per-drama value (falling back to _DEFAULT_TUNING).
+    Raises NotFoundError for an unknown drama id."""
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
@@ -400,7 +377,7 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
             raise InvalidInputError(f"Unknown alignment_method {fields['alignment_method']!r}.")
         updates["alignment_method"] = fields["alignment_method"]
     if "asr_backend_choice" in fields and fields["asr_backend_choice"] is not None:
-        if fields["asr_backend_choice"] not in ("whisper", "qwen3_asr", "moss_td"):
+        if fields["asr_backend_choice"] not in ("whisper", "qwen3_asr", "qwen3_asr_vad", "moss_td"):
             raise InvalidInputError(f"Unknown asr_backend_choice {fields['asr_backend_choice']!r}.")
         # Only a change TO moss_td needs the toggle: the form re-sends the
         # stored value with every save, and a run start checks it again.
@@ -471,6 +448,15 @@ def _require_moss_backend() -> None:
             "(OpenMOSS/MOSS-Transcribe-Diarize), not from pip's index, and needs Transformers 5.")
 
 
+def _require_vad_packages() -> None:
+    """The speech-detection Qwen3 backend needs faster-whisper (it bundles the
+    Silero VAD and decodes the audio for it)."""
+    if importlib.util.find_spec("faster_whisper") is None:
+        raise DependencyUnavailableError(
+            "Qwen3 ASR with speech detection needs faster-whisper, which isn't installed. "
+            "Install it with: pip install faster-whisper")
+
+
 def require_qwen3_packages(feature: str) -> None:
     """Raises DependencyUnavailableError naming the missing package(s) and the
     pip line (qwen-asr's own Diagnostics entry: diagnostics.MODEL_ENGINE_REGISTRY)
@@ -499,8 +485,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     done, inside the same job -- applies the result to the drama's lines
     and optionally chain-starts a diarization run. Poll status via the
     existing GET /api/jobs/{job_id}; once "done", the DB write has already
-    happened (see this module's own docstring for why, vs. the Streamlit
-    tab's render-loop-apply approach).
+    happened (see this module's own docstring for why).
 
     source_language / chinese_script default to this drama's own stored
     values (Slice 19) when omitted. initial_prompt is an optional
@@ -551,12 +536,11 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     transcript_mode = drama.get("transcript_mode") or "have_transcript"
 
     # Resolved independently of transcript_mode: a hardsub_ocr drama
-    # commonly also has real audio on disk (the video-upload flow extracts
-    # one alongside saving the video, tabs/workspace_tab.py:3160-3169), and
-    # diarization always needs actual audio regardless of where the
-    # transcript text itself came from -- Streamlit's own apply block
-    # diarizes off this same drama-level audio unconditionally, for every
-    # transcript_mode including hardsub_ocr (workspace_tab.py:3334, 3489).
+    # commonly also has real audio on disk (the video upload extracts one
+    # alongside saving the video), and diarization always needs actual audio
+    # regardless of where the transcript text itself came from, so it
+    # diarizes off this drama-level audio for every transcript_mode,
+    # hardsub_ocr included.
     diarize_audio_path = _drama_audio_path(drama_id, drama)
 
     audio_path = None
@@ -583,6 +567,9 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                 "to 'whisper_diff'.")
         if asr_backend_choice == "qwen3_asr":
             require_qwen3_packages("Qwen3-ASR")
+        elif asr_backend_choice == "qwen3_asr_vad":
+            require_qwen3_packages("Qwen3-ASR")
+            _require_vad_packages()
         elif asr_backend_choice == "moss_td":
             _require_moss_backend()
     elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
@@ -632,7 +619,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       bool(drama.get("whisper_fast_mode")), bool(drama.get("use_groq")), prompt,
                       use_gpu, asr_backend_choice, alignment_method,
                       settings_service.get_whisper_model_path(),
-                      asr_options_service.get_qwen_asr_batch_size(), scratch_dir),
+                      asr_options_service.get_qwen_asr_batch_size(),
+                      asr_options_service.get_vad_refine_timing(), scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
                 # Spawn, not Linux's default fork: a forked child of a process
                 # that has already initialised CUDA cannot use the GPU.
@@ -692,6 +680,9 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
                 "to 'whisper_diff'.")
         if asr_backend_choice == "qwen3_asr":
             require_qwen3_packages("Qwen3-ASR")
+        elif asr_backend_choice == "qwen3_asr_vad":
+            require_qwen3_packages("Qwen3-ASR")
+            _require_vad_packages()
         elif asr_backend_choice == "moss_td":
             _require_moss_backend()
     elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
@@ -880,8 +871,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
                        chinese_script, whisper_size, beam_size, min_silence_ms, vad_threshold,
                        separate_vocals_first, separation_backend, realign_long_segments,
                        whisper_fast_mode, use_groq, initial_prompt, use_gpu, asr_backend_choice,
-                       alignment_method, local_model_path, qwen_batch_size, scratch_dir,
-                       result_queue):
+                       alignment_method, local_model_path, qwen_batch_size, vad_refine_timing,
+                       scratch_dir, result_queue):
     """Process-job target, started with spawn on every platform (top level
     and plain arguments only, so it pickles; nothing here may depend on
     state set up in the parent process after import): runs the pipeline for
@@ -908,7 +899,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             vad_threshold, separate_vocals_first, separation_backend, realign_long_segments,
             whisper_fast_mode, use_groq, groq_api_key, initial_prompt, use_gpu,
             asr_backend_choice, alignment_method, local_model_path=local_model_path,
-            qwen_batch_size=qwen_batch_size, vocals_work_dir=scratch_dir)
+            qwen_batch_size=qwen_batch_size, vad_refine_timing=vad_refine_timing,
+            vocals_work_dir=scratch_dir)
         result_queue.put(("ok", outcome))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
@@ -961,7 +953,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                          whisper_fast_mode, use_groq, groq_api_key, initial_prompt, use_gpu,
                          asr_backend_choice, alignment_method, local_model_path=None,
                          qwen_batch_size=1, video_path=None, hardsub_ocr_backend=None,
-                         hardsub_interval=1.0, tesseract_cmd=None, vocals_work_dir=None) -> dict:
+                         hardsub_interval=1.0, tesseract_cmd=None, vocals_work_dir=None,
+                         vad_refine_timing=False) -> dict:
     """Runs ASR (or hardsub OCR, thread jobs only) and returns a plain dict:
     {"failed_reason", ...} when nothing should be applied, else the lines
     and everything _apply_transcription needs. Touches no database row.
@@ -974,15 +967,15 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     local_model_path is Settings > Offline Whisper model folder (a folder
     holding an already-downloaded faster-whisper model, used instead of a
     Hugging Face download); qwen_batch_size is the saved Qwen3-ASR batch
-    size. vocals_work_dir: where vocal separation writes before its result
+    size; vad_refine_timing is the saved forced-aligner timing option of the
+    "qwen3_asr_vad" backend. vocals_work_dir: where vocal separation writes before its result
     is moved next to the audio, so a killed worker leaves no partial file.
 
     asr_backend_choice / alignment_method (Slice 34) are the drama's stored
     choices: "qwen3_asr" and the experimental "moss_td" (Step 104: replaces
     Whisper, keeps MOSS's own speaker labels and skips the pyannote chain
     when it produced any) only apply in whisper transcript_mode, and
-    "qwen3_forced_align" only in have_transcript mode, same as the
-    Streamlit apply block. Import/download/other Qwen3 failures end the job
+    "qwen3_forced_align" only in have_transcript mode. Import/download/other Qwen3 failures end the job
     with a failed_reason ("dependency_missing", "model_download",
     "qwen3_asr"); a forced-align ValueError (e.g. an oversized line) falls
     back to the diff alignment and is reported as forced_align_error."""
@@ -996,6 +989,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     device_suffix = ""
     moss_run = transcript_mode == "whisper" and asr_backend_choice == "moss_td"
     moss_info = {}
+    vad_run = transcript_mode == "whisper" and asr_backend_choice == "qwen3_asr_vad"
 
     if transcript_mode == "hardsub_ocr":
         import hardsub_ocr
@@ -1065,7 +1059,46 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         stage_max = QWEN_SPLIT if qwen_run else RUNNING_MAX
         step_label = " (step 1 of 2)" if qwen_run else ""
 
-        if moss_run:
+        if vad_run:
+            # No Whisper: the speech detector draws the boundaries and
+            # Qwen3-ASR writes the text.
+            if rep.cancelled():
+                return {"failed_reason": "cancelled"}
+            vad_ticker = rep.stage(
+                "Finding speech and transcribing with Qwen3-ASR (no percent until the "
+                "first batch finishes)").start()
+
+            def _vad_progress(frac):
+                vad_ticker.stop()
+                rep.progress(min(max(frac, 0.0), 1.0) * RUNNING_MAX,
+                             f"Transcribing with Qwen3-ASR... {frac * 100:.0f}%")
+
+            import asr_backend
+            import vad_segments
+            try:
+                segments = asr_backend.get_backend("qwen3_asr_vad").transcribe(
+                    audio_path, source_language, use_gpu=use_gpu, batch_size=qwen_batch_size,
+                    progress_cb=_vad_progress, cancel_check=rep.raise_if_cancelled,
+                    refine_timing=vad_refine_timing)
+            except vad_segments.VadNotInstalledError as exc:
+                return {"failed_reason": "dependency_missing",
+                        "detail": "Speech detection needs faster-whisper (it bundles the Silero "
+                                  "VAD): pip install faster-whisper "
+                                  f"({redact_secrets(str(exc))})"}
+            except ImportError as exc:
+                return {"failed_reason": "dependency_missing",
+                        "detail": "Qwen3-ASR needs qwen-asr and torch: pip install qwen-asr torch "
+                                  f"({redact_secrets(str(exc))})"}
+            except core_module.ModelDownloadError as exc:
+                return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
+            except ValueError as exc:
+                return {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))}
+            except background_jobs.JobCancelled:
+                core_module.release_gpu_models()
+                raise
+            finally:
+                vad_ticker.stop()
+        elif moss_run:
             # Step 104 (experimental): one pass that also labels speakers;
             # replaces Whisper for this run, only when chosen explicitly.
             rep.progress(0.0, "Transcribing and detecting speakers with "
@@ -1096,6 +1129,10 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         min(frac, 1.0) * stage_max,
                         f"Transcribing via Groq's cloud API{step_label}... {frac * 100:.0f}%"))
             except core_module.GroqTranscriptionError as exc:
+                # Raw text stays in the in-memory result (as for vocal
+                # separation and model download here); jobs_service.
+                # project_result redacts "detail" before it is returned or
+                # mirrored to job_records.
                 return {"failed_reason": "groq", "detail": str(exc)}
         else:
             try:
@@ -1154,7 +1191,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         if not segments:
             return {"failed_reason": "empty"}
 
-        if realign_long_segments and not moss_run and not rep.cancelled():
+        if realign_long_segments and not moss_run and not vad_run and not rep.cancelled():
             import word_align
             align_started = time.monotonic()
             try:
@@ -1169,6 +1206,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
             if moss_run:
                 raw_backend, raw_model = "moss_td", "MOSS-Transcribe-Diarize"
+            elif vad_run:
+                raw_backend, raw_model = "qwen3_asr_vad", "Qwen3-ASR"
             elif asr_backend_choice == "qwen3_asr":
                 if rep.cancelled():
                     return {"failed_reason": "cancelled"}
@@ -1204,7 +1243,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     qwen_ticker.stop()
                 raw_backend, raw_model = "qwen3_asr", "Qwen3-ASR"
             lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
-                          speaker=seg.get("speaker") or None)
+                          speaker=seg.get("speaker") or None, flag=seg.get("flag"),
+                          flag_note=seg.get("flag_note") or "")
                      for i, seg in enumerate(
                          s for s in core_module.split_long_segments(segments)
                          if s["text"].strip())]
@@ -1230,8 +1270,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 except core_module.ModelDownloadError as exc:
                     return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
                 except ValueError as exc:
-                    # Same as Streamlit: fall back to the diff alignment, but
-                    # say so in the result instead of hiding it.
+                    # Fall back to the diff alignment, but say so in the
+                    # result instead of hiding it.
                     forced_align_error = redact_secrets(str(exc))
                     lines = align_transcript_to_timing(user_lines, segments)
             else:
@@ -1279,6 +1319,8 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     background_jobs.cancel_line_jobs(drama_id)
     if existing_lines_before:
         db.save_line_history_snapshot(drama_id, existing_lines_before, "before re-transcribe")
+    # Full sync on purpose: these brand-new lines replace the drama's lines.
+    # Line jobs were cancelled and the old lines snapshotted just above.
     db.save_lines(drama_id, lines)
     raw_transcript.write_raw_transcript(
         db.drama_dir(drama_id), segments, lines, backend=outcome["raw_backend"],
@@ -1343,9 +1385,8 @@ def autotune_job_id(drama_id: int) -> str:
 
 
 def score_autotune_segments(candidate_ms, segments) -> dict:
-    """One candidate's score, exactly as the tab computed it: the number of
-    long/merged lines (core.diagnose_line_coverage) and total non-empty
-    lines. Moved out of tabs/workspace_tab.py (Step 6h), which imports it."""
+    """One candidate's score: the number of long/merged lines
+    (core.diagnose_line_coverage) and total non-empty lines."""
     cand_lines = [Line(idx=i, start=s["start"], end=s["end"], zh=s["text"])
                   for i, s in enumerate(segments or []) if (s.get("text") or "").strip()]
     coverage = core_module.diagnose_line_coverage(cand_lines)
@@ -1380,7 +1421,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
                        initial_prompt: str = "", extra_names: str = "") -> dict:
     """Starts the auto-tune process job for this drama's stored audio, using
     the drama's own persisted whisper_size/beam_size/vad_threshold/
-    whisper_fast_mode and language (as the tab uses its current widgets).
+    whisper_fast_mode and language.
     candidates defaults to core.DEFAULT_AUTOTUNE_CANDIDATES_MS; each must be
     an int in 300..3000 (the slider's range), at most 6, no duplicates.
     Poll get_autotune_status(drama_id) (GET /api/transcribe/dramas/{id}/
@@ -1450,7 +1491,7 @@ def get_autotune_status(drama_id: int) -> dict:
 
 
 def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
-    """The tab's "Use Nms" button: stores the chosen value as this drama's
+    """"Use Nms": stores the chosen value as this drama's
     own min_silence_ms (a single-column db.update_drama write -- nothing
     else on the drama or its lines is touched). Only a candidate measured
     by this drama's finished auto-tune job is accepted, so a stale or
@@ -1470,9 +1511,9 @@ def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
 
 
 # --- Re-transcribe one line (parity audit B1, inventory R23) ----------------
-# Streamlit's Review "Re-transcribe" button re-runs Whisper on one line's own
-# timing window, shows what it heard, and only on "Use this" replaces that
-# line's source text. Same split here: the job cuts the window, transcribes it
+# Review's "Re-transcribe" re-runs Whisper on one line's own timing window,
+# shows what it heard, and only on "Use this" replaces that line's source
+# text: the job cuts the window, transcribes it
 # with the drama's full-transcribe Whisper settings and the same automatic
 # prompt, and keeps the proposal in its in-process result WITHOUT writing.
 # The line text never goes through GET /api/jobs (only line_id does): it is
@@ -1482,8 +1523,7 @@ def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
 # the raw values held here and the line is unchanged since the job started (a
 # compare-and-set, so the user's edits win). Proposals live in memory only:
 # after an API restart the user re-transcribes. Local Whisper even when the
-# drama's full transcribe uses Groq (Streamlit's button did too), so no
-# paid-engine gate.
+# drama's full transcribe uses Groq, so no paid-engine gate.
 
 # Proposed text kept in the job result: same cap as a line edit.
 _RETRANSCRIBE_MAX_CHARS = 2000
@@ -1654,7 +1694,7 @@ def get_retranscribe_result(drama_id: int, line_id: int) -> dict:
 
 def apply_retranscribe_line(drama_id: int, line_id: int, job_id, expected_zh,
                             expected_proposed) -> dict:
-    """Streamlit's "Use this": writes a finished re-transcription's
+    """Writes a finished re-transcription's
     proposed_zh to that line's `zh` and nothing else. expected_zh and
     expected_proposed must equal the raw base_zh and proposed_zh held for this
     run (what get_retranscribe_result showed), so what was shown is exactly

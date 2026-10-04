@@ -1,19 +1,10 @@
 """
 services/workspace_job_service.py -- the background-job runner functions
-started from the Workspace and Library tabs, moved out of
-`tabs/workspace_tab.py` and `tabs/library_tab.py` unchanged (Migration
-Slice 2, a pure move, zero logic change -- see `docs/archive/migration-review.md`).
+behind the Workspace and Library actions.
 
-These functions all share the same property that made them safe to run
-in a background thread in the first place: they touch nothing from
-Streamlit (no `st.session_state`, no widgets) -- only plain Python
-objects, `background_jobs` for progress/result reporting, and the
-database -- so moving them under `services/` (which never imports
-`streamlit`) changes nothing about how they run. `tabs/workspace_tab.py`
-and `tabs/library_tab.py` import them back and call them exactly as
-before, so every existing call site (including `cli.py`'s own indirect
-uses and every test that imports them from `tabs.workspace_tab` /
-`tabs.library_tab`) keeps working unchanged.
+They are safe to run in a background thread because they touch only plain
+Python objects, `background_jobs` for progress/result reporting, and the
+database -- never any UI state.
 """
 
 import logging
@@ -85,13 +76,10 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        summary_engine_choice=None, target_ids=None,
                        summary_monthly_cap_usd=None, own_lines_only=False):
     """
-    The actual translation work, run inside a background thread by the
-    Translate button. Deliberately touches nothing from Streamlit (no
-    st.session_state, no widgets) -- only plain Python objects and the
-    database, both of which are safe from a background thread. Progress
-    goes through background_jobs.update_progress(); the main script polls
-    that on its next rerun rather than this function updating any UI
-    directly, which it structurally cannot do from here.
+    The actual translation work, run inside a background thread. Touches
+    only plain Python objects and the database, both of which are safe
+    from a background thread. Progress goes through
+    background_jobs.update_progress(); clients poll the job for it.
 
     reflect: Step 7's "High quality" Reflect mode -- three LLM passes per
     batch instead of one; the middle (reflection) pass's critique is
@@ -213,11 +201,8 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
     dominates wall-clock time on a long-form file (3+ hours), so it's the
     one worth reporting progress on and not blocking the rest of the app
     for. The Qwen3-ASR text override, alignment, and diarization that can
-    follow it stay synchronous, run from render_workspace_tab once this
-    job's result is picked up on a later rerun -- those touch a lot of
-    individual st.warning/st.success branches for their various fallback
-    paths, which can't run from a thread (Streamlit widgets/session_state
-    aren't thread-safe to write from here).
+    follow it are not part of this function (services/transcribe_service
+    runs the full pipeline).
 
     separate_vocals_first: runs audio_preprocess.separate_vocals() on
     audio_path before transcribing, writing the vocals-only result
@@ -467,11 +452,8 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
 
 def run_consistency_job(job_id, drama_id, lines, engine, engine_choice):
     """
-    Runs check_consistency_llm in a background thread. Previously this ran
-    synchronously (a blocking st.spinner), which meant it couldn't run
-    alongside anything else -- the whole app was stuck until it finished.
-    Backgrounding it, same as Review queue and Emotion detection, is what
-    actually lets it run at the same time as those instead of forcing them
+    Runs check_consistency_llm in a background thread. Backgrounding it,
+    same as Review queue and Emotion detection, is what lets it run at the same time as those instead of forcing them
     to queue up one after another.
     """
     issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
@@ -1067,22 +1049,21 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     GPU/API-load reasoning as everywhere else in this app that queues
     rather than parallelizes). Each drama uses its own saved engine
     (`drama.translation_engine`) and, if it belongs to a series, that
-    series' own glossary and style hints -- the same settings its own
-    Workspace tab would build for it (mirrors cli.cmd_translate's own
-    UI-parity logic). Skips (does not queue) a drama that already has a
+    series' own glossary and style hints -- the same settings a single-drama
+    run would use (mirrors cli.cmd_translate). Skips (does not queue) a drama that already has a
     translate job running elsewhere, rather than racing it.
 
     Deliberately reuses the real per-drama job id ("translate_<id>")
-    run_translate_job already uses -- if the user opens that drama's own
-    Workspace tab mid-run, they see the same real job, not a shadow copy.
+    run_translate_job already uses -- if the user opens that drama's
+    Workspace mid-run, they see the same real job, not a shadow copy.
     This coordinator job's own progress/message combine the queue
     position with that live per-drama progress into one line, for
     Library's combined status display.
 
     api_keys: {engine_name: api_key} gathered from Settings by the caller
     BEFORE starting this as a background job -- this function runs in a
-    thread and must never touch st.session_state (background_jobs.py's
-    hard rule). models: {engine_name: model_id}, same reasoning -- the
+    thread and must never touch UI state (background_jobs.py's hard
+    rule). models: {engine_name: model_id}, same reasoning -- the
     Settings-configured default model for each engine, gathered by the
     caller before this starts, rather than falling back to each engine's
     own bare default (Step 25d item 1). monthly_cap: Settings' monthly

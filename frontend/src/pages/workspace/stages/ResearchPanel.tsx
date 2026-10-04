@@ -4,7 +4,6 @@ import { applyResearch, getResearchBudget, researchMetadata } from '../../../api
 import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
-import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { capFirst } from '../../../labels'
@@ -116,12 +115,6 @@ export function ResearchPanel() {
   const blocked = !budget || !budget.key_configured || (needsPaid && (!allowPaid || budget.free_tier_key))
 
   return (
-    <section className="panel" aria-label="Research online">
-      <Section
-        storageKey="source.research"
-        title="Research online"
-        summary={budget ? budgetLine(budget) : 'Gemini search with cited sources'}
-      >
         <div className="source-panel research-panel">
           <p className="muted">
             Looks the title up with Google Search through your Gemini key and shows where each value came from.
@@ -150,6 +143,7 @@ export function ResearchPanel() {
               <Toggle checked={allowPaid} onChange={setAllowPaid} />
             </Field>
           )}
+          {budget && <p className="muted">{budgetLine(budget)}</p>}
           {budget && <p className="muted" data-testid="research-cost">{costLine(budget, mode, model, allowPaid)}</p>}
           <div>
             <button type="button" className={buttonClass('primary')} disabled={busy || blocked} onClick={() => run()}>
@@ -246,7 +240,5 @@ export function ResearchPanel() {
           <ProvenanceNote dramaId={dramaId} reloadKey={notice} />
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </div>
-      </Section>
-    </section>
   )
 }

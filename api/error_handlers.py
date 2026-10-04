@@ -17,6 +17,7 @@ so the React client (and later the browser extension) can branch on
 | 429  | rate_limited            | `RateLimitedError`                          |
 | 404  | not_found               | `NotFoundError`, unknown route              |
 | 400  | unsupported_operation   | `UnsupportedOperationError`                 |
+| 405  | unsupported_operation   | a method the route does not allow           |
 | 409  | conflict                | `ConflictError`                             |
 | 413  | too_large               | an over-cap request body (HTTPException)    |
 | 503  | dependency_unavailable  | `DependencyUnavailableError`                |

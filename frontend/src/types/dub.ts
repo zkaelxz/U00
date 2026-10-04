@@ -1,4 +1,4 @@
-// Mirrors api/schemas.py DubConfig / DubPacing / DubRunRequest and
+// Mirrors api/schemas/voice.py DubConfig / DubPacing / DubRunRequest and
 // NarrationConfig / NarrationRunRequest. No paths or secrets exist here.
 
 export interface DubTtsEngine {

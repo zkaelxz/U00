@@ -23,7 +23,7 @@ scanlate.py -- hybrid manga/comic typesetting pipeline.
 
 Hybrid workflow: run detection + inpainting + auto-placement first,
 then let the person review/adjust each bubble's box, font size, and
-text in a table before final render -- see the Scanlate tab in app.py.
+text in a table before final render -- the Scanlate page in the web app.
 """
 
 import os
@@ -159,19 +159,14 @@ def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str =
     Downloads the model checkpoint from Hugging Face on first use
     (needs internet once; cached locally after).
 
-    Step 11 real fix: this used to load the checkpoint through
-    `ultralytics.YOLO`, but the model itself is RT-DETR-v2, not a YOLO
-    architecture -- `ultralytics` can never load it (confirmed against
-    `requirements.txt`, which installed `ultralytics` for exactly this
-    function), which is plausibly why this hook was never actually
-    wired up before. Loads through `transformers`'s own RT-DETR-v2
-    support instead, which also means huggingface_hub's own
+    Loads through `transformers`'s own RT-DETR-v2 support: the model is
+    RT-DETR-v2, not a YOLO architecture, so `ultralytics.YOLO` can never
+    load it. This also means huggingface_hub's own
     HF_TOKEN-from-environment handling covers auth for free.
 
     NOTE: written against the documented transformers/huggingface_hub
-    APIs but not run end-to-end in the environment this was built in
-    (no network access there to download a model or test inference).
-    Sanity-check on one page before relying on it for a whole batch --
+    APIs, not verified end-to-end against the real model. Sanity-check
+    on one page before relying on it for a whole batch --
     if the checkpoint ID below has moved or been renamed, swap in
     whatever comic/manga text-detection checkpoint you find current on
     Hugging Face; the rest of this function (box extraction, confidence
@@ -409,8 +404,7 @@ def _build_lama_generator():
 
     NOTE, same honesty as detect_bubbles_ml()'s own docstring: written
     against the published architecture, not verified against
-    mayocream/lama-manga's actual state_dict key names in this
-    environment (no network/GPU here to download the real checkpoint).
+    mayocream/lama-manga's actual state_dict key names.
     _load_lama_generator() loads with strict=False and refuses to use
     the result if most of the checkpoint's weights don't match this
     shape, so a naming mismatch fails loudly and falls back to plain
@@ -1026,14 +1020,15 @@ _MAX_CONTEXT_CHARS = 1000
 
 def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
                             previous_context: str = "", usage_cb=None, glossary_terms=None):
-    """Id-keyed page translation (Scanlate S5; replaces the positional
-    translate_page_with_context for API jobs, which keeps it for Streamlit
-    and the extension bridge). `texts_by_id` maps each region's id to its
-    source text. Returns ({id: translation}, new_context), or (None,
-    previous_context) when the answer can't be trusted as a whole: no
-    answer, unparseable JSON, not an object keyed by id, any sent id
-    missing or not a string, or an id that wasn't sent. Nothing is ever
-    matched by position, so a short or reordered answer applies nothing.
+    """Id-keyed page translation, replacing the positional
+    translate_page_with_context: translate_page_bubbles (and so the
+    extension bridge) and the API jobs go through this. `texts_by_id`
+    maps each region's id to its source text. Returns ({id: translation},
+    new_context), or (None, previous_context) when the answer can't be
+    trusted as a whole: no answer, unparseable JSON, not an object keyed
+    by id, any sent id missing or not a string, or an id that wasn't sent.
+    Nothing is ever matched by position, so a short or reordered answer
+    applies nothing.
 
     Engines without the JSON prompt path (pure MT, or no LLM client) are called
     once per region with a single text, so each answer belongs to exactly

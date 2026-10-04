@@ -36,7 +36,7 @@ export function toCharacterForm(e: CharacterEntry): CharacterForm {
 }
 
 /** The pronoun text the form stands for. Custom with nothing typed keeps
- * `fallback` (the saved value), as the Streamlit picker does. */
+ * `fallback` (the saved value). */
 export function formPronouns(f: CharacterForm, fallback = ''): string {
   if (f.pronoun_choice !== CUSTOM) return f.pronoun_choice
   return f.custom_pronouns.trim() || fallback

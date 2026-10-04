@@ -1,8 +1,7 @@
 """
 api/engine_routing_schemas.py -- request/response models for Step 36's
 "Which engine does what" routes (api/routers/engine_routing_routes.py).
-Kept out of api/schemas.py so this step could be built alongside another
-branch editing that file. No key, URL or path field exists on any model.
+No key, URL or path field exists on any model.
 """
 
 from typing import List, Optional

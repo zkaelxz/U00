@@ -28,8 +28,8 @@ _cedict_cache = None
 
 def _ensure_cedict():
     """Downloads CC-CEDICT if not already present locally. Requires
-    internet on first run only; the app polls this so subsequent
-    Reader use is fully offline."""
+    internet on first use only; the file is then kept at CEDICT_PATH,
+    so later Reader use is fully offline."""
     if os.path.exists(CEDICT_PATH):
         return
     import gzip

@@ -3,9 +3,8 @@ services/service_errors.py -- the error vocabulary every application
 service raises, so each UI can turn a failure into its own kind of
 message without knowing which module raised it.
 
-Streamlit shows these as `st.error(...)`; the FastAPI layer (`api/`)
-maps each class to an HTTP status code and a stable `code` string (see
-`api/error_handlers.py`). A service should raise one of these for any
+The FastAPI layer (`api/`) maps each class to an HTTP status code and a
+stable `code` string (see `api/error_handlers.py`). A service should raise one of these for any
 failure it *expects* (bad input, missing record, optional package not
 installed); anything else is a bug and surfaces as a generic internal
 error rather than leaking its traceback to a client.

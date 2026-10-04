@@ -1,4 +1,4 @@
-// api/schemas.py NovelFileStatus / NovelFileUploadResult / NovelReferenceRemoveResult.
+// api/schemas/reader.py NovelFileStatus / NovelFileUploadResult / NovelReferenceRemoveResult.
 // Counts and booleans only: the API never returns a filename or path.
 export interface NovelFileStatus {
   drama_id: number

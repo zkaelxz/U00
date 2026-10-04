@@ -216,7 +216,7 @@ function DubbedVideo() {
   )
 }
 
-// Parity E22: Streamlit's "Mark as exported" (sets the drama's status only).
+// "Mark as exported" (sets the drama's status only).
 export function MarkExported() {
   const { dramaId, drama, refetchDrama } = useStage()
   const [error, setError] = useState<unknown>(null)

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-// Assumes LibraryPage is wired in at '/'. Seed data: e2e/serve_seeded_api.py.
+// Seed data: e2e/serve_seeded_api.py.
 // Creates then deletes its own drama so the seeded three are unchanged afterwards.
 
 test('stats line, Continue shelf and global line search', async ({ page }) => {

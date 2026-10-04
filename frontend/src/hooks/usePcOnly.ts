@@ -6,7 +6,7 @@
  *   const pc = usePcOnly()
  *   {pc === 'remote' ? <p className="muted">Deleting is PC only.</p> : <ConfirmButton ... />}
  *
- * Remote-mode rules (docs spec "Shared pieces"):
+ * Remote-mode rules:
  *   - a whole PC-only block keeps its Section title, summary "PC only", body
  *     "Run this on the main PC." (see PC_ONLY_SUMMARY / PC_ONLY_BODY);
  *   - per-row PC-only deletes are not rendered; show one muted line instead;

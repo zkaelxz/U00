@@ -53,8 +53,7 @@ __all__ = [
 class ReaderPageResponse(BaseModel):
     """One page of a drama's Reader view. `html` is a complete,
     self-contained document (Migration Slice 4) -- render it in a
-    sandboxed iframe via `srcDoc`, the same way Streamlit's `st.iframe`
-    embeds it today. Definitions baked into `html` are only ever
+    sandboxed iframe via `srcDoc`. Definitions baked into `html` are only ever
     whatever's already been looked up and saved for this drama; this
     endpoint never makes a live/paid dictionary call itself."""
     html: str

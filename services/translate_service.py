@@ -1,6 +1,6 @@
 """
-services/translate_service.py -- Streamlit-free metadata and translate
-action for the standalone translate tool (tabs/translate_tab.py).
+services/translate_service.py -- metadata and translate action for the
+standalone translate tool.
 Migration Slice 11 (Phase 5, docs/archive/migration-review.md section 3.7) added
 the read-only "list engines" / "list history" half; Migration Slice 13
 adds translate() itself, resolving a server-side key per engine (D2 --
@@ -18,12 +18,11 @@ from services import ownership_service, settings_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                       UnsupportedOperationError)
 
-# translate_engines.ENGINES keys whose engine class needs an API key to run
-# at all (see translate_engines.py's own ENGINES / FREE_ENGINES and
-# tabs/translate_tab.py's api_key handling for the reasoning below):
+# translate_engines.ENGINES keys whose engine class needs no API key to run
+# (see translate_engines.py's own ENGINES / FREE_ENGINES):
 #   - nllb: a locally-downloaded model, no key at all.
-#   - ollama: tabs/translate_tab.py treats its key field as optional,
-#     defaulting to the literal "local" when nothing is entered -- it points
+#   - ollama: its key is optional, defaulting to the literal "local" when
+#     nothing is configured (resolve_api_key below) -- it points
 #     at a locally-run server, not a hosted API that requires an account
 #     key. There's nothing meaningful to "configure" in the same sense as an
 #     API key, so it's reported as configured too.
@@ -32,8 +31,8 @@ from services.service_errors import (DependencyUnavailableError, InvalidInputErr
 # name for these three.
 _NO_KEY_REQUIRED_ENGINES = translate_engines.KEYLESS_ENGINES
 
-# Engine name -> the model dict (if any) tabs/translate_tab.py lets the user
-# pick a model from for that engine.
+# Engine name -> the model dict (if any) the user picks a model from for
+# that engine.
 ENGINE_MODEL_DICTS = {
     "claude": translate_engines.CLAUDE_MODELS,
     "gemini": translate_engines.GEMINI_MODELS,
@@ -89,8 +88,7 @@ def list_history(limit: int = 50, principal=None) -> list:
 
 def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optional[str]:
     """The literal value to pass into translate_engines.get_engine, per
-    engine (see tabs/translate_tab.py's own api_key handling, lines
-    79-92, for the exact behavior this mirrors):
+    engine:
       - nllb: None -- a locally-downloaded model, nothing to pass.
       - ollama: a resolved key/URL if configured, else the literal "local"
         (it points at a locally-run server).
@@ -109,8 +107,7 @@ def translate(text: str, engine_name: str, source_language: str, target_language
               env_path: Optional[str] = None, principal=None) -> dict:
     """Translates text with engine_name (a translate_engines.ENGINES key),
     resolving its key server-side (D2) rather than accepting one from the
-    caller, and saves the result to history -- the same two steps
-    tabs/translate_tab.py's own "Translate" button performs. Raises
+    caller, and saves the result to history. Raises
     InvalidInputError for an unknown engine, UnsupportedOperationError if
     the engine/direction pair is refused (translate_engines.
     standalone_direction_support), and DependencyUnavailableError if the
@@ -153,14 +150,10 @@ def translate(text: str, engine_name: str, source_language: str, target_language
 
 def clear_history(confirm: bool = False) -> dict:
     """Deletes every row in the (global, not drama-scoped) translate_history
-    table via db.clear_translate_history(). tabs/translate_tab.py's own
-    History section only lets the user reach this by first checking an
-    explicit "Confirm" checkbox before its "Clear history" button becomes
-    clickable at all -- a deliberate two-step gate against an accidental
-    permanent delete. This function requires the same explicit opt-in in
-    API terms: confirm must be passed as True, or the call is refused
-    with InvalidInputError rather than silently no-op'ing or silently
-    proceeding."""
+    table via db.clear_translate_history(). A deliberate two-step gate
+    against an accidental permanent delete: confirm must be passed as True,
+    or the call is refused with InvalidInputError rather than silently
+    no-op'ing or silently proceeding."""
     if confirm is not True:
         raise InvalidInputError(
             "Clearing translate history requires confirm=true. "

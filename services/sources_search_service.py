@@ -397,7 +397,7 @@ def known_chapter_ids(series_result: dict) -> list:
     """Chapter ids to record as already known when a series starts being
     tracked from this fetched result, so the first check doesn't announce
     (or auto-import) the whole back catalogue. Accepts either the
-    `get_job_result` payload or its inner `result`. Not wired to tracking."""
+    `get_job_result` payload or its inner `result`."""
     r = series_result or {}
     if isinstance(r.get("result"), dict):
         r = r["result"]
