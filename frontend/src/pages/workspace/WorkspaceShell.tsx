@@ -38,6 +38,9 @@ function useProgress(id: number, reloadKey: unknown) {
   return state
 }
 
+// Tabs that can show a count get its width reserved so the tabs never shift when progress loads.
+const COUNTED_STAGES: readonly string[] = ['translate', 'review']
+
 function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const { drama, error, refetch } = useDrama(id)
   const { progress, opened } = useProgress(id, drama)
@@ -117,17 +120,21 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
               data-state={st}
               title={desc ? `${STAGE_LABELS[s]}: ${desc}` : undefined}
             >
-              {st && (
+              {st ? (
                 <span className="stage-mark" aria-hidden="true">
                   {st === 'done' ? '✓' : st === 'current' ? '●' : '○'}
                 </span>
+              ) : (
+                <span className="stage-mark-slot" aria-hidden="true">○</span>
               )}
               <span className="stage-label">{STAGE_LABELS[s]}</span>
               {st === 'blocked' && <span className="visually-hidden"> (blocked)</span>}
-              {count && (
+              {count ? (
                 <span className="stage-count" aria-hidden="true">
                   · {count}
                 </span>
+              ) : (
+                COUNTED_STAGES.includes(s) && <span className="stage-count stage-count-slot" aria-hidden="true" />
               )}
             </a>
           )
@@ -140,7 +147,11 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           <Stage />
         </StageContext.Provider>
       ) : (
-        !error && <p className="muted">Loading…</p>
+        !error && (
+          <div className="skeleton-block ws-skeleton" role="status" aria-busy="true">
+            <span className="visually-hidden">Loading…</span>
+          </div>
+        )
       )}
     </section>
   )

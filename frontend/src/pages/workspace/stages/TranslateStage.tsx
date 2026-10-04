@@ -705,6 +705,9 @@ export default function TranslateStage() {
           onDismissed={() => setConfig((c) => (c ? { ...c, last_translate_errors: null } : c))}
         />
       )}
+      {!config && !error && (
+        <div className="skeleton-block translate-skeleton" role="status" aria-busy="true" aria-label="Loading translate options" />
+      )}
       {config && (
         <RunPanel
           config={config}

@@ -133,6 +133,7 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+html { scrollbar-gutter: stable; }
 body {
   margin: 0 auto;
   max-width: 1800px;
@@ -678,6 +679,11 @@ a.drama-card-title:focus-visible { outline: none; }
 .drama-grid.skeleton .drama-tile { background: var(--surface-2); }
 .skeleton-line { display: block; height: 12px; width: 80%; border-radius: var(--radius-sm); background: var(--surface-2); }
 .skeleton-line.short { width: 50%; }
+/* Placeholder with the final size of what is loading; fades, never shimmers (animation is off under reduced motion). */
+.skeleton-block { border-radius: var(--radius); background: var(--surface-2); animation: skeleton-fade 1.4s ease-in-out infinite alternate; }
+@keyframes skeleton-fade { from { opacity: 0.45; } to { opacity: 0.9; } }
+.translate-skeleton { min-height: 26rem; }
+.export-readiness-skeleton { min-height: 3.5rem; }
 
 /* List view (desktop table) */
 .drama-table { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
