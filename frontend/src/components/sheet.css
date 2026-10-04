@@ -10,7 +10,8 @@ dialog.sheet {
   overflow-y: auto;
 }
 dialog.sheet::backdrop { background: color-mix(in srgb, black 45%, transparent); }
-@keyframes sheet-in { from { opacity: 0; transform: translateY(8px); } }
+/* Fade only: a transform would shift the sheet's box while it opens. */
+@keyframes sheet-in { from { opacity: 0; } }
 @keyframes sheet-backdrop-in { from { opacity: 0; } }
 dialog.sheet[open] { animation: sheet-in var(--dur-3) var(--ease); }
 dialog.sheet[open]::backdrop { animation: sheet-backdrop-in var(--dur-3) var(--ease); }

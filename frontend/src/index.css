@@ -393,13 +393,13 @@ details.section { border: 1px solid var(--border); border-radius: var(--radius);
 .card details.section, details.section details.section { border: 0; border-radius: 0; padding-inline: 0; }
 details.section > summary { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; cursor: pointer; min-width: 0; }
 .section-title { font-weight: 600; }
-/* Progressive enhancement: where ::details-content exists, opening slides the body (240ms). */
+/* Progressive enhancement: where ::details-content exists, opening slides the body (240ms); closing is instant so focus can move into a section the moment it opens. */
 @supports selector(::details-content) {
   details.section::details-content {
     block-size: 0;
     overflow: clip;
-    overflow-clip-margin: 8px;
-    transition: block-size var(--dur-3) var(--ease), content-visibility var(--dur-3) allow-discrete;
+    overflow-clip-margin: 16px;
+    transition: block-size var(--dur-3) var(--ease);
   }
   details.section[open]::details-content { block-size: auto; }
 }
@@ -439,6 +439,7 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
   button:not(.link, .field-help-btn, .review-hint, .toggle) { padding-block: 10px; }
   a.button-link { min-height: 44px; padding-block: 10px; }
   summary { min-height: 44px; padding-block: 10px; }
+  .confirm-button button.link { min-height: 44px; }
   .app-header nav a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
   label:has(> input[type='checkbox']), label:has(> input[type='radio']),
   .toggle-list .field-item { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); }

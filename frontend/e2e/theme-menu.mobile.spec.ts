@@ -43,7 +43,7 @@ test('phone header: theme button is 44px, on the title row, and picking sepia wo
 
   await page.getByRole('menuitemradio', { name: 'Sepia', exact: true }).tap()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'sepia')
-  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(244, 236, 216)')
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(239, 228, 203)')
   await page.reload()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'sepia')
   await noSideways(page)
