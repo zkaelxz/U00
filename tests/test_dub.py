@@ -117,10 +117,16 @@ def _install_fake_requests(monkeypatch, captured):
 
     class FakeResponse:
         status_code = 200
-        content = b"fake-audio"
+        headers = {}
         text = ""
 
-    def fake_post(url, json=None, timeout=None):
+        def iter_content(self, size):
+            yield b"fake-audio"
+
+        def close(self):
+            pass
+
+    def fake_post(url, json=None, timeout=None, stream=False):
         captured.append(json)
         return FakeResponse()
 
