@@ -88,7 +88,7 @@ class TestDataDir:
         if marker_text is not None:
             marker.write_text(marker_text, encoding="utf-8-sig")
         monkeypatch.setattr(portable, "_INSTALLED_MARKER_PATH", str(marker))
-        monkeypatch.setattr(portable, "_APP_DIR", str(tmp_path / "app"))
+        monkeypatch.setattr(portable, "APP_DIR", str(tmp_path / "app"))
         monkeypatch.delenv(portable.DATA_DIR_ENV, raising=False)
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
 

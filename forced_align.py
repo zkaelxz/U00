@@ -49,8 +49,8 @@ import re
 import tempfile
 
 from core import (
-    ModelDownloadError, _is_gpu_error, _is_network_error, diagnose_hostname,
-    _lines_from_char_times, align_transcript_to_timing,
+    ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname,
+    lines_from_char_times, align_transcript_to_timing,
     extract_audio_slice as _extract_audio_slice, LANGUAGE_NAMES,
 )
 
@@ -91,12 +91,12 @@ def load_qwen3_aligner(use_gpu: bool = False):
             "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16, device_map=device,
         )
     except Exception as exc:
-        if use_gpu and _is_gpu_error(exc):
+        if use_gpu and is_gpu_error(exc):
             model = Qwen3ForcedAligner.from_pretrained(
                 "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16, device_map="cpu",
             )
             cache_key = "cpu"
-        elif _is_network_error(exc):
+        elif is_network_error(exc):
             diag = diagnose_hostname("huggingface.co")
             if diag["status"] == "blocked":
                 raise ModelDownloadError(
@@ -250,7 +250,7 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
         per_line_times[li] = [coarse_lines[li].start, coarse_lines[li].end]
 
     total_audio_end = whisper_segments[-1]["end"] if whisper_segments else 0.0
-    lines = _lines_from_char_times(user_lines, per_line_times, total_audio_end)
+    lines = lines_from_char_times(user_lines, per_line_times, total_audio_end)
     for ln in lines:
         if ln.idx in bad:
             ln.flag, ln.flag_note = "timing_uncertain", TIMING_FALLBACK_NOTE

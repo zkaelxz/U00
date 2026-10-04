@@ -191,7 +191,7 @@ def _current_public_ip(url):
     if urlsplit(url).scheme != "https":
         raise ValueError("not https")
     ip = _bounded(lambda: url_guard.resolve_public(url), RESOLVE_TIMEOUT)
-    resp = metadata_service._pinned_get(url, ip, {"Accept": "text/plain"})
+    resp = metadata_service.pinned_get(url, ip, {"Accept": "text/plain"})
     try:
         if resp.status_code != 200:
             raise ValueError("bad status")
@@ -389,7 +389,7 @@ def validate_ip_check_url(value) -> str:
     characters, nothing that could break the .env line, every address
     public."""
     from services import notification_service, url_guard
-    value = notification_service._clean_value(value)
+    value = notification_service.clean_value(value)
     if len(value) > IP_CHECK_MAX_URL:
         raise InvalidInputError("The address is too long.")
     try:

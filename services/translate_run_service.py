@@ -50,18 +50,18 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 _CAP_ENGINES = ("claude", "deepseek", "gemini", "openai")
 
 
-def _require_drama(drama_id: int) -> dict:
+def require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if not drama:
         raise NotFoundError(f"Drama {drama_id} not found.")
     return drama
 
 
-def _monthly_cap() -> float:
+def month_cap_usd() -> float:
     return settings_service.get_monthly_cap_usd()
 
 
-def _cap_applies(engine_name: str, gemini_free_tier: bool = False) -> bool:
+def engine_cap_applies(engine_name: str, gemini_free_tier: bool = False) -> bool:
     return engine_name in _CAP_ENGINES and not (engine_name == "gemini" and gemini_free_tier)
 
 
@@ -69,9 +69,9 @@ def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool = False) -> N
     """For a one-off LLM run with no per-run budget (glossary extraction,
     learn my style): UnsupportedOperationError when this month's spending
     cap is already used up and the engine is a capped one."""
-    if not _cap_applies(engine_name, gemini_free_tier):
+    if not engine_cap_applies(engine_name, gemini_free_tier):
         return
-    monthly = _monthly_cap()
+    monthly = month_cap_usd()
     _cap, refusal = translate_engines.resolve_cost_cap(
         None, monthly, db.get_month_spend() if monthly else 0.0)
     if refusal:
@@ -94,13 +94,13 @@ def get_translate_config_defaults(is_novel: bool) -> dict:
 
 
 def get_translate_config(drama_id: int) -> dict:
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     is_novel = drama.get("content_mode") == "novel_narration"
     filename = drama.get("novel_reference_filename")
     has_novel = bool(filename) and os.path.isfile(
         os.path.join(db.DRAMAS_DIR, str(drama_id), filename))
     lines = db.load_lines(drama_id)
-    monthly_cap = _monthly_cap()
+    monthly_cap = month_cap_usd()
     free_tier = settings_service.get_gemini_free_tier()
     engine_name = (drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
@@ -131,7 +131,7 @@ def get_translate_config(drama_id: int) -> dict:
         "monthly_cap_usd": monthly_cap,
         # Always the real spend: the form shows it with or without a cap.
         "month_spend": db.get_month_spend(),
-        "cap_applies_by_engine": {name: _cap_applies(name, free_tier)
+        "cap_applies_by_engine": {name: engine_cap_applies(name, free_tier)
                                   for name in translate_engines.ENGINES},
         "bulk_supported_engines": [e for e in bulk_translate.BULK_ENGINES
                                    if not (e == "gemini" and free_tier)],
@@ -159,7 +159,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
     """line_ids (optional): estimate only these lines (of those the run
     would translate)."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     engine_name = (engine_name or drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
     if engine_name not in translate_engines.ENGINES:
@@ -177,7 +177,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
 
     free_tier = engine_name == "gemini" and gemini_free_tier
     resolved_model = model or _default_model(engine_name)
-    cap_applies = _cap_applies(engine_name, gemini_free_tier)
+    cap_applies = engine_cap_applies(engine_name, gemini_free_tier)
     free = engine_name in translate_engines.FREE_ENGINES or free_tier
 
     lines = db.load_lines(drama_id)
@@ -196,7 +196,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
         if bulk and not reflect and cap_applies:
             estimated *= bulk_translate.BATCH_PRICE_FACTOR
 
-    monthly_cap = _monthly_cap() if cap_applies else 0.0
+    monthly_cap = month_cap_usd() if cap_applies else 0.0
     spend = db.get_month_spend() if monthly_cap else 0.0
     effective_cap = None
     monthly_refusal = False
@@ -219,7 +219,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
     }
 
 
-def _load_novel_reference(drama_id: int, drama: dict) -> Optional[str]:
+def load_novel_reference(drama_id: int, drama: dict) -> Optional[str]:
     filename = drama.get("novel_reference_filename")
     if not filename:
         return None
@@ -230,7 +230,7 @@ def _load_novel_reference(drama_id: int, drama: dict) -> Optional[str]:
         return f.read()
 
 
-def _summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = True):
+def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = True):
     """The episode-summary engine from Settings (default local Ollama, as
     `cli.py translate`); (None, None), so the summary is skipped, if it
     can't be built or a cloud pick has no key. Never fails the translation.
@@ -346,7 +346,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     engine), DependencyUnavailableError (no key), ConflictError (already
     running). gemini_free_tier None means the saved Settings value."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     engine_name = (engine_name or drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
     if engine_name not in translate_engines.ENGINES:
@@ -410,7 +410,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         raise InvalidInputError(chain_error)
     for c in chain:
         _require_offered_model(c["engine"], c["model"])
-    monthly_cap = _monthly_cap()
+    monthly_cap = month_cap_usd()
     month_spend = db.get_month_spend() if monthly_cap else 0.0
     built, caps = [], []
     job_id = f"translate_{drama_id}"
@@ -424,7 +424,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         if free_tier and c["model"] in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
             raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
         cap = None
-        if _cap_applies(name, gemini_free_tier):
+        if engine_cap_applies(name, gemini_free_tier):
             cap, refusal = translate_engines.resolve_cost_cap(
                 job_cost_cap_usd, monthly_cap, month_spend)
             if refusal:
@@ -468,7 +468,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
 
     if force_retranslate and any(ln.en for ln in lines):
         db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
-    novel_reference = _load_novel_reference(drama_id, drama)
+    novel_reference = load_novel_reference(drama_id, drama)
     if bulk:
         submit = _bulk_submitter(drama_id, drama, engines[0], engine_name, reflect,
                                  novel_reference, glossary_terms, style_guidelines,
@@ -486,7 +486,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                 "target_line_count": len(eligible), "fallback_engines": [],
                 "reflect": reflect, "bulk": True}
 
-    summary_engine, summary_choice = _summary_engine(allow_paid=allow_paid_summary)
+    summary_engine, summary_choice = pick_summary_engine(allow_paid=allow_paid_summary)
 
     started = background_jobs.start_job(
         job_id, workspace_job_service.run_translate_job,
@@ -497,7 +497,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         cost_cap_usd=cost_cap,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
-        summary_monthly_cap_usd=_monthly_cap() or None,
+        summary_monthly_cap_usd=month_cap_usd() or None,
         target_ids=target_ids, own_lines_only=own_lines_only,
         gpu_touching=any(c["engine"] == "ollama" for c in chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})")
@@ -583,7 +583,7 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
             break
         nxt_stage = (_NEXT_REFLECT_STAGE.get(job.get("stage"))
                      if job.get("kind") == "reflect" and job.get("status") == "applied" else None)
-        nxt = bulk_translate._sibling_stage_job(job["pipeline_id"], nxt_stage) if nxt_stage else None
+        nxt = bulk_translate.sibling_stage_job(job["pipeline_id"], nxt_stage) if nxt_stage else None
         if not nxt:
             break
         current = nxt["id"]
@@ -604,16 +604,16 @@ def resume_bulk_translations(drama_id: int) -> dict:
     """After a restart: starts a poller for each of this drama's pending
     bulk jobs (bulk_translate.resume_pending, the call the tab's Bulk jobs
     panel makes), with engines built from server-side keys only."""
-    _require_drama(drama_id)
-    out = bulk_translate.resume_pending(drama_id, _bulk_engine_factory, _monthly_cap() or None)
+    require_drama(drama_id)
+    out = bulk_translate.resume_pending(drama_id, _bulk_engine_factory, month_cap_usd() or None)
     return {"drama_id": drama_id,
             "jobs": [{"bulk_job_id": k, "state": v} for k, v in sorted(out.items())]}
 
 
 def _spend_cap_used_up(engine_name: str) -> bool:
-    if not _cap_applies(engine_name, settings_service.get_gemini_free_tier()):
+    if not engine_cap_applies(engine_name, settings_service.get_gemini_free_tier()):
         return False
-    monthly = _monthly_cap()
+    monthly = month_cap_usd()
     _cap, refusal = translate_engines.resolve_cost_cap(
         None, monthly, db.get_month_spend() if monthly else 0.0)
     return bool(refusal)
@@ -648,7 +648,7 @@ def resume_interrupted_at_startup() -> dict:
             if engine is None:
                 why[engine_name] = "no API key is set for the engine"
             return engine
-        cap = _monthly_cap() or None
+        cap = month_cap_usd() or None
         for drama_id in sorted({j["drama_id"] for j in pending}):
             for state in bulk_translate.resume_pending(drama_id, factory, cap).values():
                 if state == "polling":
@@ -700,7 +700,7 @@ def list_bulk_translations(drama_id: int) -> dict:
     """Read-only: this drama's bulk jobs (newest first) with the status
     last recorded in the database. Never contacts a provider; polling stays
     with resume_bulk_translations."""
-    _require_drama(drama_id)
+    require_drama(drama_id)
     return {"drama_id": drama_id,
             "jobs": [_bulk_entry(j) for j in db.list_bulk_jobs(drama_id)]}
 
@@ -709,7 +709,7 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
     """The tab's Cancel button: stops polling, marks the job cancelled and
     asks the provider to cancel when a server-side key exists (best effort,
     same as bulk_translate.cancel_bulk_job)."""
-    _require_drama(drama_id)
+    require_drama(drama_id)
     job = db.get_bulk_job(bulk_job_id)
     if not job or job["drama_id"] != drama_id:
         raise NotFoundError(f"Bulk job {bulk_job_id} not found for drama {drama_id}.")
@@ -732,7 +732,7 @@ def apply_workflow_tier(drama_id: int, tier: str) -> dict:
     the drama row (the only field with a per-drama DB home); the model,
     Reflect and Auto QC are returned for the client to put into its form,
     which Streamlit did through session_state. Starts nothing."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     t = translate_engines.effective_tier(tier)
     if t is None:
         raise InvalidInputError("Unknown workflow tier.")
@@ -750,7 +750,7 @@ def apply_translate_preset(drama_id: int, preset_id: int) -> dict:
     and the model are returned for the client's form, as Streamlit's
     apply_preset_to_session put them in session_state. Starts nothing.
     Raises NotFoundError (unknown drama or preset)."""
-    _require_drama(drama_id)
+    require_drama(drama_id)
     preset = next((p for p in db.list_presets() if p["id"] == preset_id), None)
     if preset is None:
         raise NotFoundError(f"No preset with id {preset_id}.")
@@ -780,7 +780,7 @@ def dismiss_translate_errors(drama_id: int) -> dict:
     (db.update_drama(last_translate_errors=None)); lines are untouched, so a
     later "Translate all lines" still retries the missing ones. NotFoundError
     for an unknown drama; `dismissed` is False when there was nothing to clear."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     had = bool(drama.get("last_translate_errors"))
     if had:
         db.update_drama(drama_id, last_translate_errors=None)

@@ -46,7 +46,7 @@ def test_main_installs_the_stubs_before_the_app():
 
 def test_pip_can_never_run(stubbed, monkeypatch):
     # If anything still reached a real process runner, fail loudly.
-    monkeypatch.setattr(diag, "_stream_tree", lambda *a, **k: pytest.fail("pip would have run"))
+    monkeypatch.setattr(diag, "stream_tree", lambda *a, **k: pytest.fail("pip would have run"))
     assert diag._run_commands([(["pip", "install", "x"], 1)]) == {"ok": False, "output_tail": ["stubbed in e2e"]}
     client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     for action in ("install", "upgrade"):
@@ -83,7 +83,7 @@ def test_no_key_is_ever_resolved(stubbed, tmp_path, monkeypatch):
     for key in ss.KEY_WRITE_ENGINES:
         assert ss.resolve_key(key) is None
         assert ss.resolve_key(key, str(env_file)) is None
-    assert ss._read_env_file(str(env_file)) == {}
+    assert ss.read_env_file(str(env_file)) == {}
     assert not any(ss.key_status().values())
     client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     items = client.get("/api/translate/engines").json()["items"]

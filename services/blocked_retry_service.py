@@ -39,7 +39,7 @@ import background_jobs
 import db
 import translate_engines
 from services import settings_service, translate_service
-from services.review_lines_service import _line_dict
+from services.review_lines_service import line_dict
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError, ServiceError,
                                       UnsupportedOperationError)
@@ -73,7 +73,7 @@ def _load(drama_id: int, line_id: int):
 
 
 def _reload(drama_id: int, line_id: int) -> dict:
-    return _line_dict(_load(drama_id, line_id)[1])
+    return line_dict(_load(drama_id, line_id)[1])
 
 
 def _refuse_if_line_job_running(drama_id: int):

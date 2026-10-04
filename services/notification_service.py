@@ -183,7 +183,7 @@ def _effective_port(parts) -> int:
     return parts.port or (443 if parts.scheme == "https" else 80)
 
 
-def _clean_value(value) -> str:
+def clean_value(value) -> str:
     """Raises with a fixed message (never the value): the text can't carry
     another .env line, quotes or whitespace."""
     if not isinstance(value, str):
@@ -202,7 +202,7 @@ def validate_url(channel, value, allow_local=None) -> str:
     """Shape check for a channel URL (no DNS). Returns the cleaned value or
     raises InvalidInputError with a fixed message."""
     _check_channel(channel)
-    value = _clean_value(value)
+    value = clean_value(value)
     bad = _BAD_DISCORD if channel == "discord" else _BAD_NTFY
     try:
         parts = urlsplit(value)

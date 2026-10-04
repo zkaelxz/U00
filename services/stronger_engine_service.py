@@ -124,7 +124,7 @@ def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
         drama_id, drama, lines, "novel" if is_novel else "audio_drama", with_emotions=False)
     context = translate_engines.build_translation_context(
         engine, drama, locale=settings_service.get_preference("default_locale"),
-        novel_reference=translate_run_service._load_novel_reference(drama_id, drama),
+        novel_reference=translate_run_service.load_novel_reference(drama_id, drama),
         glossary_terms=glossary, style_guidelines=style,
         ollama_num_ctx_override=settings_service.get_ollama_num_ctx_override() or None)
     return context, character_names
@@ -196,9 +196,9 @@ def _log_failure(exc: Exception):
 
 
 def _refuse_over_cap(engine_name: str, free_tier: bool, estimate: float):
-    if not translate_run_service._cap_applies(engine_name, free_tier):
+    if not translate_run_service.engine_cap_applies(engine_name, free_tier):
         return
-    monthly = translate_run_service._monthly_cap()
+    monthly = translate_run_service.month_cap_usd()
     if not monthly:
         return
     spent = db.get_month_spend()

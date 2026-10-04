@@ -25,9 +25,9 @@ import background_jobs
 from services import url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
-from services.sources_registry_service import _scrub, safe_url
-from services.sources_search_service import (URL_PREVIEW_JOB_ID, _error_view, _JobFailed,
-                                             _start)
+from services.sources_registry_service import scrub, safe_url
+from services.sources_search_service import (URL_PREVIEW_JOB_ID, error_view, JobFailed,
+                                             start_job)
 from sources import front_door, generic_import
 from sources.http import Cancelled
 
@@ -75,7 +75,7 @@ def source_client(url: str, job_id: str):
     """The paced SourceClient a pasted-URL fetch runs through (the matching
     adapter's source name, or the generic one), cancellable from the job,
     under the pasted-URL body caps and deadline (checked between chunks)."""
-    client = generic_import._client(None, url)
+    client = generic_import.http_client(None, url)
     client.max_page_bytes = PASTED_MAX_PAGE_BYTES
     client.max_image_bytes = PASTED_MAX_IMAGE_BYTES
     client.request_deadline = PASTED_REQUEST_DEADLINE
@@ -103,7 +103,7 @@ def without_urls(err: dict) -> dict:
 def fail_job(job_id: str, kind: str, err: dict):
     err = without_urls(err)
     background_jobs.set_result(job_id, {"kind": kind, "error": err})
-    raise _JobFailed(err["message"])
+    raise JobFailed(err["message"])
 
 
 def _route(p) -> str:
@@ -125,17 +125,17 @@ def preview_view(p, url: str) -> dict:
         "kind": "url_preview",
         "content_type": p.content_type if p.content_type in _CONTENT_TYPES else front_door.UNKNOWN,
         "route": _route(p),
-        "platform": _scrub(p.platform or "") or "",
-        "title": _scrub(p.title or "") or "",
-        "chapter": _scrub(p.chapter or "") or "",
-        "chapter_id": _scrub(str(p.chapter_id)) if p.chapter_id else None,
+        "platform": scrub(p.platform or "") or "",
+        "title": scrub(p.title or "") or "",
+        "chapter": scrub(p.chapter or "") or "",
+        "chapter_id": scrub(str(p.chapter_id)) if p.chapter_id else None,
         "language": p.language or "",
         "chapter_count": _int_or_none(p.chapter_count),
         "adapter": p.adapter or None,
-        "series_id": _scrub(str(p.series_id)) if p.series_id else None,
+        "series_id": scrub(str(p.series_id)) if p.series_id else None,
         "text_length": _int_or_none(p.text_length),
         "image_count": _int_or_none(p.image_count),
-        "notes": [_scrub(str(n)) for n in (p.notes or [])],
+        "notes": [scrub(str(n)) for n in (p.notes or [])],
         "display_url": safe_url(url),
     }
 
@@ -150,7 +150,7 @@ def _preview_job(job_id: str, url: str, local: bool):
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except Exception as e:
-        fail_job(job_id, "url_preview", _error_view(e))
+        fail_job(job_id, "url_preview", error_view(e))
     lr = p.ladder
     if lr is not None and getattr(lr, "handoff", None):
         fail_job(job_id, "url_preview", handoff_error(lr.handoff, url))
@@ -161,5 +161,5 @@ def start_preview(url, local: bool = True) -> dict:
     """Starts `sources_url_preview` after the public-address check. `local`
     (a request at this PC) allows the signed-in profile and the browser."""
     url = check_public_url(url)
-    return _start(URL_PREVIEW_JOB_ID, _preview_job, URL_PREVIEW_JOB_ID, url, bool(local),
+    return start_job(URL_PREVIEW_JOB_ID, _preview_job, URL_PREVIEW_JOB_ID, url, bool(local),
                   description="Sources URL preview")

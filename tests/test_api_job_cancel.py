@@ -262,7 +262,7 @@ def test_api_startup_sweeps_dead_owners_records(isolated_db, monkeypatch):
 
 def test_one_staleness_cutoff_everywhere():
     from services import drama_service, jobs_service, novel_files_service
-    assert (jobs_service.STALE_JOB_SECONDS == drama_service._STALE_JOB_RECORD_SECONDS
+    assert (jobs_service.STALE_JOB_SECONDS == drama_service.STALE_JOB_RECORD_SECONDS
             == novel_files_service._STALE_JOB_RECORD_SECONDS
             == background_jobs.STALE_JOB_SECONDS)
 

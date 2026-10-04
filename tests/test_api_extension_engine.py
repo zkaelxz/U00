@@ -28,7 +28,7 @@ def env(isolated_db, tmp_path, monkeypatch):
     """An empty .env for this test, no key env vars, faked bridge/scheduler."""
     from sources import chapter_check
     path = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(path))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
     for names in settings_service.ENV_NAMES.values():
         for n in names:
             monkeypatch.delenv(n, raising=False)

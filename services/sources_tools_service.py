@@ -38,10 +38,10 @@ import uuid
 import background_jobs
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
-from services.sources_import_service import (NOVEL_MEDIA_TYPES, _require_drama, _require_idle,
-                                             _url_fail, import_job_id)
-from services.sources_registry_service import _scrub, safe_url
-from services.sources_search_service import _error_view, _JobFailed, _start
+from services.sources_import_service import (NOVEL_MEDIA_TYPES, require_drama, require_idle,
+                                             url_fail, import_job_id)
+from services.sources_registry_service import scrub, safe_url
+from services.sources_search_service import error_view, JobFailed, start_job
 from services.sources_url_service import (check_public_url, fail_job, handoff_error,
                                           preview_view, source_client, without_urls)
 from sources import adaptive, front_door, generic_import, pipeline, preflight
@@ -72,7 +72,7 @@ def _pasted_html(html) -> str:
 
 def _no_url(text) -> str:
     """Scrubbed text naming no URL at all (a pasted URL is never echoed)."""
-    text = _scrub(text) if text else ""
+    text = scrub(text) if text else ""
     return without_urls({"message": text})["message"] if text else ""
 
 
@@ -93,12 +93,12 @@ def preflight_view(pf, url: str) -> dict:
         "reachable": bool(pf.reachable),
         "content_type": pf.content_type if pf.content_type in (
             front_door.VIDEO, front_door.NOVEL, front_door.COMIC) else front_door.UNKNOWN,
-        "tier": _scrub(str(pf.tier or "")) or "",
+        "tier": scrub(str(pf.tier or "")) or "",
         "adapter": pf.adapter or None,
-        "title": _scrub(pf.title or "") or "",
+        "title": scrub(pf.title or "") or "",
         "text_chars": int(pf.text_chars or 0),
         "images": int(pf.images or 0),
-        "confidence": _scrub(pf.confidence or "") or "",
+        "confidence": scrub(pf.confidence or "") or "",
         "next_link": bool(pf.next_link),
         "previous_link": bool(pf.previous_link),
         "warnings": _lines(pf.warnings),
@@ -117,7 +117,7 @@ def _preflight_job(job_id: str, url: str, local: bool):
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except Exception as e:
-        fail_job(job_id, "url_preflight", _error_view(e))
+        fail_job(job_id, "url_preflight", error_view(e))
     background_jobs.set_result(job_id, preflight_view(pf, url))
 
 
@@ -125,7 +125,7 @@ def start_preflight(url, local: bool = True) -> dict:
     """Starts `sources_url_preflight` after the public-address check. One
     fetch; writes nothing. 422 bad/private URL, 503 no DNS, 409 running."""
     url = check_public_url(url)
-    return _start(PREFLIGHT_JOB_ID, _preflight_job, PREFLIGHT_JOB_ID, url, bool(local),
+    return start_job(PREFLIGHT_JOB_ID, _preflight_job, PREFLIGHT_JOB_ID, url, bool(local),
                   description="Sources site check")
 
 
@@ -162,12 +162,12 @@ def _pasted_import_job(job_id: str, url: str, html: str, drama_id: int, local: b
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except generic_import.NoContentFound:
-        _url_fail(job_id, {"status": 422, "code": InvalidInputError.code, "message": _NO_TEXT,
+        url_fail(job_id, {"status": 422, "code": InvalidInputError.code, "message": _NO_TEXT,
                            "details": {"reason": "NO_CONTENT"}})
     except Exception as e:
-        _url_fail(job_id, _error_view(e))
+        url_fail(job_id, error_view(e))
     if res.ladder is not None and getattr(res.ladder, "handoff", None):
-        _url_fail(job_id, handoff_error(res.ladder.handoff, url))
+        url_fail(job_id, handoff_error(res.ladder.handoff, url))
     text = res.text or ""
     if report.needs_review or not text.strip():
         background_jobs.set_result(job_id, {"kind": "url_import", "needs_review": True,
@@ -188,13 +188,13 @@ def start_pasted_import(url, html, drama_id, local: bool = True, principal=None)
     `local`: nothing but the text is kept (see the module docstring)."""
     url = check_public_url(url)
     html = _pasted_html(html)
-    drama = _require_drama(drama_id, principal)
+    drama = require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
         raise InvalidInputError("Novel text imports into a novel drama. Pick one, "
                                 "or create one first.")
-    _require_idle(drama_id)
+    require_idle(drama_id)
     job_id = import_job_id(drama_id)
-    return _start(job_id, _pasted_import_job, job_id, url, html, drama_id, bool(local),
+    return start_job(job_id, _pasted_import_job, job_id, url, html, drama_id, bool(local),
                   description="Import novel text from a pasted page")
 
 
@@ -212,7 +212,7 @@ def _resource_view(r: dict) -> dict:
         "index": int(r.get("index") or 0),
         "kind": str(r.get("kind") or ""),
         "role": str(r.get("role") or ""),
-        "language": _scrub(r.get("language")) or None,
+        "language": scrub(r.get("language")) or None,
         "label": _no_url(r.get("label")) or None,
         "display_url": safe_url(full) if _is_web(full) else "",
         # Only an http(s) resource can go to the video download.
@@ -229,7 +229,7 @@ def identify_view(data, report, run_id: str) -> dict:
         "found": bool(resources),
         "needs_review": bool(report.needs_review),
         "reason": _no_url(report.reason),
-        "protection": [_scrub(str(p)) for p in ((data or {}).get("protection")
+        "protection": [scrub(str(p)) for p in ((data or {}).get("protection")
                                                  or report.protection or [])],
         "resources": resources,
     }
@@ -278,10 +278,10 @@ def _identify_job(job_id: str, url: str, html, local: bool):
         data, report = adaptive.identify_media(url, html, engine=None)
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
-    except (background_jobs.JobCancelled, _JobFailed):
+    except (background_jobs.JobCancelled, JobFailed):
         raise
     except Exception as e:
-        fail_job(job_id, "media_identify", _error_view(e))
+        fail_job(job_id, "media_identify", error_view(e))
     if local:
         urls = {int(r.get("index") or 0): str(r.get("resource_url"))
                 for r in ((data or {}).get("resources") or [])
@@ -298,7 +298,7 @@ def start_identify_media(url, html=None, local: bool = True) -> dict:
     url = check_public_url(url)
     if html is not None:
         html = _pasted_html(html)
-    return _start(IDENTIFY_JOB_ID, _identify_job, IDENTIFY_JOB_ID, url, html, bool(local),
+    return start_job(IDENTIFY_JOB_ID, _identify_job, IDENTIFY_JOB_ID, url, html, bool(local),
                   description="Sources identify media")
 
 
@@ -309,10 +309,10 @@ def start_identify_media(url, html=None, local: bool = True) -> dict:
 def _access_view(access: dict) -> dict:
     access = access if isinstance(access, dict) else {}
     return {
-        "authentication": _scrub(access.get("authentication")) or None,
-        "entitlement": _scrub(access.get("entitlement")) or None,
-        "technical_protection": _scrub(access.get("technical_protection")) or None,
-        "protection_detail": [_scrub(str(x)) for x in (access.get("protection_detail") or [])],
+        "authentication": scrub(access.get("authentication")) or None,
+        "entitlement": scrub(access.get("entitlement")) or None,
+        "technical_protection": scrub(access.get("technical_protection")) or None,
+        "protection_detail": [scrub(str(x)) for x in (access.get("protection_detail") or [])],
     }
 
 
@@ -326,17 +326,17 @@ def recent_extractions(limit: int = 15) -> list:
         out.append({
             "url": safe_url(a.get("url")),
             "created_at": a.get("created_at"),
-            "content_type": _scrub(a.get("content_type")) or "",
-            "headline": _scrub(a.get("headline")) or "",
-            "tier": _scrub(a.get("tier")) or None,
-            "extraction_tier": _scrub(a.get("extraction_tier")) or None,
+            "content_type": scrub(a.get("content_type")) or "",
+            "headline": scrub(a.get("headline")) or "",
+            "tier": scrub(a.get("tier")) or None,
+            "extraction_tier": scrub(a.get("extraction_tier")) or None,
             "llm_calls": int(a.get("llm_calls") or 0),
             "cache_hit": bool(a.get("cache_hit")),
-            "profile": _scrub(adaptive.describe_profile(a.get("profile") or {})) or "",
-            "confidence": _scrub(conf.get("bucket")) or None,
+            "profile": scrub(adaptive.describe_profile(a.get("profile") or {})) or "",
+            "confidence": scrub(conf.get("bucket")) or None,
             "access": _access_view(a.get("access")) if a.get("access") else None,
-            "resource_types": [_scrub(str(x)) for x in (a.get("resource_types") or [])],
-            "reason": _scrub(a.get("reason")) or "",
-            "lines": [_scrub(str(x)) for x in (a.get("lines") or [])],
+            "resource_types": [scrub(str(x)) for x in (a.get("resource_types") or [])],
+            "reason": scrub(a.get("reason")) or "",
+            "lines": [scrub(str(x)) for x in (a.get("lines") or [])],
         })
     return out

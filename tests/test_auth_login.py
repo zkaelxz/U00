@@ -835,7 +835,7 @@ class TestSettings:
         from services import settings_service
         env = tmp_path / ".env"
         env.write_text(f'BAIHE_GOOGLE_CLIENT_SECRET="{SECRET}"\nBAIHE_PUBLIC_URL=https://a.example\n')
-        monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(env))
+        monkeypatch.setattr(settings_service, "default_env_path", lambda: str(env))
         monkeypatch.delenv("BAIHE_GOOGLE_CLIENT_SECRET", raising=False)
         assert load_settings().google_client_secret == SECRET
         assert load_settings({}).google_client_secret == ""

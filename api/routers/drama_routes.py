@@ -28,8 +28,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.formparsers import MultiPartException
 
 from api.auth import local_only, require_permission
-from api.routers.bug_report_routes import _BodyTooLarge, _capped
-from api.routers.library_routes import _to_detail
+from api.routers.bug_report_routes import BodyTooLarge, capped
+from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaMetadataUpdate, ErrorResponse)
 from services import cover_art_service, drama_service
@@ -45,7 +45,7 @@ router = APIRouter(prefix="/api/dramas", tags=["dramas"])
 def post_drama(payload: DramaCreateRequest, request: Request):
     result = drama_service.create_drama(**payload.model_dump(),
                                         principal=request.state.principal)
-    return DramaCreateResult(**_to_detail(result).model_dump(),
+    return DramaCreateResult(**to_detail(result).model_dump(),
                              preset_defaults=result.get("preset_defaults"))
 
 
@@ -55,7 +55,7 @@ def post_drama(payload: DramaCreateRequest, request: Request):
                         422: {"model": ErrorResponse}})
 def post_drama_metadata(payload: DramaMetadataUpdate, request: Request,
                         drama_id: int = Path(ge=1)):
-    return _to_detail(drama_service.update_drama_metadata(
+    return to_detail(drama_service.update_drama_metadata(
         drama_id, principal=request.state.principal,
         **payload.model_dump(exclude_unset=True)))
 
@@ -83,8 +83,8 @@ async def post_cover(request: Request, drama_id: int = Path(ge=1)):
     if length > cap:
         raise StarletteHTTPException(413, _COVER_TOO_LARGE)
     try:
-        form = await _capped(request, cap).form(max_files=1, max_fields=0)
-    except _BodyTooLarge:
+        form = await capped(request, cap).form(max_files=1, max_fields=0)
+    except BodyTooLarge:
         raise StarletteHTTPException(413, _COVER_TOO_LARGE)
     except (MultiPartException, StarletteHTTPException):
         raise InvalidInputError("Send the image as multipart/form-data in a 'file' field.") from None

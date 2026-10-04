@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import FileResponse
 
-from api.auth import (_auth_enabled, is_local_request, local_only, require_engines_allowed,
+from api.auth import (is_auth_enabled, is_local_request, local_only, require_engines_allowed,
                       require_permission)
 from api.llm_slots import llm_slot
 from api.schemas import (BurnPreviewInfo, BurnPreviewStart, BurnPreviewStarted, ErrorResponse,
@@ -58,7 +58,7 @@ def _global_style_pc_only(request: Request, drama_id: int) -> None:
     shapes every drama's future translate prompts: learning or pausing it
     is PC-only (docs/remote-access-decision.md). A series profile stays
     with the route's own permission."""
-    if (_auth_enabled(request.app) and not is_local_request(request)
+    if (is_auth_enabled(request.app) and not is_local_request(request)
             and svc.style_scope_is_global(drama_id)):
         raise ForbiddenError("Changing the library-wide learned style is only allowed at the PC.")
 

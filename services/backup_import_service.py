@@ -71,8 +71,8 @@ _TOO_LARGE = "The uploaded file is too large."
 _READ_TIME_LIMIT_S = 30
 _IMPORT_TIME_LIMIT_S = 300
 # Every table the import reads from the file; each must be an ordinary table.
-_READ_TABLES = (("dramas", "lines", "series", "bubbles") + abs_._CHILD_TABLES
-                + abs_._SERIES_CHILDREN)
+_READ_TABLES = (("dramas", "lines", "series", "bubbles") + abs_.CHILD_TABLES
+                + abs_.SERIES_CHILDREN)
 # The dramas/lines/characters columns the import treats specially; every
 # other column is copied as is. The coverage test in
 # tests/test_api_backup_import.py fails when a column is in none of the sets.
@@ -104,7 +104,7 @@ def _save_upload(stream, dest: str):
 def _open_db(path: str, time_limit: float = None):
     """Read-only connection whose statements are interrupted (an
     sqlite3.OperationalError) once `time_limit` seconds have passed."""
-    conn = sqlite3.connect(abs_._ro_uri(path), uri=True)
+    conn = sqlite3.connect(abs_.ro_uri(path), uri=True)
     conn.execute("PRAGMA trusted_schema = OFF")
     deadline = time.monotonic() + (_READ_TIME_LIMIT_S if time_limit is None else time_limit)
     conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 1000)
@@ -160,7 +160,7 @@ class _Backup:
             try:
                 with zipfile.ZipFile(upload) as zf:
                     # No SQL runs on it until _check_db's guarded connection.
-                    self.db_path = abs_._extract_db(zf, tmp, _MAX_DB_BYTES, check=False)
+                    self.db_path = abs_.extract_db(zf, tmp, _MAX_DB_BYTES, check=False)
             except (OSError, zipfile.BadZipFile, KeyError):
                 raise InvalidInputError(_BAD_FILE) from None
             self.zip_path = upload
@@ -220,9 +220,9 @@ def _schema_differs(backup: _Backup) -> bool:
         with contextlib.closing(_open_db(backup.db_path)) as conn, \
                 contextlib.closing(db.get_conn()) as dst:
             for table in ("dramas", "lines", "characters"):
-                if not abs_._has_table(conn, table):
+                if not abs_.has_table(conn, table):
                     continue
-                if set(abs_._columns(conn, table)) - set(abs_._columns(dst, table)):
+                if set(abs_.columns(conn, table)) - set(abs_.columns(dst, table)):
                     return True
     except sqlite3.Error:
         raise InvalidInputError(_BAD_FILE) from None
@@ -264,12 +264,12 @@ def _check_row_limits(src, ids: list):
     total = 0
     marks = ",".join("?" for _ in ids)
     in_series = f"IN (SELECT series_id FROM dramas WHERE id IN ({marks}))"
-    wheres = [(table, f"drama_id IN ({marks})") for table in abs_._CHILD_TABLES]
-    if abs_._has_table(src, "pages"):
+    wheres = [(table, f"drama_id IN ({marks})") for table in abs_.CHILD_TABLES]
+    if abs_.has_table(src, "pages"):
         wheres.append(("bubbles", f"page_id IN (SELECT id FROM pages WHERE drama_id IN ({marks}))"))
-    wheres += [(table, f"series_id {in_series}") for table in abs_._SERIES_CHILDREN]
+    wheres += [(table, f"series_id {in_series}") for table in abs_.SERIES_CHILDREN]
     for table, where in wheres:
-        if not abs_._has_table(src, table):
+        if not abs_.has_table(src, table):
             continue
         total += src.execute(f'SELECT COUNT(*) FROM "{table}" WHERE {where}', ids).fetchone()[0]
         if total > _MAX_ROWS_PER_IMPORT:
@@ -277,9 +277,9 @@ def _check_row_limits(src, ids: list):
                                     "import fewer of them.")
     size = 0
     for table, where in [("dramas", f"id IN ({marks})"), ("series", f"id {in_series}")] + wheres:
-        if not abs_._has_table(src, table):
+        if not abs_.has_table(src, table):
             continue
-        cols = ['"' + c.replace('"', '""') + '"' for c in abs_._columns(src, table)]
+        cols = ['"' + c.replace('"', '""') + '"' for c in abs_.columns(src, table)]
         if not cols:
             continue
         sizes = ", ".join(f"MAX(length(CAST({c} AS BLOB))), SUM(length(CAST({c} AS BLOB)))"
@@ -306,10 +306,10 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
     Returns {imported: [{source_id, drama_id, title, media_imported}],
     series_created, media_imported, counts}."""
     ids = _check_ids(drama_ids)
-    las._require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Importing dramas")
-    if abs_._job_running():
+    las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Importing dramas")
+    if abs_.job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
-    with las._maintenance("importing dramas"), tempfile.TemporaryDirectory() as tmp:
+    with las.maintenance("importing dramas"), tempfile.TemporaryDirectory() as tmp:
         db.recover_media_imports()
         backup = _Backup(tmp, stream)
         stagings, staging = {}, None
@@ -332,13 +332,13 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
                     with zipfile.ZipFile(backup.zip_path) as zf:
                         for did in ids:
                             if did in media:
-                                stagings[did] = abs_._stage_media(zf, did, staging)
+                                stagings[did] = abs_.stage_media(zf, did, staging)
                 except (OSError, zipfile.BadZipFile):
                     raise InvalidInputError(_BAD_FILE) from None
             return _import_from(backup.db_path, ids, stagings, staging, principal)
         finally:
             if staging is not None:
-                abs_._end_media_staging(staging)
+                abs_.end_media_staging(staging)
 
 
 def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
@@ -358,14 +358,14 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
         try:
             dst.execute("BEGIN IMMEDIATE")
             for old_id in ids:
-                row = abs_._rows(src, "dramas", "id = ?", (old_id,))[0]
+                row = abs_.table_rows(src, "dramas", "id = ?", (old_id,))[0]
                 title = (_text(row.get("title_en"), 300) or _text(row.get("title_zh"), 300))
                 suffix = f"(restored {today})" if title.casefold() in titles else None
                 staged = stagings.get(old_id)
                 import_as["media_dir"] = staged
-                live_id, counts, _ = abs_._copy_drama(src, dst, old_id, None, suffix, import_as)
+                live_id, counts, _ = abs_.copy_drama(src, dst, old_id, None, suffix, import_as)
                 # Never inherit a stray dramas/<new id>, files imported or not.
-                abs_._claim_folder(live_id, _FOLDER_EXISTS)
+                abs_.claim_folder(live_id, _FOLDER_EXISTS)
                 shown = dst.execute("SELECT COALESCE(NULLIF(title_en, ''), title_zh) FROM dramas "
                                     "WHERE id = ?", (live_id,)).fetchone()[0] or ""
                 titles.add(str(shown).strip().casefold())
@@ -376,11 +376,11 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
                 imported.append({"source_id": old_id, "drama_id": live_id, "title": str(shown),
                                  "media_imported": staged is not None})
             if folders:
-                abs_._move_media_in(staging, folders, _FOLDER_EXISTS)
+                abs_.move_media_in(staging, folders, _FOLDER_EXISTS)
             dst.commit()
         except BaseException as exc:
             dst.rollback()
-            if staging is not None and not abs_._end_media_staging(staging):
+            if staging is not None and not abs_.end_media_staging(staging):
                 raise ServiceError("The dramas were not imported, but some of their files could "
                                    "not be cleaned up and are still in the library's dramas "
                                    "folder; the app tries again at the next start.") from None
@@ -392,7 +392,7 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
     try:
         from services import auth_service
         auth_service.write_audit(
-            ownership_service._user_id(principal), "library.import_dramas",
+            ownership_service.user_id(principal), "library.import_dramas",
             "dramas " + ",".join(str(i["source_id"]) for i in imported) + " imported as "
             + ",".join(str(i["drama_id"]) for i in imported))
     except Exception:

@@ -20,9 +20,9 @@ from fastapi import Request
 from services.service_errors import RateLimitedError
 
 LLM_MAX_IN_FLIGHT = 2
-_SLOTS = threading.BoundedSemaphore(LLM_MAX_IN_FLIGHT)
-_ACTIVE_CALLERS = set()
-_ACTIVE_LOCK = threading.Lock()
+SLOTS = threading.BoundedSemaphore(LLM_MAX_IN_FLIGHT)
+ACTIVE_CALLERS = set()
+ACTIVE_LOCK = threading.Lock()
 DEFAULT_BUSY = "The AI tools are busy; try again in a moment."
 
 
@@ -37,15 +37,15 @@ def llm_slot(request: Request, busy_message: str = DEFAULT_BUSY):
     """Non-blocking: 429 when this caller already has one running or the
     server-wide cap is reached. Always released, even on an exception."""
     key = caller_key(request)
-    with _ACTIVE_LOCK:
-        if key in _ACTIVE_CALLERS:
+    with ACTIVE_LOCK:
+        if key in ACTIVE_CALLERS:
             raise RateLimitedError(busy_message)
-        if not _SLOTS.acquire(blocking=False):
+        if not SLOTS.acquire(blocking=False):
             raise RateLimitedError(busy_message)
-        _ACTIVE_CALLERS.add(key)
+        ACTIVE_CALLERS.add(key)
     try:
         yield
     finally:
-        with _ACTIVE_LOCK:
-            _ACTIVE_CALLERS.discard(key)
-            _SLOTS.release()
+        with ACTIVE_LOCK:
+            ACTIVE_CALLERS.discard(key)
+            SLOTS.release()

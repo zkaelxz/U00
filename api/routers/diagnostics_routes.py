@@ -21,7 +21,7 @@ None of them ever returns the address.
 from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
 from api.auth import local_only, require_permission
-from api.routers.settings_routes import _read_body, _require_confirm, _require_local_admin
+from api.routers.settings_routes import read_body, require_confirm, require_local_admin
 from api.schemas import (DiagnosticsOverview, ErrorResponse, PortsOverview, RemoteHealth,
                          RemoteIpCheckClearRequest, RemoteIpCheckSetRequest,
                          RemoteIpCheckStatus, RemoteIpCheckTestResult)
@@ -69,9 +69,9 @@ def get_ip_check():
                      "(write-only; key writes must be on)",
              responses={422: {"model": ErrorResponse}})
 async def set_ip_check(request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, RemoteIpCheckSetRequest)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, RemoteIpCheckSetRequest)
+    require_confirm(body.confirm)
     # The DNS check and the .env rewrite block: off the event loop, which the
     # admin and household servers share.
     return await run_in_threadpool(remote_health_service.set_ip_check_url, body.value)
@@ -82,9 +82,9 @@ async def set_ip_check(request: Request):
              summary="PC only: remove the public-address check from .env",
              responses={422: {"model": ErrorResponse}})
 async def clear_ip_check(request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, RemoteIpCheckClearRequest)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, RemoteIpCheckClearRequest)
+    require_confirm(body.confirm)
     return await run_in_threadpool(remote_health_service.clear_ip_check_url)
 
 

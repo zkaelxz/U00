@@ -205,7 +205,7 @@ class TestB25ReviewFixes:
 
     def test_pin_host_mismatch_fails_closed(self, fake_net, monkeypatch):
         from sources import http
-        monkeypatch.setattr(http, "_ascii_url", lambda u: u)   # skip normalisation
+        monkeypatch.setattr(http, "ascii_url", lambda u: u)   # skip normalisation
         real = socket.getaddrinfo
         monkeypatch.setattr(socket, "getaddrinfo", lambda h, p, *a, **k: (
             [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (PUBLIC_IP, p))]

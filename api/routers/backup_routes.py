@@ -33,7 +33,7 @@ from api.backup_schemas import (
     AutoBackupSettings, AutoBackupSettingsUpdate, BackupFileDramaList, BackupJobStarted,
     BackupNowRequest, DeleteSnapshotDone, DeleteSnapshotRequest, ImportDramasDone,
     RestoreDramaDone, RestoreDramaRequest, SnapshotDramaList, SnapshotInfo)
-from api.routers.bug_report_routes import _BodyTooLarge, _capped
+from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.schemas import ErrorResponse
 from services import auto_backup_service as abs_
 from services import backup_import_service as bis
@@ -136,9 +136,9 @@ async def _read_form(request: Request, max_fields: int):
     if length > cap:
         raise StarletteHTTPException(413, _UPLOAD_TOO_LARGE)
     try:
-        return await _capped(request, cap).form(max_files=1, max_fields=max_fields,
+        return await capped(request, cap).form(max_files=1, max_fields=max_fields,
                                                 max_part_size=1024)
-    except _BodyTooLarge:
+    except BodyTooLarge:
         raise StarletteHTTPException(413, _UPLOAD_TOO_LARGE)
     except (MultiPartException, StarletteHTTPException):
         raise InvalidInputError(_FORM_HELP) from None

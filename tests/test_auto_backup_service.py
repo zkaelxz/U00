@@ -1591,8 +1591,8 @@ def test_child_tables_cover_every_fk_to_dramas(isolated_db):
         fk_tables = {t for t in _tables(c)
                      for fk in c.execute(f'PRAGMA foreign_key_list("{t}")')
                      if fk["table"] == "dramas"}
-    assert fk_tables == set(abs_._CHILD_TABLES) | set(abs_._SKIPPED_TABLES)
-    assert not set(abs_._CHILD_TABLES) & set(abs_._SKIPPED_TABLES)
+    assert fk_tables == set(abs_.CHILD_TABLES) | set(abs_._SKIPPED_TABLES)
+    assert not set(abs_.CHILD_TABLES) & set(abs_._SKIPPED_TABLES)
     assert set(abs_._SKIPPED_TABLES) == {"usage_log", "bulk_jobs", "metadata_research_results"}
 
 
@@ -1935,7 +1935,7 @@ class TestRestoreMedia:
             fh.write(b"B")
         _snap(include_media=True)
         _delete_drama(a)
-        armed, real_move = [], abs_._move_media_in
+        armed, real_move = [], abs_.move_media_in
 
         def move(*args, **kw):
             real_move(*args, **kw)
@@ -1947,7 +1947,7 @@ class TestRestoreMedia:
                 armed.clear()
                 raise sqlite3.OperationalError("disk I/O error")
             return sqlite3.Connection.commit(self)
-        monkeypatch.setattr(abs_, "_move_media_in", move)
+        monkeypatch.setattr(abs_, "move_media_in", move)
         monkeypatch.setattr(db._TrackedConnection, "commit", commit, raising=False)
         with pytest.raises(ServiceError):
             _restore(a)
@@ -2007,7 +2007,7 @@ class TestRestoreRejectsUnsafeSnapshot:
         self._assert_refused(self._craft(extra))
 
     def test_too_many_drama_members(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(las, "_RESTORE_MAX_MEMBERS", 6)
+        monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 6)
         a = self._craft(lambda a: [(f"dramas/{a}/f{i}.txt", b"x") for i in range(10)])
         self._assert_refused(a)
 
@@ -2049,12 +2049,12 @@ class TestRestoreRejectsUnsafeSnapshot:
                 with pytest.raises(InvalidInputError):
                     las.validate_backup_zip(fh.read())
         with monkeypatch.context() as m:   # member count
-            m.setattr(las, "_RESTORE_MAX_MEMBERS", 5)
+            m.setattr(las, "RESTORE_MAX_MEMBERS", 5)
             with pytest.raises(InvalidInputError):
                 las.validate_backup_file(path, check_disk=False)
             las.validate_backup_file(path, check_disk=False, check_limits=False)
         with monkeypatch.context() as m:   # one member too large
-            m.setattr(wjs, "_MAX_RESTORE_MEMBER_BYTES", 10_000_000)
+            m.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 10_000_000)
             with pytest.raises(InvalidInputError):
                 las.validate_backup_file(path, check_disk=False)
             las.validate_backup_file(path, check_disk=False, check_limits=False)
@@ -2071,8 +2071,8 @@ class TestRestoreRejectsUnsafeSnapshot:
         for i in range(8):
             with open(os.path.join(_ddir(a), f"f{i}.bin"), "wb") as fh:
                 fh.write(b"\0" * 50_000)
-        monkeypatch.setattr(las, "_RESTORE_MAX_MEMBERS", 3)
-        monkeypatch.setattr(wjs, "_MAX_RESTORE_MEMBER_BYTES", 10_000)
+        monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 3)
+        monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 10_000)
         monkeypatch.setattr(las, "_RESTORE_MIN_TOTAL_BYTES", 0)
         monkeypatch.setattr(las, "_RESTORE_EXPANSION_FACTOR", 1)
         monkeypatch.setattr(las, "_library_size", lambda: 0)
@@ -2080,7 +2080,7 @@ class TestRestoreRejectsUnsafeSnapshot:
         assert abs_._get_state()["last_error"] is None
         assert abs_.snapshot_info()["kind"] == "full"
         _delete_drama(a)
-        monkeypatch.setattr(las, "_RESTORE_MAX_MEMBERS", 100)
+        monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 100)
         res = _restore(a)
         assert res["media_restored"] and len(os.listdir(_ddir(a))) == 8
 
@@ -2192,7 +2192,7 @@ class TestTombstoneSweep:
                 raise OSError("in use")
         with monkeypatch.context() as m:
             m.setattr(drama_service, "shutil", NoRmtree)
-            assert drama_service._hard_delete_drama(a) is True   # leftover folder
+            assert drama_service.hard_delete_drama(a) is True   # leftover folder
         tombs = [n for n in os.listdir(db.DRAMAS_DIR) if ".deleting-" in n]
         assert len(tombs) == 1
         # the in-flight/leftover tombstone is fresh, so the sweep leaves it

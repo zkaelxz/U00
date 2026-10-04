@@ -342,7 +342,7 @@ class TestTranslationIdsAreLineIds:
         class Engine:
             supports_reference = True
             def translate_batch(self, zh_lines, context):
-                return te._request_translations_with_retry(
+                return te.request_translations_with_retry(
                     zh_lines, context.get("speaker_labels"), call_model,
                     line_ids=context.get("line_ids"))
 

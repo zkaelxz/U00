@@ -75,7 +75,7 @@ def _drama_folder(drama_id) -> str:
     return os.path.join(db.DRAMAS_DIR, str(drama_id))
 
 
-def _file_in_folder(folder: str, filename) -> str:
+def file_in_folder(folder: str, filename) -> str:
     """The stored filename's path only if it is a plain name inside the
     drama folder; None for anything else (never follow a stored path out)."""
     if not isinstance(filename, str) or not filename or filename != os.path.basename(filename):
@@ -117,7 +117,7 @@ def remove_media(drama_id, confirm=False) -> dict:
     _require_confirm(confirm, "the drama's audio/video")
     _require_idle(drama_id)
     folder = _drama_folder(drama_id)
-    removed = {f: _remove_file(_file_in_folder(folder, drama.get(f))) for f in _MEDIA_FIELDS}
+    removed = {f: _remove_file(file_in_folder(folder, drama.get(f))) for f in _MEDIA_FIELDS}
     db.update_drama(drama_id, audio_filename=None, source_video_filename=None)
     return {"drama_id": drama_id, "removed": True,
             "audio_file_removed": removed["audio_filename"],

@@ -116,7 +116,7 @@ ALLOWED_IMAGE_TYPES = {
     "image/webp": ".webp",
 }
 
-_PIPELINE_LOCK = threading.Lock()
+PIPELINE_LOCK = threading.Lock()
 
 _server_lock = threading.Lock()
 _server_started = False
@@ -348,7 +348,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     page = None
     temp_path = None
 
-    with _PIPELINE_LOCK:
+    with PIPELINE_LOCK:
         if store and drama is not None:
             page = _store_page(int(drama_id), data, ext)
             image_path = os.path.join(db.drama_dir(int(drama_id)), page["filename"])
@@ -537,7 +537,7 @@ def select_page_images(images, page_url: str):
     for order, image in enumerate(images):
         c = generic_import.ImageCandidate(image.get("url") or page_url, order)
         c.content = image.get("content") or b""
-        generic_import._measure(c)
+        generic_import.measure(c)
         candidates.append(c)
     kept, rejected = generic_import.filter_page_images(candidates, page_url)
     kept_set = {c.order for c in kept}
@@ -758,7 +758,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.log_message(fmt, *args)
 
 
-def _serve(port: int):
+def serve(port: int):
     server = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
     server.timeout = REQUEST_TIMEOUT_SECONDS
     server.daemon_threads = True
@@ -784,7 +784,7 @@ def ensure_server_started(port: int = DEFAULT_PORT) -> bool:
     def run():
         global _server_started
         try:
-            _serve(port)
+            serve(port)
         except Exception as e:
             with _server_lock:
                 _server_started = False

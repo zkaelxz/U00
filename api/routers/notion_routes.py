@@ -17,7 +17,7 @@ from api.auth import local_only
 from api.notion_schemas import (NotionConfig, NotionConfigUpdate, NotionExportRequest,
                                 NotionExportStarted, NotionExportStatus, NotionTestRequest,
                                 NotionTestResult, NotionTokenClear, NotionTokenSet)
-from api.routers.settings_routes import _read_body, _require_confirm, _require_local_admin
+from api.routers.settings_routes import read_body, require_confirm, require_local_admin
 from api.schemas import ErrorResponse
 from services import notion_service
 
@@ -46,9 +46,9 @@ def set_config(payload: NotionConfigUpdate):
                      "as engine keys)",
              responses={422: {"model": ErrorResponse}})
 async def set_token(request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, NotionTokenSet)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, NotionTokenSet)
+    require_confirm(body.confirm)
     return notion_service.set_token(body.value)
 
 
@@ -56,9 +56,9 @@ async def set_token(request: Request):
              summary="PC only: remove the Notion token from .env",
              responses={422: {"model": ErrorResponse}})
 async def clear_token(request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, NotionTokenClear)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, NotionTokenClear)
+    require_confirm(body.confirm)
     return notion_service.clear_token()
 
 

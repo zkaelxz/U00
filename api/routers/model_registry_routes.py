@@ -23,7 +23,7 @@ from api.auth import local_only, require_permission
 from api.model_registry_schemas import (ModelOverrideClearRequest, ModelOverrideRequest,
                                         ModelOverrideResult, ModelStatus,
                                         PresetModelSwitchRequest, PresetModelSwitchResult)
-from api.routers.settings_routes import _require_confirm
+from api.routers.settings_routes import require_confirm
 from api.schemas import ErrorResponse
 from services import model_registry_service as svc
 
@@ -50,7 +50,7 @@ def post_check():
              response_model=PresetModelSwitchResult, responses=_ERRS,
              summary="PC only: switch one preset's model to its replacement (confirm=true)")
 def post_switch(body: PresetModelSwitchRequest, preset_id: int = Path(ge=1)):
-    _require_confirm(body.confirm)
+    require_confirm(body.confirm)
     return svc.switch_preset_model(preset_id, body.from_model, body.to_model)
 
 
@@ -58,7 +58,7 @@ def post_switch(body: PresetModelSwitchRequest, preset_id: int = Path(ge=1)):
              responses=_ERRS,
              summary="PC only: use another model instead of a built-in default or tier model (confirm=true)")
 def post_override(body: ModelOverrideRequest):
-    _require_confirm(body.confirm)
+    require_confirm(body.confirm)
     return svc.set_model_override(body.kind, body.key, body.from_model, body.to_model)
 
 
@@ -66,5 +66,5 @@ def post_override(body: ModelOverrideRequest):
              responses=_ERRS,
              summary="PC only: go back to the built-in model (confirm=true)")
 def post_override_clear(body: ModelOverrideClearRequest):
-    _require_confirm(body.confirm)
+    require_confirm(body.confirm)
     return svc.clear_model_override(body.kind, body.key)

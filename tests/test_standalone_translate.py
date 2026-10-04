@@ -134,7 +134,7 @@ class _ShufflingEngine:
             pairs = {str(i): f"OUT:{zh_lines[i - 1]}" for i in ids}
             shuffled = dict(reversed(list(pairs.items())))
             return json.dumps(shuffled)
-        return te._request_translations_with_retry(zh_lines, None, call_model)
+        return te.request_translations_with_retry(zh_lines, None, call_model)
 
 
 class _CountingEngine:

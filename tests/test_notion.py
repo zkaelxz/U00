@@ -186,7 +186,7 @@ class FakeSession:
 @pytest.fixture
 def notion(isolated_db, monkeypatch, tmp_path):
     env = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(env))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(env))
     server = FakeNotion()
     FakeSession.server = server
     monkeypatch.setattr(requests, "Session", FakeSession)

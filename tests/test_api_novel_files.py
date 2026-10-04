@@ -85,7 +85,7 @@ def test_reference_upload_status_replace_remove(client):
     assert db.get_drama(did)["novel_reference_filename"] == "novel_reference.txt"
     assert _file(did, "novel_reference.txt") == "Chapter 1\nShen Qingyi drew her sword."
     # the translate run reads exactly what was uploaded
-    assert translate_run_service._load_novel_reference(did, db.get_drama(did)).startswith("Chapter 1")
+    assert translate_run_service.load_novel_reference(did, db.get_drama(did)).startswith("Chapter 1")
     assert translate_run_service.get_translate_config(did)["has_novel_reference"] is True
 
     r = _up(client, _ref(did), b"New text", name="n.md")

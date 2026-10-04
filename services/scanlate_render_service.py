@@ -36,8 +36,8 @@ _KIND = {"zip": "scanlate_zip", "pdf": "scanlate_pdf"}
 _FILENAME = {"zip": "typeset_pages.zip", "pdf": "typeset_pages.pdf"}
 
 
-def _original_path(drama_id: int, page: dict) -> str:
-    found = comic_view_service._safe_file(drama_id, page.get("filename"))
+def original_path(drama_id: int, page: dict) -> str:
+    found = comic_view_service.safe_file(drama_id, page.get("filename"))
     if found is None:
         raise NotFoundError("This page's image is missing.")
     return found[0]
@@ -75,7 +75,7 @@ def render_page(drama_id: int, page_id: int, notes: list = None) -> dict:
               and (b.get("translated_text") or "").strip()]
     if not placed:
         return {"rendered": False, "blank": 0}
-    src = _original_path(drama_id, page)
+    src = original_path(drama_id, page)
     name = f"typeset_id{page_id}.png"
     out = os.path.join(_pages_dir(drama_id), name)
     render_notes = []
@@ -91,21 +91,21 @@ def render_page(drama_id: int, page_id: int, notes: list = None) -> dict:
     return {"rendered": True, "blank": len(skipped_blank)}
 
 
-def _append_notes(page_id: int, notes: list):
+def append_notes(page_id: int, notes: list):
     """Adds render notes to the page's stored run notes (kept, not replaced)."""
     if not notes:
         return
     page = db.get_page(page_id) or {}
-    existing = [(n["level"], n["message"]) for n in pages_svc._parse_notes(page.get("run_notes"))]
+    existing = [(n["level"], n["message"]) for n in pages_svc.parse_notes(page.get("run_notes"))]
     combined = []
     for n in existing + [(n[0], pages_svc.clean_note(n[-1])) for n in notes]:
         if n not in combined:                    # a re-render repeats its notes
             combined.append(n)
     db.update_page(page_id, run_notes=pages_svc.notes_to_json(
-        combined[-pages_svc._MAX_NOTES:]))       # newest kept when over the cap
+        combined[-pages_svc.MAX_NOTES:]))       # newest kept when over the cap
 
 
-def _check_cancel(jid: str):
+def check_cancel(jid: str):
     if background_jobs.is_cancel_requested(jid):
         raise background_jobs.JobCancelled(jid)
 
@@ -114,19 +114,19 @@ def _render_job(jid: str, drama_id: int, page_ids: list):
     done = failed = 0
     total = len(page_ids)
     for n, pid in enumerate(page_ids, start=1):
-        _check_cancel(jid)
+        check_cancel(jid)
         background_jobs.update_progress(jid, (n - 1) / total, f"Rendering page {n} of {total}")
         notes = []
         try:
             if render_page(drama_id, pid, notes)["rendered"]:
                 done += 1
-            _append_notes(pid, notes)
+            append_notes(pid, notes)
         except (NotFoundError, InvalidInputError) as exc:
             failed += 1
-            _append_notes(pid, [("error", f"Render failed: {exc}")])
+            append_notes(pid, [("error", f"Render failed: {exc}")])
         except Exception as exc:
             failed += 1
-            _append_notes(pid, [("error", f"Render failed: {type(exc).__name__}: {exc}")])
+            append_notes(pid, [("error", f"Render failed: {type(exc).__name__}: {exc}")])
     msg = f"Rendered {done} page(s)" + (f", {failed} failed (see page notes)" if failed else "")
     background_jobs.update_progress(jid, 1.0, msg + ".")
 
@@ -155,7 +155,7 @@ _PDF_TOO_MANY = (f"A PDF export holds every page in memory, so it is limited to 
 
 
 def _rendered_path(drama_id: int, page: dict):
-    found = comic_view_service._safe_file(drama_id, page.get("rendered_filename"))
+    found = comic_view_service.safe_file(drama_id, page.get("rendered_filename"))
     return found[0] if found else None
 
 
@@ -202,7 +202,7 @@ def _export_job(jid: str, drama_id: int, formats: list):
     files, originals, failed = [], 0, 0
     total = len(pages)
     for n, page in enumerate(pages, start=1):
-        _check_cancel(jid)
+        check_cancel(jid)
         background_jobs.update_progress(jid, 0.8 * (n - 1) / total,
                                         f"Preparing page {n} of {total}")
         try:
@@ -211,19 +211,19 @@ def _export_job(jid: str, drama_id: int, formats: list):
                 notes = []
                 if render_page(drama_id, page["id"], notes)["rendered"]:
                     path = _rendered_path(drama_id, db.get_page(page["id"]))
-                _append_notes(page["id"], notes)
+                append_notes(page["id"], notes)
             if path is None:
-                path = _original_path(drama_id, page)
+                path = original_path(drama_id, page)
                 originals += 1
             files.append((n, path))
         except Exception as exc:
             failed += 1
-            _append_notes(page["id"], [("error", f"Export skipped this page: "
+            append_notes(page["id"], [("error", f"Export skipped this page: "
                                                  f"{type(exc).__name__}: {exc}")])
     if not files:
         raise RuntimeError("No page could be exported.")
     for fmt in formats:
-        _check_cancel(jid)
+        check_cancel(jid)
         background_jobs.update_progress(jid, 0.9, f"Writing the {fmt.upper()}")
         dest = artifact_service.output_path(drama_id, _KIND[fmt], _FILENAME[fmt])
         (_write_zip if fmt == "zip" else _write_pdf)(dest, files)

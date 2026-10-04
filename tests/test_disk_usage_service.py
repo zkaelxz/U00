@@ -450,7 +450,7 @@ class TestExclusiveHold:                                   # M1
 
     def test_a_job_in_another_process_is_seen_under_the_hold(self, tree, renames, monkeypatch):
         from services import library_admin_service
-        monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: True)
+        monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
         with pytest.raises(ConflictError):
             self._clear()
         assert renames == [] and background_jobs.exclusive_active() is False
@@ -459,7 +459,7 @@ class TestExclusiveHold:                                   # M1
                                                                     monkeypatch):
         """The CLI writes no job_records; its GPU steps leave a gpu_lock row."""
         from services import library_admin_service
-        monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
+        monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
         assert dus._busy_under_hold() is False
         assert db.try_acquire_gpu_lock("cli-test-holder", "CLI transcribe")
         try:
@@ -475,7 +475,7 @@ class TestExclusiveHold:                                   # M1
 
     def test_an_unreadable_gpu_lock_table_counts_as_busy(self, tree, monkeypatch):
         from services import library_admin_service
-        monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
+        monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
 
         def boom():
             raise RuntimeError("locked")
@@ -485,14 +485,14 @@ class TestExclusiveHold:                                   # M1
     def test_a_job_that_appears_after_the_look_stops_the_move(self, tree, renames, monkeypatch):
         from services import library_admin_service
         answers = iter([False, True])        # under the hold, then the last look
-        monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: next(answers, True))
+        monkeypatch.setattr(library_admin_service, "any_job_running", lambda: next(answers, True))
         with pytest.raises(ConflictError):
             self._clear()
         assert renames == [] and background_jobs.exclusive_active() is False
 
     def test_move_takes_the_hold_and_rechecks_other_processes(self, tree, tmp_path, monkeypatch):
         from services import library_admin_service
-        monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: True)
+        monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
         with pytest.raises(ConflictError):
             dus.move("library/backups/auto", str(tmp_path), confirm=True)
         assert background_jobs.exclusive_active() is False

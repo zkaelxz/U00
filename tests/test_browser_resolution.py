@@ -81,7 +81,7 @@ def test_other_launch_errors_are_not_masked():
 
 def test_error_view_is_a_fixed_503_sentence():
     from services import sources_search_service as svc
-    view = svc._error_view(page_fetch.BrowserNotFound("C:\\Users\\bob\\x"))
+    view = svc.error_view(page_fetch.BrowserNotFound("C:\\Users\\bob\\x"))
     assert view["status"] == 503 and view["code"] == "dependency_unavailable"
     assert view["message"] == page_fetch.BROWSER_MISSING and "bob" not in str(view)
 

@@ -78,7 +78,7 @@ def fast(monkeypatch):
     def kill_tree(proc):
         killed.append(proc)
         proc.killed = True
-    monkeypatch.setattr(background_jobs, "_kill_tree", kill_tree)
+    monkeypatch.setattr(background_jobs, "kill_tree", kill_tree)
     return killed
 
 

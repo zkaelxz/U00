@@ -151,7 +151,7 @@ def _root() -> str:
 
 
 def _program_dir() -> str:
-    return os.path.realpath(portable._APP_DIR)
+    return os.path.realpath(portable.APP_DIR)
 
 
 def _within(path: str, folder: str) -> bool:
@@ -272,7 +272,7 @@ def _baihe_top_level_names() -> frozenset:
 def _backup_folder_real():
     """Real path of the automatic-backup folder when it exists, else None."""
     try:
-        current = abs_._folder_path(abs_.get_settings().get("folder", ""))
+        current = abs_.folder_path(abs_.get_settings().get("folder", ""))
         if os.path.exists(current):
             return os.path.realpath(current)
     except Exception:
@@ -704,7 +704,7 @@ def _busy_under_hold() -> bool:
     Fails closed: an unreadable lock table counts as busy."""
     from services import library_admin_service
     if (background_jobs.active_job_ids() or background_jobs.maintenance_active()
-            or library_admin_service._any_job_running()):
+            or library_admin_service.any_job_running()):
         return True
     try:
         return db.gpu_lock_status()[0] is not None

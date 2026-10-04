@@ -548,7 +548,7 @@ class TestStartingTheServer:
     def test_it_starts_once_per_process(self, monkeypatch):
         started = []
         monkeypatch.setattr(page_server, "_server_started", False)
-        monkeypatch.setattr(page_server, "_serve", lambda port: started.append(port))
+        monkeypatch.setattr(page_server, "serve", lambda port: started.append(port))
         assert page_server.ensure_server_started(port=18756) is True
         assert page_server.ensure_server_started(port=18756) is False
         assert started == [18756]
@@ -565,7 +565,7 @@ class TestStartingTheServer:
                 pass
 
         monkeypatch.setattr(page_server, "ThreadingHTTPServer", FakeServer)
-        page_server._serve(18757)
+        page_server.serve(18757)
         assert bound["address"][0] == "127.0.0.1"
 
     def test_a_port_conflict_is_reported_not_claimed_as_running(self, monkeypatch):
@@ -573,7 +573,7 @@ class TestStartingTheServer:
 
         def boom(port):
             raise OSError("address already in use")
-        monkeypatch.setattr(page_server, "_serve", boom)
+        monkeypatch.setattr(page_server, "serve", boom)
         page_server.ensure_server_started(port=18758)
         for _ in range(100):
             if not page_server.server_running():

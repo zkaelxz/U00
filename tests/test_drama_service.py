@@ -298,7 +298,7 @@ def test_delete_stale_job_record_does_not_block(isolated_db, monkeypatch):
     did, folder = _drama_with_files()
     db.save_job_record(f"transcribe_{did}", "running")
     real = time.time()
-    monkeypatch.setattr(ds.time, "time", lambda: real + ds._STALE_JOB_RECORD_SECONDS + 60)
+    monkeypatch.setattr(ds.time, "time", lambda: real + ds.STALE_JOB_RECORD_SECONDS + 60)
     ds.delete_drama(did, confirm=True, confirm_text="DELETE")
     assert db.get_drama(did) is None
 

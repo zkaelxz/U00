@@ -154,7 +154,7 @@ def main():
 
     server_port = free_port()
     token = page_server.load_or_create_token()
-    threading.Thread(target=lambda: page_server._serve(server_port), daemon=True).start()
+    threading.Thread(target=lambda: page_server.serve(server_port), daemon=True).start()
     drama_id = db.create_drama(title_en="Extension check", media_type="manga",
                                source_language="ja")
 

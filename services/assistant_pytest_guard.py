@@ -24,4 +24,4 @@ def pytest_configure(config):
     db.configure_library_dir(library)
     empty_env = os.path.join(scratch, ".env")
     open(empty_env, "w").close()
-    settings_service._default_env_path = lambda: empty_env
+    settings_service.default_env_path = lambda: empty_env

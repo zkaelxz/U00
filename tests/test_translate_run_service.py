@@ -241,5 +241,5 @@ def test_summary_engine_build_failure_is_logged_without_key(isolated_db, monkeyp
     def boom(*a, **k):
         raise ValueError("bad config sk-ant-abcdefghijklmnopqrstuvwxyz0123")
     monkeypatch.setattr(translate_engines, "get_engine", boom)
-    assert trs._summary_engine() == (None, None)
+    assert trs.pick_summary_engine() == (None, None)
     assert len(seen) == 1 and "bad config" in seen[0] and "sk-ant-abcdef" not in seen[0]

@@ -79,7 +79,7 @@ def lib(tmp_path):
 @pytest.fixture
 def setup(isolated_db, monkeypatch, lib, tmp_path):
     env = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(env))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(env))
     monkeypatch.setattr(jf.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", ("192.168.1.20", port))])
     FakeSession.routes, FakeSession.calls = {}, []

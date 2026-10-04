@@ -22,7 +22,7 @@ def _versions(monkeypatch, **have):
 
 def _no_jobs(monkeypatch):
     from services import library_admin_service
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
 
 
 def _fake_pip(monkeypatch, seen, lines=(), returncode=0, read_pins=None):
@@ -36,7 +36,7 @@ def _fake_pip(monkeypatch, seen, lines=(), returncode=0, read_pins=None):
         for ln in lines:
             yield {"line": ln}
         yield {"returncode": returncode, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
 
 
 # ---- the static table ----
@@ -186,7 +186,7 @@ def test_a_package_needing_another_torch_is_refused_with_a_plain_hint(monkeypatc
 
 def test_torch_upgrade_goes_through_the_setup(monkeypatch):
     _no_jobs(monkeypatch)
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("no pip"))
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
     with pytest.raises(svc.AdminActionNotPossible):
         svc.upgrade_dependency("torch", confirm=True)
     with pytest.raises(svc.AdminActionUnconfirmed):
@@ -248,7 +248,7 @@ def test_setup_refusals(monkeypatch, driver, variant, msg):
     _no_jobs(monkeypatch)
     _gpu(monkeypatch, driver)
     monkeypatch.setattr(diagnostics.platform, "system", lambda: "Windows")
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("no pip"))
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
     with pytest.raises(svc.AdminActionNotPossible, match=msg):
         svc.setup_gpu_torch(variant, confirm=True)
 
@@ -325,7 +325,7 @@ def test_cuda_check_never_queues_behind_another(monkeypatch):
 
 def test_cuda_check_refused_while_a_job_runs(monkeypatch):
     from services import library_admin_service
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: True)
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
     monkeypatch.setattr(svc, "_verify_torch_once", lambda: pytest.fail("no check"))
     with pytest.raises(svc.AdminActionJobsRunning):
         svc.check_gpu_torch()

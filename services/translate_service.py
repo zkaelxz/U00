@@ -34,7 +34,7 @@ _NO_KEY_REQUIRED_ENGINES = translate_engines.KEYLESS_ENGINES
 
 # Engine name -> the model dict (if any) tabs/translate_tab.py lets the user
 # pick a model from for that engine.
-_ENGINE_MODEL_DICTS = {
+ENGINE_MODEL_DICTS = {
     "claude": translate_engines.CLAUDE_MODELS,
     "gemini": translate_engines.GEMINI_MODELS,
     "openai": translate_engines.OPENAI_MODELS,
@@ -55,7 +55,7 @@ def list_engines(env_path: Optional[str] = None) -> list:
     gemini_free_tier = settings_service.get_gemini_free_tier()
     engines = []
     for name in translate_engines.ENGINES:
-        model_dict = _ENGINE_MODEL_DICTS.get(name)
+        model_dict = ENGINE_MODEL_DICTS.get(name)
         if name in _NO_KEY_REQUIRED_ENGINES:
             key_configured = True
         else:

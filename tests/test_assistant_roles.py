@@ -205,7 +205,7 @@ def test_review_engine_without_cloud_consent_is_not_reviewed(engines, monkeypatc
     monkeypatch.undo()
     monkeypatch.setattr(svc, "build_engine",
                         lambda name=None, model=None: (FakeEngine("claude"), "claude", None))
-    monkeypatch.setattr(reader_service, "_llm_engine", lambda n, m: FakeEngine(n))
+    monkeypatch.setattr(reader_service, "llm_engine", lambda n, m: FakeEngine(n))
     monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", lambda *a: None)
     chat = EngineChat(claude=[PATCH], gemini=["VERDICT: AGREES\nok"])
     out = svc.ask("x", chat=chat)
@@ -226,7 +226,7 @@ def _real_review_build(monkeypatch):
     monkeypatch.undo()
     monkeypatch.setattr(svc, "build_engine",
                         lambda name=None, model=None: (FakeEngine("claude"), "claude", None))
-    monkeypatch.setattr(reader_service, "_llm_engine", lambda n, m: FakeEngine(n))
+    monkeypatch.setattr(reader_service, "llm_engine", lambda n, m: FakeEngine(n))
     monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", lambda *a: None)
 
 

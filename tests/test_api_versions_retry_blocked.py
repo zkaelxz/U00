@@ -380,20 +380,20 @@ class TestRetryApi:
     def test_busy_is_429(self, client, monkeypatch):
         did, ids = _blocked()
         _use_engine(monkeypatch, FakeEngine(lambda zh, ctx: ["Goodbye"]))
-        llm_slots._ACTIVE_CALLERS.add("local")
+        llm_slots.ACTIVE_CALLERS.add("local")
         try:
             r = client.post(_retry(did, ids[1]), json={"engine": "claude"})
             assert r.status_code == 429 and r.json()["error"]["code"] == "rate_limited"
         finally:
-            llm_slots._ACTIVE_CALLERS.discard("local")
-        got = [llm_slots._SLOTS.acquire(blocking=False) for _ in range(llm_slots.LLM_MAX_IN_FLIGHT)]
+            llm_slots.ACTIVE_CALLERS.discard("local")
+        got = [llm_slots.SLOTS.acquire(blocking=False) for _ in range(llm_slots.LLM_MAX_IN_FLIGHT)]
         try:
             assert all(got)
             assert client.post(_retry(did, ids[1]), json={"engine": "claude"}).status_code == 429
         finally:
             for ok in got:
                 if ok:
-                    llm_slots._SLOTS.release()
+                    llm_slots.SLOTS.release()
         row = next(x for x in db.load_lines(did) if x["id"] == ids[1])
         assert row["flag"] == "content_blocked"
         assert client.post(_retry(did, ids[1]), json={"engine": "claude"}).status_code == 200

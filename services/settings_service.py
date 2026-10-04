@@ -45,14 +45,14 @@ ENV_NAMES = {
 _ENGINE_KEY_NAMES = tuple(k for k in ENV_NAMES if k != "monthly_cap_usd")
 
 
-def _default_env_path() -> str:
+def default_env_path() -> str:
     # The project folder for a source checkout; the per-user data folder
     # for an installed copy, so keys never sit in the program files an
     # update replaces (portable.data_dir(), Step 80b).
     return os.path.join(portable.data_dir(), ".env")
 
 
-def _read_env_file(env_path: str = None) -> dict:
+def read_env_file(env_path: str = None) -> dict:
     """Parses the project's .env file the same way tabs/settings_tab.py's
     _load_env_defaults() does: utf-8-sig (BOM-safe, since Notepad-saved
     .env files often carry one), skips comments/blank lines, strips
@@ -61,7 +61,7 @@ def _read_env_file(env_path: str = None) -> dict:
     """
     env = {}
     if env_path is None:
-        env_path = _default_env_path()
+        env_path = default_env_path()
     if os.path.exists(env_path):
         try:
             with open(env_path, encoding="utf-8-sig") as fh:
@@ -89,7 +89,7 @@ def resolve_env_names(names, env_path: str = None) -> Optional[str]:
     """Server-side only: the first non-empty value among `names`, from .env
     then real environment variables. Shared with notification_service's
     webhook/topic secrets, which are not engine keys."""
-    env = _read_env_file(env_path)
+    env = read_env_file(env_path)
     for name in names:
         val = env.get(name) or os.environ.get(name)
         if val:
@@ -111,7 +111,7 @@ def baihe_own_ports() -> set:
     configured BAIHE_API_PORT and BAIHE_API_HOUSEHOLD_PORT. Both the real
     environment and .env are read, so a port set in either is protected."""
     ports = set(_BAIHE_FIXED_PORTS)
-    env = _read_env_file()
+    env = read_env_file()
     for name in (API_PORT_ENV, HOUSEHOLD_PORT_ENV):
         for raw in (os.environ.get(name), env.get(name)):
             try:
@@ -564,7 +564,7 @@ def _validate_endpoint_name(name: str):
 def set_endpoint_url(name: str, value: str, env_path: str = None) -> dict:
     _validate_endpoint_name(name)
     value = validate_endpoint_url(value)
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
     write_env_var(ENV_NAMES[name][0], value, env_path)
     _forget_engine_test(name)
     return {"name": name, "url": endpoint_values(env_path)[name],
@@ -575,7 +575,7 @@ def clear_endpoint_url(name: str, env_path: str = None) -> dict:
     """Removes the endpoint from .env. One set in the real environment
     stays in effect; the result reports what now applies."""
     _validate_endpoint_name(name)
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
     remove_env_vars(ENV_NAMES[name], env_path)
     _forget_engine_test(name)
     return {"name": name, "url": endpoint_values(env_path)[name],
@@ -663,7 +663,7 @@ def set_engine_key(engine: str, value: str, env_path: str = None) -> dict:
     Returns {engine, configured} only -- never the value."""
     _validate_engine(engine)
     value = _validate_key_value(value)
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
     write_env_var(ENV_NAMES[engine][0], value, env_path)
     _forget_engine_test(engine)
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
@@ -673,7 +673,7 @@ def write_env_var(var_name: str, value: str, env_path: str = None):
     """Sets `var_name=value` in .env in place (appends when absent),
     keeping every other line. `value` must already be validated (no
     whitespace, quotes or control characters)."""
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
 
     def transform(lines):
         new_line = f"{var_name}={value}\n"
@@ -696,7 +696,7 @@ def write_env_var(var_name: str, value: str, env_path: str = None):
 
 def remove_env_vars(names, env_path: str = None):
     """Removes every line setting one of `names` from .env (if it exists)."""
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
     names = set(names)
     if os.path.exists(env_path):
         _rewrite_env(env_path, lambda lines: [l for l in lines if _line_var(l) not in names])
@@ -707,7 +707,7 @@ def clear_engine_key(engine: str, env_path: str = None) -> dict:
     it). A key that also comes from a real environment variable stays
     configured -- `configured` reports the truth."""
     _validate_engine(engine)
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
     remove_env_vars(ENV_NAMES[engine], env_path)
     _forget_engine_test(engine)
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}

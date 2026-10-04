@@ -200,7 +200,7 @@ def manifest_candidates(html: str, page_url: str, skip=()) -> list:
     return out
 
 
-def _measure(c: ImageCandidate):
+def measure(c: ImageCandidate):
     from PIL import Image
     try:
         with Image.open(io.BytesIO(c.content)) as im:
@@ -290,7 +290,7 @@ def filter_page_images(candidates, page_url: str, seen_elsewhere=frozenset()) ->
     return kept, rejected
 
 
-def _client(client=None, url: str = "") -> SourceClient:
+def http_client(client=None, url: str = "") -> SourceClient:
     """A URL a registered adapter recognizes is fetched (and recorded)
     under that adapter's source name, so its capability record -- and
     its terms -- apply here too; anything else is GENERIC_SOURCE. It
@@ -327,7 +327,7 @@ def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None
     API turns both off for a request that isn't from this PC. `record=False`
     leaves the source's capability record alone (page source pasted from
     another device must not rewrite it)."""
-    client = _client(client, url)
+    client = http_client(client, url)
     default = _default_capabilities(client)
     ladder.check_terms(client.source, default, url=url)
     if user_html is not None:
@@ -417,7 +417,7 @@ def download_candidates(candidates, page_url: str, client, budget: DownloadBudge
                 continue
             budget.total_bytes += len(resp.content)
         c.content = resp.content
-        _measure(c)
+        measure(c)
 
 
 def filter_candidates(candidates, page_url: str, remember: bool = True,
@@ -440,7 +440,7 @@ def import_comic_page(url: str, client=None, rendered_fetch=None, user_html: str
     NoContentFound (with the ladder's per-tier lines in the message) when
     nothing usable is there; ChallengeDetected-shaped hand-offs come back
     via `result.ladder.handoff` with no images."""
-    client = _client(client, url)
+    client = http_client(client, url)
     lr = fetch_page(url, client, rendered_fetch, user_html)
     out = ComicImportResult(page_url=url, ladder=lr)
     if lr.handoff:

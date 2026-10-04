@@ -44,10 +44,10 @@ import background_jobs
 import db
 import portable
 from services.service_errors import InvalidInputError, UnsupportedOperationError
-from services.sources_import_service import _chapter_ids
-from services.sources_registry_service import _scrub, safe_url
-from services.sources_search_service import (SAVE_JOB_ID, _enabled_source, _error_view,
-                                             _JobFailed, _series_id, _start)
+from services.sources_import_service import parse_chapter_ids
+from services.sources_registry_service import scrub, safe_url
+from services.sources_search_service import (SAVE_JOB_ID, enabled_source, error_view,
+                                             JobFailed, clean_series_id, start_job)
 from sources import chapter_order, ladder, registry
 from sources.http import Cancelled
 from sources.models import ChallengeDetected, FailureReason, SourceError, TermsProhibited
@@ -223,7 +223,7 @@ def _has_images(path: str) -> bool:
 
 
 def _row(ch, outcome: str, **extra) -> dict:
-    return {"chapter_id": str(ch.chapter_id), "title": _scrub(ch.title or ""),
+    return {"chapter_id": str(ch.chapter_id), "title": scrub(ch.title or ""),
             "outcome": outcome, **extra}
 
 
@@ -294,24 +294,24 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
                       note=f"{label} series {series_id}")
             rows.append(_row(ch, "saved", pages=len(images)))
         except ChallengeDetected as e:
-            rows.append(_row(ch, "failed", error=_scrub(str(e)),
+            rows.append(_row(ch, "failed", error=scrub(str(e)),
                              handoff={"reason": e.reason.value, "handoff": True,
                                       "open_url": safe_url(e.url),
                                       "chapter_id": str(ch.chapter_id)}))
             stopped = True
             break
         except TermsProhibited as e:
-            rows.append(_row(ch, "failed", error=_scrub(str(e))))
+            rows.append(_row(ch, "failed", error=scrub(str(e))))
             stopped = True
             break
         except Cancelled:
             stopped = cancelled = True
             break
         except SourceError as e:
-            rows.append(_row(ch, "failed", error=_scrub(str(e)) or "Save failed."))
+            rows.append(_row(ch, "failed", error=scrub(str(e)) or "Save failed."))
         except OSError as e:
             # str(e) carries the full file path; only the OS reason is safe to show.
-            rows.append(_row(ch, "failed", error=_scrub(e.strerror or "") or "Save failed."))
+            rows.append(_row(ch, "failed", error=scrub(e.strerror or "") or "Save failed."))
     done = {r["chapter_id"] for r in rows}
     if stopped:
         rows += [_row(ch, "not_attempted", error=_NOT_ATTEMPTED) for ch in wanted
@@ -338,9 +338,9 @@ def _chapter_save_job(job_id: str, name: str, series_id: str, chapter_ids: list,
              for c in chapter_ids], True, None))
         return
     except Exception as e:
-        err = _error_view(e, name)
+        err = error_view(e, name)
         background_jobs.set_result(job_id, {"kind": "chapter_save", "error": err})
-        raise _JobFailed(err["message"]) from None
+        raise JobFailed(err["message"]) from None
     handoff = next((r.pop("handoff") for r in rows if "handoff" in r), None)
     background_jobs.set_result(job_id, _save_result(rows, cancelled, handoff))
 
@@ -349,12 +349,12 @@ def start_chapter_save(name, series_id, chapter_ids) -> dict:
     """Starts `sources_save`. 404 unknown source; 400 source off or not a
     comic source; 422 bad ids; 409 while another save runs."""
     name = str(name or "")
-    cls = _enabled_source(name)
-    series_id = _series_id(series_id)
-    ids = _chapter_ids(chapter_ids)
+    cls = enabled_source(name)
+    series_id = clean_series_id(series_id)
+    ids = parse_chapter_ids(chapter_ids)
     adapter = cls()
     if not adapter.supports("get_pages") or not adapter.supports("get_chapters"):
         raise UnsupportedOperationError("Only comic sources can save chapters as CBZ files.",
                                         details={"reason": "NOT_SUPPORTED"})
-    return _start(SAVE_JOB_ID, _chapter_save_job, SAVE_JOB_ID, name, series_id, ids,
+    return start_job(SAVE_JOB_ID, _chapter_save_job, SAVE_JOB_ID, name, series_id, ids,
                   description=f"Save {len(ids)} chapter(s) from {name} as CBZ")

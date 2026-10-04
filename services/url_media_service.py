@@ -209,8 +209,8 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
     current = url
     for _ in range(MAX_DIRECT_REDIRECTS + 1):
         try:
-            ip = ms._check_public_url(current)
-            resp = ms._pinned_get(current, ip, _DIRECT_HEADERS)
+            ip = ms.check_public_url(current)
+            resp = ms.pinned_get(current, ip, _DIRECT_HEADERS)
         except Exception:
             raise RuntimeError(_FAILED) from None
         try:
@@ -398,17 +398,17 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
-    if (drama.get("content_mode") or "audio_drama") not in media_upload_service._UPLOAD_CONTENT_MODES:
-        raise InvalidInputError(media_upload_service._NO_UPLOAD_MODE)
+    if (drama.get("content_mode") or "audio_drama") not in media_upload_service.UPLOAD_CONTENT_MODES:
+        raise InvalidInputError(media_upload_service.NO_UPLOAD_MODE)
     if _has_audio(drama, drama_id) and not confirm_replace_audio:
         raise InvalidInputError("This drama already has audio. Confirm replacing it first.",
                                 details={"reason": "confirm_replace_audio"})
     if direct_media_ext(url) is None and not _yt_dlp_installed():
         raise DependencyUnavailableError(_NO_YTDLP)
-    with media_upload_service._claims_lock:
-        if drama_id in media_upload_service._claimed:
+    with media_upload_service.claims_lock:
+        if drama_id in media_upload_service.claimed:
             raise ConflictError("Another upload is in progress for this drama.")
-        media_upload_service._claimed.add(drama_id)
+        media_upload_service.claimed.add(drama_id)
     try:
         with _start_lock:
             if drama_service.job_running_for_drama(drama_id):
@@ -423,5 +423,5 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
                 raise ConflictError(_BUSY)
         return {"job_id": job_id}
     finally:
-        with media_upload_service._claims_lock:
-            media_upload_service._claimed.discard(drama_id)
+        with media_upload_service.claims_lock:
+            media_upload_service.claimed.discard(drama_id)

@@ -19,7 +19,7 @@ the lines a glossary change affects; see services/glossary_retranslate_service.p
 from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request
-from api.auth import (_auth_enabled, holds_paid_engines, is_local_request,
+from api.auth import (is_auth_enabled, holds_paid_engines, is_local_request,
                       require_engines_allowed, require_permission)
 from api.schemas import (ErrorResponse, GlossaryAffectedPreview, GlossaryAffectedRunStart,
                          GlossaryAffectedRunStarted, TranslateBulkCancelResult, TranslateBulkList,
@@ -182,7 +182,7 @@ def apply_translate_preset(body: TranslatePresetApply, drama_id: int = Path(ge=1
              responses={403: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}})
 def save_translate_preset(body: TranslatePresetSave, request: Request):
-    if body.overwrite and _auth_enabled(request.app) and not is_local_request(request):
+    if body.overwrite and is_auth_enabled(request.app) and not is_local_request(request):
         raise ForbiddenError("Replacing a preset is only allowed at the PC.")
     return translate_run_service.save_translate_preset(
         body.name, body.translation_engine, engine_model=body.engine_model,

@@ -821,7 +821,7 @@ class ProfileBusy(RuntimeError):
     """The profile is already open (e.g. its sign-in window is still up)."""
 
 
-def _profile_lock(profile_dir: str) -> threading.Lock:
+def profile_lock(profile_dir: str) -> threading.Lock:
     key = os.path.abspath(profile_dir)
     with _PROFILE_LOCKS_GUARD:
         return _PROFILE_LOCKS.setdefault(key, threading.Lock())
@@ -866,7 +866,7 @@ def fetch_with_profile(url: str, profile_dir: str, timeout: int = 30, wait_selec
     `profile_dir`, so a site the person already signed in to sees that
     same signed-in browser. Returns (html, text). `launcher(profile_dir,
     headless)` -> (playwright, context) is injectable for tests."""
-    lock = _profile_lock(profile_dir)
+    lock = profile_lock(profile_dir)
     if not lock.acquire(timeout=PROFILE_BUSY_WAIT):
         raise ProfileBusy("This site's browser profile is still in use (is its sign-in "
                           "window still open?). Finish there and close it first.")
@@ -921,7 +921,7 @@ def open_login_window(url: str, profile_dir: str, launcher=None):
     and waits -- with no timeout -- until the person closes it. They sign
     in (and pass any CAPTCHA/MFA the site asks for) themselves, the normal
     way; nothing here types, clicks, solves or reads anything."""
-    lock = _profile_lock(profile_dir)
+    lock = profile_lock(profile_dir)
     if not lock.acquire(blocking=False):
         raise ProfileBusy("This site's browser profile is already open -- finish in that "
                           "window (or wait for the import using it) first.")

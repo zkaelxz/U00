@@ -283,7 +283,7 @@ def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_siz
         ctx["batch_source_lines"] = [ln.zh for ln in batch]
         ctx["speaker_labels"] = speaker_labels
         ids = [ln.id for ln in batch]
-        numbered = translate_engines._build_numbered_lines(ids, [ln.zh for ln in batch], speaker_labels)
+        numbered = translate_engines.build_numbered_lines(ids, [ln.zh for ln in batch], speaker_labels)
         key = request_key(drama_id, bi)
         requests_.append(provider.build_request(key, ctx, numbered))
         line_rows.extend((ln.id, key, zh_hash(ln.zh), ln.en or "") for ln in batch)
@@ -529,7 +529,7 @@ def _reflect_instructions(translate_args: dict) -> str:
     return instructions
 
 
-def _sibling_stage_job(pipeline_id: str, stage: str):
+def sibling_stage_job(pipeline_id: str, stage: str):
     """The other bulk_jobs row from the same Reflect pipeline for a given
     stage, or None if it doesn't exist (yet, or ever -- e.g. every line
     dropped out before reaching it)."""
@@ -610,7 +610,7 @@ def _parse_strict(text: str, expected_ids: list) -> dict:
     stripped = (text or "").strip()
     for fence in ("```json", "```"):
         stripped = stripped.replace(fence, "")
-    return translate_engines._parse_id_keyed_json(stripped, expected_ids)
+    return translate_engines.parse_id_keyed_json(stripped, expected_ids)
 
 
 def apply_bulk_results(bulk_job_id: int, results) -> dict:
@@ -826,7 +826,7 @@ def _apply_reflect_reflection(job: dict, results, engine) -> dict:
     surviving_ids = []
     changed_flag = False
 
-    faithful_job = _sibling_stage_job(job["pipeline_id"], "faithful")
+    faithful_job = sibling_stage_job(job["pipeline_id"], "faithful")
     draft_by_id = ({r["line_id"]: r["result_text"] for r in db.list_bulk_job_lines(faithful_job["id"])}
                   if faithful_job else {})
 
@@ -934,10 +934,10 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
 
-    reflect_job = _sibling_stage_job(job["pipeline_id"], "reflect")
+    reflect_job = sibling_stage_job(job["pipeline_id"], "reflect")
     critique_by_id = ({r["line_id"]: r["result_text"] for r in db.list_bulk_job_lines(reflect_job["id"])
                       if r["result_text"]} if reflect_job else {})
-    faithful_job = _sibling_stage_job(job["pipeline_id"], "faithful")
+    faithful_job = sibling_stage_job(job["pipeline_id"], "faithful")
     draft_by_id = ({r["line_id"]: r["result_text"] for r in db.list_bulk_job_lines(faithful_job["id"])}
                   if faithful_job else {})
 
@@ -1028,7 +1028,7 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
         if error or text is None:
             counts["failed_requests"] += 1
             continue
-        flagged = translate_engines._parse_json_array(text, 0)
+        flagged = translate_engines.parse_json_array(text, 0)
         by_id = {}
         if isinstance(flagged, list):
             for f in flagged:
@@ -1101,7 +1101,7 @@ def apply_consistency_results(bulk_job_id: int, results) -> dict:
             counts["dropped_windows"] += 1
             continue
         usable_windows += 1
-        window_issues = translate_engines._parse_json_array(text, 0)
+        window_issues = translate_engines.parse_json_array(text, 0)
         if isinstance(window_issues, list):
             issues.extend(i for i in window_issues if isinstance(i, dict) and i.get("term"))
 
@@ -1205,7 +1205,7 @@ def apply_notes_results(bulk_job_id: int, results) -> dict:
         if error or text is None:
             counts["failed_requests"] += 1
             continue
-        found = translate_engines._parse_json_array(text, 0)
+        found = translate_engines.parse_json_array(text, 0)
         by_id = {}
         if isinstance(found, list):
             for n in found:

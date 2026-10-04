@@ -52,7 +52,7 @@ from fastapi import APIRouter, Path, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from api.auth import (_auth_enabled, authenticated, clear_session_cookie, client_ip,
+from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, client_ip,
                       is_local_request, listener_principal, local_owner_principal,
                       public_route,
                       session_cookie_secure, session_token, set_csrf_cookie,
@@ -129,7 +129,7 @@ def _sign_in(request: Request) -> "oidc_service.SignIn":
 
 
 def _require_auth_on(request: Request):
-    if not _auth_enabled(request.app):
+    if not is_auth_enabled(request.app):
         raise NotFoundError("Not found.")
 
 
@@ -199,7 +199,7 @@ def logout(request: Request):
             summary="Who is signed in, and what they may do")
 def me(request: Request):
     settings = request.app.state.settings
-    body = {"auth_enabled": _auth_enabled(request.app),
+    body = {"auth_enabled": is_auth_enabled(request.app),
             "sign_in_configured": bool(getattr(settings, "sign_in_configured", False)),
             "zone": "pc" if is_local_request(request) else "internet"}
     if not body["auth_enabled"]:

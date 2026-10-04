@@ -32,7 +32,7 @@ SECRET = "sk-secret-value-123"
 @pytest.fixture
 def env_file(tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(path))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
     for names in settings_service.ENV_NAMES.values():
         for n in names:
             monkeypatch.delenv(n, raising=False)
@@ -361,7 +361,7 @@ def test_translate_run_passes_num_ctx_override_and_summary_engine(isolated_db, e
 def test_summary_engine_cloud_without_key_is_skipped(isolated_db, env_file):
     from services import translate_run_service
     settings_service.set_settings({"episode_summary_engine": "claude"})
-    assert translate_run_service._summary_engine() == (None, None)
+    assert translate_run_service.pick_summary_engine() == (None, None)
 
 
 def test_summary_engine_paid_pick_skipped_when_not_allowed(isolated_db, env_file, monkeypatch):
@@ -371,10 +371,10 @@ def test_summary_engine_paid_pick_skipped_when_not_allowed(isolated_db, env_file
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
     env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
     settings_service.set_settings({"episode_summary_engine": "deepseek"})
-    assert translate_run_service._summary_engine(allow_paid=False) == (None, None)
-    assert translate_run_service._summary_engine()[1] == "deepseek"
+    assert translate_run_service.pick_summary_engine(allow_paid=False) == (None, None)
+    assert translate_run_service.pick_summary_engine()[1] == "deepseek"
     settings_service.set_settings({"episode_summary_engine": "ollama"})
-    assert translate_run_service._summary_engine(allow_paid=False)[1] == "ollama"
+    assert translate_run_service.pick_summary_engine(allow_paid=False)[1] == "ollama"
 
 
 def test_translate_run_passes_allow_paid_summary_and_monthly_cap(isolated_db, env_file,
@@ -634,7 +634,7 @@ def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
 
 def test_baihe_own_ports_includes_configured_ports(monkeypatch, tmp_path):
     from services import settings_service as ss
-    monkeypatch.setattr(ss, "_default_env_path", lambda: str(tmp_path / ".env"))
+    monkeypatch.setattr(ss, "default_env_path", lambda: str(tmp_path / ".env"))
     for name in (ss.API_PORT_ENV, ss.HOUSEHOLD_PORT_ENV):
         monkeypatch.delenv(name, raising=False)
     assert ss.baihe_own_ports() == {8501, 8600, 8756}

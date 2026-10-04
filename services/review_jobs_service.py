@@ -96,7 +96,7 @@ def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: 
         return submit_bulk_review(bulk_kind, drama_id, engine, engine_name, **submit_kwargs)[0]
     started = background_jobs.start_job(
         job_id, translate_run_service.run_bulk_translate_job, job_id, engine, engine_name, submit,
-        translate_run_service._monthly_cap() or None,
+        translate_run_service.month_cap_usd() or None,
         description=f"Bulk {_KINDS[kind][1]} (drama #{drama_id})")
     if not started:
         raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this drama.")
@@ -112,7 +112,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     the kind's bulk_translate submit function."""
     prefix, label = _KINDS[kind]
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    drama = translate_run_service._require_drama(drama_id)
+    drama = translate_run_service.require_drama(drama_id)
     lines = core.lines_from_rows(db.load_lines(drama_id))
     if not lines:
         raise UnsupportedOperationError("This drama has no lines yet.")
@@ -218,8 +218,8 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
 
     def make_args(drama, lines, eng, name):
         cap = None
-        if translate_run_service._cap_applies(name, gemini_free_tier):
-            monthly = translate_run_service._monthly_cap()
+        if translate_run_service.engine_cap_applies(name, gemini_free_tier):
+            monthly = translate_run_service.month_cap_usd()
             cap, refusal = translate_engines.resolve_cost_cap(
                 job_cost_cap_usd, monthly, db.get_month_spend() if monthly else 0.0)
             if refusal:

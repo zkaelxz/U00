@@ -97,7 +97,7 @@ def browser_profile_dir(key: str) -> str:
     return os.path.join(browser_profiles_root(), safe)
 
 
-_SCHEMA = """
+SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -298,7 +298,7 @@ def _initialise(path: str) -> None:
             # per connection: readers then never wait on the writer.
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA synchronous = NORMAL")
-            conn.executescript(_SCHEMA)
+            conn.executescript(SCHEMA)
             _add_missing_columns(conn)
         finally:
             conn.close()

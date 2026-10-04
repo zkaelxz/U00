@@ -263,8 +263,8 @@ def _novel_candidate_check(page, source: dict, rules: dict) -> dict:
     if cand is None:
         return {"valid": False, "problems": [why], "overall": {"score": 0, "bucket": ax.FAILED}}
     ax.validate_novel(cand, page)
-    want = {ax._squash(p["text"]) for p in source.get("paragraphs") or []}
-    got = {ax._squash(p["text"]) for p in cand.get("paragraphs") or []}
+    want = {ax.squash(p["text"]) for p in source.get("paragraphs") or []}
+    got = {ax.squash(p["text"]) for p in cand.get("paragraphs") or []}
     if want:
         match = len(want & got) / len(want)
         extra = len(got - want) / max(1, len(got))
@@ -368,7 +368,7 @@ def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_h
     on the source's capability record either. `hold_profiles`: never
     auto-save a generated site profile."""
     report = ExtractionReport(url, "novel", hold_profiles=hold_profiles)
-    lr = generic_import.fetch_page(url, generic_import._client(client, url), rendered_fetch, user_html,
+    lr = generic_import.fetch_page(url, generic_import.http_client(client, url), rendered_fetch, user_html,
                                    allow_signed_in=allow_signed_in, allow_browser=allow_browser,
                                    record=remember)
     _note_access(report, lr)
@@ -511,7 +511,7 @@ def follow_novel(url: str, max_pages: int = DEFAULT_FOLLOW_PAGES, engine=None, c
     The first page behaves exactly as in import_novel: it raises
     NoContentFound, and a hand-off there returns with no pages."""
     max_pages = max(1, min(int(max_pages), MAX_FOLLOW_PAGES))
-    client = generic_import._client(client, url)
+    client = generic_import.http_client(client, url)
     first, report = import_novel(url, engine=engine, client=client, rendered_fetch=rendered_fetch,
                                  use_cache=use_cache, allow_signed_in=allow_signed_in,
                                  allow_browser=allow_browser, remember=remember,
@@ -758,7 +758,7 @@ def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_h
     `hold_profiles`: never auto-save a generated site profile; `learn=False`
     reads the site's cross-chapter image memory but doesn't add to it."""
     report = ExtractionReport(url, "comic", hold_profiles=hold_profiles)
-    client = generic_import._client(client, url)
+    client = generic_import.http_client(client, url)
     lr = generic_import.fetch_page(url, client, rendered_fetch, user_html,
                                    allow_signed_in=allow_signed_in, allow_browser=allow_browser)
     _note_access(report, lr)

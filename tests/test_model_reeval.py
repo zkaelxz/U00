@@ -266,7 +266,7 @@ class TestReviewFixes:
     def test_engine_without_model_picker_as_production(self, world):
         settings_service.set_settings({"default_engine": "deepseek"})
         prod = svc.get_production()
-        cfg = lab._check_config("translation", {"engine": "deepseek", "model": prod["model"]})
+        cfg = lab.check_config("translation", {"engine": "deepseek", "model": prod["model"]})
         assert cfg == {"engine": "deepseek", "model": None}
 
     def test_first_scheduler_check_is_soon(self, monkeypatch):

@@ -46,7 +46,7 @@ def _load_drama_and_lines(drama_id: int):
     return drama, lines
 
 
-def _build_wrap_chars(wrap_chars_en, wrap_chars_source):
+def build_wrap_chars(wrap_chars_en, wrap_chars_source):
     if wrap_chars_en is None and wrap_chars_source is None:
         return None
     return {"en": wrap_chars_en, "zh": wrap_chars_source}
@@ -93,12 +93,12 @@ def _check_int_range(value, name, rng):
         raise InvalidInputError(f"Style '{name}' must be an integer from {rng[0]} to {rng[1]}.")
 
 
-def _check_color(value, name):
+def check_color(value, name):
     if not isinstance(value, str) or not _HEX_COLOR.fullmatch(value):
         raise InvalidInputError(f"'{name}' must be a colour like #RRGGBB.")
 
 
-def _build_ass_style(preset: str, style) -> dict:
+def build_ass_style(preset: str, style) -> dict:
     if preset not in subtitle_formats.ASS_PRESETS:
         raise InvalidInputError("Unknown ASS preset.")
     style = style or {}
@@ -122,8 +122,8 @@ def _build_ass_style(preset: str, style) -> dict:
     for key in ("bold", "italic"):
         if not isinstance(merged[key], bool):
             raise InvalidInputError(f"Style '{key}' must be true or false.")
-    _check_color(merged["primary"], "primary")
-    _check_color(merged["outline"], "outline")
+    check_color(merged["primary"], "primary")
+    check_color(merged["outline"], "outline")
     if merged["alignment"] not in subtitle_formats.ALIGNMENTS:
         raise InvalidInputError("Style 'alignment' is not a valid position.")
     for key in ("sfx_alignment", "notes_alignment"):
@@ -132,7 +132,7 @@ def _build_ass_style(preset: str, style) -> dict:
     return merged
 
 
-def _check_wrap(value, name):
+def check_wrap(value, name):
     if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
         raise InvalidInputError(f"'{name}' must be a non-negative integer.")
 
@@ -168,7 +168,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     """
     if field not in _SUBTITLE_FIELDS:
         raise InvalidInputError("Unknown subtitle field.")
-    merged_style = _build_ass_style(preset, style)
+    merged_style = build_ass_style(preset, style)
     if speaker_colors is not None:
         if not isinstance(speaker_colors, dict):
             raise InvalidInputError("'speaker_colors' must be an object.")
@@ -179,11 +179,11 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
                 raise InvalidInputError("Speaker labels must be strings.")
             if len(label) > MAX_SPEAKER_LABEL_LEN:
                 raise InvalidInputError("A speaker label is too long.")
-            _check_color(color, "speaker_colors")
+            check_color(color, "speaker_colors")
     if notes_as_separate_line and not include_notes:
         raise InvalidInputError("'notes_as_separate_line' requires 'include_notes'.")
-    _check_wrap(wrap_chars_en, "wrap_chars_en")
-    _check_wrap(wrap_chars_source, "wrap_chars_source")
+    check_wrap(wrap_chars_en, "wrap_chars_en")
+    check_wrap(wrap_chars_source, "wrap_chars_source")
 
     drama, lines = _load_drama_and_lines(drama_id)
     export_lines, _ = subtitle_formats.clamp_overlaps(lines)
@@ -203,7 +203,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     return subtitle_formats.lines_to_ass(
         export_lines, merged_style, field, notes_by_idx,
         speaker_colors=colors, speaker_names=speaker_names,
-        wrap_chars=_build_wrap_chars(wrap_chars_en, wrap_chars_source),
+        wrap_chars=build_wrap_chars(wrap_chars_en, wrap_chars_source),
         title=drama.get("title_en") or drama.get("title_zh") or "",
         notes_as_separate_line=notes_as_separate_line)
 
@@ -289,7 +289,7 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
     lines = core_module.lines_from_rows(rows)
     export_lines, _ = subtitle_formats.clamp_overlaps(lines)
 
-    wrap_chars = _build_wrap_chars(wrap_chars_en, wrap_chars_source)
+    wrap_chars = build_wrap_chars(wrap_chars_en, wrap_chars_source)
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
 
     if fmt == "vtt":

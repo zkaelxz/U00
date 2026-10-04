@@ -251,7 +251,7 @@ class TestPersistentProfiles:
 
     def test_a_busy_profile_is_refused_not_opened_twice(self, isolated_db, fake_browser):
         fake_browser(gated(comic_page))
-        lock = page_fetch._profile_lock(auth_browser.profile_dir(self.URL))
+        lock = page_fetch.profile_lock(auth_browser.profile_dir(self.URL))
         with lock:
             with pytest.raises(page_fetch.ProfileBusy):
                 auth_browser.manual_login(self.URL)

@@ -543,7 +543,7 @@ class TestCmdAlignUsesDramaSettings:
 
     def test_qwen3_forced_align_is_used_when_saved_on_the_drama(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
-        monkeypatch.setattr(cli.transcribe_service, "_require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature: None)
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         import forced_align
@@ -582,7 +582,7 @@ class TestCmdAlignUsesDramaSettings:
 
     def test_a_late_qwen3_import_error_still_fails_and_frees_the_gpu(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
-        monkeypatch.setattr(cli.transcribe_service, "_require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature: None)
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         import forced_align
@@ -620,7 +620,7 @@ class TestCmdAlignUsesDramaSettings:
 
     def test_qwen3_fallback_message_redacts_the_error(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
-        monkeypatch.setattr(cli.transcribe_service, "_require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature: None)
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         import forced_align

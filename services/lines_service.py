@@ -26,7 +26,7 @@ import math
 import core as core_module
 import db
 import translation_guide
-from services.review_lines_service import _line_dict
+from services.review_lines_service import line_dict
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_LINE_TEXT_CHARS = 2000
@@ -37,7 +37,7 @@ MAX_MATCHES = 1000
 _EXPECTABLE = ("start", "end", "zh", "en", "speaker", "sfx")
 
 
-def _load(drama_id: int, line_id: int):
+def load(drama_id: int, line_id: int):
     """(drama, all_lines, the line with this id). NotFoundError for an
     unknown drama, or a line id that isn't this drama's (merged away,
     never existed, or another drama's -- all the same 404)."""
@@ -54,7 +54,7 @@ def _load(drama_id: int, line_id: int):
 def _reload_dict(drama_id: int, line_id: int) -> dict:
     for ln in db.load_line_objects(drama_id):
         if ln.id == line_id:
-            return _line_dict(ln)
+            return line_dict(ln)
     raise NotFoundError(f"No line with id {line_id} in this drama.")
 
 
@@ -117,7 +117,7 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
             if k not in _EXPECTABLE:
                 raise InvalidInputError("expected may only name start, end, zh, en, speaker or sfx.")
 
-    drama, _, ln = _load(drama_id, line_id)
+    drama, _, ln = load(drama_id, line_id)
 
     if expected:
         stale = [k for k, v in expected.items() if not _same(k, getattr(ln, k), v)]
@@ -149,10 +149,10 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
         fields += ["flag", "flag_note"]
 
     if expected:
-        values = {f: db._line_value(ln, f) for f in fields}
+        values = {f: db.line_value(ln, f) for f in fields}
         if not db.update_line_fields_if(drama_id, line_id, values, expected):
             # Changed (or removed) between the read above and this write.
-            _, _, fresh = _load(drama_id, line_id)
+            _, _, fresh = load(drama_id, line_id)
             stale = [k for k, v in expected.items() if not _same(k, getattr(fresh, k), v)]
             raise ConflictError("This line changed since you loaded it.",
                                 details={"fields": sorted(stale or expected)})
@@ -170,7 +170,7 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
 def dismiss_flag(drama_id: int, line_id: int) -> dict:
     """Clears a line's flag and flag note (only those two columns).
     Idempotent: an unflagged line is returned unchanged."""
-    _, _, ln = _load(drama_id, line_id)
+    _, _, ln = load(drama_id, line_id)
     ln.flag, ln.flag_note = None, ""
     db.save_lines(drama_id, [ln], fields=("flag", "flag_note"))
     return _reload_dict(drama_id, line_id)
@@ -228,7 +228,7 @@ def accept_tm_suggestion(drama_id: int, line_id: int, entry_id: int, expected_en
     compare-and-set, so a line edited since is a 409 with nothing written."""
     if not isinstance(expected_en, str):
         raise InvalidInputError("expected_en must be text.")
-    drama, _, ln = _load(drama_id, line_id)
+    drama, _, ln = load(drama_id, line_id)
     series_id = drama.get("series_id")
     entry = next((e for e in (db.list_translation_memory(series_id) if series_id else [])
                   if e["id"] == entry_id), None)
@@ -251,7 +251,7 @@ def add_note(drama_id: int, line_id: int, term: str, note_type: str, note: str) 
         raise InvalidInputError("term and note must not be empty.")
     if note_type not in translation_guide.NOTE_TYPES:
         raise InvalidInputError(f"note_type must be one of {sorted(translation_guide.NOTE_TYPES)}.")
-    _, _, ln = _load(drama_id, line_id)
+    _, _, ln = load(drama_id, line_id)
     db.save_translation_notes(drama_id, [{"line_id": ln.id, "line_idx": ln.idx, "term": term,
                                           "note_type": note_type, "note": note}])
     for n in db.list_translation_notes(drama_id):

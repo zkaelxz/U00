@@ -71,11 +71,11 @@ def _safe_scalar(value):
     if isinstance(value, float):
         return value if value == value and abs(value) != float("inf") else None
     if isinstance(value, str):
-        return _redact_text(_URL_PATTERN.sub("[URL]", value))[:_MAX_STR]
+        return redact_text(_URL_PATTERN.sub("[URL]", value))[:_MAX_STR]
     return None
 
 
-def _redact_text(text: str) -> str:
+def redact_text(text: str) -> str:
     """redact_for_support, but never raising: getpass.getuser() inside it
     can fail in some containers, so fall back to secret + path redaction."""
     try:
@@ -83,7 +83,7 @@ def _redact_text(text: str) -> str:
     except Exception:
         import translate_engines
         text = translate_engines.redact_secrets(text or "")
-        return diagnostics._PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
+        return diagnostics.PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
 
 
 def _error_item_text(item) -> str:
@@ -408,12 +408,12 @@ def _redact(record: dict) -> dict:
         stored = None
     # Re-projected on read too, so an older row can never leak a dropped key.
     out["result"] = project_result(stored)
-    out["message"] = _redact_text(record.get("message") or "")
-    out["error"] = _redact_text(record.get("error") or "") or None
+    out["message"] = redact_text(record.get("message") or "")
+    out["error"] = redact_text(record.get("error") or "") or None
     out["gpu_touching"] = bool(record.get("gpu_touching"))
     outcome, message = derive_outcome(out.get("status"), out["error"], out["result"])
     out["outcome"] = outcome
-    out["outcome_message"] = (_redact_text(message)[:_MAX_STR]
+    out["outcome_message"] = (redact_text(message)[:_MAX_STR]
                               if message else None)
     out["stale"] = is_stale(record)
     out["stalled"] = bool(record.get("stalled"))

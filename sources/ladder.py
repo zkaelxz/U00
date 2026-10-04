@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from . import detect, store
-from .http import REDIRECT_REFUSED, ResponseRefused, UnsafeRedirect, _ascii_url
+from .http import REDIRECT_REFUSED, ResponseRefused, UnsafeRedirect, ascii_url
 from .models import (AccessTier, AiMlUse, AttemptRecord, AutomationPermission,
                      CapabilityStatus, CHALLENGE_REASONS, ChallengeDetected, ContentAccess,
                      ENVIRONMENT_BLOCK_REASONS, FailureReason, LADDER_ORDER, PROTECTION_REASONS,
@@ -235,7 +235,7 @@ def _refused_address(url: str):
     with split-horizon DNS Chromium could resolve it to a private IP)."""
     from services import url_guard
     try:
-        url_guard.resolve_public(_ascii_url(url))
+        url_guard.resolve_public(ascii_url(url))
     except (url_guard.UnsafeURLError, UnsafeRedirect):
         return True
     except url_guard.URLResolveError:

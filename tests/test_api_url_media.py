@@ -382,7 +382,7 @@ def direct(env, monkeypatch):
         hops.append((url, ip))
         sent.append(dict(headers))
         return script.get(url) or _Resp()
-    monkeypatch.setattr(metadata_service, "_pinned_get", fake_get)
+    monkeypatch.setattr(metadata_service, "pinned_get", fake_get)
     return types.SimpleNamespace(hops=hops, script=script, sent=sent)
 
 

@@ -48,7 +48,7 @@ def _patch_get(monkeypatch, responses, calls=None):
         if calls is not None:
             calls.append((url, ip))
         return next(it)
-    monkeypatch.setattr(metadata_service, "_pinned_get", fake)
+    monkeypatch.setattr(metadata_service, "pinned_get", fake)
 
 
 @pytest.mark.parametrize("ip", [

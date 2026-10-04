@@ -56,7 +56,7 @@ _POSIX_PATH = re.compile(r"(?<![\w:/.\-])(?:~|\.{1,2})?/(?:[\w.\-~@+ ]+/)+[\w.\-
                          r"(?<![\w:/.\-])~/[\w.\-~@+]+")
 
 
-def _scrub(text):
+def scrub(text):
     """Free text safe to show: secrets redacted, URL queries and filesystem
     paths (including the library folder) removed."""
     if text is None:
@@ -74,13 +74,13 @@ def _scrub(text):
     return text
 
 
-def _scrub_any(value):
+def scrub_any(value):
     if isinstance(value, str):
-        return _scrub(value)
+        return scrub(value)
     if isinstance(value, dict):
-        return {str(k): _scrub_any(v) for k, v in value.items()}
+        return {str(k): scrub_any(v) for k, v in value.items()}
     if isinstance(value, (list, tuple, set)):
-        return [_scrub_any(v) for v in value]
+        return [scrub_any(v) for v in value]
     return value
 
 
@@ -99,7 +99,7 @@ def _visible_classes() -> dict:
     return out
 
 
-def _require_source(name: str):
+def require_source(name: str):
     cls = _visible_classes().get(name)
     if cls is None:
         raise NotFoundError(registry.SOURCE_REMOVED if name in registry.REMOVED_SOURCES
@@ -107,7 +107,7 @@ def _require_source(name: str):
     return cls
 
 
-def _import_supported(adapter) -> bool:
+def import_supported(adapter) -> bool:
     return bool(adapter.supports("get_pages") or adapter.supports("get_chapter_text"))
 
 
@@ -118,9 +118,9 @@ def _health_view(name: str) -> dict:
         "consecutive_failures": h["consecutive_failures"],
         "last_success": h["last_success"],
         "last_failure": h["last_failure"],
-        "last_error_type": _scrub(h["last_error_type"]),
+        "last_error_type": scrub(h["last_error_type"]),
         "last_error_category": health.category(h["last_error_type"]),
-        "last_error": _scrub(h["last_error"]),
+        "last_error": scrub(h["last_error"]),
         "last_latency": h["last_latency"],
         "unavailable_until": h["unavailable_until"],
         "retry_after": health.retry_after(name),
@@ -137,7 +137,7 @@ def _summary(name: str, cls) -> dict:
         "supports": {m: bool(adapter.supports(m)) for m in
                      ("search", "get_series", "get_chapters", "get_pages", "download_page",
                       "get_chapter_text", "get_audio_url", "login")},
-        "import_supported": _import_supported(adapter),
+        "import_supported": import_supported(adapter),
         "auth_supported": bool(cls.auth_supported),
         "supports_adult_toggle": bool(cls.supports_adult_toggle),
         "enabled": registry.is_enabled(name),
@@ -156,12 +156,12 @@ def list_sources() -> list:
 
 
 def get_source(name: str) -> dict:
-    cls = _require_source(name)
+    cls = require_source(name)
     adapter = cls()
     caps = ladder.apply_terms(ladder.load_capabilities(name, adapter.capabilities()))
     d = caps.to_dict()
     tiers = {t: {"tested": bool(r.get("tested")), "ok": bool(r.get("ok")),
-                 "reason": r.get("reason"), "detail": _scrub(r.get("detail")), "at": r.get("at")}
+                 "reason": r.get("reason"), "detail": scrub(r.get("detail")), "at": r.get("at")}
              for t, r in d.get("tiers", {}).items()}
     out = _summary(name, cls)
     out.update({
@@ -176,10 +176,10 @@ def get_source(name: str) -> dict:
         "automation_permission": d["automation_permission"],
         "ai_ml_use": d["ai_ml_use"],
         "tiers": tiers,
-        "technical": _scrub_any(d["technical"]),
+        "technical": scrub_any(d["technical"]),
         # Recorded findings, read-only information. Enforcement is OFF, so
         # this never means "permitted".
-        "terms": _scrub_any(d["terms"]),
+        "terms": scrub_any(d["terms"]),
         "terms_enforced": False,
         "health_detail": _health_view(name),
     })
@@ -187,7 +187,7 @@ def get_source(name: str) -> dict:
 
 
 def list_attempts(name: str, limit: int = 50) -> list:
-    _require_source(name)
+    require_source(name)
     out = []
     for a in store.recent_attempts(name, limit=limit):
         handoff = a.get("handoff") or {}
@@ -199,9 +199,9 @@ def list_attempts(name: str, limit: int = 50) -> list:
             "ok": a.get("ok"),
             "technical_status": a.get("technical_status"),
             "capability_status": a.get("capability_status"),
-            "reasons": [_scrub(r) for r in (a.get("reasons") or [])],
-            "lines": [_scrub(x) for x in (a.get("lines") or [])],
-            "handoff": ({"tier": handoff.get("tier"), "reason": _scrub(handoff.get("reason")),
+            "reasons": [scrub(r) for r in (a.get("reasons") or [])],
+            "lines": [scrub(x) for x in (a.get("lines") or [])],
+            "handoff": ({"tier": handoff.get("tier"), "reason": scrub(handoff.get("reason")),
                          "url": safe_url(handoff.get("url"))} if handoff else None),
         })
     return out
@@ -227,12 +227,12 @@ def list_profiles() -> list:
             fail = v.get("last_failure") or {}
             vs.append({
                 "version": v.get("version"), "kind": v.get("kind"), "status": v.get("status"),
-                "origin": _scrub(v.get("origin")), "created_at": v.get("created_at"),
+                "origin": scrub(v.get("origin")), "created_at": v.get("created_at"),
                 "approved": bool(v.get("approved")), "failures": v.get("failures") or 0,
-                "last_failure_reason": _scrub(fail.get("reason")) if fail else None,
+                "last_failure_reason": scrub(fail.get("reason")) if fail else None,
                 "last_used": v.get("last_used"),
             })
-        out.append({"domain": _scrub(domain), "versions": vs})
+        out.append({"domain": scrub(domain), "versions": vs})
     return out
 
 
@@ -244,18 +244,18 @@ def list_tracked(principal=None) -> list:
         if drama_id is None or ownership_service.can_see_drama(principal, drama_id):
             return drama_id
         return None
-    return [{"source": r["source"], "series_id": r["series_id"], "title": _scrub(r["title"]),
+    return [{"source": r["source"], "series_id": r["series_id"], "title": scrub(r["title"]),
              "url": safe_url(r.get("url")), "drama_id": linked(r.get("drama_id")),
              "last_checked": r.get("last_checked"),
              "last_check_error": (registry.SOURCE_REMOVED if r["source"] in registry.REMOVED_SOURCES
-                                  else _scrub(r.get("last_check_error"))),
+                                  else scrub(r.get("last_check_error"))),
              "save_cbz": bool(r.get("save_cbz"))}
             for r in store.list_tracked_series()]
 
 
 def list_notifications(include_dismissed: bool = False) -> list:
     return [{"id": r["id"], "source": r["source"], "series_id": r["series_id"],
-             "chapter_id": r["chapter_id"], "title": _scrub(r.get("title")),
+             "chapter_id": r["chapter_id"], "title": scrub(r.get("title")),
              "created_at": r["created_at"], "dismissed": bool(r["dismissed"])}
             for r in store.list_notifications(include_dismissed=include_dismissed)]
 
@@ -289,13 +289,13 @@ def _num(key, value):
 
 
 def set_source_enabled(name: str, enabled: bool) -> dict:
-    cls = _require_source(name)
+    cls = require_source(name)
     registry.set_enabled(name, bool(enabled))
     return _summary(name, cls)
 
 
 def set_adult_enabled(name: str, enabled: bool) -> dict:
-    cls = _require_source(name)
+    cls = require_source(name)
     if not cls.supports_adult_toggle:
         raise UnsupportedOperationError("This source has no adult-content switch.")
     store.set_adult_enabled(name, bool(enabled))
@@ -383,7 +383,7 @@ def set_proxy_url(url) -> dict:
 
 
 def reset_health(name: str) -> dict:
-    _require_source(name)
+    require_source(name)
     health.reset(name)
     return _health_view(name)
 
@@ -405,7 +405,7 @@ def rollback_profile(domain: str, kind: str, version: int) -> list:
         src_profiles.rollback(domain, kind, version)
     except src_profiles.ProfileRejected:
         raise NotFoundError("No such profile version.") from None
-    return next(d for d in list_profiles() if d["domain"] == _scrub(domain))["versions"]
+    return next(d for d in list_profiles() if d["domain"] == scrub(domain))["versions"]
 
 
 def dismiss_notification(notification_id: int) -> dict:
@@ -415,7 +415,7 @@ def dismiss_notification(notification_id: int) -> dict:
     return next(n for n in list_notifications(include_dismissed=True) if n["id"] == notification_id)
 
 
-def _require_link_editable(source: str, series_id: str, principal) -> None:
+def require_link_editable(source: str, series_id: str, principal) -> None:
     """A tracked series auto-imports into its linked drama, so untracking,
     re-tracking or relinking it changes that drama. One linked to a drama
     the principal can't edit is refused like an untracked series (its row
@@ -445,14 +445,14 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
     from services.service_errors import ConflictError
 
     if tracked or source not in registry.REMOVED_SOURCES:
-        _require_source(source)     # a removed source's series can still be untracked
+        require_source(source)     # a removed source's series can still be untracked
     series_id = (series_id or "").strip()
     if not series_id:
         raise InvalidInputError("series_id is required.")
     exists = any(r["source"] == source and r["series_id"] == series_id
                  for r in store.list_tracked_series())
     if exists:
-        _require_link_editable(source, series_id, principal)
+        require_link_editable(source, series_id, principal)
     if not tracked:
         if not exists:
             raise NotFoundError("That series isn't tracked.")

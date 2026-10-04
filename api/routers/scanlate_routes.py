@@ -26,7 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.formparsers import MultiPartException
 
 from api.auth import local_only, require_engines_allowed, require_permission
-from api.routers.bug_report_routes import _BodyTooLarge, _capped
+from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.scanlate_schemas import (ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
                                   ScanlatePageDetail, ScanlateRenderRequest, ScanlateRunNotes,
                                   ScanlateRunRequest, ScanlateUploadResult)
@@ -89,10 +89,10 @@ async def post_pages(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1))
     if length > cap:
         raise StarletteHTTPException(413, _TOO_LARGE)
     try:
-        form = await _capped(request, cap).form(
+        form = await capped(request, cap).form(
             max_files=page_import_limits.MAX_FILES_PER_IMPORT, max_fields=1,
             max_part_size=1024)
-    except _BodyTooLarge:
+    except BodyTooLarge:
         raise StarletteHTTPException(413, _TOO_LARGE)
     except (MultiPartException, StarletteHTTPException):
         raise InvalidInputError(

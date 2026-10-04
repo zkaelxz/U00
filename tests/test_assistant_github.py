@@ -79,7 +79,7 @@ class FakeGitHub:
 @pytest.fixture
 def env(isolated_db, tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(path))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
     monkeypatch.delenv("BAIHE_GITHUB_TOKEN", raising=False)
     return path
 

@@ -66,9 +66,9 @@ def has_profile(url: str, source: str = None) -> bool:
 def forget(url: str, source: str = None) -> bool:
     """Deletes this source's saved browser profile (sign-in included).
     Later imports go back to the ordinary, signed-out tiers."""
-    from page_fetch import ProfileBusy, _profile_lock
+    from page_fetch import ProfileBusy, profile_lock
     d = profile_dir(url, source)
-    lock = _profile_lock(d)
+    lock = profile_lock(d)
     if not lock.acquire(blocking=False):
         raise ProfileBusy("This site's browser profile is in use right now -- try again when "
                           "its window is closed and no import is running.")

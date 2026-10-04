@@ -114,7 +114,7 @@ def _deno_installed_somewhere() -> bool:
     if shutil.which("deno"):
         return True
     link = _winget_links_path() if platform.system() == "Windows" else ""
-    return (os.path.exists(diagnostics._deno_default_install_path())
+    return (os.path.exists(diagnostics.deno_default_install_path())
             or bool(link and os.path.exists(link)))
 
 
@@ -148,7 +148,7 @@ def start_deno_install(confirm: bool = False) -> dict:
     PATH, or in ~/.deno/bin or winget's links folder though not on PATH:
     an existing binary is never replaced); 422 unconfirmed or on an OS/CPU
     with neither winget nor a table row."""
-    gaps._guard(confirm)
+    gaps.guard(confirm)
     if _deno_installed_somewhere():
         raise AlreadyInstalled("Deno is already installed.")
     if not _use_winget() and _deno_download_url() is None:
@@ -207,7 +207,7 @@ def _deno_job():
 
 def _run_winget(say) -> bool:
     returncode, timed_out = None, False
-    for item in gaps._stream_tree(list(_WINGET_CMD), WINGET_TIMEOUT_SECONDS):
+    for item in gaps.stream_tree(list(_WINGET_CMD), WINGET_TIMEOUT_SECONDS):
         if "line" in item:
             if item["line"].strip():
                 say(0.5, item["line"])
@@ -336,7 +336,7 @@ def _unpack_binary(zip_path: str):
     """Only the single top-level `deno`/`deno.exe` member is written, into
     a file created exclusively: an existing binary there is never replaced
     (the start refuses that case; this closes the gap to the job running)."""
-    dest = diagnostics._deno_default_install_path()
+    dest = diagnostics.deno_default_install_path()
     name = os.path.basename(dest)
     try:
         with zipfile.ZipFile(zip_path) as zf:
@@ -380,13 +380,13 @@ def start_upgrade_check(name: str, target: str = None, confirm: bool = False) ->
     version (with constraints.txt) into a throwaway environment and runs
     this app's tests against it. Your real install is not touched."""
     if name in diagnostics.TORCH_FAMILY:
-        gaps._guard(confirm)
+        gaps.guard(confirm)
         raise gaps.AdminActionNotPossible(
             "torch, torchvision and torchaudio are set up together under GPU PyTorch.")
-    gaps._guard(confirm)
+    gaps.guard(confirm)
     if name not in gaps.installable_packages():
         raise gaps.AdminActionUnknownPackage("Unknown or non-installable package.")
-    checked = gaps._cached_update(name)
+    checked = gaps.cached_update(name)
     if checked is None or checked.get("status") != "update" or not checked.get("target"):
         raise gaps.AdminActionStale("Check for updates first; there is no update to test.")
     if target != checked["target"]:
@@ -411,7 +411,7 @@ _RESULT_KEYS = ("ok", "verdict", "reason", "version", "new_failures",
 
 
 def _upgrade_check_job(name: str, dist: str, version: str):
-    gen = diagnostics.check_upgrade_candidate(dist, version, project_root=gaps._project_root())
+    gen = diagnostics.check_upgrade_candidate(dist, version, project_root=gaps.default_project_root())
     frac, final = 0.0, None
     try:
         for item in gen:

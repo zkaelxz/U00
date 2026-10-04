@@ -99,7 +99,7 @@ def test_private_url_is_422_without_connecting(monkeypatch, paid):
 
     def boom(*a, **k):
         raise AssertionError("connected")
-    monkeypatch.setattr(metadata_service, "_pinned_get", boom)
+    monkeypatch.setattr(metadata_service, "pinned_get", boom)
     with pytest.raises(InvalidInputError):
         svc.import_suggestion("http://metadata.internal/latest", "claude")
 

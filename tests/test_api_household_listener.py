@@ -842,7 +842,7 @@ class TestRunServers:
         for k in ("BAIHE_API_HOUSEHOLD_PORT", "BAIHE_API_PORT", "BAIHE_API_HOST",
                   "BAIHE_API_AUTH", "BAIHE_API_ENV", *SIGN_IN_ENV):
             monkeypatch.delenv(k, raising=False)
-        monkeypatch.setattr(settings_service, "_read_env_file", lambda *a, **k: {})
+        monkeypatch.setattr(settings_service, "read_env_file", lambda *a, **k: {})
         for k, v in env.items():
             monkeypatch.setenv(k, v)
         monkeypatch.setattr(process_guard, "contain_children", lambda: True)

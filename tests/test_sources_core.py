@@ -376,7 +376,7 @@ class TestPerHostPacing:
         t = ScriptedTransport({u: html("x") for u in urls}, clock)
         # No adapter client has run since the reset: the interval must come
         # from the importer's own client.
-        c = generic_import._client(url=urls[0])
+        c = generic_import.http_client(url=urls[0])
         assert c.source == "manhuagui"
         c.transport, c.sleep, c.clock, c.rng = t, clock.sleep, clock.clock, FixedRng(0.0)
         for u in urls:

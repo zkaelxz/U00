@@ -446,7 +446,7 @@ class TestModelDirRespectsPortableModeOverride:
         monkeypatch.setenv("BAIHE_AUDIO_SEP_MODEL_DIR", "/portable/model_cache/audio-separator-models")
         try:
             importlib.reload(audio_preprocess)
-            assert audio_preprocess._MODEL_DIR == "/portable/model_cache/audio-separator-models"
+            assert audio_preprocess.MODEL_DIR == "/portable/model_cache/audio-separator-models"
         finally:
             monkeypatch.delenv("BAIHE_AUDIO_SEP_MODEL_DIR", raising=False)
             importlib.reload(audio_preprocess)
@@ -455,5 +455,5 @@ class TestModelDirRespectsPortableModeOverride:
         import importlib
         monkeypatch.delenv("BAIHE_AUDIO_SEP_MODEL_DIR", raising=False)
         importlib.reload(audio_preprocess)
-        assert audio_preprocess._MODEL_DIR == os.path.join(
+        assert audio_preprocess.MODEL_DIR == os.path.join(
             os.path.expanduser("~"), ".cache", "audio-separator-models")

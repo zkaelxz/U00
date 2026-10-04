@@ -61,7 +61,7 @@ def cn_to_int(s: str):
     return total + section + number
 
 
-def _num(tok: str):
+def number_value(tok: str):
     if tok is None:
         return None
     if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", tok):
@@ -76,7 +76,7 @@ def chapter_number(title: str):
     # A volume marker's number isn't the chapter number ("第2卷 第5话" is chapter 5).
     stripped = _VOLUME.sub(" ", t)
     for m in _MARKER_NUM.finditer(stripped):
-        n = _num(next(g for g in m.groups() if g is not None))
+        n = number_value(next(g for g in m.groups() if g is not None))
         if n is not None:
             return n
     m = _BARE_NUM.search(stripped)
@@ -88,7 +88,7 @@ def volume_number(title: str):
     m = _VOLUME.search(t)
     if not m:
         return None
-    return _num(next(g for g in m.groups() if g is not None))
+    return number_value(next(g for g in m.groups() if g is not None))
 
 
 def sort_key(title: str, position: int = 0) -> tuple:

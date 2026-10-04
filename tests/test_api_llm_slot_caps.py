@@ -43,25 +43,25 @@ def client(isolated_db, monkeypatch):
 @pytest.mark.parametrize("path,body", ROUTES)
 def test_global_cap_gives_429(client, path, body):
     for _ in range(llm_slots.LLM_MAX_IN_FLIGHT):
-        assert llm_slots._SLOTS.acquire(blocking=False)
+        assert llm_slots.SLOTS.acquire(blocking=False)
     try:
         r = client.post(path, json=body)
     finally:
         for _ in range(llm_slots.LLM_MAX_IN_FLIGHT):
-            llm_slots._SLOTS.release()
+            llm_slots.SLOTS.release()
     assert r.status_code == 429 and r.json()["error"]["code"] == "rate_limited"
     assert client.calls == []
 
 
 @pytest.mark.parametrize("path,body", ROUTES)
 def test_per_caller_cap_gives_429(client, path, body):
-    with llm_slots._ACTIVE_LOCK:
-        llm_slots._ACTIVE_CALLERS.add("local")
+    with llm_slots.ACTIVE_LOCK:
+        llm_slots.ACTIVE_CALLERS.add("local")
     try:
         r = client.post(path, json=body)
     finally:
-        with llm_slots._ACTIVE_LOCK:
-            llm_slots._ACTIVE_CALLERS.discard("local")
+        with llm_slots.ACTIVE_LOCK:
+            llm_slots.ACTIVE_CALLERS.discard("local")
     assert r.status_code == 429
     assert client.calls == []
 
@@ -70,4 +70,4 @@ def test_per_caller_cap_gives_429(client, path, body):
 def test_slot_is_released_after_the_call(client, path, body):
     client.post(path, json=body)  # the stub raises -> 500, slot must still be freed
     assert len(client.calls) == 1
-    assert not llm_slots._ACTIVE_CALLERS
+    assert not llm_slots.ACTIVE_CALLERS

@@ -21,7 +21,7 @@ from api.assistant_schemas import (AssistantConfirm, AssistantGithubConnection,
                                    AssistantGithubSettingsUpdate, AssistantGithubStatus,
                                    AssistantGithubTokenResult, AssistantGithubTokenSet)
 from api.auth import local_only
-from api.routers.settings_routes import _read_body, _require_confirm, _require_local_admin
+from api.routers.settings_routes import read_body, require_confirm, require_local_admin
 from api.schemas import ErrorResponse
 from services import assistant_github_service as svc
 
@@ -48,9 +48,9 @@ def post_settings(body: AssistantGithubSettingsUpdate):
              summary="PC only: store the GitHub token in .env (write-only; key-write gate)",
              responses={422: {"model": ErrorResponse}})
 async def post_token(request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, AssistantGithubTokenSet)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, AssistantGithubTokenSet)
+    require_confirm(body.confirm)
     return svc.set_token(body.value)
 
 
@@ -59,9 +59,9 @@ async def post_token(request: Request):
              summary="PC only: remove the GitHub token from .env (key-write gate)",
              responses={422: {"model": ErrorResponse}})
 async def post_token_clear(request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, AssistantConfirm)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, AssistantConfirm)
+    require_confirm(body.confirm)
     return svc.clear_token()
 
 

@@ -346,7 +346,7 @@ def _kill_running(proc, job):
     """lncrawl is still running (cancel, a cap, the timeout, shutdown)."""
     if job is not None:
         _windows_job_call("TerminateJobObject", job, 1)
-    background_jobs._kill_tree(proc)
+    background_jobs.kill_tree(proc)
 
 
 def _kill_leftovers(proc, job):
@@ -358,7 +358,7 @@ def _kill_leftovers(proc, job):
     if job is not None:
         _windows_job_call("TerminateJobObject", job, 1)
     elif os.name != "nt":
-        background_jobs._kill_tree(proc)
+        background_jobs.kill_tree(proc)
 
 
 def _register(job_id, proc, job):

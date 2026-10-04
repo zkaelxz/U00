@@ -58,15 +58,15 @@ MAX_SAMPLE_LINES = 2
 MAX_SAMPLE_CHARS = 160
 
 
-def _check_id(name: str, value):
+def check_id(name: str, value):
     if isinstance(value, bool) or not isinstance(value, int):
         raise InvalidInputError(f"{name} must be a whole number.")
     if value < 1 or value > MAX_ID:
         raise InvalidInputError(f"{name} is out of range.")
 
 
-def _require_drama(drama_id: int) -> dict:
-    _check_id("drama_id", drama_id)
+def require_drama(drama_id: int) -> dict:
+    check_id("drama_id", drama_id)
     drama = get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
@@ -124,7 +124,7 @@ def list_characters(drama_id: int) -> list:
     up to MAX_SAMPLE_LINES of the speaker's non-blank source lines, each
     clipped to MAX_SAMPLE_CHARS. Raises NotFoundError for an unknown
     drama."""
-    _require_drama(drama_id)
+    require_drama(drama_id)
     counts, texts = {}, {}
     for ln in load_lines(drama_id):
         if ln.get("speaker"):
@@ -139,20 +139,20 @@ def list_characters(drama_id: int) -> list:
     return out
 
 
-def _known_speakers(drama_id: int) -> set:
+def known_speakers(drama_id: int) -> set:
     labels = {ln["speaker"] for ln in load_lines(drama_id) if ln.get("speaker")}
     labels |= {r["speaker_label"] for r in list_characters_with_series_names(drama_id)}
     return labels
 
 
-def _get_one(drama_id: int, speaker_label: str) -> dict:
+def get_one(drama_id: int, speaker_label: str) -> dict:
     for c in list_characters(drama_id):
         if c["speaker_label"] == speaker_label:
             return c
     raise NotFoundError("No such speaker in this drama.")
 
 
-def _check_len(name: str, value: str, cap: int):
+def check_len(name: str, value: str, cap: int):
     if not isinstance(value, str):
         raise InvalidInputError(f"{name} must be a string.")
     if len(value) > cap:
@@ -171,18 +171,18 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
     drama's source_language (Step 26c). Raises NotFoundError (unknown
     drama or speaker), InvalidInputError. Returns the speaker's
     list_characters entry."""
-    drama = _require_drama(drama_id)
-    if speaker_label not in _known_speakers(drama_id):
+    drama = require_drama(drama_id)
+    if speaker_label not in known_speakers(drama_id):
         raise NotFoundError("No such speaker in this drama.")
 
     fields = {}
     if character_name is not None:
-        _check_len("character_name", character_name, MAX_NAME_LEN)
+        check_len("character_name", character_name, MAX_NAME_LEN)
         if not character_name.strip():
             raise InvalidInputError("character_name can't be blank.")
         fields["character_name"] = character_name.strip()
     if pronouns is not None:
-        _check_len("pronouns", pronouns, MAX_PRONOUNS_LEN)
+        check_len("pronouns", pronouns, MAX_PRONOUNS_LEN)
         fields["pronouns"] = pronouns.strip()
     for key, value, cap in (("voice_actor", voice_actor, MAX_NAME_LEN),
                             ("tts_voice", tts_voice, MAX_VOICE_LEN),
@@ -190,7 +190,7 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
                             ("voice_design", voice_design, MAX_VOICE_DESIGN_LEN),
                             ("ref_text", ref_text, MAX_REF_TEXT_LEN)):
         if value is not None:
-            _check_len(key, value, cap)
+            check_len(key, value, cap)
             fields[key] = value.strip()
     if clone_engine is not None:
         if clone_engine != "":
@@ -204,13 +204,13 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
 
     if fields:
         upsert_character(drama_id, speaker_label, **fields)
-    return _get_one(drama_id, speaker_label)
+    return get_one(drama_id, speaker_label)
 
 
 def list_series_characters(series_id: int) -> list:
     """A series' characters (id, name, aliases, notes, pronouns). No
     fingerprint data. Empty list for an unknown series."""
-    _check_id("series_id", series_id)
+    check_id("series_id", series_id)
     return [{
         "id": r["id"],
         "character_name": r["character_name"],
@@ -224,7 +224,7 @@ def get_clone_engine_options(drama_id: int) -> dict:
     """Clone engines usable for this drama's source language (Step 26c:
     never offer an engine that can't speak it), with capability flags.
     Raises NotFoundError for an unknown drama."""
-    lang = _source_language(_require_drama(drama_id))
+    lang = _source_language(require_drama(drama_id))
     engines = []
     for engine, label in dub.CLONE_ENGINES.items():
         if not dub.clone_engine_supports_language(engine, lang):
@@ -268,13 +268,13 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
     entry with no language check, but here the entry's clone_engine must
     support the drama's source language, exactly as update_character
     requires (Step 26c). Returns the speaker's list_characters entry."""
-    drama = _require_drama(drama_id)
-    _check_id("voice_bank_id", voice_bank_id)
+    drama = require_drama(drama_id)
+    check_id("voice_bank_id", voice_bank_id)
     if (not isinstance(speaker_label, str) or len(speaker_label) > MAX_SPEAKER_LABEL_LEN
             or ".." in speaker_label or "/" in speaker_label or chr(92) in speaker_label
             or any(ord(ch) < 32 or ord(ch) == 127 for ch in speaker_label)):
         raise InvalidInputError("speaker_label can't be used for a voice bank apply.")
-    if speaker_label not in _known_speakers(drama_id):
+    if speaker_label not in known_speakers(drama_id):
         raise NotFoundError("No such speaker in this drama.")
     entry = get_voice_bank_entry(voice_bank_id)
     if entry is None:
@@ -288,7 +288,7 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
         raise InvalidInputError(
             "That voice bank entry's clone_engine doesn't support the drama's source language.")
     _db_apply_voice_bank_entry(voice_bank_id, drama_dir(drama_id), drama_id, speaker_label)
-    return _get_one(drama_id, speaker_label)
+    return get_one(drama_id, speaker_label)
 
 
 # --- C02: recurring-voice suggestions ("sounds like X") ------------------------
@@ -344,7 +344,7 @@ def list_voice_suggestions(drama_id: int) -> list:
     voice embeddings were stored by speaker detection. Nothing here names
     a speaker; accept/reject do that on an explicit request. Raises
     NotFoundError for an unknown drama."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     return _current_suggestions(drama_id, drama)[0]
 
 
@@ -352,7 +352,7 @@ def _check_suggestion_args(speaker_label, series_character_id):
     if (not isinstance(speaker_label, str) or not speaker_label
             or len(speaker_label) > MAX_SPEAKER_LABEL_LEN):
         raise InvalidInputError("speaker_label is missing or too long.")
-    _check_id("series_character_id", series_character_id)
+    check_id("series_character_id", series_character_id)
 
 
 def accept_voice_suggestion(drama_id: int, speaker_label: str, series_character_id: int) -> dict:
@@ -363,7 +363,7 @@ def accept_voice_suggestion(drama_id: int, speaker_label: str, series_character_
     written. A pair that isn't offered any more (already named,
     dismissed, below threshold, embeddings gone) is a NotFoundError.
     Returns {"character": list_characters entry, "suggestions": [...]}."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     _check_suggestion_args(speaker_label, series_character_id)
     suggestions, embeddings = _current_suggestions(drama_id, drama)
     match = next((s for s in suggestions if s["speaker_label"] == speaker_label
@@ -375,7 +375,7 @@ def accept_voice_suggestion(drama_id: int, speaker_label: str, series_character_
     if not db.accept_voice_link(drama_id, speaker_label, series_character_id,
                                 match["character_name"], embeddings[speaker_label]):
         raise NotFoundError("That voice suggestion isn't offered any more.")
-    return {"character": _get_one(drama_id, speaker_label),
+    return {"character": get_one(drama_id, speaker_label),
             "suggestions": _current_suggestions(drama_id, drama)[0]}
 
 
@@ -386,11 +386,11 @@ def reject_voice_suggestion(drama_id: int, speaker_label: str, series_character_
     surface. The series character must belong to the drama's series and
     the speaker must be known to this drama or its stored embeddings.
     Returns {"character": None, "suggestions": [...]}."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     _check_suggestion_args(speaker_label, series_character_id)
     if not any(sc["id"] == series_character_id for sc in _series_characters_of(drama)):
         raise NotFoundError("No such character in this drama's series.")
-    if (speaker_label not in _known_speakers(drama_id)
+    if (speaker_label not in known_speakers(drama_id)
             and speaker_label not in _load_voice_embeddings(drama_id)):
         raise NotFoundError("No such speaker in this drama.")
     db.dismiss_voice_suggestion(drama_id, speaker_label, series_character_id)
@@ -421,13 +421,13 @@ def remember_series_character(drama_id: int, speaker_label: str) -> dict:
     ConflictError (the speaker is already linked to a series character).
     Returns {"character": entry, "series_character": series entry,
     "created": bool}."""
-    drama = _require_drama(drama_id)
-    if not isinstance(speaker_label, str) or speaker_label not in _known_speakers(drama_id):
+    drama = require_drama(drama_id)
+    if not isinstance(speaker_label, str) or speaker_label not in known_speakers(drama_id):
         raise NotFoundError("No such speaker in this drama.")
     series_id = drama.get("series_id")
     if not series_id:
         raise InvalidInputError("This drama isn't in a series, so there is no series cast to add to.")
-    entry = _get_one(drama_id, speaker_label)
+    entry = get_one(drama_id, speaker_label)
     if entry["series_character_id"]:
         raise ConflictError("This speaker is already linked to a character in this series.")
     name = entry["character_name"].strip()
@@ -444,5 +444,5 @@ def remember_series_character(drama_id: int, speaker_label: str) -> dict:
         raise ConflictError("This speaker was linked or renamed meanwhile; reload and try again.")
     sc_id, created = linked
     series_entry = next(sc for sc in list_series_characters(series_id) if sc["id"] == sc_id)
-    return {"character": _get_one(drama_id, speaker_label), "series_character": series_entry,
+    return {"character": get_one(drama_id, speaker_label), "series_character": series_entry,
             "created": created}

@@ -47,7 +47,7 @@ MEL_ROFORMER_VOCAL_MODEL = "vocals_mel_band_roformer.ckpt"
 # under Step 10's portable mode, so a copied app folder's downloaded
 # separator model comes with it -- audio-separator itself has no env var
 # of its own for this, unlike huggingface_hub's HF_HOME.
-_MODEL_DIR = os.environ.get("BAIHE_AUDIO_SEP_MODEL_DIR") or os.path.join(
+MODEL_DIR = os.environ.get("BAIHE_AUDIO_SEP_MODEL_DIR") or os.path.join(
     os.path.expanduser("~"), ".cache", "audio-separator-models")
 
 # Step 4g: neither backend exposes a per-chunk callback of its own (each
@@ -172,7 +172,7 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
         if event_cb:
             event_cb("loading", "audio_separator")
         try:
-            separator = Separator(output_dir=work_dir, model_file_dir=_MODEL_DIR,
+            separator = Separator(output_dir=work_dir, model_file_dir=MODEL_DIR,
                                   output_single_stem="Vocals")
             separator.load_model(model_filename=model)
         except Exception as exc:

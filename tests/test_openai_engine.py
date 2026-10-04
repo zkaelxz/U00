@@ -162,7 +162,7 @@ def test_translate_refuses_when_no_key(isolated_db, tmp_path, monkeypatch):
 def test_translate_run_refuses_when_no_key_and_estimate_counts_against_the_cap(isolated_db, monkeypatch):
     monkeypatch.delenv("BAIHE_OPENAI_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: "/nonexistent/.env")
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: "/nonexistent/.env")
     did = db.create_drama(title_zh="D")
     db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
     est = translate_run_service.estimate_translate_cost(did, engine_name="openai")

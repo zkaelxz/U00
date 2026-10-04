@@ -79,8 +79,8 @@ def fetch_public_text(url: str, max_bytes: int = MAX_FETCH_BYTES) -> FetchResult
         for _ in range(MAX_REDIRECTS + 1):
             if time.monotonic() > deadline:
                 raise DependencyUnavailableError(FETCH_FAILED)
-            ip = _ms._check_public_url(current)
-            resp = _ms._pinned_get(current, ip, headers)
+            ip = _ms.check_public_url(current)
+            resp = _ms.pinned_get(current, ip, headers)
             try:
                 if resp.status_code in _REDIRECT_CODES:
                     location = resp.headers.get("Location")

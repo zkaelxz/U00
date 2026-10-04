@@ -409,7 +409,7 @@ def _require_moss_backend() -> None:
             "(OpenMOSS/MOSS-Transcribe-Diarize), not from pip's index, and needs Transformers 5.")
 
 
-def _require_qwen3_packages(feature: str) -> None:
+def require_qwen3_packages(feature: str) -> None:
     """Raises DependencyUnavailableError naming the missing package(s) and the
     pip line (qwen-asr's own Diagnostics entry: diagnostics.MODEL_ENGINE_REGISTRY)
     when qwen-asr or torch can't be imported, so a Qwen3 choice never
@@ -520,11 +520,11 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                 "Whisper-text-only mode. Supply a transcript, or set alignment_method back "
                 "to 'whisper_diff'.")
         if asr_backend_choice == "qwen3_asr":
-            _require_qwen3_packages("Qwen3-ASR")
+            require_qwen3_packages("Qwen3-ASR")
         elif asr_backend_choice == "moss_td":
             _require_moss_backend()
     elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
-        _require_qwen3_packages("Qwen3 forced alignment")
+        require_qwen3_packages("Qwen3 forced alignment")
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
     groq_api_key = settings_service.resolve_key("groq") if drama.get("use_groq") else None
@@ -592,11 +592,11 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
                 "Whisper-text-only mode. Supply a transcript, or set alignment_method back "
                 "to 'whisper_diff'.")
         if asr_backend_choice == "qwen3_asr":
-            _require_qwen3_packages("Qwen3-ASR")
+            require_qwen3_packages("Qwen3-ASR")
         elif asr_backend_choice == "moss_td":
             _require_moss_backend()
     elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
-        _require_qwen3_packages("Qwen3 forced alignment")
+        require_qwen3_packages("Qwen3 forced alignment")
     if drama.get("use_groq") and not settings_service.resolve_key("groq"):
         raise DependencyUnavailableError(
             "use_groq is on but no Groq API key is configured. Set one in Settings first.")
@@ -858,7 +858,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                     initial_prompt=initial_prompt,
                     beam_size=beam_size,
                     min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
-                    on_gpu_fallback=lambda exc: gpu_fallback_msg.append(core_module._short_reason(exc)),
+                    on_gpu_fallback=lambda exc: gpu_fallback_msg.append(core_module.short_reason(exc)),
                     progress_cb=_whisper_progress,
                     fast_mode=whisper_fast_mode)
                 if "t" in whisper_clock:
@@ -1302,7 +1302,7 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
                 slice_path, whisper_size, language=source_language, use_gpu=use_gpu,
                 initial_prompt=initial_prompt, beam_size=beam_size,
                 min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
-                on_gpu_fallback=lambda exc: gpu_fallback.append(core_module._short_reason(exc)),
+                on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
                 fast_mode=fast_mode)
         except core_module.ModelDownloadError as exc:
             background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "model_download",

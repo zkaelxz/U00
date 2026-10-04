@@ -230,7 +230,7 @@ def test_rate_limiter_memory_is_bounded_and_evicts_oldest():
     ("", ""), ("garbage", ""), ("1.2.3", ""),
 ])
 def test_ip_prefix_is_coarse(ip, expected):
-    assert auth._ip_prefix(ip) == expected
+    assert auth.ip_prefix(ip) == expected
 
 
 def test_ipv6_session_stores_only_the_48(adb):

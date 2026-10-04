@@ -635,42 +635,42 @@ class TestSpeakerNamesReachTheBatch:
 
 class TestBuildNumberedLines:
     def test_lines_with_no_speaker_names_have_no_prefix(self):
-        result = te._build_numbered_lines([1, 2], ["你好", "再见"])
+        result = te.build_numbered_lines([1, 2], ["你好", "再见"])
         assert result == "1. 你好\n2. 再见"
 
     def test_known_speaker_is_prefixed_in_brackets(self):
-        result = te._build_numbered_lines([1, 2], ["你好", "再见"], speaker_names=["Xiaoling", None])
+        result = te.build_numbered_lines([1, 2], ["你好", "再见"], speaker_names=["Xiaoling", None])
         assert result == "1. [Xiaoling] 你好\n2. 再见"
 
     def test_ids_need_not_start_at_one(self):
         # Used for retrying only the missing ids from a partial response --
         # their ORIGINAL batch ids must be preserved, not renumbered.
-        result = te._build_numbered_lines([3, 5], ["a", "b"])
+        result = te.build_numbered_lines([3, 5], ["a", "b"])
         assert result == "3. a\n5. b"
 
 
 class TestParseIdKeyedJson:
     def test_parses_a_well_formed_object(self):
-        result = te._parse_id_keyed_json('{"1": "Hello.", "2": "Hi."}', [1, 2])
+        result = te.parse_id_keyed_json('{"1": "Hello.", "2": "Hi."}', [1, 2])
         assert result == {"1": "Hello.", "2": "Hi."}
 
     def test_ignores_unexpected_extra_ids(self):
-        result = te._parse_id_keyed_json('{"1": "Hello.", "99": "bogus"}', [1, 2])
+        result = te.parse_id_keyed_json('{"1": "Hello.", "99": "bogus"}', [1, 2])
         assert result == {"1": "Hello."}
 
     def test_missing_ids_are_simply_absent_from_the_result(self):
-        result = te._parse_id_keyed_json('{"1": "Hello."}', [1, 2])
+        result = te.parse_id_keyed_json('{"1": "Hello."}', [1, 2])
         assert result == {"1": "Hello."}
 
     def test_shuffled_key_order_is_still_correctly_matched_by_id(self):
-        result = te._parse_id_keyed_json('{"2": "Second.", "1": "First."}', [1, 2])
+        result = te.parse_id_keyed_json('{"2": "Second.", "1": "First."}', [1, 2])
         assert result == {"1": "First.", "2": "Second."}
 
     def test_a_same_length_array_is_malformed_not_matched_by_position(self):
         """CLAUDE.md rule: never match AI results back to lines by list
         position. Even a same-length array can be reordered, so it's
         treated as a malformed reply (empty) and the retry path re-asks."""
-        result = te._parse_id_keyed_json('["Hello.", "Hi."]', [1, 2])
+        result = te.parse_id_keyed_json('["Hello.", "Hi."]', [1, 2])
         assert result == {}
 
     def test_short_positional_array_is_rejected_not_misassigned(self):
@@ -680,25 +680,25 @@ class TestParseIdKeyedJson:
         mismatch has no reliable position-to-id mapping at all, so it
         must come back empty and let the retry path re-request the
         missing ones instead."""
-        result = te._parse_id_keyed_json('["A", "C"]', [1, 2, 3])
+        result = te.parse_id_keyed_json('["A", "C"]', [1, 2, 3])
         assert result == {}
 
     def test_long_positional_array_is_also_rejected(self):
-        result = te._parse_id_keyed_json('["A", "B", "C"]', [1, 2])
+        result = te.parse_id_keyed_json('["A", "B", "C"]', [1, 2])
         assert result == {}
 
     def test_markdown_fences_are_stripped(self):
-        result = te._parse_id_keyed_json('```json\n{"1": "Hello."}\n```', [1])
+        result = te.parse_id_keyed_json('```json\n{"1": "Hello."}\n```', [1])
         assert result == {"1": "Hello."}
 
     def test_malformed_json_returns_empty_not_raises(self):
-        assert te._parse_id_keyed_json("not json at all", [1, 2]) == {}
+        assert te.parse_id_keyed_json("not json at all", [1, 2]) == {}
 
     def test_non_string_values_are_treated_as_missing(self):
         """{"1": null, "2": ["x"]} used to pass straight through, leaving
         ln.en set to None or a list. Any non-string value must be
         dropped so the id is treated as missing and gets retried."""
-        result = te._parse_id_keyed_json('{"1": null, "2": ["x"], "3": "Hi."}', [1, 2, 3])
+        result = te.parse_id_keyed_json('{"1": null, "2": ["x"], "3": "Hi."}', [1, 2, 3])
         assert result == {"3": "Hi."}
 
     def test_prose_wrapped_around_the_json_object_is_tolerated(self):
@@ -706,11 +706,11 @@ class TestParseIdKeyedJson:
         e.g. "Here you go:\\n{...}". The first JSON value anywhere in the
         text should be extracted rather than requiring the whole
         response to be nothing but JSON."""
-        result = te._parse_id_keyed_json('Here you go:\n{"1": "Hello."}\nHope that helps!', [1])
+        result = te.parse_id_keyed_json('Here you go:\n{"1": "Hello."}\nHope that helps!', [1])
         assert result == {"1": "Hello."}
 
     def test_prose_wrapped_around_an_array_is_still_malformed(self):
-        result = te._parse_id_keyed_json('Sure, here it is: ["Hello.", "Hi."]', [1, 2])
+        result = te.parse_id_keyed_json('Sure, here it is: ["Hello.", "Hi."]', [1, 2])
         assert result == {}
 
 
@@ -720,7 +720,7 @@ class TestRequestTranslationsWithRetry:
         def call_model(numbered):
             calls.append(numbered)
             return '{"1": "A.", "2": "B."}'
-        result = te._request_translations_with_retry(["a", "b"], None, call_model)
+        result = te.request_translations_with_retry(["a", "b"], None, call_model)
         assert result == ["A.", "B."]
         assert len(calls) == 1
 
@@ -731,7 +731,7 @@ class TestRequestTranslationsWithRetry:
         do that anymore."""
         def call_model(numbered):
             return '{"3": "Third.", "1": "First.", "2": "Second."}'
-        result = te._request_translations_with_retry(["a", "b", "c"], None, call_model)
+        result = te.request_translations_with_retry(["a", "b", "c"], None, call_model)
         assert result == ["First.", "Second.", "Third."]
 
     def test_missing_lines_are_retried_and_recovered(self):
@@ -741,7 +741,7 @@ class TestRequestTranslationsWithRetry:
             if len(calls) == 1:
                 return '{"1": "First."}'  # line 2 missing this round
             return '{"2": "Second."}'  # retry recovers it
-        result = te._request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
+        result = te.request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
         assert result == ["First.", "Second."]
         assert len(calls) == 2
         assert "2. b" in calls[1]  # retry only re-sent the missing line
@@ -750,13 +750,13 @@ class TestRequestTranslationsWithRetry:
     def test_still_missing_after_retries_exhausted_leaves_that_line_blank_only(self):
         def call_model(numbered):
             return '{"1": "First."}'  # line 2 never comes back, ever
-        result = te._request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
+        result = te.request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
         assert result == ["First.", ""]  # only the genuinely-missing line is blank
 
     def test_extra_unexpected_ids_in_the_response_are_ignored(self):
         def call_model(numbered):
             return '{"1": "First.", "2": "Second.", "47": "bogus extra"}'
-        result = te._request_translations_with_retry(["a", "b"], None, call_model)
+        result = te.request_translations_with_retry(["a", "b"], None, call_model)
         assert result == ["First.", "Second."]
 
     def test_speaker_names_reach_the_numbered_lines_sent_to_the_model(self):
@@ -764,7 +764,7 @@ class TestRequestTranslationsWithRetry:
         def call_model(numbered):
             captured["numbered"] = numbered
             return '{"1": "Hi."}'
-        te._request_translations_with_retry(["你好"], ["Xiaoling"], call_model)
+        te.request_translations_with_retry(["你好"], ["Xiaoling"], call_model)
         assert "[Xiaoling]" in captured["numbered"]
 
 

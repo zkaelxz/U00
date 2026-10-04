@@ -961,7 +961,7 @@ def build_engine(engine_name=None, model=None):
     model = _check_model(model) or (settings["model"] if engine_name == saved_engine else None)
     from services import line_ai_service, settings_service
     require_cloud_consent(engine_name)
-    engine = reader_service._llm_engine(engine_name, model)
+    engine = reader_service.llm_engine(engine_name, model)
     line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get_gemini_free_tier())
     return engine, engine_name, model
 
@@ -969,7 +969,7 @@ def build_engine(engine_name=None, model=None):
 def _chat(system_prompt: str, messages: list, engine) -> str:
     import qa
     try:
-        return qa._dispatch_chat(system_prompt, messages, engine,
+        return qa.dispatch_chat(system_prompt, messages, engine,
                                  max_tokens=MAX_OUTPUT_TOKENS) or ""
     except ServiceError:
         raise
@@ -1227,7 +1227,7 @@ def build_review_engine():
                             "implementing engine in the assistant's settings.")
     model = settings["review_model"]
     require_cloud_consent(name)  # the reviewer reads the same code and logs
-    engine = reader_service._llm_engine(name, model)
+    engine = reader_service.llm_engine(name, model)
     line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get_gemini_free_tier())
     return engine, name, model
 

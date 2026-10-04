@@ -48,7 +48,7 @@ SHORTEN_SNAPSHOT_LABEL = "before auto-shorten"
 
 def pronounce_line(drama_id: int, line_id: int) -> bytes:
     """MP3 bytes of the line's source text read aloud in its language."""
-    drama, _, ln = lines_service._load(drama_id, line_id)
+    drama, _, ln = lines_service.load(drama_id, line_id)
     text = (ln.zh or "").strip()
     if not text:
         raise UnsupportedOperationError("This line has no source text to pronounce.")
@@ -65,7 +65,7 @@ def pronounce_line(drama_id: int, line_id: int) -> bytes:
     with tempfile.TemporaryDirectory(prefix="baihe_pronounce_") as tmp:
         out = os.path.join(tmp, "pronounce.mp3")
         try:
-            asyncio.run(asyncio.wait_for(dub._edge_tts_synthesize(text, voice, out),
+            asyncio.run(asyncio.wait_for(dub.edge_tts_synthesize(text, voice, out),
                                          PRONOUNCE_TIMEOUT_S))
         except asyncio.TimeoutError:
             raise ServiceError("The pronunciation service took too long. Try again.") from None
@@ -161,7 +161,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
         return empty
     remaining = max(0, len(targets) - MAX_SHORTEN_LINES)
     targets = targets[:MAX_SHORTEN_LINES]
-    engine, name = line_ai_service._engine_for(drama, engine_name, model, gemini_free_tier,
+    engine, name = line_ai_service.engine_for(drama, engine_name, model, gemini_free_tier,
                                                check_cap=True)
     model_name = getattr(engine, "model", model) or name
 
@@ -172,7 +172,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
     before = {ln.id: ln.en for ln in targets}
     work = [Line(idx=ln.idx, start=ln.start, end=ln.end, zh=ln.zh, en=ln.en, id=ln.id)
             for ln in targets]
-    line_ai_service._run(lambda: translate_engines.rewrite_for_pacing_llm(
+    line_ai_service.run(lambda: translate_engines.rewrite_for_pacing_llm(
         work, engine, usage_cb=usage))
 
     changed = [w for w in work if (w.en or "").strip() and w.en.strip() != before[w.id].strip()]

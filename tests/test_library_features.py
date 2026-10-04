@@ -861,7 +861,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
         from services import workspace_job_service
 
-        monkeypatch.setattr(workspace_job_service, "_MAX_RESTORE_TOTAL_BYTES", 10)
+        monkeypatch.setattr(workspace_job_service, "MAX_RESTORE_TOTAL_BYTES", 10)
 
         marker = os.path.join(tmp_path_str, "dramas", "existing_drama.txt")
         os.makedirs(os.path.dirname(marker))
@@ -882,7 +882,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
         from services import workspace_job_service
 
-        monkeypatch.setattr(workspace_job_service, "_MAX_RESTORE_MEMBER_BYTES", 10)
+        monkeypatch.setattr(workspace_job_service, "MAX_RESTORE_MEMBER_BYTES", 10)
 
         oversized_zip = self._make_zip_bytes({"library.db": "x" * 100})
         with pytest.raises(ValueError, match="per-file limit"):
@@ -894,7 +894,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
         from services import workspace_job_service
 
-        monkeypatch.setattr(workspace_job_service, "_MAX_RESTORE_MEMBERS", 1)
+        monkeypatch.setattr(workspace_job_service, "MAX_RESTORE_MEMBERS", 1)
 
         many_files_zip = self._make_zip_bytes({
             "library.db": self._db_bytes(),

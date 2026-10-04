@@ -13,7 +13,7 @@ endpoint-URL gate (`_require_local_admin`) and confirm=true.
 from fastapi import APIRouter, Request
 
 from api.auth import client_ip, local_only, require_permission
-from api.routers.settings_routes import _require_confirm, _require_local_admin
+from api.routers.settings_routes import require_confirm, require_local_admin
 from api.schemas import ErrorResponse
 from api.web_search_schemas import (WebSearchConfig, WebSearchConfigUpdate, WebSearchRequest,
                                     WebSearchResults, WebSearchStatus, WebSearchTestResult)
@@ -59,8 +59,8 @@ def get_config():
              responses={422: {"model": ErrorResponse}})
 def set_config(payload: WebSearchConfigUpdate, request: Request):
     if payload.base_url is not None:  # where requests go: same gate as endpoint URLs
-        _require_local_admin(request)
-        _require_confirm(payload.confirm)
+        require_local_admin(request)
+        require_confirm(payload.confirm)
     return web_search_service.set_config(enabled=payload.enabled, base_url=payload.base_url)
 
 

@@ -563,7 +563,7 @@ def qa_fake(monkeypatch):
 
 def test_global_cap_gives_429(client, drama, fake_engine, qa_fake):
     for _ in range(reader_routes.LLM_MAX_IN_FLIGHT):
-        assert reader_routes._SLOTS.acquire(blocking=False)
+        assert reader_routes.SLOTS.acquire(blocking=False)
     try:
         r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"})
         assert r.status_code == 429 and _code(r) == "rate_limited"
@@ -571,27 +571,27 @@ def test_global_cap_gives_429(client, drama, fake_engine, qa_fake):
         assert r.status_code == 429
     finally:
         for _ in range(reader_routes.LLM_MAX_IN_FLIGHT):
-            reader_routes._SLOTS.release()
+            reader_routes.SLOTS.release()
     assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 200
 
 
 def test_per_caller_cap_gives_429(client, drama, fake_engine, qa_fake):
-    with reader_routes._ACTIVE_LOCK:
-        reader_routes._ACTIVE_CALLERS.add("local")
+    with reader_routes.ACTIVE_LOCK:
+        reader_routes.ACTIVE_CALLERS.add("local")
     try:
         r = client.post(f"{BASE}/{drama}/story/who", json={"name": "A"})
         assert r.status_code == 429
     finally:
-        with reader_routes._ACTIVE_LOCK:
-            reader_routes._ACTIVE_CALLERS.discard("local")
+        with reader_routes.ACTIVE_LOCK:
+            reader_routes.ACTIVE_CALLERS.discard("local")
     # another caller's running request doesn't block this one
-    with reader_routes._ACTIVE_LOCK:
-        reader_routes._ACTIVE_CALLERS.add("user:999")
+    with reader_routes.ACTIVE_LOCK:
+        reader_routes.ACTIVE_CALLERS.add("user:999")
     try:
         assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 200
     finally:
-        with reader_routes._ACTIVE_LOCK:
-            reader_routes._ACTIVE_CALLERS.discard("user:999")
+        with reader_routes.ACTIVE_LOCK:
+            reader_routes.ACTIVE_CALLERS.discard("user:999")
 
 
 def test_concurrent_request_from_same_caller_is_429(client, drama, fake_engine, monkeypatch):
@@ -615,7 +615,7 @@ def test_concurrent_request_from_same_caller_is_429(client, drama, fake_engine, 
         release.set()
         t.join(10)
     assert result["r"].status_code == 200
-    assert not reader_routes._ACTIVE_CALLERS
+    assert not reader_routes.ACTIVE_CALLERS
 
 
 def test_slot_released_after_exception(client, drama, fake_engine, monkeypatch):
@@ -626,41 +626,41 @@ def test_slot_released_after_exception(client, drama, fake_engine, monkeypatch):
     monkeypatch.setattr(qa, "ask_about_drama", boom)
     for _ in range(3):
         assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 500
-    assert not reader_routes._ACTIVE_CALLERS
-    got = [reader_routes._SLOTS.acquire(blocking=False)
+    assert not reader_routes.ACTIVE_CALLERS
+    got = [reader_routes.SLOTS.acquire(blocking=False)
            for _ in range(reader_routes.LLM_MAX_IN_FLIGHT)]
     for ok in got:
         if ok:
-            reader_routes._SLOTS.release()
+            reader_routes.SLOTS.release()
     assert all(got)   # both global slots were free again
     # unknown drama (raised inside the slot) releases it too
     assert client.post(f"{BASE}/99999/ask", json={"question": "Q?"}).status_code == 404
-    assert not reader_routes._ACTIVE_CALLERS
+    assert not reader_routes.ACTIVE_CALLERS
 
 
 def test_lookup_without_llm_ignores_the_cap(client, lookup_drama):
-    with reader_routes._ACTIVE_LOCK:
-        reader_routes._ACTIVE_CALLERS.add("local")
+    with reader_routes.ACTIVE_LOCK:
+        reader_routes.ACTIVE_CALLERS.add("local")
     try:
         assert client.post(f"{BASE}/{lookup_drama}/lookup", json={"page": 1}).status_code == 200
     finally:
-        with reader_routes._ACTIVE_LOCK:
-            reader_routes._ACTIVE_CALLERS.discard("local")
+        with reader_routes.ACTIVE_LOCK:
+            reader_routes.ACTIVE_CALLERS.discard("local")
 
 
 def test_per_user_cap_keyed_on_user_id(on_client, drama):
     a = _session("a@example.com")
     b = _session("b@example.com")
     uid_a = auth_service.resolve_session(a["session_token"])["user_id"]
-    with reader_routes._ACTIVE_LOCK:
-        reader_routes._ACTIVE_CALLERS.add(f"user:{uid_a}")
+    with reader_routes.ACTIVE_LOCK:
+        reader_routes.ACTIVE_CALLERS.add(f"user:{uid_a}")
     try:
         body = {"question": "Q?", "engine": "ollama"}
         assert on_client.post(f"{BASE}/{drama}/ask", json=body, headers=_h(a)).status_code == 429
         assert on_client.post(f"{BASE}/99999/ask", json=body, headers=_h(b)).status_code == 404
     finally:
-        with reader_routes._ACTIVE_LOCK:
-            reader_routes._ACTIVE_CALLERS.discard(f"user:{uid_a}")
+        with reader_routes.ACTIVE_LOCK:
+            reader_routes.ACTIVE_CALLERS.discard(f"user:{uid_a}")
 
 
 def test_recap_input_is_bounded_by_lines(client, isolated_db, fake_engine, monkeypatch):
@@ -787,15 +787,15 @@ def test_rich_apkg_card_cap_and_slot(client, isolated_db, fake_sentence_deck):
     assert r.status_code == 200
     assert fake_sentence_deck["cards"] == reader_service.MAX_RICH_CARDS
     assert r.headers["x-cards-capped"] == str(reader_service.MAX_RICH_CARDS)
-    with reader_routes._ACTIVE_LOCK:
-        reader_routes._ACTIVE_CALLERS.add("local")
+    with reader_routes.ACTIVE_LOCK:
+        reader_routes.ACTIVE_CALLERS.add("local")
     try:
         assert client.get(url, params={"rich": True}).status_code == 429
         # the plain deck takes no slot (200 with genanki, 503 without)
         assert client.get(url).status_code in (200, 503)
     finally:
-        with reader_routes._ACTIVE_LOCK:
-            reader_routes._ACTIVE_CALLERS.discard("local")
+        with reader_routes.ACTIVE_LOCK:
+            reader_routes.ACTIVE_CALLERS.discard("local")
 
 
 def test_extract_audio_slice_passes_timeout(monkeypatch, tmp_path):

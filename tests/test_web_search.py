@@ -65,7 +65,7 @@ class FakeSearx:
 
 @pytest.fixture
 def fake(isolated_db, monkeypatch, tmp_path):
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(tmp_path / ".env"))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(tmp_path / ".env"))
     monkeypatch.setattr(ws.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", ("192.168.1.30", port))])
     FakeSearx.calls, FakeSearx.reply = [], Resp(200, {"results": [_hit(1), _hit(2)]})
