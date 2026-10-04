@@ -6,7 +6,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - `start.bat` runs `python -m api`: FastAPI on 127.0.0.1:8600, which also serves the built React app from `frontend/dist`.
 - Dev: `BAIHE_API_ENV=development python -m api`, and `cd frontend && npm ci && npm run dev` (Vite on :5173, proxies `/api`).
 - Layers, top to bottom: `frontend/` (React) -> `api/` (routers in `api/routers/*_routes.py`, Pydantic models in `api/schemas.py`, auth in `api/auth.py`) -> `services/*_service.py` (UI-free logic; raise the errors in `services/service_errors.py`) -> root domain modules -> `db.py`.
-- `db.py`: plain sqlite3, no ORM. Schema changes go through `ALTER TABLE ... ADD COLUMN` in `init_db`.
+- `db.py`: plain sqlite3, no ORM. Schema changes go through `ALTER TABLE ... ADD COLUMN` in `init_db`; list each new column in `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py` so the upgrade test covers it (a guard test fails if you forget).
 - `translate_engines.py`: every translation/LLM engine plus the id-keyed request, retry and redaction helpers.
 - `background_jobs.py`: thread-based jobs. The in-memory dict is the authority, with a best-effort mirror in the `job_records` table.
 - `sources/`: site adapters (`sources/adapters/`) and the fetch ladder. `cli.py`: headless batch runner.
