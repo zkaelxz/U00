@@ -692,7 +692,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
             "use_groq is on but no Groq API key is configured. Set one in Settings first.")
 
 
-_MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v2": "~3 GB", "large-v1": "~3 GB",
+_MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v3-turbo": "~1.6 GB", "large-v2": "~3 GB", "large-v1": "~3 GB",
                          "large": "~3 GB", "medium": "~1.5 GB", "small": "~500 MB",
                          "base": "~150 MB", "tiny": "~75 MB"}
 
@@ -705,10 +705,11 @@ def _allowed_whisper_sizes() -> frozenset:
 
 
 def default_whisper_size() -> str:
-    """The model used when a drama has none saved: large-v3 with the GPU on,
-    medium without it. large-v3 on a CPU is many times slower than the clip
-    and a ~3 GB download; medium is about half the size and still usable for
-    Chinese, Japanese and Korean. A model the user saved is never replaced."""
+    """The model used when a drama has none saved: large-v3-turbo with the GPU
+    on, medium without it. On a CPU the large models are many times slower
+    than the clip and a 1.5-3 GB download; medium is the lighter choice that
+    is still usable for Chinese, Japanese and Korean. A model the user saved
+    is never replaced."""
     if settings_service.get_use_gpu():
         return _DEFAULT_TUNING["whisper_size"]
     return CPU_DEFAULT_WHISPER_SIZE

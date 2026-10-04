@@ -277,17 +277,17 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
 _whisper_model_cache = {}
 
 # Speech-recognition models offered in the Workspace picker (faster-whisper
-# names). large-v3-turbo is never the default: it's much faster but reported
-# weaker on Japanese and Korean. large-v3 is the default for all three
-# source languages (zh/ja/ko) -- a consumer GPU in the 8-12GB class this app
-# targets has enough headroom for it, and it's the more accurate choice.
+# names). large-v3-turbo is the default (owner decision): near large-v3
+# accuracy at a fraction of the time and memory. It is reported weaker than
+# large-v3 on Japanese and Korean, so the label and the Transcribe stage's
+# warning keep saying so and large-v3 stays one pick away.
 WHISPER_MODELS = {
     "small": "small -- fastest, least accurate",
-    "medium": "medium -- balanced default",
+    "medium": "medium -- balanced, lighter on CPU",
     "large-v3": "large-v3 -- most accurate, slower, ~3GB",
-    "large-v3-turbo": "large-v3-turbo -- ~large-v3 accuracy much faster, but weaker on Japanese/Korean",
+    "large-v3-turbo": "large-v3-turbo -- default; much faster, near large-v3 on Chinese, weaker on Japanese/Korean",
 }
-DEFAULT_WHISPER_SIZE = "large-v3"
+DEFAULT_WHISPER_SIZE = "large-v3-turbo"
 # Auto-tune's default candidate min_silence_duration_ms values -- spans the
 # "Speech-splitting sensitivity" slider's real range meaningfully (300 is the
 # app's default, services/transcribe_service._DEFAULT_TUNING; 3000 the
