@@ -42,7 +42,7 @@
 .segmented label:hover { color: var(--text); }
 .segmented input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .segmented label.on { background: var(--accent); color: var(--on-accent); }
-.segmented label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.segmented label:has(input:focus-visible) { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 2px; }
 
 /* Desktop: search + results left, the open series right. The panel flows with the page:
    a sticky, height-capped panel would be a second scroll area inside the page. */

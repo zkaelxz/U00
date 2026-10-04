@@ -228,7 +228,11 @@ h3 { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-md); }
 }
 
 a { color: var(--accent-text); }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 4px var(--focus); }
+/* A transparent outline is drawn in a system colour under forced colours, so focus never disappears. */
+@media (forced-colors: active) {
+  :focus-visible { outline: 2px solid CanvasText !important; }
+}
 
 /* ---- page layouts ---- */
 .panel {
@@ -269,7 +273,7 @@ textarea {
   color: var(--text);
 }
 textarea { min-height: 0; resize: vertical; font-size: var(--text-edit); line-height: var(--leading); }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+input:focus, select:focus, textarea:focus { outline: 2px solid transparent; border-color: var(--accent); box-shadow: 0 0 0 4px var(--focus); }
 input::placeholder, textarea::placeholder { color: var(--muted); }
 :disabled,
 button.primary:disabled,
@@ -699,7 +703,7 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .segmented input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
 .segmented span { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 4px; color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .segmented input:checked + span { background: var(--surface-2); color: var(--text); box-shadow: var(--shadow-1); }
-.segmented input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+.segmented input:focus-visible + span { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 1px; }
 .empty-note { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .empty-note p { margin: 0; }
 
@@ -716,8 +720,8 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .drama-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--text); font-weight: var(--weight-bold); line-height: 1.35; text-decoration: none; }
 a.drama-card-title::after { content: ''; position: absolute; inset: 0; z-index: 0; }
 a.drama-card-title:hover { text-decoration: underline; text-underline-offset: 2px; }
-a.drama-card-title:focus-visible { outline: none; }
-.drama-card:has(a.drama-card-title:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
+.drama-card:has(a.drama-card-title:focus-visible) { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 2px; }
 .drama-card-orig, .drama-card-type { margin: 0; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drama-card-type { font-size: var(--text-sm); }
 .drama-card .pill-row { margin-top: var(--space-1); }

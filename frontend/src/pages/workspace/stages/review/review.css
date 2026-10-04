@@ -56,7 +56,7 @@
 }
 /* Selected chip: tinted, accent border; the one filled accent stays the primary action. */
 .review-chip input:checked + span { background: color-mix(in srgb, var(--accent) 16%, var(--field-bg)); border-color: var(--accent); color: var(--text); font-weight: 600; }
-.review-chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.review-chip input:focus-visible + span { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 2px; }
 .review-search { position: relative; display: flex; flex: 1 1 16rem; min-width: 0; }
 .review-search input { padding-right: 2.4rem; }
 .review-search input::-webkit-search-cancel-button { display: none; }
@@ -120,7 +120,8 @@ button.review-play { min-width: 2.75rem; padding-inline: 10px; }
 .review-lines.is-compact .review-body { margin-top: 0; }
 .review-line.is-active { background: var(--row-active); box-shadow: inset 3px 0 0 var(--accent); }
 .review-line:focus { outline: none; }
-.review-line:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.review-line:focus-visible { outline: 2px solid transparent; outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--focus); }
+.review-line.is-active:focus-visible { box-shadow: inset 0 0 0 3px var(--focus), inset 3px 0 0 var(--accent); }
 .review-line[data-flagged='true'] { border-left: 3px solid var(--warn); }
 .review-hit { display: flex; justify-content: flex-end; margin-top: var(--space-1); }
 /* A line just opened from a search result (R05): a brief tint, then the usual active row. */
