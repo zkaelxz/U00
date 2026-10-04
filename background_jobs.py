@@ -1461,7 +1461,12 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             # A worker that sent its result but has not exited (stuck in
             # interpreter or CUDA teardown, or waiting on a child it started)
             # still holds VRAM and its temp files: end it before the GPU
-            # slot and the finish hook are released.
+            # slot and the finish hook are released. On POSIX its group is
+            # killed even once the worker itself is gone (stopped after a
+            # watcher failure, or crashed): an ffmpeg it started may still
+            # be writing into the folder on_finish removes.
+            if kill_whole_tree and os.name != "nt":
+                _kill_worker_group(proc)
             if kill_whole_tree and proc.is_alive():
                 kill_tree(proc)
                 proc.join(timeout=5)
@@ -1830,6 +1835,22 @@ def kill_tree(proc):
         proc.kill()
     except Exception as exc:
         _warn(f"could not kill process {proc.pid}", exc)
+
+
+def _kill_worker_group(proc):
+    """POSIX: SIGKILLs the process group a kill_whole_tree worker leads
+    (start_own_process_group), whether or not the worker is still alive.
+    A worker that never made its group leaves no group with its pid, and
+    the server's own group is never targeted."""
+    import signal
+    pid = getattr(proc, "pid", None)
+    try:
+        if pid is not None and pid != os.getpgrp():
+            os.killpg(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    except Exception as exc:
+        _warn(f"could not kill process group {pid}", exc)
 
 
 def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: float = 0.2,

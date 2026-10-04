@@ -2118,6 +2118,55 @@ class TestOrphanedWorkerExits:
                 pass
 
 
+def _pid_gone(pid) -> bool:
+    """Linux: True once `pid` has exited (a zombie counts: a re-parented
+    child may wait on a reaper that never collects it here)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] == "Z"
+    except FileNotFoundError:
+        return True
+
+
+def _worker_leaving_a_child(pid_file, result_queue):
+    bg.start_own_process_group()
+    import subprocess
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    with open(pid_file, "w") as f:
+        f.write(str(child.pid))
+    result_queue.put(("ok", {}))
+
+
+class TestWholeTreeWorkerGroup:
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="POSIX process groups")
+    def test_a_child_outliving_its_worker_is_killed_before_on_finish(self, tmp_path):
+        """The worker exits after starting a child (an ffmpeg) that keeps
+        running: the watcher kills the worker's group before on_finish
+        removes the scratch folder under that child."""
+        import signal
+        pid_file = str(tmp_path / "child.pid")
+        seen = []
+
+        def on_finish(job_id):
+            child_pid = int(open(pid_file).read())
+            seen.append(_wait_for(lambda: _pid_gone(child_pid), timeout=3))
+        job_id = "test_whole_tree_child"
+        bg.clear_job(job_id)
+        try:
+            assert bg.start_process_job(job_id, _worker_leaving_a_child, args=(pid_file,),
+                                        on_finish=on_finish, kill_whole_tree=True,
+                                        start_method="fork")
+            assert _wait_for(lambda: seen, timeout=20)
+            assert seen == [True]
+            assert bg.get_status(job_id)["status"] == "done"
+        finally:
+            try:
+                os.kill(int(open(pid_file).read()), signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
+            bg.clear_job(job_id)
+
+
 class TestRunCancellable:
     """B-05: a thread job running an external command can be stopped."""
 
