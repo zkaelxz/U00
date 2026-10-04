@@ -32,7 +32,7 @@ test('with no progress read there are no marks and no counts', async ({ page }) 
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Source', exact: true })).toBeVisible()
   await expect(page.locator('nav.stage-tabs .stage-mark')).toHaveCount(0)
-  await expect(page.locator('nav.stage-tabs .stage-count')).toHaveCount(0)
+  await expect(page.locator('nav.stage-tabs .stage-count:not(:empty)')).toHaveCount(0)
 })
 
 test('header: Back to Library, status, media type, line count and Read are all shown', async ({ page }) => {

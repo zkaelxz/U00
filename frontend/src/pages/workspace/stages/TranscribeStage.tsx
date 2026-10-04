@@ -526,11 +526,13 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
 
-      {cf && (
+      {cf ? (
         <p className="muted source-summary" data-testid="settings-summary">
           {cf.whisper_size} · {LANGUAGE_NAMES[language] ?? language}
           {useGpu !== null && <span data-testid="gpu-note"> · GPU: {useGpu ? 'on' : 'off'} - change in <a href="#/settings">Settings</a></span>}
         </p>
+      ) : (
+        <p className="muted source-summary" aria-hidden="true">&nbsp;</p>
       )}
 
       <Section
@@ -607,12 +609,13 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
       </Section>
 
-      {cf && (
-        <Section
+      {/* Always mounted so the fold's header never appears late; its body waits for the saved options. */}
+      <Section
           storageKey="source.advanced"
           title="Advanced"
-          summary={readableSummary(advancedSummary({ ...cf, prompt: override }))}
+          summary={cf ? readableSummary(advancedSummary({ ...cf, prompt: override })) : 'tuning'}
         >
+          {cf && <>
           <div className="source-grid">
             {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
             {num('Min silence', 'min_silence_ms', 50, '300-3000. Silence that splits lines; longer gives fewer, longer lines. Auto-tune below can pick it.', 'ms')}
@@ -676,8 +679,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
               setCf((cur) => (cur ? { ...cur, min_silence_ms: String(c.min_silence_ms) } : formFromConfig(c)))
             }}
           />
+          </>}
         </Section>
-      )}
       </Section>
       <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />
     </section>

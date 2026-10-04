@@ -377,19 +377,6 @@ function RunPanel({
   return (
     <section className="panel" aria-label="Translate run">
       <h3>Translate</h3>
-      <TierPicker
-        config={config}
-        onApplied={(t) => {
-          setF((s) => applyTierToForm(s, t, config))
-          onTierApplied(t)
-        }}
-      />
-      <PresetPicker
-        onApplied={(p) => {
-          setF((s) => applyPresetToForm(s, p, config))
-          onPresetApplied(p)
-        }}
-      />
       <div className="translate-basics">
         <Field label="Engine" help="Which service translates. The default comes from Settings; engines marked (no key) cannot run.">
           <select value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
@@ -517,6 +504,19 @@ function RunPanel({
         <p className="error" role="alert">A translate job is already running for this drama.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <TierPicker
+        config={config}
+        onApplied={(t) => {
+          setF((s) => applyTierToForm(s, t, config))
+          onTierApplied(t)
+        }}
+      />
+      <PresetPicker
+        onApplied={(p) => {
+          setF((s) => applyPresetToForm(s, p, config))
+          onPresetApplied(p)
+        }}
+      />
       <Section storageKey="translate.advanced" title="Advanced" summary={advancedSummary(f, base)}>
         <div className="advanced-grid">
           <div className="advanced-wide">
@@ -704,6 +704,9 @@ export default function TranslateStage() {
           config={config}
           onDismissed={() => setConfig((c) => (c ? { ...c, last_translate_errors: null } : c))}
         />
+      )}
+      {!config && !error && (
+        <div className="skeleton-block translate-skeleton" role="status" aria-busy="true" aria-label="Loading translate options" />
       )}
       {config && (
         <RunPanel

@@ -128,7 +128,7 @@ type CreateDraft = { form: DramaCreateRequest; extras: CreateExtras }
 function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   draft: CreateDraft | null
   onDraft: (next: CreateDraft) => void
-  onCreated: (id: number, title: string, autofill: boolean) => void
+  onCreated: (id: number, autofill: boolean) => void
   onCancel: () => void
   series: Loaded<Awaited<ReturnType<typeof getSeries>>>
   presets: Loaded<Awaited<ReturnType<typeof getPresets>>>
@@ -165,7 +165,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
         setLastLanguage(form.source_language)
         if (form.media_type) setLastType(form.media_type)
         savePresetStart(d.id, d.preset_defaults)
-        onCreated(d.id, dramaName(d), autofill)
+        onCreated(d.id, autofill)
       },
       (err: unknown) => { setBusy(false); setError(err) },
     )
@@ -250,7 +250,6 @@ export default function LibraryPage() {
   const [selected, setSelected] = useState<{ id: number; title: string } | null>(null)
   const [creating, setCreating] = useState(false)
   const [draft, setDraft] = useState<CreateDraft | null>(null)
-  const [created, setCreated] = useState<{ id: number; title: string } | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [items, setItems] = useState<DramaSummary[]>([])
@@ -301,7 +300,6 @@ export default function LibraryPage() {
       onChanged={reload}
       onDeleted={(ids) => {
         if (selected && ids.includes(selected.id)) setSelected(null)
-        setCreated((c) => (c && ids.includes(c.id) ? null : c))
         setChecked((c) => new Set([...c].filter((id) => !ids.includes(id))))
       }}
     />
@@ -333,14 +331,6 @@ export default function LibraryPage() {
         </div>
       </header>
 
-      {created && (
-        <p className="status-line" role="status" data-testid="created-notice">
-          <span>Created “{created.title}”.</span>
-          <ButtonLink size="sm" href={workspaceHref(created.id)}>Open workspace</ButtonLink>
-          <ButtonLink size="sm" variant="ghost" href={autofillHref(created.id)}>Auto-fill details</ButtonLink>
-          {dismiss(() => setCreated(null))}
-        </p>
-      )}
       {notice && (
         <p className="status-line warn" role="status" data-testid="delete-notice">
           <span>{notice}</span>
@@ -376,16 +366,13 @@ export default function LibraryPage() {
           draft={draft}
           onDraft={setDraft}
           onCancel={() => { setDraft(null); setCreating(false) }}
-          onCreated={(id, title, autofill) => {
+          onCreated={(id, autofill) => {
             setDraft(null)
             setCreating(false)
-            if (autofill) {
-              window.location.hash = autofillHref(id)
-              return
-            }
-            setCreated({ id, title })
-            setSelected({ id, title })
             reload()
+            // A new drama has nothing to review in a sheet: open its workspace
+            // (Source has Details and credits).
+            window.location.hash = autofill ? autofillHref(id) : workspaceHref(id)
           }}
         />
       </Sheet>
@@ -397,7 +384,6 @@ export default function LibraryPage() {
             onDeleted={pc === 'remote' ? undefined : (r) => {
               setNotice(deleteNotice(r))
               setSelected(null)
-              setCreated((c) => (c?.id === selected.id ? null : c))
               reload()
             }}
             deleteNote={pc === 'remote' ? PC_ONLY_DELETE_NOTE : undefined}

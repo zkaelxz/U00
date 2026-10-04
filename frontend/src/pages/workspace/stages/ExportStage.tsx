@@ -101,6 +101,7 @@ export default function ExportStage() {
       <section className="panel" aria-label="Export">
         <h3>Export</h3>
         <ErrorBanner error={readinessError} />
+        {!r && !readinessError && <div className="skeleton-block export-readiness-skeleton" aria-hidden="true" />}
         {r && (
           <>
             <p className="export-line pill-row" data-testid="readiness">
