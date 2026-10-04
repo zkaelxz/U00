@@ -2083,12 +2083,14 @@ class TestOrphanedWorkerExits:
         import signal
         import subprocess
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        ready = str(tmp_path / "ready")
         script = (
             "import multiprocessing, sys, time\n"
             f"sys.path.insert(0, {root!r})\n"
             "import background_jobs as bg\n"
             "def worker():\n"
             "    bg.start_own_process_group()\n"
+            f"    open({ready!r}, 'w').close()\n"
             "    time.sleep(120)\n"
             "p = multiprocessing.get_context('fork').Process(target=worker, daemon=False)\n"
             "p.start()\n"
@@ -2098,17 +2100,12 @@ class TestOrphanedWorkerExits:
                                   text=True)
         try:
             worker_pid = int(parent.stdout.readline())
-            time.sleep(0.5)   # let the worker record its parent
+            # The worker has recorded its parent and started its watchdog.
+            assert _wait_for(lambda: os.path.exists(ready), timeout=30)
             os.kill(parent.pid, signal.SIGKILL)
             parent.wait(timeout=10)
-
-            def gone():
-                try:
-                    with open(f"/proc/{worker_pid}/stat") as f:
-                        return f.read().rsplit(")", 1)[1].split()[0] == "Z"
-                except FileNotFoundError:
-                    return True
-            assert _wait_for(gone, timeout=4 * bg.PARENT_CHECK_INTERVAL + 2)
+            assert _wait_for(lambda: _pid_gone(worker_pid),
+                             timeout=4 * bg.PARENT_CHECK_INTERVAL + 2)
         finally:
             if parent.poll() is None:
                 parent.kill()
