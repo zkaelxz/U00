@@ -618,6 +618,80 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
     return out
 
 
+# A transcribed line longer than either limit is cut into subtitle-sized pieces.
+SPLIT_MAX_SECONDS = 8.0
+SPLIT_MAX_CJK_CHARS = 40
+
+_SENTENCE_END_RE = re.compile(r"(?:[。！？!?…]+|\.+(?=\s|$))[\"'”’」』）)\]]*\s*")
+_CLAUSE_END_RE = re.compile(r"[,，、;；:：]+[\"'”’」』）)\]]*\s*")
+_CJK_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+
+
+def _cut_after(text: str, pattern) -> list:
+    """Cuts text after every match of pattern; the pieces concatenate back to text."""
+    pieces, last = [], 0
+    for m in pattern.finditer(text):
+        if m.end() > last:
+            pieces.append(text[last:m.end()])
+            last = m.end()
+    if last < len(text):
+        pieces.append(text[last:])
+    return pieces
+
+
+def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
+                        max_cjk_chars: int = SPLIT_MAX_CJK_CHARS) -> list:
+    """Cuts over-long segments ({"start","end","text",...}) at sentence-ending
+    punctuation, then at commas, packing neighbouring sentences up to the limits.
+
+    Whisper segments carry no word timing at this point, so each piece gets a
+    share of the original span proportional to its character count: boundaries
+    are estimates, but pieces stay contiguous, increasing and inside the span.
+    Text without punctuation, and short segments, are returned as they are.
+    Other keys (speaker) are copied onto every piece."""
+    out = []
+    for seg in segments:
+        text = seg.get("text") or ""
+        dur = seg["end"] - seg["start"]
+        total = len("".join(text.split()))
+        if total == 0 or dur <= 0 or (
+                dur <= max_seconds and len(_CJK_RE.findall(text)) <= max_cjk_chars):
+            out.append(seg)
+            continue
+
+        def fits(piece):
+            n = len("".join(piece.split()))
+            return (dur * n / total <= max_seconds
+                    and len(_CJK_RE.findall(piece)) <= max_cjk_chars)
+
+        def pack(units):
+            chunks, cur = [], ""
+            for u in units:
+                if cur and not fits(cur + u):
+                    chunks.append(cur)
+                    cur = ""
+                cur += u
+            if cur:
+                chunks.append(cur)
+            return chunks
+
+        pieces = []
+        for chunk in pack(_cut_after(text, _SENTENCE_END_RE)):
+            # one sentence that is still too long: fall back to its commas
+            pieces.extend([chunk] if fits(chunk) else pack(_cut_after(chunk, _CLAUSE_END_RE)))
+        pieces = [p for p in pieces if p.strip()]
+        if len(pieces) < 2:
+            out.append(seg)
+            continue
+        done = 0
+        for i, p in enumerate(pieces):
+            start = seg["start"] + dur * done / total
+            done += len("".join(p.split()))
+            end = seg["end"] if i == len(pieces) - 1 else seg["start"] + dur * done / total
+            out.append({**seg, "start": start, "end": end, "text": p.strip()})
+    return out
+
+
 def tighten_to_words(start: float, end: float, words) -> tuple:
     """A segment's own start/end come from its VAD chunk, so a line can show
     during silence before the voice starts or stay up after it stops. Narrow

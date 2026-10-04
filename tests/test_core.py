@@ -1111,3 +1111,59 @@ class TestWhisperDeviceReporting:
         status = core.gpu_status()
         assert status["ctranslate2_cuda_devices"] is None
         assert status["errors"] and "boom" in status["errors"][0]
+
+
+class TestSplitLongSegments:
+    @staticmethod
+    def _seg(text, start=10.0, end=40.0, **extra):
+        return {"start": start, "end": end, "text": text, **extra}
+
+    @staticmethod
+    def _check(seg, pieces):
+        assert pieces[0]["start"] == seg["start"] and pieces[-1]["end"] == seg["end"]
+        for a, b in zip(pieces, pieces[1:]):
+            assert a["end"] == b["start"]
+        assert all(p["start"] < p["end"] for p in pieces)
+        assert "".join("".join(p["text"].split()) for p in pieces) == "".join(seg["text"].split())
+
+    def test_splits_at_sentence_ends_and_keeps_text(self):
+        import core
+        seg = self._seg("好,你刚讲不要讲。哇,我先离开一下。好,OK。重来。哇,大家好哦!" * 3,
+                        speaker="A")
+        out = core.split_long_segments([seg], max_seconds=8, max_cjk_chars=1000)
+        assert len(out) > 3
+        self._check(seg, out)
+        assert all(p["speaker"] == "A" for p in out)
+        assert all(p["end"] - p["start"] <= 8.0 + 1e-6 for p in out)
+        assert all(p["text"][-1] in "。!" for p in out)
+
+    def test_comma_fallback_for_one_long_sentence(self):
+        import core
+        seg = self._seg(",".join(["一二三四五六七八九十"] * 8) + "。", 0.0, 30.0)
+        out = core.split_long_segments([seg], max_seconds=8)
+        assert len(out) > 1
+        self._check(seg, out)
+
+    def test_no_punctuation_left_alone(self):
+        import core
+        seg = self._seg("一二三四五六七八九十" * 10)
+        assert core.split_long_segments([seg]) == [seg]
+
+    def test_short_line_untouched(self):
+        import core
+        seg = self._seg("好。你好。再见。", 0.0, 3.0)
+        assert core.split_long_segments([seg]) == [seg]
+
+    def test_mixed_cjk_latin_japanese_korean(self):
+        import core
+        for text in ("今日はいい天気ですね。Let's go to the park. Really? 行きましょう!" * 2,
+                     "안녕하세요. 오늘은 날씨가 좋네요? Okay, let's go. 갑시다!" * 2):
+            seg = self._seg(text, 5.0, 25.0)
+            out = core.split_long_segments([seg], max_seconds=8)
+            assert len(out) > 1
+            self._check(seg, out)
+
+    def test_decimal_point_is_not_a_sentence_end(self):
+        import core
+        seg = self._seg("Pi is 3.14159 and e is 2.71828 which is nice", 0.0, 30.0)
+        assert core.split_long_segments([seg], max_seconds=8) == [seg]

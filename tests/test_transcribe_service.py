@@ -870,6 +870,30 @@ class TestQwen3Backends:
         assert background_jobs.get_status(job_id)["result"]["asr_backend"] == "qwen3_asr"
         _clear(job_id)
 
+    def test_long_qwen3_segment_becomes_several_subtitle_lines(self, isolated_db, monkeypatch):
+        import asr_backend
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 175.0, "end": 210.0, "text": "w"}])
+        text = "好,你刚讲不要讲。哇,我先离开一下。好,OK。重来。哇,大家好哦!" * 3
+
+        class FakeQwen3ASR:
+            def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
+                           batch_size=1, progress_cb=None):
+                return [{"start": s["start"], "end": s["end"], "text": text}
+                        for s in whisper_segments]
+        monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", FakeQwen3ASR)
+
+        job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr")
+
+        saved = isolated_db.load_lines(did)
+        assert len(saved) > 3
+        assert "".join(r["zh"] for r in saved) == text
+        assert saved[0]["start"] == 175.0 and saved[-1]["end"] == 210.0
+        assert all(a["end"] == b["start"] for a, b in zip(saved, saved[1:]))
+        assert len(self._raw(ddir)["segments"]) == 1
+        _clear(job_id)
+
     def test_progress_never_hits_100_before_done_and_never_goes_back(
             self, isolated_db, monkeypatch):
         """Whisper fills 0-85%, the Qwen3 step 85-99% (no percent until its
@@ -1292,6 +1316,39 @@ class TestCancelReachesWhisper:
         assert seen == [0, 1, 2, 3]
         assert isolated_db.load_lines(did) == []
         _clear(job_id)
+
+
+class TestSplitPiecesGetOwnSpeaker:
+    def test_saved_turns_relabel_split_lines_and_reassign_keeps_manual(self, isolated_db):
+        import diarize
+        from services import diarization_service
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        isolated_db.save_lines(did, [
+            transcribe_service.Line(idx=0, start=0.0, end=5.0, zh="a", speaker="X"),
+            transcribe_service.Line(idx=1, start=5.0, end=10.0, zh="b", speaker="X"),
+            transcribe_service.Line(idx=2, start=10.0, end=15.0, zh="c", speaker="X",
+                                    speaker_manual=True)])
+        with pytest.raises(Exception):
+            diarization_service.reassign_speakers_from_saved_turns(did)
+        diarize.save_turns(ddir, [{"start": 0.0, "end": 6.0, "speaker": "S1"},
+                                  {"start": 6.0, "end": 15.0, "speaker": "S2"}])
+        diarization_service.reassign_speakers_from_saved_turns(did)
+        rows = isolated_db.load_lines(did)
+        assert [r["speaker"] for r in rows] == ["S1", "S2", "X"]
+
+    def test_reassign_refuses_while_a_job_runs(self, isolated_db, monkeypatch):
+        import diarize
+        from services import diarization_service
+        from services.service_errors import ConflictError
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        isolated_db.save_lines(did, [
+            transcribe_service.Line(idx=0, start=0.0, end=5.0, zh="a", speaker="X")])
+        diarize.save_turns(ddir, [{"start": 0.0, "end": 6.0, "speaker": "S1"}])
+        monkeypatch.setattr(transcribe_service.background_jobs, "any_job_running_for_drama",
+                            lambda drama_id: True)
+        with pytest.raises(ConflictError):
+            diarization_service.reassign_speakers_from_saved_turns(did)
+        assert isolated_db.load_lines(did)[0]["speaker"] == "X"
 
 
 class TestTranscribeSpeedCalibration:

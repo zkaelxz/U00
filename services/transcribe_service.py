@@ -919,7 +919,9 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 raw_backend, raw_model = "qwen3_asr", "Qwen3-ASR"
             lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                           speaker=seg.get("speaker") or None)
-                     for i, seg in enumerate(segments) if seg["text"].strip()]
+                     for i, seg in enumerate(
+                         s for s in core_module.split_long_segments(segments)
+                         if s["text"].strip())]
             coverage_msg = coverage_warning(
                 segments, _audio_duration_seconds(audio_path),
                 qwen3_asr=raw_backend == "qwen3_asr")

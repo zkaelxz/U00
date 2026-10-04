@@ -23,7 +23,7 @@ from typing import Optional
 import background_jobs
 import db
 import diarize
-from services import settings_service
+from services import drama_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError,
                                       UnsupportedOperationError)
@@ -110,6 +110,31 @@ def apply_diarization_result(drama_id: int, result: dict,
     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
         db.upsert_character(drama_id, label)
     db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"))
+
+
+def reassign_speakers_from_saved_turns(drama_id: int) -> dict:
+    """Relabels the drama's lines from the diarization turns already on disk,
+    without running detection again. speaker_manual lines are left alone and
+    only speaker/speaker_manual are written. Raises NotFoundError for an
+    unknown drama, ConflictError if no turns were saved yet or a job is running
+    for the drama. The saved turns are tied to whatever audio detection last
+    ran on, so this is only ever done on request, never after a transcription."""
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    if drama_service.job_running_for_drama(drama_id):
+        raise ConflictError("A background job is still running for this drama -- wait for it "
+                            "to finish or cancel it before re-assigning speakers.")
+    turns = diarize.load_turns(db.drama_dir(drama_id))
+    if turns is None:
+        raise ConflictError("No saved speaker detection for this drama; run Detect speakers first.")
+    lines = db.load_line_objects(drama_id)
+    counts = diarize.merge_speakers(lines, turns)
+    for label in sorted({ln.speaker for ln in lines if ln.speaker}):
+        db.upsert_character(drama_id, label)
+    # Only where the database still holds what was loaded: a speaker the user
+    # set while this ran is kept.
+    db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"), only_if_unchanged=True)
+    return counts
 
 
 def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
