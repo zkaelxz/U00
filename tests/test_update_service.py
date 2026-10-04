@@ -707,7 +707,7 @@ def test_small_body_read_is_closed_and_cut_off_by_the_deadline(monkeypatch):
     ticks = iter([0.0, 1.0, us.READ_DEADLINE_SECONDS + 1])
     monkeypatch.setattr(capped_body.time, "monotonic", lambda: next(ticks))
     resp = FakeResp(body=b"x" * (3 * us.CHUNK))
-    with pytest.raises(DependencyUnavailableError, match="larger than allowed"):
+    with pytest.raises(DependencyUnavailableError, match="didn't answer in time"):
         us._read_capped(resp, 10 * us.CHUNK)
     assert resp.closed
 

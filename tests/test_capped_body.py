@@ -56,6 +56,43 @@ def test_malformed_declared_length_is_ignored():
     assert _read(Resp([b"ok"], headers={"Content-Length": "abc"})) == b"ok"
 
 
+@pytest.mark.parametrize("raw", ["-5", " ", "5, 5", "\u00b2", "\u00b3", "1e3", "0x10", "\u0663"])
+def test_odd_content_length_values_are_ignored_not_raised(raw):
+    resp = Resp([b"ok"], headers={"Content-Length": raw})
+    assert capped_body.declared_length(resp) is None
+    assert _read(resp) == b"ok"
+
+
+def test_content_length_with_spaces_is_read():
+    assert capped_body.declared_length(Resp([], headers={"Content-Length": " 12 "})) == 12
+
+
+def test_huge_content_length_is_refused_without_reading():
+    resp = Resp([b"x"], headers={"Content-Length": "9" * 30})
+    with pytest.raises(Boom):
+        _read(resp)
+    assert resp.reads == 0 and resp.closed
+
+
+def test_deadline_can_raise_its_own_error():
+    class TooSlow(Exception):
+        pass
+    ticks = iter([0.0, 1.0, 11.0])
+    r = Resp([b"a", b"b", b"c"])
+    with pytest.raises(TooSlow):
+        capped_body.read_capped(r, 100, 10.0, Boom, chunk_size=4,
+                                clock=lambda: next(ticks), make_deadline_error=TooSlow)
+    assert r.closed
+
+
+def test_cap_still_uses_the_main_error_when_a_deadline_error_is_given():
+    class TooSlow(Exception):
+        pass
+    r = Resp([b"x" * 200])
+    with pytest.raises(Boom):
+        capped_body.read_capped(r, 100, 10.0, Boom, chunk_size=4, make_deadline_error=TooSlow)
+
+
 def test_deadline_exceeded_with_fake_clock():
     ticks = iter([0.0, 1.0, 11.0])
     r = Resp([b"a", b"b", b"c"])

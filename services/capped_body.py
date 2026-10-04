@@ -17,15 +17,19 @@ DEFAULT_CHUNK = 64 * 1024
 
 def declared_length(resp):
     """The Content-Length header as an int, or None when absent or malformed."""
-    raw = (getattr(resp, "headers", None) or {}).get("Content-Length") or ""
-    return int(raw) if raw.isdigit() else None
+    raw = ((getattr(resp, "headers", None) or {}).get("Content-Length") or "").strip()
+    # isascii: str.isdigit() also accepts characters like "\u00b2" that int() rejects.
+    return int(raw) if raw.isascii() and raw.isdigit() else None
 
 
 def read_capped(resp, cap_bytes: int, deadline_seconds: float,
                 make_error: Callable[[], Exception],
-                chunk_size: int = DEFAULT_CHUNK, clock=None) -> bytes:
+                chunk_size: int = DEFAULT_CHUNK, clock=None,
+                make_deadline_error: Callable[[], Exception] = None) -> bytes:
     """The whole body, or `make_error()` raised when it is over `cap_bytes`
-    (declared or actual) or takes longer than `deadline_seconds` in all."""
+    (declared or actual); `make_deadline_error()` (default: `make_error`) when
+    it takes longer than `deadline_seconds` in all, so a slow link can be told
+    apart from an oversized body."""
     try:
         declared = declared_length(resp)
         if declared is not None and declared > cap_bytes:
@@ -35,8 +39,10 @@ def read_capped(resp, cap_bytes: int, deadline_seconds: float,
         body = bytearray()
         for chunk in resp.iter_content(chunk_size):
             body.extend(chunk)
-            if len(body) > cap_bytes or clock() - started > deadline_seconds:
+            if len(body) > cap_bytes:
                 raise make_error()
+            if clock() - started > deadline_seconds:
+                raise (make_deadline_error or make_error)()
         return bytes(body)
     finally:
         resp.close()

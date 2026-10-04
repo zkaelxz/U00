@@ -237,8 +237,13 @@ def _declared_length(resp):
     return capped_body.declared_length(resp)
 
 
+def _too_slow():
+    return DependencyUnavailableError("GitHub didn't answer in time.")
+
+
 def _read_capped(resp, cap) -> bytes:
-    return capped_body.read_capped(resp, cap, READ_DEADLINE_SECONDS, _too_big, chunk_size=CHUNK)
+    return capped_body.read_capped(resp, cap, READ_DEADLINE_SECONDS, _too_big, chunk_size=CHUNK,
+                                   make_deadline_error=_too_slow)
 
 
 def _plain_error(exc) -> str:
