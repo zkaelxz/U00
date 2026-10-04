@@ -332,3 +332,17 @@ def test_api_config_carries_manual_speaker_count(isolated_db):
     c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     r = c.get(f"/api/diarization/dramas/{did}/config")
     assert r.status_code == 200 and r.json()["manual_speaker_count"] == 1
+
+
+def test_on_done_reports_cpu_fallback_loudly(isolated_db, monkeypatch):
+    messages = []
+    monkeypatch.setattr(background_jobs, "update_progress",
+                        lambda job_id, frac, msg="": messages.append(msg))
+    monkeypatch.setattr(diarization_service, "apply_diarization_result", lambda *a, **k: None)
+    on_done = diarization_service.make_apply_on_done(1)
+    assert on_done("j", {"segments": [], "fell_back_to_cpu": True,
+                         "fallback_reason": "C:\\secret\\path"}) == {
+        "device": "cpu", "gpu_fallback": diarize.OOM_FALLBACK_DONE_MESSAGE}
+    assert messages[-1].startswith("Ran on CPU after running out of GPU memory")
+    assert on_done("j", {"segments": [], "fell_back_to_cpu": False}) is None
+    assert messages[-1] == "Matching speakers to lines..."
