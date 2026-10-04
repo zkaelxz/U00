@@ -2,6 +2,7 @@
 batches and Groq transcription. No network: requests is faked."""
 import pytest
 import requests
+import urllib3
 
 import bulk_translate
 import core
@@ -110,6 +111,23 @@ class TestEngines:
             local._ollama_chat("http://localhost:11434", {"model": "m"})
         assert r.chunks_read == 0 and r.closed
         assert posts.calls[0]["stream"] is True
+
+    @pytest.mark.parametrize("make_exc, reason", [
+        (lambda: requests.ConnectionError(urllib3.exceptions.ReadTimeoutError(
+            None, "http://192.168.7.9:11434/api/chat", "Read timed out.")), "ollama_timeout"),
+        (lambda: requests.exceptions.ChunkedEncodingError(
+            "Connection broken: 192.168.7.9 reset"), "ollama_unreachable"),
+    ])
+    def test_ollama_body_read_failures_are_mapped(self, posts, make_exc, reason):
+        class Failing(StreamResp):
+            def iter_content(self, size):
+                raise make_exc()
+                yield b""
+        r = posts(Failing())
+        with pytest.raises(local.OllamaUnavailableError) as exc:
+            local._ollama_chat("http://192.168.7.9:11434", {"model": "m"})
+        assert exc.value.reason == reason and "192.168" not in str(exc.value)
+        assert r.closed
 
     def test_ollama_model_missing_still_reported(self, posts):
         r = posts(StreamResp(status=404))
