@@ -72,6 +72,7 @@ ERROR (2), PREEXISTING (3, the same tests fail on the known-good version).
 
 Manual steps that stay with you:
 
+- After a PASS, run the smoke pack on your PC before upgrading for real (next section).
 - On FAIL, `--write-pin` appends `pkg<failing-version` to `constraints.txt`
   (only when the failing version is newer than the known-good one). Review and
   commit it yourself.
@@ -79,6 +80,31 @@ Manual steps that stay with you:
   separately (docs/windows-installer-design.md).
 - If you already upgraded your real environment, pin it back with the printed
   command, e.g. `pip install "pkg==<last good>"`. The script never touches it.
+
+### Before and after an upgrade on your PC (smoke pack)
+
+The canary above runs mocked tests. It cannot tell whether transcription still
+works on your GPU with your real models, and neither can CI. The smoke pack
+does that on your PC with a 2-5 minute clip of your own content (the clip and
+the results stay local; `smoke_pack/` is gitignored):
+
+    python scripts/smoke_pack.py init --audio clip.wav --language zh [--profile NAME] [--separate-vocals] [--diarization] [--forced-align]
+    python scripts/smoke_pack.py run [--name NAME] [--update-baseline]
+    python scripts/smoke_pack.py versions
+
+1. Before upgrading: `init`, read `smoke_pack/<name>/expected.json`, fix anything
+   wrong and set `"approved": true`.
+2. Upgrade, then `run`. It prints PASS/WARN/FAIL per check and the key packages
+   whose version changed, so a failure points at the upgrade. Exit code 0 PASS,
+   1 FAIL, 2 ERROR (clip or baseline missing), 3 WARN only.
+3. Happy with the new behaviour? `run --update-baseline`.
+
+Checks (tolerances live in `profile.json`): text within 8% character error rate
+of the baseline; line count within 15%; no line over 8 s or 40 characters beyond
+the baseline's own plus 2; times in order, none empty, no overlap over 0.2 s;
+speaker count equal when speaker detection is on; the same device per stage (a
+GPU stage that fell back to CPU is a hard FAIL); each stage no more than 40%
+slower (WARN, timings are noisy).
 
 ## GitHub Actions minutes
 

@@ -304,6 +304,9 @@ def report(result, package, write_pin_flag, constraints_path, out=print):
             out("  " + redact(f))
     if tail:
         out("--- output tail ---\n" + tail)
+    if v == PASS:
+        out("Next: after a PASS, run the smoke pack on your PC before upgrading for real "
+            "(python scripts/smoke_pack.py run).")
     if v != FAIL:
         return
     good, bad = result["known_good"], result["version"]

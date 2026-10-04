@@ -36,3 +36,6 @@ Thumbs.db
 
 # Playwright output
 /test-results/
+
+# Local smoke pack (clip, baseline, run reports)
+/smoke_pack/
