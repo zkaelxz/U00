@@ -6,7 +6,36 @@ This does **not** replace the source adapters in `sources/` (bulk import, chapte
 
 ## Why it's worth having
 
+<<<<<<< HEAD
 It reaches pages the adapters can't (blob-protected chapters like manhuaku's, tile-scrambled readers, sessions that need a sign-in, and sites with no adapter) **without this app touching a protection mechanism**. Your own browser has already decrypted, descrambled and authenticated the page because you're reading it legitimately, and the extension reads what is already on your screen. It also reads text-heavy pages such as a web novel chapter.
+=======
+It reaches content the adapters structurally can't, and it does so
+**without this app ever touching a protection mechanism** — the same line
+`manhuaku.py` and the former Mangaz adapter (removed since) drew:
+
+- **mangaz.com** serves tile-scrambled pages (a 1190x1684 page arrives as
+  a ~4760x421 strip). Only its own reader reassembles them. The Mangaz
+  adapter (since removed from the app) drove that reader in a headless browser, which worked but was slow
+  (~3 minutes for a 43-page book), flaky in sandboxes, and has to be
+  paced carefully to avoid being throttled.
+- **manhuaku.net** hands its protected chapters out as `blob:` URLs that
+  only exist inside the rendering tab.
+- **Bilibili Manga** needs a signed-in session for anything real.
+
+In every one of those, **your own browser has already done the work** —
+decrypted, descrambled, authenticated — because you're reading the page
+legitimately. The extension reads what's already on your screen. No
+headless driving, no pacing games, no session to forge, nothing to
+circumvent. It's strictly less invasive than what the adapters do.
+
+It also covers sites with no adapter at all, which is most of them.
+
+The same reasoning applies just as well to text-heavy pages -- a web
+novel chapter, or any site you're already logged into and reading
+normally. Your browser has already rendered the text; Step 96 adds a mode
+that reads it the same way the image mode reads pixels, rather than only
+covering comics.
+>>>>>>> origin/baihe-subtitler
 
 ## Setting it up
 
@@ -123,9 +152,14 @@ extension/                     the browser side
   content.js                   injected on a click: collects images/text, draws overlays/panel
   popup.html / popup.js        pick a drama, send, toggle
   options.html / options.js    paste the token
+<<<<<<< HEAD
 page_server.py                 the endpoint, on a thread started by the API
 services/extension_service.py  the opt-in switch, the token, the engine setting
 api/routers/extension_routes.py  /api/extension/*, PC-only; UI in Settings → Browser extension
+=======
+page_server.py                 the endpoint, on a thread beside the API server
+services/extension_service.py  the opt-in switch, the token, the status (routes: api/routers/extension_routes.py)
+>>>>>>> origin/baihe-subtitler
 ```
 
 The endpoint's four routes:
@@ -147,7 +181,11 @@ implementation in JavaScript that would drift from it.
 
 `/text` follows the same "one pipeline" rule from the other side: it
 funnels into `translate_engines.standalone_translate`, the exact function
+<<<<<<< HEAD
 `services/translate_service.py` calls for the Translate page, rather
+=======
+`services/translate_service.py`'s standalone translate already calls, rather
+>>>>>>> origin/baihe-subtitler
 than a second translation path for text captured by the extension. It
 does no detection or OCR -- the extension already sends real text, not
 pixels -- so it's a much thinner route than `/page`/`/pages`: validate
@@ -196,7 +234,13 @@ statically, because none of it can be checked by running the app.
 
 ## What was actually verified
 
+<<<<<<< HEAD
 Mocked tests: `tests/test_page_server.py`, including every refusal above.
+=======
+The endpoint and the settings bridge have ordinary mocked tests
+(`tests/test_page_server.py`),
+including every refusal above.
+>>>>>>> origin/baihe-subtitler
 
 The extension was also run for real, repeatably:
 
@@ -216,7 +260,71 @@ It loads the extension unpacked into a real Chromium, points it at a real runnin
 
 A real Chromium and mangaz.com's own reader, one page load. The captured page was 1190x1684 (a descrambled page; a scrambled strip would be ~4760x421), read from the reader's `blob:` and saved as a 4.3MB PNG. On that page the ML detector found 63 regions and `manga_ocr` returned correct Japanese dialogue, while the free OpenCV detector found none and Tesseract produced garbage. Translation itself was not run (no API key there).
 
+<<<<<<< HEAD
 **Also not verified:** manhuaku.net and Bilibili Manga, and the real toolbar-click flow. Clicking the icon grants `activeTab`, which Playwright can't do, so that grant was simulated with a throwaway copy of the extension; the shipped manifest stays loopback-only.
+=======
+(Historical: the Mangaz adapter was removed from the app afterwards; the result below is kept as the evidence for the extension.)
+
+The extension was then pointed at a real chapter on **mangaz.com** — the
+sharpest possible test, because its pages are tile-scrambled and only its
+own reader reassembles them. A real Chromium, the real viewer, one page
+load:
+
+- The page the extension captured was **1190x1684** — a real,
+  **descrambled** page, read straight out of the `blob:` the site's own
+  reader produced. A scrambled strip would have been ~4760x421. It landed
+  in the library as a 4.3MB PNG.
+- It took **one page view**, at reading speed. For comparison, the
+  adapter's headless path takes ~3 minutes for a 43-page book, is flaky,
+  has to be paced against a 120s crawl delay, and its best real run still
+  only recovered 38 of 43 pages. Nothing here is unscrambled, driven or
+  paced — the browser had already done it.
+
+Then the rest of the chain was run over that captured page (no further
+traffic to the site):
+
+- **The free OpenCV detector found nothing.** The page is a colour
+  4-koma full of Japanese speech bubbles, and
+  `scanlate.detect_bubbles_cv` returned zero regions, rejecting its
+  handful of candidates as "too small". Worth knowing, because it's the
+  default when the ML weights aren't cached: on artwork like this, the
+  free heuristic is not usable.
+- **The ML detector found 63 regions** (25 `bubble`, 25 `text_bubble`,
+  13 `text_free`) at 0.92–0.97 confidence, in ~10s on CPU.
+- **OCR with Tesseract produced garbage** — `だ見さ け当? 全 の子 が`.
+  Manga is vertical text, and Tesseract is poor at it.
+- **OCR with `manga_ocr`, which is what `auto_ocr_backend("ja")` picks
+  anyway, produced correct dialogue**: `おお！それはすごい裏技ケロッ`,
+  `勝手に変なトコに入らないでくださいーっ`, `王子様ステキー♥`,
+  `ひっ引き返すケロー！！！`. Checked against the page itself.
+
+So the whole chain works on a real page from a real scrambled site:
+browser → descrambled `blob:` → capture → ML detection → real Japanese
+text. Only translation is unproven, for want of an API key in that
+environment.
+
+**Two things to know before trusting the output**, both in `scanlate`'s
+existing pipeline rather than anything this step added:
+
+1. **Use the ML detection backend for real artwork.** The free heuristic
+   found nothing at all here.
+2. **The ML detector double-counts.** It returns a `bubble` and a
+   `text_bubble` for the same balloon and nothing dedupes them: 46 of
+   those 63 regions overlap another by more than 70%. The same text is
+   OCR'd twice (visibly, in the results above), which means roughly
+   double the translation cost and two overlay boxes stacked on each
+   bubble. This affects the Scanlate tab equally and is worth its own
+   fix.
+
+**Also not verified:** manhuaku.net and Bilibili Manga, and the real
+toolbar-click flow. Clicking the extension's icon grants `activeTab`,
+which is what lets the content script be injected; Playwright can't click
+browser chrome, so that one grant was simulated by loading a throwaway
+copy of the extension with a host permission for that single site. The
+shipped manifest is untouched and stays loopback-only. That copy isn't
+committed, deliberately — a script that rewrites the manifest is too easy
+to mistake for the real configuration.
+>>>>>>> origin/baihe-subtitler
 
 The browser-side test suite is static only. There is no automated test
 that drives a real browser, on purpose: this project's tests are mocked
