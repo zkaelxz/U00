@@ -5,6 +5,7 @@ import {
   clampPage,
   clampZoom,
   comicHref,
+  hashIsComic,
   defaultPrefs,
   isComicType,
   keyAction,
@@ -72,6 +73,10 @@ describe('paging', () => {
   it('builds the route and clamps pages', () => {
     expect(comicHref(3, 2)).toBe('#/comic/3?page=2')
     expect(comicHref(3, null)).toBe('#/comic/3')
+    expect(hashIsComic('#/comic/3?page=2', 3)).toBe(true)
+    expect(hashIsComic('#/comic/3', 3)).toBe(true)
+    expect(hashIsComic('#/comic/4', 3)).toBe(false)
+    expect(hashIsComic('#/library', 3)).toBe(false)
     expect(clampPage(0, 10)).toBe(1)
     expect(clampPage(11, 10)).toBe(10)
     expect(clampPage(4.4, 10)).toBe(4)

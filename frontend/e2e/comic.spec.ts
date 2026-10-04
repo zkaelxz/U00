@@ -53,6 +53,34 @@ test('manhua: resumes at the saved page in vertical scroll and saves progress', 
   expect(s.unmocked).toEqual([])
 })
 
+// A scroll callback that lands after the user left (the router re-renders a
+// moment after hashchange) must not rewrite the hash back to the comic.
+test('leaving the comic mid-scroll stays on the library', async ({ page }) => {
+  const s = await mockComic(page, { mediaType: 'manhua', lastPage: 1 })
+  await page.addInitScript(() => {
+    const w = window as unknown as { __io: IntersectionObserverCallback[] }
+    const Orig = window.IntersectionObserver
+    w.__io = []
+    window.IntersectionObserver = class extends Orig {
+      constructor(cb: IntersectionObserverCallback, o?: IntersectionObserverInit) {
+        super(cb, o)
+        w.__io.push(cb)
+      }
+    } as typeof IntersectionObserver
+  })
+  await page.goto('/#/comic/7?page=1')
+  await expect(label(page)).toHaveText('Page 1 of 8')
+  await page.evaluate(() => {
+    const w = window as unknown as { __io: IntersectionObserverCallback[] }
+    window.location.hash = '#/library'
+    const target = document.querySelector('[data-page="4"]')!
+    w.__io[w.__io.length - 1]([{ isIntersecting: true, target } as unknown as IntersectionObserverEntry], null as never)
+  })
+  await expect(page).toHaveURL('/#/library')
+  await page.waitForTimeout(300)
+  await expect(page).toHaveURL('/#/library')
+})
+
 test('manga: one page at a time, right to left, keys, taps and the scrubber', async ({ page }) => {
   const s = await mockComic(page, { id: 9, mediaType: 'manga', pageCount: 5, lastPage: 1 })
   await page.goto('/#/comic/9?page=1')

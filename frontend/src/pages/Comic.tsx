@@ -25,6 +25,7 @@ import { ScanlatePanel } from './comic/ScanlatePanel'
 import {
   clampPage,
   comicHref,
+  hashIsComic,
   defaultPrefs,
   keyAction,
   loadComicPrefs,
@@ -54,6 +55,7 @@ function browserStorage() {
 // In-viewer moves replace the history entry, so Back leaves the comic
 // instead of stepping back through every page.
 function replacePage(id: number, page: number) {
+  if (!hashIsComic(window.location.hash, id)) return
   window.location.replace(comicHref(id, page))
 }
 

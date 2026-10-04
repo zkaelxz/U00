@@ -3,6 +3,7 @@
 
 import type { StorageLike } from '../../components/sectionStorage'
 import { readPref, writePref } from '../../hooks/usePersistedState'
+import { parseRoute } from '../../router'
 import type { ComicRegion, ComicRegionsResponse } from '../../types/comic'
 
 const COMIC_MEDIA_TYPES = ['manga', 'manhua', 'manhwa'] as const
@@ -77,6 +78,17 @@ export function saveComicPrefs(storage: StorageLike | null, dramaId: number, pre
 
 export function comicHref(dramaId: number, page: number | null): string {
   return `#/comic/${dramaId}${page ? `?page=${page}` : ''}`
+}
+
+/**
+ * True while the address bar still shows this comic's viewer. A late scroll
+ * or effect callback may only rewrite the hash then: after hashchange the
+ * router re-renders asynchronously, and a replace in that gap would pull the
+ * user back from the page they just left.
+ */
+export function hashIsComic(hash: string, dramaId: number): boolean {
+  const r = parseRoute(hash)
+  return r.name === 'comic' && r.id === dramaId
 }
 
 export function clampPage(n: number, count: number): number {
