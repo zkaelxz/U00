@@ -483,3 +483,80 @@ class TestCudaOomFallback:
         info = {}
         diarize.diarize("/a.wav", "hf_x", use_gpu=True, run_info=info)
         assert info == {"device": "cuda", "fell_back_to_cpu": False} and state["loads"] == 1
+
+
+class TestOomFallbackFollowUps:
+    def test_gpu_pipeline_is_dead_before_the_cpu_load(self, monkeypatch):
+        import gc
+        import weakref
+        state = _patch_oom_run(monkeypatch, _FakeTorchOOM("x"))
+
+        class GpuPipe:
+            pass
+
+        refs, alive_at_second_load = [], []
+
+        def load(token):
+            state["loads"] += 1
+            if state["loads"] == 1:
+                gpu = GpuPipe()
+                refs.append(weakref.ref(gpu))
+                return gpu, "m"
+            gc.collect()
+            alive_at_second_load.append(refs[0]() is not None)
+            return "cpu-pipe", "m"
+        calls = []
+
+        def run(pipeline, audio, hints, on_progress=None):
+            calls.append(1)  # keeps no reference to the pipeline
+            if len(calls) == 1:
+                raise _FakeTorchOOM("x")
+            return _FakeDiarizationResult([(0.0, 1.0, "S")])
+        monkeypatch.setattr(diarize, "load_pipeline", load)
+        monkeypatch.setattr(diarize, "_run_pipeline", run)
+        diarize.diarize("/a.wav", "hf_x", use_gpu=True)
+        assert alive_at_second_load == [False]
+
+    def test_worker_reports_fallback_through_the_queue(self, monkeypatch):
+        _patch_oom_run(monkeypatch, RuntimeError("CUDA out of memory."))
+        q = queue.Queue()
+        diarize.diarize_subprocess_worker("/a.wav", "hf_x", None, {"use_gpu": True}, q)
+        outcome = _final(q)
+        assert outcome[0] == "ok"
+        assert outcome[1]["fell_back_to_cpu"] is True and outcome[1]["device"] == "cpu"
+        assert "out of memory" in outcome[1]["fallback_reason"]
+
+    def test_cli_warns_heartbeats_and_saves_cpu_device(self, isolated_db, monkeypatch, capsys):
+        import argparse
+        import cli
+        from core import Line
+        did = isolated_db.create_drama(title_en="T", audio_filename="audio.wav")
+        ddir = isolated_db.drama_dir(did)
+        os.makedirs(ddir, exist_ok=True)
+        open(os.path.join(ddir, "audio.wav"), "wb").close()
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="a")])
+        beats, saved = [], {}
+
+        def fake_diarize(path, token, run_info=None, on_progress=None, **kw):
+            on_progress(0.08, diarize.OOM_FALLBACK_MESSAGE)
+            run_info.update(device="cpu", fell_back_to_cpu=True, fallback_reason="x")
+            return [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}], "m", {}
+        real_save = diarize.save_turns
+        monkeypatch.setattr(diarize, "diarize", fake_diarize)
+        monkeypatch.setattr(diarize, "save_turns",
+                            lambda *a, **k: saved.update(k) or real_save(*a, **k))
+        monkeypatch.setattr(cli, "release_gpu_models", lambda: None)
+        monkeypatch.setattr(isolated_db, "heartbeat_gpu_lock", lambda h: beats.append(h))
+        clock = iter([0.0, 100.0, 200.0, 300.0])
+        import time as real_time
+        import types
+        monkeypatch.setattr(cli, "time", types.SimpleNamespace(
+            monotonic=lambda: next(clock, 400.0), sleep=real_time.sleep))
+        cli.cmd_diarize(argparse.Namespace(
+            id=did, hf_token="hf_x", num_speakers=None, min_speakers=None,
+            max_speakers=None, overwrite_manual=False))
+        out = capsys.readouterr().out
+        assert diarize.OOM_FALLBACK_MESSAGE in out
+        assert f"WARNING: {diarize.OOM_FALLBACK_DONE_MESSAGE}" in out
+        assert saved["device"] == "cpu"
+        assert len(beats) >= 2

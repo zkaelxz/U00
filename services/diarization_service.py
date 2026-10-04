@@ -212,7 +212,7 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
                                  min_speakers=min_speakers, max_speakers=max_speakers)
         if fell_back:
             # Replaces the stored result so the finished job still says it.
-            return {"device": "cpu", "gpu_fallback": diarize.OOM_FALLBACK_MESSAGE}
+            return {"device": "cpu", "gpu_fallback": diarize.OOM_FALLBACK_DONE_MESSAGE}
     return _on_done
 
 

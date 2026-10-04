@@ -362,15 +362,26 @@ def cmd_diarize(args):
         db.heartbeat_gpu_lock(_gpu_holder)
         try:
             run_info = {}
+            last_beat = [time.monotonic()]
+
+            def on_progress(frac, message):
+                # A long CPU retry must not outlast the GPU lock's stale window.
+                if message == diarize.OOM_FALLBACK_MESSAGE:
+                    print(f"#{d['id']} {message}.")
+                if time.monotonic() - last_beat[0] > 30:
+                    last_beat[0] = time.monotonic()
+                    db.heartbeat_gpu_lock(_gpu_holder)
+
             turns, model, embeddings = diarize.diarize(
                 audio_path, hf_token, num_speakers=num_speakers,
                 return_model=True, return_embeddings=True,
                 use_gpu=settings_service.get_use_gpu(),
-                min_speakers=min_speakers, max_speakers=max_speakers, run_info=run_info)
+                min_speakers=min_speakers, max_speakers=max_speakers, run_info=run_info,
+                on_progress=on_progress)
         finally:
             release_gpu_models()
         if run_info.get("fell_back_to_cpu"):
-            print(f"#{d['id']} WARNING: {diarize.OOM_FALLBACK_MESSAGE}.")
+            print(f"#{d['id']} WARNING: {diarize.OOM_FALLBACK_DONE_MESSAGE}")
         diarize.save_turns(ddir, turns, num_speakers=num_speakers, model=model,
                           embeddings=embeddings, min_speakers=min_speakers,
                           max_speakers=max_speakers, device=run_info.get("device"))

@@ -342,7 +342,7 @@ def test_on_done_reports_cpu_fallback_loudly(isolated_db, monkeypatch):
     on_done = diarization_service.make_apply_on_done(1)
     assert on_done("j", {"segments": [], "fell_back_to_cpu": True,
                          "fallback_reason": "C:\\secret\\path"}) == {
-        "device": "cpu", "gpu_fallback": diarize.OOM_FALLBACK_MESSAGE}
+        "device": "cpu", "gpu_fallback": diarize.OOM_FALLBACK_DONE_MESSAGE}
     assert messages[-1].startswith("Ran on CPU after running out of GPU memory")
     assert on_done("j", {"segments": [], "fell_back_to_cpu": False}) is None
     assert messages[-1] == "Matching speakers to lines..."

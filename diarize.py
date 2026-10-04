@@ -160,6 +160,9 @@ def _run_pipeline(pipeline, audio, hints: dict, on_progress=None):
 
 OOM_FALLBACK_MESSAGE = ("Speaker detection ran out of GPU memory and is running on CPU, "
                         "this will be slower")
+# Past tense, fixed text: for a finished run's result and the CLI summary.
+OOM_FALLBACK_DONE_MESSAGE = ("Speaker detection ran out of GPU memory and ran on CPU, "
+                             "which is slower.")
 
 
 def is_cuda_oom(exc: BaseException) -> bool:
