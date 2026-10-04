@@ -907,7 +907,20 @@ baihe-subtitler/
 **Translation & quality**
 | File | Does |
 |---|---|
-| `translate_engines.py` | Claude / DeepSeek / Gemini / OpenAI / Ollama / NLLB (+ an offline test engine) |
+| `translate_engines.py` | Claude / DeepSeek / Gemini / OpenAI / Ollama / NLLB (+ an offline test engine); a facade that re-exports everything from `engine_backends/` below |
+| `engine_backends/__init__.py` | package docstring: a map of the modules below |
+| `engine_backends/pricing.py` | model lists, per-million-token prices, cost estimates |
+| `engine_backends/shared.py` | usage totals, retry/backoff, secret redaction, id-keyed request and parsing, content-moderation detection |
+| `engine_backends/prompts.py` | prompt builders shared by the LLM engines |
+| `engine_backends/claude.py` | the Claude engine |
+| `engine_backends/openai_compat.py` | the DeepSeek and OpenAI engines |
+| `engine_backends/gemini.py` | the Gemini engine, its rate-limit status text and free-tier limits |
+| `engine_backends/local.py` | the local NLLB and Ollama engines, Ollama reachability check |
+| `engine_backends/llm_tasks.py` | `call_llm_json` and the single-prompt features: speaker tagging, pacing, consistency, summaries, flagging |
+| `engine_backends/engine_registry.py` | `ENGINES`, capability tags, notes, model overrides, `get_engine` |
+| `engine_backends/fallback.py` | the translate fallback chain |
+| `engine_backends/standalone.py` | standalone text translation |
+| `engine_backends/translate_pipeline.py` | Reflect mode and the per-run translate loop |
 | `translation_guide.py` | style presets, term policies, translation notes |
 | `translation_memory.py` | suggests a translation you already approved for an exact/near-identical line (never auto-applied) |
 | `auto_qc.py` | flags a translation that drops or invents a number, date, name, amount or unit |
