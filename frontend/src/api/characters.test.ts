@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { answerVoiceSuggestion, getVoiceSuggestions, rememberSeriesCharacter } from './characters'
+import { answerVoiceSuggestion, getVoiceSuggestions, rememberSeriesCharacter, renameSpeaker, undoRenameSpeaker } from './characters'
 
 type Call = { url: string; init?: RequestInit }
 
@@ -39,5 +39,22 @@ describe('characters extras API', () => {
     expect(calls[0].url).toBe('/api/characters/dramas/5/remember-series-character')
     expect(calls[0].init?.method).toBe('POST')
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ speaker_label: 'A' })
+  })
+})
+
+describe('rename speaker API', () => {
+  it('posts only the label and the new name', async () => {
+    const calls: Call[] = []
+    await renameSpeaker(3, 'Speaker 1', 'Mei', fakeFetch(calls))
+    expect(calls[0].url).toBe('/api/characters/dramas/3/rename-speaker')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ speaker_label: 'Speaker 1', new_name: 'Mei' })
+  })
+
+  it('posts the undo it was given', async () => {
+    const calls: Call[] = []
+    const undo = { speaker_label: 'Mei', previous_label: 'Speaker 1', previous_character_name: null, previous: [] }
+    await undoRenameSpeaker(3, undo, fakeFetch(calls))
+    expect(calls[0].url).toBe('/api/characters/dramas/3/rename-speaker/undo')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ undo })
   })
 })

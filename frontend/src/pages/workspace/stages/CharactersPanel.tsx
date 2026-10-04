@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 
-import { rememberSeriesCharacter } from '../../../api/characters'
+import { rememberSeriesCharacter, renameSpeaker, undoRenameSpeaker } from '../../../api/characters'
 import { applyVoiceBankEntry, getCharacters, getCloneEngines, getVoiceBank, saveCharacter } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
-import type { RememberResult } from '../../../types/characters'
+import type { RememberResult, RenameResult, RenameUndo } from '../../../types/characters'
 import type { CharacterEntry, CloneEngines, VoiceBankEntry } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
 import { SeriesCast } from './SeriesCast'
@@ -23,17 +23,20 @@ import {
   unsetPronounsLabel,
   type CharacterForm,
 } from './characterForm'
+import { readRenameUndo, renameProblem, saveRenameUndo, takenNames } from './renameSpeaker'
 import './characters.css'
 
 const COLUMNS = 7
 
-function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
+function Row({ entry, engines, bank, hasSeries, taken, onSaved, onRemembered, onRenamed }: {
   entry: CharacterEntry
   engines: CloneEngines | null
   bank: VoiceBankEntry[]
   hasSeries: boolean
+  taken: string[]
   onSaved: (e: CharacterEntry) => void
   onRemembered: (r: RememberResult) => void
+  onRenamed: (r: RenameResult) => void
 }) {
   const { dramaId } = useStage()
   const [form, setForm] = useState<CharacterForm>(() => toCharacterForm(entry))
@@ -48,6 +51,7 @@ function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState<string | null>(null)
   const set = <K extends keyof CharacterForm>(k: K, v: CharacterForm[K]) => setForm((f) => ({ ...f, [k]: v }))
   const label = entry.speaker_label
 
@@ -85,6 +89,16 @@ function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
     rememberSeriesCharacter(dramaId, label).then((r) => {
       done(r.character)
       onRemembered(r)
+    }, fail)
+  }
+
+  const renameProblemText = renaming === null ? null : renameProblem(label, renaming, taken)
+  const rename = () => {
+    if (renaming === null || renameProblemText) return
+    setBusy(true)
+    renameSpeaker(dramaId, label, renaming.trim()).then((r) => {
+      setBusy(false)
+      onRenamed(r)
     }, fail)
   }
 
@@ -149,6 +163,26 @@ function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
               )}
             </div>
           )}
+          <div className="character-extras">
+            {renaming === null ? (
+              <button type="button" disabled={busy || Boolean(entry.series_character_id)}
+                title={entry.series_character_id
+                  ? 'This speaker is linked to a series character; unlink it first or rename the series character.'
+                  : 'Gives this speaker a name on every one of its lines and in translation.'}
+                onClick={() => setRenaming(entry.character_name || '')}>
+                Rename speaker
+              </button>
+            ) : (
+              <form className="character-rename" onSubmit={(e) => { e.preventDefault(); rename() }}>
+                <input aria-label={`New name for ${label}`} value={renaming} autoFocus
+                  onChange={(e) => setRenaming(e.target.value)} />
+                <button type="submit" disabled={busy || renameProblemText !== null} title={renameProblemText ?? undefined}>
+                  {entry.line_count ? `Rename on all ${entry.line_count} lines` : 'Rename'}
+                </button>
+                <button type="button" disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
+              </form>
+            )}
+          </div>
           <details className="voice-details">
             <summary>Voice settings for {label}{form.clone_engine ? ` (${form.clone_engine})` : ''}</summary>
             <div className="voice-grid">
@@ -217,6 +251,8 @@ export function CharactersPanel() {
   // series cast (someone was remembered).
   const [suggestRefresh, setSuggestRefresh] = useState(0)
   const [castRefresh, setCastRefresh] = useState(0)
+  const [undo, setUndo] = useState<RenameUndo | null>(() => readRenameUndo(dramaId))
+  const [undoBusy, setUndoBusy] = useState(false)
 
   // Replace by speaker label, never by position.
   const replace = (saved: CharacterEntry) =>
@@ -226,6 +262,35 @@ export function CharactersPanel() {
       ? `Added ${r.series_character.character_name} to the series cast.`
       : `Linked ${r.character.speaker_label} to ${r.series_character.character_name} in the series cast.`)
     setCastRefresh((n) => n + 1)
+  }
+
+  const renamed = (r: RenameResult) => {
+    setEntries(r.characters)
+    setUndo(r.undo)
+    saveRenameUndo(dramaId, r.undo)
+    setNotice(r.undo ? `Renamed ${r.undo.previous_label} to ${r.undo.speaker_label} on ${r.renamed} lines.` : null)
+    setSuggestRefresh((n) => n + 1)
+  }
+  const runUndo = () => {
+    if (!undo) return
+    setUndoBusy(true)
+    undoRenameSpeaker(dramaId, undo).then(
+      (r) => {
+        setUndoBusy(false)
+        setEntries(r.characters)
+        setUndo(null)
+        saveRenameUndo(dramaId, null)
+        setNotice(`Put ${undo.previous_label} back on ${r.renamed} lines.`)
+        setSuggestRefresh((n) => n + 1)
+      },
+      (e: unknown) => {
+        setUndoBusy(false)
+        setError(e)
+        // A refused undo (renamed again, label reused) won't work later either.
+        setUndo(null)
+        saveRenameUndo(dramaId, null)
+      },
+    )
   }
 
   useEffect(() => {
@@ -268,17 +333,24 @@ export function CharactersPanel() {
                 engines={engines}
                 bank={bank}
                 hasSeries={Boolean(drama.series_id)}
+                taken={takenNames(entries, e.speaker_label)}
                 onSaved={(saved) => {
                   replace(saved)
                   setSuggestRefresh((n) => n + 1)
                 }}
                 onRemembered={remembered}
+                onRenamed={renamed}
               />
             ))}
           </tbody>
         </table></div>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {(notice || undo) && (
+        <p role="status" className="character-notice">
+          {notice}
+          {undo && <button type="button" disabled={undoBusy} onClick={runUndo}>Undo rename</button>}
+        </p>
+      )}
       {drama.series_id ? <SeriesCast key={drama.series_id} seriesId={drama.series_id} refresh={castRefresh} /> : null}
       </div>
     </Section>

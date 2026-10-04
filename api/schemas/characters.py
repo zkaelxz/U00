@@ -38,6 +38,11 @@ __all__ = [
     "CharactersVoiceSuggestionResult",
     "CharactersRememberRequest",
     "CharactersRememberResult",
+    "CharactersRenameRequest",
+    "CharactersRenameUndoLine",
+    "CharactersRenameUndo",
+    "CharactersRenameUndoRequest",
+    "CharactersRenameResult",
     "LinesGlossaryRunResult",
     "GlossaryProposalEdit",
     "GlossaryProposalsApplyRequest",
@@ -322,6 +327,39 @@ class CharactersVoiceSuggestionResult(BaseModel):
 class CharactersRememberRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     speaker_label: str = Field(min_length=1, max_length=200)
+
+
+class CharactersRenameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+    new_name: str = Field(min_length=1, max_length=200)
+
+
+class CharactersRenameUndoLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: StrictInt
+    speaker: str = Field(max_length=200)
+    speaker_manual: StrictBool
+
+
+class CharactersRenameUndo(BaseModel):
+    """What undoes one rename: the lines' previous labels, by line id."""
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(max_length=200)
+    previous_label: str = Field(min_length=1, max_length=200)
+    previous_character_name: Optional[str] = Field(default=None, max_length=200)
+    previous: List[CharactersRenameUndoLine] = Field(max_length=100000)
+
+
+class CharactersRenameUndoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    undo: CharactersRenameUndo
+
+
+class CharactersRenameResult(BaseModel):
+    characters: List[CharactersEntry]
+    renamed: int
+    undo: Optional[CharactersRenameUndo] = None
 
 
 class CharactersRememberResult(BaseModel):

@@ -21,3 +21,18 @@ export interface RememberResult {
   series_character: SeriesCharacter
   created: boolean
 }
+
+// Rename a speaker once: every line and the Characters row; undo is what
+// the server needs to put the old labels back.
+export interface RenameUndo {
+  speaker_label: string
+  previous_label: string
+  previous_character_name: string | null
+  previous: { id: number; speaker: string; speaker_manual: boolean }[]
+}
+
+export interface RenameResult {
+  characters: CharacterEntry[]
+  renamed: number
+  undo: RenameUndo | null
+}
