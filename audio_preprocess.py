@@ -141,6 +141,20 @@ def _checkpoint_ok(path: str) -> bool:
         return False
 
 
+def _other_live_download(model_dir: str, model: str, own_marker: str = "") -> bool:
+    """True if another live process has a download marker for `model`."""
+    try:
+        names = os.listdir(model_dir)
+    except OSError:
+        return False
+    for name in names:
+        if name.startswith(model + _PART_MARK) and os.path.join(model_dir, name) != own_marker:
+            pid = _marker_pid(name)
+            if pid is not None and pid != os.getpid() and _pid_alive(pid):
+                return True
+    return False
+
+
 def _load_with_download_guard(model: str, load) -> None:
     """Runs load() (which may download `model` into MODEL_DIR), keeping a
     truncated file from ever surviving under the final name."""
@@ -161,7 +175,8 @@ def _load_with_download_guard(model: str, load) -> None:
             raise VocalSeparationError(
                 f"audio-separator model '{model}' downloaded incompletely; try again.")
     except BaseException:
-        _remove(final)
+        if not _other_live_download(MODEL_DIR, model, marker):
+            _remove(final)
         raise
     finally:
         _remove(marker)

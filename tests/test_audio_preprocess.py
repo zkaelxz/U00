@@ -29,6 +29,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import audio_preprocess
 
 
+@pytest.fixture(autouse=True)
+def _private_model_dir(tmp_path, monkeypatch):
+    """Never touch the real ~/.cache/audio-separator-models."""
+    real = os.path.join(os.path.expanduser("~"), ".cache", "audio-separator-models")
+    before = sorted(os.listdir(real)) if os.path.isdir(real) else None
+    monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(tmp_path / "models"))
+    yield
+    after = sorted(os.listdir(real)) if os.path.isdir(real) else None
+    assert after == before, "a test wrote into the real model directory"
+
+
 def _write_wav(path, seconds, samplerate=8000, freq=220.0):
     """A short, real sine-wave fixture -- small and fast, but real audio
     data soundfile can read back, unlike a bare placeholder path."""
@@ -509,6 +520,18 @@ class TestModelDownloadGuard:
         (model_dir / self.MODEL).write_bytes(b"x" * 500)
         assert audio_preprocess.sweep_interrupted_downloads(str(model_dir)) == 0
         assert marker.exists() and (model_dir / self.MODEL).exists()
+
+    def test_failed_load_keeps_file_while_another_live_process_downloads(self, model_dir):
+        # pid 1 is always alive and never ours
+        (model_dir / f"{self.MODEL}.part-1-abcd").write_text("0")
+
+        def load():
+            (model_dir / self.MODEL).write_bytes(b"x" * 10)
+            raise OSError("boom")
+
+        with pytest.raises(OSError):
+            audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert (model_dir / self.MODEL).exists()
 
     def test_truncated_file_is_detected_and_replaced(self, model_dir):
         (model_dir / self.MODEL).write_bytes(b"x" * 10)
