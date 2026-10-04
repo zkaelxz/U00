@@ -2,10 +2,9 @@
 services/narration_service.py -- the novel-narration "Chunk & tag speakers"
 action for one drama (CLI: `cli.cmd_narrate_prep`).
 
-Migration Slice 33, the `chunk_and_tag` path Slice 20 deferred. Today it
-is fully synchronous; here it becomes a background job that does the WHOLE
+The `chunk_and_tag` path runs as a background job that does the WHOLE
 pipeline (chunk, LLM speaker tagging, history snapshot, DB write, status),
-same "job does everything" decision as Slice 20. Poll GET /api/jobs/{id};
+the same "job does everything" decision as the other narration jobs. Poll GET /api/jobs/{id};
 background_jobs' own runner redacts secrets from a failed job's error.
 
 Input is the drama's attached novel text (`dub.NOVEL_SOURCE_FILENAME` in
@@ -87,7 +86,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     not configured, ConflictError if a run is already active.
 
     A re-run over the same text, engine, model and known characters
-    resumes after the batches an interrupted run already tagged (Step 41);
+    resumes after the batches an interrupted run already tagged;
     fresh=True drops those and tags everything again."""
     _require_drama(drama_id)
     engine_name = engine_name or DEFAULT_ENGINE
@@ -113,7 +112,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
 
 def tagging_checkpoint(drama_id, text, engine_name, model, known, fresh=False,
                        max_chunk_chars=MAX_CHUNK_CHARS):
-    """Step 41: (done {idx: label}, on_batch) for tag_speakers_by_id, shared
+    """(done {idx: label}, on_batch) for tag_speakers_by_id, shared
     with `cli.py narrate-prep`. A re-run over the same text, engine, model,
     known characters and prompt version skips the batches an interrupted
     run already tagged (and paid for); fresh=True drops them first.

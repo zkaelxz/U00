@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-// Chapter OCR: the Slice 38 endpoints are mocked (no OCR engine); the drama
+// Chapter OCR: the endpoints are mocked (no OCR engine); the drama
 // read hits the real seeded API.
 
 const png = { name: 'p1.png', mimeType: 'image/png', buffer: Buffer.from('x') }

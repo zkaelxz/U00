@@ -1,5 +1,5 @@
 /*
- * Settings > Notifications (Step 44): push a short message to Discord and/or
+ * Settings > Notifications: push a short message to Discord and/or
  * ntfy when a background job finishes or fails, or new chapters are found.
  * "What to send" switches pick which of those events are pushed. PC only. The saved
  * addresses are secrets: the inputs are never pre-filled and the page only

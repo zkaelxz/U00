@@ -117,7 +117,7 @@ export const getLineProvenance = (id: number, lineId: number, f?: Fetch) =>
 export const getLineOriginalText = (id: number, lineId: number, f?: Fetch) =>
   getJson<LineOriginalText>(`${review(id)}/lines/${lineId}/original-text`, f)
 
-// Per-line AI helpers (Slice 50). Neither call writes; the engine and model
+// Per-line AI helpers. Neither call writes; the engine and model
 // are left to the server's default (Gemini free tier: the saved setting), and no key ever passes through the browser.
 const lineAi = (id: number, lineId: number) => `/api/line-ai/dramas/${id}/lines/${lineId}`
 

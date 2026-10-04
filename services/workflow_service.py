@@ -1,4 +1,4 @@
-"""UI-free workflow/pipeline-progress helpers (the Step 19 invariant).
+"""UI-free workflow/pipeline-progress helpers (the UI-free invariant).
 Never imports fastapi.
 """
 import os
@@ -23,7 +23,7 @@ def compute_workspace_stage_index(drama, lines, ddir):
     saved novel text) hasn't finished Source either, so that case checks
     for real source content before advancing past it.
 
-    Export/dub are checked before Diarize/Translate (Step 45): a drama
+    Export/dub are checked before Diarize/Translate: a drama
     that's genuinely marked exported or has a dub track has clearly moved
     well past those earlier stages, regardless of whether an earlier
     stage's own signal (e.g. a line's `speaker` field) ever got

@@ -1,5 +1,5 @@
 """
-api/job_stage_schemas.py -- models for the Step 41 per-stage job timing
+api/job_stage_schemas.py -- models for the per-stage job timing
 route (api/routers/job_stage_routes.py). Stage names are fixed labels from
 Baihe's own code.
 """

@@ -181,7 +181,7 @@ def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str
 
 
 # ---------------------------------------------------------------------------
-# Multi-chapter import job (Step 23 item 13)
+# Multi-chapter import job
 # ---------------------------------------------------------------------------
 
 IMPORT_JOB_PREFIX = "sourceimport_"

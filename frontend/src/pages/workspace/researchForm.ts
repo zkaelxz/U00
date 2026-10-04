@@ -1,7 +1,7 @@
 import { historyTime } from '../translatePage'
 import type { ProvenanceRow, ResearchBudget, ResearchChoice, ResearchField, ResearchMode } from '../../types/research'
 
-// Pure logic for the Source stage's "Research online" panel (Step 37).
+// Pure logic for the Source stage's "Research online" panel.
 
 const LABELS: Record<string, string> = {
   title_en: 'English title',

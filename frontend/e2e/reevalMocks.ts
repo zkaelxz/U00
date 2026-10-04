@@ -1,6 +1,6 @@
 import type { Page, Route } from '@playwright/test'
 
-// Model re-evaluation (Step 40b) mocks shared by lab-reeval.spec.ts and
+// Model re-evaluation mocks shared by lab-reeval.spec.ts and
 // lab-reeval.mobile.spec.ts. The e2e API has no keys and its production
 // model is Claude, so anything that would run or promote goes through this
 // stateful stand-in for /api/models/reeval*; the real API is used only for

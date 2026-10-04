@@ -38,7 +38,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "page_fetch.py",
     "page_server.py",
     "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
-    # Step 25d item 9: this list had drifted -- these were all real,
+    # This list had drifted -- these were all real,
     # hard-imported modules missing from it, which meant the missing-file
     # health check below could no longer actually catch one of them going
     # missing.
@@ -47,7 +47,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
     "sensevoice_tags.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
     "translation_memory.py", "action_tiers.py", "media_inspect.py",
-    "vad_segments.py", "mixed_language.py", "process_guard.py",   # Step 80b: the installed server's Job Object (python -m api imports it)
+    "vad_segments.py", "mixed_language.py", "process_guard.py",   # the installed server's Job Object (python -m api imports it)
 ]
 
 # name -> (import name, feature it powers, required vs optional)
@@ -121,7 +121,7 @@ OPTIONAL_DEPENDENCIES = {
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
     "qwen-asr": ("qwen_asr", "Qwen3-ASR transcription engine and Qwen3 forced alignment "
                              "(line timing); best in its own Python 3.12 environment", "feature"),
-    # Step 104: not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
+    # Not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
     # and needs transformers>=5.6, which qwen-asr's transformers==4.57.6 pin rules out.
     "moss-transcribe-diarize": ("moss_transcribe_diarize",
                                 "experimental one-pass transcription + speaker labels "
@@ -139,7 +139,7 @@ OPTIONAL_DEPENDENCIES = {
     "pytest": ("pytest", "running the test suite", "dev"),
     "httpx": ("httpx", "Google sign-in's HTTP client (with authlib); also the HTTP API's "
                        "tests (FastAPI TestClient)", "feature"),
-    # Step 115b: a separate program, not a library. GPL-3.0, so Baihe never
+    # A separate program, not a library. GPL-3.0, so Baihe never
     # imports or ships it: it only runs the user-installed `lncrawl` command
     # (services/lncrawl_service.py). Detected by EXTERNAL_PROGRAMS below,
     # never offered for one-click install (NOT_OFFERED_FOR_INSTALL).
@@ -507,9 +507,9 @@ def check_browser() -> dict:
 
 def check_cuda() -> dict:
     """Whether a GPU is actually usable, for start.bat's own "print
-    anything missing in plain words" launcher check (Step 10) -- this is
+    anything missing in plain words" launcher check -- this is
     deliberately the minimal "is it there at all" answer, not the
-    driver/CUDA-build version-mismatch detail Step 18 adds to the
+    driver/CUDA-build version-mismatch detail a later check adds to the
     in-app GPU/VRAM display; that's a different, later check built for a
     different place (the Diagnostics tab, checked once you're already in
     the app), not a launcher-time one. Doesn't import torch at all if
@@ -586,7 +586,7 @@ def check_library_writable(library_dir: str):
 
 
 # ---------------------------------------------------------------------------
-# Step 9b.2: Hugging Face model-cache visibility & cleanup.
+# Hugging Face model-cache visibility & cleanup.
 #
 # Whisper/pyannote/Qwen3-ASR/ForcedAligner/F5-TTS weights live in
 # huggingface_hub's own cache (~/.cache/huggingface by default), entirely
@@ -643,8 +643,8 @@ def delete_hf_cache_revision(revision: str, cache_dir: str = None) -> bool:
 
 def scan_piper_voices(voices_dir: str = None) -> list:
     """[{"voice", "size_bytes"}, ...] for every downloaded Piper voice
-    model, largest first. Step 25d item 14: this panel only ever scanned
-    the Hugging Face model cache above -- Piper voices (Step 25c item 1's
+    model, largest first. This panel only ever scanned
+    the Hugging Face model cache above -- Piper voices (the
     offline-voice picker) download to `library/piper_voices` instead, so
     they were invisible here and to whatever cleanup/disk-usage view
     relies on this. [] if the directory doesn't exist yet -- never
@@ -754,7 +754,7 @@ def delete_model_folder_entry(kind: str, name: str, folder: str = None) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Step 9b.2: model/engine version panel -- one row per AI model/engine
+# Model/engine version panel -- one row per AI model/engine
 # actually wired into the app today (not the roadmap's full aspirational
 # list; several named there, like PaddleOCR-VL-For-Manga, aren't
 # implemented yet and belong to later steps). No network call: this only
@@ -837,9 +837,8 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
     nor a "service" entry has a real "not installed" state of its own, so
     both count as installed. "installed" is a real boolean computed here
     from the actual check, not a string match against "not installed" in
-    whatever renders it (Step 18 item 2 -- that match would silently break
-    if this literal ever changed). Makes no network call. "package" (Step
-    47) is the real pip/importlib.metadata distribution name for a
+    whatever renders it (that match would silently break
+    if this literal ever changed). Makes no network call. "package" is the real pip/importlib.metadata distribution name for a
     "package" kind entry, None otherwise -- the exact string a caller
     should pass to stream_dependency_install/stream_pip_install for that
     row's own Install button, straight from the registry rather than
@@ -877,7 +876,7 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Step 9b.2: proactive check for gated pyannote model access -- catches
+# Proactive check for gated pyannote model access -- catches
 # the exact real-world failure (a 403 on one gated model masking that the
 # OTHER one is also gated, since load_pipeline() tries community-1 first
 # and only surfaces 3.1's error) before it shows up as a runtime error on
@@ -911,7 +910,7 @@ def check_pyannote_gated_access(hf_token: str = None, api=None) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Step 97: pre-flight a translation engine's credentials/reachability
+# Pre-flight a translation engine's credentials/reachability
 # before a batch job starts, rather than discovering a dead API key or
 # an unreachable local server only after committing lines to a job.
 # ---------------------------------------------------------------------------
@@ -945,7 +944,7 @@ def check_engine_reachable(engine_name: str, api_key: str = None, model: str = N
 
 
 # ---------------------------------------------------------------------------
-# Step 9b.2: "Copy diagnostics for support" -- the existing key/token
+# "Copy diagnostics for support" -- the existing key/token
 # redaction (translate_engines.redact_secrets) plus stripping local file
 # paths and the OS username, since a raw library path or a home directory
 # can leak the machine's username into a support conversation.
@@ -1028,7 +1027,7 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 
 
 # ---------------------------------------------------------------------------
-# Step 18c: in-app "Install" buttons for optional dependencies, run against
+# In-app "Install" buttons for optional dependencies, run against
 # the CURRENTLY RUNNING interpreter (sys.executable) -- when this app was
 # launched via start.bat/portable.py's own venv activation, that's already
 # the venv's own python, never a bare system `pip`.
@@ -1037,7 +1036,7 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 # Only these two tiers ever get a generic Install button -- "required" is
 # already installed by definition (the app wouldn't be running otherwise)
 # and "dev" (pytest) has nothing to do with a running app session.
-# "experimental" (Step 104's MOSS) is listed but never installed from here:
+# "experimental" (the MOSS backend) is listed but never installed from here:
 # it isn't on PyPI.
 INSTALLABLE_TIERS = ("feature", "engine")
 
@@ -1094,7 +1093,7 @@ def stream_pip_uninstall(pip_args: list, python_executable: str = None):
 
 
 # ---------------------------------------------------------------------------
-# Step 62: install a whole requirements tier, and a real Deno install
+# Install a whole requirements tier, and a real Deno install
 # action -- both real subprocess actions triggered only from an explicit
 # button click, matching stream_pip_install's own "never swallow the real
 # error" discipline.
@@ -1129,7 +1128,7 @@ def deno_default_install_path() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 27: "is this dependency outdated?" + an Upgrade action. Like
+# "Is this dependency outdated?" + an Upgrade action. Like
 # check_pyannote_gated_access above, this reaches the network (PyPI's own
 # public JSON API, a plain unauthenticated GET) -- so it must only ever run
 # from an explicit button click, never automatically on page load, and the
@@ -1256,7 +1255,7 @@ KNOWN_UPGRADE_LIMITATIONS = {
                   "sdist build also fails independently (Step 61); Demucs, this app's "
                   "default vocal-separation backend, is unaffected.",
     },
-    # Step 66: reproduced for real -- with huggingface_hub 2.0.0 installed
+    # Reproduced for real -- with huggingface_hub 2.0.0 installed
     # next to transformers 5.17.0, `import transformers` raises
     # "ImportError: huggingface-hub>=1.5.0,<2.0 is required ... but found
     # huggingface-hub==2.0.0", taking NLLB translation and Scanlate's ML
@@ -1300,7 +1299,7 @@ def _known_python_version_limitation(pip_name: str):
     """The KNOWN_UPGRADE_LIMITATIONS entry for `pip_name`, if one exists AND
     this process is actually running the affected Python version -- shared
     by upgrade_blocked_reason (an installed package that can't go further)
-    and known_install_limitation_reason (Step 61: the same package failing
+    and known_install_limitation_reason (the same package failing
     to install in the first place, same root cause, different moment)."""
     known = KNOWN_UPGRADE_LIMITATIONS.get(pip_name.replace("_", "-").lower())
     if known and "python_version" in known and sys.version_info[:2] == known["python_version"]:
@@ -1345,7 +1344,7 @@ def _known_dependent_limitation(pip_name: str, latest_version: str):
 
 def known_install_limitation_reason(pip_name: str) -> str:
     """None, or a short, plain-English reason `pip_name` is known to fail
-    to install at all on this Python version (Step 61) -- shown next to a
+    to install at all on this Python version -- shown next to a
     "not installed" row before the user ever clicks Install, and again if
     they click it anyway and it fails, so a raw pip/Cython traceback is
     never the only signal. Also covers NOT_OFFERED_FOR_INSTALL (a package
@@ -1365,7 +1364,7 @@ def upgrade_blocked_reason(pip_name: str, latest_version: str = None,
     """None if a normal "Upgrade" should be offered for `pip_name`.
     Otherwise a short, plain-English reason the row should show INSTEAD
     of the button, so a known-doomed upgrade never just looks like a real
-    option with no explanation (Step 47 item 5)."""
+    option with no explanation."""
     known = _known_python_version_limitation(pip_name)
     if known:
         py = ".".join(str(p) for p in known["python_version"])
@@ -1380,7 +1379,7 @@ def upgrade_blocked_reason(pip_name: str, latest_version: str = None,
 
 
 # ---------------------------------------------------------------------------
-# Step 66: "if I upgrade this, will it break the app?" -- answered by
+# "If I upgrade this, will it break the app?" -- answered by
 # actually trying it, not by guessing from version numbers: install the
 # candidate into a throwaway venv that otherwise sees this environment's
 # own packages, run this app's own test suite there, and re-run anything
@@ -1725,8 +1724,7 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
 
 
 def get_gpu_status() -> dict:
-    """A live GPU/VRAM readout for Diagnostics' routine view (Step 18 item
-    3) -- {"available": bool, "name", "vram_used_gb", "vram_total_gb",
+    """A live GPU/VRAM readout for Diagnostics' routine view -- {"available": bool, "name", "vram_used_gb", "vram_total_gb",
     "torch_cuda_version", "message"}. "available" is False, with a plain
     "message" (never an exception), for every case that isn't a real,
     torch-visible CUDA device: torch not installed, torch installed but
@@ -1775,11 +1773,11 @@ def get_gpu_status() -> dict:
 def gpu_torch_mismatch() -> bool:
     """True only when a real NVIDIA GPU is on this machine (nvidia-smi on
     PATH) but the installed torch build can't see it -- the exact
-    CPU-only-wheel footgun Step 18 item 7 traces to a bare `pip install
+    CPU-only-wheel footgun traced to a bare `pip install
     torch` always resolving to PyPI's default (non-CUDA) wheel. A
     minimal, self-contained version of the same nvidia-smi-on-PATH
-    detection Step 18 item 3's fuller GPU/VRAM display will also use --
-    that display doesn't exist yet, but this button (item 6) needs the
+    detection a fuller GPU/VRAM display will also use --
+    that display doesn't exist yet, but this button needs the
     same signal regardless of which of the two lands first."""
     if not shutil.which("nvidia-smi"):
         return False
@@ -1787,9 +1785,9 @@ def gpu_torch_mismatch() -> bool:
     return bool(cuda["torch_installed"]) and cuda["cuda_available"] is False
 
 
-# Step 26d: how busy the GPU actually is, straight from the driver --
+# How busy the GPU actually is, straight from the driver --
 # independent of anything Baihe itself is tracking. background_jobs.py's
-# in-process guard and db.py's cross-process gpu_lock (Step 25w) both only
+# in-process guard and db.py's cross-process gpu_lock both only
 # know about GPU-touching work Baihe itself started; neither can see a
 # completely different application (Jellyfin doing hardware-accelerated
 # transcoding on the same card, say) using the same physical GPU. This is
@@ -1878,11 +1876,11 @@ def stream_gpu_torch_reinstall(python_executable: str = None, project_root: str 
 def stream_dependency_install(name: str, python_executable: str = None,
                               project_root: str = None):
     """Same shape as stream_pip_install, for Diagnostics' generic
-    per-dependency "Install" button (Step 18c). Routes `torch` specifically
+    per-dependency "Install" button. Routes `torch` specifically
     through the same GPU-aware CUDA-index reinstall stream_gpu_torch_reinstall
     already uses for the dedicated "Install GPU PyTorch" action, whenever a
     real NVIDIA GPU is present -- a bare `pip install torch` always resolves
-    to the CPU-only PyPI wheel (Step 18 item 7's install-time footgun), and
+    to the CPU-only PyPI wheel (the install-time footgun), and
     the generic Install button would otherwise reproduce that exact gap
     through a second path. Every other dependency, and torch on a
     non-NVIDIA machine, installs exactly as stream_pip_install always did."""

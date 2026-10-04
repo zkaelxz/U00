@@ -86,7 +86,7 @@ _PADDLE_LANG_BY_SOURCE = {"zh": "ch", "ko": "korean"}
 
 def extract_text_paddle(image_path: str, lang: str = "ch") -> str:
     """Higher-accuracy alternative to Tesseract for Chinese (lang="ch",
-    the default) and, since Step 11's OCR auto-routing added it as
+    the default) and, since OCR auto-routing added it as
     Korean's own default backend, Korean (lang="korean") too.
     Requires: `pip install paddleocr paddlepaddle` (heavier install,
     downloads its own detection/recognition models on first use).

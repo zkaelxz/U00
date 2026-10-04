@@ -1,5 +1,5 @@
-// Experimental transcription settings (api/routers/asr_options_routes.py,
-// Steps 103/104) and the Diarize-stage config read (Step 101's device note).
+// Experimental transcription settings (api/routers/asr_options_routes.py)
+// and the Diarize-stage config read (its device note).
 // Types mirror api/asr_options_schemas.py and api/schemas/transcribe.py's DiarizationConfig.
 import { getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -67,7 +67,7 @@ export function parseBatchSize(raw: string, min: number, max: number): number | 
   return n >= min && n <= max ? n : null
 }
 
-// Transcribe > Advanced "ASR backend" choices: MOSS (Step 104) only while its
+// Transcribe > Advanced "ASR backend" choices: MOSS only while its
 // experimental toggle is on. A drama already set to it still shows it (the
 // select keeps the current value).
 export function asrBackendOptions(mossEnabled: boolean): string[] {
@@ -76,7 +76,7 @@ export function asrBackendOptions(mossEnabled: boolean): string[] {
     : ['whisper', 'qwen3_asr', 'qwen3_asr_vad']
 }
 
-// The muted line under the batch-size field (Step 103).
+// The muted line under the batch-size field.
 export function batchingNote(o: Pick<AsrOptions, 'qwen_asr_version' | 'qwen_asr_batching_available'>): string {
   if (o.qwen_asr_batching_available) return `Batching can run with the installed qwen-asr ${o.qwen_asr_version}.`
   if (!o.qwen_asr_version) return 'qwen-asr is not installed, so nothing is batched.'

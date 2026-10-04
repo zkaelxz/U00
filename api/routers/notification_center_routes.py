@@ -1,5 +1,5 @@
 """
-api/routers/notification_center_routes.py -- Step 44 item 5: the in-app
+api/routers/notification_center_routes.py -- the in-app
 notification list behind the header bell. Thin: see
 services/notification_service.list_recent.
 

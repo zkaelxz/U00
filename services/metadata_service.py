@@ -1,6 +1,6 @@
 """
 services/metadata_service.py -- Media analysis and metadata auto-fill for one
-drama (Migration Slice 37), the API counterpart of the New-drama form's
+drama, the API counterpart of the New-drama form's
 "Analyze a media file" and "Auto-fill from a public listing page" expanders.
 
   - analyze_media: ffprobe read of the drama's stored media. Numbers and

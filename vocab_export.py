@@ -5,7 +5,7 @@ a plain CSV (works with Anki's "Import File" with no extra deps), or
 a proper .apkg deck (needs `pip install genanki`) that opens directly
 in Anki with fields already mapped.
 
-export_vocab_apkg_sentence() is Step 20b's richer companion: a second,
+export_vocab_apkg_sentence() is the richer companion: a second,
 opt-in card type with the source sentence and (for a drama with a real
 audio track) an embedded audio clip, instead of just the isolated word.
 """

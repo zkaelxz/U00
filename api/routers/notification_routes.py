@@ -1,5 +1,5 @@
 """
-api/routers/notification_routes.py -- Step 44: Discord / ntfy job
+api/routers/notification_routes.py -- Discord / ntfy job
 notifications. Thin: see services/notification_service.py.
 
 - `GET /api/settings/notifications` (`admin.settings`): configured booleans

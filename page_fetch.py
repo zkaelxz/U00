@@ -82,7 +82,7 @@ def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
     }
 
 
-# B-28: a public page must not be able to redirect or script the browser onto
+# A public page must not be able to redirect or script the browser onto
 # a private address. Two layers:
 #  1. Every Chromium this module launches sends ALL its traffic (navigations,
 #     every redirect hop, subresources, fetch/XHR, WebSockets) through a
@@ -343,7 +343,7 @@ def _goto(page, url: str, proxy, allow_unguarded: bool = False, **kwargs):
     """`page.goto`, then fail closed: with no proxy for this launch, or when
     an http(s) navigation returned a response but the pinning proxy saw no
     request at all (e.g. a managed browser policy overriding the proxy
-    setting), the B-28 protection is not in force. `allow_unguarded` is
+    setting), the private-address protection is not in force. `allow_unguarded` is
     only for an injected test launcher, which has no proxy."""
     if proxy is None and not allow_unguarded:
         raise ProxyBypassed(_BYPASSED)
@@ -355,7 +355,7 @@ def _goto(page, url: str, proxy, allow_unguarded: bool = False, **kwargs):
 
 
 def _guard_context(context):
-    """Install the B-28 request guard on a browser context."""
+    """Install the private-address request guard on a browser context."""
     context.route("**/*", make_request_guard())
     return context
 
@@ -436,7 +436,7 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
 # Resolves every `<img src="blob:...">` on the page into real bytes from
 # inside that page's own JS context, before the browser (and with it, the
 # blob's only storage) closes. Manhuaku's own real readPic() mechanism
-# (Step 23j) writes decrypted page images into the DOM exactly this way --
+# writes decrypted page images into the DOM exactly this way --
 # a blob: URL only exists in that one tab's memory and can never be
 # independently re-fetched afterward. Chunked base64 encoding avoids
 # blowing the call stack on a large image (a naive
@@ -824,7 +824,7 @@ def _visible_lines(html: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Persistent browser profiles (Step 23k)
+# Persistent browser profiles
 # ---------------------------------------------------------------------------
 #
 # One Chromium profile directory per source, opened with Playwright's
