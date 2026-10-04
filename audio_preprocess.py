@@ -33,7 +33,12 @@ so it stays only as the fallback. Requires `pip install audio-separator`.
 """
 import os
 import shutil
+import json
 import tempfile
+import threading
+import time
+import uuid
+import zipfile
 
 SEPARATION_BACKENDS = {
     "auto": "Auto -- Mel-Band RoFormer if installed, otherwise Demucs",
@@ -58,6 +63,283 @@ MODEL_DIR = os.environ.get("BAIHE_AUDIO_SEP_MODEL_DIR") or os.path.join(
 # seam isn't audible.
 DEFAULT_CHUNK_SECONDS = 30.0
 DEFAULT_CHUNK_OVERLAP_SECONDS = 1.0
+
+
+# audio-separator downloads the checkpoint straight to its final name (no
+# temp file, no size or hash check, skipped whenever the name exists) and
+# gives us no hook to download elsewhere, so a cancel or kill mid-download
+# leaves a truncated file that a later run would treat as present. A
+# "<model>.part-<pid>-<uuid>" marker beside the model says "a download is in
+# flight". A file is only ever deleted when it fails _checkpoint_ok, so a
+# complete model survives a failed load (out of memory, wrong device) and a
+# stale marker next to it. Demucs needs no guard: torch.hub downloads to a
+# temp file in the same directory and renames it only once complete.
+_PART_MARK = ".part-"
+# Far below the real size (~900 MB for the RoFormer vocal model); only
+# catches a zero-length or obviously cut-off file.
+MIN_CHECKPOINT_BYTES = 10 * 1024 * 1024
+# A marker older than this is stale even if its pid is alive again.
+MARKER_MAX_AGE_SECONDS = 6 * 3600
+# How long to wait for another process's download of the same model.
+DOWNLOAD_WAIT_SECONDS = 300.0
+_STILL_ACTIVE = 259
+_ERROR_ACCESS_DENIED = 5
+
+_download_locks = {}
+_download_locks_guard = threading.Lock()
+# Marker paths written by this process that are still downloading.
+_active_markers = set()
+
+
+def _windows_pid_alive(pid: int, kernel32, get_last_error) -> bool:
+    """Decision logic for Windows liveness, with kernel32 injected so it can
+    be tested. A denied OpenProcess means the process exists."""
+    import ctypes
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return get_last_error() == _ERROR_ACCESS_DENIED
+    try:
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True
+        return code.value == _STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _windows_kernel32():
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.GetExitCodeProcess.restype = wintypes.BOOL
+    k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    k32.GetProcessTimes.restype = wintypes.BOOL
+    k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    k32.CloseHandle.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    return k32
+
+
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+        return _windows_pid_alive(pid, _windows_kernel32(), ctypes.get_last_error)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # exists, not ours to signal
+    return True
+
+
+def _process_start(pid: int):
+    """An opaque start-time token for pid, or None where it can't be read
+    (the marker's age limit then covers pid reuse)."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            k32 = _windows_kernel32()
+            handle = k32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return None
+            try:
+                times = [wintypes.FILETIME() for _ in range(4)]
+                if not k32.GetProcessTimes(handle, *[ctypes.byref(t) for t in times]):
+                    return None
+                return str((times[0].dwHighDateTime << 32) | times[0].dwLowDateTime)
+            finally:
+                k32.CloseHandle(handle)
+        except Exception:
+            return None
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            return fh.read().rsplit(")", 1)[1].split()[19]
+    except (OSError, IndexError):
+        return None
+
+
+def _read_marker(path: str):
+    """(pid, start) from a marker file; pid falls back to the one in the name."""
+    pid = start = None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        pid, start = int(data["pid"]), data.get("start")
+    except (OSError, ValueError, KeyError, TypeError):
+        try:
+            pid = int(os.path.basename(path).rsplit(_PART_MARK, 1)[1].split("-", 1)[0])
+        except (IndexError, ValueError):
+            pass
+    return pid, start
+
+
+def _marker_alive(path: str) -> bool:
+    """True if the process that wrote this marker is still downloading."""
+    if path in _active_markers:
+        return True
+    pid, start = _read_marker(path)
+    if pid is None or pid == os.getpid():
+        return False  # ours but not registered: left by an earlier process
+    try:
+        if time.time() - os.path.getmtime(path) > MARKER_MAX_AGE_SECONDS:
+            return False
+    except OSError:
+        return False
+    if not _pid_alive(pid):
+        return False
+    now_start = _process_start(pid)
+    return not (start and now_start and start != now_start)
+
+
+def _remove(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _checkpoint_ok(path: str) -> bool:
+    """Complete enough to trust: not tiny and, for torch checkpoints (zip
+    archives whose central directory sits at the end, so a cut-off file
+    lacks it), a readable zip. Other extensions get the size check only."""
+    try:
+        if os.path.getsize(path) < MIN_CHECKPOINT_BYTES:
+            return False
+        if path.lower().endswith((".ckpt", ".pt", ".pth")):
+            return zipfile.is_zipfile(path)
+        return True
+    except OSError:
+        return False
+
+
+def sweep_interrupted_downloads(model_dir: str = None, model: str = None) -> int:
+    """Removes the markers of downloads whose process is gone, and the
+    checkpoint beside each one only if it fails _checkpoint_ok. Markers of
+    live downloads are left alone. Returns the number of files removed."""
+    model_dir = model_dir or MODEL_DIR
+    removed = 0
+    try:
+        names = os.listdir(model_dir)
+    except OSError:
+        return 0
+    for name in names:
+        if _PART_MARK not in name:
+            continue
+        target = name.rsplit(_PART_MARK, 1)[0]
+        marker = os.path.join(model_dir, name)
+        if (model and target != model) or _marker_alive(marker):
+            continue
+        final = os.path.join(model_dir, target)
+        if os.path.isfile(final) and not _checkpoint_ok(final):
+            _remove(final)
+            removed += 1
+        _remove(marker)
+    return removed
+
+
+def _other_live_download(model_dir: str, model: str, own_marker: str = "") -> bool:
+    try:
+        names = os.listdir(model_dir)
+    except OSError:
+        return False
+    return any(name.startswith(model + _PART_MARK)
+               and os.path.join(model_dir, name) != own_marker
+               and _marker_alive(os.path.join(model_dir, name))
+               for name in names)
+
+
+def _marker_key(path: str):
+    pid, start = _read_marker(path)
+    return (int(start) if str(start).isdigit() else 0, pid or 0, path)
+
+
+def _earlier_live_marker(model_dir: str, model: str, own_marker: str) -> bool:
+    """True if another live download marker for `model` sorts before ours
+    (start time, then pid): the later of two racing starters backs off."""
+    own = _marker_key(own_marker)
+    try:
+        names = os.listdir(model_dir)
+    except OSError:
+        return False
+    for name in names:
+        path = os.path.join(model_dir, name)
+        if name.startswith(model + _PART_MARK) and path != own_marker \
+                and _marker_alive(path) and _marker_key(path) < own:
+            return True
+    return False
+
+
+def _cancelled(cancel_check_cb) -> None:
+    if cancel_check_cb and cancel_check_cb():
+        raise VocalSeparationCancelled("Vocal separation cancelled.")
+
+
+def _download_in_progress(model: str) -> "VocalSeparationError":
+    return VocalSeparationError(
+        f"Another download of the separation model '{model}' is in progress. "
+        "Try again when it has finished.")
+
+
+def _wait_for_other_downloads(model: str, cancel_check_cb) -> None:
+    deadline = time.monotonic() + DOWNLOAD_WAIT_SECONDS
+    while _other_live_download(MODEL_DIR, model):
+        _cancelled(cancel_check_cb)
+        if time.monotonic() >= deadline:
+            raise _download_in_progress(model)
+        time.sleep(1.0)
+
+
+def _load_with_download_guard(model: str, load, cancel_check_cb=None) -> None:
+    """Runs load() (which may download `model` into MODEL_DIR), keeping a
+    truncated file from ever surviving under the final name and never
+    deleting a complete one. One download per model at a time, across
+    threads (a lock) and processes (markers)."""
+    with _download_locks_guard:
+        lock = _download_locks.setdefault(model, threading.Lock())
+    deadline = time.monotonic() + DOWNLOAD_WAIT_SECONDS
+    while not lock.acquire(timeout=1.0):
+        _cancelled(cancel_check_cb)
+        if time.monotonic() >= deadline:
+            raise _download_in_progress(model)
+    try:
+        final = os.path.join(MODEL_DIR, model)
+        while True:
+            _wait_for_other_downloads(model, cancel_check_cb)
+            sweep_interrupted_downloads(MODEL_DIR, model)
+            if os.path.isfile(final) and not _checkpoint_ok(final):
+                _remove(final)  # left by an older cancelled download, no marker
+            if os.path.isfile(final):
+                load()
+                return
+            os.makedirs(MODEL_DIR, exist_ok=True)
+            marker = os.path.join(
+                MODEL_DIR, f"{model}{_PART_MARK}{os.getpid()}-{uuid.uuid4().hex[:8]}")
+            _active_markers.add(marker)
+            try:
+                with open(marker, "w", encoding="utf-8") as fh:
+                    json.dump({"pid": os.getpid(), "start": _process_start(os.getpid())}, fh)
+                if _earlier_live_marker(MODEL_DIR, model, marker):
+                    continue  # two processes raced to start; the earlier one downloads
+                try:
+                    load()
+                    if os.path.isfile(final) and not _checkpoint_ok(final):
+                        raise VocalSeparationError(
+                            f"audio-separator model '{model}' downloaded incompletely; try again.")
+                except BaseException:
+                    if os.path.isfile(final) and not _checkpoint_ok(final) \
+                            and not _other_live_download(MODEL_DIR, model, marker):
+                        _remove(final)
+                    raise
+                return
+            finally:
+                _active_markers.discard(marker)
+                _remove(marker)
+    finally:
+        lock.release()
 
 
 class VocalSeparationError(RuntimeError):
@@ -174,10 +456,16 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
         try:
             separator = Separator(output_dir=work_dir, model_file_dir=MODEL_DIR,
                                   output_single_stem="Vocals")
-            separator.load_model(model_filename=model)
+            _load_with_download_guard(
+                model, lambda: separator.load_model(model_filename=model),
+                cancel_check_cb=cancel_check_cb)
+        except VocalSeparationError:
+            raise  # a cancel or the guard's own message: not a model-load failure
         except Exception as exc:
+            import translate_engines
             raise VocalSeparationError(
-                f"audio-separator failed to load model '{model}': {exc}") from exc
+                f"audio-separator failed to load model '{model}': "
+                f"{translate_engines.redact_secrets(str(exc))}") from exc
         if event_cb:
             event_cb("device", _device_kind(getattr(separator, "torch_device", None)))
 

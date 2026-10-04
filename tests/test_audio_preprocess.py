@@ -29,6 +29,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import audio_preprocess
 
 
+@pytest.fixture(autouse=True)
+def _real_model_dir_untouched():
+    """tests/conftest.py points MODEL_DIR at a temp dir; this fails the test
+    if anything still wrote into the real ~/.cache/audio-separator-models."""
+    real = os.path.join(os.path.expanduser("~"), ".cache", "audio-separator-models")
+    before = sorted(os.listdir(real)) if os.path.isdir(real) else None
+    assert audio_preprocess.MODEL_DIR != real
+    yield
+    after = sorted(os.listdir(real)) if os.path.isdir(real) else None
+    assert after == before, "a test wrote into the real model directory"
+
+
 def _write_wav(path, seconds, samplerate=8000, freq=220.0):
     """A short, real sine-wave fixture -- small and fast, but real audio
     data soundfile can read back, unlike a bare placeholder path."""
@@ -457,3 +469,337 @@ class TestModelDirRespectsPortableModeOverride:
         importlib.reload(audio_preprocess)
         assert audio_preprocess.MODEL_DIR == os.path.join(
             os.path.expanduser("~"), ".cache", "audio-separator-models")
+
+
+class TestModelDownloadGuard:
+    """audio-separator downloads the checkpoint to its final name itself, so
+    the guard around load_model must keep a cut-off file from surviving --
+    and must never delete a complete one."""
+
+    MODEL = audio_preprocess.MEL_ROFORMER_VOCAL_MODEL
+    DEAD = 99999999  # no such pid
+
+    @pytest.fixture
+    def model_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(tmp_path))
+        monkeypatch.setattr(audio_preprocess, "MIN_CHECKPOINT_BYTES", 100)
+        monkeypatch.setattr(audio_preprocess.time, "sleep", lambda s: None)
+        return tmp_path
+
+    def _complete(self, model_dir, fill=b"x"):
+        """A torch-style zip checkpoint over the size floor."""
+        import zipfile
+        with zipfile.ZipFile(model_dir / self.MODEL, "w") as zf:
+            zf.writestr("archive/data.pkl", fill * 500)
+        return (model_dir / self.MODEL).read_bytes()
+
+    def _truncated(self, model_dir):
+        data = self._complete(model_dir)
+        (model_dir / self.MODEL).write_bytes(data[:len(data) // 2])  # no end record
+
+    def _marker(self, model_dir, pid, tag="abcd"):
+        import json
+        path = model_dir / f"{self.MODEL}.part-{pid}-{tag}"
+        path.write_text(json.dumps({"pid": pid, "start": None}))
+        return path
+
+    def test_cancel_mid_download_leaves_no_final_file(self, model_dir):
+        def load():
+            (model_dir / self.MODEL).write_bytes(b"x" * 10)  # half-written
+            raise KeyboardInterrupt  # cancel arrives mid-download
+
+        with pytest.raises(KeyboardInterrupt):
+            audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert os.listdir(model_dir) == []
+
+    def test_failed_download_leaves_no_final_file(self, model_dir):
+        def load():
+            (model_dir / self.MODEL).write_bytes(b"x" * 10)
+            raise OSError("connection reset")
+
+        with pytest.raises(OSError):
+            audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert os.listdir(model_dir) == []
+
+    def test_complete_file_survives_a_load_exception(self, model_dir):
+        def load():
+            self._complete(model_dir)  # downloaded fine, then the model failed to load
+            raise MemoryError("out of memory")
+
+        with pytest.raises(MemoryError):
+            audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert os.listdir(model_dir) == [self.MODEL]
+
+    def test_existing_complete_file_survives_a_load_exception(self, model_dir):
+        self._complete(model_dir)
+
+        def load():
+            raise RuntimeError("wrong device")
+
+        with pytest.raises(RuntimeError):
+            audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert (model_dir / self.MODEL).exists()
+
+    def test_complete_file_with_a_dead_marker_keeps_the_file(self, model_dir):
+        data = self._complete(model_dir)
+        marker = self._marker(model_dir, self.DEAD)
+        audio_preprocess._load_with_download_guard(self.MODEL, lambda: None)
+        assert not marker.exists()
+        assert (model_dir / self.MODEL).read_bytes() == data
+
+    def test_truncated_file_with_a_dead_marker_is_redownloaded(self, model_dir):
+        self._truncated(model_dir)
+        self._marker(model_dir, self.DEAD)
+        seen = []
+
+        def load():
+            seen.append((model_dir / self.MODEL).exists())
+            self._complete(model_dir, b"y")
+
+        audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert seen == [False]
+        assert os.listdir(model_dir) == [self.MODEL]
+
+    def test_truncated_file_without_a_marker_is_replaced_before_load(self, model_dir):
+        self._truncated(model_dir)
+        seen = []
+
+        def load():
+            seen.append((model_dir / self.MODEL).exists())
+            self._complete(model_dir, b"y")
+
+        audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert seen == [False]
+        assert audio_preprocess._checkpoint_ok(str(model_dir / self.MODEL))
+
+    def test_small_file_without_a_marker_is_replaced_before_load(self, model_dir):
+        (model_dir / self.MODEL).write_bytes(b"x" * 10)
+        seen = []
+
+        def load():
+            seen.append((model_dir / self.MODEL).exists())
+            self._complete(model_dir)
+
+        audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert seen == [False]
+
+    def test_complete_file_is_kept_and_loaded(self, model_dir):
+        data = self._complete(model_dir)
+        loaded = []
+        audio_preprocess._load_with_download_guard(self.MODEL, lambda: loaded.append(1))
+        assert loaded == [1]
+        assert (model_dir / self.MODEL).read_bytes() == data
+        assert os.listdir(model_dir) == [self.MODEL]
+
+    def test_incomplete_result_is_an_error_and_removed(self, model_dir):
+        def load():
+            (model_dir / self.MODEL).write_bytes(b"x" * 10)
+
+        with pytest.raises(audio_preprocess.VocalSeparationError):
+            audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert os.listdir(model_dir) == []
+
+    def test_live_other_downloader_is_not_deleted_or_loaded(self, model_dir, monkeypatch):
+        self._truncated(model_dir)  # its half-written file
+        marker = self._marker(model_dir, 1)  # pid 1: alive, never ours
+        monkeypatch.setattr(audio_preprocess, "DOWNLOAD_WAIT_SECONDS", 0.0)
+        loaded = []
+        with pytest.raises(audio_preprocess.VocalSeparationError, match="in progress"):
+            audio_preprocess._load_with_download_guard(self.MODEL, lambda: loaded.append(1))
+        assert loaded == []
+        assert marker.exists() and (model_dir / self.MODEL).exists()
+
+    def test_waiting_for_another_downloader_respects_cancel(self, model_dir):
+        self._marker(model_dir, 1)
+        with pytest.raises(audio_preprocess.VocalSeparationCancelled):
+            audio_preprocess._load_with_download_guard(
+                self.MODEL, lambda: None, cancel_check_cb=lambda: True)
+
+    def test_failed_load_keeps_file_while_another_live_process_downloads(self, model_dir):
+        def load():
+            (model_dir / self.MODEL).write_bytes(b"x" * 10)
+            self._marker(model_dir, 1)  # another process started meanwhile
+            raise OSError("boom")
+
+        with pytest.raises(OSError):
+            audio_preprocess._load_with_download_guard(self.MODEL, load)
+        assert (model_dir / self.MODEL).exists()
+
+    def test_two_threads_never_download_the_same_model_together(self, model_dir):
+        import threading
+        inside, overlap = [], []
+        gate = threading.Event()
+
+        def load():
+            inside.append(1)
+            if len(inside) > 1:
+                overlap.append(1)
+            if not (model_dir / self.MODEL).exists():
+                gate.wait(0.3)
+                self._complete(model_dir)
+            inside.pop()
+
+        threads = [threading.Thread(target=audio_preprocess._load_with_download_guard,
+                                    args=(self.MODEL, load)) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        assert overlap == []
+        assert os.listdir(model_dir) == [self.MODEL]
+
+    def test_marker_of_a_live_process_is_left_alone(self, model_dir):
+        marker = self._marker(model_dir, 1)
+        self._complete(model_dir)
+        assert audio_preprocess.sweep_interrupted_downloads(str(model_dir)) == 0
+        assert marker.exists() and (model_dir / self.MODEL).exists()
+
+    def test_old_marker_of_our_own_pid_is_stale(self, model_dir):
+        """A previous process with the same pid left it; not in this
+        process's registry, so it is not a live download."""
+        marker = self._marker(model_dir, os.getpid())
+        self._truncated(model_dir)
+        assert audio_preprocess.sweep_interrupted_downloads(str(model_dir)) == 1
+        assert os.listdir(model_dir) == []
+        assert not marker.exists()
+
+    def test_marker_with_a_different_start_time_is_stale(self, model_dir, monkeypatch):
+        import json
+        marker = model_dir / f"{self.MODEL}.part-1-abcd"
+        marker.write_text(json.dumps({"pid": 1, "start": "old"}))
+        monkeypatch.setattr(audio_preprocess, "_process_start", lambda pid: "new")
+        assert not audio_preprocess._marker_alive(str(marker))
+
+    def test_marker_older_than_the_age_limit_is_stale(self, model_dir):
+        marker = self._marker(model_dir, 1)
+        old = audio_preprocess.time.time() - audio_preprocess.MARKER_MAX_AGE_SECONDS - 60
+        os.utime(marker, (old, old))
+        assert not audio_preprocess._marker_alive(str(marker))
+
+    def test_startup_sweep_removes_a_killed_download(self, model_dir, isolated_db):
+        import storage
+        self._truncated(model_dir)
+        self._marker(model_dir, self.DEAD)
+        storage.sweep_stale_temp()
+        assert os.listdir(model_dir) == []
+
+    def test_startup_sweep_keeps_a_complete_file(self, model_dir, isolated_db):
+        import storage
+        self._complete(model_dir)
+        self._marker(model_dir, self.DEAD)
+        storage.sweep_stale_temp()
+        assert os.listdir(model_dir) == [self.MODEL]
+
+
+    def test_the_later_of_two_racing_starters_backs_off(self, model_dir, monkeypatch):
+        import json
+        # An earlier live marker appears when we list the folder; it then
+        # finishes (is removed) so the second pass downloads.
+        earlier = model_dir / f"{self.MODEL}.part-1-early"
+        earlier.write_text(json.dumps({"pid": 1, "start": "5"}))
+        monkeypatch.setattr(audio_preprocess.uuid, "uuid4",
+                            lambda: types.SimpleNamespace(hex="mine0000"))
+        monkeypatch.setattr(audio_preprocess, "_process_start", lambda pid: "5" if pid == 1 else "10")
+        calls = {"waits": 0}
+        real_wait = audio_preprocess._wait_for_other_downloads
+
+        def wait(model, cancel):
+            calls["waits"] += 1
+            if calls["waits"] == 2:
+                earlier.unlink()  # the other starter finished meanwhile
+                self._complete(model_dir)
+            # first pass: pretend the earlier marker is not yet visible
+            if calls["waits"] == 1:
+                return
+            real_wait(model, cancel)
+
+        monkeypatch.setattr(audio_preprocess, "_wait_for_other_downloads", wait)
+        loaded = []
+        audio_preprocess._load_with_download_guard(self.MODEL, lambda: loaded.append(1))
+        assert calls["waits"] == 2  # backed off once, then saw the finished file
+        assert os.listdir(model_dir) == [self.MODEL]
+
+    def test_a_failed_marker_write_leaves_no_registered_marker(self, model_dir, monkeypatch):
+        def boom(*a, **k):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(audio_preprocess.json, "dump", boom)
+        with pytest.raises(OSError):
+            audio_preprocess._load_with_download_guard(self.MODEL, lambda: None)
+        assert os.listdir(model_dir) == []
+        assert not audio_preprocess._active_markers
+
+
+class TestCancelWhileWaitingThroughTheRealWrapper:
+    @pytest.mark.parametrize("backend", ["audio_separator", "auto"])
+    def test_cancel_is_a_cancel_and_never_falls_back_to_demucs(self, monkeypatch, tmp_path, backend):
+        import json
+        pytest.importorskip("soundfile")
+        _install_fake_audio_separator(monkeypatch)
+        monkeypatch.setattr(audio_preprocess.time, "sleep", lambda s: None)
+        (tmp_path / "models").mkdir()
+        (tmp_path / "models" / f"{audio_preprocess.MEL_ROFORMER_VOCAL_MODEL}.part-1-abcd").write_text(
+            json.dumps({"pid": 1, "start": None}))
+        monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(tmp_path / "models"))
+        demucs = []
+        monkeypatch.setitem(audio_preprocess._BACKENDS, "demucs",
+                            lambda *a, **k: demucs.append(1))
+        in_path = str(tmp_path / "audio.wav")
+        _write_wav(in_path, seconds=0.3, samplerate=8000)
+        with pytest.raises(audio_preprocess.VocalSeparationCancelled):
+            audio_preprocess.separate_vocals(in_path, str(tmp_path / "v.wav"), backend=backend,
+                                             cancel_check_cb=lambda: True)
+        assert demucs == []
+
+    def test_guard_errors_are_not_prefixed_as_a_model_load_failure(self, monkeypatch, tmp_path):
+        import json
+        pytest.importorskip("soundfile")
+        _install_fake_audio_separator(monkeypatch)
+        monkeypatch.setattr(audio_preprocess, "DOWNLOAD_WAIT_SECONDS", 0.0)
+        monkeypatch.setattr(audio_preprocess.time, "sleep", lambda s: None)
+        (tmp_path / "models").mkdir()
+        (tmp_path / "models" / f"{audio_preprocess.MEL_ROFORMER_VOCAL_MODEL}.part-1-abcd").write_text(
+            json.dumps({"pid": 1, "start": None}))
+        monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(tmp_path / "models"))
+        in_path = str(tmp_path / "audio.wav")
+        _write_wav(in_path, seconds=0.3, samplerate=8000)
+        with pytest.raises(audio_preprocess.VocalSeparationError) as info:
+            audio_preprocess.separate_vocals_audio_separator(in_path, str(tmp_path / "v.wav"))
+        assert "failed to load model" not in str(info.value)
+        assert "in progress" in str(info.value)
+
+
+class TestWindowsPidLiveness:
+    class _K32:
+        def __init__(self, handle=1, exit_code=259, ok=True):
+            self.handle, self.exit_code, self.ok = handle, exit_code, ok
+            self.closed = []
+
+        def OpenProcess(self, access, inherit, pid):
+            return self.handle
+
+        def GetExitCodeProcess(self, handle, ref):
+            ref._obj.value = self.exit_code
+            return self.ok
+
+        def CloseHandle(self, handle):
+            self.closed.append(handle)
+
+    def test_still_active_is_alive_and_the_handle_is_closed(self):
+        k32 = self._K32(exit_code=259)
+        assert audio_preprocess._windows_pid_alive(5, k32, lambda: 0)
+        assert k32.closed == [1]
+
+    def test_an_exit_code_means_dead(self):
+        k32 = self._K32(exit_code=0)
+        assert not audio_preprocess._windows_pid_alive(5, k32, lambda: 0)
+        assert k32.closed == [1]
+
+    def test_exit_code_query_failure_counts_as_alive(self):
+        assert audio_preprocess._windows_pid_alive(5, self._K32(ok=False), lambda: 0)
+
+    def test_access_denied_counts_as_alive(self):
+        assert audio_preprocess._windows_pid_alive(5, self._K32(handle=0), lambda: 5)
+
+    def test_no_such_process_is_dead(self):
+        assert not audio_preprocess._windows_pid_alive(5, self._K32(handle=0), lambda: 87)

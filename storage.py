@@ -268,10 +268,17 @@ def _is_link(path: str) -> bool:
 def sweep_stale_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None) -> int:
     """Startup sweep of the library temp folder: entries older than
     `max_age` whose owning job is not queued or running. Links (symlinks,
-    junctions) are left alone and never followed, and nothing outside the
-    library temp folder is touched. Returns the number removed."""
+    junctions) are left alone and never followed. Besides the temp folder it
+    removes separator checkpoints left truncated by a killed download (see
+    audio_preprocess.sweep_interrupted_downloads). Returns the number of
+    temp entries removed."""
     import background_jobs
     import db
+    try:
+        import audio_preprocess
+        audio_preprocess.sweep_interrupted_downloads()
+    except Exception:
+        pass  # a model-folder hiccup must not stop the temp sweep
     now = time.time() if now is None else now
     root = os.path.join(db.LIBRARY_DIR, TEMP_DIRNAME)
     if _is_link(root):
