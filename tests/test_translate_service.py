@@ -5,6 +5,8 @@ Tests for services/translate_service.py: Migration Slice 11's read-only
 Migration Slice 17's clear_history() is covered by TestClearHistory below.
 """
 
+import io
+
 import pytest
 
 import translate_engines
@@ -191,13 +193,14 @@ class TestOllamaUnavailable:
     def _fail_with(self, monkeypatch, exc=None, status=None):
         import requests
 
-        def fake_post(url, json=None, timeout=None):
+        def fake_post(url, json=None, timeout=None, stream=None):
             assert timeout
             if exc is not None:
                 raise exc
             resp = requests.Response()
             resp.status_code = status
             resp.url = url
+            resp.raw = io.BytesIO()
             return resp
         monkeypatch.setattr("requests.post", fake_post)
 

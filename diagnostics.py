@@ -2174,20 +2174,16 @@ def pypi_release_versions(dist: str, timeout: float = PYPI_JSON_TIMEOUT):
     import requests
     version_mod, _s, _r = _packaging()
     try:
+        from services import capped_body
         resp = requests.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json",
                             timeout=timeout, headers={"Accept": "application/json"},
                             stream=True, allow_redirects=False)
-        try:
-            if resp.status_code != 200:
-                return None
-            body = bytearray()
-            for chunk in resp.iter_content(65536):
-                body += chunk
-                if len(body) > PYPI_JSON_MAX_BYTES:
-                    return None
-        finally:
+        if resp.status_code != 200:
             resp.close()
-        releases = json.loads(bytes(body)).get("releases") or {}
+            return None
+        body = capped_body.read_capped(resp, PYPI_JSON_MAX_BYTES, timeout * 3,
+                                       lambda: ValueError("PyPI response too large"))
+        releases = json.loads(body).get("releases") or {}
     except Exception:
         return None
     out = []

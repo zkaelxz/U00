@@ -45,6 +45,11 @@ POLL_INTERVAL_SECONDS = 60
 # those a job just waits for a window it didn't strictly need to.
 DEEPSEEK_PEAK_HOURS_UTC = ((1, 4), (6, 10))
 
+# A finished Gemini batch carries every result inline in one reply, and
+# Gemini accepts up to 20 MB of inline requests, so the reply can be large.
+BATCH_RESPONSE_MAX_BYTES = 64 * 1024 * 1024
+BATCH_READ_DEADLINE_SECONDS = 300
+
 
 class BulkAuthError(Exception):
     """The provider refused our credentials while polling (the key was
@@ -163,9 +168,10 @@ class GeminiBatchProvider:
 
     def _check(self, resp):
         if resp.status_code in (401, 403):
+            resp.close()
             raise BulkAuthError(f"Gemini refused the API key (HTTP {resp.status_code}).")
-        resp.raise_for_status()
-        return resp.json()
+        return translate_engines.read_json_capped(resp, BATCH_READ_DEADLINE_SECONDS,
+                                                  BATCH_RESPONSE_MAX_BYTES)
 
     def _headers(self):
         return {"x-goog-api-key": self.engine.api_key}
@@ -174,7 +180,7 @@ class GeminiBatchProvider:
         import requests
         resp = requests.post(
             f"{self.BASE}/models/{self.engine.model}:batchGenerateContent",
-            headers=self._headers(), timeout=120,
+            headers=self._headers(), timeout=120, stream=True,
             json={"batch": {"display_name": "baihe-bulk-translation",
                             "input_config": {"requests": {"requests": requests_}}}})
         return self._check(resp)["name"]
@@ -182,7 +188,7 @@ class GeminiBatchProvider:
     def _get(self, batch_id: str) -> dict:
         import requests
         return self._check(requests.get(f"{self.BASE}/{batch_id}", headers=self._headers(),
-                                        timeout=60))
+                                        timeout=60, stream=True))
 
     @staticmethod
     def _state(data: dict) -> str:
@@ -231,7 +237,7 @@ class GeminiBatchProvider:
     def cancel(self, batch_id: str):
         import requests
         self._check(requests.post(f"{self.BASE}/{batch_id}:cancel", headers=self._headers(),
-                                  json={}, timeout=60))
+                                  json={}, timeout=60, stream=True))
 
 
 def make_provider(engine_choice: str, engine):

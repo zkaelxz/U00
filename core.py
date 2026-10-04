@@ -830,6 +830,10 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
 
 GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_DEFAULT_MODEL = "whisper-large-v3-turbo"
+# verbose_json segments for an hour of speech are a few MB; Groq's own upload
+# limit keeps a single file far below what would fill this.
+GROQ_RESPONSE_MAX_BYTES = 32 * 1024 * 1024
+GROQ_ERROR_MAX_BYTES = 64 * 1024
 
 
 class GroqTranscriptionError(RuntimeError):
@@ -857,6 +861,11 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     import os as _os
     import requests
     import translate_engines
+    from services import capped_body
+
+    def too_big():
+        return GroqTranscriptionError("Groq's reply was too large or too slow to read.")
+
     try:
         with open(audio_path, "rb") as f:
             resp = requests.post(
@@ -865,13 +874,21 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
                 files={"file": (_os.path.basename(audio_path), f)},
                 data={"model": model, "language": language,
                       "response_format": "verbose_json", "timestamp_granularities[]": "segment"},
-                timeout=600)
+                timeout=600, stream=True)
     except requests.RequestException as exc:
         raise GroqTranscriptionError(translate_engines.redact_secrets(str(exc))) from None
     if resp.status_code != 200:
+        try:
+            detail = capped_body.read_capped(resp, GROQ_ERROR_MAX_BYTES, 600, too_big)
+        except Exception:
+            detail = b""
         raise GroqTranscriptionError(translate_engines.redact_secrets(
-            f"Groq API returned {resp.status_code}: {resp.text[:300]}"))
-    data = resp.json()
+            f"Groq API returned {resp.status_code}: "
+            f"{detail.decode('utf-8', 'replace')[:300]}"))
+    try:
+        data = translate_engines.read_json_capped(resp, 600, GROQ_RESPONSE_MAX_BYTES, too_big)
+    except requests.RequestException as exc:
+        raise GroqTranscriptionError(translate_engines.redact_secrets(str(exc))) from None
     result = [{"start": seg["start"], "end": seg["end"], "text": seg["text"].strip()}
               for seg in data.get("segments", []) if seg.get("text", "").strip()]
     if progress_cb:

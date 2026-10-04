@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import qa
 import translate_engines as te
+from tests.http_fakes import StreamedBody
 
 
 class TestAskAboutDrama:
@@ -22,7 +23,7 @@ class TestAskAboutDrama:
         assert "doesn't support" in result.lower()
 
     def test_claude_shaped_engine(self):
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             content = [type("Block", (), {"type": "text", "text": "An answer."})()]
 
         class FakeClaudeLike:
@@ -42,7 +43,7 @@ class TestAskAboutDrama:
             class message:
                 content = "An OpenAI-shaped answer."
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             choices = [FakeChoice()]
 
         class FakeOpenAiLike:
@@ -59,7 +60,7 @@ class TestAskAboutDrama:
         assert result == "An OpenAI-shaped answer."
 
     def test_gemini_engine(self, monkeypatch):
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -71,7 +72,7 @@ class TestAskAboutDrama:
         assert result == "Gemini's answer."
 
     def test_free_tier_gemini_is_throttled(self, monkeypatch):
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -88,13 +89,13 @@ class TestAskAboutDrama:
     def test_ollama_engine_is_not_silently_skipped(self, monkeypatch):
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"message": {"content": "Ollama's answer."}}
 
-        def fake_post(url, json=None, timeout=None):
+        def fake_post(url, json=None, timeout=None, stream=None):
             captured["url"] = url
             captured["json"] = json
             return FakeResponse()
@@ -110,13 +111,13 @@ class TestAskAboutDrama:
     def test_ollama_chat_history_is_folded_into_one_prompt(self, monkeypatch):
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"message": {"content": "answer"}}
 
-        def fake_post(url, json=None, timeout=None):
+        def fake_post(url, json=None, timeout=None, stream=None):
             captured["json"] = json
             return FakeResponse()
         monkeypatch.setattr("requests.post", fake_post)

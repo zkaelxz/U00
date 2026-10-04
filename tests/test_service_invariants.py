@@ -18,6 +18,7 @@ import resegment
 from core import Line
 from services import drama_service, restructure_service, transcribe_service
 from services.service_errors import ConflictError, InvalidInputError
+from tests.http_fakes import StreamedBody
 
 LONG = "他说他明天会来，可是我不太相信他。因为他上次也是这么说的，结果根本没有出现"
 FIRST = "他说他明天会来，可是我不太相信他。"
@@ -351,7 +352,7 @@ class TestGlossaryTermDeleteInvariants:
 # B-27: a line-scoped run on another engine keeps the drama's engine
 # ---------------------------------------------------------------------------
 
-class _OllamaResp:
+class _OllamaResp(StreamedBody):
     status_code = 200
 
     def raise_for_status(self):

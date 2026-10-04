@@ -14,6 +14,7 @@ from core import (
     merge_adjacent_short_lines, chunk_novel_text,
     filter_hallucinated_segments,
 )
+from tests.http_fakes import StreamedBody
 
 
 class TestFmtTs:
@@ -941,7 +942,7 @@ class TestTranscribeWithGroq:
     result reaches the exact same downstream pipeline (alignment,
     diarization hand-off)."""
 
-    class _FakeResponse:
+    class _FakeResponse(StreamedBody):
         def __init__(self, status_code=200, segments=None, text=""):
             self.status_code = status_code
             self._segments = segments if segments is not None else []
@@ -956,7 +957,7 @@ class TestTranscribeWithGroq:
         audio.write_bytes(b"x")
         captured = {}
 
-        def fake_post(url, headers=None, files=None, data=None, timeout=None):
+        def fake_post(url, headers=None, files=None, data=None, timeout=None, stream=None):
             captured["url"], captured["headers"] = url, headers
             captured["data"], captured["timeout"] = data, timeout
             return self._FakeResponse(segments=[

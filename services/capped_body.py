@@ -37,7 +37,10 @@ def read_capped(resp, cap_bytes: int, deadline_seconds: float,
         clock = clock or time.monotonic
         started = clock()
         body = bytearray()
-        for chunk in resp.iter_content(chunk_size):
+        # requests names it iter_content, httpx iter_bytes; both yield decoded bytes.
+        chunks = (resp.iter_content(chunk_size) if hasattr(resp, "iter_content")
+                  else resp.iter_bytes(chunk_size))
+        for chunk in chunks:
             body.extend(chunk)
             if len(body) > cap_bytes:
                 raise make_error()

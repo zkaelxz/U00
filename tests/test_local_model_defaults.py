@@ -10,6 +10,7 @@ import pytest
 
 import core
 import translate_engines as te
+from tests.http_fakes import StreamedBody
 
 
 class TestOllamaDefaults:
@@ -25,13 +26,13 @@ class TestOllamaDefaults:
     def test_translate_requests_have_a_timeout_and_use_the_default_model(self, monkeypatch):
         seen = {}
 
-        class Resp:
+        class Resp(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"message": {"content": '{"1": "Hello."}'}}
 
-        def fake_post(url, json=None, timeout=None):
+        def fake_post(url, json=None, timeout=None, stream=None):
             seen.update(model=json["model"], timeout=timeout)
             return Resp()
         monkeypatch.setattr("requests.post", fake_post)
