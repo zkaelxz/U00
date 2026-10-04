@@ -149,7 +149,8 @@ GENERATED_HEADER = ("# Written by installer/service.py from deploy/caddy/Caddyfi
                     "# Don't edit it: enable-remote and every install write it again.\n")
 # What may be in the data folder before the service is given write access
 # to all of it: only what Baihe Studio itself keeps there.
-DATA_FOLDER_ENTRIES = {"library", ".env", "model_cache", "launcher", "desktop.ini", "thumbs.db"}
+DATA_FOLDER_ENTRIES = {"library", ".env", "model_cache", "launcher", "desktop.ini", "thumbs.db",
+                       "baihe_trash"}
 # The server's own settings: every one is written into the service's
 # environment, so a machine-wide variable (say BAIHE_API_HOUSEHOLD_PORT)
 # can never change what the service runs or add a listener. "" means the

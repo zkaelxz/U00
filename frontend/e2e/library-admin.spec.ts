@@ -160,7 +160,7 @@ test.describe('Backup & storage (mocked)', () => {
     await page.route('**/api/meta', (r) => r.fulfill({ json: {
       app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
     await openSection(page)
-    await expect(page.getByText('Run this on the main PC.')).toBeVisible()
+    await expect(page.getByText('Run this on the main PC.').first()).toBeVisible()
     await expect(page.getByRole('button', { name: /Back up library|Scan|Export all/ })).toHaveCount(0)
     await page.goto('/#/library')
     // Grid view: Select turns the cards into checkboxes.
