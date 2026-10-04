@@ -62,7 +62,7 @@ def test_referenced_and_unreferenced(c):
     did = _drama()
     used = _clip(did, f"clone_ref_{HEX}.wav")
     _clip(did, f"clone_pick_{HEX2}.wav", 250)
-    _clip(did, "voicebank_3_Ann.mp3", 50)
+    _clip(did, f"clone_ref_{HEX2}.mp3", 50)
     _point(did, "A", f"voice_refs/clone_ref_{HEX}.wav")
     body, clips = _ids(c)
     assert sorted(x["size_bytes"] for x in clips) == [50, 250]
@@ -97,6 +97,7 @@ def test_only_known_kinds_directly_in_voice_refs(c):
     _clip(did, f"candidates/{HEX}.wav")
     _clip(did, f"clone_ref_{HEX}.txt")
     _clip(did, f"clone_pick_{HEX}.mp3")
+    _clip(did, "voicebank_3_Ann.mp3")           # the app writes these to the title root
     with open(os.path.join(db.drama_dir(did), f"clone_ref_{HEX}.wav"), "wb") as fh:
         fh.write(b"x")                          # right name, wrong folder
     assert _ids(c)[1] == []
@@ -245,7 +246,6 @@ def test_ids_change_with_a_new_process_key(c, monkeypatch):
 
 def test_responses_name_no_file_or_path(c, tmp_path):
     did = _drama("Show")
-    _clip(did, "voicebank_3_Secret Ann.mp3")
     _clip(did, f"clone_pick_{HEX2}.wav")
     texts = [c.get(BASE).text]
     clips = _ids(c)[1]
@@ -254,7 +254,7 @@ def test_responses_name_no_file_or_path(c, tmp_path):
                  + [{"id": HEX, "expected_size_bytes": 1}], "confirm": True})
     texts.append(r.text)
     for t in texts:
-        for leak in ("Secret", "voicebank", "clone_pick", "clone_ref", "voice_refs",
+        for leak in ("clone_pick", "clone_ref", "voice_refs",
                      os.path.dirname(db.LIBRARY_DIR), db.LIBRARY_DIR):
             assert leak not in t
 
@@ -267,3 +267,176 @@ def test_empty_library_and_remote_refusal(c):
     assert remote.get(BASE).status_code in (401, 403, 404)
     assert remote.post(f"{BASE}/to-trash", json={"clips": [], "confirm": True}).status_code in (
         401, 403, 404, 422)
+
+
+# ---- failures part-way, put-back, hooks, root folder ----------------------------------
+
+def _two_clips(c):
+    did = _drama()
+    _clip(did, f"clone_ref_{HEX}.wav", 10)
+    _clip(did, f"clone_ref_{HEX2}.wav", 20)
+    return did, _ids(c)[1]
+
+
+def _body(clips):
+    return {"clips": [{"id": x["id"], "expected_size_bytes": x["size_bytes"]} for x in clips],
+            "confirm": True}
+
+
+def test_batch_failing_midway_reports_what_was_moved(c, monkeypatch):
+    _did, clips = _two_clips(c)
+    real = dus._move_to_trash
+    calls = []
+
+    def second_fails(*a, **kw):
+        calls.append(1)
+        if len(calls) == 2:
+            raise dus.ServiceError(dus.TRASH_FAILED)
+        return real(*a, **kw)
+    monkeypatch.setattr(dus, "_move_to_trash", second_fails)
+    r = c.post(f"{BASE}/to-trash", json=_body(clips))
+    assert r.status_code == 500
+    details = r.json()["error"]["details"]
+    assert details["moved_count"] == 1 and details["moved_bytes"] in (10, 20)
+    assert details["skipped"] == []
+
+
+def test_busy_midway_is_a_conflict_with_totals(c, monkeypatch):
+    _did, clips = _two_clips(c)
+    real = dus._move_to_trash
+    calls = []
+
+    def second_busy(*a, **kw):
+        calls.append(1)
+        if len(calls) == 2:
+            raise dus.ConflictError(dus.BUSY)
+        return real(*a, **kw)
+    monkeypatch.setattr(dus, "_move_to_trash", second_busy)
+    r = c.post(f"{BASE}/to-trash", json=_body(clips))
+    assert r.status_code == 409
+    assert r.json()["error"]["details"]["moved_count"] == 1
+
+
+def test_put_back_never_overwrites_what_is_already_there(c, monkeypatch):
+    did = _drama()
+    path = _clip(did, f"clone_ref_{HEX}.wav", 100)
+    cid = _ids(c)[1][0]["id"]
+    real = dus._rename
+
+    def pick_and_recreate(src, dst):
+        real(src, dst)
+        _point(did, "A", f"voice_refs/clone_ref_{HEX}.wav")
+        with open(src, "wb") as fh:             # a newer file now sits at the old place
+            fh.write(b"newer")
+    monkeypatch.setattr(dus, "_rename", pick_and_recreate)
+    r = c.post(f"{BASE}/to-trash", json=_body([{"id": cid, "size_bytes": 100}]))
+    assert r.status_code == 200 and r.json()["moved_count"] == 0
+    with open(path, "rb") as fh:
+        assert fh.read() == b"newer"
+
+
+def test_clip_held_by_an_undo_record_is_not_offered_or_moved(c, monkeypatch):
+    did = _drama()
+    path = _clip(did, f"clone_ref_{HEX}.wav")
+    cid = _ids(c)[1][0]["id"]
+    monkeypatch.setattr(dus, "_clips_held_by_undo", lambda d: {f"clone_ref_{HEX}.wav"})
+    assert _ids(c)[1] == []
+    assert dus._clip_still_unused(did, f"clone_ref_{HEX}.wav") is False
+    r = c.post(f"{BASE}/to-trash", json=_body([{"id": cid, "size_bytes": 100}]))
+    assert r.json()["moved_count"] == 0 and os.path.exists(path)
+
+
+def test_undo_hook_is_empty_until_records_exist(isolated_db):
+    assert dus._clips_held_by_undo(1) == set()
+
+
+def test_drive_root_data_folder_says_why_instead_of_skipping(c, monkeypatch):
+    _did, clips = _two_clips(c)
+    monkeypatch.setattr(dus, "_root_blocker", lambda root: dus.ROOT_TOO_BROAD)
+    r = c.post(f"{BASE}/to-trash", json=_body(clips))
+    assert r.status_code == 422 and "whole drive" in r.json()["error"]["message"]
+
+
+def test_more_than_500_clips_in_one_request_is_refused(c):
+    r = c.post(f"{BASE}/to-trash", json={
+        "clips": [{"id": f"{i:032x}", "expected_size_bytes": 1} for i in range(501)],
+        "confirm": True})
+    assert r.status_code == 422
+
+
+# ---- the title's clip lock against picks and uploads ----------------------------------
+
+def _candidate(did, cand_id, speaker="A"):
+    from services import voice_clone_service as vcs
+    cdir = os.path.join(db.drama_dir(did), "voice_refs", "candidates")
+    os.makedirs(cdir, exist_ok=True)
+    with open(os.path.join(cdir, f"{cand_id}.wav"), "wb") as fh:
+        fh.write(b"c" * 100)
+    vcs._save_manifest(did, {speaker: {"candidates": [{"id": cand_id, "start": 0, "end": 5}]}})
+    db.upsert_character(did, speaker)
+
+
+def _pick_in_thread(did, cand_id, errors):
+    import threading
+    from services import voice_clone_service as vcs
+
+    def run():
+        try:
+            vcs.choose_candidate(did, cand_id)
+        except BaseException as exc:            # surfaced by the test, not lost in the thread
+            errors.append(exc)
+    t = threading.Thread(target=run)
+    t.start()
+    return t
+
+
+def test_pick_between_check_and_rename_cannot_lose_the_file(c, monkeypatch):
+    did = _drama()
+    _candidate(did, HEX2)
+    clip = _clip(did, f"clone_pick_{HEX2}.wav", 100)     # left by an earlier pick, no row
+    cid = _ids(c)[1][0]["id"]
+    real, errors, threads = dus._rename, [], []
+
+    def pick_then_rename(src, dst):
+        threads.append(_pick_in_thread(did, HEX2, errors))
+        threads[0].join(0.3)
+        assert threads[0].is_alive(), "the pick should wait for the title's clip lock"
+        real(src, dst)
+    monkeypatch.setattr(dus, "_rename", pick_then_rename)
+    r = c.post(f"{BASE}/to-trash", json=_body([{"id": cid, "size_bytes": 100}]))
+    threads[0].join(10)
+    assert not errors and r.status_code == 200 and r.json()["moved_count"] == 1
+    row = db.list_characters(did)[0]
+    assert row["ref_audio_filename"] == f"voice_refs/clone_pick_{HEX2}.wav"
+    assert os.path.isfile(clip)
+
+
+def test_two_picks_of_one_candidate_both_end_with_the_file(isolated_db):
+    did = _drama()
+    _candidate(did, HEX2)
+    errors = []
+    threads = [_pick_in_thread(did, HEX2, errors) for _ in range(2)]
+    for t in threads:
+        t.join(10)
+    assert not errors and not any(t.is_alive() for t in threads)
+    rel = db.list_characters(did)[0]["ref_audio_filename"]
+    assert os.path.isfile(os.path.join(db.drama_dir(did), rel))
+    refs = os.path.join(db.drama_dir(did), "voice_refs")
+    assert [n for n in os.listdir(refs) if n.startswith(".pick_")] == []
+
+
+def test_pick_recopies_a_file_that_vanishes_before_its_row_is_saved(isolated_db, monkeypatch):
+    from services import voice_clone_service as vcs
+    did = _drama()
+    _candidate(did, HEX2)
+    real = db.upsert_character
+
+    def upsert_then_lose_file(*a, **kw):
+        out = real(*a, **kw)
+        victim = os.path.join(db.drama_dir(did), "voice_refs", f"clone_pick_{HEX2}.wav")
+        if os.path.exists(victim):
+            os.remove(victim)
+        return out
+    monkeypatch.setattr(db, "upsert_character", upsert_then_lose_file)
+    vcs.choose_candidate(did, HEX2)
+    assert os.path.isfile(os.path.join(db.drama_dir(did), "voice_refs", f"clone_pick_{HEX2}.wav"))

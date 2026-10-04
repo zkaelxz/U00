@@ -58,7 +58,7 @@ export interface DiskUsageMock {
   setPartial(on: boolean): void
 }
 
-export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?: boolean; slowScan?: number; trash?: { path: string; size: number; files: number; restorable?: boolean }[]; clips?: { title: string; clips: MockClip[] }[]; clipsInUse?: number } = {}): Promise<DiskUsageMock> {
+export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?: boolean; slowScan?: number; trash?: { path: string; size: number; files: number; restorable?: boolean }[]; clips?: { title: string; clips: MockClip[] }[]; clipsInUse?: number; clipsFailPost?: number } = {}): Promise<DiskUsageMock> {
   const tree: Record<string, Node[]> = JSON.parse(JSON.stringify(TREE))
   const state = { busy: null as string | null, partial: false }
   const trash: TrashEntry[] = (opts.trash ?? []).map((t, i) => {
@@ -100,6 +100,11 @@ export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?
       const body = req.postDataJSON()
       mock.posts.push({ path: 'clips-to-trash', body })
       if (state.busy) return route.fulfill(conflict(state.busy, 'busy'))
+      if (body.clips.length > 500) return route.fulfill({ status: 422, json: { error: { code: 'validation_error', message: 'Too many clips.' } } })
+      // The nth request stops part-way: two clips moved, then the library got busy.
+      if (opts.clipsFailPost === mock.posts.filter((p) => p.path === 'clips-to-trash').length) {
+        return route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'A job, restore or other library task is running.', details: { reason: 'busy', moved_count: 2, moved_bytes: 2, skipped: [] } } } })
+      }
       let moved = 0
       let bytes = 0
       const skipped: { id: string; reason: string }[] = []

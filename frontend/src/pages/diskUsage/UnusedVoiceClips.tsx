@@ -10,9 +10,10 @@ import { useState } from 'react'
 import { trashUnusedVoiceClips } from '../../api/diskUsage'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import type { UnusedVoiceClip, UnusedVoiceClipList } from '../../types/diskUsage'
+import type { UnusedVoiceClip, UnusedVoiceClipList, UnusedVoiceClipTrashDone } from '../../types/diskUsage'
 import {
-  UNUSED_CLIPS_INTRO, clipLine, clipTitle, clipsInUseText, clipsText, describeClipsMoved, formatBytes,
+  UNUSED_CLIPS_INTRO, clipBatches, clipLine, clipTitle, clipsDoneBeforeError, clipsInUseText, clipsText,
+  describeClipsMoved, describeClipsStopped, formatBytes, sumClipResults,
 } from './diskUsageModel'
 
 const SERVER = { pcOnly: true, serverText: true } as const
@@ -28,18 +29,26 @@ export function UnusedVoiceClips({ clips, onChanged, onStale }: Props) {
   const [error, setError] = useState<unknown>(null)
   if (!clips) return null
   const blocked = clips.busy_reason
-  const move = (which: string | 'all', chosen: UnusedVoiceClip[]) => {
+  const move = async (which: string | 'all', chosen: UnusedVoiceClip[]) => {
     setBusy(which)
     setError(null)
-    trashUnusedVoiceClips(chosen).then(
-      (r) => { setBusy(null); onChanged(describeClipsMoved(r)) },
-      (e: unknown) => {
-        setBusy(null)
+    const done: UnusedVoiceClipTrashDone[] = []
+    try {
+      // Sequential, and the first failure ends it: later batches could hit the same problem.
+      for (const batch of clipBatches(chosen)) done.push(await trashUnusedVoiceClips(batch))
+      setBusy(null)
+      onChanged(describeClipsMoved(sumClipResults(done)))
+    } catch (e) {
+      setBusy(null)
+      const so_far = sumClipResults([...done, clipsDoneBeforeError((e as { details?: unknown } | null)?.details)])
+      if (so_far.moved_count > 0 || so_far.skipped.length > 0) {
+        onChanged(describeClipsStopped(so_far, chosen.length, e instanceof Error ? e.message : 'something went wrong'))
+      } else {
         setError(e)
         // A 409 means a job started or the library is busy: show the new state.
         if ((e as { status?: number } | null)?.status === 409) onStale()
-      },
-    )
+      }
+    }
   }
   const all = clips.titles.flatMap((t) => t.clips)
   return (

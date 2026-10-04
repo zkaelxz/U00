@@ -134,3 +134,34 @@ export function describeClipsMoved(r: UnusedVoiceClipTrashDone): string {
   const n = r.skipped.length
   return n === 0 ? moved : `${moved} ${clipsText(n)} skipped: ${n === 1 ? 'it changed or a speaker started using it' : 'they changed or a speaker started using them'}.`
 }
+
+/** The server takes at most this many clips per request. */
+export const CLIP_BATCH_SIZE = 500
+
+export const clipBatches = <T,>(clips: T[], size = CLIP_BATCH_SIZE): T[][] => {
+  const out: T[][] = []
+  for (let i = 0; i < clips.length; i += size) out.push(clips.slice(i, i + size))
+  return out
+}
+
+/** Several batches' results added up (the skipped lists are joined). */
+export const sumClipResults = (rs: UnusedVoiceClipTrashDone[]): UnusedVoiceClipTrashDone => ({
+  moved_count: rs.reduce((n, r) => n + r.moved_count, 0),
+  moved_bytes: rs.reduce((n, r) => n + r.moved_bytes, 0),
+  skipped: rs.flatMap((r) => r.skipped),
+})
+
+/** What a batch that stopped part-way had already done, from the error's details (0 when it carries none). */
+export function clipsDoneBeforeError(details: unknown): UnusedVoiceClipTrashDone {
+  const d = (details ?? {}) as Partial<UnusedVoiceClipTrashDone>
+  return {
+    moved_count: typeof d.moved_count === 'number' ? d.moved_count : 0,
+    moved_bytes: typeof d.moved_bytes === 'number' ? d.moved_bytes : 0,
+    skipped: Array.isArray(d.skipped) ? d.skipped : [],
+  }
+}
+
+export function describeClipsStopped(done: UnusedVoiceClipTrashDone, total: number, reason: string): string {
+  const skipped = done.skipped.length > 0 ? ` ${clipsText(done.skipped.length)} skipped.` : ''
+  return `Moved ${done.moved_count.toLocaleString('en-US')} of ${clipsText(total)} (${formatBytes(done.moved_bytes)}) to Trash; stopped because ${reason.replace(/[.\s]+$/, '')}.${skipped} You can restore them from Trash.`
+}

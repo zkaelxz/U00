@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { DiskUsageItem } from '../../types/diskUsage'
 import {
   barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
+  CLIP_BATCH_SIZE, clipBatches, clipsDoneBeforeError, describeClipsStopped, sumClipResults,
   clipLine, clipTitle, clipsInUseText, describeClipsMoved, filesText, formatBytes, itemTone, moveBlock, percentText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
@@ -118,5 +119,32 @@ describe('unused voice clips text', () => {
       .toBe('Moved 2 clips (3.0 KB) to Trash. Nothing is freed until you delete them from Trash; you can restore them from there.')
     expect(describeClipsMoved({ moved_count: 0, moved_bytes: 0, skipped: [{ id: 'x', reason: 'changed' }] }))
       .toBe('No clips were moved. 1 clip skipped: it changed or a speaker started using it.')
+  })
+})
+
+describe('clip batches and partial failures', () => {
+  it('splits 501 clips into 500 + 1 and keeps the order', () => {
+    const batches = clipBatches(Array.from({ length: 501 }, (_, i) => i))
+    expect(batches.map((b) => b.length)).toEqual([CLIP_BATCH_SIZE, 1])
+    expect(batches[1]).toEqual([500])
+    expect(clipBatches([])).toEqual([])
+  })
+
+  it('adds batch results up and joins the skipped lists', () => {
+    expect(sumClipResults([
+      { moved_count: 2, moved_bytes: 20, skipped: [{ id: 'a', reason: 'changed' }] },
+      { moved_count: 1, moved_bytes: 5, skipped: [{ id: 'b', reason: 'no_longer_unused' }] },
+    ])).toEqual({ moved_count: 3, moved_bytes: 25, skipped: [{ id: 'a', reason: 'changed' }, { id: 'b', reason: 'no_longer_unused' }] })
+  })
+
+  it('reads what an error says was done, and tolerates details without it', () => {
+    expect(clipsDoneBeforeError({ reason: 'busy', moved_count: 4, moved_bytes: 40, skipped: [] }).moved_count).toBe(4)
+    expect(clipsDoneBeforeError(undefined)).toEqual({ moved_count: 0, moved_bytes: 0, skipped: [] })
+    expect(clipsDoneBeforeError({ moved_count: 'x' }).moved_count).toBe(0)
+  })
+
+  it('says "Moved N of M" and why it stopped', () => {
+    expect(describeClipsStopped({ moved_count: 502, moved_bytes: 2000, skipped: [{ id: 'a', reason: 'changed' }] }, 1001, 'A job is running.'))
+      .toBe('Moved 502 of 1,001 clips (2.0 KB) to Trash; stopped because A job is running. 1 clip skipped. You can restore them from Trash.')
   })
 })

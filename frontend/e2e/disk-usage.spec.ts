@@ -358,6 +358,31 @@ test('move all skips a clip a speaker started using and says so', async ({ page 
   await expect(clips.getByTestId('clips-line')).toHaveText('1 clip · 500.0 KB')
 })
 
+const manyClips = (n: number) => [{
+  title: 'Big Show', clips: Array.from({ length: n }, (_, i) => ({ id: i.toString(16).padStart(32, '0'), type: 'wav', size: 1 })),
+}]
+
+test('move all sends batches of at most 500 clips, one after another', async ({ page }) => {
+  const mock = await mockDiskUsage(page, { clips: manyClips(1001) })
+  const sec = await openSection(page)
+  const clips = sec.getByRole('region', { name: 'Unused voice clips' })
+  await clips.getByRole('button', { name: 'Move all unused voice clips to Trash' }).click()
+  await clips.getByRole('button', { name: /^Confirm: move 1,001 clips/ }).click()
+  await expect(sec.getByRole('status').filter({ hasText: 'Moved 1,001 clips' })).toBeVisible()
+  const sizes = mock.posts.filter((p) => p.path === 'clips-to-trash').map((p) => (p.body.clips as unknown[]).length)
+  expect(sizes).toEqual([500, 500, 1])
+})
+
+test('move all stops at the first failing batch and reports the totals', async ({ page }) => {
+  const mock = await mockDiskUsage(page, { clips: manyClips(1001), clipsFailPost: 2 })
+  const sec = await openSection(page)
+  const clips = sec.getByRole('region', { name: 'Unused voice clips' })
+  await clips.getByRole('button', { name: 'Move all unused voice clips to Trash' }).click()
+  await clips.getByRole('button', { name: /^Confirm: move 1,001 clips/ }).click()
+  await expect(sec.getByRole('status').filter({ hasText: 'Moved 502 of 1,001 clips' })).toContainText('stopped because A job, restore or other library task is running.')
+  expect(mock.posts.filter((p) => p.path === 'clips-to-trash')).toHaveLength(2)
+})
+
 test('titles with a clip-reading job are called out, and an empty list says so', async ({ page }) => {
   await mockDiskUsage(page, { clips: [], clipsInUse: 2 })
   const sec = await openSection(page)

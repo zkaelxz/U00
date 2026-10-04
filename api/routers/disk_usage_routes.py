@@ -1,7 +1,9 @@
 """
 api/routers/disk_usage_routes.py -- /api/data-usage/*: what is taking space in
 the app's data folder, move an item into Baihe's Trash folder, restore or
-permanently delete from it, move the automatic-backup folder. Thin adapter over services/disk_usage_service.py.
+permanently delete from it, move the automatic-backup folder, and list unused
+voice clips (GET /unused-voice-clips) and move them to Trash
+(POST /unused-voice-clips/to-trash). Thin adapter over services/disk_usage_service.py.
 
 Every route is local_only(): it reads and removes files on the PC. Paths in
 requests and responses are relative to the data folder; the path guard

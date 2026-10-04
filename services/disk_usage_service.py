@@ -865,11 +865,14 @@ def _move_to_trash(parts, real: str, item: dict, still_ok=None) -> str:
         raise
     if still_ok is not None and not still_ok():
         try:
-            _rename(payload, again)
+            _rename_no_overwrite(payload, again, item["kind"])
+        except FileExistsError:
+            pass                        # something is already back at the place: leave it be
         except OSError:
             raise ServiceError("The file was needed again as it was moved, but couldn't be put "
                                "back. Restore it from the Trash list.") from None
-        _drop_entry_shell(entry)
+        else:
+            _drop_entry_shell(entry)
         raise ConflictError(CHANGED, details={"reason": "changed"})
     return trash_id
 
@@ -1485,19 +1488,19 @@ def move(path, destination, confirm=False) -> dict:
 # --------------------------------------------------------------------------
 # Unused voice clips: list, and move to Trash
 # --------------------------------------------------------------------------
-# Only the three kinds of file the app writes into a title's voice_refs/
-# (uploads, picked candidates, voice-bank copies) are ever offered. Nothing in
+# Only the two kinds of file the app writes into a title's voice_refs/
+# (uploads and picked candidates) are ever offered. Voice-bank copies are
+# written to the title's root folder instead, so they are not scanned. Nothing in
 # a response names a file or a path: a clip is addressed by an id that only
 # this process can compute, so a client can't ask for a file it wasn't shown.
 
 VOICE_REFS_DIRNAME = "voice_refs"
 MAX_CLIP_BATCH = 500
 _CLIP_NAME_RE = re.compile(
-    r"(clone_ref_[0-9a-f]{32}\.(wav|mp3|m4a|flac|ogg)|clone_pick_[0-9a-f]{32}\.wav"
-    r"|voicebank_[0-9]+_.+\.(wav|mp3|m4a|flac|ogg))", re.IGNORECASE)
+    r"clone_ref_[0-9a-f]{32}\.(wav|mp3|m4a|flac|ogg)|clone_pick_[0-9a-f]{32}\.wav",
+    re.IGNORECASE)
 _CLIP_ID_RE = re.compile(r"[0-9a-f]{32}")
 _CLIP_KEY = secrets.token_bytes(32)     # ids die with the process; the list is fetched again
-CLIP_IN_USE = "A dub, narration or audiobook job is running for this title."
 
 
 def _clip_id(drama_id: int, name: str) -> str:
@@ -1513,6 +1516,15 @@ def _ref_key(stored) -> str:
     return str(stored).replace("\\", "/").rsplit("/", 1)[-1].casefold()
 
 
+def _clips_held_by_undo(drama_id: int) -> set:
+    """Last-name-part keys (see _ref_key) of clips a live "merge two speakers"
+    undo record can bring back after the merge cleared its Characters row.
+    HOOK: no such record exists in the database yet, so this is empty; when
+    undo records land, return their clip names here (the listing and both
+    re-checks already consult it)."""
+    return set()
+
+
 def _clip_still_unused(drama_id: int, name: str) -> bool:
     """Fresh answer, read when asked. False on any doubt, including an
     unreadable database."""
@@ -1521,6 +1533,8 @@ def _clip_still_unused(drama_id: int, name: str) -> bool:
         if voice_clone_service._clip_reading_job_active(drama_id):
             return False
         key = name.casefold()
+        if key in _clips_held_by_undo(drama_id):
+            return False
         return not any(_ref_key(r.get("ref_audio_filename") or "") == key
                        for r in db.list_characters(drama_id) if r.get("ref_audio_filename"))
     except Exception:
@@ -1540,7 +1554,7 @@ def _unused_clips_of(drama_id: int, ctx: _Ctx):
         if voice_clone_service._clip_reading_job_active(drama_id):
             return None
         used = {_ref_key(r["ref_audio_filename"]) for r in db.list_characters(drama_id)
-                if r.get("ref_audio_filename")}
+                if r.get("ref_audio_filename")} | _clips_held_by_undo(drama_id)
         entries = list(os.scandir(os.path.join(ctx.root, *folder_parts)))
     except (ServiceError, OSError, ValueError):
         return []
@@ -1601,7 +1615,8 @@ def trash_unused_voice_clips(clips, confirm=False) -> dict:
     where they can be restored. Every clip is looked up and checked again
     under the library hold, so one that was picked for a speaker, changed, or
     whose title started a clip-reading job since the list is skipped, not
-    moved. A busy library fails the whole call."""
+    moved. A busy library or a failed move stops the batch: the error's details carry
+    moved_count, moved_bytes and skipped for what was done before it."""
     _require_confirm(confirm)
     if not isinstance(clips, list) or not clips or len(clips) > MAX_CLIP_BATCH:
         raise InvalidInputError(f"Choose between 1 and {MAX_CLIP_BATCH} clips.")
@@ -1614,29 +1629,44 @@ def trash_unused_voice_clips(clips, confirm=False) -> dict:
         wanted.append((cid, size))
     if len({cid for cid, _ in wanted}) != len(wanted):
         raise InvalidInputError("A clip is listed twice.")
+    from services import voice_clone_service
     moved_bytes, moved, skipped = 0, 0, []
     with _changing("Disk usage voice clips"):
+        if _root_blocker(_root()):
+            # Checked here so the clips aren't reported as "changed": every
+            # path is protected when the data folder is a drive root or a
+            # home folder, and the person needs to hear that.
+            raise InvalidInputError(ROOT_TOO_BROAD)
         index, _titles, _in_use = _unused_clip_index()
-        for cid, expected in wanted:
-            hit = index.get(cid)
-            if hit is None:
-                skipped.append({"id": cid, "reason": "no_longer_unused"})
-                continue
-            drama_id, name, parts, _size = hit
-            try:
-                parts, real, item = _inspect_for_change("/".join(parts), "moving it")
-                if item["kind"] != "file" or item["size_bytes"] != expected:
-                    raise ConflictError(CHANGED, details={"reason": "changed"})
-                _move_to_trash(parts, real, item,
-                               still_ok=lambda d=drama_id, n=name: _clip_still_unused(d, n))
-            except ConflictError as exc:
-                if (exc.details or {}).get("reason") != "changed":
-                    raise
-                skipped.append({"id": cid, "reason": "changed"})
-                continue
-            except (NotFoundError, InvalidInputError):
-                skipped.append({"id": cid, "reason": "changed"})
-                continue
-            moved += 1
-            moved_bytes += item["size_bytes"]
+        try:
+            for cid, expected in wanted:
+                hit = index.get(cid)
+                if hit is None:
+                    skipped.append({"id": cid, "reason": "no_longer_unused"})
+                    continue
+                drama_id, name, parts, _size = hit
+                try:
+                    parts, real, item = _inspect_for_change("/".join(parts), "moving it")
+                    if item["kind"] != "file" or item["size_bytes"] != expected:
+                        raise ConflictError(CHANGED, details={"reason": "changed"})
+                    # The title's clip lock makes "no speaker points at it" and
+                    # the rename one step against a pick or upload.
+                    with voice_clone_service.clip_lock(drama_id):
+                        _move_to_trash(parts, real, item,
+                                       still_ok=lambda d=drama_id, n=name: _clip_still_unused(d, n))
+                except ConflictError as exc:
+                    if (exc.details or {}).get("reason") != "changed":
+                        raise
+                    skipped.append({"id": cid, "reason": "changed"})
+                    continue
+                except (NotFoundError, InvalidInputError):
+                    skipped.append({"id": cid, "reason": "changed"})
+                    continue
+                moved += 1
+                moved_bytes += item["size_bytes"]
+        except ServiceError as exc:
+            # What was already moved stays moved; say so with the failure.
+            raise type(exc)(exc.message, details={
+                **(exc.details or {}), "moved_count": moved, "moved_bytes": moved_bytes,
+                "skipped": skipped}) from None
     return {"moved_count": moved, "moved_bytes": moved_bytes, "skipped": skipped}
