@@ -9,7 +9,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { useLoad } from '../../hooks/useLoad'
 import { pcOnlyFetch } from '../../api/pcOnly'
 import type { PcMode } from '../../hooks/usePcOnly'
-import { GET_STARTED_STEPS, initialTranslator, translatorOptions } from './getStarted'
+import { GET_STARTED_STEPS, initialTranslator, translatorOptions } from './getStartedLogic'
 
 // The first-run card on an empty Library: the pipeline in five lines and a
 // choice of translator. A key is never typed here (Settings holds that form).

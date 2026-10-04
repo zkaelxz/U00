@@ -32,7 +32,7 @@ import {
   validateCreate, type CreateExtras,
 } from './libraryForm'
 import { GetStarted } from './libraryParity/GetStarted'
-import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStarted'
+import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
   autofillHref, countsLine, usageLine,
 } from './libraryParity/libraryParity'

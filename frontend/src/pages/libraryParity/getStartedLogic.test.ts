@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { TranslateEngine } from '../../types/translate'
-import { engineNeeds, initialTranslator, showGetStarted, translatorOptions } from './getStarted'
+import { engineNeeds, initialTranslator, showGetStarted, translatorOptions } from './getStartedLogic'
 
 const eng = (name: string, key_configured: boolean, free = false): TranslateEngine =>
   ({ name, label: `${name}.`, free, models: null, key_configured })
