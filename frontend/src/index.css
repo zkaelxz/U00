@@ -68,7 +68,6 @@
   --dur-2: 160ms;
   --dur-3: 240ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
-  interpolate-size: allow-keywords;
   --font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   --font-sans: 'Atkinson Hyperlegible', system-ui, 'Segoe UI Variable', 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
   --font-zh: 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans CJK SC';
@@ -393,16 +392,13 @@ details.section { border: 1px solid var(--border); border-radius: var(--radius);
 .card details.section, details.section details.section { border: 0; border-radius: 0; padding-inline: 0; }
 details.section > summary { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; cursor: pointer; min-width: 0; }
 .section-title { font-weight: 600; }
-/* Progressive enhancement: where ::details-content exists, opening slides the body (240ms); closing is instant so focus can move into a section the moment it opens. */
+/* Progressive enhancement: where ::details-content exists, the opened body fades in (240ms).
+   Fade only, never a height/clip animation: clipping the body would cut the 44px touch hit areas
+   of switches at its edges. */
 @supports selector(::details-content) {
-  details.section::details-content {
-    block-size: 0;
-    overflow: clip;
-    overflow-clip-margin: 16px;
-    transition: block-size var(--dur-3) var(--ease);
-  }
-  details.section[open]::details-content { block-size: auto; }
+  details.section[open]::details-content { animation: section-in var(--dur-3) var(--ease); }
 }
+@keyframes section-in { from { opacity: 0; } }
 .section-summary { color: var(--muted); font-size: var(--text-sm); min-width: 0; flex: 1 1 12rem; }
 .section-body { display: grid; gap: var(--space-3); margin-top: var(--space-3); min-width: 0; }
 
