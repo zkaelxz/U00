@@ -223,7 +223,38 @@ def _safe_alter(conn, sql: str):
 
 def init_db():
     with contextlib.closing(get_conn()) as conn:
-        conn.executescript("""
+        # Order matters: later steps read tables and columns that earlier
+        # ones create (the ownership step needs users and app_settings).
+        _create_library_tables(conn)
+        _create_series_tables(conn)
+        _create_line_annotation_tables(conn)
+        _create_bulk_job_tables(conn)
+        _create_reading_tables(conn)
+        _create_review_tables(conn)
+        _create_library_tool_tables(conn)
+        _create_job_tables(conn)
+        _create_metadata_research_tables(conn)
+        _create_core_indexes(conn)
+        _migrate_job_records_columns(conn)
+        _create_auth_tables(conn)
+        _migrate_line_columns(conn)
+        _migrate_drama_columns(conn)
+        _migrate_series_and_character_columns(conn)
+        _migrate_scanlate_columns(conn)
+        _migrate_bulk_job_columns(conn)
+        _migrate_vocab_and_style_columns(conn)
+        _migrate_ownership_columns(conn)
+        _migrate_auth_session_columns(conn)
+        _migrate_off_removed_test_engine(conn)
+        conn.commit()
+    _init_benchmark_lab_schema()
+    _migrate_gpu_lock_slots()
+    _migrate_line_refs_to_ids()
+    _migrate_step26e_profiles()
+
+
+def _create_library_tables(conn):
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS dramas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title_zh TEXT,
@@ -336,6 +367,11 @@ def init_db():
             media_type TEXT,         -- 'novel', 'audio_drama', 'manhwa', 'manga', 'manhua', 'game'
             created_at TEXT
         );
+    """)
+
+
+def _create_series_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS series (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -413,6 +449,11 @@ def init_db():
             FOREIGN KEY (series_character_id) REFERENCES series_characters(id) ON DELETE CASCADE,
             UNIQUE(drama_id, speaker_label, series_character_id)
         );
+    """)
+
+
+def _create_line_annotation_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS translation_notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -475,6 +516,11 @@ def init_db():
             created_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE SET NULL
         );
+    """)
+
+
+def _create_bulk_job_tables(conn):
+    conn.executescript("""
 
         -- Step 9 bulk mode: one row per submitted provider batch (or, for
         -- DeepSeek, per job scheduled into its next off-peak window), kept on
@@ -537,6 +583,11 @@ def init_db():
             PRIMARY KEY (bulk_job_id, line_id),
             FOREIGN KEY (bulk_job_id) REFERENCES bulk_jobs(id) ON DELETE CASCADE
         );
+    """)
+
+
+def _create_reading_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS line_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -610,6 +661,11 @@ def init_db():
             created_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
+    """)
+
+
+def _create_review_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS bug_reports (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -662,6 +718,11 @@ def init_db():
             created_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
+    """)
+
+
+def _create_library_tool_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS benchmark_cases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -743,6 +804,11 @@ def init_db():
             source_speaker TEXT,
             created_at TEXT
         );
+    """)
+
+
+def _create_job_tables(conn):
+    conn.executescript("""
 
         -- Step 25w: cross-process GPU guard. background_jobs.py's own guard
         -- (Step 5c) is plain in-process module state, invisible to a separate OS
@@ -864,6 +930,11 @@ def init_db():
             created_at REAL NOT NULL,
             PRIMARY KEY (drama_id, line_id)
         );
+    """)
+
+
+def _create_metadata_research_tables(conn):
+    conn.executescript("""
 
         -- Step 37: grounded metadata research. The cache is keyed by the
         -- looked-up entity (not the drama), so a repeat lookup never
@@ -900,6 +971,11 @@ def init_db():
             status TEXT NOT NULL,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
+    """)
+
+
+def _create_core_indexes(conn):
+    conn.executescript("""
 
         CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
         CREATE INDEX IF NOT EXISTS idx_characters_drama ON characters(drama_id);
@@ -920,24 +996,30 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_benchmark_runs_case ON benchmark_runs(case_id);
         CREATE INDEX IF NOT EXISTS idx_translate_history_created ON translate_history(created_at);
         CREATE INDEX IF NOT EXISTS idx_voice_bank_name ON voice_bank(name);
-        """)
-        # Migration Slice 22: cross-process cancel request flag on the job mirror.
-        jr_cols = {r[1] for r in conn.execute("PRAGMA table_info(job_records)").fetchall()}
-        if "cancel_requested" not in jr_cols:
-            _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN cancel_requested INTEGER DEFAULT 0")
-        # A job's redacted, allowlisted result (services/jobs_service.project_result),
-        # JSON-encoded, so the API can tell a "done" job that failed from one that worked.
-        if "result_json" not in jr_cols:
-            _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN result_json TEXT")
-        # The OS pid of the process running the job, so a row whose owner
-        # has exited can be closed at once instead of after the heartbeat
-        # cutoff (services/jobs_service.sweep_stale_job_records).
-        if "owner_pid" not in jr_cols:
-            _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN owner_pid INTEGER")
-        # Step 133: API users, permissions, server-side sessions, audit log.
-        # Additive only; nothing above is touched. Session ids / CSRF tokens
-        # are stored as SHA-256 hashes only (see services/auth_service.py).
-        conn.executescript("""
+    """)
+
+
+def _migrate_job_records_columns(conn):
+    # Migration Slice 22: cross-process cancel request flag on the job mirror.
+    jr_cols = {r[1] for r in conn.execute("PRAGMA table_info(job_records)").fetchall()}
+    if "cancel_requested" not in jr_cols:
+        _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN cancel_requested INTEGER DEFAULT 0")
+    # A job's redacted, allowlisted result (services/jobs_service.project_result),
+    # JSON-encoded, so the API can tell a "done" job that failed from one that worked.
+    if "result_json" not in jr_cols:
+        _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN result_json TEXT")
+    # The OS pid of the process running the job, so a row whose owner
+    # has exited can be closed at once instead of after the heartbeat
+    # cutoff (services/jobs_service.sweep_stale_job_records).
+    if "owner_pid" not in jr_cols:
+        _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN owner_pid INTEGER")
+
+
+def _create_auth_tables(conn):
+    # Step 133: API users, permissions, server-side sessions, audit log.
+    # Additive only; nothing above is touched. Session ids / CSRF tokens
+    # are stored as SHA-256 hashes only (see services/auth_service.py).
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             google_sub TEXT UNIQUE,
@@ -974,278 +1056,300 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, id);
         CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id, id);
-        """)
-        # Lightweight migrations for DBs created before these columns existed
-        existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
-        if "speaker" not in existing_cols:
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN speaker TEXT")
-        if "dub_filename" not in existing_cols:
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN dub_filename TEXT")
-        if "flag" not in existing_cols:
-            # A key from translate_engines.FLAG_REASONS, set by flag_uncertain_lines()
-            # -- the review queue for a long file, so a person doesn't have to
-            # scan every line to find the handful worth a second look.
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag TEXT")
-        if "flag_note" not in existing_cols:
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag_note TEXT")
-        if "speaker_manual" not in existing_cols:
-            # 1 once a line's speaker was set by hand; re-running speaker
-            # detection won't overwrite it without confirmation (Step 4).
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN speaker_manual INTEGER DEFAULT 0")
-        if "sfx" not in existing_cols:
-            # 1 for a non-verbal/SFX cue line ("[door slams]") -- exported
-            # bracketed and styled apart from dialogue (Step 12c).
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN sfx INTEGER DEFAULT 0")
-        drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
-        if "translation_engine" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN translation_engine TEXT DEFAULT 'claude'")
-        if "content_mode" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN content_mode TEXT DEFAULT 'audio_drama'")
-        if "narration_language" not in drama_cols:
-            # Step 26c: novel narration only -- 'translation' (default, existing
-            # behavior) speaks ln.en; 'original' speaks ln.zh (the app's generic
-            # source-text field, holding ja/ko source text too when that's the
-            # drama's actual source_language).
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN narration_language TEXT DEFAULT 'translation'")
-        if "source_video_filename" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_video_filename TEXT")
-        if "source_language" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_language TEXT DEFAULT 'zh'")
-        if "chinese_script" not in drama_cols:
-            # Only meaningful when source_language == "zh": Whisper transcription
-            # and LLM translation don't care (they read/produce either script
-            # fine), but OCR (Tesseract's chi_sim vs chi_tra language pack) and
-            # jieba segmentation (built for Simplified, degrades on Traditional)
-            # both need to know which one they're looking at.
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN chinese_script TEXT DEFAULT 'simplified'")
-        if "media_type" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN media_type TEXT DEFAULT 'audio_drama'")
-        if "series_id" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN series_id INTEGER")
-        if "episode_number" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_number INTEGER")
-        if "episode_summary" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_summary TEXT")
-        if "updated_at" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN updated_at TEXT")
-        for col, coltype in [("last_translate_errors", "TEXT"),
-                              ("author_romanized", "TEXT"), ("studio_romanized", "TEXT"),
-                              ("voice_actors_romanized", "TEXT"), ("director_romanized", "TEXT"),
-                              ("cover_art_filename", "TEXT"), ("genre", "TEXT"),
-                              ("publication_status", "TEXT"), ("chapter_count", "INTEGER"),
-                              ("custom_tags", "TEXT"), ("personal_notes", "TEXT"),
-                              # The original URL a stream/VOD was downloaded from --
-                              # title_en/title_zh already double as translated/
-                              # untranslated stream name, this was the missing piece
-                              # (no dedicated "where did this come from" field existed).
-                              ("source_url", "TEXT"),
-                              # Recognition/alignment pipeline choices -- previously only
-                              # lived in Streamlit session_state, which resets on every
-                              # app restart, so "I don't have a transcript" (and the
-                              # model/backend picks) had to be re-selected every time.
-                              ("transcript_mode", "TEXT"), ("whisper_size", "TEXT"),
-                              ("alignment_method", "TEXT"), ("asr_backend_choice", "TEXT"),
-                              # Migration Slice 20: the remaining Whisper-tuning knobs that
-                              # transcript_mode/whisper_size/alignment_method/asr_backend_choice
-                              # (above) didn't already cover -- these previously lived only in
-                              # Streamlit session_state (min_silence_ms) or as bare widget
-                              # defaults with no persistence at all, so a stateless API client
-                              # had nowhere to read a real per-drama default from.
-                              ("min_silence_ms", "INTEGER DEFAULT 300"),
-                              ("vad_threshold", "REAL DEFAULT 0.5"),
-                              ("beam_size", "INTEGER DEFAULT 5"),
-                              ("separate_vocals_first", "INTEGER DEFAULT 0"),
-                              ("separation_backend", "TEXT DEFAULT 'auto'"),
-                              ("realign_long_segments", "INTEGER DEFAULT 0"),
-                              ("whisper_fast_mode", "INTEGER DEFAULT 0"),
-                              ("use_groq", "INTEGER DEFAULT 0"),
-                              # Migration Slice 21: hardsub_ocr's own two tuning knobs --
-                              # same "previously session-state only" gap as Slice 20's.
-                              ("hardsub_ocr_backend", "TEXT"),
-                              ("hardsub_interval_sec", "REAL DEFAULT 1.0"),
-                              # Step 12e: freeform, multi-line instructions that DO reach
-                              # the translation prompt (translate_engines.build_llm_instructions)
-                              # -- unlike personal_notes above, which is private and never
-                              # sent anywhere. The series-level counterpart is
-                              # series.instructions, inherited by every drama in the series.
-                              ("project_instructions", "TEXT"),
-                              # Roadmap 112: the Notion page this drama was last exported
-                              # to (services/notion_service.py), so a re-export updates
-                              # that page in place. Only the id, never a token or URL.
-                              ("notion_page_id", "TEXT")]:
-            if col not in drama_cols:
-                _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
-        series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
-        if "instructions" not in series_cols:
-            _safe_alter(conn, "ALTER TABLE series ADD COLUMN instructions TEXT")
-        char_cols = {r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()}
-        if "ref_audio_filename" not in char_cols:
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_audio_filename TEXT")
-        if "ref_text" not in char_cols:
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_text TEXT")
-        if "elevenlabs_voice_id" not in char_cols:
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN elevenlabs_voice_id TEXT")
-        if "clone_engine" not in char_cols:
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN clone_engine TEXT")
-        if "voice_design" not in char_cols:
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN voice_design TEXT")
-        if "offline_voice" not in char_cols:
-            # Step 25c: Piper can't load an edge-tts voice name, so the offline
-            # engine gets its own per-character voice instead of reading tts_voice.
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN offline_voice TEXT")
-        if "series_character_id" not in char_cols:
-            # Links this drama's speaker to a persistent series_characters row,
-            # so renaming/updating the series-level character (once) reflects
-            # everywhere it's been assigned, instead of needing a per-drama edit.
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN series_character_id INTEGER")
-        if "pronouns" not in char_cols:
-            # Per-drama pronoun text ("she/her", "they/them", "xe/xem", ...) --
-            # lets a drama with no series set pronouns at all, and overrides
-            # the linked series character's value when both are set.
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN pronouns TEXT")
-        gloss_cols = {r[1] for r in conn.execute("PRAGMA table_info(glossary_terms)").fetchall()}
-        if "category" not in gloss_cols:
-            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN category TEXT")
-        if "policy" not in gloss_cols:
-            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN policy TEXT")
-        if "enforce_exact" not in gloss_cols:
-            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN enforce_exact INTEGER DEFAULT 0")
-        if "aliases" not in gloss_cols:
-            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN aliases TEXT")
-        if "banned_translations" not in gloss_cols:
-            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN banned_translations TEXT")
-        sc_cols = {r[1] for r in conn.execute("PRAGMA table_info(series_characters)").fetchall()}
-        if "gender" not in sc_cols:
-            # Feeds translation as a fixed pronoun hint for this character
-            # (e.g. "Su Shan: she/her") -- Mandarin's spoken 他/她/它 are
-            # homophones, so Whisper's transcribed character for a pronoun is
-            # not a reliable gender signal on its own, and misgendering a
-            # named character is a much more visible error than an ambiguous
-            # unnamed one. NULL/"" means unset -- no hint is added for that
-            # character, distinct from "unspecified" as a deliberate choice.
-            _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN gender TEXT")
-        usage_cols = {r[1] for r in conn.execute("PRAGMA table_info(usage_log)").fetchall()}
-        if "cache_read_tokens" not in usage_cols:
-            # Step 9: the part of input_tokens served from a provider prompt
-            # cache, so the dashboard can show how often caching actually hits.
-            _safe_alter(conn, "ALTER TABLE usage_log ADD COLUMN cache_read_tokens INTEGER DEFAULT 0")
-        if "voice_fingerprint" not in sc_cols:
-            # Step 8: a running-average pyannote voice embedding (JSON list of
-            # floats), built up from every drama where a speaker was confirmed
-            # (by Accept, never automatically) as this character -- see
-            # update_series_character_voice_fingerprint(). Compared by cosine
-            # similarity against a NEW drama's own per-speaker embeddings to
-            # suggest "this speaker sounds like <name>". NULL until at least
-            # one confirmed sample exists.
-            _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint TEXT")
-            _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint_samples INTEGER DEFAULT 0")
-        bubble_cols = {r[1] for r in conn.execute("PRAGMA table_info(bubbles)").fetchall()}
-        if "font_category" not in bubble_cols:
-            # One of scanlate.FONT_CATEGORIES ("regular"/"bold"/"handwritten"),
-            # auto-filled from sample_text_style()'s classical-CV stroke-weight/
-            # irregularity analysis at detection time, editable per bubble
-            # before render -- see scanlate.py's own docstring for why this
-            # isn't a trained font-classifier model.
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN font_category TEXT DEFAULT 'regular'")
-        if "kind" not in bubble_cols:
-            # Step 12d: each bubble row is a structured text region (see
-            # scanlate.TextRegion) -- region type from classify_text_regions(),
-            # the detector's own confidence (NULL for the OpenCV heuristic,
-            # which has none), language, text orientation, and panel. Rows
-            # predating this are all speech bubbles, hence kind's default.
-            # include_sfx is the per-region override that puts an SFX region
-            # back into the automated inpaint-and-replace pass.
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind TEXT DEFAULT 'bubble'")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind_confidence REAL")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN confidence REAL")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN language TEXT")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN orientation TEXT")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
-        page_cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)").fetchall()}
-        if "rev" not in page_cols:
-            # Scanlate S0: rev is bumped by every id-preserving region write
-            # (insert/update/delete/reorder/replace_bubbles_if_unchanged; not
-            # the legacy save_bubbles); context_summary is the rolling
-            # translation context after this page; run_notes is a redacted
-            # JSON list of {level, message} from the last automatic run.
-            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN rev INTEGER DEFAULT 0")
-        if "context_summary" not in page_cols:
-            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN context_summary TEXT")
-        if "run_notes" not in page_cols:
-            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN run_notes TEXT")
-        bulk_job_cols ={r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
-        if "kind" not in bulk_job_cols:
-            # Step 9d: see the `bulk_jobs` table's own comment above -- every
-            # bulk job predating this column was a translation job.
-            _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'translate'")
-            _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN stage TEXT")
-            _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN pipeline_id TEXT")
-        bulk_job_line_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_job_lines)").fetchall()}
-        if "result_text" not in bulk_job_line_cols:
-            _safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN result_text TEXT")
-            _safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN state_at_submit TEXT")
-        vocab_cols = {r[1] for r in conn.execute("PRAGMA table_info(vocab_lookups)").fetchall()}
-        if "export_rich" not in vocab_cols:
-            # Step 20b: flags a lookup as queued for the richer sentence+audio
-            # Anki card type, set from the Reader right where the word was
-            # looked up, rather than only via a bulk end-of-session export.
-            _safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
-        style_cols = {r[1] for r in conn.execute("PRAGMA table_info(style_profile)").fetchall()}
-        if "history_json" not in style_cols:
-            # Earlier learned-style profiles (newest first, at most
-            # STYLE_HISTORY_KEEP), so a learn or reset can be undone.
-            _safe_alter(conn, "ALTER TABLE style_profile ADD COLUMN history_json TEXT")
-        # Auth slice B1: ownership and sharing (services/ownership_service.py).
-        # Existing rows keep owner_user_id NULL / is_private 0, meaning "the PC
-        # owner / admins, shared" -- no admin id is guessed.
-        for table, col, coltype in (
-            ("dramas", "owner_user_id", "INTEGER"),
-            ("dramas", "is_private", "INTEGER DEFAULT 0"),
-            ("series", "owner_user_id", "INTEGER"),
-            ("series", "is_private", "INTEGER DEFAULT 0"),
-            ("users", "share_by_default", "INTEGER DEFAULT 0"),
-            ("translate_history", "user_id", "INTEGER"),
-            ("job_records", "owner_user_id", "INTEGER"),
-        ):
-            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-            if col not in cols:
-                _safe_alter(conn, f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
-        # New items became private by default (user decision 2026-09-30).
-        # A users.share_by_default added before that defaulted to 1, which
-        # nobody chose (nothing could set it): switch every account off once.
-        # The marker keeps later choices across restarts.
-        user_cols = {r[1]: r[4] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
-        marker = "migrations.share_by_default_off"
-        if str(user_cols.get("share_by_default")) == "1" and conn.execute(
-                "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
-            conn.execute("UPDATE users SET share_by_default = 0")
-            conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
-        session_cols = {r[1] for r in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
-        if "device_label" not in session_cols:
-            # A coarse "Chrome on Android" label (auth_service.device_label),
-            # the only device detail the signed-in-devices list shows.
-            _safe_alter(conn, "ALTER TABLE auth_sessions ADD COLUMN device_label TEXT DEFAULT ''")
-        # Sessions from before the label kept the first 60 characters of the
-        # user agent: label them from it, then drop it, so no raw user agent
-        # stays stored. Rows already blanked don't match, so this runs once.
-        old_agents = conn.execute(
-            "SELECT id, user_agent_short, device_label FROM auth_sessions "
-            "WHERE user_agent_short IS NOT NULL AND user_agent_short != ''").fetchall()
-        if old_agents:
-            from services.auth_service import device_label
-            conn.executemany(
-                "UPDATE auth_sessions SET device_label = ?, user_agent_short = '' WHERE id = ?",
-                [(r[2] or device_label(r[1]), r[0]) for r in old_agents])
-        # The fake "test_offline" engine is gone: a drama or preset still on it
-        # goes back to the default engine instead of failing to start a run.
-        conn.execute("UPDATE dramas SET translation_engine = 'claude' WHERE translation_engine = 'test_offline'")
-        conn.execute("UPDATE presets SET translation_engine = 'claude' WHERE translation_engine = 'test_offline'")
-        conn.commit()
-    _init_benchmark_lab_schema()
-    _migrate_gpu_lock_slots()
-    _migrate_line_refs_to_ids()
-    _migrate_step26e_profiles()
+    """)
+
+
+def _migrate_line_columns(conn):
+    # Lightweight migrations for DBs created before these columns existed
+    existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
+    if "speaker" not in existing_cols:
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN speaker TEXT")
+    if "dub_filename" not in existing_cols:
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN dub_filename TEXT")
+    if "flag" not in existing_cols:
+        # A key from translate_engines.FLAG_REASONS, set by flag_uncertain_lines()
+        # -- the review queue for a long file, so a person doesn't have to
+        # scan every line to find the handful worth a second look.
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag TEXT")
+    if "flag_note" not in existing_cols:
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag_note TEXT")
+    if "speaker_manual" not in existing_cols:
+        # 1 once a line's speaker was set by hand; re-running speaker
+        # detection won't overwrite it without confirmation (Step 4).
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN speaker_manual INTEGER DEFAULT 0")
+    if "sfx" not in existing_cols:
+        # 1 for a non-verbal/SFX cue line ("[door slams]") -- exported
+        # bracketed and styled apart from dialogue (Step 12c).
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN sfx INTEGER DEFAULT 0")
+
+
+def _migrate_drama_columns(conn):
+    drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
+    if "translation_engine" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN translation_engine TEXT DEFAULT 'claude'")
+    if "content_mode" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN content_mode TEXT DEFAULT 'audio_drama'")
+    if "narration_language" not in drama_cols:
+        # Step 26c: novel narration only -- 'translation' (default, existing
+        # behavior) speaks ln.en; 'original' speaks ln.zh (the app's generic
+        # source-text field, holding ja/ko source text too when that's the
+        # drama's actual source_language).
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN narration_language TEXT DEFAULT 'translation'")
+    if "source_video_filename" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_video_filename TEXT")
+    if "source_language" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_language TEXT DEFAULT 'zh'")
+    if "chinese_script" not in drama_cols:
+        # Only meaningful when source_language == "zh": Whisper transcription
+        # and LLM translation don't care (they read/produce either script
+        # fine), but OCR (Tesseract's chi_sim vs chi_tra language pack) and
+        # jieba segmentation (built for Simplified, degrades on Traditional)
+        # both need to know which one they're looking at.
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN chinese_script TEXT DEFAULT 'simplified'")
+    if "media_type" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN media_type TEXT DEFAULT 'audio_drama'")
+    if "series_id" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN series_id INTEGER")
+    if "episode_number" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_number INTEGER")
+    if "episode_summary" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_summary TEXT")
+    if "updated_at" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN updated_at TEXT")
+    for col, coltype in [("last_translate_errors", "TEXT"),
+                          ("author_romanized", "TEXT"), ("studio_romanized", "TEXT"),
+                          ("voice_actors_romanized", "TEXT"), ("director_romanized", "TEXT"),
+                          ("cover_art_filename", "TEXT"), ("genre", "TEXT"),
+                          ("publication_status", "TEXT"), ("chapter_count", "INTEGER"),
+                          ("custom_tags", "TEXT"), ("personal_notes", "TEXT"),
+                          # The original URL a stream/VOD was downloaded from --
+                          # title_en/title_zh already double as translated/
+                          # untranslated stream name, this was the missing piece
+                          # (no dedicated "where did this come from" field existed).
+                          ("source_url", "TEXT"),
+                          # Recognition/alignment pipeline choices -- previously only
+                          # lived in Streamlit session_state, which resets on every
+                          # app restart, so "I don't have a transcript" (and the
+                          # model/backend picks) had to be re-selected every time.
+                          ("transcript_mode", "TEXT"), ("whisper_size", "TEXT"),
+                          ("alignment_method", "TEXT"), ("asr_backend_choice", "TEXT"),
+                          # Migration Slice 20: the remaining Whisper-tuning knobs that
+                          # transcript_mode/whisper_size/alignment_method/asr_backend_choice
+                          # (above) didn't already cover -- these previously lived only in
+                          # Streamlit session_state (min_silence_ms) or as bare widget
+                          # defaults with no persistence at all, so a stateless API client
+                          # had nowhere to read a real per-drama default from.
+                          ("min_silence_ms", "INTEGER DEFAULT 300"),
+                          ("vad_threshold", "REAL DEFAULT 0.5"),
+                          ("beam_size", "INTEGER DEFAULT 5"),
+                          ("separate_vocals_first", "INTEGER DEFAULT 0"),
+                          ("separation_backend", "TEXT DEFAULT 'auto'"),
+                          ("realign_long_segments", "INTEGER DEFAULT 0"),
+                          ("whisper_fast_mode", "INTEGER DEFAULT 0"),
+                          ("use_groq", "INTEGER DEFAULT 0"),
+                          # Migration Slice 21: hardsub_ocr's own two tuning knobs --
+                          # same "previously session-state only" gap as Slice 20's.
+                          ("hardsub_ocr_backend", "TEXT"),
+                          ("hardsub_interval_sec", "REAL DEFAULT 1.0"),
+                          # Step 12e: freeform, multi-line instructions that DO reach
+                          # the translation prompt (translate_engines.build_llm_instructions)
+                          # -- unlike personal_notes above, which is private and never
+                          # sent anywhere. The series-level counterpart is
+                          # series.instructions, inherited by every drama in the series.
+                          ("project_instructions", "TEXT"),
+                          # Roadmap 112: the Notion page this drama was last exported
+                          # to (services/notion_service.py), so a re-export updates
+                          # that page in place. Only the id, never a token or URL.
+                          ("notion_page_id", "TEXT")]:
+        if col not in drama_cols:
+            _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
+
+
+def _migrate_series_and_character_columns(conn):
+    series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
+    if "instructions" not in series_cols:
+        _safe_alter(conn, "ALTER TABLE series ADD COLUMN instructions TEXT")
+    char_cols = {r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()}
+    if "ref_audio_filename" not in char_cols:
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_audio_filename TEXT")
+    if "ref_text" not in char_cols:
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_text TEXT")
+    if "elevenlabs_voice_id" not in char_cols:
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN elevenlabs_voice_id TEXT")
+    if "clone_engine" not in char_cols:
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN clone_engine TEXT")
+    if "voice_design" not in char_cols:
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN voice_design TEXT")
+    if "offline_voice" not in char_cols:
+        # Step 25c: Piper can't load an edge-tts voice name, so the offline
+        # engine gets its own per-character voice instead of reading tts_voice.
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN offline_voice TEXT")
+    if "series_character_id" not in char_cols:
+        # Links this drama's speaker to a persistent series_characters row,
+        # so renaming/updating the series-level character (once) reflects
+        # everywhere it's been assigned, instead of needing a per-drama edit.
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN series_character_id INTEGER")
+    if "pronouns" not in char_cols:
+        # Per-drama pronoun text ("she/her", "they/them", "xe/xem", ...) --
+        # lets a drama with no series set pronouns at all, and overrides
+        # the linked series character's value when both are set.
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN pronouns TEXT")
+    gloss_cols = {r[1] for r in conn.execute("PRAGMA table_info(glossary_terms)").fetchall()}
+    if "category" not in gloss_cols:
+        _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN category TEXT")
+    if "policy" not in gloss_cols:
+        _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN policy TEXT")
+    if "enforce_exact" not in gloss_cols:
+        _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN enforce_exact INTEGER DEFAULT 0")
+    if "aliases" not in gloss_cols:
+        _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN aliases TEXT")
+    if "banned_translations" not in gloss_cols:
+        _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN banned_translations TEXT")
+    sc_cols = {r[1] for r in conn.execute("PRAGMA table_info(series_characters)").fetchall()}
+    if "gender" not in sc_cols:
+        # Feeds translation as a fixed pronoun hint for this character
+        # (e.g. "Su Shan: she/her") -- Mandarin's spoken 他/她/它 are
+        # homophones, so Whisper's transcribed character for a pronoun is
+        # not a reliable gender signal on its own, and misgendering a
+        # named character is a much more visible error than an ambiguous
+        # unnamed one. NULL/"" means unset -- no hint is added for that
+        # character, distinct from "unspecified" as a deliberate choice.
+        _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN gender TEXT")
+    usage_cols = {r[1] for r in conn.execute("PRAGMA table_info(usage_log)").fetchall()}
+    if "cache_read_tokens" not in usage_cols:
+        # Step 9: the part of input_tokens served from a provider prompt
+        # cache, so the dashboard can show how often caching actually hits.
+        _safe_alter(conn, "ALTER TABLE usage_log ADD COLUMN cache_read_tokens INTEGER DEFAULT 0")
+    if "voice_fingerprint" not in sc_cols:
+        # Step 8: a running-average pyannote voice embedding (JSON list of
+        # floats), built up from every drama where a speaker was confirmed
+        # (by Accept, never automatically) as this character -- see
+        # update_series_character_voice_fingerprint(). Compared by cosine
+        # similarity against a NEW drama's own per-speaker embeddings to
+        # suggest "this speaker sounds like <name>". NULL until at least
+        # one confirmed sample exists.
+        _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint TEXT")
+        _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint_samples INTEGER DEFAULT 0")
+
+
+def _migrate_scanlate_columns(conn):
+    bubble_cols = {r[1] for r in conn.execute("PRAGMA table_info(bubbles)").fetchall()}
+    if "font_category" not in bubble_cols:
+        # One of scanlate.FONT_CATEGORIES ("regular"/"bold"/"handwritten"),
+        # auto-filled from sample_text_style()'s classical-CV stroke-weight/
+        # irregularity analysis at detection time, editable per bubble
+        # before render -- see scanlate.py's own docstring for why this
+        # isn't a trained font-classifier model.
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN font_category TEXT DEFAULT 'regular'")
+    if "kind" not in bubble_cols:
+        # Step 12d: each bubble row is a structured text region (see
+        # scanlate.TextRegion) -- region type from classify_text_regions(),
+        # the detector's own confidence (NULL for the OpenCV heuristic,
+        # which has none), language, text orientation, and panel. Rows
+        # predating this are all speech bubbles, hence kind's default.
+        # include_sfx is the per-region override that puts an SFX region
+        # back into the automated inpaint-and-replace pass.
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind TEXT DEFAULT 'bubble'")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind_confidence REAL")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN confidence REAL")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN language TEXT")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN orientation TEXT")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
+    page_cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)").fetchall()}
+    if "rev" not in page_cols:
+        # Scanlate S0: rev is bumped by every id-preserving region write
+        # (insert/update/delete/reorder/replace_bubbles_if_unchanged; not
+        # the legacy save_bubbles); context_summary is the rolling
+        # translation context after this page; run_notes is a redacted
+        # JSON list of {level, message} from the last automatic run.
+        _safe_alter(conn, "ALTER TABLE pages ADD COLUMN rev INTEGER DEFAULT 0")
+    if "context_summary" not in page_cols:
+        _safe_alter(conn, "ALTER TABLE pages ADD COLUMN context_summary TEXT")
+    if "run_notes" not in page_cols:
+        _safe_alter(conn, "ALTER TABLE pages ADD COLUMN run_notes TEXT")
+
+
+def _migrate_bulk_job_columns(conn):
+    bulk_job_cols ={r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
+    if "kind" not in bulk_job_cols:
+        # Step 9d: see the `bulk_jobs` table's own comment above -- every
+        # bulk job predating this column was a translation job.
+        _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'translate'")
+        _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN stage TEXT")
+        _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN pipeline_id TEXT")
+    bulk_job_line_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_job_lines)").fetchall()}
+    if "result_text" not in bulk_job_line_cols:
+        _safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN result_text TEXT")
+        _safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN state_at_submit TEXT")
+
+
+def _migrate_vocab_and_style_columns(conn):
+    vocab_cols = {r[1] for r in conn.execute("PRAGMA table_info(vocab_lookups)").fetchall()}
+    if "export_rich" not in vocab_cols:
+        # Step 20b: flags a lookup as queued for the richer sentence+audio
+        # Anki card type, set from the Reader right where the word was
+        # looked up, rather than only via a bulk end-of-session export.
+        _safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
+    style_cols = {r[1] for r in conn.execute("PRAGMA table_info(style_profile)").fetchall()}
+    if "history_json" not in style_cols:
+        # Earlier learned-style profiles (newest first, at most
+        # STYLE_HISTORY_KEEP), so a learn or reset can be undone.
+        _safe_alter(conn, "ALTER TABLE style_profile ADD COLUMN history_json TEXT")
+
+
+def _migrate_ownership_columns(conn):
+    # Auth slice B1: ownership and sharing (services/ownership_service.py).
+    # Existing rows keep owner_user_id NULL / is_private 0, meaning "the PC
+    # owner / admins, shared" -- no admin id is guessed.
+    for table, col, coltype in (
+        ("dramas", "owner_user_id", "INTEGER"),
+        ("dramas", "is_private", "INTEGER DEFAULT 0"),
+        ("series", "owner_user_id", "INTEGER"),
+        ("series", "is_private", "INTEGER DEFAULT 0"),
+        ("users", "share_by_default", "INTEGER DEFAULT 0"),
+        ("translate_history", "user_id", "INTEGER"),
+        ("job_records", "owner_user_id", "INTEGER"),
+    ):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if col not in cols:
+            _safe_alter(conn, f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+    # New items became private by default (user decision 2026-09-30).
+    # A users.share_by_default added before that defaulted to 1, which
+    # nobody chose (nothing could set it): switch every account off once.
+    # The marker keeps later choices across restarts.
+    user_cols = {r[1]: r[4] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    marker = "migrations.share_by_default_off"
+    if str(user_cols.get("share_by_default")) == "1" and conn.execute(
+            "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
+        conn.execute("UPDATE users SET share_by_default = 0")
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+
+
+def _migrate_auth_session_columns(conn):
+    session_cols = {r[1] for r in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
+    if "device_label" not in session_cols:
+        # A coarse "Chrome on Android" label (auth_service.device_label),
+        # the only device detail the signed-in-devices list shows.
+        _safe_alter(conn, "ALTER TABLE auth_sessions ADD COLUMN device_label TEXT DEFAULT ''")
+    # Sessions from before the label kept the first 60 characters of the
+    # user agent: label them from it, then drop it, so no raw user agent
+    # stays stored. Rows already blanked don't match, so this runs once.
+    old_agents = conn.execute(
+        "SELECT id, user_agent_short, device_label FROM auth_sessions "
+        "WHERE user_agent_short IS NOT NULL AND user_agent_short != ''").fetchall()
+    if old_agents:
+        from services.auth_service import device_label
+        conn.executemany(
+            "UPDATE auth_sessions SET device_label = ?, user_agent_short = '' WHERE id = ?",
+            [(r[2] or device_label(r[1]), r[0]) for r in old_agents])
+
+
+def _migrate_off_removed_test_engine(conn):
+    # The fake "test_offline" engine is gone: a drama or preset still on it
+    # goes back to the default engine instead of failing to start a run.
+    conn.execute("UPDATE dramas SET translation_engine = 'claude' WHERE translation_engine = 'test_offline'")
+    conn.execute("UPDATE presets SET translation_engine = 'claude' WHERE translation_engine = 'test_offline'")
 
 
 # ---------------------------------------------------------------------------
