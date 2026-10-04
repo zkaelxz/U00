@@ -18,9 +18,9 @@ Rules the ladder enforces, not just documents:
     and recorded, never decoded or worked around.
   * AUTHENTICATED_BROWSER (Step 23k) reads the page inside the persistent
     browser profile the person signed in to themselves. It answers "can
-    this session see it" -- never "may the app extract it": a source whose
-    terms restrict automated access or AI/ML use is refused by
-    check_terms() before any tier runs, signed in or not.
+    this session see it" -- never "may the app extract it". Terms
+    restrictions are still read and recorded (apply_terms), but
+    check_terms() is currently a no-op, so nothing is refused on them.
   * OFFICIAL_API is checked before giving up. An API that only covers
     part of what was asked (e.g. metadata but not chapter text) is a real,
     partial result -- not a pass, and not UNAVAILABLE.
@@ -399,22 +399,15 @@ def _refusal(caps: SourceCapabilities, name: str) -> TermsProhibited:
 
 
 def check_terms(source: str, default: SourceCapabilities = None, url: str = None):
-    """Raises TermsProhibited when the source's record -- or, with `url`,
-    that site's own entry in sources/site_terms -- carries a written
-    restriction. Called before an import sends anything, and before a
-    sign-in window is opened. Never depends on authentication status."""
-    # ToS/robots.txt enforcement intentionally deactivated 2026-09-27, per
-    # explicit user decision (Kae) -- see step-90-deactivate-tos-enforcement.
-    # To restore: uncomment the block below and remove the `pass`.
+    """The enforcement hook for written terms restrictions, called before an
+    import sends anything and before a sign-in window is opened. Currently a
+    no-op: it never raises, so a TOS_PROHIBITED record blocks nothing. When
+    enforcing, it raised TermsProhibited (built by _refusal) for a
+    TOS_PROHIBITED source record or, with `url`, site_terms entry; the call
+    sites stay, so restoring it is a change here only."""
+    # ToS/robots.txt enforcement deactivated 2026-09-27 by explicit user
+    # decision; the enforcing body is in version-control history.
     pass
-    # caps = apply_terms(load_capabilities(source, default))
-    # if caps.status == CapabilityStatus.TOS_PROHIBITED.value:
-    #     raise _refusal(caps, source)
-    # if url:
-    #     from . import site_terms
-    #     site = site_terms.capabilities_for(url)
-    #     if site is not None and apply_terms(site).status == CapabilityStatus.TOS_PROHIBITED.value:
-    #         raise _refusal(site, url)
 
 
 def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
@@ -422,9 +415,9 @@ def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
     """Runs exactly one tier against `url` and updates that tier's field,
     plus the aggregate `technical_status`/`access_method` those tiers
     roll up into. Other tiers -- including UNTESTED ones -- are left
-    exactly as they were. Raises TermsProhibited, before anything is
-    sent, for a source whose terms restrict automated access -- the same
-    check every other network-touching action path already makes."""
+    exactly as they were. Calls check_terms() before anything is sent,
+    like every other network-touching action path (a no-op while terms
+    enforcement is off)."""
     check_terms(source, default, url=url)
     caps = load_capabilities(source, default)
     outcome = tier_fn(url)
@@ -433,11 +426,11 @@ def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
         reason=None if outcome.ok else (outcome.reasons[0].value if outcome.reasons else
                                         FailureReason.UNKNOWN.value),
         detail=outcome.detail[:300], at=time.time())
-    # Step 86: a manual "Test Now" click used to leave technical_status
-    # exactly as it was, even on success -- reproducing "STATIC_HTTP OK
-    # but the aggregate status still UNRESOLVED/higher-tier". Recompute
-    # it from this one tier's outcome the same way a full ladder run
-    # would if it had stopped here, via the same _resolve_status logic.
+    # A manual "Test Now" success must update technical_status too, or the
+    # result reads "STATIC_HTTP OK but the aggregate status still
+    # UNRESOLVED/higher-tier". Recompute it from this one tier's outcome
+    # the same way a full ladder run would if it had stopped here, via the
+    # same _resolve_status logic.
     # Only on success: a single failing tier says nothing about whatever
     # status an earlier, fuller ladder run already correctly established
     # (a different tier may have already succeeded), so a failure here

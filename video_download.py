@@ -4,8 +4,8 @@ other sites yt-dlp supports) directly into a drama's folder, so you don't
 need to run yt-dlp on the command line yourself and then upload the
 result through the file picker.
 
-Wraps yt-dlp's Python API (not the CLI) so progress can drive a Streamlit
-progress bar the same way translation/dubbing already do (progress_cb
+Wraps yt-dlp's Python API (not the CLI) so progress can be reported to a
+background job the same way translation/dubbing already do (progress_cb
 pattern -- see translate_engines.translate_lines_with_engine, dub.py).
 
 SETUP: pip install yt-dlp
@@ -84,7 +84,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
 
     progress_cb: optional callable(fraction: float, message: str), same
     shape as the progress_cb used elsewhere in this project, so callers
-    can plug it into the same st.progress() widgets.
+    can report it the same way.
 
     title_cb: optional callable(title: str), invoked with yt-dlp's own
     title for this URL (the video/stream title, e.g. a YouTube video's

@@ -15,6 +15,9 @@ from .shared import (
 # Step 97b: translate fallback chain
 # ---------------------------------------------------------------------------
 
+# Matched against exception CLASS NAMES (whole MRO) so this module needn't
+# import every provider SDK (anthropic, openai, requests...), some optional,
+# just to recognise their timeout/connection/auth errors.
 _FALLBACK_NAME_HINTS = ("timeout", "connectionerror", "apiconnection", "authentication",
                         "permissiondenied", "unauthorized")
 
@@ -118,6 +121,10 @@ class FallbackEngine:
         self.failed_usage_cb = failed_usage_cb
 
     def __getattr__(self, name):
+        # Only reached when normal lookup fails. Dunders (copy/pickle probes)
+        # must not resolve to the wrapped engine's, and engines/active are
+        # unset on an instance built without __init__ (copy, unpickle):
+        # delegating those would recurse back into __getattr__ forever.
         if name.startswith("__") or name in ("engines", "active"):
             raise AttributeError(name)
         return getattr(self.engines[self.active], name)
@@ -149,6 +156,9 @@ class FallbackEngine:
                     retries += 1
                     continue
                 if self.active + 1 >= len(self.engines):
+                    # Tells shared.call_with_backoff the whole chain already
+                    # retried this rate limit, so it doesn't wait it out again.
+                    # Guarded: some exception types refuse new attributes.
                     try:
                         e._fallback_chain_exhausted = True
                     except Exception:
