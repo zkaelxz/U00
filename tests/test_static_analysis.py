@@ -424,7 +424,7 @@ class TestConstraintsFile:
         constraints and both launchers' "already installed?" checks."""
         assert "urllib3>=2.6" in self._read_constraints()
         core = open(os.path.join(PROJECT_ROOT, "requirements-core.txt"), encoding="utf-8").read()
-        assert "urllib3>=2.6" in core
+        assert "urllib3>=2.8" in core
         for launcher in ("start.bat", "start.ps1"):
             text = open(os.path.join(PROJECT_ROOT, launcher), encoding="utf-8").read()
             assert ">= (2, 6)" in text, launcher
