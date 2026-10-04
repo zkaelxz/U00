@@ -1,10 +1,10 @@
 /*
  * Pure helpers for the Translate page's "Open a file" / "Download result".
- * Parity with tabs/translate_tab.py: it accepted .txt/.md/.epub, decoded text
- * as UTF-8 ignoring bad bytes, and offered the result as a plain .txt.
+ * Accepts .txt/.md/.epub, decodes text as UTF-8 ignoring bad bytes, and
+ * offers the result as a plain .txt.
  * .epub is unzipped in the browser and its chapter text extracted (see
  * translateEpub.ts); nothing is sent to the server. Size caps: 2 GB of bytes
- * for text files (the old tab's upload cap), and the text that is read must
+ * for text files (the largest file we accept), and the text that is read must
  * also fit MAX_TRANSLATE_TEXT_CHARS, the API's limit. An .epub is held and
  * unzipped in memory, so it gets the smaller MAX_EPUB_BYTES cap.
  */
@@ -152,6 +152,7 @@ export function downloadText(text: string, filename: string, deps: DownloadDeps 
   try {
     deps.click(url, filename)
   } finally {
+    // Revoke after the click task, not synchronously, so the browser can start the download first.
     setTimeout(() => deps.revokeObjectURL(url), 0)
   }
 }

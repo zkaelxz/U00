@@ -4,8 +4,8 @@ import type { Page, Route } from '@playwright/test'
 
 import { ME, REMOTE_HEALTH_OFF } from './authMocks'
 
-// Shared page.route mocks for the comic viewer specs (routes C1-C5 under
-// /api/scanlate/dramas/{id}, built against the spec while the backend lands).
+// Shared page.route mocks for the comic viewer specs (routes under
+// /api/scanlate/dramas/{id}).
 // A catch-all aborts (and records) every /api call nothing here mocks, so no
 // request ever falls through to the seeded server. Page images are PNGs
 // generated here: a tinted page, a big page number and white speech bubbles
@@ -281,5 +281,5 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
   return s
 }
 
-// Where the lead asked for screenshots; unset in CI, so those tests skip.
+// Set COMIC_SCREENS_DIR to also save screenshots; unset in CI, so those tests skip.
 export const SHOTS_DIR = process.env.COMIC_SCREENS_DIR ?? ''

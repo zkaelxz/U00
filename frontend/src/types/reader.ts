@@ -1,4 +1,4 @@
-// Hand-written mirrors of api/schemas.py (Reader models, route batch 2B).
+// Hand-written mirrors of api/schemas/reader.py (Reader models).
 
 export interface ReaderPage {
   html: string

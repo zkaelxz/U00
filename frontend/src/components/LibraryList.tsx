@@ -23,7 +23,7 @@ import { countDramas, dramaName, readHref, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { buttonClass } from './uiClasses'
 
-// Same choices the Streamlit Library tab offers.
+// Status and quick-filter choices; '' means no filter.
 const STATUSES = ['', 'not started', 'aligned', 'translated', 'dubbed', 'exported']
 const QUICK_FILTERS = ['', 'Favorite', 'On Hold', 'Plan to Translate']
 

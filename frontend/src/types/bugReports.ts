@@ -1,4 +1,4 @@
-// Mirrors the "Report a problem" models in api/schemas.py (BugReport*).
+// Mirrors the "Report a problem" models in api/schemas/system.py (BugReport*).
 import type { ConsoleEntry, ErrorEntry, FailedRequest, RouteVisit } from '../report/capture'
 
 export type ReportMode = 'pc' | 'lan' | 'remote' | 'unknown'

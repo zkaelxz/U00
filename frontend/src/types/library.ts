@@ -1,6 +1,6 @@
 import type { DramaDetail } from '../api/types'
 
-// Mirrors the Library* / DramaCreate* / DramaDelete* models in api/schemas.py.
+// Mirrors the Library* / DramaCreate* / DramaDelete* models in api/schemas/library.py.
 
 export interface LibraryUsage {
   input_tokens: number
@@ -131,7 +131,7 @@ export interface DramaCreateRequest {
   preset_id?: number
 }
 
-// api/schemas.py DramaMetadataUpdate: partial, only sent keys are written.
+// api/schemas/library.py DramaMetadataUpdate: partial, only sent keys are written.
 export interface DramaMetadataUpdate {
   title_en?: string
   title_zh?: string
@@ -159,7 +159,7 @@ export interface DramaDeleteResult {
   warning?: string | null
 }
 
-// api/schemas.py DramaPresetDefaults: a preset's session-only values, which
+// api/schemas/library.py DramaPresetDefaults: a preset's session-only values, which
 // the client holds (only the preset's engine is saved on the drama).
 export interface DramaPresetDefaults {
   style_preset: string | null
@@ -169,7 +169,7 @@ export interface DramaPresetDefaults {
   engine_model?: string | null // for the drama's saved translation_engine
 }
 
-// api/schemas.py DramaCreateResult: the new drama plus its preset's values.
+// api/schemas/library.py DramaCreateResult: the new drama plus its preset's values.
 export interface DramaCreateResult extends DramaDetail {
   preset_defaults?: DramaPresetDefaults | null
 }

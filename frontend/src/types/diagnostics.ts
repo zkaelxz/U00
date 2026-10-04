@@ -1,4 +1,4 @@
-// Mirrors api/schemas.py DiagnosticsOverview and its parts.
+// Mirrors api/schemas/system.py DiagnosticsOverview and its parts.
 
 export interface DependencyStatus {
   installed: boolean
@@ -37,7 +37,7 @@ export interface DiagnosticsOverview {
   recent_log_lines: string[]
 }
 
-// Mirrors api/schemas.py Diagnostics* (API batch 1: /api/diagnostics/...).
+// Mirrors api/schemas/system.py Diagnostics* (/api/diagnostics/...).
 // Found/version/name only; never a path, a token or a key.
 
 export interface DiagnosticsSetupChecks {

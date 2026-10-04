@@ -1,4 +1,4 @@
-// Hand-written mirrors of api/schemas.py (ReviewLines*, ReviewRecords*, Lines*,
+// Hand-written mirrors of api/schemas/review.py (ReviewLines*, ReviewRecords*, Lines*,
 // ReviewJob*). Identity is always the permanent line `id`; `idx` is display-only.
 
 export type LineFilter = 'all' | 'flagged' | 'untranslated'
