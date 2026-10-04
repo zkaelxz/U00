@@ -40,8 +40,8 @@
   --space-6: 32px;
   --space-7: 48px;
   --space-8: 64px;
-  --radius-md: var(--radius-sm);
-  --radius-lg: 14px;
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
   --radius-pill: 999px;
   /* One type scale, "Comfortable": the root is 15px and everything is rem, so browser zoom scales it.
      --text-xs (12px) is for badges and tiny marks only; running text is --text-sm (14px) or larger. */
@@ -261,13 +261,14 @@ textarea {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  padding: 7px 10px;
+  min-height: 40px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   background: var(--field-bg);
   color: var(--text);
 }
-textarea { resize: vertical; font-size: var(--text-edit); line-height: var(--leading); }
+textarea { min-height: 0; resize: vertical; font-size: var(--text-edit); line-height: var(--leading); }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
 input::placeholder, textarea::placeholder { color: var(--muted); }
 :disabled,
@@ -281,18 +282,23 @@ button.danger:disabled {
 }
 button.link:disabled { background: none; border: none; text-decoration: none; }
 
-button {
+/* One button system: <button>, a.button-link and .btn share size, radius and outline style.
+   :where() keeps the 40px floor from beating the specific icon and row buttons. */
+button, a.button-link {
   font: inherit;
-  padding: 7px 14px;
+  font-weight: var(--weight-medium);
+  line-height: 1.2;
+  padding: 8px 16px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
 }
+button:where(:not(.link, .toggle, .field-help-btn, .review-hint)), a.button-link { min-height: 40px; }
 button:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, black); }
+button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
 button.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border)); }
 button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 14%, var(--surface)); border-color: var(--bad); }
 button.link {
@@ -309,11 +315,6 @@ button.link:hover:not(:disabled) { background: none; }
 a.button-link {
   display: inline-flex;
   align-items: center;
-  padding: 7px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
   text-decoration: none;
 }
 a.button-link:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
@@ -375,9 +376,9 @@ dd { margin: 0; }
 .form-grid label { display: grid; gap: 2px; }
 
 /* ---- Section (components/Section.tsx) ---- */
-details.section { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); margin: 0 0 var(--space-3); min-width: 0; }
+details.section { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3); margin: 0 0 var(--space-3); min-width: 0; }
 /* A Section inside a Card is drawn flat (no box-in-box); spec section 1. */
-.card details.section { border: 0; padding-inline: 0; }
+.card details.section, details.section details.section { border: 0; border-radius: 0; padding-inline: 0; }
 details.section > summary { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; cursor: pointer; min-width: 0; }
 .section-title { font-weight: 600; }
 .section-summary { color: var(--muted); font-size: var(--text-sm); min-width: 0; flex: 1 1 12rem; }
@@ -572,10 +573,10 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 36px;
-  padding: 7px 16px;
+  min-height: 40px;
+  padding: 8px 16px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
@@ -586,10 +587,10 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
   cursor: pointer;
   transition: background var(--ease), border-color var(--ease), color var(--ease);
 }
-.btn.btn-sm { min-height: 30px; padding: 4px 10px; font-size: var(--text-sm); }
+.btn.btn-sm { min-height: 32px; padding: 4px 10px; font-size: var(--text-sm); }
 .btn.btn-secondary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
 .btn.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: var(--weight-bold); }
-.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, black); border-color: var(--accent); color: var(--on-accent); }
+.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); border-color: var(--accent); color: var(--on-accent); }
 .btn.btn-ghost { background: transparent; border-color: transparent; color: var(--accent-text); }
 .btn.btn-ghost:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; }
 .btn.btn-danger { background: transparent; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border)); }
@@ -644,7 +645,7 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .badge.bad { background: var(--bad-soft); }
 
 /* Card: flat, always-open block. */
-.card { display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-1); }
+.card { display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: none; }
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .card-heading { display: grid; gap: 2px; min-width: 0; }
 .card-title { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-bold); }
