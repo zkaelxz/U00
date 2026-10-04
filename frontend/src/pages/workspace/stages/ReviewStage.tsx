@@ -8,6 +8,7 @@ import { LinesPanel } from './review/LinesPanel'
 import { RecordsPanel } from './review/RecordsPanel'
 import { ReviewChecks } from './review/ReviewChecks'
 import { ReviewJobsPanel } from './review/ReviewJobsPanel'
+import { ResplitLines } from './review/ResplitLines'
 import { StructureSection } from './review/StructureSection'
 import type { LineTarget } from './review/reviewResults'
 import { useDramaJobRunning } from './review/useDramaJobRunning'
@@ -57,6 +58,7 @@ export default function ReviewStage() {
       />
       <ReviewJobsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onGoTo={goToLine} flaggedCount={flaggedCount} />
       {!!lineCount && <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
+      {!!lineCount && <ResplitLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
       {!!lineCount && <ReviewChecks dramaId={dramaId} reloads={reloads} onGoTo={goToLine} onChanged={changed} jobRunning={jobRunning} />}
       {!!lineCount && <AiExtras dramaId={dramaId} reloads={reloads} jobRunning={jobRunning} onChanged={changed} />}
       <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} onGoTo={goToLine} />

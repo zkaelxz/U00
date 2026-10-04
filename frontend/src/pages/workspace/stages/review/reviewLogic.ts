@@ -1,6 +1,7 @@
 import { ApiError } from '../../../../api/client'
+import type { SpeakerTimeSummary } from '../../../../types/workspace'
 import type { JobRecord } from '../../../../types/jobs'
-import type { ResegmentPreview } from '../../../../types/restructure'
+import type { ResegmentPreview, ResplitResult } from '../../../../types/restructure'
 import type { TranslateEngine } from '../../../../types/translate'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { humanize } from '../../../../components/labels'
@@ -299,6 +300,34 @@ export function emptyMessage(filter: LineFilter, term: string): string {
 export function resegmentSummary(p: ResegmentPreview): string {
   const notes = `${p.notes} note${p.notes === 1 ? '' : 's'}`
   return `${p.line_count_before} → ${p.line_count_after} lines; ${p.changed.length} change; ${p.translated} translated, ${p.flagged} flagged, ${notes} would be split`
+}
+
+/** "Split 31 lines into 118; speakers re-assigned" from a re-split summary. */
+export function resplitSummary(r: ResplitResult): string {
+  const n = r.split_lines ?? 0
+  if (n === 0) return r.note || 'No line is over the length limits. Nothing changed.'
+  const pieces = (r.line_count ?? 0) - (r.lines_before ?? 0) + n
+  const parts = [`Split ${n} line${n === 1 ? '' : 's'} into ${pieces}`]
+  if (r.timing === 'aligned') parts.push(`${r.aligned_lines ?? 0} timed from the audio`)
+  if (r.speakers_reassigned) parts.push('speakers re-assigned')
+  if (r.cleared_translations) parts.push(`${r.cleared_translations} translation${r.cleared_translations === 1 ? '' : 's'} cleared`)
+  return parts.join('; ') + '.' + (r.note ? ` ${r.note}` : '')
+}
+
+/** One line per speaker, e.g. "Anna  3:40 · 62% · 41 turns", biggest first. */
+export function speakerTimeLines(s: SpeakerTimeSummary): string[] {
+  return s.speakers.map((x) => `${x.label}  ${formatDuration(x.seconds)} · ${x.percent}% · ${x.turns} turn${x.turns === 1 ? '' : 's'}`)
+}
+
+/** Footer for the speaker time list: total speech and audio no turn covers. */
+export function speakerTimeFooter(s: SpeakerTimeSummary): string {
+  const gap = s.uncovered_seconds === null ? '' : `; ${formatDuration(s.uncovered_seconds)} of the audio has no speaker turn`
+  return `${formatDuration(s.total_speech_seconds)} of speech in the saved detection${gap}.`
+}
+
+/** The server asks for confirm=true when a long line already has English. */
+export function resplitNeedsConfirm(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 422 && /confirm/i.test(e.message)
 }
 
 // Lines someone edited while the version switch ran keep their own English.

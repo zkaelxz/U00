@@ -609,7 +609,7 @@ class TestDiarizationEndpoints:
             "drama_id": did, "hf_token_configured": False,
             "expected_speakers": None, "min_speakers": None, "max_speakers": None,
             "last_device": None, "audio_available": False,
-            "manual_speaker_count": 0,
+            "manual_speaker_count": 0, "speaker_summary": None,
         }
 
     def test_config_unknown_drama_is_404(self, client, isolated_db):

@@ -17,7 +17,7 @@ from api.schemas import (ErrorResponse, ResegmentLlmPreview, ResegmentLlmPreview
                          ResegmentPreview, ResegmentStart, ResegmentStarted,
                          RestoreVersionRequest, RestoreVersionResult, RestructureAddLine,
                          RestructureDeleteLine, RestructureMerge, RestructureResult,
-                         RestructureSplit)
+                         RestructureSplit, ResplitResult, ResplitStart)
 from services import restructure_service as svc
 
 router = APIRouter(prefix="/api/restructure", tags=["restructure"])
@@ -88,6 +88,14 @@ def post_resegment(body: ResegmentStart, request: Request, drama_id: int = Path(
     return svc.start_resegmentation(drama_id, body.expected_line_ids, confirm=body.confirm,
                                     use_llm=body.use_llm, engine=body.engine, model=body.model,
                                     use_preview=body.use_preview)
+
+
+@router.post("/dramas/{drama_id}/resplit", dependencies=[require_permission("lines.edit")], response_model=ResplitResult,
+             summary="Split over-long lines in place (estimated timing now, or an align-to-audio job)",
+             responses={**_R, 400: {"model": ErrorResponse}})
+def post_resplit(body: ResplitStart, drama_id: int = Path(ge=1)):
+    return svc.resplit_long_lines(drama_id, body.expected_line_ids,
+                                  align_to_audio=body.align_to_audio, confirm=body.confirm)
 
 
 @router.post("/dramas/{drama_id}/history/{history_id}/restore", dependencies=[require_permission("lines.edit")],

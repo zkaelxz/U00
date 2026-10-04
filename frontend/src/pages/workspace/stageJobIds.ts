@@ -41,3 +41,5 @@ export const resegmentJobIds = (dramaId: number) => [`resegment_${dramaId}`, `re
 export const isResegmentPreviewJob = (id: string) => id.startsWith('resegpreview_')
 export const burnPreviewJobId = (dramaId: number) => `burnpreview_${dramaId}`
 export const senseVoiceJobId = (dramaId: number) => `sensevoice_${dramaId}`
+// The align-to-audio re-split (services/restructure_service.py).
+export const resplitJobId = (dramaId: number) => `resplit_${dramaId}`
