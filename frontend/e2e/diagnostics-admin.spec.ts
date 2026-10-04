@@ -83,10 +83,10 @@ test('keeps the testids, hides Jobs when empty, and opens Setup on a problem', a
   // Setup opens by itself on a problem; the problem sorts first with a Problem badge.
   const setupRows = page.getByTestId('setup-rows')
   await expect(setupRows).toBeVisible()
-  await expect(setupRows.locator('li').first()).toContainText('ffmpeg')
-  await expect(setupRows.locator('li').first()).toContainText('ffmpeg not found')
+  await expect(setupRows.locator('li').first()).toContainText('FFmpeg')
+  await expect(setupRows.locator('li').first()).toContainText('FFmpeg not found')
   await expect(setupRows.locator('li').first().locator('.pill')).toHaveText('Problem')
-  await expect(page.getByTestId('setup-summary')).toHaveText('1 problem: ffmpeg')
+  await expect(page.getByTestId('setup-summary')).toHaveText('1 problem: FFmpeg')
   await expect(page.getByTestId('dependency-panel')).toHaveCount(1)
   await expect(page.getByTestId('job-list')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Jobs' })).toHaveCount(0)

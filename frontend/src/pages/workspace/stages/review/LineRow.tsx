@@ -6,6 +6,7 @@ import { Badge } from '../../../../components/Badge'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { humanize, humanizeValue } from '../../../../components/labels'
+import { capFirst } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine, TmSuggestion } from '../../../../types/review'
@@ -93,7 +94,7 @@ interface Props {
 
 // "content_blocked" + note -> "Content blocked · gemini: SAFETY"
 function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
-  return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${line.flag_note}` : ''}`
+  return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
 }
 
 const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
@@ -147,7 +148,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
         </span>
         {line.speaker && <span className="review-speaker">{line.speaker}</span>}
         {line.sfx && <Badge>Sound cue</Badge>}
-        {line.dub_filename && !isPhone && <span>dub: {line.dub_filename}</span>}
+        {line.dub_filename && !isPhone && <span>Dub: {line.dub_filename}</span>}
         {line.flag && (
           <span className="review-flag" data-testid="line-flag">
             {isPhone ? (
@@ -207,7 +208,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             
             onClick={() => (isPhone && !active ? actions.activate(line.id) : actions.openEdit(line.id))}
           >
-            {line.en || <span className="muted review-untranslated">(not translated)</span>}
+            {line.en || <span className="muted review-untranslated">Not translated</span>}
           </button>
         )}
       </div>

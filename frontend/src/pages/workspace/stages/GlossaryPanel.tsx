@@ -284,7 +284,7 @@ export function GlossaryPanel() {
                 <td>{t.term_translation}</td>
                 <td>{t.aliases.join(', ')}</td>
                 <td>{t.banned_translations.join(', ')}</td>
-                <td>{t.enforce_exact ? 'yes' : 'no'}</td>
+                <td>{t.enforce_exact ? 'Yes' : 'No'}</td>
                 <td><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={() => setEditing(toForm(t))}>Edit</button></td>
               </tr>
             ))}

@@ -805,7 +805,7 @@ MODEL_ENGINE_REGISTRY = [
      "help": "A local voice-cloning engine that can also design a new voice from a text "
              "description, not just clone an existing sample."},
     {"name": "GPT-SoVITS", "kind": "service",
-     "note": "separate local server (not pip-installed)",
+     "note": "Separate local server (not pip-installed)",
      "url": "https://github.com/RVC-Boss/GPT-SoVITS",
      "help": "A separate local voice-cloning server you run yourself -- the app talks to it over "
              "its own local API rather than installing it as a package."},
@@ -1749,7 +1749,7 @@ def get_gpu_status() -> dict:
     torch is installed, even when no GPU is available, since it's useful
     context either way. Never imports torch if it isn't installed."""
     if not check_dependency("torch"):
-        return {"available": False, "message": "torch isn't installed -- GPU info unavailable."}
+        return {"available": False, "message": "PyTorch isn't installed -- GPU info unavailable."}
     try:
         import torch
     except Exception:

@@ -43,7 +43,7 @@ test('detect speakers only sends a speaker range and catches a bad one', async (
 
   await page.getByLabel('Expected speakers', { exact: true }).fill('')
   await detect.click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   expect(urls).toHaveLength(1)
   const sent = new URL(urls[0]).searchParams
   expect(sent.get('min_speakers')).toBe('2')

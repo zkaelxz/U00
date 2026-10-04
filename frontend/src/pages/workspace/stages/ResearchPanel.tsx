@@ -7,6 +7,7 @@ import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
+import { capFirst } from '../../../labels'
 import type { ResearchBudget, ResearchChoice, ResearchMode, ResearchResult } from '../../../types/research'
 import {
   budgetLine, choicesFor, confidenceLabel, costLine, defaultChoices, effectiveChoices, fieldLabel, googleSearchUrl, isPaidLookup,
@@ -178,7 +179,7 @@ export function ResearchPanel() {
                         <Badge tone={f.status === 'conflict' ? 'warn' : f.status === 'same' ? 'ok' : 'neutral'}>
                           {f.status === 'conflict' ? 'Differs' : f.status === 'same' ? 'Matches' : 'New'}
                         </Badge>
-                        <span className="muted">{confidenceLabel(f.confidence)}</span>
+                        <span className="muted">{capFirst(confidenceLabel(f.confidence))}</span>
                       </div>
                       <p className="research-value">{f.value}</p>
                       {f.status === 'conflict' && <p className="muted">Existing: {f.current}</p>}

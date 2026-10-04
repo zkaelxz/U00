@@ -97,7 +97,7 @@ export function StrongerEngine({ dramaId, line, offer, active, onUse }: Props) {
           <div className="review-ai-compare">
             <div>
               <span className="muted">Current</span>
-              <div className="review-ai-text">{line.en || <span className="muted">(not translated)</span>}</div>
+              <div className="review-ai-text">{line.en || <span className="muted">Not translated</span>}</div>
             </div>
             <div>
               <span className="muted">With {offer.engineLabel}</span>

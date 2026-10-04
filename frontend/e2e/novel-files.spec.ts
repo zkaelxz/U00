@@ -57,7 +57,7 @@ test('Translate: upload, replace and remove the English novel reference', async 
   const { uploads } = await mockNovelFiles(page)
   await page.goto('/#/drama/1/translate')
   const panel = page.getByRole('region', { name: 'Novel reference (English translation)' })
-  await expect(panel.getByText('none saved', { exact: true })).toBeVisible()
+  await expect(panel.getByText('None saved', { exact: true })).toBeVisible()
   await panel.locator('.section-title').click()
   await expect(page.getByTestId('novel-file-status-reference')).toHaveText('Nothing saved yet.')
 

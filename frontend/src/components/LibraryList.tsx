@@ -5,7 +5,7 @@ import { getFilterOptions, searchLines } from '../api/library'
 import type { DramaSummary } from '../api/types'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useMediaQuery } from '../hooks/useMediaQuery'
-import { languageLabel, mediaTypeLabel, statusLabel } from '../labels'
+import { languageLabel, mediaTypeLabel, statusLabel, tagLabel } from '../labels'
 import { lineNumber } from '../lineNumber'
 import { MAX_SELECTION, selectAllVisible, toggleId } from '../pages/libraryAdmin/libraryAdmin'
 import { MEDIA_TYPES, SOURCE_LANGUAGES } from '../pages/libraryForm'
@@ -177,7 +177,7 @@ export function LibraryList({
           </select>
           <select aria-label="Quick filter" value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)}>
             {QUICK_FILTERS.map((q) => (
-              <option key={q} value={q}>{q || 'All lists'}</option>
+              <option key={q} value={q}>{q ? tagLabel(q) : 'All lists'}</option>
             ))}
           </select>
         </div>}

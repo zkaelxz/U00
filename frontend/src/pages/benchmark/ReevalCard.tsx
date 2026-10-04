@@ -221,7 +221,7 @@ function CandidatesBlock({ overview, options, remote, onChanged }: {
               <div className="reeval-item-head">
                 <strong>{modelLabel(c)}</strong>
                 <Badge tone={candidateStatusTone(c.status)}>{candidateStatusLabel(c.status)}</Badge>
-                <span className="muted num">added {formatWhen(c.created_at)}</span>
+                <span className="muted num">Added {formatWhen(c.created_at)}</span>
               </div>
               {c.note && <p className="muted">{c.note}</p>}
               {c.status !== 'candidate' && c.last_decision && <p className="reeval-summary">{c.last_decision.summary}</p>}

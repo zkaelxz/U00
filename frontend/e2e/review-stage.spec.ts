@@ -307,9 +307,9 @@ test('a finished review job refetches the lines', async ({ page }) => {
   await open(page)
   const before = lineFetches
   await page.getByRole('button', { name: 'Flag lines for a second look' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   done = true
-  await expect(page.getByTestId('job-status')).toContainText('done')
+  await expect(page.getByTestId('job-status')).toContainText('Done')
   await expect.poll(() => lineFetches).toBeGreaterThan(before)
 })
 
@@ -515,7 +515,7 @@ test('re-segment previews, then needs the typed word', async ({ page }) => {
   await expect(run).toBeDisabled()
   await page.getByLabel('Type resegment to confirm').fill('resegment')
   await run.click()
-  await expect(page.getByTestId('job-status')).toContainText('done')
+  await expect(page.getByTestId('job-status')).toContainText('Done')
   expect(started).toEqual({ expected_line_ids: [1, 2, 3], confirm: true, use_llm: false })
 })
 
@@ -855,7 +855,7 @@ test('a review check left running is shown again, with the checks off', async ({
   await page.route('**/api/jobs/flag_3', (route) =>
     route.fulfill({ json: { ...job('running'), job_id: 'flag_3', updated_at: Date.now() / 1000 } }))
   await open(page)
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   await expect(page.getByRole('button', { name: 'Flag lines for a second look' })).toBeDisabled()
   await expect(page.getByText('A review job is running.')).toBeVisible()
 })

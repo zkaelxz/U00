@@ -30,7 +30,7 @@ test('choose an engine for a task, see it persist, and test the offline engine',
   await expect(task(page)).toHaveValue('deepseek')
   await Promise.all([saved(page), task(page).selectOption('')])
   await expect(task(page)).toHaveValue('')
-  await expect(page.getByTestId('task-llm.instructions').getByText('default', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('task-llm.instructions').getByText('Default', { exact: true })).toBeVisible()
 
   // An engine that needs a key and has none can't be tested (the e2e server has no keys).
   await expect(page.getByTestId('engine-claude').getByText('Missing')).toBeVisible()

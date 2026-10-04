@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { cancelJob } from '../../../api/jobs'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
+import { capFirst } from '../../../labels'
 import type { ApiError } from '../../../api/client'
 import type { JobRecord } from '../../../types/jobs'
 import { etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, type EtaSample } from './transcribeEstimate'
@@ -78,7 +79,7 @@ export function JobPanel({ job, pollError, note, liveEta = false }: Props) {
       {job ? (
         <>
           <p data-testid="job-status">
-            {job.status}
+            {capFirst(job.status)}
             {job.message ? ` · ${job.message}` : ''}
           </p>
           {elapsed !== null && !/\(elapsed /.test(job.message) && (

@@ -22,7 +22,7 @@ import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
 import { clampPage, keyAction, preloadWindow, tapAction, ZOOM, type ComicAction, type ComicPrefs } from './comic/comicLogic'
 import { useZoom } from './comic/useZoom'
 import {
-  loadLastRead, loadMangaPrefs, mangaReadHref, mangaSeriesHref, pageInfos, saveLastRead, saveMangaPrefs, seriesTitle,
+  hashIsReading, loadLastRead, loadMangaPrefs, mangaReadHref, mangaSeriesHref, pageInfos, saveLastRead, saveMangaPrefs, seriesTitle,
 } from './manga/mangaLogic'
 import './reader/reader.css'
 import './comic/comic.css'
@@ -104,8 +104,10 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   // Put the start page in the hash. In-reader moves replace the history
   // entry, so Back leaves the chapter instead of stepping through its pages.
   useEffect(() => {
-    if (start !== null && picked === null && routePage !== start) window.location.replace(hrefAt(start))
-  }, [start, picked, routePage, hrefAt])
+    if (start !== null && picked === null && routePage !== start && hashIsReading(window.location.hash, source, series, chapter)) {
+      window.location.replace(hrefAt(start))
+    }
+  }, [start, picked, routePage, hrefAt, source, series, chapter])
 
   const setPrefs = (next: ComicPrefs) => {
     if (next.mode !== prefs.mode && current !== null) requestJump(current)
@@ -119,9 +121,9 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
       const target = clampPage(n, count)
       if (!fromScroll) setJump((j) => ({ page: target, seq: (j?.seq ?? 0) + 1 }))
       setPicked(target)
-      window.location.replace(hrefAt(target))
+      if (hashIsReading(window.location.hash, source, series, chapter)) window.location.replace(hrefAt(target))
     },
-    [count, hrefAt],
+    [count, hrefAt, source, series, chapter],
   )
 
   useEffect(() => {

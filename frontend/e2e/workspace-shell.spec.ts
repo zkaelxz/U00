@@ -22,8 +22,8 @@ test('stage tabs show a tick, a dot or a ring by state, with the reason as the d
   await expect(mark('export')).toHaveText('○')
   // The mark is decoration: the link's name is still its label.
   await expect(nav.getByRole('link', { name: 'Source', exact: true })).toBeVisible()
-  await expect(nav.getByRole('link', { name: /^Dub/ })).toHaveAttribute('title', 'Dub: needs lines first')
-  await expect(nav.getByRole('link', { name: /^Review/ })).toHaveAttribute('title', 'Review: not done yet · 1 flagged')
+  await expect(nav.getByRole('link', { name: /^Dub/ })).toHaveAttribute('title', 'Dub: Needs lines first')
+  await expect(nav.getByRole('link', { name: /^Review/ })).toHaveAttribute('title', 'Review: Not done yet · 1 flagged')
 })
 
 test('with no progress read there are no marks and no counts', async ({ page }) => {

@@ -138,7 +138,7 @@ for (const vp of [
           json: {
             drama_id: 1, content_mode: 'novel_narration', is_narration: true, narration_language: 'translation',
             narration_language_options: ['translation', 'original'], source_language: 'zh',
-            tts_engines: [{ key: 'edge_tts', label: 'edge-tts (free, online, more natural)', requires_internet: true }],
+            tts_engines: [{ key: 'edge_tts', label: 'Edge TTS (free, online, more natural)', requires_internet: true }],
             defaults: null, speakers: [], gpu_required: false, speakable_line_count: 28, track_available: false,
             gpt_sovits_configured: false, can_keep_background: false,
           },

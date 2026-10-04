@@ -104,7 +104,7 @@ export function SpendingCard(props: Props) {
             unit="USD"
             help="Checked against the estimated spend logged this calendar month (UTC). A translation won't start once it is used up, and a running one stops cleanly, keeping finished lines. 0 means no cap; blank uses BAIHE_MONTHLY_CAP_USD from .env."
           >
-            <input type="text" inputMode="decimal" value={String(d.monthly_cap_usd)} onChange={(e) => set('monthly_cap_usd', e.target.value)} placeholder={settings.monthly_cap_env_usd ? String(settings.monthly_cap_env_usd) : 'none'} />
+            <input type="text" inputMode="decimal" value={String(d.monthly_cap_usd)} onChange={(e) => set('monthly_cap_usd', e.target.value)} placeholder={settings.monthly_cap_env_usd ? String(settings.monthly_cap_env_usd) : 'None'} />
           </Field>
           <p className="muted" data-testid="cap-effective">
             {settings.effective_monthly_cap_usd > 0
@@ -181,7 +181,7 @@ export function AdvancedCard(props: Props) {
               <input type="text" spellCheck={false} value={String(d.whisper_model_path)} onChange={(e) => set('whisper_model_path', e.target.value)} />
             </Field>
             <Field label="Ollama context window" unit="tokens" help="Blank or 0 sizes it from each prompt (recommended). A value here can only raise the window above that estimate, never lower it.">
-              <input type="text" inputMode="numeric" value={String(d.ollama_num_ctx_override)} onChange={(e) => set('ollama_num_ctx_override', e.target.value)} placeholder="auto" />
+              <input type="text" inputMode="numeric" value={String(d.ollama_num_ctx_override)} onChange={(e) => set('ollama_num_ctx_override', e.target.value)} placeholder="Auto" />
             </Field>
           </>
         )}
@@ -206,7 +206,7 @@ export function AdvancedCard(props: Props) {
               login for video downloads from a URL and for Live capture started on this PC. Other
               devices never get these cookies.
             </p>
-            <Field label="Cookies from browser" help="yt-dlp reads this browser's cookies on the Baihe PC.">
+            <Field label="Cookies from browser" help="The downloader (yt-dlp) reads this browser's cookies on the Baihe PC.">
               <select value={String(d.cookies_browser)} onChange={(e) => set('cookies_browser', e.target.value)}>
                 <option value="">None</option>
                 {c.cookie_browsers.map((b) => (
@@ -214,10 +214,10 @@ export function AdvancedCard(props: Props) {
                 ))}
               </select>
             </Field>
-            <Field label="cookies.txt file" help="The path to a cookies.txt file on the Baihe PC (export one with a browser add-on such as Get cookies.txt). Used instead of the browser above when set. Only the path is saved here, never the file's contents.">
+            <Field label="Cookie file (cookies.txt)" help="The path to a cookies.txt file on the Baihe PC (export one with a browser add-on such as Get cookies.txt). Used instead of the browser above when set. Only the path is saved here, never the file's contents.">
               <input type="text" spellCheck={false} value={String(d.cookies_file)} onChange={(e) => set('cookies_file', e.target.value)} />
             </Field>
-            <Field label="lightnovel-crawler program" help="Only needed if you installed lightnovel-crawler (a separate program you install yourself) and it isn't on PATH. The full path to lncrawl on the Baihe PC; the file must be named lncrawl or lightnovel-crawler. Blank to find it on PATH.">
+            <Field label="Novel downloader (lightnovel-crawler)" help="Only needed if you installed lightnovel-crawler (a separate program you install yourself) and it isn't on PATH. The full path to lncrawl on the Baihe PC; the file must be named lncrawl or lightnovel-crawler. Blank to find it on PATH.">
               <input type="text" spellCheck={false} value={String(d.lncrawl_cmd)} onChange={(e) => set('lncrawl_cmd', e.target.value)} placeholder="C:\Users\you\.local\bin\lncrawl.exe" />
             </Field>
           </>

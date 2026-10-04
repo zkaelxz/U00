@@ -263,7 +263,7 @@ test('GPU PyTorch: shows the GPU, the mismatch, checks CUDA, and sets up the mat
     'Recommended: NVIDIA GPU (CUDA 12.8), from https://download.pytorch.org/whl/cu128')
 
   await panel.getByRole('button', { name: 'Check CUDA' }).click()
-  await expect(panel.getByTestId('gpu-torch-probe')).toHaveText('torch 2.11.0+cu128: CUDA works on NVIDIA GeForce RTX 3080 Ti.')
+  await expect(panel.getByTestId('gpu-torch-probe')).toHaveText('PyTorch 2.11.0+cu128: CUDA works on NVIDIA GeForce RTX 3080 Ti.')
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/packages-gpu-torch.png`, fullPage: true })
 
   await panel.getByRole('button', { name: 'Set up GPU PyTorch' }).click()

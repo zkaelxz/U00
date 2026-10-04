@@ -59,7 +59,7 @@ const OPTION_LABELS: Record<string, string> = {
   qwen3_asr: 'Qwen3 ASR',
   moss_td: 'MOSS-Transcribe-Diarize (experimental)',
   auto: 'Automatic',
-  audio_separator: 'Audio Separator',
+  audio_separator: 'Audio separator',
   demucs: 'Demucs',
   tesseract: 'Tesseract',
   paddle: 'PaddleOCR',
@@ -528,7 +528,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
 
       {cf ? (
         <p className="muted source-summary" data-testid="settings-summary">
-          {cf.whisper_size} · {LANGUAGE_NAMES[language] ?? language}
+          Whisper {cf.whisper_size} · {LANGUAGE_NAMES[language] ?? language}
           {useGpu !== null && <span data-testid="gpu-note"> · GPU: {useGpu ? 'on' : 'off'} - change in <a href="#/settings">Settings</a></span>}
         </p>
       ) : (
@@ -538,7 +538,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       <Section
         storageKey="source.transcribe"
         title="More options"
-        summary={`${cf?.whisper_size ?? 'model'} · speakers and tuning`}
+        summary={`Whisper ${cf?.whisper_size ?? 'model'} · speakers and tuning`}
       >
       <div className="source-grid">
         {cf && (

@@ -64,7 +64,7 @@ test('From a URL: toggle, checks, download starts the urlmedia job', async ({ pa
   await page.getByRole('checkbox', { name: 'Replace the current audio' }).check()
   await download.click()
   await expect.poll(() => s.bodies).toEqual([{ url: 'https://video.example/watch?v=1', audio_only: true, confirm_replace_audio: true }])
-  await expect(page.getByTestId('job-status')).toContainText('done')
+  await expect(page.getByTestId('job-status')).toContainText('Done')
 
   // The choice is remembered.
   await page.reload()

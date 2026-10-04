@@ -94,9 +94,9 @@ describe('engine routing view', () => {
     expect(selectValue(withChoice(off, 'gemini'))).toBe('gemini')
     expect(withChoice(off, null).is_default).toBe(true)
     expect(unsetOptionLabel(off, (e) => e)).toBe('Off (no suggestions)')
-    expect(unsetBadge(off)).toBe('off')
+    expect(unsetBadge(off)).toBe('Off')
     expect(unsetOptionLabel(cap(), (e) => e.toUpperCase())).toBe('Use default (GEMINI)')
-    expect(unsetBadge(cap())).toBe('default')
+    expect(unsetBadge(cap())).toBe('Default')
   })
 
   it('replaces one entry and counts working engines', () => {

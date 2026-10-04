@@ -141,7 +141,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, extracting, o
         ) : (
           <>
             <div className="voice-row">
-              <Field label="Clip file" help="wav, mp3, m4a, flac or ogg; 1 to 30 seconds of this speaker alone.">
+              <Field label="Clip file" help="WAV, MP3, M4A, FLAC or OGG; 1 to 30 seconds of this speaker alone.">
                 <input
                   key={fileKey}
                   type="file"

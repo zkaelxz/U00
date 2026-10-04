@@ -122,7 +122,7 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
                         )}
                         <div>
                           <dt>Reference</dt>
-                          <dd>{row.reference_text || <span className="muted">none (not scored)</span>}</dd>
+                          <dd>{row.reference_text || <span className="muted">None (not scored)</span>}</dd>
                         </div>
                       </dl>
                     )}

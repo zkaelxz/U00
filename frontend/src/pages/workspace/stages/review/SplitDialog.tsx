@@ -89,7 +89,7 @@ export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSpl
           />
         </Field>
         <Field label="Split at (s)" help="Blank splits the timing in proportion to the text." error={timeBad ? `Enter a time between ${line.start} and ${line.end}.` : null}>
-          <input inputMode="decimal" placeholder={`blank ≈ ${estimate} s`} value={time} onChange={(e) => setTime(e.target.value)} />
+          <input inputMode="decimal" placeholder={`Blank ≈ ${estimate} s`} value={time} onChange={(e) => setTime(e.target.value)} />
         </Field>
       </div>
       {enLen > 1 && (
