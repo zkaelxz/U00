@@ -1,7 +1,6 @@
 """Tests for non-secret Settings writes and the persisted use_gpu toggle
 (Migration Slice 23). Mocked throughout; no network."""
 
-import inspect
 
 import pytest
 
@@ -106,12 +105,8 @@ class TestApi:
 def test_use_gpu_reaches_transcribe_job_args(isolated_db, monkeypatch):
     from tests.test_transcribe_service import _drama_with_audio
     did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
-    captured = {}
-
-    def fake_start_job(job_id, target, *a, **k):
-        captured.update(dict(zip(inspect.signature(target).parameters, a)))
-        return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    from tests.test_transcribe_service import _capture_worker_start
+    captured = _capture_worker_start(monkeypatch)
 
     transcribe_service.start_transcribe_run(did)
     assert captured["use_gpu"] is False

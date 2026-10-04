@@ -1240,6 +1240,356 @@ class TestProcessJobOnDone:
         bg.clear_job("test_ondone_gpu_thread")
         bg.clear_job(job_id)
 
+    def test_hook_return_value_becomes_the_result(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        job_id = "test_ondone_returns"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {"raw": 1})), args=(),
+                             on_done=lambda j, r: {"applied": r["raw"] + 1})
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "done" and status["result"] == {"applied": 2}
+        bg.clear_job(job_id)
+
+    def test_cancel_after_the_subprocess_finished_applies_nothing(self, monkeypatch):
+        """A cancel landing between the worker's result and the hook: the
+        hook never runs and the job ends cancelled, not done."""
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        job_id = "test_ondone_late_cancel"
+
+        class CancelOnResultQueue(queue.Queue):
+            def get(self, *a, **k):
+                item = super().get(*a, **k)
+                if item[0] == "ok":
+                    bg.request_cancel(job_id)
+                return item
+
+            def close(self):
+                pass
+        monkeypatch.setattr(bg.multiprocessing, "Queue", CancelOnResultQueue)
+        seen, finished = [], []
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {"v": 1})), args=(),
+                             on_done=lambda j, r: seen.append(j), on_finish=finished.append)
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "cancelled"
+        assert status["message"] == bg.CANCELLED_MESSAGE
+        assert seen == []
+        assert _wait_for(lambda: finished == [job_id])
+        bg.clear_job(job_id)
+
+    def test_finish_hook_runs_on_done_and_on_cancel(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        finished = []
+        bg.clear_job("test_finish_done")
+        bg.start_process_job("test_finish_done", lambda q: q.put(("ok", {})), args=(),
+                             on_finish=finished.append)
+        assert _wait_for_status("test_finish_done", "running")["status"] == "done"
+        assert _wait_for(lambda: finished == ["test_finish_done"])
+        bg.clear_job("test_finish_done")
+
+        _install_fake_process(monkeypatch, alive_forever=True)
+        bg.clear_job("test_finish_cancel")
+        bg.start_process_job("test_finish_cancel", lambda q: None, args=(),
+                             on_finish=finished.append)
+        assert _wait_for(lambda: bg.is_running("test_finish_cancel"))
+        bg.request_cancel("test_finish_cancel")
+        assert _wait_for_status("test_finish_cancel", "running")["status"] == "cancelled"
+        assert _wait_for(lambda: finished == ["test_finish_done", "test_finish_cancel"])
+        bg.clear_job("test_finish_cancel")
+
+    def test_kill_whole_tree_job_cancel_kills_the_whole_tree(self, monkeypatch):
+        instances = _install_fake_process(monkeypatch, alive_forever=True)
+        killed = []
+
+        def fake_kill_tree(proc):
+            killed.append(proc)
+            proc.terminate()
+        monkeypatch.setattr(bg, "kill_tree", fake_kill_tree)
+        job_id = "test_kill_whole_tree_cancel"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=(), kill_whole_tree=True)
+        assert _wait_for(lambda: bg.is_running(job_id))
+        bg.request_cancel(job_id)
+        assert _wait_for_status(job_id, "running")["status"] == "cancelled"
+        assert killed == [instances[0]]
+        bg.clear_job(job_id)
+
+    def test_a_worker_alive_after_its_result_is_killed_before_the_slot_and_hook(self, monkeypatch):
+        instances = _install_fake_process(monkeypatch, alive_forever=True)
+        events = []
+
+        def fake_kill_tree(proc):
+            events.append("kill")
+            proc.terminate()
+        monkeypatch.setattr(bg, "kill_tree", fake_kill_tree)
+        real_release = bg._release_gpu_slot
+        monkeypatch.setattr(bg, "_release_gpu_slot",
+                            lambda *a, **k: (events.append("release"), real_release(*a, **k)))
+        job_id = "test_alive_after_result"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=(), gpu_touching=True,
+                             kill_whole_tree=True, on_finish=lambda j: events.append("finish"))
+        assert _wait_for(lambda: bg.is_running(job_id))
+        instances[0]._args[-1].put(("ok", {"v": 1}))
+        assert _wait_for(lambda: "finish" in events)
+        assert bg.get_status(job_id)["status"] == "done"
+        assert events == ["kill", "release", "finish"]
+        assert instances[0].terminated is True
+        assert db.gpu_lock_holder_count() == 0
+        bg.clear_job(job_id)
+
+    def test_a_worker_that_exited_is_not_killed_again(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        killed = []
+        monkeypatch.setattr(bg, "kill_tree", killed.append)
+        finished = []
+        job_id = "test_exited_not_killed"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(), kill_whole_tree=True,
+                             on_finish=finished.append)
+        assert _wait_for(lambda: finished == [job_id])
+        assert killed == []
+        bg.clear_job(job_id)
+
+    def test_an_ended_runs_late_release_keeps_a_rerun_s_gpu_lock(self, monkeypatch):
+        """The lock row is named after the job id: a re-run started between
+        the first run's final status and its watcher's release takes the
+        same row over, and the old watcher must not delete it."""
+        job_id = "transcribe_9999"
+        instances = []
+
+        def factory(target, args, daemon=True):
+            first = not instances
+            instances.append(_FakeProcess(target, args, daemon=daemon,
+                                          run_target_on_start=first, alive_forever=not first))
+            return instances[-1]
+        monkeypatch.setattr(bg.multiprocessing, "Process", factory)
+        real_notify = bg._notify_job_finished
+        reran, finished = [], []
+
+        def notify_then_rerun(*a, **k):
+            real_notify(*a, **k)
+            if not reran:
+                reran.append(bg.start_process_job(job_id, lambda q: None, args=(),
+                                                  gpu_touching=True))
+        monkeypatch.setattr(bg, "_notify_job_finished", notify_then_rerun)
+        bg.clear_job(job_id)
+
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(), gpu_touching=True,
+                             on_finish=finished.append)
+        assert _wait_for(lambda: finished == [job_id])
+        assert reran == [True]
+        assert bg.get_status(job_id)["status"] == "running"
+        assert db.gpu_lock_holder_count() == 1
+
+        bg.request_cancel(job_id)
+        assert _wait_for(lambda: bg.get_status(job_id)["status"] == "cancelled")
+        assert _wait_for(lambda: db.gpu_lock_holder_count() == 0)
+        bg.clear_job(job_id)
+
+    def test_start_method_picks_the_context_also_through_the_gpu_queue(self, monkeypatch):
+        contexts = []
+
+        class FakeContext:
+            def Queue(self):
+                return queue.Queue()
+
+            def Process(self, target, args, daemon=True):
+                return _FakeProcess(target, args, daemon=daemon, run_target_on_start=True)
+        monkeypatch.setattr(bg.multiprocessing, "get_context",
+                            lambda method: contexts.append(method) or FakeContext())
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+
+        bg.clear_job("test_start_method_default")
+        bg.start_process_job("test_start_method_default", lambda q: q.put(("ok", {})), args=())
+        assert _wait_for_status("test_start_method_default", "running")["status"] == "done"
+        assert contexts == []
+
+        bg.clear_job("test_start_method_direct")
+        bg.start_process_job("test_start_method_direct", lambda q: q.put(("ok", {})), args=(),
+                             start_method="spawn")
+        assert _wait_for_status("test_start_method_direct", "running")["status"] == "done"
+        assert contexts == ["spawn"]
+
+        release, started = threading.Event(), threading.Event()
+        bg.start_job("test_start_method_gpu_thread",
+                     lambda: (started.set(), release.wait(timeout=2.0)), gpu_touching=True)
+        started.wait(timeout=2.0)
+        job_id = "test_start_method_queued"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(), gpu_touching=True,
+                             start_method="spawn")
+        assert bg.get_status(job_id)["status"] == "queued"
+        release.set()
+        assert _wait_for(lambda: bg.get_status(job_id)["status"] == "done")
+        assert contexts == ["spawn", "spawn"]
+        for j in ("test_start_method_default", "test_start_method_direct",
+                  "test_start_method_gpu_thread", job_id):
+            bg.clear_job(j)
+
+    def _queue_behind_a_gpu_thread_job(self, job_id, on_finish):
+        """Starts a GPU thread job that holds the slot until the returned
+        event is set, then queues process job `job_id` behind it."""
+        release, started = threading.Event(), threading.Event()
+        bg.clear_job("test_finish_holder")
+        bg.start_job("test_finish_holder", lambda: (started.set(), release.wait(timeout=5.0)),
+                     gpu_touching=True)
+        started.wait(timeout=2.0)
+        bg.clear_job(job_id)
+        assert bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(),
+                                    gpu_touching=True, on_finish=on_finish) is True
+        assert bg.get_status(job_id)["status"] == "queued"
+        return release
+
+    def _end_holder(self, release):
+        release.set()
+        _wait("test_finish_holder")
+        bg.clear_job("test_finish_holder")
+
+    @pytest.mark.parametrize("end", ["request_cancel", "cancel_queued", "clear_job",
+                                     "clear_all_jobs"])
+    def test_finish_hook_runs_once_when_a_queued_job_ends(self, monkeypatch, end):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        finished = []
+        job_id = "test_finish_queued"
+        release = self._queue_behind_a_gpu_thread_job(job_id, finished.append)
+
+        getattr(bg, end)(*(() if end == "clear_all_jobs" else (job_id,)))
+
+        assert finished == [job_id]
+        self._end_holder(release)
+        time.sleep(0.1)
+        assert finished == [job_id]
+        assert (bg.get_status(job_id) or {}).get("status") in (None, "cancelled")
+        bg.clear_job(job_id)
+
+    def test_finish_hook_runs_once_when_a_promoted_job_fails_to_start(self, monkeypatch):
+        instances = _install_fake_process(monkeypatch, run_target_on_start=True)
+        finished = []
+        job_id = "test_finish_promote_fails"
+        release = self._queue_behind_a_gpu_thread_job(job_id, finished.append)
+
+        def refuse_to_start():
+            raise OSError("cannot start a process")
+        monkeypatch.setattr(_FakeProcess, "start", lambda self: refuse_to_start())
+        self._end_holder(release)
+
+        assert _wait_for(lambda: finished == [job_id])
+        status = bg.get_status(job_id)
+        assert status["status"] == "error" and "cannot start a process" in status["error"]
+        assert len(instances) == 1
+        time.sleep(0.1)
+        assert finished == [job_id]
+        bg.clear_job(job_id)
+
+    def test_a_process_that_cannot_be_built_at_promotion_ends_both_jobs_cleanly(self, monkeypatch):
+        """mp.Process() raising (no fds, no /dev/shm) while another process
+        job's watcher promotes the queued one: the finishing job's on_finish
+        still runs once, the promoted job ends failed with its on_finish run
+        once, its GPU row is released and the id can start again."""
+        instances = _install_fake_process(monkeypatch, alive_forever=True)
+        finished = []
+        bg.clear_job("test_build_holder")
+        assert bg.start_process_job("test_build_holder", lambda q: None, args=(),
+                                    gpu_touching=True, on_finish=finished.append)
+        assert _wait_for(lambda: bg.is_running("test_build_holder"))
+        job_id = "test_build_promoted"
+        bg.clear_job(job_id)
+        assert bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(),
+                                    gpu_touching=True, on_finish=finished.append) is True
+        assert bg.get_status(job_id)["status"] == "queued"
+
+        def no_process(target, args, daemon=True):
+            raise OSError("Too many open files")
+        monkeypatch.setattr(bg.multiprocessing, "Process", no_process)
+        bg.request_cancel("test_build_holder")
+
+        assert _wait_for(lambda: sorted(finished) == sorted(["test_build_holder", job_id]))
+        status = bg.get_status(job_id)
+        assert status["status"] == "error" and "Too many open files" in status["error"]
+        assert _wait_for(lambda: db.gpu_lock_holder_count() == 0)
+        assert len(instances) == 1
+        time.sleep(0.1)
+        assert sorted(finished) == sorted(["test_build_holder", job_id])
+
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        assert bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(),
+                                    gpu_touching=True) is True
+        assert _wait_for(lambda: bg.get_status(job_id)["status"] == "done")
+        for j in ("test_build_holder", job_id):
+            bg.clear_job(j)
+
+    def test_a_raising_finish_hook_never_breaks_the_cancel(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+
+        def broken(job_id):
+            raise RuntimeError("cleanup failed")
+        job_id = "test_finish_raises"
+        release = self._queue_behind_a_gpu_thread_job(job_id, broken)
+        bg.request_cancel(job_id)
+        assert bg.get_status(job_id)["status"] == "cancelled"
+        self._end_holder(release)
+        bg.clear_job(job_id)
+
+    def test_clearing_a_running_job_runs_its_finish_hook_once(self, monkeypatch):
+        _install_fake_process(monkeypatch, alive_forever=True)
+        finished = []
+        job_id = "test_finish_cleared_running"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=(), on_finish=finished.append)
+        assert _wait_for(lambda: bg.is_running(job_id))
+        bg.clear_job(job_id)
+        assert _wait_for(lambda: finished == [job_id])
+        time.sleep(0.1)
+        assert finished == [job_id]
+
+    def test_a_clean_stop_waits_for_the_watchers_finish_hook(self, monkeypatch):
+        from services import shutdown_service
+        _install_fake_process(monkeypatch, alive_forever=True)
+        finished = []
+
+        def slow_cleanup(job_id):
+            time.sleep(0.5)
+            finished.append(job_id)
+        job_id = "test_finish_clean_stop"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=(), on_finish=slow_cleanup)
+        assert _wait_for(lambda: bg.is_running(job_id))
+        bg.request_cancel(job_id)
+        assert shutdown_service.wait_for_jobs([job_id], timeout=5) is True
+        assert finished == [job_id]
+        bg.clear_job(job_id)
+
+    def test_a_reported_stage_shows_as_a_no_progress_stage(self, monkeypatch):
+        """report_stage: the parent runs a stage_ticker (no-progress note,
+        longer stall allowance) until the worker's next progress."""
+        release = threading.Event()
+        snapshots = []
+
+        def worker(q):
+            bg.report_stage(q, "Loading the model")
+            release.wait(timeout=2.0)
+            bg.report_progress(q, 0.5, "Working... 50%")
+            q.put(("ok", {}))
+        _install_fake_process(monkeypatch, alive_forever=True)
+        job_id = "test_reported_stage"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=(),
+                             on_done=lambda j, r: snapshots.append(bg.get_status(j)))
+        assert _wait_for(lambda: bg.is_running(job_id))
+        q = bg.get_status(job_id)["process"]._args[-1]
+        threading.Thread(target=worker, args=(q,), daemon=True).start()
+        assert _wait_for(lambda: "Loading the model" in (bg.get_status(job_id)["message"] or ""))
+        status = bg.get_status(job_id)
+        assert bg.stage_ticker.NOTE in status["message"]
+        assert status["can_report_progress"] is False
+        release.set()
+        assert _wait_for(lambda: snapshots)
+        assert snapshots[0]["message"] == "Working... 50%"
+        assert snapshots[0]["can_report_progress"] is True
+        bg.request_cancel(job_id)
+        bg.clear_job(job_id)
+
 
 def _large_result_worker(size_bytes, result_queue):
     """Real, top-level (picklable) worker for TestProcessWatcherLargeResult
@@ -1624,6 +1974,194 @@ class TestProcessJobProgressTuples:
     def test_malformed_progress_tuple_is_ignored(self):
         assert bg._apply_progress_item("nope", ("progress", "x")) is True
         assert bg._apply_progress_item("nope", ("ok", {})) is False
+
+
+class _WorkerExited(BaseException):
+    pass
+
+
+class TestOrphanedWorkerExits:
+    """A worker that left its parent's process group (start_own_process_group)
+    ends itself once its parent dies, instead of running on unseen."""
+
+    def _orphan(self, monkeypatch):
+        killed = []
+        monkeypatch.setattr(bg, "_worker_parent_pid", 4242)
+        monkeypatch.setattr(bg.os, "getppid", lambda: 1)
+        monkeypatch.setattr(bg.os, "getpgid", lambda pid: os.getpid())
+        monkeypatch.setattr(bg.os, "killpg", lambda pgid, sig: killed.append((pgid, sig)))
+
+        def fake_exit(code):
+            raise _WorkerExited(code)
+        monkeypatch.setattr(bg.os, "_exit", fake_exit)
+        return killed
+
+    @pytest.mark.parametrize("report", [lambda q: bg.report_progress(q, 0.5, "x"),
+                                        lambda q: bg.report_stage(q, "Loading")])
+    def test_a_report_after_the_parent_died_kills_the_group_and_exits(self, monkeypatch, report):
+        import signal
+        killed = self._orphan(monkeypatch)
+        q = queue.Queue()
+        with pytest.raises(_WorkerExited):
+            report(q)
+        assert killed == [(0, signal.SIGKILL)]
+        assert q.empty()
+
+    def test_a_live_parent_changes_nothing(self, monkeypatch):
+        monkeypatch.setattr(bg, "_worker_parent_pid", os.getppid())
+        q = queue.Queue()
+        bg.report_progress(q, 0.5, "x")
+        assert q.get_nowait() == ("progress", 0.5, "x")
+
+    def test_no_check_outside_a_worker(self, monkeypatch):
+        monkeypatch.setattr(bg, "_worker_parent_pid", None)
+        monkeypatch.setattr(bg.os, "getppid", lambda: 1)
+        bg.exit_if_parent_gone()
+
+    class _FakeParent:
+        def __init__(self, pid, alive=True):
+            self.pid = pid
+            self.alive = alive
+
+        def is_alive(self):
+            return self.alive
+
+    def test_the_parent_comes_from_the_spawn_data_not_a_late_getppid(self, monkeypatch):
+        """A parent killed during the worker's start-up: getppid already
+        reads the reaper when start_own_process_group runs, but
+        parent_process() still names the real parent, so the worker exits."""
+        monkeypatch.setattr(bg, "_worker_parent", None)
+        monkeypatch.setattr(bg, "_worker_parent_pid", None)
+        monkeypatch.setattr(bg.multiprocessing, "parent_process", lambda: self._FakeParent(4242))
+        monkeypatch.setattr(bg, "_parent_watchdog", lambda: None)
+        monkeypatch.setattr(bg.os, "setsid", lambda: None)
+        monkeypatch.setattr(bg.os, "getppid", lambda: 1)
+        bg.start_own_process_group()
+        assert bg._worker_parent_pid == 4242
+        killed = self._orphan(monkeypatch)
+        monkeypatch.setattr(bg, "_worker_parent_pid", 4242)
+        with pytest.raises(_WorkerExited):
+            bg.exit_if_parent_gone()
+        assert len(killed) == 1
+
+    def test_without_parent_process_data_it_falls_back_to_getppid(self, monkeypatch):
+        monkeypatch.setattr(bg, "_worker_parent", None)
+        monkeypatch.setattr(bg, "_worker_parent_pid", None)
+        monkeypatch.setattr(bg.multiprocessing, "parent_process", lambda: None)
+        monkeypatch.setattr(bg, "_parent_watchdog", lambda: None)
+        monkeypatch.setattr(bg.os, "setsid", lambda: None)
+        monkeypatch.setattr(bg.os, "getppid", lambda: 777)
+        bg.start_own_process_group()
+        assert bg._worker_parent is None and bg._worker_parent_pid == 777
+
+    def test_a_dead_parent_sentinel_exits_even_with_the_same_ppid(self, monkeypatch):
+        killed = self._orphan(monkeypatch)
+        monkeypatch.setattr(bg.os, "getppid", lambda: 4242)
+        monkeypatch.setattr(bg, "_worker_parent", self._FakeParent(4242, alive=False))
+        with pytest.raises(_WorkerExited):
+            bg.report_progress(queue.Queue(), 0.5, "x")
+        assert len(killed) == 1
+
+    def test_on_windows_only_the_sentinel_is_checked_and_nothing_raises(self, monkeypatch):
+        def no_getppid():
+            raise OSError("getppid failed")
+        monkeypatch.setattr(bg.os, "name", "nt")
+        monkeypatch.setattr(bg.os, "getppid", no_getppid)
+        monkeypatch.setattr(bg, "_worker_parent_pid", 4242)
+        monkeypatch.setattr(bg, "_worker_parent", self._FakeParent(4242))
+        q = queue.Queue()
+        bg.report_progress(q, 0.5, "x")
+        bg.report_stage(q, "Loading")
+        assert q.get_nowait() == ("progress", 0.5, "x")
+        assert q.get_nowait() == ("stage", 0.0, "Loading")
+
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="POSIX process groups")
+    def test_a_real_worker_ends_after_its_parent_is_killed(self, tmp_path):
+        """A parent process starts a worker that leads its own group and
+        then reports nothing; the parent is killed hard. The watchdog ends
+        the worker within a few check intervals."""
+        import signal
+        import subprocess
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        ready = str(tmp_path / "ready")
+        script = (
+            "import multiprocessing, sys, time\n"
+            f"sys.path.insert(0, {root!r})\n"
+            "import background_jobs as bg\n"
+            "def worker():\n"
+            "    bg.start_own_process_group()\n"
+            f"    open({ready!r}, 'w').close()\n"
+            "    time.sleep(120)\n"
+            "p = multiprocessing.get_context('fork').Process(target=worker, daemon=False)\n"
+            "p.start()\n"
+            "print(p.pid, flush=True)\n"
+            "time.sleep(120)\n")
+        parent = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE,
+                                  text=True)
+        try:
+            worker_pid = int(parent.stdout.readline())
+            # The worker has recorded its parent and started its watchdog.
+            assert _wait_for(lambda: os.path.exists(ready), timeout=30)
+            os.kill(parent.pid, signal.SIGKILL)
+            parent.wait(timeout=10)
+            assert _wait_for(lambda: _pid_gone(worker_pid),
+                             timeout=4 * bg.PARENT_CHECK_INTERVAL + 2)
+        finally:
+            if parent.poll() is None:
+                parent.kill()
+            try:
+                os.kill(worker_pid, signal.SIGKILL)
+            except (ProcessLookupError, UnboundLocalError):
+                pass
+
+
+def _pid_gone(pid) -> bool:
+    """Linux: True once `pid` has exited (a zombie counts: a re-parented
+    child may wait on a reaper that never collects it here)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] == "Z"
+    except FileNotFoundError:
+        return True
+
+
+def _worker_leaving_a_child(pid_file, result_queue):
+    bg.start_own_process_group()
+    import subprocess
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    with open(pid_file, "w") as f:
+        f.write(str(child.pid))
+    result_queue.put(("ok", {}))
+
+
+class TestWholeTreeWorkerGroup:
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="POSIX process groups")
+    def test_a_child_outliving_its_worker_is_killed_before_on_finish(self, tmp_path):
+        """The worker exits after starting a child (an ffmpeg) that keeps
+        running: the watcher kills the worker's group before on_finish
+        removes the scratch folder under that child."""
+        import signal
+        pid_file = str(tmp_path / "child.pid")
+        seen = []
+
+        def on_finish(job_id):
+            child_pid = int(open(pid_file).read())
+            seen.append(_wait_for(lambda: _pid_gone(child_pid), timeout=3))
+        job_id = "test_whole_tree_child"
+        bg.clear_job(job_id)
+        try:
+            assert bg.start_process_job(job_id, _worker_leaving_a_child, args=(pid_file,),
+                                        on_finish=on_finish, kill_whole_tree=True,
+                                        start_method="fork")
+            assert _wait_for(lambda: seen, timeout=20)
+            assert seen == [True]
+            assert bg.get_status(job_id)["status"] == "done"
+        finally:
+            try:
+                os.kill(int(open(pid_file).read()), signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
+            bg.clear_job(job_id)
 
 
 class TestRunCancellable:

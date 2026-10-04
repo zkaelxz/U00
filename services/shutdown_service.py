@@ -110,12 +110,16 @@ def cancel_all_jobs() -> list:
 
 def wait_for_jobs(ids, timeout: float = JOB_GRACE_SECONDS, sleep=time.sleep, now=time.monotonic) -> bool:
     """True once none of `ids` is running or queued any more, False if the
-    timeout passed first."""
+    timeout passed first. Then also waits, within what is left of the
+    timeout, for those jobs' threads: a job's status turns final before its
+    thread is done, and a process job's watcher still releases the GPU lock
+    and runs its finish hook (removing the run's temp folder) after."""
     deadline = now() + timeout
     while True:
         remaining = [j for j in ids if (background_jobs.get_status(j) or {}).get("status")
                      in ("running", "queued")]
         if not remaining:
+            background_jobs.wait_for_job_threads(max(0.0, deadline - now()), job_ids=set(ids))
             return True
         if now() >= deadline:
             return False
