@@ -105,7 +105,7 @@ class TranscribeConfig(BaseModel):
     """Read-only Transcript-stage summary for one drama (Migration Slice
     20) -- which action the transcribe button would run (from Slice 19's
     transcript_mode) plus every tuning knob's current value, falling back
-    to the same defaults the Streamlit widgets use."""
+    to the defaults the Transcribe stage shows."""
     drama_id: int
     transcript_mode: str
     has_audio_pipeline: bool

@@ -663,8 +663,7 @@ class DiagnosticsGpuTorchSetupResult(DiagnosticsInstallResult):
 
 
 class DiagnosticsResetRequest(BaseModel):
-    """confirm=true and confirm_text "RESET" (the word the Streamlit button
-    made the user type)."""
+    """confirm=true and confirm_text "RESET" (the word the user types to confirm)."""
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
     confirm_text: str = Field("", max_length=20)
