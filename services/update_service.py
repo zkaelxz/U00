@@ -57,6 +57,7 @@ import background_jobs
 import db
 import portable
 import process_guard
+from services import capped_body
 from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
 
@@ -80,6 +81,7 @@ CHUNK = 64 * 1024
 # The whole installer download, however slowly the bytes trickle in; the
 # per-read timeout alone would let a slow connection hold it for hours.
 DOWNLOAD_DEADLINE_SECONDS = 30 * 60
+READ_DEADLINE_SECONDS = 60  # a small JSON/hash body, not the installer
 # baihe_* in %TEMP% is also what a clean uninstall removes.
 SETUP_TEMP_PREFIX = "baihe_setup_"
 # Setup inherits the server's environment (so the server "Start Baihe Studio
@@ -232,24 +234,16 @@ def _too_big():
 
 
 def _declared_length(resp):
-    raw = resp.headers.get("Content-Length") or ""
-    return int(raw) if raw.isdigit() else None
+    return capped_body.declared_length(resp)
+
+
+def _too_slow():
+    return DependencyUnavailableError("GitHub didn't answer in time.")
 
 
 def _read_capped(resp, cap) -> bytes:
-    try:
-        declared = _declared_length(resp)
-        if declared is not None and declared > cap:
-            raise _too_big()
-        out, total = [], 0
-        for chunk in resp.iter_content(CHUNK):
-            total += len(chunk)
-            if total > cap:
-                raise _too_big()
-            out.append(chunk)
-        return b"".join(out)
-    finally:
-        resp.close()
+    return capped_body.read_capped(resp, cap, READ_DEADLINE_SECONDS, _too_big, chunk_size=CHUNK,
+                                   make_deadline_error=_too_slow)
 
 
 def _plain_error(exc) -> str:

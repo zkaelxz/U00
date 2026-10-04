@@ -40,12 +40,12 @@ import re
 import shutil
 import socket
 import tempfile
-import time
 from typing import Optional
 from urllib.parse import urlsplit
 
 import db
-from services import artifact_service, drama_service, export_service, settings_service
+from services import (artifact_service, capped_body, drama_service, export_service,
+                      settings_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
@@ -208,14 +208,9 @@ def _request(method: str, path: str, params: Optional[dict] = None,
 
 
 def _read_capped(resp) -> bytes:
-    """The body, at most MAX_RESPONSE_BYTES and READ_DEADLINE seconds in
-    all (the per-read timeout alone restarts on every trickled chunk)."""
-    started, body = time.monotonic(), bytearray()
-    for chunk in resp.iter_content(64 * 1024):
-        body.extend(chunk)
-        if len(body) > MAX_RESPONSE_BYTES or time.monotonic() - started > READ_DEADLINE:
-            raise DependencyUnavailableError(_BAD_REPLY)
-    return bytes(body)
+    """The body, at most MAX_RESPONSE_BYTES and READ_DEADLINE seconds in all."""
+    return capped_body.read_capped(resp, MAX_RESPONSE_BYTES, READ_DEADLINE,
+                                   lambda: DependencyUnavailableError(_BAD_REPLY))
 
 
 def _json(body: bytes) -> dict:

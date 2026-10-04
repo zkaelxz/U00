@@ -56,7 +56,7 @@ from urllib.parse import urlsplit
 
 import background_jobs
 import db
-from services import drama_service, settings_service
+from services import capped_body, drama_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
@@ -233,15 +233,10 @@ def _retry_wait(resp, attempt: int, max_wait: float = MAX_RETRY_WAIT) -> float:
 
 
 def _read_capped(resp) -> bytes:
-    """At most MAX_RESPONSE_BYTES; the READ_DEADLINE is checked after every
-    small read (each read itself is bounded by HTTP_TIMEOUT), so a trickled
-    reply is cut off soon after the deadline."""
-    started, body = time.monotonic(), bytearray()
-    for chunk in resp.iter_content(8 * 1024):
-        body.extend(chunk)
-        if len(body) > MAX_RESPONSE_BYTES or time.monotonic() - started > READ_DEADLINE:
-            raise DependencyUnavailableError(_BAD_REPLY)
-    return bytes(body)
+    """The body, at most MAX_RESPONSE_BYTES and READ_DEADLINE seconds in all."""
+    return capped_body.read_capped(resp, MAX_RESPONSE_BYTES, READ_DEADLINE,
+                                   lambda: DependencyUnavailableError(_BAD_REPLY),
+                                   chunk_size=8 * 1024)
 
 
 def _parse(body: bytes) -> dict:
