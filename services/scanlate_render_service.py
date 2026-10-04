@@ -1,6 +1,6 @@
 """
 services/scanlate_render_service.py -- Scanlate typeset rendering and bulk
-export for the API (docs/archive/scanlate-api-spec.md S6 and S8).
+export for the API (docs/specs/scanlate-api-spec.md S6 and S8).
 
 - render_page: typesets one page from its regions IN THE DATABASE (never
   from a request body) with scanlate.process_page: regions with blank text

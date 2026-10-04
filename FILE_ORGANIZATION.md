@@ -105,8 +105,7 @@ baihe-subtitler/
 │   ├── archive/                  historical records, not sources of truth: migration review,
 │   │                             handoff and phase log, old roadmap master tracker, Streamlit test
 │   │                             triage, superseded remote-access/extension handoffs, installer
-│   │                             research notes, Step 19 click-through audit, unbuilt Jellyfin/Plex metadata design,
-│   │                             finished Scanlate API and Workspace shell specs
+│   │                             research notes, Step 19 click-through audit, unbuilt Jellyfin/Plex metadata design
 │   ├── engineering-standards.md  shared principles: precedence, scope, review policy,
 │   │                             verification, git/safety [authoritative; role files link here]
 │   ├── testing-and-ci.md         test commands, gotchas, current merge gate, CI-minutes notes

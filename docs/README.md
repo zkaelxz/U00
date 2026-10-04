@@ -44,8 +44,8 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   truth: the migration review, handoff and React/FastAPI phase log, the
   old roadmap master tracker, the Streamlit test triage, the superseded
   remote-access and browser-extension handoffs, the installer research
-  notes, the Step 19 click-through audit, the unbuilt Jellyfin/Plex metadata
-  design, and the finished Scanlate API and Workspace shell specs.
+  notes, the Step 19 click-through audit, and the unbuilt Jellyfin/Plex metadata
+  design.
 
 ## `docs/secondary-review-notes.md` — not present here
 

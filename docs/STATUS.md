@@ -55,7 +55,7 @@ Parked import and export follow-ups (owner decision 2026-09-30, revisit only if 
 - `media_export_service` still builds in the system temp dir (`tempfile.TemporaryDirectory()`, not the library `tmp` folder) and `shutil.move`s to the final path; across drives that is a copy, so a failure can leave a half-copied file.
 - Rows written before the at-rest redaction change (`access_attempts`, `source_health`, `tracked_series.last_check_error`, `job_records`) are only scrubbed on read. In-memory job messages are not query-stripped; check that the job API scrubs them.
 
-Resource for the deferred manual Scanlate canvas editor: tldraw (github.com/tldraw/tldraw), an infinite-canvas SDK with custom shapes, tools and drawing. The editor's requirements are in section 5 of `docs/archive/scanlate-api-spec.md`. Check it again if that feature resumes. The Scanlate-specific image editing tools would still need custom work, and its repository says production use requires a license key, so check the license terms first.
+Resource for the deferred manual Scanlate canvas editor: tldraw (github.com/tldraw/tldraw), an infinite-canvas SDK with custom shapes, tools and drawing. The editor's requirements are in section 5 of `docs/specs/scanlate-api-spec.md`. Check it again if that feature resumes. The Scanlate-specific image editing tools would still need custom work, and its repository says production use requires a license key, so check the license terms first.
 
 ## Next
 - Remote access, steps 133-140 (other household members and phones use the PC's library). Sign-in, ownership, the D5 listeners, the boot service and the Caddy config with owner-run enable are merged; left: the owner's LAN test with a real certificate and the router port last (140).

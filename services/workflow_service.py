@@ -57,7 +57,7 @@ def compute_workspace_stage_index(drama, lines, ddir):
 
 
 # Stage keys of the React stage bar (five stages) and the 7-tab index each
-# one covers (docs/archive/ux-workspace-shell-and-review.md, "Stage status").
+# one covers (docs/specs/ux-workspace-shell-and-review.md, "Stage status").
 STAGE_KEYS = ("source", "translate", "review", "dub", "export")
 _STAGE_FOR_INDEX = {0: "source", 1: "source", 2: "source", 3: "translate",
                     4: "review", 5: "dub", 6: "export"}
