@@ -155,6 +155,12 @@ _SPEED_MIN_WORK_SECONDS = 5.0
 _SPEED_RUNS_KEPT = 5
 # Stages of a run that are worth remembering; anything else is dropped.
 _STAGE_KEYS = ("separate", "load", "decode_vad", "transcribe", "align")
+# Diarization history lives in the same setting under this stand-in for the
+# model name (never a Whisper size), so it is kept per device like the rest.
+_DIARIZE_SPEED_KEY = "diarize"
+# Speaker detection time swings with speaker count and overlap more than
+# Whisper's does, so fewer runs than this keep the fixed range.
+_DIARIZE_MIN_RUNS = 3
 
 
 def _speed_key(model: str, on_gpu: bool) -> str:
@@ -214,6 +220,26 @@ def measured_stage_seconds(model: str, on_gpu: bool) -> dict:
     runs = _recorded_runs(model, on_gpu)
     return {k: round(_median([r["stages"][k] for r in runs if k in r["stages"]]), 3)
             for k in _STAGE_KEYS if any(k in r["stages"] for r in runs)}
+
+
+def measured_diarize_speed(on_gpu: bool) -> Optional[float]:
+    """Seconds of audio diarized per second of work (median of the recent
+    runs on this device), or None until there are enough runs to trust."""
+    runs = _recorded_runs(_DIARIZE_SPEED_KEY, on_gpu)
+    if len(runs) < _DIARIZE_MIN_RUNS:
+        return None
+    return round(_median([r["speed"] for r in runs]), 4)
+
+
+def measured_diarize_runs(on_gpu: bool) -> int:
+    """How many recorded runs back measured_diarize_speed."""
+    return len(_recorded_runs(_DIARIZE_SPEED_KEY, on_gpu))
+
+
+def record_diarize_speed(on_gpu: bool, audio_seconds, work_seconds) -> None:
+    """Appends a finished speaker-detection run; same rules and failure
+    behaviour as record_transcribe_speed."""
+    record_transcribe_speed(_DIARIZE_SPEED_KEY, on_gpu, audio_seconds, work_seconds)
 
 
 def record_transcribe_speed(model: str, on_gpu: bool, audio_seconds, work_seconds,
@@ -333,6 +359,9 @@ def get_transcribe_config(drama_id: int) -> dict:
         "whisper_model_cached": core_module.is_whisper_model_cached(whisper_size),
         "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get_use_gpu()),
         "measured_speed_runs": measured_transcribe_runs(whisper_size, settings_service.get_use_gpu()),
+        "measured_stage_seconds": measured_stage_seconds(whisper_size, settings_service.get_use_gpu()),
+        "measured_diarize_speed": measured_diarize_speed(settings_service.get_use_gpu()),
+        "measured_diarize_runs": measured_diarize_runs(settings_service.get_use_gpu()),
         "whisper_installed": diagnostics.check_dependency("faster_whisper"),
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],

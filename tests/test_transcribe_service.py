@@ -94,6 +94,7 @@ class TestGetTranscribeConfig:
             "whisper_model_cached": core_module.is_whisper_model_cached(transcribe_service.CPU_DEFAULT_WHISPER_SIZE),
             "measured_speed": None,
             "measured_speed_runs": 0,
+            "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": result["whisper_installed"],
             "beam_size": 5,
             "min_silence_ms": 300,
@@ -1724,6 +1725,38 @@ class TestTranscribeSpeedCalibration:
         assert transcribe_service.measured_stage_seconds("small", False) == {
             "decode_vad": 20.0, "transcribe": 300.0}
         assert transcribe_service.measured_stage_seconds("small", True) == {}
+
+    def test_diarize_speed_needs_three_runs_and_is_kept_per_device(self, isolated_db):
+        for work in (300, 100):                                   # 2.0 and 6.0 audio s per s
+            transcribe_service.record_diarize_speed(False, 600, work)
+        assert transcribe_service.measured_diarize_speed(False) is None
+        assert transcribe_service.measured_diarize_runs(False) == 2
+        transcribe_service.record_diarize_speed(False, 600, 200)  # 3.0
+        assert transcribe_service.measured_diarize_speed(False) == 3.0
+        assert transcribe_service.measured_diarize_speed(True) is None
+        # It does not mix with a Whisper model's own history.
+        assert transcribe_service.measured_transcribe_speed("small", False) is None
+
+    def test_old_records_without_diarize_or_stages_still_read(self, isolated_db):
+        isolated_db.set_app_setting("transcribe_speed", {
+            "base|cpu": 3.0, "small|cpu": {"runs": [{"speed": 2.0}]}})
+        assert transcribe_service.measured_transcribe_speed("base", False) == 3.0
+        assert transcribe_service.measured_stage_seconds("small", False) == {}
+        assert transcribe_service.measured_diarize_speed(False) is None
+        did = isolated_db.create_drama(title_en="D")
+        cfg = transcribe_service.get_transcribe_config(did)
+        assert cfg["measured_stage_seconds"] == {} and cfg["measured_diarize_speed"] is None
+        assert cfg["measured_diarize_runs"] == 0
+
+    def test_config_reports_stage_medians_and_diarize_speed(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        model = transcribe_service.CPU_DEFAULT_WHISPER_SIZE
+        transcribe_service.record_transcribe_speed(model, False, 600, 300, stage_seconds={"load": 12})
+        for work in (300, 300, 300):
+            transcribe_service.record_diarize_speed(False, 600, work)
+        cfg = transcribe_service.get_transcribe_config(did)
+        assert cfg["measured_stage_seconds"] == {"load": 12.0}
+        assert cfg["measured_diarize_speed"] == 2.0 and cfg["measured_diarize_runs"] == 3
 
     @pytest.mark.parametrize("audio,work", [
         (None, 100), (100, None), ("100", 50), (100, "50"), (True, 50), (100, True),
