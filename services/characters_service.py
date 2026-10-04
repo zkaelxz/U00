@@ -32,6 +32,7 @@ Deliberately NOT here:
 
 No FastAPI import.
 """
+import logging
 import os
 import secrets
 import time
@@ -46,6 +47,8 @@ from db import (apply_voice_bank_entry as _db_apply_voice_bank_entry, drama_dir,
                 list_voice_bank_entries, load_lines, upsert_character)
 from services import drama_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+
+log = logging.getLogger(__name__)
 
 MAX_NAME_LEN = 200
 MAX_PRONOUNS_LEN = 40
@@ -602,23 +605,20 @@ _STALE_MERGE = ("The speakers changed since the merge (renamed, edited or re-spl
 
 
 def _sweep_merge_undos(drama_id=None, labels: tuple = ()):
-    """Drops expired undo records (all dramas) and retires those of drama_id
-    naming one of labels: an edit to those speakers makes the undo stale (its
-    id then answers 409). Expiry has no timer of its own, so any Characters
-    write does it; reads don't, since an expired id is refused on use anyway.
-    Then removes the pick copies nothing can use any more, in each drama
-    touched."""
-    dropped = db.drop_speaker_merge_undos(time.time())
-    if drama_id is not None:
-        dropped += db.retire_speaker_merge_undos(drama_id, tuple(labels))
-    _remove_unused_pick_copies({d for d, _ in dropped} | ({drama_id} if drama_id else set()))
-
-
-def _remove_unused_pick_copies(drama_ids):
-    # voice_clone_service imports this module, so it can't be imported at the top.
-    from services import voice_clone_service
-    for did in drama_ids:
-        voice_clone_service.remove_unused_pick_copies(did)
+    """Best-effort bookkeeping after the edit it follows has committed: drops
+    expired undo records (all dramas; expiry has no timer of its own, so any
+    Characters write does it) and retires those of drama_id naming one of
+    labels, so an edit to those speakers answers the old undo id with 409.
+    Database rows only: no clip file is ever deleted here. A failure (a locked
+    database) must not turn the committed edit into an error, and an expired
+    id is refused on use anyway; a retire that fails is retried by the
+    undo's own stale checks."""
+    try:
+        db.drop_speaker_merge_undos(time.time())
+        if drama_id is not None and labels:
+            db.retire_speaker_merge_undos(drama_id, tuple(labels))
+    except Exception as exc:
+        log.warning("Speaker merge undo bookkeeping failed (%s)", type(exc).__name__)
 
 
 def _clip_exists(drama_id: int, rel: str) -> bool:
@@ -655,12 +655,12 @@ def merge_speakers(drama_id: int, source: str, target: str, *, user_id=None) -> 
                                 "fix it in the line editor first.")
     if drama_service.job_running_for_drama(drama_id):
         raise ConflictError(_BUSY.format(what="merging speakers"))
-    _sweep_merge_undos(drama_id, (source, target))
     undo_id = secrets.token_urlsafe(24)
     out = db.merge_speakers_atomic(drama_id, source, target, user_id, time.time(), undo_id)
     if out == "link_conflict":
         raise ConflictError("These speakers are linked to different series characters; "
                             "unlink one of them first.")
+    _sweep_merge_undos()
     return {"characters": list_characters(drama_id), "moved": out["moved"],
             "undo": {"undo_id": undo_id, "expires_in": db.MERGE_UNDO_TTL_SECONDS}}
 
@@ -673,8 +673,7 @@ def undo_merge_speakers(drama_id: int, undo_id: str, *, user_id=None) -> dict:
     drama and user that merged. Refused (409, nothing written, the id spent)
     when anything the merge left has changed since: the target row or its
     dismissed matches, a moved line's speaker or flag, or the old label in
-    use again. A clone_pick_ copy the target did not take is deleted once the
-    undo can no longer be used (an uploaded clip never is). Raises
+    use again. No clip file is deleted. Raises
     NotFoundError (unknown drama, or an id that is unknown, spent, expired or
     someone else's), InvalidInputError, ConflictError. Returns {"characters": ..., "moved": n, "undo": None}."""
     require_drama(drama_id)
@@ -686,16 +685,10 @@ def undo_merge_speakers(drama_id: int, undo_id: str, *, user_id=None) -> dict:
     _sweep_merge_undos()
     out = db.undo_merge_speakers_atomic(drama_id, undo_id, user_id, time.time(),
                                         lambda rel: _clip_exists(drama_id, rel))
-    # The id is spent in every case, so a clip the target did not take may be
-    # unused now; a successful undo gives it back to the source row, which
-    # keeps it. Status checks come first: the sweep never raises.
-    try:
-        if out["status"] == "missing":
-            raise NotFoundError("There is nothing to undo; the undo was used or has expired.")
-        if out["status"] == "clip_missing":
-            raise ConflictError("The voice clip is gone, so the merge can't be undone.")
-        if out["status"] == "stale":
-            raise ConflictError(_STALE_MERGE)
-    finally:
-        _remove_unused_pick_copies({drama_id})
+    if out["status"] == "missing":
+        raise NotFoundError("There is nothing to undo; the undo was used or has expired.")
+    if out["status"] == "clip_missing":
+        raise ConflictError("The voice clip is gone, so the merge can't be undone.")
+    if out["status"] == "stale":
+        raise ConflictError(_STALE_MERGE)
     return {"characters": list_characters(drama_id), "moved": out["moved"], "undo": None}

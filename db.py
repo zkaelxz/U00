@@ -2735,8 +2735,8 @@ def merge_speakers_atomic(drama_id: int, source: str, target: str, user_id, now:
     wrote it, the moved lines' previous flags and both labels' dismissed voice
     matches, scoped to drama_id and user_id. Returns "link_conflict" (the rows
     are linked to different series characters; nothing written) or
-    {"moved": n, "orphan_clip": the source's clip file if the target did not
-    take it, else None}."""
+    {"moved": n}. Undo records of this drama naming either speaker are
+    retired in the same transaction."""
     conn = get_conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -2747,6 +2747,7 @@ def merge_speakers_atomic(drama_id: int, source: str, target: str, user_id, now:
                 and src_full["series_character_id"] != tgt_full["series_character_id"]):
             conn.rollback()
             return "link_conflict"
+        _retire_merge_undos(conn, drama_id, (source, target))
         moved = [{"id": r["id"], "speaker_manual": bool(r["speaker_manual"])} for r in conn.execute(
             "SELECT id, speaker_manual FROM lines WHERE drama_id = ? AND COALESCE(speaker, '') = ? "
             "ORDER BY id", (drama_id, source))]
@@ -2778,7 +2779,7 @@ def merge_speakers_atomic(drama_id: int, source: str, target: str, user_id, now:
             (undo_id, drama_id, user_id, source, target, json.dumps(record), now,
              now + MERGE_UNDO_TTL_SECONDS))
         conn.commit()
-        return {"moved": len(moved), "orphan_clip": orphan}
+        return {"moved": len(moved)}
     except Exception:
         conn.rollback()
         raise
@@ -2797,8 +2798,7 @@ def undo_merge_speakers_atomic(drama_id: int, undo_id: str, user_id, now: float,
     manual. Otherwise "stale". clip_exists(rel) checks the stored clip file
     before the source row gets its clip link back; a missing file is
     "clip_missing". Returns {"status": "ok" | "missing" | "stale" |
-    "clip_missing", "moved": n, "orphan_clip": the clip file the record held
-    that may now be unused, else None}."""
+    "clip_missing", "moved": n}."""
     conn = get_conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -2807,21 +2807,20 @@ def undo_merge_speakers_atomic(drama_id: int, undo_id: str, user_id, now: float,
             "AND COALESCE(user_id, -1) = COALESCE(?, -1)", (undo_id, drama_id, user_id)).fetchone()
         if rec is None:
             conn.rollback()
-            return {"status": "missing", "moved": 0, "orphan_clip": None}
+            return {"status": "missing", "moved": 0}
         snap = json.loads(rec["snapshot"])
-        orphan = snap["orphan_clip"]
         conn.execute("DELETE FROM speaker_merge_undos WHERE id = ?", (undo_id,))
         source, target = rec["source_label"], rec["target_label"]
         if rec["expires_at"] <= now:
             conn.commit()
-            return {"status": "missing", "moved": 0, "orphan_clip": orphan}
+            return {"status": "missing", "moved": 0}
         if rec["stale"]:
             conn.commit()
-            return {"status": "stale", "moved": 0, "orphan_clip": orphan}
+            return {"status": "stale", "moved": 0}
 
         def refuse(status):
             conn.commit()
-            return {"status": status, "moved": 0, "orphan_clip": orphan}
+            return {"status": status, "moved": 0}
 
         moved_ids = [m["id"] for m in snap["moved"]]
         on_target = {r["id"]: r for r in conn.execute(
@@ -2863,7 +2862,7 @@ def undo_merge_speakers_atomic(drama_id: int, undo_id: str, user_id, now: float,
                 "series_character_id, created_at) VALUES (?, ?, ?, ?)",
                 (drama_id, d["speaker_label"], d["series_character_id"], d["created_at"]))
         conn.commit()
-        return {"status": "ok", "moved": len(moved_ids), "orphan_clip": orphan}
+        return {"status": "ok", "moved": len(moved_ids)}
     except Exception:
         conn.rollback()
         raise
@@ -2871,23 +2870,17 @@ def undo_merge_speakers_atomic(drama_id: int, undo_id: str, user_id, now: float,
         conn.close()
 
 
-def drop_speaker_merge_undos(expired_before: float) -> list:
-    """Deletes undo records expired before the given time and returns
-    [(drama_id, orphan_clip or None)] for each, so the caller can remove clip
-    files nothing will need now."""
+def drop_speaker_merge_undos(expired_before: float):
+    """Deletes undo records expired before the given time (database rows only)."""
     conn = get_conn()
     try:
-        # Every Characters read sweeps; skip the write lock when nothing expired.
+        # Characters writes call this; skip the write lock when nothing expired.
         if conn.execute("SELECT 1 FROM speaker_merge_undos WHERE expires_at <= ? LIMIT 1",
                         (expired_before,)).fetchone() is None:
-            return []
+            return
         conn.execute("BEGIN IMMEDIATE")
-        rows = conn.execute("SELECT id, drama_id, snapshot FROM speaker_merge_undos "
-                            "WHERE expires_at <= ?", (expired_before,)).fetchall()
-        for r in rows:
-            conn.execute("DELETE FROM speaker_merge_undos WHERE id = ?", (r["id"],))
+        conn.execute("DELETE FROM speaker_merge_undos WHERE expires_at <= ?", (expired_before,))
         conn.commit()
-        return [(r["drama_id"], json.loads(r["snapshot"])["orphan_clip"]) for r in rows]
     except Exception:
         conn.rollback()
         raise
@@ -2896,8 +2889,9 @@ def drop_speaker_merge_undos(expired_before: float) -> list:
 
 
 def live_speaker_merge_undo_clips(drama_id: int, now: float) -> set:
-    """Clip files that a usable (unexpired, not stale) undo record of the
-    drama would give back to the source row."""
+    """Clip files that a live (unexpired, not retired) undo record of the
+    drama would give back to the source row. Listing unused clips must count
+    these as in use: a merge never deletes a clip file."""
     conn = get_conn()
     try:
         rows = conn.execute("SELECT snapshot FROM speaker_merge_undos "
@@ -2908,26 +2902,26 @@ def live_speaker_merge_undo_clips(drama_id: int, now: float) -> set:
         conn.close()
 
 
-def retire_speaker_merge_undos(drama_id: int, labels: tuple) -> list:
-    """Marks the drama's live undo records that name one of labels as stale
-    (an edit to those speakers means they can't be applied), and returns
-    [(drama_id, orphan_clip or None)] for them. The record stays until its id
-    is used or it expires, so the undo answers with a plain 409 rather than
-    looking like an unknown id."""
-    if not labels:
-        return []
+def _retire_merge_undos(conn, drama_id: int, labels: tuple):
     marks = ", ".join("?" * len(labels))
+    conn.execute(
+        "UPDATE speaker_merge_undos SET stale = 1 WHERE drama_id = ? AND stale = 0 "
+        f"AND (source_label IN ({marks}) OR target_label IN ({marks}))",
+        (drama_id, *labels, *labels))
+
+
+def retire_speaker_merge_undos(drama_id: int, labels: tuple):
+    """Marks the drama's live undo records that name one of labels as stale
+    (an edit to those speakers means they can't be applied). The record stays
+    until its id is used or it expires, so the undo answers with a plain 409
+    rather than looking like an unknown id."""
+    if not labels:
+        return
     conn = get_conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        rows = conn.execute(
-            "SELECT id, drama_id, snapshot FROM speaker_merge_undos WHERE drama_id = ? AND stale = 0 "
-            f"AND (source_label IN ({marks}) OR target_label IN ({marks}))",
-            (drama_id, *labels, *labels)).fetchall()
-        for r in rows:
-            conn.execute("UPDATE speaker_merge_undos SET stale = 1 WHERE id = ?", (r["id"],))
+        _retire_merge_undos(conn, drama_id, labels)
         conn.commit()
-        return [(r["drama_id"], json.loads(r["snapshot"])["orphan_clip"]) for r in rows]
     except Exception:
         conn.rollback()
         raise
