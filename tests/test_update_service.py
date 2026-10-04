@@ -12,6 +12,7 @@ import pytest
 import requests
 
 import db
+from services import capped_body
 from services import update_service as us
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      UnsupportedOperationError)
@@ -700,3 +701,19 @@ def test_auto_check_is_off_by_default_and_daily_when_on(http):
     assert len(http.calls) == 2
     # Never a download from the daily check.
     assert all(u == API_URL for u, _ in http.calls)
+
+
+def test_small_body_read_is_closed_and_cut_off_by_the_deadline(monkeypatch):
+    ticks = iter([0.0, 1.0, us.READ_DEADLINE_SECONDS + 1])
+    monkeypatch.setattr(capped_body.time, "monotonic", lambda: next(ticks))
+    resp = FakeResp(body=b"x" * (3 * us.CHUNK))
+    with pytest.raises(DependencyUnavailableError, match="didn't answer in time"):
+        us._read_capped(resp, 10 * us.CHUNK)
+    assert resp.closed
+
+
+def test_small_body_read_over_cap_is_closed():
+    resp = FakeResp(body=b"x" * 50)
+    with pytest.raises(DependencyUnavailableError, match="larger than allowed"):
+        us._read_capped(resp, 10)
+    assert resp.closed
