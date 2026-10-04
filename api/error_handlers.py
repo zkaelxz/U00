@@ -28,7 +28,7 @@ What never reaches a client: a traceback, an exception's raw text for
 an unexpected error (it can carry a path or a key), or the offending
 input value on a validation error. Unexpected errors are logged in full
 to the app's own log file (`applog`) instead, where they already go for
-the Streamlit UI. Known messages are still passed through
+the other surfaces. Known messages are still passed through
 `translate_engines.redact_secrets` in case a service slipped one in.
 """
 

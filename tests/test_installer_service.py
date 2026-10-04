@@ -645,7 +645,7 @@ class TestEnableRemote:
         with pytest.raises(service.ConfigRefused, match=word):
             svc.enable_remote()
 
-    @pytest.mark.parametrize("port", [80, 8501, 8600, 8601, 8756, 70000, 0])
+    @pytest.mark.parametrize("port", [80, 8600, 8601, 8756, 70000, 0])
     def test_household_port_rules(self, layout, source, port):
         (layout.data / ".env").write_text(SIGN_IN, encoding="utf-8")
         svc = _services(layout, FakeWindows(), source, port_check=lambda p: False)
@@ -863,7 +863,7 @@ class TestChosenPort:
         del config["api_port"]
         layout.config_file.write_text(json.dumps(config), encoding="utf-8")
 
-    BAD = ["80", "1023", "70000", "0", "-1", "abc", "86 11", "", "8501", "8756", "8610"]
+    BAD = ["80", "1023", "70000", "0", "-1", "abc", "86 11", "", "8756", "8610"]
 
     @pytest.mark.parametrize("bad", BAD)
     def test_a_bad_port_on_a_fresh_install_leaves_nothing(self, layout, source, bad, capsys):
@@ -1067,7 +1067,7 @@ class TestSetPort:
         assert "Remote access is still on" in message
 
     @pytest.mark.parametrize("bad", ["80", "1023", "70000", "0", "-1", "abc", "87 11", "",
-                                     "8501", "8756", "8610", "٨٧١١"])
+                                     "8756", "8610", "٨٧١١"])
     def test_a_bad_port_is_refused_and_changes_nothing(self, layout, source, bad, capsys):
         svc, win = self._installed(layout, source)
         before, calls = self._snapshot(layout), len(win.calls)

@@ -190,7 +190,7 @@ class TestServicePort:
 
     def test_as_strict_as_the_service(self, tmp_path):
         import service
-        for port in (1023, 1024, 8501, 8600, 8601, 8610, 8611, 8756, 65535, 65536):
+        for port in (1023, 1024, 8600, 8601, 8610, 8611, 8756, 65535, 65536):
             path = self._ours(tmp_path, f', "api_port": {port}')
             assert launcher.service_port(path) == service.stored_api_port(path), port
         assert launcher.SERVICE_CONFIG_PATH == (service.ADMIN_FOLDER_NAME, "helper",

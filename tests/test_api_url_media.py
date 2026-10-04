@@ -340,7 +340,7 @@ def test_remote_and_cross_site_refused(env):
     assert remote.post(path, json=body, headers=h).status_code == 403
     local = TestClient(create_app(ApiSettings()), base_url="http://127.0.0.1:8600",
                        client=("127.0.0.1", 5000), raise_server_exceptions=False)
-    other = {"Origin": "http://127.0.0.1:8501"}
+    other = {"Origin": "http://127.0.0.1:5173"}
     assert local.post(path, content=b'{"url": "x"}',
                       headers={**other, "Content-Type": "text/plain"}).status_code == 403
     assert local.post(path, json=body, headers={"Origin": "https://evil.example"}).status_code == 403

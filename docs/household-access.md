@@ -28,7 +28,7 @@ Do the steps in this order. Steps 1 to 4 change nothing on the internet side; st
 5. **Turn remote access on.** Start menu > "Baihe Studio service" (it asks for administrator rights) > 3, "Turn remote access on". It asks for a household port (Enter for 8610). The command-line equivalent, from an administrator prompt, is `"%ProgramFiles%\Baihe Studio Services\helper\python\python.exe" -I -S "%ProgramFiles%\Baihe Studio Services\helper\lib\installer\service.py" enable-remote [--household-port N]`; the menu exists so nobody has to type that. It checks first and changes nothing (exit code 2) when:
    - `BAIHE_GOOGLE_CLIENT_ID`, `BAIHE_GOOGLE_CLIENT_SECRET` or `BAIHE_PUBLIC_URL` is missing from the data folder's `.env`;
    - `BAIHE_PUBLIC_URL` isn't `https://` plus a DNS name (a port, path, query or user name, an IP address or `localhost`): Caddy answers on 443 and gets the certificate for that name;
-   - the household port isn't a whole number from 1024 to 65535, is one of Baihe's own ports (8501, 8600, 8601, 8756) or the service's own port, or another program already uses it;
+   - the household port isn't a whole number from 1024 to 65535, is one of Baihe's own ports (8600, 8601, 8756) or the service's own port, or another program already uses it;
    - Baihe isn't installed as a service, or the install is missing Caddy or its template (run Setup again).
 
    Otherwise it restarts Baihe's service with the household listener on 127.0.0.1, writes Caddy's config for your domain and household port, and starts the `BaiheCaddy` service (set to start at boot). If the household listener or Caddy doesn't come up, it undoes its changes. It then prints your next two steps.
@@ -46,7 +46,6 @@ Do the steps in this order. Steps 1 to 4 change nothing on the internet side; st
 | 8600 | default PC port: the PC's own window and API, auth off | this PC only (127.0.0.1) | never forward. Change it with "Change Baihe Studio's port" in the menu (`set-port`) |
 | 8601 | the documented alternative PC port | this PC only | never forward; the household port can't be 8601 |
 | 8756 | browser-extension bridge | this PC only (127.0.0.1); fixed | never forward |
-| 8501 | legacy Streamlit port (Streamlit is gone) | nothing | still reserved, so the household port can't take it |
 | 5173 | Vite dev server, developers only | this PC only | never forward |
 | 2019 | Caddy's admin API | nothing: `admin off` in the template | never forward |
 
@@ -142,6 +141,6 @@ which sends the request to Caddy on this PC and checks it against Caddy's local 
 1. **Windows firewall rule**, in an administrator PowerShell, for Caddy only:
    `New-NetFirewallRule -DisplayName "Caddy for Baihe" -Direction Inbound -Program "C:\caddy\caddy.exe" -Protocol TCP -LocalPort 443 -Action Allow`
    Add no rule for `python.exe` or for 8600, 8610 or 8756. This opens 443 only: Caddy's http-to-https redirect on port 80 then doesn't work (see the ports table).
-2. **Router port forward:** TCP 443 to the PC's LAN address (reserve that address for the PC in the router's DHCP settings). Never forward 8600 (or your `BAIHE_API_PORT`), 8601, the household port, 8756 or 8501. Only Caddy's 443 is forwarded.
+2. **Router port forward:** TCP 443 to the PC's LAN address (reserve that address for the PC in the router's DHCP settings). Never forward 8600 (or your `BAIHE_API_PORT`), 8601, the household port or 8756. Only Caddy's 443 is forwarded.
 3. **Certificate:** stop the LAN-test Caddy and run the template itself (`caddy run --config deploy\caddy\Caddyfile.template --adapter caddyfile`). Caddy gets the certificate for `BAIHE_DOMAIN` through the forward above (the TLS-based challenge over 443, expected but untested here, or a DNS challenge) and renews it by itself. There is no separate, earlier forward for the first issuance.
 4. Run the outside checklist.

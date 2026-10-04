@@ -101,12 +101,12 @@ ADMIN_PORT = 8600              # api_config.DEFAULT_PORT
 # The PC listener's own ports in RESERVED_PORTS: the service may take them,
 # the household listener may not.
 PC_LISTENER_PORTS = (ADMIN_PORT, ADMIN_PORT + 1)
-# Ports that are Baihe's own (settings_service.baihe_own_ports): Streamlit's,
-# the PC listener's, the extension bridge's (page_server.DEFAULT_PORT), and
+# Ports that are Baihe's own (settings_service.baihe_own_ports): the PC
+# listener's, the extension bridge's (page_server.DEFAULT_PORT), and
 # 8601, the documented "pick another port" for the PC listener. The
 # household listener may take none of them.
 EXTENSION_BRIDGE_PORT = 8756    # page_server.DEFAULT_PORT
-RESERVED_PORTS = (8501, ADMIN_PORT, ADMIN_PORT + 1, EXTENSION_BRIDGE_PORT)
+RESERVED_PORTS = (ADMIN_PORT, ADMIN_PORT + 1, EXTENSION_BRIDGE_PORT)
 DEFAULT_HOUSEHOLD_PORT = 8610
 HTTPS_PORT = 443
 # The rule the owner adds by hand (firewall_rule_command). This script only
@@ -553,7 +553,7 @@ def household_port_problem(port, api_port: int = ADMIN_PORT) -> str:
 
 def api_port_problem(port, household_ports=()) -> str:
     """'' if `port` can be the service's own (the PC listener's): none of
-    Baihe's other ports (Streamlit's, the extension bridge's), nor the
+    Baihe's other ports (the extension bridge's), nor the
     household port remote access uses or would use by default."""
     taken = sorted((set(RESERVED_PORTS) - set(PC_LISTENER_PORTS))
                    | {DEFAULT_HOUSEHOLD_PORT} | set(household_ports))
