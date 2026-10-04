@@ -5,15 +5,14 @@ docs/specs/discover-sources-live-api-spec.md section 4, L-1, polling only).
 A session is one background job (`live_<uuid>`) running
 live_translate.run_live_job in its own tempfile.mkdtemp directory, which is
 removed when the job ends (done, error, cancel -- including a cancel while
-still queued). Unlike the Streamlit tab (fixed job id, fixed shared temp
-dir, use_gpu never passed), every start gets its own id and directory,
-use_gpu reaches the pipeline, and max_minutes is a hard stop.
+still queued). Every start gets its own id and directory, use_gpu reaches the
+pipeline, and max_minutes is a hard stop.
 
 Decisions (spec): any public http(s) URL yt-dlp can resolve is accepted
 (host checked by services.url_guard.resolve_public, no fetch here); no
 browser cookies over the API (a start at the PC uses the saved Settings
 cookies; see start_session); keys are resolved server-side, never taken
-from the caller. No Streamlit/FastAPI import.
+from the caller. No FastAPI import.
 
 Router contract: start/get are gated like media.import_url, and an engine
 outside translate_engines.FREE_ENGINES (Gemini counts as paid: whether a key
@@ -42,7 +41,6 @@ MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
-STREAMLIT_JOB_ID = "live_capture"
 # ffmpeg input protocols for a resolved live stream (HLS over https needs
 # tcp, tls and crypto for encrypted segments); no file, pipe, data, etc.
 FFMPEG_PROTOCOL_WHITELIST = "http,https,tcp,tls,crypto"
@@ -114,8 +112,7 @@ def _remove_dir(session_id: str):
 
 
 def _active_session_locked():
-    """The id of a session that is reserved, queued or running, or the
-    Streamlit tab's fixed `live_capture` job if it runs in this process;
+    """The id of a session that is reserved, queued or running,
     else None. Call with _lock held."""
     for sid, entry in _sessions.items():
         if not entry.get("dir"):
@@ -123,9 +120,6 @@ def _active_session_locked():
         job = background_jobs.get_status(sid)
         if job is None or job.get("status") in ("queued", "running"):
             return sid
-    legacy = background_jobs.get_status(STREAMLIT_JOB_ID)
-    if legacy and legacy.get("status") in ("queued", "running"):
-        return STREAMLIT_JOB_ID
     return None
 
 
@@ -214,7 +208,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     session_id = f"live_{uuid.uuid4().hex}"
     out_dir = tempfile.mkdtemp(prefix="baihe_live_")
     with _lock:
-        # One session at a time (the Streamlit tab allowed exactly one):
+        # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The
         # check and the reservation share one lock hold, so two starts
         # can't both pass.
