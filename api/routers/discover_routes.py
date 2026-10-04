@@ -36,6 +36,7 @@ def post_seed():
     return svc.seed_titles()
 
 
+# Deletes are PC-only (docs/remote-access-decision.md).
 @router.post("/titles/{title_id}/delete", dependencies=[local_only()], response_model=KnownTitleDeleted,
              summary="Delete a known title (confirm=true)", responses=_ERRS)
 def post_delete(body: KnownTitleDelete, title_id: int = Path(ge=1, le=svc.MAX_ID)):

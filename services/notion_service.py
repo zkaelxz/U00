@@ -42,7 +42,7 @@ Test connection runs in the request, so it retries once with a short wait.
 Errors are fixed text; the only Notion text passed on (a validation message)
 is redacted, including the token by value, and shortened.
 
-No Streamlit or FastAPI import: plain dicts in, plain dicts out.
+No FastAPI import: plain dicts in, plain dicts out.
 """
 import datetime
 import json

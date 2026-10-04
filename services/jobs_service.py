@@ -11,7 +11,7 @@ of them, which `background_jobs`'s own in-memory `_jobs` dict can't do.
 Slice 22 adds cancel_job: it flags the job_records row, which the
 owning process's throttled check in background_jobs picks up.
 
-No Streamlit import, no HTTP types: takes plain values, returns plain
+No HTTP types: takes plain values, returns plain
 dicts, so `cli.py` or a script could call it too.
 """
 
@@ -339,8 +339,8 @@ def derive_outcome(status, error, result):
         parts.append(f"{len(errors)} problem(s), first: {errors[0]}")
     if result.get("partial"):
         parts.append("Only part of the work finished.")
-    # Transcribe warnings (Streamlit warned on these): the job worked, but
-    # not the way the user asked, so it is reported as partial, not ok.
+    # Transcribe warnings: the job worked, but not the way the user asked,
+    # so it is reported as partial, not ok.
     warned = False
     if result.get("gpu_fallback"):
         parts.append(f"Ran on CPU because the GPU wasn't available ({result['gpu_fallback']}).")

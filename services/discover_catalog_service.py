@@ -1,6 +1,6 @@
 """
 services/discover_catalog_service.py -- the Discover "Known titles" catalog
-without the Streamlit tab (Migration Slice 55, spec slice D-1).
+(Migration Slice 55, spec slice D-1).
 
 UI-free, plain dicts, errors from `service_errors`. No network and no LLM:
 platform listing and search links are pure string building
@@ -126,8 +126,8 @@ def seed_titles() -> dict:
 
 
 def _already_imported(t: dict):
-    """Id of the existing drama matching this title (the tab's dup rule:
-    same title_en, or same title_zh as the original), else None."""
+    """Id of the existing drama matching this title (same title_en, or
+    same title_zh as the original), else None."""
     for d in db.list_dramas(search=t["title_en"] or t["title_original"]):
         if (t["title_en"] and d.get("title_en") == t["title_en"]) or \
                 (t["title_original"] and d.get("title_zh") == t["title_original"]):

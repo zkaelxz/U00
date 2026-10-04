@@ -40,7 +40,7 @@ _FFMPEG_MISSING = "ffmpeg is not installed or not on PATH, which this export req
 # Stream-copy and audio-only re-encodes are fast; this only stops a hung ffmpeg.
 _VIDEO_TIMEOUT_S = 4 * 3600
 _VIDEO_JOB_PREFIXES = ("burned_video_", "softsub_video_", "dubbed_video_")
-_DUB_ORIGINAL_DB = -20.0   # tabs/workspace_tab.py's "mix original audio in quietly"
+_DUB_ORIGINAL_DB = -20.0   # "mix original audio in quietly"
 
 
 def _get_drama(drama_id: int) -> dict:

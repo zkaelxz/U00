@@ -219,10 +219,10 @@ def _select_relevant_novel_passages(novel_reference: str, batch_source_lines: li
     translation batch (Step 50) -- replaces sending the whole reference,
     unbounded, to every batch regardless of the batch's actual content.
 
-    The reference novel is itself an existing English translation (see
-    tabs/workspace_tab.py's "Upload novel translation" uploader), so
-    relevance can't be scored by keyword-matching it against the batch's
-    own source-language text directly. Instead it's scored against query
+    The reference novel is itself an existing English translation (the
+    drama's uploaded novel reference), so relevance can't be scored by
+    keyword-matching it against the batch's own source-language text
+    directly. Instead it's scored against query
     terms this batch already has in English: each line's already-resolved
     speaker name, plus the English side of any glossary term whose
     source-language form appears in this batch's source lines. The

@@ -44,6 +44,8 @@ from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REA
                      FailureReason, FetchFailed, SourceUnavailable)
 
 DEFAULT_TIMEOUT = 20
+# Cap on any one retry wait, a server's Retry-After included, so a single
+# wait can't stall a job for minutes.
 MAX_SINGLE_BACKOFF = 60.0
 
 # Body limits for the real transport (security review MED-1): the body is
@@ -710,6 +712,9 @@ def _pinning_adapter():
     return _PinningAdapter()
 
 
+# One requests.Session per thread: Session is not documented as thread-safe,
+# and fetches run on several threads at once (registry.multi_search's pool,
+# background jobs, the chapter-check scheduler).
 _tls = threading.local()
 
 
@@ -1055,6 +1060,8 @@ class SourceClient:
                 reason = reasons[0] if reasons else FailureReason.HTTP_ERROR
                 attempt = AttemptRecord(tier=AccessTier.STATIC_HTTP.value, ok=False,
                                         reason=reason.value, at=time.time(), **ev)
+                # A challenge is never retried or routed around: it stops
+                # every automated request and goes to the person.
                 if reason in CHALLENGE_REASONS:
                     self.attempts.append(attempt)
                     if record_health:
@@ -1071,6 +1078,8 @@ class SourceClient:
                 backoff = min(self.policy.backoff_base * (2 ** attempt_no), MAX_SINGLE_BACKOFF)
                 retry_hdr = (resp.headers if resp is not None else {})
                 ra = {k.lower(): v for k, v in retry_hdr.items()}.get("retry-after")
+                # Retry-After can only lengthen the wait, never past the cap;
+                # only the delta-seconds form is read (an HTTP-date is ignored).
                 if ra and str(ra).strip().isdigit():
                     backoff = min(max(backoff, float(ra)), MAX_SINGLE_BACKOFF)
                 attempt_no += 1

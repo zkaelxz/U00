@@ -4,7 +4,7 @@ destructive and admin actions (migration E0 remainder): bulk
 status/tags/delete, bulk translate, export-all zip, full backup, backup of one person's items,
 restore and storage cleanup.
 
-Service half only; no router yet. Rules this module keeps:
+Routes: api/routers/library_admin_routes.py. Rules this module keeps:
   - Destructive actions need `confirm is True` plus an exact typed word
     (the migration decision: match today's UI bar with a typed confirm).
     A wrong or missing confirm raises InvalidInputError before anything
@@ -25,10 +25,10 @@ Service half only; no router yet. Rules this module keeps:
   - No result or error message carries a filesystem path. Finished export
     and backup files live in library-level folders excluded from backups;
     `latest_admin_artifact` returns name/size, and
-    `admin_artifact_path` (server-side only) is what a future download
-    route streams.
+    `admin_artifact_path` (server-side only) is what the download route
+    streams.
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 
 import contextlib
@@ -65,7 +65,7 @@ DELETE_CONFIRM_TEXT = "DELETE"
 RESTORE_CONFIRM_TEXT = "RESTORE"
 CLEAN_CONFIRM_TEXT = "CLEAN"
 
-BULK_TRANSLATE_JOB_ID = "bulk_series_translate"  # same id the Streamlit tab uses
+BULK_TRANSLATE_JOB_ID = "bulk_series_translate"
 EXPORT_JOB_ID = "library_export_zip"
 BACKUP_JOB_ID = "library_backup"
 DATABASE_BACKUP_JOB_ID = "library_db_backup"
@@ -324,7 +324,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                          default_female_pronouns: bool = False) -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
-    dramas whose status is "aligned" (the same filter the tab applies) and
+    dramas whose status is "aligned" and
     that have no running or queued job.
     Keys, Ollama URL, monthly cap and Gemini free tier come from Settings
     server-side. expected_engines ({drama_id: engine}, from
@@ -600,8 +600,7 @@ def _database_backup_job(job_id):
 
 
 def start_database_backup() -> dict:
-    """Job: database-only backup (the tab's "Database-only backup (fast,
-    small)"): one consistent library.db snapshot, auth sessions removed,
+    """Job: database-only backup (fast, small): one consistent library.db snapshot, auth sessions removed,
     no media. Fetch it with admin_artifact_path("database")."""
     refuse_during_maintenance("database backup")
     _refuse_duplicate(DATABASE_BACKUP_JOB_ID, "database backup")

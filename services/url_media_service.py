@@ -1,7 +1,7 @@
 """
 services/url_media_service.py -- download a drama's audio/video from a URL
-with yt-dlp (the Workspace Source stage's "From a URL", Streamlit
-`tabs/workspace_tab.py` "Video URL"; Sources S-5 video). The route is
+with yt-dlp (the Workspace Source stage's "From a URL"; Sources S-5
+video). The route is
 `local_only()` for now (docs/remote-access-decision.md).
 
 Checks in the request, before any job or fetch: the pasted URL is public
@@ -30,7 +30,7 @@ audio is extracted with ffmpeg inside the temp folder first, then the
 video becomes `source<ext>` and the audio `audio.wav`. The one DB write is
 field-scoped: audio_filename, [source_video_filename], source_url and,
 only when both titles are empty (re-read just before writing), title_zh.
-Audio-only leaves an older source_video_filename as is (Streamlit parity).
+Audio-only leaves an older source_video_filename as is.
 
 Errors are fixed strings: never the URL, a path or yt-dlp's raw text.
 """

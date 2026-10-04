@@ -11,10 +11,10 @@ drama's folder with an atomic replace; a previous cover with another
 extension is removed. No path or filename is ever returned.
 
 Serving: only a stored name of the form `cover.<png|jpg|jpeg|webp>` is
-served (older Streamlit uploads kept the client's extension), resolved inside
+served (older uploads kept the client's extension), resolved inside
 the drama's own folder.
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 import io
 import os

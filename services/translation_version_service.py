@@ -1,9 +1,7 @@
 """
 services/translation_version_service.py -- make a saved translation version
-the drama's current English (parity item R39). Mirrors the Review tab's
-"Translation versions" -> Activate button in `tabs/workspace_tab.py`
-(`_restore_saved_lines(..., translation_only=True)` then
-`db.set_active_translation_version`).
+the drama's current English (parity item R39): "Translation versions" ->
+Activate.
 
 What it writes: a "before switching version" line-history snapshot (so the
 switch can be undone from Version history), then ONLY the `en` column of the
@@ -13,18 +11,18 @@ the English read at the start; a line edited meanwhile is skipped and its id
 listed in `conflicts`), then the version's active mark. It
 never does a full line sync, so it can't insert, delete or reorder a line.
 
-Deliberate difference from the tab: when the version was saved over a
-different set of lines (merged, split or re-segmented since, or saved before
-permanent line ids existed), the tab restores the version's own lines whole
-(timing and speakers too) with a full sync. That is a structural rewrite,
-so here it is refused with a ConflictError instead; nothing is written.
+When the version was saved over a different set of lines (merged, split or
+re-segmented since, or saved before permanent line ids existed), restoring
+it would mean replacing the lines whole (timing and speakers too) with a
+full sync. That is a structural rewrite, so it is refused with a
+ConflictError instead; nothing is written.
 
 Refused (409) while any job is running on the drama, and needs
 `confirm=True` (422 otherwise) because it overwrites the current English.
 Ownership: `db.get_translation_version` has no drama check, so another
 drama's version is the same NotFoundError as a missing one.
 
-No Streamlit or FastAPI import; plain dicts in and out. Messages never echo
+No FastAPI import; plain dicts in and out. Messages never echo
 line text.
 """
 import core as core_module

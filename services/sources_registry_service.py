@@ -90,7 +90,7 @@ def scrub_any(value):
 
 def _visible_classes() -> dict:
     """Adapter classes the API lists. The offline demo source is hidden
-    unless switched on, exactly like the Sources tab."""
+    unless switched on."""
     out = {}
     for name, cls in registry.adapter_classes().items():
         if getattr(cls, "is_demo", False) and not store.get_setting("demo_source_enabled"):
@@ -265,7 +265,7 @@ def list_notifications(include_dismissed: bool = False) -> list:
 # exists before it changes anything.
 # ---------------------------------------------------------------------------
 
-# Same ranges as tabs/sources_tab.py's settings form. http_proxy_url and
+# http_proxy_url and
 # page_server_enabled are NOT settable here (a proxy URL set by a remote
 # client is an exfiltration/SSRF pivot; the page server opens a port).
 _RANGES = {
@@ -305,9 +305,8 @@ def set_adult_enabled(name: str, enabled: bool) -> dict:
 def update_settings(changes: dict) -> dict:
     """Partial update of the whitelisted settings. Unknown keys (including
     http_proxy_url and page_server_enabled) are rejected. The pacing floor:
-    pace_min_delay may not go below the built-in default (the tab lets a
-    local user pick 0; the API does not). reset_pacing_state() runs after
-    saving, as the tab does."""
+    pace_min_delay may not go below the built-in default. reset_pacing_state()
+    runs after saving."""
     changes = dict(changes or {})
     if not changes:
         raise InvalidInputError("No settings to change.")
@@ -332,7 +331,7 @@ def update_settings(changes: dict) -> dict:
         raise InvalidInputError(f"pace_min_delay can't be below {floor:g} seconds.")
     cur = store.all_settings()
     merged = {**{k: cur[k] for k in SETTING_KEYS}, **clean}
-    # Same normalisation as the tab: a max is never below its min.
+    # A max is never below its min.
     for lo_key, hi_key in (("pace_min_delay", "pace_max_delay"),
                            ("session_break_min_requests", "session_break_max_requests"),
                            ("session_break_min_delay", "session_break_max_delay")):

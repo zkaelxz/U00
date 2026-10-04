@@ -1,24 +1,18 @@
 """
-services/export_service.py -- Export-stage services for one drama, shared
-by the FastAPI /api/export routes and the Streamlit Export tab
-(`tabs/workspace_tab.py`'s `with tab_export:` block, lines ~5655-5900).
+services/export_service.py -- Export-stage services for one drama, used
+by the /api/export routes: the readiness summary, subtitle text (SRT/VTT/
+ASS, pure, no writes), the three flagging actions, EPUB export
+(novel-narration dramas only) and mark_exported (writes only the drama's
+`status`).
 
-Migration Slice 12 (read-only readiness summary), Slice 14 (subtitle text
-generation, pure/no writes), Slice 15 (the three flagging actions), and
-Slice 18 (EPUB export, novel-narration dramas only) are all here. Every
-flagging function writes ONLY the flag/flag_note fields
+Every flagging function writes ONLY the flag/flag_note fields
 (`db.save_lines(..., fields=("flag", "flag_note"))`) -- a field-scoped
 write that can't clobber a concurrent edit to a line's text/timing/
-speaker, the same discipline every other background-job write in this
-app follows (see root CLAUDE.md's "A background job must not silently
-overwrite another job's work"). Audiobook/burned-in-video export
-(each its own subprocess dependency, ffmpeg) live in
-services/media_export_service.py (Slices 29-30), not here. Slice 27 adds ASS text
-generation (generate_ass_text) with per-request style (not persisted) and
-get_ass_style_options. Parity E22 adds mark_exported (writes only the
-drama's `status`).
+speaker (root CLAUDE.md: background jobs write only the fields they own).
+Audiobook/burned-in-video export (each its own subprocess dependency,
+ffmpeg) live in services/media_export_service.py.
 
-No Streamlit or FastAPI import: plain functions, plain dicts/bytes in and
+No FastAPI import: plain functions, plain dicts/bytes in and
 out, so a CLI or another service could call them too.
 """
 import os
@@ -66,7 +60,6 @@ MAX_SPEAKER_LABEL_LEN = 100
 
 _STYLE_KEYS = ("font", "size", "bold", "italic", "primary", "outline", "outline_width",
                "shadow", "alignment", "sfx_alignment", "notes_alignment")
-# Ranges mirror the Streamlit tab's own sliders (_subtitle_style_controls).
 _SIZE_RANGE = (12, 60)
 _OUTLINE_WIDTH_RANGE = (0, 10)
 _SHADOW_RANGE = (0, 5)
@@ -146,8 +139,8 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     """Generates ASS subtitle text for one drama (Migration Slice 27) --
     pure and read-only, returns text only.
 
-    Lines come from the database (saved state); the Streamlit tab exports
-    its unsaved session copy, so unsaved edits will differ. field: "en",
+    Lines come from the database (saved state), so edits the client has
+    not saved yet are not included. field: "en",
     "zh" or "bilingual". The style starts from the named preset; any keys in
     `style` (font, size, bold, italic, primary, outline, outline_width,
     shadow, alignment, sfx_alignment, notes_alignment) override it, and
@@ -158,9 +151,9 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     Overlaps are clamped and lines wrapped exactly as generate_subtitle_text
     does. notes_as_separate_line requires include_notes.
 
-    Out of scope: persisting the style per drama (it's per-request), the
-    Package zip, "Mark as
-    exported", and any binary/file download.
+    Not done here: persisting the style per drama (it's per-request), the
+    Package zip, "Mark as exported" (mark_exported), and any binary/file
+    download.
 
     Raises NotFoundError (unknown drama) and InvalidInputError (unknown
     field/preset, any invalid style/colour/wrap value, or
@@ -210,8 +203,8 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
 
 def get_export_readiness(drama_id: int) -> dict:
     """Read-only export-readiness summary for one drama: line/translation
-    counts plus counts of the same issues the Export stage's own checks
-    surface (timing overlaps, Auto QC mismatches, reading-speed-dense
+    counts plus counts of the issues the flagging actions act on (timing
+    overlaps, Auto QC mismatches, reading-speed-dense
     lines). Raises NotFoundError for an unknown drama id. A drama with no
     lines yet returns all-zero/false counts rather than an error."""
     drama = db.get_drama(drama_id)
@@ -260,14 +253,12 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
     fmt: "srt" or "vtt". field: "en", "zh", or "bilingual" (both formats
     support all three -- see subtitle_formats.lines_to_vtt/core.
     lines_to_srt/lines_to_bilingual_srt). Overlapping cues are trimmed
-    first (subtitle_formats.clamp_overlaps), matching what
-    tabs/workspace_tab.py's own Export stage does before any download,
-    so the two paths never disagree about what "the export" contains.
+    first (subtitle_formats.clamp_overlaps), as generate_ass_text does,
+    so the formats never disagree about what "the export" contains.
 
     include_notes folds in this drama's saved translation notes
-    (db.list_translation_notes), appended inline the same way the
-    Streamlit tab's own "Include translation notes inline" checkbox
-    does -- ASS's separate-note-line option is not modeled here (use
+    (db.list_translation_notes), appended inline -- ASS's separate-note-line
+    option is not modeled here (use
     generate_ass_text for ASS, Slice 27).
     wrap_chars_en/wrap_chars_source optionally cap characters per line
     (subtitle_formats.wrap_lines); None on either side leaves that
@@ -303,10 +294,8 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
 
 def flag_overlapping_lines(drama_id: int) -> dict:
     """Flags every currently-overlapping, not-yet-flagged line for review
-    (subtitle_formats.OVERLAP_FLAG) -- the same action as the Export
-    tab's own "Flag overlapping lines for review" button. A line already
-    flagged for some other reason is left alone, matching the tab's own
-    `not ln.flag` check. Writes only if there's something new to flag.
+    (subtitle_formats.OVERLAP_FLAG). A line already flagged for some other
+    reason is left alone (`not ln.flag`). Writes only if there's something new to flag.
     Raises NotFoundError for an unknown drama id. Returns
     {"flagged_count": int} -- 0 is not an error, just nothing to do."""
     _, lines = _load_drama_and_lines(drama_id)
@@ -319,32 +308,32 @@ def flag_overlapping_lines(drama_id: int) -> dict:
         ln.flag_note = subtitle_formats.overlap_note(ln, next_start[ln.idx])
 
     if unflagged:
+        # flag/flag_note only: a concurrent edit to a line's text, timing or
+        # speaker must survive this write.
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     return {"flagged_count": len(unflagged)}
 
 
 def flag_dense_lines(drama_id: int) -> dict:
     """Flags every line too dense to read in its on-screen time
-    (subtitle_formats.flag_dense_lines) -- the same action as the Export
-    tab's own "Flag these for review" button under the dense-line
-    warning. A line already flagged for some other reason is left alone.
+    (subtitle_formats.flag_dense_lines). A line already flagged for some other reason is left alone.
     Raises NotFoundError for an unknown drama id. Returns
     {"flagged_count": int}."""
     _, lines = _load_drama_and_lines(drama_id)
 
     newly_flagged = subtitle_formats.flag_dense_lines(lines)
     if newly_flagged:
+        # flag/flag_note only: a concurrent edit to a line's text, timing or
+        # speaker must survive this write.
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     return {"flagged_count": newly_flagged}
 
 
 def run_auto_qc_flagging(drama_id: int) -> dict:
     """Runs Auto QC's factual-detail check over this drama's lines and
-    updates flags in place -- the same action as the Export stage's own
-    "Flag these for review" button under the Auto QC warning
-    (tabs/workspace_tab.py's `_run_auto_qc`, reused here rather than
-    duplicated: same glossary-name-list/banned-terms inputs from
-    db.list_glossary_terms/db.list_series_characters). Raises
+    updates flags in place, with the glossary-name-list/banned-terms inputs
+    from db.list_glossary_terms/db.list_series_characters (the same inputs
+    get_export_readiness counts with). Raises
     NotFoundError for an unknown drama id. Returns
     {"flagged", "cleared", "already_flagged", "checked"} -- see
     auto_qc.run_auto_qc's own docstring for exactly what each counts."""
@@ -358,17 +347,17 @@ def run_auto_qc_flagging(drama_id: int) -> dict:
 
     result = auto_qc.run_auto_qc(lines, names, banned_terms)
     if result["flagged"] or result["cleared"]:
+        # flag/flag_note only: a concurrent edit to a line's text, timing or
+        # speaker must survive this write.
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     return result
 
 
 def generate_epub(drama_id: int, field: str = "en") -> bytes:
-    """Exports one novel-narration drama's lines as an .epub -- the same
-    action as the Export stage's own "Generate EPUB" button
+    """Exports one novel-narration drama's lines as an .epub
     (`epub_io.export_epub`). Read-only from the caller's point of view
     (returns bytes to serve as a download); internally it does write the
-    .epub to the drama's own directory as `translated.epub`, same as the
-    Streamlit tab already does, so a resolved [[IMG:...]] placeholder's
+    .epub to the drama's own directory as `translated.epub`, so a resolved [[IMG:...]] placeholder's
     `epub_images` cache stays in the usual place.
 
     field: "en" for the translation, "zh" for the raw source text.
