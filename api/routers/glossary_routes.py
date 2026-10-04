@@ -3,8 +3,8 @@ api/routers/glossary_routes.py -- series glossary terms, project/series
 instructions and the read-only option catalogues (Migration Slice 46).
 
 Terms belong to the drama's series (see services/glossary_service.py).
-Deleting a term needs an explicit confirm=true, mirroring the Translate
-tab's confirm checkbox and Slice 17's clear-history route.
+Deleting a term needs an explicit confirm=true, like Slice 17's
+clear-history route.
 
 Route batch 2C adds glossary-from-novel: start (engines.paid-gated on the
 drama's engine), status with the proposals, and apply by term text.

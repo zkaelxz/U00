@@ -29,7 +29,7 @@ is the PC owner's own choice, and a key-write-gated setting). Requests carry
 timeout=, follow no redirects, ignore proxy settings and read at most
 MAX_RESPONSE_BYTES within READ_DEADLINE. Errors are fixed text: never the URL, a path or the key.
 
-No Streamlit or FastAPI import: plain dicts in, plain dicts out.
+No FastAPI import: plain dicts in, plain dicts out.
 """
 import contextlib
 import ipaddress

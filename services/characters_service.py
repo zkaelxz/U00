@@ -1,8 +1,6 @@
 """
-services/characters_service.py -- per-drama characters / voice config
-(migration Slice 42), the UI-free half of the Translate tab's "People &
-pronouns" panel and "Section 6" per-character voice config in
-`tabs/workspace_tab.py`.
+services/characters_service.py -- per-drama characters / voice config:
+the "People & pronouns" panel and the per-character voice config.
 
 Covers: listing a drama's speakers with their character/voice settings
 (plus a couple of sample lines and the linked series character's
@@ -12,8 +10,8 @@ rule), the voice bank (list + apply), recurring-voice suggestions
 ("sounds like X": list, accept, reject) and "remember as a known series
 character".
 
-Speaker set: like the tab (`sorted({ln.speaker for ln in lines if
-ln.speaker})`), a speaker label is known for a drama when it appears on
+Speaker set (`sorted({ln.speaker for ln in lines if ln.speaker})`): a
+speaker label is known for a drama when it appears on
 one of that drama's lines OR already has a `characters` row for it.
 
 Every read and write is keyed by (drama_id, speaker_label); nothing here
@@ -32,7 +30,7 @@ Deliberately NOT here:
     series write here is "remember as a known series character").
   - Dub generation itself.
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 import os
 import unicodedata
@@ -54,7 +52,7 @@ MAX_VOICE_DESIGN_LEN = 1000
 MAX_REF_TEXT_LEN = 5000
 MAX_ID = 2**31 - 1  # sqlite ints are 64-bit; anything larger is an OverflowError (500)
 MAX_SPEAKER_LABEL_LEN = 100  # only enforced where the label becomes a filename
-# C04: like the tab, the first line and the middle one; each clipped so
+# C04: the first line and the middle one; each clipped so
 # the list payload stays bounded however long a line is.
 MAX_SAMPLE_LINES = 2
 MAX_SAMPLE_CHARS = 160
@@ -85,7 +83,7 @@ def _clip_sample(text: str) -> str:
 
 
 def _samples(texts: list) -> list:
-    """The tab's pick: the speaker's first line and, when there's more
+    """The speaker's first line and, when there's more
     than one, the middle one (so the two usually come from different
     scenes)."""
     if not texts:
@@ -167,8 +165,7 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
                      ref_text: str = None) -> dict:
     """Field-scoped partial update of one speaker's character row. None
     = leave alone; "" = clear (except character_name, which must be
-    non-blank). pronouns: a preset or any custom text (the tab's picker
-    offers presets plus free-text "Custom..."), stripped and length
+    non-blank). pronouns: a preset or any custom text, stripped and length
     capped. clone_engine must be in dub.CLONE_ENGINES and support the
     drama's source_language (Step 26c). Raises NotFoundError (unknown
     drama or speaker), InvalidInputError. Returns the speaker's
@@ -257,7 +254,7 @@ def list_voice_bank() -> list:
 
 
 def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int) -> dict:
-    """Mirrors the tab's apply: db.apply_voice_bank_entry copies the
+    """db.apply_voice_bank_entry copies the
     bank's clip into this drama's own folder and sets the speaker's
     ref audio / ref_text / clone_engine / voice_design (only this
     drama's row). Raises NotFoundError for an unknown drama, speaker, or
@@ -266,9 +263,7 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
     (db builds `voicebank_{id}_{label}{ext}` from it): a slash, backslash,
     "..", control character, or more than MAX_SPEAKER_LABEL_LEN chars.
 
-    Stricter than the Streamlit tab, by design: the tab applies a bank
-    entry with no language check, but here the entry's clone_engine must
-    support the drama's source language, exactly as update_character
+    The entry's clone_engine must support the drama's source language, exactly as update_character
     requires (Step 26c). Returns the speaker's list_characters entry."""
     drama = require_drama(drama_id)
     check_id("voice_bank_id", voice_bank_id)
@@ -312,7 +307,7 @@ def _load_voice_embeddings(drama_id: int) -> dict:
 
 
 def _current_suggestions(drama_id: int, drama: dict):
-    """(suggestions, embeddings) as the tab computes them: only for a
+    """(suggestions, embeddings): only for a
     drama in a series with characters and stored embeddings; speakers
     that already have a name and dismissed pairs are skipped."""
     series_chars = _series_characters_of(drama)
@@ -361,7 +356,7 @@ def _check_suggestion_args(speaker_label, series_character_id):
 
 
 def accept_voice_suggestion(drama_id: int, speaker_label: str, series_character_id: int) -> dict:
-    """Accept one CURRENTLY offered suggestion, as the tab does: name the
+    """Accept one CURRENTLY offered suggestion: name the
     speaker after the series character, link it (series_character_id)
     and blend this drama's embedding into that character's voice
     fingerprint. Only this drama's row and that one series character are
@@ -405,7 +400,7 @@ def reject_voice_suggestion(drama_id: int, speaker_label: str, series_character_
 # --- C08: remember as a known series character ----------------------------------
 
 def remember_series_character(drama_id: int, speaker_label: str) -> dict:
-    """The tab's opt-in "Remember <name> as a known character in this
+    """The opt-in "Remember <name> as a known character in this
     series": uses the speaker's SAVED name (never a half-typed one), adds
     it to the drama's series (db.upsert_series_character, with this
     drama's pronouns as the series default when set) and links the

@@ -50,10 +50,8 @@ def configure_library_dir(path: str):
     LIBRARY_DIR = path
     DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
     DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
-    # BENCHMARK_DIR used to be left pointed at the real library even under
-    # test isolation -- a real gap: any test that exercised the benchmark
-    # case file-upload path (Diagnostics tab) would have silently written
-    # into the actual production library folder instead of the temp one.
+    # Every library path is redirected, BENCHMARK_DIR included, or a test
+    # of the benchmark case upload path would write into the real library.
     BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
     VOICE_BANK_DIR = os.path.join(LIBRARY_DIR, "voice_bank")
     os.makedirs(DRAMAS_DIR, exist_ok=True)
@@ -155,11 +153,19 @@ def get_conn():
     path = getattr(_path_override, "path", None) or DB_PATH
     conn = sqlite3.connect(path, factory=_TrackedConnection, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    # SQLite leaves foreign keys off by default, per connection, so every
+    # connection has to turn them on or ON DELETE CASCADE silently no-ops.
     conn.execute("PRAGMA foreign_keys = ON")
     if path != DB_PATH:
         # migrate_database_file on a staged restore copy: no schema-defined
         # function calls (the restore allows only plain tables/indexes).
         conn.execute("PRAGMA trusted_schema = OFF")
+    # WAL: readers (job threads, the API, cli.py) and the one writer don't
+    # block each other; it is also why snapshot_database uses the backup API.
+    # Under WAL, every read-then-write transaction in this module starts with
+    # BEGIN IMMEDIATE: a deferred BEGIN takes the write lock only at its first
+    # write, and if another connection committed in between, that upgrade
+    # fails at once with "database is locked" instead of waiting.
     conn.execute("PRAGMA journal_mode = WAL")
     refs = _open_connections.setdefault(threading.get_ident(), [])
     refs[:] = [r for r in refs if r() is not None]
@@ -206,10 +212,9 @@ def _safe_alter(conn, sql: str):
     """Runs one `ALTER TABLE ... ADD COLUMN` from init_db()'s own
     check-then-ALTER lightweight-migration block, swallowing exactly the
     race it's there to guard against: `_ensure_ready()` calls `init_db()`
-    lazily, per process, with no cross-process lock -- Streamlit and a
-    separately-running `python -m api` process (React + FastAPI
-    migration, Slice 6) can both reach the same "column not in
-    existing_cols yet" check at once on a fresh/upgraded database, and
+    lazily, per process, with no cross-process lock -- the API server
+    and a separately-running cli.py process can both reach the same
+    "column not in existing_cols yet" check at once on a fresh/upgraded database, and
     whichever ALTER runs second then hits sqlite3.OperationalError:
     duplicate column name, even though the migration itself succeeded.
     Anything else raises -- a column genuinely failing to add for a real
@@ -824,16 +829,12 @@ def _create_job_tables(conn):
             heartbeat_at REAL NOT NULL
         );
 
-        -- Migration Slice 7 (React + FastAPI migration, D1 fix 1): background_jobs.py's
-        -- own _jobs dict (Step 5c docstring: "Single-process, in-memory only") is
-        -- invisible to a separate process -- a job started from the live Streamlit UI
-        -- doesn't show up if `python -m api` later lists jobs, and vice versa. This
-        -- table is a records-only mirror, written at status transitions (queued,
-        -- started, finished), never on every progress tick -- "much smaller than
-        -- Step 41's checkpointing" per the migration doc's own D1 text. No resume:
-        -- a job whose owning process dies leaves its last-written record exactly as
-        -- it was, forever (a real, named limitation, not silently glossed over) --
-        -- see save_job_record's own docstring.
+        -- Cross-process mirror of background_jobs.py's in-memory _jobs dict, which
+        -- another process (`python -m api`, cli.py) cannot see. Records only,
+        -- written at status transitions (queued, started, finished), never on
+        -- every progress tick. No resume: a job whose owning process dies is not
+        -- restarted; its row is closed as cancelled by the owner_pid / heartbeat
+        -- sweep (close_orphaned_job_record, close_stale_job_record).
         CREATE TABLE IF NOT EXISTS job_records (
             job_id TEXT PRIMARY KEY,
             status TEXT NOT NULL,
@@ -847,15 +848,13 @@ def _create_job_tables(conn):
             updated_at REAL NOT NULL
         );
 
-        -- Migration Slice 9 (D1 fix 2): a general-purpose, cross-process
-        -- app-settings store -- not sources/store.py's settings table,
-        -- which is deliberately scoped to the source-adapter system's own
-        -- domain (its own docstring: "a separate domain from the drama/
-        -- line data"). This table is for the handful of app-wide runtime
-        -- toggles that used to live only as a Python module global (the
-        -- GPU-limit and notify-on-completion toggles in background_jobs.py
-        -- being D1's own two named examples), invisible to a separate
-        -- `python -m api` process and lost on every restart. Same
+        -- A general-purpose, cross-process app-settings store -- not
+        -- sources/store.py's settings table, which is deliberately scoped to
+        -- the source-adapter system's own domain (its own docstring: "a
+        -- separate domain from the drama/line data"). This table is for
+        -- app-wide runtime toggles (e.g. background_jobs.py's GPU-limit and
+        -- notify-on-completion) that a module global would hide from a
+        -- separate process and lose on every restart. Same
         -- JSON-encoded-value/upsert shape as sources/store.py's own
         -- settings table, for consistency, not shared storage.
         CREATE TABLE IF NOT EXISTS app_settings (
@@ -1131,18 +1130,14 @@ def _migrate_drama_columns(conn):
                           # untranslated stream name, this was the missing piece
                           # (no dedicated "where did this come from" field existed).
                           ("source_url", "TEXT"),
-                          # Recognition/alignment pipeline choices -- previously only
-                          # lived in Streamlit session_state, which resets on every
-                          # app restart, so "I don't have a transcript" (and the
-                          # model/backend picks) had to be re-selected every time.
+                          # Recognition/alignment pipeline choices, per drama, so
+                          # "I don't have a transcript" (and the model/backend
+                          # picks) survive an app restart.
                           ("transcript_mode", "TEXT"), ("whisper_size", "TEXT"),
                           ("alignment_method", "TEXT"), ("asr_backend_choice", "TEXT"),
-                          # Migration Slice 20: the remaining Whisper-tuning knobs that
-                          # transcript_mode/whisper_size/alignment_method/asr_backend_choice
-                          # (above) didn't already cover -- these previously lived only in
-                          # Streamlit session_state (min_silence_ms) or as bare widget
-                          # defaults with no persistence at all, so a stateless API client
-                          # had nowhere to read a real per-drama default from.
+                          # The remaining Whisper-tuning knobs, persisted per drama
+                          # so a stateless API client can read a real per-drama
+                          # default.
                           ("min_silence_ms", "INTEGER DEFAULT 300"),
                           ("vad_threshold", "REAL DEFAULT 0.5"),
                           ("beam_size", "INTEGER DEFAULT 5"),
@@ -1853,6 +1848,10 @@ def write_media_journal(staging: str, folders: dict):
             fh.flush()
             os.fsync(fh.fileno())
         ids[str(int(did))] = {"marker": token, "ident": _folder_identity(path)}
+    # Markers and journal are fsynced, and the journal lands by os.replace
+    # (then a directory fsync), before any folder moves: after a crash,
+    # recovery trusts the journal as proof of which folders it may remove,
+    # so it must be durable and never seen half-written.
     tmp = os.path.join(staging, _MEDIA_JOURNAL + ".tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump({"format": 2, "staging": os.path.basename(staging), "ids": ids}, fh)
@@ -2336,6 +2335,7 @@ def update_lines_fields_if_many(drama_id: int, items) -> list:
     missed = []
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         for lid, sql, params in stmts:
             if conn.execute(sql, params).rowcount == 0:
@@ -2462,6 +2462,8 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
                 ln.id = cur.lastrowid
                 kept.add(ln.id)
             else:
+                # A field-scoped save never inserts: a job's stale copy of a
+                # line the user deleted or merged away must not resurrect it.
                 continue
         if fields is None:
             for ln in lines:
@@ -2613,6 +2615,7 @@ def rename_speaker_atomic(drama_id: int, old_label: str, new_label: str, charact
     in those cases, and on any error, nothing is written."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         written = 0
         for u in line_updates:
@@ -2798,6 +2801,7 @@ def accept_voice_link(drama_id: int, speaker_label: str, series_character_id: in
     blend the same embedding twice."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         conn.execute("INSERT OR IGNORE INTO characters (drama_id, speaker_label) VALUES (?, ?)",
                      (drama_id, speaker_label))
@@ -2832,6 +2836,7 @@ def remember_speaker_as_series_character(drama_id: int, speaker_label: str, seri
     written) when the speaker was linked or renamed meanwhile."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT 1 FROM characters WHERE drama_id = ? AND speaker_label = ? "
@@ -2972,7 +2977,7 @@ def next_page_idx(drama_id: int) -> int:
 
 # Scanlate S0: id-preserving region writes. Unlike save_bubbles (a full
 # delete-and-reinsert that gives every bubble a new id, still used by the
-# Streamlit tab and the extension bridge until they are frozen), each of
+# extension bridge in page_server.py), each of
 # these keeps every other bubble's id and bumps pages.rev once.
 BUBBLE_EDIT_FIELDS = ("x", "y", "w", "h", "source_text", "translated_text", "font_size",
                       "skip", "font_category", "kind", "kind_confidence", "confidence",
@@ -3039,6 +3044,7 @@ def update_bubble_fields(bubble_id: int, fields: dict, expected: dict = None,
             params.append(_bubble_value(k, v))
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute(f"UPDATE bubbles SET {sets} WHERE {' AND '.join(where)}", params)
         changed = cur.rowcount > 0
@@ -3060,6 +3066,7 @@ def insert_bubble(page_id: int, bubble: dict, position: int = None) -> int:
     position (clamped) and later bubbles' idx shift by one. Returns the new id."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         ids = [r[0] for r in conn.execute(
             "SELECT id FROM bubbles WHERE page_id = ? ORDER BY idx, id", (page_id,)).fetchall()]
@@ -3084,6 +3091,7 @@ def delete_bubble(page_id: int, bubble_id: int) -> bool:
     renumbered to stay contiguous). False if it isn't on that page."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute("DELETE FROM bubbles WHERE id = ? AND page_id = ?", (bubble_id, page_id))
         if cur.rowcount == 0:
@@ -3110,6 +3118,7 @@ def reorder_bubbles(page_id: int, ordered_ids) -> bool:
     ordered_ids = [int(i) for i in ordered_ids]
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         current = {r[0] for r in conn.execute(
             "SELECT id FROM bubbles WHERE page_id = ?", (page_id,)).fetchall()}
@@ -3139,6 +3148,7 @@ def replace_bubbles_if_unchanged(page_id: int, expected_ids, bubbles, expected_r
     expected = {int(i) for i in expected_ids}
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT COALESCE(rev, 0) FROM pages WHERE id = ?", (page_id,)).fetchone()
         if row is None or (expected_rev is not None and int(row[0]) != int(expected_rev)):
@@ -3397,13 +3407,12 @@ def save_translation_notes(drama_id: int, notes, id_by_idx: dict = None):
                 line_id = (id_by_idx.get(line_idx) if id_by_idx is not None
                            else _line_id_for_idx(conn, drama_id, line_idx))
             if line_id is None:
-                # Step 25d item 11: the line this note was about no longer
-                # exists (same case save_emotions already skips) -- inserting
-                # it anyway with line_id = NULL used to accumulate orphaned
-                # duplicates forever, since SQLite treats every NULL as
-                # distinct for the (drama_id, line_id, term) uniqueness this
-                # ON CONFLICT relies on, so it never matched an earlier NULL
-                # row to update instead of insert.
+                # The line this note was about no longer exists (same case
+                # save_emotions skips). Inserting it with line_id = NULL
+                # would accumulate orphaned duplicates, since SQLite treats
+                # every NULL as distinct for the (drama_id, line_id, term)
+                # uniqueness this ON CONFLICT relies on, so it would never
+                # match an earlier NULL row to update instead of insert.
                 continue
             conn.execute("""
                 INSERT INTO translation_notes (drama_id, line_id, line_idx, term, note_type, note, created_at)
@@ -3475,9 +3484,8 @@ def save_emotions(drama_id: int, emotion_map: dict, id_by_idx: dict = None):
     """emotion_map: {line_idx: {"emotion", "intensity", "note"}}, the shape
     emotion.detect_emotions() returns. Persisted so a whole-drama emotion
     detection run (a real LLM batch job, same cost scale as translation)
-    survives a page refresh instead of vanishing with Streamlit's session
-    state -- previously the only place this result lived, so losing the
-    session meant re-running (and re-paying for) the whole thing.
+    survives a page refresh and an app restart, rather than needing a
+    re-run (and re-paying for) the whole thing.
 
     Stored against each line's permanent id; id_by_idx works as in
     save_translation_notes."""
@@ -3928,6 +3936,7 @@ def replace_style_profile(scope: str, profile: dict, sample_count: int = 0):
     can bring it back."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT profile_json, sample_count, updated_at, history_json "
                            "FROM style_profile WHERE scope = ?", (scope,)).fetchone()
@@ -3966,6 +3975,7 @@ def restore_style_profile(scope: str, index: int = 0):
     Returns False when there is no such entry."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT profile_json, sample_count, updated_at, history_json "
                            "FROM style_profile WHERE scope = ?", (scope,)).fetchone()
@@ -4378,6 +4388,7 @@ def _migrate_gpu_lock_slots():
     try:
         if not single_row():
             return
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         if not single_row():  # another process migrated it while this one waited
             conn.execute("ROLLBACK")
@@ -4437,6 +4448,9 @@ def try_acquire_gpu_lock(holder: str, description: str = None, max_holders: int 
             if len(live) >= max_holders or (
                     live and settle_seconds
                     and now - max(r["acquired_at"] for r in live) < settle_seconds):
+                # Refused, nothing to write: end the IMMEDIATE transaction
+                # here so the write lock other processes wait on is released
+                # explicitly rather than left to close().
                 conn.execute("ROLLBACK")
                 return False
             taken = {r["id"] for r in live}

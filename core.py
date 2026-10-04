@@ -1,6 +1,6 @@
 """
-core.py -- shared pipeline logic with NO Streamlit dependency, so it can
-be imported by both app.py (the GUI) and cli.py (headless batch mode)
+core.py -- shared pipeline logic with NO UI dependency, so it can be
+imported by both the API services and cli.py (headless batch mode)
 without pulling in a UI framework.
 """
 
@@ -288,10 +288,10 @@ WHISPER_MODELS = {
     "large-v3-turbo": "large-v3-turbo -- ~large-v3 accuracy much faster, but weaker on Japanese/Korean",
 }
 DEFAULT_WHISPER_SIZE = "large-v3"
-# Step 6h: auto-tune's default candidate min_silence_duration_ms values --
-# spans the "Speech-splitting sensitivity" slider's real range meaningfully
-# (300 is the new default, 3000 the slider's max) without an unbounded
-# number of full re-transcriptions.
+# Auto-tune's default candidate min_silence_duration_ms values -- spans the
+# "Speech-splitting sensitivity" slider's real range meaningfully (300 is the
+# app's default, services/transcribe_service._DEFAULT_TUNING; 3000 the
+# slider's max) without an unbounded number of full re-transcriptions.
 DEFAULT_AUTOTUNE_CANDIDATES_MS = [300, 800, 1500]
 
 

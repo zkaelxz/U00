@@ -1,10 +1,7 @@
 """
 services/restructure_service.py -- Migration Slice 45: STRUCTURAL line
 changes for one drama (add, delete, merge, split, re-segmentation) and
-Version-history restore. Mirrors `tabs/workspace_tab.py`'s "Restructure
-lines" popover (Apply merge, Preview/Apply re-segmentation) and "Version
-history / undo" -> Restore; add/delete/split of a single line have no tab
-equivalent yet and follow the same rules.
+Version-history restore.
 
 Correctness rules (Steps 2, 6c, 6f, 25l, 25m):
 - Every change loads the drama's lines FRESH from the database, checks the
@@ -25,11 +22,11 @@ Atomicity gap: the snapshot, the id-set re-check and `save_lines` are three
 separate transactions (db.py has no API to run them in one). Guarded by a
 per-drama lock held across load -> check -> snapshot -> save for every write
 in this module (including the re-segmentation job's apply step), and by
-re-reading the id set immediately before `save_lines`. Another process (the
-Streamlit app) can still full-sync between that re-check and the save; a
+re-reading the id set immediately before `save_lines`. Another process
+(e.g. the CLI) can still full-sync between that re-check and the save; a
 failure between snapshot and save leaves only an extra snapshot.
 
-No Streamlit/FastAPI import: plain dicts in and out. Messages never echo
+No FastAPI import: plain dicts in and out. Messages never echo
 line text, keys or paths.
 """
 import dataclasses
@@ -176,7 +173,7 @@ def add_line(drama_id: int, expected_line_ids, *, after_line_id: Optional[int] =
 
 def delete_line(drama_id: int, line_id: int, expected_line_ids, confirm: bool = False) -> dict:
     """Deletes one line (its notes and emotion tag with it). Needs
-    confirm=True, like the tab's other destructive deletes."""
+    confirm=True, like the other destructive deletes."""
     if confirm is not True:
         raise InvalidInputError("Deleting a line needs confirm=true.")
 
@@ -315,7 +312,7 @@ def preview_resegmentation(drama_id: int) -> dict:
 
 
 def _apply_resegmented(drama_id: int, new_lines, source_ids: list) -> dict:
-    """The job's write step: same guard as the tab's Apply (Step 6f)."""
+    """The job's write step: same guard as Apply (Step 6f)."""
     with _drama_lock(drama_id):
         current = db.load_line_objects(drama_id)
         if [ln.id for ln in current] != source_ids:
@@ -595,7 +592,7 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids) -> dict:
     before those were recorded, stay as the line has them now); a line
     merged/deleted since gets a fresh id and nothing is reattached by
     position. Refused while a job
-    runs on the drama. No confirm field: the tab's Restore has none."""
+    runs on the drama. No confirm field."""
     get_line_history_snapshot(drama_id, history_id)  # 404 unless it's this drama's
     # the raw rows: the read above returns dub_filename as a bare basename
     rows = db.get_line_history_snapshot(history_id)

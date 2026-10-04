@@ -72,14 +72,15 @@ def progress_message_with_rate_status(engine, frac: float, base: str = None) -> 
 
 
 # ---------------------------------------------------------------------------
-# Gemini (Google) -- cheap, strong multilingual, OpenAI-style REST call
+# Gemini (Google) -- cheap, strong multilingual, native generateContent REST call
 # ---------------------------------------------------------------------------
 
 class GeminiEngine:
-    """Uses the plain generateContent REST endpoint with an API-key query
-    param, rather than the google-genai SDK --
-    no extra dependency needed, and it's a simple enough API that the SDK
-    doesn't buy much here."""
+    """Uses the plain generateContent REST endpoint rather than the
+    google-genai SDK -- no extra dependency needed, and it's a simple enough
+    API that the SDK doesn't buy much here. The key goes in the
+    x-goog-api-key header, never the URL, so it cannot reach logs or stored
+    error text."""
     name = "gemini"
     supports_reference = True
 

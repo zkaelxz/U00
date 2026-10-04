@@ -94,6 +94,9 @@ def extract_wiki_entries(lines, engine, up_to_line_idx: int, drama_meta: dict = 
             etype = e.get("entry_type") if e.get("entry_type") in ENTRY_TYPES else "concept"
             key = (etype, e["name"])
             e["entry_type"] = etype
+            # The spoiler bound (see the module docstring): stored with the
+            # entry (db.upsert_wiki_entry keeps the furthest) so it isn't
+            # shown to a reader who hasn't reached these lines. Never drop it.
             e["known_through_line_idx"] = up_to_line_idx
             if key in all_entries:
                 # merge: later chunks refine earlier ones

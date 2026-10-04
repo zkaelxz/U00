@@ -19,11 +19,11 @@ changed ids, and more than MAX_PENDING of them collapse into one "resync"
 threads: they only mark sets under a lock and wake the connection's asyncio
 loop with call_soon_threadsafe, never block, and never raise.
 
-A job another process runs (the CLI, Streamlit) fires no hook here, so one
+A job another process runs (the CLI) fires no hook here, so one
 process-wide sweep compares job_records every JOB_SWEEP_SECONDS while any
 stream is open.
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 
 import asyncio

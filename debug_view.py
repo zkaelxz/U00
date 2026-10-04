@@ -2,12 +2,12 @@
 debug_view.py -- Step 58's "What happened here?" per-line and per-job
 debugging view.
 
-Per the roadmap's own instruction: this is a PRESENTATION layer over data
-the app already records, not a second data-collection effort. Step 41's
-wider reproducibility metadata (per-line prompt/glossary/model version,
-per-stage job timing) hasn't been built yet -- every field that would
-depend on it is returned with an explicit "not recorded" note instead of
-being guessed at, matched positionally, or otherwise fabricated.
+This is a PRESENTATION layer over data the app already records (line
+history, line_provenance's engine/model/prompt version, job_timing's
+per-stage timing), not a second data-collection effort. What is still not
+recorded (the exact neighbouring lines in the prompt, which glossary
+entries the model used) is returned with an explicit note instead of being
+guessed at, matched positionally, or otherwise fabricated.
 
   - explain_line():      real, currently-recorded history for one line.
   - explain_job():       a background job's real timing/status.

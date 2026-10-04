@@ -1,9 +1,7 @@
 """
 api/sources_tools_schemas.py -- request/response models for the Sources
 tools routes (api/routers/sources_tools_routes.py) and the Discover pasted
-listing route. Kept out of api/schemas.py so this batch could be built
-alongside another branch editing that file (precedent: api/comic_schemas.py).
-The shared ErrorResponse and SourcesJobStarted still live there.
+listing route. The shared SourcesJobStarted lives in api/schemas/sources.py.
 
 Pasted page source and pasted listing text are capped by the request body
 size in the router (413), then by these models (422).

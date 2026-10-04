@@ -2,17 +2,15 @@
 services/blocked_retry_service.py -- re-translate ONE line that a
 translation engine refused on content-moderation grounds (flag
 "content_blocked"), usually with a different engine (parity item R10).
-Mirrors the Review tab's "Retry this line with <engine>" control in
-`tabs/workspace_tab.py` (Step 31 item 5).
 
-Synchronous, like the tab (a spinner, not a background job): one
+Synchronous (not a background job): one
 `engine.translate_batch([zh], ...)` call for one line. The line is addressed
 by permanent `Line.id`, the engine is told that id (`context["line_ids"]`),
 and the result is looked up by that id, never by position. The route caps
 how many of these run at once (api/llm_slots.py).
 
 Only the engine NAME comes from the caller. The model is the engine's own
-default (the tab passed none) and the Gemini free-tier flag is the saved
+default and the Gemini free-tier flag is the saved
 Settings value, so a caller can't point a local engine at an arbitrary
 model id or path.
 
@@ -30,10 +28,10 @@ is a ConflictError with nothing written:
 
 Keys are resolved server-side (never accepted or returned). An engine
 failure is a fixed message; the redacted detail goes to the app log only.
-The tab's context is kept: only the drama's source language is sent (no
-glossary or style guidelines), so this stays a one-line retry, not a new run.
+Only the drama's source language is sent (no glossary or style
+guidelines), so this stays a one-line retry, not a new run.
 
-No Streamlit or FastAPI import; plain dicts in and out.
+No FastAPI import; plain dicts in and out.
 """
 import background_jobs
 import db
@@ -45,7 +43,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       UnsupportedOperationError)
 
 BLOCKED_FLAG = "content_blocked"
-DEFAULT_ENGINE = "ollama"   # the tab's default: local, no cloud moderation
+DEFAULT_ENGINE = "ollama"   # local, no cloud moderation
 MAX_REASON_CHARS = 300
 ENGINE_FAILED = "The engine call failed."
 # Jobs that write this drama's line text or flags.
