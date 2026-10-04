@@ -102,6 +102,13 @@
   .ws-next-bar .ws-next { flex: 1 1 auto; justify-content: center; min-height: 44px; }
 }
 
+/* Scrolling a control into view (Tab focus, jump links, tests) must not leave it under the sticky strip or the fixed
+   Next bar. --bar-h lives on .workspace, so this is per control rather than a scroll-padding on html. */
+:where(.workspace) :is(summary, input, select, textarea, button, a, [tabindex]) {
+  scroll-margin-top: calc(var(--bar-h, 0px) + var(--space-3));
+  scroll-margin-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--space-3));
+}
+
 /* The back arrow is already a 44px button; it needs no extra hit area. */
 @media (max-width: 640px) {
   .workspace-header .btn.ws-back::after { content: none; }

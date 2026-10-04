@@ -91,3 +91,39 @@
   .stage-translate .stage-blocker { flex: 0 1 auto; align-self: stretch; }
   .stage-translate .fallback-row { gap: var(--space-2) var(--space-3); }
 }
+
+/* Phone: the Characters and Glossary tables become stacked cards (labels come from data-label). The header row stays
+   in the DOM for screen readers; a speaker's rename row joins its card, with a border only between cards. */
+@media (max-width: 640px) {
+  .stage-translate [role="region"][aria-label="Glossary"], .stage-translate [role="region"][aria-label="Characters"] { grid-template-columns: minmax(0, 1fr); }
+  .stage-translate .table-scroll:has(> .card-table) { overflow-x: visible; min-width: 0; }
+  .stage-translate .table-scroll .card-table, .stage-translate .card-table tbody { display: block; width: 100%; min-width: 0; }
+  .stage-translate .card-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .stage-translate .card-table tr { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-2) var(--space-3); min-width: 0; }
+  .stage-translate .card-table td { display: block; padding: 0; border: 0; min-width: 0; overflow-wrap: anywhere; }
+  .stage-translate .card-table tr.card-main { padding: var(--space-3) 0 0; border-top: 1px solid var(--border); }
+  .stage-translate .card-table tbody > tr.card-main:first-child { border-top: 0; padding-top: 0; }
+  .stage-translate .card-table tr.card-extra { display: block; padding: var(--space-2) 0 var(--space-3); }
+  .stage-translate .card-table td[data-label]::before { content: attr(data-label); display: block; color: var(--muted); font-size: var(--text-sm); }
+  .stage-translate .card-table input:not([type='checkbox']), .stage-translate .card-table select { width: 100%; }
+  .stage-translate .card-table .card-title { flex: 1 1 100%; font-weight: var(--weight-bold); }
+  .stage-translate .card-table td.card-title::before { display: inline; margin-right: var(--space-2); font-weight: normal; }
+  .stage-translate .card-table .card-wide { flex: 1 1 100%; }
+  .stage-translate .card-table .card-half { flex: 1 1 calc(50% - var(--space-3)); }
+  .stage-translate .card-table .card-meta { flex: 0 1 auto; color: var(--muted); font-size: var(--text-sm); }
+  .stage-translate .card-table td.card-meta::before { display: inline; margin-right: var(--space-1); }
+  .stage-translate .card-table .card-meta:empty { display: none; }
+  .stage-translate .card-table .card-action { flex: 1 1 100%; text-align: right; padding-right: 6px; } /* room for the 44px tap area that reaches past a small button */
+  .stage-translate .card-table .card-action .error { text-align: left; }
+  /* Glossary: tick box, original and Edit share the first row; translation below at full width. */
+  .stage-translate .glossary-table tr.card-main { gap: var(--space-1) var(--space-3); align-items: center; padding-bottom: var(--space-3); }
+  .stage-translate .card-table td.card-meta[data-label="Reference"]::before { display: none; }
+  .stage-translate .glossary-table .card-check { order: 1; flex: 0 0 44px; margin-left: calc(var(--space-2) * -1); }
+  .stage-translate .glossary-table .card-check input { width: 24px; height: 24px; margin: 10px; }
+  .stage-translate .glossary-table .card-title { order: 2; flex: 1 1 0; font-size: var(--text-lg); }
+  .stage-translate .glossary-table .card-action { order: 3; flex: 0 0 auto; }
+  .stage-translate .glossary-table .card-wide { order: 4; }
+  .stage-translate .glossary-table .card-meta { order: 5; }
+  .stage-translate .glossary-table td.card-title::before, .stage-translate .glossary-table td.card-wide::before { display: none; }
+  .stage-translate .bulk-list .badge { white-space: normal; }
+}

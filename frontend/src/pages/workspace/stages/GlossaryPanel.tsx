@@ -250,10 +250,10 @@ export function GlossaryPanel() {
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {terms && terms.length === 0 && seriesId != null && <p className="muted">No terms yet. They belong to the drama's series.</p>}
       {terms && terms.length > 0 && (
-        <div className="table-scroll"><table>
+        <div className="table-scroll"><table role="table" className="card-table glossary-table">
           <thead>
-            <tr>
-              <th>
+            <tr role="row">
+              <th role="columnheader">
                 <input
                   type="checkbox"
                   aria-label="Select all terms"
@@ -264,12 +264,12 @@ export function GlossaryPanel() {
                   }}
                 />
               </th>
-              <th>Original</th><th>Translation</th><th>Aliases</th><th>Banned</th><th>Exact</th><th /></tr>
+              <th role="columnheader">Original</th><th role="columnheader">Translation</th><th role="columnheader">Aliases</th><th role="columnheader">Banned</th><th role="columnheader">Exact</th><th role="columnheader"><span className="visually-hidden">Edit</span></th></tr>
           </thead>
           <tbody>
             {terms.map((t) => (
-              <tr key={t.id}>
-                <td>
+              <tr key={t.id} role="row" className="card-main">
+                <td role="cell" className="card-check">
                   <input
                     type="checkbox"
                     aria-label={`Select ${t.term_original}`}
@@ -280,12 +280,12 @@ export function GlossaryPanel() {
                     }}
                   />
                 </td>
-                <td>{t.term_original}</td>
-                <td>{t.term_translation}</td>
-                <td>{t.aliases.join(', ')}</td>
-                <td>{t.banned_translations.join(', ')}</td>
-                <td>{t.enforce_exact ? 'Yes' : 'No'}</td>
-                <td><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={() => setEditing(toForm(t))}>Edit</button></td>
+                <td role="cell" data-label="Original" className="card-title">{t.term_original}</td>
+                <td role="cell" data-label="Translation" className="card-wide">{t.term_translation}</td>
+                <td role="cell" data-label="Aliases" className="card-meta">{t.aliases.join(', ')}</td>
+                <td role="cell" data-label="Banned" className="card-meta">{t.banned_translations.join(', ')}</td>
+                <td role="cell" data-label="Exact" className="card-meta">{t.enforce_exact ? 'Yes' : 'No'}</td>
+                <td role="cell" className="card-action"><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={() => setEditing(toForm(t))}>Edit</button></td>
               </tr>
             ))}
           </tbody>
