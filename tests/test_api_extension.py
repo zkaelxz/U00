@@ -108,6 +108,32 @@ def test_on_again_after_off_starts_it_again(fakes):
     assert fakes["page_server"] == 2 and fakes["stop"] == 1
 
 
+def test_an_off_racing_an_on_is_applied_after_it(fakes, monkeypatch):
+    import threading
+    from services import extension_service
+    entered, release = threading.Event(), threading.Event()
+    real_start = page_server.ensure_server_started
+
+    def slow_start(port=page_server.DEFAULT_PORT):
+        entered.set()
+        release.wait(5)
+        return real_start(port)
+    monkeypatch.setattr(page_server, "ensure_server_started", slow_start)
+    on = threading.Thread(target=extension_service.set_enabled, args=(True,))
+    on.start()
+    assert entered.wait(5)
+    result = {}
+    off = threading.Thread(target=lambda: result.update(extension_service.set_enabled(False)))
+    off.start()
+    off.join(0.2)
+    assert off.is_alive()            # waits for the start instead of interleaving
+    release.set()
+    on.join(5)
+    off.join(5)
+    assert result == {"enabled": False, "running": False, "restart_needed": False}
+    assert extension_service.get_status() == {"enabled": False, "running": False}
+
+
 def test_off_reports_restart_needed_if_it_could_not_stop(fakes, monkeypatch):
     c = TestClient(create_app(ApiSettings(background_services=True)),
                    raise_server_exceptions=False)
