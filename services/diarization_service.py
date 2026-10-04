@@ -142,6 +142,7 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
                        max_speakers: Optional[int] = None):
     """The on_done hook for a diarize_<drama_id> process job."""
     def _on_done(job_id, result):
+        background_jobs.update_progress(job_id, 0.97, "Matching speakers to lines...")
         apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
                                  min_speakers=min_speakers, max_speakers=max_speakers)
     return _on_done

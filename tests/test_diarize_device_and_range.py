@@ -41,6 +41,19 @@ class _FakePipeline:
         return _Annotation()
 
 
+def _drain(q):
+    items = []
+    while True:
+        try:
+            items.append(q.get_nowait())
+        except queue.Empty:
+            return items
+
+
+def _no_hook(kwargs):
+    return {k: v for k, v in kwargs.items() if k != "hook"}
+
+
 def _install_fakes(monkeypatch, cuda_available, move_raises=False):
     pipeline = _FakePipeline()
     if move_raises:
@@ -102,7 +115,7 @@ class TestStep101DevicePlacement:
         _install_fakes(monkeypatch, cuda_available=True)
         q = queue.Queue()
         diarize.diarize_subprocess_worker("/fake.wav", "hf", None, {"use_gpu": True}, q)
-        status, payload = q.get_nowait()
+        status, payload = _drain(q)[-1]
         assert status == "ok"
         assert payload["device"] == "cuda"
 
@@ -110,9 +123,10 @@ class TestStep101DevicePlacement:
         pipeline = _install_fakes(monkeypatch, cuda_available=True)
         q = queue.Queue()
         diarize.diarize_subprocess_worker("/fake.wav", "hf", 2, q)
-        status, payload = q.get_nowait()
+        items = _drain(q)
+        status, payload = items[-1]
         assert status == "ok" and payload["device"] == "cpu"
-        assert pipeline.call_kwargs == {"num_speakers": 2}
+        assert _no_hook(pipeline.call_kwargs) == {"num_speakers": 2}
 
 
 class TestStep105SpeakerRange:
@@ -141,8 +155,9 @@ class TestStep105SpeakerRange:
         q = queue.Queue()
         diarize.diarize_subprocess_worker(
             "/fake.wav", "hf", None, {"min_speakers": 2, "max_speakers": 3}, q)
-        assert q.get_nowait()[0] == "ok"
-        assert pipeline.call_kwargs == {"num_speakers": None, "min_speakers": 2, "max_speakers": 3}
+        assert _drain(q)[-1][0] == "ok"
+        assert _no_hook(pipeline.call_kwargs) == {
+            "num_speakers": None, "min_speakers": 2, "max_speakers": 3}
 
     @pytest.mark.parametrize("num,lo,hi,expected", [
         (None, None, None, (None, None, None)),
@@ -292,3 +307,42 @@ class TestCliParity:
         did, _ = _drama_with_audio(isolated_db)
         monkeypatch.setattr(diarize, "diarize", lambda *a, **k: pytest.fail("should not run"))
         assert "more than maximum" in self._run(did, min_speakers=5, max_speakers=2)
+
+
+class TestProgressReporting:
+    def test_worker_reports_stages_and_hook_steps_below_100_percent(self, monkeypatch):
+        pipeline = _install_fakes(monkeypatch, cuda_available=False)
+
+        def call(audio, hook=None, **kwargs):
+            hook("segmentation", None, completed=1, total=4)
+            hook("embeddings", None, completed=4, total=4)
+            hook("segmentation", None, completed=2, total=4)
+            return _Annotation()
+        pipeline.__class__ = type("P", (_FakePipeline,), {"__call__": lambda self, a, **k: call(a, **k)})
+        q = queue.Queue()
+        diarize.diarize_subprocess_worker("/fake.wav", "hf", None, q)
+        items = _drain(q)
+        progress = [i for i in items if i[0] == "progress"]
+        assert items[-1][0] == "ok"
+        assert progress[0][2] == "Loading speaker model..."
+        messages = [p[2] for p in progress]
+        assert "Detecting speakers: segmentation (1 of 4)" in messages
+        assert "Detecting speakers: embeddings (4 of 4)" in messages
+        fracs = [p[1] for p in progress]
+        assert fracs == sorted(fracs) and max(fracs) < 1.0
+
+    def test_pipeline_without_hook_support_still_succeeds(self, monkeypatch):
+        pipeline = _install_fakes(monkeypatch, cuda_available=False)
+        seen = []
+
+        def call(self, audio, **kwargs):
+            if "hook" in kwargs:
+                raise TypeError("__call__() got an unexpected keyword argument 'hook'")
+            seen.append(kwargs)
+            return _Annotation()
+        pipeline.__class__ = type("P", (_FakePipeline,), {"__call__": call})
+        q = queue.Queue()
+        diarize.diarize_subprocess_worker("/fake.wav", "hf", None, q)
+        items = _drain(q)
+        assert items[-1][0] == "ok" and seen
+        assert any(i[2] == "Detecting speakers..." for i in items if i[0] == "progress")

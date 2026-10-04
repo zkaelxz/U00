@@ -223,6 +223,14 @@ class TestDiarizePreloadsAudioWithSoundfile:
         assert load_calls == [("/fake/audio.wav", "float32", True)]
 
 
+def _final(q):
+    """The worker's final tuple, skipping intermediate progress tuples."""
+    items = []
+    while not q.empty():
+        items.append(q.get_nowait())
+    return [i for i in items if i[0] != "progress"][-1]
+
+
 class TestDiarizeSubprocessWorker:
     """Step 4d: diarize_subprocess_worker() is the entry point
     background_jobs.start_process_job() runs in its own OS process, so a
@@ -243,7 +251,7 @@ class TestDiarizeSubprocessWorker:
         _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00"), (1.0, 2.0, "SPEAKER_01")])
         result_queue = queue.Queue()
         diarize.diarize_subprocess_worker("/fake/audio.wav", "hf_xxx", 2, result_queue)
-        outcome = result_queue.get_nowait()
+        outcome = _final(result_queue)
 
         assert outcome == ("ok", {"segments": direct_segments, "model": direct_model,
                                   "embeddings": direct_embeddings, "device": "cpu"})
@@ -264,7 +272,7 @@ class TestDiarizeSubprocessWorker:
 
         result_queue = queue.Queue()
         diarize.diarize_subprocess_worker("/fake/audio.wav", "hf_xxx", None, result_queue)
-        outcome = result_queue.get_nowait()
+        outcome = _final(result_queue)
         assert outcome == ("error", "RuntimeError", "pipeline exploded")
 
 
