@@ -45,7 +45,7 @@ import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
 import { TranscriptModePicker } from './SourceModes'
 import { mediaFileInputId } from './stageBlockers'
-import { diarizeEstimate, transcribeEstimate } from './transcribeEstimate'
+import { diarizeEstimate, measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import './source.css'
 
@@ -354,7 +354,13 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     }
     // A file picked but not uploaded yet has no known length, and a cloud run's time isn't this PC's.
     const speed = config.whisper_size === cf.whisper_size ? config.measured_speed : null
-    const expectedRunSeconds = whisperRun && !file && !cf.use_groq && duration && speed ? duration / speed : null
+    const expectedRunSeconds = whisperRun && !file && !cf.use_groq
+      ? measuredRunSeconds({
+          audioSeconds: duration, whisperSize: cf.whisper_size, useGpu, measuredSpeed: speed,
+          measuredStages: speed ? config.measured_stage_seconds : undefined, separateVocals: cf.separate_vocals_first,
+          realignLong: cf.realign_long_segments,
+        })
+      : null
     const start = () => (file ? uploadAndTranscribe(dramaId, file, req) : startTranscribe(dramaId, req))
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
@@ -454,6 +460,11 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         modelCached: config?.whisper_model_cached,
         measuredSpeed: config?.whisper_size === cf.whisper_size ? config.measured_speed : null,
         measuredRuns: config?.measured_speed_runs,
+        measuredStages: config?.whisper_size === cf.whisper_size ? config.measured_stage_seconds : undefined,
+        separateVocals: cf.separate_vocals_first,
+        realignLong: cf.realign_long_segments,
+        measuredDiarizeSpeed: config?.measured_diarize_speed,
+        measuredDiarizeRuns: config?.measured_diarize_runs,
         useGroq: cf.use_groq,
         detectSpeakers: runDiarize,
       })
@@ -605,7 +616,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           {needsAck ? (
             <span className="muted" id="diarize-needed">Still needed: tick the confirmation above, or turn Replace off.</span>
           ) : (
-            hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration)}</span>
+            hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration, config?.measured_diarize_speed, config?.measured_diarize_runs)}</span>
           )}
         </div>
         <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
