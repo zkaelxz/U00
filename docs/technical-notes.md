@@ -274,3 +274,37 @@ synthetic test images, not just reading the code:
 - **manga_ocr and the Tesseract simplified/traditional split**: both
   confirmed working as documented by actually installing and running
   them against synthetic Japanese/Chinese test images -- no fix needed.
+
+## Per-line spoken language (`Line.lang`)
+
+A title used to have exactly one spoken language (`dramas.source_language`),
+which broke on clips that mix speakers: transcribing a Korean speaker as
+Japanese produced Japanese text. Each line can now carry its own language.
+This is the data foundation only; transcription and translation still use
+the title's language until they read the field.
+
+Contract:
+
+- `core.Line.lang` / `lines.lang` (TEXT, nullable, no default): a lower-case
+  code from `core.LINE_LANGUAGES` (`zh`, `ja`, `ko`, `en`). `None`/NULL means
+  "the title's `source_language`", so every existing line keeps its meaning.
+- `core.normalize_line_lang(value)` is the one validator for input: `None` or
+  `""` gives `None`, a known code in any case gives it lower-cased, anything
+  else raises `InvalidInputError`. Stored rows are read leniently: an unknown
+  code (from an imported backup, say) loads as `None`.
+- `lang` is in `core.LINE_FIELDS`, so `db.save_lines` (full sync, field-scoped
+  `fields=("lang",)`, `orig`, `only_if_unchanged`) and the compare-and-set
+  helpers handle it like any other column; `""` is stored as NULL.
+- Undo snapshots and translation versions record it (`SAVED_MARK_FIELDS`);
+  restoring one saved before the field existed keeps each line's current
+  `lang`.
+- Split, re-split and re-segment pieces keep the parent's `lang`. A merge
+  keeps it only when every merged line has the same one, otherwise the line
+  falls back to the title's language (nothing is flagged).
+- API: line responses carry `lang` (null = title default). The line edit route
+  accepts `lang` (`""` = title default) and `expected.lang`.
+  `POST /api/lines/dramas/{drama_id}/set-language` takes `lang` plus exactly
+  one of `line_ids` or `speaker`, writes only `lang`, and skips ids that are
+  not lines of that drama.
+- Review shows a language chip only on a line whose `lang` differs from the
+  title's, so a single-language title looks the same as before.

@@ -190,7 +190,7 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
     """Merges 2+ ADJACENT lines (given in order) into the first: text joined
     as core.merge_adjacent_short_lines joins it, end = last line's end, the
     first line keeps its id/speaker; its flag, else the first merged line's
-    flag, is kept. The others' notes/emotions move onto it (the first
+    flag, is kept. Its lang stays only when every merged line shares it. The others' notes/emotions move onto it (the first
     line's own win on a conflict)."""
     line_ids = _id_list("line_ids", line_ids)
     if not 2 <= len(line_ids) <= MAX_MERGE_LINES:
@@ -209,6 +209,8 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             if not head.flag and ln.flag:
                 head.flag, head.flag_note = ln.flag, ln.flag_note
             head.merged_ids = list(head.merged_ids) + [ln.id]
+            if ln.lang != head.lang:
+                head.lang = None
         head.end = max(head.end, rest[-1].end)
         return lines[:first + 1] + lines[first + len(line_ids):], [head]
     return structural_write(drama_id, expected_line_ids, "before merge", build)
@@ -218,7 +220,7 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
                expected_zh: str, at_time=None, en_at_char: Optional[int] = None) -> dict:
     """Splits one line's source text at character offset `at_char`. The
     first piece keeps the line's id (so its flag, notes and emotion stay
-    on it); the second is a new line with the same speaker/sfx and no
+    on it); the second is a new line with the same speaker/sfx/lang and no
     flag. Its translation stays whole on the first piece unless
     `en_at_char` splits it too. The cut time is `at_time` (strictly inside
     the line) or proportional to piece length. `expected_zh` must equal
@@ -251,7 +253,7 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
             en_first, en_second = ln.en[:en_at_char].rstrip(), ln.en[en_at_char:].strip()
         second = core_module.Line(idx=0, start=cut, end=ln.end, zh=pieces[1], en=en_second,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                  sfx=ln.sfx)
+                                  sfx=ln.sfx, lang=ln.lang)
         ln.zh, ln.en, ln.end = pieces[0], en_first, cut
         return lines[:i + 1] + [second] + lines[i + 1:], [ln, second]
     return structural_write(drama_id, expected_line_ids, "before split", build)
@@ -695,7 +697,7 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
                 ln.flag, ln.flag_note = first["flag"], first["flag_note"]
             new_pieces = [core_module.Line(idx=0, start=p["start"], end=p["end"], zh=p["text"],
                                            speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                           sfx=ln.sfx, flag=p.get("flag"),
+                                           sfx=ln.sfx, lang=ln.lang, flag=p.get("flag"),
                                            flag_note=p.get("flag_note", ""))
                           for p in rest]
             new_lines.append(ln)
