@@ -44,7 +44,7 @@ def posts(monkeypatch):
         return replies.pop(0)
 
     monkeypatch.setattr(requests, "post", fake_post)
-    monkeypatch.setattr(te, "_cancellable_sleep", lambda s: None)
+    monkeypatch.setattr("engine_backends.shared._cancellable_sleep", lambda s: None)
     return calls
 
 

@@ -843,7 +843,7 @@ class TestDubTrackTimeStretch:
         assert dub.load_pacing(str(tmp_path))[0]["status"] == dub.PACING_OVERFLOW
 
         # Section 7's pacing rewrite, with a fake LLM, shortens the line...
-        monkeypatch.setattr(translate_engines, "call_llm_json",
+        monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json",
                             lambda *a, **k: json.dumps({"1": "x" * 11}))
         translate_engines.rewrite_for_pacing_llm(lines, types.SimpleNamespace(supports_reference=True))
         assert lines[0].en == "x" * 11

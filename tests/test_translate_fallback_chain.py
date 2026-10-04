@@ -42,7 +42,7 @@ class Fake:
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch):
     slept = []
-    monkeypatch.setattr(translate_engines, "_fallback_sleep", slept.append)
+    monkeypatch.setattr("engine_backends.fallback._fallback_sleep", slept.append)
     return slept
 
 
@@ -104,7 +104,7 @@ def test_falls_back_on_rate_limit_and_stays_on_fallback(isolated_db, engines):
 
 
 def test_no_fallback_on_generic_error(isolated_db, engines, monkeypatch):
-    monkeypatch.setattr(translate_engines, "time", SimpleNamespace(sleep=lambda s: None))
+    monkeypatch.setattr("engine_backends.shared.time", SimpleNamespace(sleep=lambda s: None))
     engines["claude"].fail = RuntimeError("real bug")
     did = _seed(1)
     out = svc.start_translate_run(did, engine_name="claude",
@@ -115,7 +115,7 @@ def test_no_fallback_on_generic_error(isolated_db, engines, monkeypatch):
 
 
 def test_no_fallback_on_content_moderation(isolated_db, engines, monkeypatch):
-    monkeypatch.setattr(translate_engines, "time", SimpleNamespace(sleep=lambda s: None))
+    monkeypatch.setattr("engine_backends.shared.time", SimpleNamespace(sleep=lambda s: None))
     engines["claude"].fail = translate_engines.ContentModerationBlocked("claude", "policy")
     did = _seed(1)
     _wait(svc.start_translate_run(did, engine_name="claude",
@@ -139,6 +139,7 @@ def test_chain_must_not_cross_engine_class_or_repeat(isolated_db, engines):
 def test_translation_only_chain_allowed(isolated_db, engines, monkeypatch):
     # nllb is the only real translation-only engine, so a second one is faked.
     monkeypatch.setattr(translate_engines, "TRANSLATION_ONLY_ENGINES", {"nllb", "ollama"})
+    monkeypatch.setattr("engine_backends.fallback.TRANSLATION_ONLY_ENGINES", {"nllb", "ollama"})
     engines["nllb"].fail = AuthError("401")
     did = _seed(1)
     _wait(svc.start_translate_run(did, engine_name="nllb",
@@ -230,7 +231,7 @@ def test_retry_budget_resets_for_next_engine(_no_sleep):
 
 
 def test_backoff_is_capped(monkeypatch, _no_sleep):
-    monkeypatch.setattr(translate_engines, "FALLBACK_TRANSIENT_RETRIES", 6)
+    monkeypatch.setattr("engine_backends.fallback.FALLBACK_TRANSIENT_RETRIES", 6)
     a = _Flaky(RateLimitError("429"), 6)
     fe = translate_engines.FallbackEngine([a], ["claude"])
     fe.translate_batch(["z"], {})

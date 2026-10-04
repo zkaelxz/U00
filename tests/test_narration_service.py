@@ -160,7 +160,7 @@ class TestNarrationCancel:
     def test_tag_speakers_stops_before_the_next_batch(self, monkeypatch):
         import translate_engines
         sent = []
-        monkeypatch.setattr(translate_engines, "call_llm_json",
+        monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json",
                             lambda engine, prompt, **k: sent.append(prompt) or "{}")
         state = {"cancelled": False}
 
@@ -173,7 +173,7 @@ class TestNarrationCancel:
             out = orig_batch(*a, **k)
             state["cancelled"] = True
             return out
-        monkeypatch.setattr(translate_engines, "_id_keyed_batch_request", batch)
+        monkeypatch.setattr("engine_backends.llm_tasks._id_keyed_batch_request", batch)
         with pytest.raises(background_jobs.JobCancelled):
             translate_engines.tag_speakers_by_id(
                 {i: "文" for i in range(40)}, _Engine(), batch_size=15, cancel_check=check)

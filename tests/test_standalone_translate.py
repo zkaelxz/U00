@@ -182,7 +182,7 @@ class TestStandaloneTranslate:
         assert engine.called is False
 
     def test_unsupported_engine_direction_is_refused_before_translate_batch_runs(self, monkeypatch):
-        monkeypatch.setattr(te, "standalone_direction_support",
+        monkeypatch.setattr("engine_backends.standalone.standalone_direction_support",
                             lambda *a: (False, "Not supported."))
         engine = _CountingEngine("nllb")
         with pytest.raises(te.UnsupportedDirectionError):

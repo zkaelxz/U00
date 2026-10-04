@@ -71,9 +71,11 @@ class TestHttpCallsHaveTimeouts:
     leaves the job stuck at "running" with no way to notice."""
 
     def test_translate_engines(self):
-        problems = _find_requests_calls_missing_timeout(
-            os.path.join(PROJECT_ROOT, "translate_engines.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+        files = [os.path.join(PROJECT_ROOT, "translate_engines.py")] + _py_files_under("engine_backends")
+        problems = {os.path.relpath(f, PROJECT_ROOT): _find_requests_calls_missing_timeout(f)
+                    for f in files}
+        problems = {f: lines for f, lines in problems.items() if lines}
+        assert problems == {}, f"requests call(s) missing timeout= at line(s): {problems}"
 
     def test_qa(self):
         problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "qa.py"))
