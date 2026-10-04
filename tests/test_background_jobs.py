@@ -2018,6 +2018,63 @@ class TestOrphanedWorkerExits:
         monkeypatch.setattr(bg.os, "getppid", lambda: 1)
         bg.exit_if_parent_gone()
 
+    class _FakeParent:
+        def __init__(self, pid, alive=True):
+            self.pid = pid
+            self.alive = alive
+
+        def is_alive(self):
+            return self.alive
+
+    def test_the_parent_comes_from_the_spawn_data_not_a_late_getppid(self, monkeypatch):
+        """A parent killed during the worker's start-up: getppid already
+        reads the reaper when start_own_process_group runs, but
+        parent_process() still names the real parent, so the worker exits."""
+        monkeypatch.setattr(bg, "_worker_parent", None)
+        monkeypatch.setattr(bg, "_worker_parent_pid", None)
+        monkeypatch.setattr(bg.multiprocessing, "parent_process", lambda: self._FakeParent(4242))
+        monkeypatch.setattr(bg, "_parent_watchdog", lambda: None)
+        monkeypatch.setattr(bg.os, "setsid", lambda: None)
+        monkeypatch.setattr(bg.os, "getppid", lambda: 1)
+        bg.start_own_process_group()
+        assert bg._worker_parent_pid == 4242
+        killed = self._orphan(monkeypatch)
+        monkeypatch.setattr(bg, "_worker_parent_pid", 4242)
+        with pytest.raises(_WorkerExited):
+            bg.exit_if_parent_gone()
+        assert len(killed) == 1
+
+    def test_without_parent_process_data_it_falls_back_to_getppid(self, monkeypatch):
+        monkeypatch.setattr(bg, "_worker_parent", None)
+        monkeypatch.setattr(bg, "_worker_parent_pid", None)
+        monkeypatch.setattr(bg.multiprocessing, "parent_process", lambda: None)
+        monkeypatch.setattr(bg, "_parent_watchdog", lambda: None)
+        monkeypatch.setattr(bg.os, "setsid", lambda: None)
+        monkeypatch.setattr(bg.os, "getppid", lambda: 777)
+        bg.start_own_process_group()
+        assert bg._worker_parent is None and bg._worker_parent_pid == 777
+
+    def test_a_dead_parent_sentinel_exits_even_with_the_same_ppid(self, monkeypatch):
+        killed = self._orphan(monkeypatch)
+        monkeypatch.setattr(bg.os, "getppid", lambda: 4242)
+        monkeypatch.setattr(bg, "_worker_parent", self._FakeParent(4242, alive=False))
+        with pytest.raises(_WorkerExited):
+            bg.report_progress(queue.Queue(), 0.5, "x")
+        assert len(killed) == 1
+
+    def test_on_windows_only_the_sentinel_is_checked_and_nothing_raises(self, monkeypatch):
+        def no_getppid():
+            raise OSError("getppid failed")
+        monkeypatch.setattr(bg.os, "name", "nt")
+        monkeypatch.setattr(bg.os, "getppid", no_getppid)
+        monkeypatch.setattr(bg, "_worker_parent_pid", 4242)
+        monkeypatch.setattr(bg, "_worker_parent", self._FakeParent(4242))
+        q = queue.Queue()
+        bg.report_progress(q, 0.5, "x")
+        bg.report_stage(q, "Loading")
+        assert q.get_nowait() == ("progress", 0.5, "x")
+        assert q.get_nowait() == ("stage", 0.0, "Loading")
+
     @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="POSIX process groups")
     def test_a_real_worker_ends_after_its_parent_is_killed(self, tmp_path):
         """A parent process starts a worker that leads its own group and

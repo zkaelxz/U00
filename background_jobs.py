@@ -1172,8 +1172,10 @@ def report_stage(result_queue, message: str, frac: float = 0.0):
         pass
 
 
-# Set in a worker by start_own_process_group: the pid of the process that
-# started it, so the worker can tell that it has been orphaned.
+# Set in a worker by start_own_process_group: the process that started it
+# (multiprocessing.parent_process(), None outside a multiprocessing child)
+# and its pid, so the worker can tell that it has been orphaned.
+_worker_parent = None
 _worker_parent_pid = None
 PARENT_CHECK_INTERVAL = 2.0
 
@@ -1187,15 +1189,20 @@ def start_own_process_group():
     Leaving the parent's process group also takes the worker out of reach
     of a terminal's hang-up or Ctrl+C, so when the parent dies without
     cancelling it (killed, out of memory, terminal closed) nothing else
-    would stop it. The worker records its parent's pid here and ends
-    itself once that changes (exit_if_parent_gone): at every progress or
-    stage report and from a watchdog thread, which also covers a long call
-    that reports nothing. Not PR_SET_PDEATHSIG: Linux sends that when the
-    parent *thread* that started the worker exits, and a queued job is
+    would stop it. The worker ends itself once its parent is gone
+    (exit_if_parent_gone): at every progress or stage report and from a
+    watchdog thread, which also covers a long call that reports nothing.
+    The parent comes from multiprocessing.parent_process(), which the
+    child gets at start-up, so a parent killed during the worker's spawn
+    start-up and imports is still noticed; os.getppid() read here would
+    already be the reaper then. Not PR_SET_PDEATHSIG: Linux sends that when
+    the parent *thread* that started the worker exits, and a queued job is
     started from another job's watcher thread, which ends right after."""
-    global _worker_parent_pid
+    global _worker_parent, _worker_parent_pid
     try:
-        _worker_parent_pid = os.getppid()
+        parent = multiprocessing.parent_process()
+        _worker_parent = parent
+        _worker_parent_pid = parent.pid if parent is not None else os.getppid()
         threading.Thread(target=_parent_watchdog, daemon=True, name="parent-watchdog").start()
     except Exception:
         pass
@@ -1209,11 +1216,10 @@ def start_own_process_group():
 
 def exit_if_parent_gone():
     """In a worker that called start_own_process_group: when its parent has
-    died (the worker was re-parented, so os.getppid() changed), kills the
-    worker's own process group (itself and what it started) and exits. A
-    no-op anywhere else, and on Windows, where getppid never changes."""
-    parent = _worker_parent_pid
-    if parent is None or os.getppid() == parent:
+    died, kills the worker's own process group (itself and what it started)
+    and exits. A no-op anywhere else. Never raises: report_progress and
+    report_stage call it outside their own try."""
+    if not _parent_gone():
         return
     if os.name != "nt":
         try:
@@ -1223,6 +1229,25 @@ def exit_if_parent_gone():
         except Exception:
             pass
     os._exit(1)
+
+
+def _parent_gone() -> bool:
+    """The parent's sentinel (parent_process().is_alive()) when there is
+    one, and on POSIX also a changed os.getppid() (re-parented to a reaper).
+    Not getppid on Windows, where it never changes. Errors read as alive."""
+    if _worker_parent_pid is None:
+        return False
+    try:
+        if _worker_parent is not None and not _worker_parent.is_alive():
+            return True
+    except Exception:
+        pass
+    if os.name == "nt":
+        return False
+    try:
+        return os.getppid() != _worker_parent_pid
+    except Exception:
+        return False
 
 
 def _parent_watchdog():
