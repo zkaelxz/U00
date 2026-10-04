@@ -33,3 +33,6 @@ Thumbs.db
 
 # installer/build_installer.py output (payload, downloaded Python, Setup .exe)
 /build/
+
+# Playwright output
+/test-results/

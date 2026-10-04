@@ -205,10 +205,6 @@ baihe-subtitler/
 │   │                             pipeline-stage index, Step 19 invariant)
 │   │                             + get_drama_progress
 │   │                             (per-stage state + counts for the API)
-│   ├── scanlate_service.py       add_uploaded_pages -- save uploaded images/PDFs as a drama's next
-│   │                             Scanlate pages (API callers must pass
-│   │                             client filename as .name + a synchronous read()/getbuffer(), and a future
-│   │                             route must enforce a png/jpg/jpeg/pdf allowlist and a size cap)
 │   ├── reader_service.py         Migration Slice 4 -- one page of a drama's Reader HTML, definitions
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,

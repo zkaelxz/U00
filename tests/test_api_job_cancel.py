@@ -1,4 +1,6 @@
 """Migration Slice 22: cross-process job cancel. Fully mocked."""
+import contextlib
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -82,9 +84,10 @@ def test_stale_orphan_record_is_closed_on_cancel(client):
     """B-04: no live owner and an old updated_at -> record becomes cancelled."""
     import time
     db.save_job_record("orphan", "running", progress=0.4)
-    with db.get_conn() as conn:
+    with contextlib.closing(db.get_conn()) as conn:
         conn.execute("UPDATE job_records SET updated_at = ? WHERE job_id = 'orphan'",
                      (time.time() - 3600,))
+        conn.commit()
     r = client.post("/api/jobs/orphan/cancel")
     assert r.status_code == 200
     assert r.json()["status"] == "cancelled"
@@ -95,7 +98,7 @@ def test_stale_orphan_record_is_closed_on_cancel(client):
 
 def _age(job_id, seconds):
     import time
-    with db.get_conn() as conn:
+    with contextlib.closing(db.get_conn()) as conn:
         conn.execute("UPDATE job_records SET updated_at = ? WHERE job_id = ?",
                      (time.time() - seconds, job_id))
         conn.commit()
