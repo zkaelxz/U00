@@ -57,6 +57,7 @@ const OPTION_LABELS: Record<string, string> = {
   qwen3_forced_align: 'Qwen3 forced alignment',
   whisper: 'Whisper',
   qwen3_asr: 'Qwen3 ASR',
+  qwen3_asr_vad: 'Qwen3 ASR with speech detection (no Whisper)',
   moss_td: 'MOSS-Transcribe-Diarize (experimental)',
   auto: 'Automatic',
   audio_separator: 'Audio separator',
