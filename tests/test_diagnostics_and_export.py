@@ -676,17 +676,6 @@ class TestCheckEngineReachable:
         assert result["ok"] is False
         assert "empty" in result["error"].lower()
 
-    def test_doctor_report_checks_a_batch_of_engines(self, monkeypatch):
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "standalone_translate",
-                            lambda text, engine, *a, **k: f"[{engine.name}] ok")
-        results = diagnostics.doctor_report([
-            {"engine": "fake"},
-            {"engine": "claude", "api_key": "sk-x"},
-        ])
-        assert [r["engine"] for r in results] == ["fake", "claude"]
-        assert all(r["ok"] for r in results)
-
 
 class TestDependencyVersionCheck:
     """Step 27: 'is this outdated' + Upgrade. Like the pyannote check

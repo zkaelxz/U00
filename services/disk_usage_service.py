@@ -1040,11 +1040,6 @@ def _trash_totals():
         return {"size_bytes": 0, "item_count": 0, "partial": True}, m
 
 
-def trash_summary() -> dict:
-    """{size_bytes, item_count, partial} of the Trash folder, for the scan."""
-    return _trash_totals()[0]
-
-
 def trash_list() -> dict:
     """Every entry in Trash with what it was, its measured size and whether
     Restore would work now. A read-only walk with its own budget; it does not
