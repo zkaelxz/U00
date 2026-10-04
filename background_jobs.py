@@ -770,7 +770,7 @@ def _promote_next_queued_gpu_job():
                     _jobs[job_id].get("owner_user_id"))
                 on_done = entry.get("on_done")
                 on_finish = entry.get("on_finish")
-                kill_tree = entry.get("kill_tree", False)
+                kill_whole_tree = entry.get("kill_whole_tree", False)
                 break
             _jobs[job_id]["status"] = "running"
             _jobs[job_id]["message"] = "Starting..."
@@ -783,7 +783,7 @@ def _promote_next_queued_gpu_job():
             proc.start()
             _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                               job_id, proc, result_queue, True, on_done=on_done,
-                              on_finish=on_finish, kill_tree=kill_tree, worker_for=job_id)
+                              on_finish=on_finish, kill_whole_tree=kill_whole_tree, worker_for=job_id)
         else:
             _spawn(job_id, target, args, kwargs, gpu_touching=True)
     except Exception as exc:
@@ -942,7 +942,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
 
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
                       description: str = None, on_done=None, on_finish=None,
-                      kill_tree: bool = False) -> bool:
+                      kill_whole_tree: bool = False) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -986,12 +986,12 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     error, cancelled, cleared): for removing the run's temp files, which a
     killed subprocess cannot do itself. Its errors are logged, not raised.
 
-    kill_tree=True: a cancel kills the subprocess and everything it
-    started (_kill_tree) at once, instead of terminate-then-kill on the
+    kill_whole_tree=True: a cancel kills the subprocess and everything it
+    started (kill_tree) at once, instead of terminate-then-kill on the
     subprocess alone. On POSIX the target must call
     start_own_process_group() first so its children share its group.
 
-    on_done/on_finish/kill_tree are carried through the GPU queue like
+    on_done/on_finish/kill_whole_tree are carried through the GPU queue like
     target/args. Records its starter and refuses during a clean stop like
     start_job().
     """
@@ -1017,7 +1017,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
                                 "on_done": on_done, "on_finish": on_finish,
-                                "kill_tree": kill_tree})
+                                "kill_whole_tree": kill_whole_tree})
             _note_gpu_wait_reason_locked(job_id)
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
@@ -1026,7 +1026,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         proc.start()
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                           job_id, proc, result_queue, gpu_touching, on_done=on_done,
-                          on_finish=on_finish, kill_tree=kill_tree, worker_for=job_id)
+                          on_finish=on_finish, kill_whole_tree=kill_whole_tree, worker_for=job_id)
     except Exception as exc:
         _fail_start(job_id, gpu_touching, exc, proc, result_queue)
         raise
@@ -1078,10 +1078,10 @@ def report_stage(result_queue, message: str, frac: float = 0.0):
 
 
 def start_own_process_group():
-    """For a kill_tree=True process-job worker, called first: on POSIX the
-    worker leads a new process group, so a cancel's _kill_tree also reaches
+    """For a kill_whole_tree=True process-job worker, called first: on POSIX the
+    worker leads a new process group, so a cancel's kill_tree also reaches
     the processes it starts (ffmpeg, ffprobe). A no-op on Windows, where
-    _kill_tree walks the process tree instead. Never raises."""
+    kill_tree walks the process tree instead. Never raises."""
     if os.name == "nt":
         return
     try:
@@ -1131,7 +1131,7 @@ def _mark_cancelled_locked(job_id):
 
 
 def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interval=0.3,
-                     on_done=None, on_finish=None, kill_tree=False):
+                     on_done=None, on_finish=None, kill_whole_tree=False):
     """Runs in this (the main) process, not the child -- a
     multiprocessing.Process can't write back into this process's _jobs
     dict itself (separate memory space), so this polls proc.is_alive()
@@ -1158,8 +1158,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 # for real seconds, and nothing else here should have to wait
                 # on that (another job's update_progress, a UI's get_status).
                 was_cleared = job is None
-                if kill_tree:
-                    _kill_tree(proc)
+                if kill_whole_tree:
+                    kill_tree(proc)
                 else:
                     _stop_process(proc)
                 with _lock:

@@ -328,7 +328,7 @@ def stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SEC
     """Like diagnostics._stream_process ({"line"} per output line, then
     {"returncode", "timed_out"}), but pip runs in its own process group and
     on timeout (or if the caller stops early) the whole tree is killed
-    with background_jobs._kill_tree, not only pip itself.
+    with background_jobs.kill_tree, not only pip itself.
 
     Every wait is bounded, like background_jobs.run_cancellable's
     kill_timeout: output is read on a helper thread, so a grandchild that

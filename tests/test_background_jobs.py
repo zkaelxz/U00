@@ -1297,17 +1297,17 @@ class TestProcessJobOnDone:
         assert _wait_for(lambda: finished == ["test_finish_done", "test_finish_cancel"])
         bg.clear_job("test_finish_cancel")
 
-    def test_kill_tree_job_cancel_kills_the_whole_tree(self, monkeypatch):
+    def test_kill_whole_tree_job_cancel_kills_the_whole_tree(self, monkeypatch):
         instances = _install_fake_process(monkeypatch, alive_forever=True)
         killed = []
 
         def fake_kill_tree(proc):
             killed.append(proc)
             proc.terminate()
-        monkeypatch.setattr(bg, "_kill_tree", fake_kill_tree)
-        job_id = "test_kill_tree_cancel"
+        monkeypatch.setattr(bg, "kill_tree", fake_kill_tree)
+        job_id = "test_kill_whole_tree_cancel"
         bg.clear_job(job_id)
-        bg.start_process_job(job_id, lambda q: None, args=(), kill_tree=True)
+        bg.start_process_job(job_id, lambda q: None, args=(), kill_whole_tree=True)
         assert _wait_for(lambda: bg.is_running(job_id))
         bg.request_cancel(job_id)
         assert _wait_for_status(job_id, "running")["status"] == "cancelled"

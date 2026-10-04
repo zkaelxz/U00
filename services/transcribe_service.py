@@ -579,7 +579,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       use_gpu, asr_backend_choice, alignment_method,
                       settings_service.get_whisper_model_path(),
                       asr_options_service.get_qwen_asr_batch_size(), scratch_dir),
-                gpu_touching=True, description=description, kill_tree=True,
+                gpu_touching=True, description=description, kill_whole_tree=True,
                 on_done=functools.partial(
                     _apply_on_done, drama_id=drama_id, source_language=source_language,
                     whisper_size=whisper_size, use_gpu=use_gpu, transcript_mode=transcript_mode,

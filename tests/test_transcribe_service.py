@@ -275,7 +275,7 @@ class TestStartTranscribeRun:
         assert captured["job_id"] == f"transcribe_{did}"
         assert captured["target"] is transcribe_service._transcribe_worker
         k = captured["start_kwargs"]
-        assert k["gpu_touching"] is True and k["kill_tree"] is True
+        assert k["gpu_touching"] is True and k["kill_whole_tree"] is True
         assert callable(k["on_done"]) and callable(k["on_finish"])
         assert captured["drama_id"] == did
 
