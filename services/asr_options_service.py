@@ -10,6 +10,9 @@ settings (Steps 103 and 104), stored in db.app_settings like use_gpu.
   ASR backend. Off by default; with it off the backend can't be chosen or run.
 - qwen_vad_refine_timing: with the "Qwen3 ASR with speech detection" backend, also
   tightens each line's times with Qwen3-ForcedAligner. Off by default.
+- mixed_languages: detect the spoken language per speech span and write it on
+  each line that differs from the title's language (mixed_language.py). Off by
+  default; slower (one detection per span).
 
 UI-free. Writes are PC-only (the router uses local_only()).
 """
@@ -22,6 +25,7 @@ from services.service_errors import InvalidInputError
 QWEN_ASR_BATCH_KEY = "qwen_asr_batch_size"
 MOSS_EXPERIMENTAL_KEY = "moss_experimental"
 VAD_REFINE_KEY = "qwen_vad_refine_timing"
+MIXED_LANGUAGES_KEY = "mixed_languages"
 MIN_BATCH_SIZE = 1
 MAX_BATCH_SIZE = 16
 
@@ -50,6 +54,15 @@ def get_vad_refine_timing() -> bool:
     forced aligner. Off on a DB hiccup."""
     try:
         return db.get_app_setting(VAD_REFINE_KEY, False) is True
+    except Exception:
+        return False
+
+
+def get_mixed_languages() -> bool:
+    """Whether a transcription detects the language of each speech span. Off
+    on a DB hiccup."""
+    try:
+        return db.get_app_setting(MIXED_LANGUAGES_KEY, False) is True
     except Exception:
         return False
 
@@ -85,12 +98,13 @@ def get_asr_options() -> dict:
         "qwen_asr_batch_max": MAX_BATCH_SIZE,
         "moss_experimental": get_moss_experimental(),
         "qwen_vad_refine_timing": get_vad_refine_timing(),
+        "mixed_languages": get_mixed_languages(),
         "moss_installed": moss_installed(),
     }
 
 
 def set_asr_options(qwen_asr_batch_size=None, moss_experimental=None,
-                    qwen_vad_refine_timing=None) -> dict:
+                    qwen_vad_refine_timing=None, mixed_languages=None) -> dict:
     """Saves whichever option is passed (None = unchanged). Raises
     InvalidInputError for a batch size outside 1..16 or a non-boolean
     toggle. Returns get_asr_options()."""
@@ -104,10 +118,14 @@ def set_asr_options(qwen_asr_batch_size=None, moss_experimental=None,
         raise InvalidInputError("moss_experimental must be true or false.")
     if qwen_vad_refine_timing is not None and not isinstance(qwen_vad_refine_timing, bool):
         raise InvalidInputError("qwen_vad_refine_timing must be true or false.")
+    if mixed_languages is not None and not isinstance(mixed_languages, bool):
+        raise InvalidInputError("mixed_languages must be true or false.")
     if qwen_asr_batch_size is not None:
         db.set_app_setting(QWEN_ASR_BATCH_KEY, qwen_asr_batch_size)
     if moss_experimental is not None:
         db.set_app_setting(MOSS_EXPERIMENTAL_KEY, moss_experimental)
     if qwen_vad_refine_timing is not None:
         db.set_app_setting(VAD_REFINE_KEY, qwen_vad_refine_timing)
+    if mixed_languages is not None:
+        db.set_app_setting(MIXED_LANGUAGES_KEY, mixed_languages)
     return get_asr_options()
