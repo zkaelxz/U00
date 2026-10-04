@@ -1,4 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // "Report a problem" on a phone (390x844, touch): the header button, the
 // dialog as a bottom sheet with 44px targets and no sideways scroll, and
@@ -23,7 +29,7 @@ async function noSideways(page: Page) {
 async function smallTargets(page: Page) {
   return page.locator('dialog button, dialog a, dialog summary, dialog input[type=file], dialog label:has(input[type=checkbox])')
     .evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent ?? e.getAttribute('type') ?? '').trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? e.getAttribute('type') ?? '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
 }
 
@@ -54,7 +60,7 @@ test('Report a problem on a phone: bottom sheet, 44px targets, no sideways scrol
 
   await page.goto('/#/library')
   const open = page.getByRole('button', { name: 'Report a problem' })
-  expect((await open.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(open))).toBeGreaterThanOrEqual(44)
   await noSideways(page)
   await open.click()
   const dialog = page.getByRole('dialog', { name: 'Report a problem' })
@@ -102,7 +108,7 @@ test('Report a problem on a phone: Copy a report and Saved reports fit, Deleteâ€
   const del = list.getByRole('button', { name: 'Delete report #12' })
   await expect(del).toBeVisible()
   const [a, b] = [(await copy.boundingBox())!, (await del.boundingBox())!]
-  expect(Math.abs(a.y - b.y)).toBeLessThan(4)                 // same row
+  expect(Math.abs((a.y + a.height / 2) - (b.y + b.height / 2))).toBeLessThan(4) // same row (centres: the two differ in height)
   expect(b.x).toBeGreaterThan(a.x)
   expect(await smallTargets(page)).toEqual([])
   await noSideways(page)

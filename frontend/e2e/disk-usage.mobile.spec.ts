@@ -1,6 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockDiskUsage } from './diskUsageMocks'
+import { installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): Disk usage has no sideways scroll and
 // 44px targets. DISK_SHOTS_DIR=<dir> also saves review screenshots.
@@ -24,7 +30,7 @@ async function open(page: Page) {
 async function shortTargets(page: Page, selector: string) {
   return page.locator(selector).evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent ?? '').trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? '').trim().slice(0, 30) }))
       .filter((x) => x.h < 43.5))
 }
 

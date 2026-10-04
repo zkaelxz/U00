@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test'
 
 import { mockFirstRun } from './getStartedMocks'
+import { installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 test('the card fits a phone with 44px targets', async ({ page }) => {
   await mockFirstRun(page)
@@ -20,7 +26,7 @@ test('the card fits a phone with 44px targets', async ({ page }) => {
     const box = await el.evaluate((n) => {
       const t = n.closest('label') ?? n
       const r = t.getBoundingClientRect()
-      return { w: r.width, h: r.height }
+      return { w: r.width, h: window.hitHeight(t) }
     })
     expect(box.h).toBeGreaterThanOrEqual(44)
   }

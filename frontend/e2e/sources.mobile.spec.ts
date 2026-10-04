@@ -3,6 +3,12 @@ import { expect, test, type Page } from '@playwright/test'
 import { mockAccess } from './sourcesAccessMocks'
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { SERIES_LINKS, mockSources, searchResult } from './sourcesMocks'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the Sources page. Every Sources job and
 // write is mocked (sourcesMocks.ts).
@@ -21,7 +27,7 @@ async function tallTargets(page: Page) {
     const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="search"], input[type="number"], .segmented label, .source-on, .setting-list > .field-item, .source-adult .field-item, .sources-back'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
       .filter((x) => x.h < 44)
   })
   expect(small).toEqual([])
@@ -61,7 +67,7 @@ test('phone: series replaces results, ‹ Results restores them, no sideways scr
   await noSideways(page)
   await tallTargets(page)
   const more = panel.getByRole('button', { name: 'More' })
-  expect((await more.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(more))).toBeGreaterThanOrEqual(44)
   await more.click()
   await expect(panel.getByRole('button', { name: 'Less' })).toBeVisible()
 
@@ -84,7 +90,7 @@ test('phone: download links are 44 px tall and wrap without sideways scroll', as
   const links = page.getByRole('region', { name: 'Series' }).getByRole('group', { name: 'Download links' })
   await links.scrollIntoViewIfNeeded()
   for (const name of ['百度网盘 (Baidu Pan) ↗', '蓝奏云 (Lanzou) ↗']) {
-    expect((await links.getByRole('link', { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect((await hitHeight(links.getByRole('link', { name })))).toBeGreaterThanOrEqual(44)
   }
   await expect(links.getByText('roh1')).toBeVisible()
   await noSideways(page)
@@ -149,7 +155,7 @@ async function tallImportTargets(page: Page) {
     const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="url"], input[type="text"], .sources-pick label, .sources-select-all, .sources-preview a, .sources-outcomes a'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
       .filter((x) => x.h < 44)
   })
   expect(small).toEqual([])

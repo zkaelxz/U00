@@ -3,6 +3,12 @@ import { expect as baseExpect, test, type Page } from '@playwright/test'
 import { mockImports } from './sourcesImportMocks'
 import { mockSources } from './sourcesMocks'
 import { VIDEO_PREVIEW, mockTools } from './sourcesToolsMocks'
+import { installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone (390x844, touch): the Sources tools fit without sideways scrolling
 // and their buttons are finger-sized.
@@ -21,7 +27,7 @@ async function tallButtons(page: Page, root: string) {
   const small = await page.locator(root).first().evaluate((el) =>
     [...el.querySelectorAll<HTMLElement>('button:not(.field-help-btn), select, textarea')]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.tagName).trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.tagName).trim().slice(0, 30) }))
       .filter((x) => x.h < 44),
   )
   expect(small).toEqual([])

@@ -1,4 +1,10 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the new Export video sections and Mark as
 // exported, the Glossary import fold, the preset picker with style guidance,
@@ -23,8 +29,7 @@ async function expectTall(loc: Locator) {
   await expect(loc.first()).toBeVisible()
   const n = await loc.count()
   for (let i = 0; i < n; i++) {
-    const box = await loc.nth(i).boundingBox()
-    expect(box?.height ?? 0, await loc.nth(i).innerText()).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(loc.nth(i)), await loc.nth(i).innerText()).toBeGreaterThanOrEqual(44)
   }
 }
 

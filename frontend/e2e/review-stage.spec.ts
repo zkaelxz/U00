@@ -3,6 +3,12 @@ import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
 import { openFoldFor } from './reviewFolds'
+import { installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // The seeded API has dramas but no lines, so before every test this spec
 // writes three lines for drama 3 straight into the throwaway library the test
@@ -786,14 +792,14 @@ test.describe('phone', () => {
       .evaluateAll((els) =>
         els
           .filter((e) => (e as HTMLElement).offsetParent !== null)
-          .map((e) => ({ h: e.getBoundingClientRect().height, t: (e.textContent || e.getAttribute('aria-label') || '').trim() }))
+          .map((e) => ({ h: window.hitHeight(e), t: (e.textContent || e.getAttribute('aria-label') || '').trim() }))
           .filter(({ h }) => h < 44),
       )
     expect(small).toEqual([])
     // The Loop switch draws a 24px track; its ::after hit area (index.css) makes the target 44px+.
     const loopHit = await page.getByRole('switch', { name: 'Loop line' }).evaluate((e) => {
       const after = getComputedStyle(e, '::after')
-      return e.getBoundingClientRect().height - parseFloat(after.top) - parseFloat(after.bottom)
+      return window.hitHeight(e) - parseFloat(after.top) - parseFloat(after.bottom)
     })
     expect(loopHit).toBeGreaterThanOrEqual(44)
     await page.screenshot({ path: 'test-results/review-player-phone.png' })
@@ -810,7 +816,7 @@ test.describe('phone', () => {
     const small = await page.locator('.stage-review button:not(.link, .review-en, .field-help-btn, .toggle), .stage-review .review-chip').evaluateAll((els) =>
       els
         .filter((e) => (e as HTMLElement).offsetParent !== null)
-        .map((e) => ({ h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width, t: (e.textContent ?? '').trim() }))
+        .map((e) => ({ h: window.hitHeight(e), w: e.getBoundingClientRect().width, t: (e.textContent ?? '').trim() }))
         .filter(({ h, w }) => h < 44 || w < 44),
     )
     expect(small).toEqual([])
@@ -830,7 +836,7 @@ test.describe('phone', () => {
     await rows(page).nth(2).getByRole('button', { name: 'More actions for line 3' }).tap()
     const sheet = page.getByRole('dialog', { name: 'Line #3' })
     await expect(sheet).toBeVisible()
-    const heights = await sheet.locator('.sheet-menu button').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))
+    const heights = await sheet.locator('.sheet-menu button').evaluateAll((els) => els.map((e) => window.hitHeight(e)))
     for (const h of heights) expect(h).toBeGreaterThanOrEqual(48)
     await sheet.getByRole('button', { name: 'Close' }).tap()
     await expect(sheet).toHaveCount(0)

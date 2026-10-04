@@ -72,7 +72,10 @@
 .assistant-tools > li { display: grid; gap: 2px; min-width: 0; }
 
 @media (max-width: 640px) {
-  .assistant-page { gap: var(--space-4); }
+  .assistant-page { gap: var(--space-5); }
+  .assistant-engine, .assistant-backlog-add, .assistant-changelog-form { gap: var(--space-4); }
+  .assistant-suggestions, .assistant-suggestion, .assistant-actions { gap: var(--space-3); }
+  .assistant-response, .assistant-turn { gap: var(--space-4); }
   .assistant-question { max-width: 100%; }
   .assistant-engine, .assistant-backlog-add, .assistant-changelog-form { grid-template-columns: minmax(0, 1fr); }
   .assistant-ask .btn-primary, .assistant-backlog-add .btn-primary, .assistant-changelog-form .btn-primary { width: 100%; }

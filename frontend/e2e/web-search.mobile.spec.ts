@@ -3,6 +3,12 @@ import { expect, test } from '@playwright/test'
 import { mockSources } from './sourcesMocks'
 import { emptySearch, mockWebSearch } from './webSearchMocks'
 import { openSettingsGroups } from './settingsNav'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the web-search fallback under an empty
 // Sources search, and its Settings card.
@@ -24,7 +30,7 @@ test('phone: web results fit, targets are 44px', async ({ page }) => {
   const small = await page.getByTestId('web-search').evaluate((root) =>
     [...root.querySelectorAll<HTMLElement>('button')]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || '').trim() }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || '').trim() }))
       .filter((x) => x.h < 44),
   )
   expect(small).toEqual([])
@@ -45,7 +51,6 @@ test('phone: settings card fits', async ({ page }) => {
   }))
   expect(scroll).toBeLessThanOrEqual(client)
   for (const name of ['Save', 'Test']) {
-    const box = await card.getByRole('button', { name, exact: true }).boundingBox()
-    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(card.getByRole('button', { name, exact: true }))).toBeGreaterThanOrEqual(44)
   }
 })

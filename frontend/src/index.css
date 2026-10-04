@@ -680,7 +680,10 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
   button.toggle::after { inset: -11px -8px; }
   .setting-list > .field-item { padding-inline: var(--space-3); }
   .btn { min-height: 44px; }
-  .btn.btn-sm { min-height: 44px; }
+  /* Dense buttons look 32px but keep a 44px hit area: the ::after reaches 6px beyond the border box above and below (the Toggle trick; the inset is one more because it is measured from the padding box).
+     Rows holding several of them keep a gap of at least --space-3 so the areas never overlap. */
+  .btn.btn-sm { min-height: 32px; position: relative; }
+  .btn.btn-sm::after { content: ''; position: absolute; inset: -7px -5px; }
   .card { padding: var(--space-4); border-radius: var(--radius-lg); }
 }
 
@@ -797,8 +800,6 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
 .delete-confirm p { margin: 0; }
 
 @media (max-width: 640px) {
-  .library-page { gap: var(--space-4); }
-  .page-head > .btn-primary { flex: 1 1 100%; }
   .toolbar-search { flex-basis: 100%; }
   .toolbar-filters { flex: 1 1 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .toolbar-filters select { width: 100%; }
@@ -808,7 +809,28 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   .drama-card { flex-direction: row; align-items: flex-start; }
   .drama-tile { flex: 0 0 56px; width: 56px; height: 75px; aspect-ratio: auto; margin: var(--space-3) 0 var(--space-3) var(--space-3); border-radius: var(--radius-md); font-size: var(--text-xl); }
   .drama-card-main { padding: var(--space-3); }
+  .drama-card-foot { gap: var(--space-3); }
   .drama-grid .card-check { top: var(--space-3); left: var(--space-3); width: 56px; height: 56px; }
   .drama-detail-actions { position: sticky; bottom: calc(-1 * var(--space-4)); z-index: 1; margin-inline: calc(-1 * var(--space-4)); padding: var(--space-3) var(--space-4); background: var(--bg); border-top: 1px solid var(--border); }
   .drama-detail-actions > .btn { flex: 1 1 0; }
+}
+
+/* ==== Phone rhythm (<=640px): label->field 4, field->field 16, hint->its button 8, field group->action row 24,
+   card/section->card/section 24, page region->region 32. Tokens only. ==== */
+@media (max-width: 640px) {
+  .library-page { gap: var(--space-6); }
+  .card { gap: var(--space-4); }
+  .card-body { gap: var(--space-4); }
+  .card-actions { gap: var(--space-3); }
+  details.section { margin-bottom: var(--space-5); }
+  details.section:last-child { margin-bottom: 0; }
+  .section-body { gap: var(--space-4); margin-top: var(--space-4); }
+  .section-body > * + :is(.setting-list, details.section, .actions) { margin-top: var(--space-2); }
+  :is(.card-body, .section-body) > :is(.btn, button, .actions, .assistant-actions, .settings-actions) + * { margin-top: var(--space-2); }
+  .field-row { gap: var(--space-4); margin-bottom: var(--space-4); }
+  .actions, .row-actions, .bar-actions, .settings-actions, .check-row { gap: var(--space-3); }
+  .panel > h3:first-child, .card > h3:first-child, .section-body > h3:first-child { margin: 0 0 var(--space-3); }
+  .source-panel > h3:first-child { margin: 0 0 calc(-1 * var(--space-1)); }
+  /* Panels without a table don't clip: the 4px focus glow of a button at the panel edge stays whole. */
+  .panel:not(:has(.table-scroll, table)) { overflow-x: visible; }
 }
