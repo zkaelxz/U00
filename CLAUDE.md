@@ -29,6 +29,26 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - CLI and app must behave the same (glossary, style guide, locale, character names). When you change one, check the other.
 - A new optional dependency is registered in `diagnostics.OPTIONAL_DEPENDENCIES` in the same change.
 
+## Commenting Standards
+
+- Comments should explain **WHY**, not **WHAT**.
+- Do not comment code when the code is already reasonably self-documenting.
+- Explain non-obvious business rules, design decisions, constraints, invariants,
+  compatibility workarounds, and reasons for seemingly unusual code.
+- If code looks redundant or counterintuitive but is intentionally required,
+  document why.
+- Do not use comments as a substitute for architecture or design documentation.
+- Put broader system explanations, workflows, and architectural decisions in
+  `docs/` rather than duplicating them throughout the codebase.
+- Prefer clear naming, structure, and tests over explanatory comments.
+- Keep comments concise and maintain them when the underlying reasoning changes.
+
+**Rule of thumb:**
+- Code explains WHAT.
+- Comments explain WHY.
+- Documentation explains HOW THE SYSTEM FITS TOGETHER.
+- Decision records explain WHY THE SYSTEM WAS DESIGNED THIS WAY.
+
 ## How to work
 - One task per branch, off the latest `baihe-subtitler`. Roadmap steps use `step-<id>-<short-name>`.
 - Re-check any claim from a doc or old note against the code before acting on it. If the code has moved on, say so.
