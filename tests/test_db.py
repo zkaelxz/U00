@@ -1948,7 +1948,9 @@ def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
 
 # Every column init_db() adds with `ALTER TABLE ... ADD COLUMN`, per table,
 # in the order it adds them. Dropping them gives a database shaped like one
-# created before those migrations existed.
+# created before those migrations existed. When you add a column migration to
+# db.py, add the column here too, or that migration is never run by a test
+# (test_every_literal_alter_column_is_listed fails for the literal form).
 _INIT_DB_MIGRATED_COLUMNS = {
     "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx"),
@@ -1979,6 +1981,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "users": ("share_by_default",),
     "translate_history": ("user_id",),
     "auth_sessions": ("device_label",),
+    "benchmark_results": ("scorer",),
 }
 
 
@@ -2049,6 +2052,20 @@ def _make_old_shape(path, share_by_default_was_on=False):
         conn.close()
 
 
+# Added inside data migrations that rebuild or back up tables (db.py's
+# line-id and profile migrations), so they can't be dropped by hand here.
+_ALTERS_WITH_OWN_MIGRATION = {("reading_history", "line_id"), ("reading_history", "profile_id")}
+
+
+def _literal_alter_columns():
+    """(table, column) for every `ALTER TABLE t ADD COLUMN c` written out in
+    db.py. The few loop-driven ALTERs (an f-string over a column list) are
+    not found by this, so add those to the dict by hand."""
+    import re
+    src = open(os.path.join(os.path.dirname(db.__file__), "db.py"), encoding="utf-8").read()
+    return set(re.findall(r"ALTER TABLE (\w+) ADD COLUMN (\w+)\b", src))
+
+
 class TestInitDbSchema:
     """init_db() runs on every user's existing database at startup: a fresh
     database and an upgraded old one must end up with the same schema, and
@@ -2058,6 +2075,14 @@ class TestInitDbSchema:
         before = _exact_snapshot(isolated_db.DB_PATH)
         isolated_db.init_db()
         assert _exact_snapshot(isolated_db.DB_PATH) == before
+
+    def test_every_literal_alter_column_is_listed(self):
+        listed = {(t, c) for t, cols in _INIT_DB_MIGRATED_COLUMNS.items() for c in cols}
+        missing = _literal_alter_columns() - listed - _ALTERS_WITH_OWN_MIGRATION
+        assert not missing, (
+            f"db.py adds these columns by ALTER but _INIT_DB_MIGRATED_COLUMNS in "
+            f"tests/test_db.py doesn't list them, so no test upgrades an old database "
+            f"through them: {sorted(missing)}")
 
     def test_old_database_upgrades_to_the_fresh_schema(self, isolated_db):
         fresh = _schema_shape(isolated_db.DB_PATH)
