@@ -8,3 +8,6 @@
 .character-extras .character-shared { margin: 0; }
 .character-pronouns { display: grid; gap: var(--space-1); }
 .character-pronouns input { min-width: 6rem; }
+.character-rename { width: 100%; max-width: 19rem; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; min-width: 0; }
+.character-rename input { flex: 1 1 10rem; min-width: 0; }
+.character-notice { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
