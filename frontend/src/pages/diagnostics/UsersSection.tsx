@@ -123,7 +123,7 @@ function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
         {!u.is_active && <Badge tone="warn">Deactivated</Badge>}{' '}
         {u.is_self && <Badge>You</Badge>}
         <div className="muted">
-          {[sessionsText(u.active_sessions), u.has_google_binding ? 'Google account linked' : 'has not signed in yet']
+          {[sessionsText(u.active_sessions), u.has_google_binding ? 'Google account linked' : 'Has not signed in yet']
             .join(' · ')}
         </div>
         {why && <div className="muted" id={whyId}>{why}</div>}

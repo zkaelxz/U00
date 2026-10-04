@@ -168,7 +168,7 @@ function CasesPanel({ set, pc, onChanged, onClose }: { set: BenchmarkSet; pc: Pc
                 )}
                 <p className={c.reference_text ? undefined : 'muted'}>
                   <span className="muted">Reference: </span>
-                  {c.reference_text || 'none (this case is run but not scored)'}
+                  {c.reference_text || 'None (this case is run but not scored)'}
                 </p>
               </div>
               {pc !== 'remote' && (

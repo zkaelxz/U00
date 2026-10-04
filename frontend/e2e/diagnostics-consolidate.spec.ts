@@ -22,7 +22,7 @@ test('Setup, Model health and GPU PyTorch start folded when all is well, with a 
   await openSection(page, /^Packages/)
   const gpu = fold(page, /^GPU PyTorch/)
   await expect(gpu).toHaveJSProperty('open', false)
-  await expect(gpu.locator('> summary')).toContainText('torch 2.11.0+cu128 · CUDA build · RTX 3080 Ti')
+  await expect(gpu.locator('> summary')).toContainText('PyTorch 2.11.0+cu128 · CUDA build · RTX 3080 Ti')
   expect(unmocked).toEqual([])
 })
 
@@ -31,7 +31,7 @@ test('a problem opens Setup and GPU PyTorch by themselves; the viewer choice is 
   await mockDiagnostics(page, { ffmpegFound: false, gpuState: 'cpu_on_gpu' })
   await page.goto('/#/diagnostics')
   await expect(fold(page, /^Setup/)).toHaveJSProperty('open', true)
-  await expect(page.getByTestId('setup-summary')).toHaveText('1 problem: ffmpeg')
+  await expect(page.getByTestId('setup-summary')).toHaveText('1 problem: FFmpeg')
   await openSection(page, /^Packages/)
   await expect(fold(page, /^GPU PyTorch/)).toHaveJSProperty('open', true)
 
@@ -65,7 +65,7 @@ test('Setup holds speaker detection and one model list with sizes and Delete', a
   const setup = fold(page, /^Setup/)
 
   // Speaker detection is a part of Setup, not a card of its own.
-  await expect(setup.getByRole('group', { name: 'Speaker detection' })).toContainText('pyannote: installed')
+  await expect(setup.getByRole('group', { name: 'Speaker detection' })).toContainText('Pyannote: installed')
   await expect(page.locator('summary', { hasText: /^Speaker detection/ })).toHaveCount(0)
   await expect(page.locator('summary', { hasText: /^Model cache/ })).toHaveCount(0)
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { engineLabel, languageLabel, mediaTypeLabel, statusLabel, titleCase } from './labels'
+import { capFirst, engineLabel, languageLabel, mediaTypeLabel, statusLabel, sentenceCase } from './labels'
 
 describe('labels', () => {
   it('humanises statuses', () => {
@@ -24,12 +24,20 @@ describe('labels', () => {
     expect(engineLabel('ollama')).toBe('Ollama')
     expect(engineLabel('nllb')).toBe('NLLB')
   })
-  it('title-cases unknown codes and leaves empty values empty', () => {
-    expect(mediaTypeLabel('radio_play')).toBe('Radio Play')
-    expect(engineLabel('some-new_engine')).toBe('Some New Engine')
+  it('sentence-cases unknown codes and leaves empty values empty', () => {
+    expect(mediaTypeLabel('radio_play')).toBe('Radio play')
+    expect(engineLabel('some-new_engine')).toBe('Some new engine')
     expect(languageLabel('fr')).toBe('Fr')
     expect(statusLabel(null)).toBe('')
     expect(engineLabel(undefined)).toBe('')
-    expect(titleCase('  ')).toBe('')
+    expect(sentenceCase('  ')).toBe('')
+  })
+  it('capitalises the first letter of display text', () => {
+    expect(capFirst('none saved')).toBe('None saved')
+    expect(capFirst('Already fine')).toBe('Already fine')
+    expect(capFirst('')).toBe('')
+    expect(capFirst('ffmpeg not found')).toBe('ffmpeg not found')
+    expect(capFirst('num_ctx auto')).toBe('num_ctx auto')
+    expect(capFirst('~3 min')).toBe('~3 min')
   })
 })

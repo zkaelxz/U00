@@ -130,7 +130,7 @@ export default function ExportStage() {
         <MarkExported />
       </section>
       {fmt === 'ass' && assStyle}
-      <Section storageKey="export.media" title="Video and audio" summary="burned-in video, audiobook">
+      <Section storageKey="export.media" title="Video and audio" summary="Burned-in video, audiobook">
         {/* The burned-in video uses the ASS style too; with ASS chosen it sits above instead. */}
         {fmt !== 'ass' && assStyle}
         <ExportMediaJobs
@@ -140,7 +140,7 @@ export default function ExportStage() {
         />
       </Section>
       {drama.content_mode === 'novel_narration' && (
-        <Section storageKey="export.epub" title="EPUB" summary="novel narration">
+        <Section storageKey="export.epub" title="EPUB" summary="Novel narration">
           <ExportEpub />
         </Section>
       )}

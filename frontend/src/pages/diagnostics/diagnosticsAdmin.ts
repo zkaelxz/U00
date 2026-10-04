@@ -85,8 +85,8 @@ type SetupRow = { key: string; label: string; value: string; text: string; probl
 
 /** The ffmpeg row's problem text: missing, or built without libass. */
 function ffmpegProblem(c: DiagnosticsSetupChecks): string {
-  if (!c.ffmpeg.found) return 'ffmpeg not found'
-  return 'ffmpeg has no libass (burned-in subtitles and the styled preview need it)'
+  if (!c.ffmpeg.found) return 'FFmpeg not found'
+  return 'FFmpeg has no libass (burned-in subtitles and the styled preview need it)'
 }
 
 /** The Setup rows ("Label: value", or "Problem: …") from setup-checks plus the overview's GPU. */
@@ -97,7 +97,7 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
   add('python', 'Python', c.python.ok, c.python.version ?? 'found',
     c.python.version ? `Python ${c.python.version} is too old` : 'Python version unknown')
   const ffmpegOk = c.ffmpeg.found && c.ffmpeg.libass !== false
-  add('ffmpeg', 'ffmpeg', ffmpegOk,
+  add('ffmpeg', 'FFmpeg', ffmpegOk,
     `${c.ffmpeg.version ?? 'found'}${c.ffmpeg.libass ? ' (with libass)' : ''}`, ffmpegProblem(c))
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
     'no JS runtime (some video sites lose formats)')

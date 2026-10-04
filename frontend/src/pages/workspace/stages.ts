@@ -38,11 +38,11 @@ export function startStage(
 // P16: plain words for a stage's state in the stepper (the link's title,
 // which is also its accessible description). Unknown states read as nothing.
 export const STAGE_STATE_WORDS: Record<string, string> = {
-  done: 'done',
-  current: 'next step',
-  pending: 'not done yet',
-  optional: 'optional',
-  blocked: 'needs lines first',
+  done: 'Done',
+  current: 'Next step',
+  pending: 'Not done yet',
+  optional: 'Optional',
+  blocked: 'Needs lines first',
 }
 
 export function stageStates(stages: { key: string; state: string }[] | undefined): Partial<Record<StageId, string>> {

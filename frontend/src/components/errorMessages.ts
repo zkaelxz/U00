@@ -1,4 +1,5 @@
 import type { ApiError } from '../api/client'
+import { capFirst } from '../labels'
 
 // Plain-language text per stable API error code (api/error_handlers.py).
 // The server's own message is shown as extra detail only for codes where
@@ -65,7 +66,8 @@ export function describeError(
       : (ollamaText ?? GENERIC[code] ?? GENERIC.application_error)
   const showServer =
     SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
-  const detail = e?.message && showServer && !ollamaText ? safeDetail(e.message) : null
+  const rawDetail = e?.message && showServer && !ollamaText ? safeDetail(e.message) : null
+  const detail = rawDetail ? capFirst(rawDetail) : null
   return { title, detail }
 }
 

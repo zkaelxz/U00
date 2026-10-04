@@ -212,10 +212,10 @@ def build_search_links(query: str, language: str = None, content_type: str = Non
             "note": "JJWXC's own search page",
         })
         links.append({
-            "site": "baihehub (direct search)",
+            "site": "Baihehub (direct search)",
             "url": f"https://baihehub.com/search?keyword={_q(q)}",
             "kind": "direct",
-            "note": "baihehub's own search -- renders with JavaScript, so open it in a browser",
+            "note": "Baihehub's own search -- renders with JavaScript, so open it in a browser",
         })
 
     if not language or language == "zh":

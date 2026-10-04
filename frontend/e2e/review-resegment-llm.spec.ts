@@ -27,7 +27,7 @@ test('previews with AI, shows before → after, and Apply needs the typed confir
 
   await group.getByRole('button', { name: 'Preview with AI' }).click()
   await expect.poll(() => calls.previewStarts).toEqual([{ engine: 'gemini', model: 'flash' }])
-  await expect(page.getByTestId('job-status')).toContainText('done')
+  await expect(page.getByTestId('job-status')).toContainText('Done')
 
   const shown = page.getByTestId('resegment-ai-preview')
   await expect(shown).toContainText('3 → 5 lines · 2 lines split · by Gemini')
@@ -48,7 +48,7 @@ test('previews with AI, shows before → after, and Apply needs the typed confir
   await expect.poll(() => calls.applies).toEqual([{ expected_line_ids: [101, 102, 103], use_preview: true, confirm: true }])
   // The apply job finishes: the preview clears.
   await expect(page.getByTestId('resegment-ai-preview')).toHaveCount(0)
-  await expect(page.getByTestId('job-status')).toContainText('done')
+  await expect(page.getByTestId('job-status')).toContainText('Done')
 })
 
 test('Discard drops the preview without writing anything', async ({ page }) => {

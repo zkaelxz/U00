@@ -34,6 +34,7 @@ import {
   unreadCount,
   writeSeen,
 } from './notificationBellState'
+import { capFirst } from '../labels'
 import './notificationBell.css'
 
 const HIDE_ON = [401, 403, 404]
@@ -204,7 +205,7 @@ export function NotificationBell() {
                   <li key={i.id} className={isNew ? 'notify-item is-new' : 'notify-item'}>
                     <div className="notify-item-meta">
                       <Badge tone={b.tone}>{b.label}</Badge>
-                      <time dateTime={isoTime(i.at)}>{shortAgo(i.at)}</time>
+                      <time dateTime={isoTime(i.at)}>{capFirst(shortAgo(i.at))}</time>
                       {isNew && <span className="notify-new">New</span>}
                     </div>
                     <p className="notify-text">{i.text}</p>

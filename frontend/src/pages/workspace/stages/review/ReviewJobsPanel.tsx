@@ -205,7 +205,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
       {bulkRuns.map((r) => (
         <BulkRun key={r.kind} run={r} onDone={bulkDone} onSubmitted={reloadBatches} />
       ))}
-      <Section storageKey="review.aiFold" title="AI review" defaultOpen summary="checks · flag lines · coverage and pacing">
+      <Section storageKey="review.aiFold" title="AI review" defaultOpen summary="Checks · flag lines · coverage and pacing">
         {/* One row per check: its Start button, then its Bulk switch. */}
         <div role="list" aria-label="AI checks to run" className="stack">
           {KINDS.map(({ kind, label, what }) => (

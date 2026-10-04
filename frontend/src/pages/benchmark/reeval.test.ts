@@ -218,12 +218,12 @@ describe('candidates', () => {
   })
 
   it('production source: from Settings, or promoted with the decision date', () => {
-    expect(productionSource(overview())).toBe('from Settings')
+    expect(productionSource(overview())).toBe('From Settings')
     const promoted = cand({ status: 'promoted', last_decision: decision({ decision: 'promoted', decided_at: '2026-09-20T08:00:00' }) })
     const o = overview({ production: { engine: 'deepseek', model: 'deepseek-v4-flash', source: 'promoted' }, candidates: [promoted] })
-    expect(productionSource(o)).toBe('promoted 2026-09-20')
-    expect(productionSource({ ...o, candidates: [] })).toBe('promoted')
-    expect(productionSource({ ...o, production: { ...o.production, promoted_at: '2026-09-25T10:00:00' } })).toBe('promoted 2026-09-25')
+    expect(productionSource(o)).toBe('Promoted 2026-09-20')
+    expect(productionSource({ ...o, candidates: [] })).toBe('Promoted')
+    expect(productionSource({ ...o, production: { ...o.production, promoted_at: '2026-09-25T10:00:00' } })).toBe('Promoted 2026-09-25')
   })
 
   it('promote is offered for an open candidate with a finished report row', () => {

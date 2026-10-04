@@ -31,14 +31,14 @@ test('a translate job keeps showing after leaving the stage and coming back', as
   await page.goto('/#/drama/1/translate')
   const primary = page.getByRole('region', { name: 'Translate run' }).getByRole('button', { name: /^Translate \d+ lines?$/ })
   await primary.click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   await expect(primary).toBeDisabled()
 
   await goToStage(page, /^Dub/)
   await expect(page).toHaveURL(/\/drama\/1\/dub$/)
   await goToStage(page, /^Translate/)
 
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   await expect(primary).toBeDisabled()
   await expect(primary).toHaveAccessibleDescription(/A translate job is running/)
   expect(starts).toHaveLength(1)
@@ -99,7 +99,7 @@ test('Export media shows the earlier export and a running export on revisit', as
   await expect(link).toHaveAttribute('href', /\/api\/artifacts\/dramas\/1\/video$/)
 
   const audiobook = page.getByRole('group', { name: 'Audiobook' })
-  await expect(audiobook.getByTestId('job-status')).toContainText('running')
+  await expect(audiobook.getByTestId('job-status')).toContainText('Running')
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toBeDisabled()
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toHaveAccessibleDescription(/This export is running/)
 })
@@ -120,7 +120,7 @@ test('a dub left running is shown again on the Dub stage, with Generate disabled
 
   await page.goto('/#/drama/1/translate')
   await goToStage(page, /^Dub/)
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   const generate = page.getByRole('button', { name: 'Generate dub' })
   await expect(generate).toBeDisabled()
   await expect(generate).toHaveAccessibleDescription(/A dub is being generated/)

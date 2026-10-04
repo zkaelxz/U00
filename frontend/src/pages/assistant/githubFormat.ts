@@ -37,4 +37,4 @@ export function githubErrorText(e: unknown, tokenWrite = false): string {
   return detail ? `${title} ${detail}` : title
 }
 
-export const CHANGE_LABEL = { add: 'new', modify: 'changed', delete: 'deleted' } as const
+export const CHANGE_LABEL = { add: 'New', modify: 'Changed', delete: 'Deleted' } as const

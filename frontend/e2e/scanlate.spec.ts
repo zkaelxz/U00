@@ -22,7 +22,7 @@ test('translate all pages, follow the job, then read the typeset pages', async (
   await expect(engine.locator('option')).toHaveCount(1)
 
   await panel.getByRole('button', { name: 'Translate all pages' }).click()
-  await expect(panel.getByTestId('job-status')).toHaveText(/done · Pages: 3 translated\./)
+  await expect(panel.getByTestId('job-status')).toHaveText(/Done · Pages: 3 translated\./)
   expect(s.runs).toEqual([{ mode: 'missing', engine: 'ollama', detect_backend: 'auto' }])
   // The viewer reloaded: typeset images are available now.
   await expect(typeset).toBeEnabled()
@@ -44,7 +44,7 @@ test('redo this page, redo all needs a second press, export gives a download', a
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Translate pages' })
   await panel.getByRole('button', { name: 'Redo page 2' }).click()
-  await expect(panel.getByTestId('job-status')).toHaveText(/done/)
+  await expect(panel.getByTestId('job-status')).toHaveText(/Done/)
   expect(s.runs.at(-1)).toMatchObject({ mode: 'page', page_id: 7 * 100 + 2 })
 
   await panel.getByText('Advanced').click()
@@ -53,7 +53,7 @@ test('redo this page, redo all needs a second press, export gives a download', a
   await panel.getByRole('button', { name: 'Replace text on every page' }).click()
   await expect.poll(() => s.runs.length).toBe(2)
   expect(s.runs.at(-1)).toMatchObject({ mode: 'all', confirm: true })
-  await expect(panel.getByTestId('job-status')).toHaveText(/done/)
+  await expect(panel.getByTestId('job-status')).toHaveText(/Done/)
 
   await panel.getByRole('button', { name: 'Export ZIP' }).click()
   await expect(panel.getByRole('link', { name: 'Download ZIP' })).toHaveAttribute(

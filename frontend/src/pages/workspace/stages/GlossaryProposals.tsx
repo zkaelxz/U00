@@ -37,7 +37,7 @@ function OptionSelect({ label, value, options, onChange }: {
 // translation, category and policy. Cards on a phone, a table otherwise.
 // Rows are keyed by term text.
 export function GlossaryProposals({ proposals, selected, onToggle, edits, onEdit, catalogues, isPhone, testId }: Props) {
-  const inGlossary = <span className="badge">already in glossary</span>
+  const inGlossary = <span className="badge">Already in glossary</span>
   const checkbox = (p: NovelGlossaryProposal) => (
     <input type="checkbox" aria-label={`Select ${p.term}`} checked={selected.has(p.term)} onChange={() => onToggle(p.term)} />
   )

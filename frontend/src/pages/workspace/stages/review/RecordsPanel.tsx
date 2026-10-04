@@ -19,6 +19,7 @@ import { JOB_RUNNING_MESSAGE, keptNote, structureErrorText } from './reviewLogic
 import type { GoToLine } from './reviewResults'
 import { dismissTmEverywhere, useTmDismissed, visibleTm } from './tmDismiss'
 import { lineNumber } from '../../../../lineNumber'
+import { capFirst } from '../../../../labels'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { buttonClass } from '../../../../components/uiClasses'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../../hooks/usePcOnly'
@@ -271,7 +272,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
           <ul data-testid="history-list">
             {history.map((h) => (
               <li key={h.id}>
-                {h.label ?? `Snapshot ${h.id}`} <span className="muted">{h.created_at}</span>{' '}
+                {capFirst(h.label ?? `Snapshot ${h.id}`)} <span className="muted">{h.created_at}</span>{' '}
                 {restoring?.id !== h.id && (
                   <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setRestored(null); setRestoring(h) }}>
                     Restore…

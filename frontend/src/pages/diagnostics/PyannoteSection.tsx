@@ -44,7 +44,7 @@ export function PyannoteSection() {
       ) : (
         <div className="diag-stack">
           <ul className="diag-rows">
-            <li>pyannote: {data.pyannote_installed ? 'installed' : 'not installed'}</li>
+            <li>Pyannote: {data.pyannote_installed ? 'installed' : 'not installed'}</li>
             <li>Hugging Face token: {data.hf_token_configured ? 'set' : 'not set'}</li>
           </ul>
           <Field label="Gated models" help="Asks Hugging Face using the saved token. Nothing else on this page goes online.">

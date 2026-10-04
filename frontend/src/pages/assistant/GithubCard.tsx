@@ -56,7 +56,7 @@ export function GithubCard({ status, onStatus }: Props) {
         </Field>
       </div>
       <div className="assistant-engine">
-        <Field label="Repository" help="owner/name of your own repository.">
+        <Field label="Repository" help="The owner/name of your own repository.">
           <input type="text" value={repo} spellCheck={false} autoComplete="off" placeholder="owner/name" onChange={(e) => setRepo(e.target.value)} />
         </Field>
         <Field label="Base branch" help={`Pull requests go into this branch. The app never pushes to it; it creates a new ${status.branch_prefix}… branch for each fix.`}>

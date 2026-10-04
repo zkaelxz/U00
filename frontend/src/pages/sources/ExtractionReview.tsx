@@ -477,7 +477,7 @@ function ComicReview({ dramaId, comic, disabled, onApply }: {
               <div className="extraction-image-text">
                 <span className="sources-link">{img.display_url ?? `Image ${n + 1}`}</span>
                 <span className="muted">
-                  {img.width && img.height ? `${img.width}×${img.height}` : 'size unknown'}
+                  {img.width && img.height ? `${img.width}×${img.height}` : 'Size unknown'}
                   {img.reason ? ` · ${img.reason}` : ''}
                 </span>
               </div>

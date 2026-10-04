@@ -64,7 +64,7 @@ export function ReviewFlags({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <Section storageKey="review.flags" title="Flag lines for review" summary="overlaps, auto-QC, dense lines">
+    <Section storageKey="review.flags" title="Flag lines for review" summary="Overlaps, auto-QC, dense lines">
       <div className="review-flags" aria-label="Flag lines">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {ACTIONS.map((a) => (

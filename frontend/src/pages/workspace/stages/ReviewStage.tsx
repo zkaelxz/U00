@@ -98,7 +98,7 @@ export default function ReviewStage() {
               {parts.coverage}
             </ReviewJobsPanel>
             {!!lineCount && (
-              <Fold storageKey="review.fold.restructure" title="Restructure lines" summary="structure · re-split · merge short · shorten overlong">
+              <Fold storageKey="review.fold.restructure" title="Restructure lines" summary="Structure · re-split · merge short · shorten overlong">
                 {() => (
                   <>
                     <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
@@ -109,7 +109,7 @@ export default function ReviewStage() {
                 )}
               </Fold>
             )}
-            <Fold storageKey="review.fold.history" title="Versions and history" summary="notes · versions · history · compare · edit tendencies">
+            <Fold storageKey="review.fold.history" title="Versions and history" summary="Notes · versions · history · compare · edit tendencies">
               {(opened) => (
                 <>
                   <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} onGoTo={goToLine} />
@@ -119,7 +119,7 @@ export default function ReviewStage() {
               )}
             </Fold>
             {!!lineCount && (
-              <Fold storageKey="review.fold.extras" title="Extras" summary="audio tags · burned preview">
+              <Fold storageKey="review.fold.extras" title="Extras" summary="Audio tags · burned preview">
                 {(opened) =>
                   opened && (
                     <>

@@ -22,7 +22,7 @@ test('phone: the Translate panel opens in a sheet, fits the width, 44 px targets
   expect(box.x).toBeGreaterThanOrEqual(0)
   expect(box.x + box.width).toBeLessThanOrEqual(390)
   await start.click()
-  await expect(panel.getByTestId('job-status')).toHaveText(/done/)
+  await expect(panel.getByTestId('job-status')).toHaveText(/Done/)
   if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/scanlate-phone.png` })
   expect(s.unmocked).toEqual([])
 })

@@ -190,7 +190,7 @@ export function DetailsPanel({ openSignal }: { openSignal?: number }) {
             {kind === 'audio' && text('voice_actors', 'Comma-separated.')}
           </div>
           <div className="source-grid">
-            {text('genre', 'e.g. xianxia, romance, mystery.')}
+            {text('genre', 'For example, xianxia, romance, mystery.')}
             <Field label={FIELD_LABELS.publication_status} help="Whether the original is still coming out." error={errors.publication_status}>
               <select value={form.publication_status} onChange={set('publication_status')}>
                 {initial.publication_status === '' && <option value="">Not set</option>}
@@ -207,7 +207,7 @@ export function DetailsPanel({ openSignal }: { openSignal?: number }) {
             storageKey="source.details.more"
             openSignal={moreSignal}
             title="More details"
-            summary="link, tags, episode summary"
+            summary="Link, tags, episode summary"
             defaultOpen={!!(form.source_url || form.custom_tags || form.episode_summary)}
           >
             {text('source_url', 'The public listing or info page this drama came from. Shown without any ?query part, which can hold a download token.', 'url')}

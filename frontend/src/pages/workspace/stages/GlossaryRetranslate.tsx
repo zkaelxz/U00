@@ -181,14 +181,14 @@ export function GlossaryRetranslate({ f, busy, onStarted }: { f: RunForm; busy: 
                       onChange={(e) => toggle(l.id, e.target.checked)}
                     />{' '}
                     Line {lineNumber(l.idx)}
-                    {l.hand_edited && <>{' '}<span className="badge">hand-edited</span></>}
+                    {l.hand_edited && <>{' '}<span className="badge">Hand-edited</span></>}
                   </label>
                   <span className="glossary-retranslate-src" lang="zh">{l.zh}</span>
                   <span className="glossary-retranslate-en">Now: {l.en}</span>
                   <span className="muted">
                     {l.matched_terms.map((m) =>
                       m.reason === 'banned'
-                        ? `uses a banned translation of ${m.term_original}`
+                        ? `Uses a banned translation of ${m.term_original}`
                         : `${m.term_original} → ${m.term_translation || '(no translation)'}`).join(' · ')}
                   </span>
                 </li>

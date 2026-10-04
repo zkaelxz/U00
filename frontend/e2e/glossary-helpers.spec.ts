@@ -169,7 +169,7 @@ test.describe('desktop', () => {
     await review.getByLabel('Select 蓝湛').uncheck()
     await shot(page, 'glossary-review-desktop')
     await review.getByRole('button', { name: 'Add 1 term and start translation' }).click()
-    await expect(page.getByTestId('job-status')).toContainText('running')
+    await expect(page.getByTestId('job-status')).toContainText('Running')
     expect(JSON.parse(applyBody)).toEqual({ terms: ['魏婴'], run_id: 'run-1' })
     expect(runs).toHaveLength(1)
     await expect(run.getByText('Glossary: Added 1.')).toBeVisible()

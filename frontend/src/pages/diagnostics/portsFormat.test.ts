@@ -14,8 +14,8 @@ describe('ports format', () => {
   })
 
   it('labels the state', () => {
-    expect(portStatus(e({}))).toBe('in use')
-    expect(portStatus(e({ active: false }))).toBe('off')
+    expect(portStatus(e({}))).toBe('In use')
+    expect(portStatus(e({ active: false }))).toBe('Off')
   })
 
   it('summarises the ports in use', () => {

@@ -80,7 +80,7 @@ export function workingCount(r: EngineRouting): number {
 export const unsetOptionLabel = (c: CapabilityRoute, engineLabel: (e: string) => string): string =>
   c.unset_label ?? `Use default (${engineLabel(c.default_engine)})`
 
-export const unsetBadge = (c: CapabilityRoute): string => (c.unset_label ? 'off' : 'default')
+export const unsetBadge = (c: CapabilityRoute): string => (c.unset_label ? 'Off' : 'Default')
 
 export type KeyState = 'set' | 'missing' | 'none'
 

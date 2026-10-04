@@ -6,7 +6,7 @@ export function portText(p: PortEntry): string {
 }
 
 export function portStatus(p: PortEntry): string {
-  return p.active ? 'in use' : 'off'
+  return p.active ? 'In use' : 'Off'
 }
 
 /** The closed Section's one-line summary: the ports that are in use. */

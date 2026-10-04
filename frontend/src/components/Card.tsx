@@ -8,6 +8,7 @@
  *   </Card>
  */
 import type { ReactNode } from 'react'
+import { capFirst } from '../labels'
 
 type CardProps = {
   title?: ReactNode
@@ -27,7 +28,7 @@ export function Card({ title, meta, actions, as: Tag = 'section', className, chi
         <header className="card-head">
           <div className="card-heading">
             {title != null && <h3 className="card-title">{title}</h3>}
-            {meta != null && <p className="card-meta">{meta}</p>}
+            {meta != null && <p className="card-meta">{typeof meta === 'string' ? capFirst(meta) : meta}</p>}
           </div>
           {actions != null && <div className="card-actions">{actions}</div>}
         </header>

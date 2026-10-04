@@ -36,7 +36,7 @@ describe('setup rows', () => {
   it('reads "Label: value" when everything is fine', () => {
     const rows = setupRows(checks(), gpu)
     expect(rows.map((r) => r.text)).toEqual([
-      'Python: 3.11.9', 'ffmpeg: 6.1', 'JS runtime: deno', 'GPU: No GPU.', 'App files: all present',
+      'Python: 3.11.9', 'FFmpeg: 6.1', 'JS runtime: deno', 'GPU: No GPU.', 'App files: all present',
       'Library folder: writable',
     ])
     expect(rows[0]).toMatchObject({ label: 'Python', value: '3.11.9', problem: false })
@@ -55,20 +55,20 @@ describe('setup rows', () => {
     expect(rows.every((r) => r.problem)).toBe(true)
     expect(rows.map((r) => r.text)).toEqual([
       'Problem: Python 3.9.1 is too old',
-      'Problem: ffmpeg not found',
+      'Problem: FFmpeg not found',
       'Problem: no JS runtime (some video sites lose formats)',
       "Problem: PyTorch can't see the GPU",
       'Problem: 3 missing',
       "Problem: can't be written to",
     ])
-    expect(rows[1]).toMatchObject({ label: 'ffmpeg', value: 'ffmpeg not found' })
-    expect(setupSummary(rows.slice(1, 3))).toBe('2 problems: ffmpeg, JS runtime')
-    expect(setupSummary(rows.slice(1, 2))).toBe('1 problem: ffmpeg')
+    expect(rows[1]).toMatchObject({ label: 'FFmpeg', value: 'FFmpeg not found' })
+    expect(setupSummary(rows.slice(1, 3))).toBe('2 problems: FFmpeg, JS runtime')
+    expect(setupSummary(rows.slice(1, 2))).toBe('1 problem: FFmpeg')
   })
 
   it('checks ffmpeg for libass', () => {
     const withLibass = setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: true } }), gpu)
-    expect(withLibass[1]).toMatchObject({ text: 'ffmpeg: 6.1 (with libass)', problem: false })
+    expect(withLibass[1]).toMatchObject({ text: 'FFmpeg: 6.1 (with libass)', problem: false })
     const noLibass = setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: false } }), gpu)
     expect(noLibass[1]).toMatchObject({ problem: true, text: expect.stringContaining('no libass') })
     // Unknown (an older API or a failed version check) is not a problem.

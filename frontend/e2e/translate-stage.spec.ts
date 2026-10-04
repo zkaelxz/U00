@@ -41,7 +41,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
   await expect(run.getByLabel('Engine', { exact: true })).toBeVisible()
   // Options live in a collapsed Advanced section with a summary of non-default values.
-  await expect(run.getByText('defaults', { exact: true })).toBeVisible()
+  await expect(run.getByText('Defaults', { exact: true })).toBeVisible()
   await expect(run.getByLabel('Batch size', { exact: true })).toBeHidden()
 
   await run.getByRole('button', { name: 'Estimate cost' }).click()
@@ -67,7 +67,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
 
   await run.getByLabel(/I understand this replaces/).check()
   await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   expect(bodies[0]).toMatchObject({
     batch_size: 10,
     job_cost_cap_usd: 2.5,
@@ -77,7 +77,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   expect('line_ids' in bodies[0]).toBe(false)
 
   await page.getByRole('button', { name: 'Cancel job' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('cancelled')
+  await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 
 test('fallback engines: the rule is shown, only same-kind engines are offered, Reflect turns them off (B-06)', async ({ page }) => {

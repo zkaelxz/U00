@@ -6,6 +6,7 @@ import type { DramaSummary } from '../../api/types'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { TypedConfirm } from '../../components/TypedConfirm'
 import type { PcMode } from '../../hooks/usePcOnly'
+import { statusLabel, tagLabel } from '../../labels'
 import {
   ADMIN_JOB_IDS, LIBRARY_LIST_TAGS, LIBRARY_STATUSES, type LibraryListTag, type LibraryStatus,
 } from '../../types/libraryAdmin'
@@ -151,7 +152,7 @@ export function SelectionBar({
     <div className="bar-actions">
       <div className="bar-group">
         <select aria-label="New status" value={status} onChange={(e) => setStatus(e.target.value as LibraryStatus)}>
-          {LIBRARY_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          {LIBRARY_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
         </select>
         <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetStatus(ids, status), describeBulkResult)}>
           Set status
@@ -159,7 +160,7 @@ export function SelectionBar({
       </div>
       <div className="bar-group">
         <select aria-label="List" value={tag} onChange={(e) => setTag(e.target.value as LibraryListTag)}>
-          {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={t}>{t}</option>)}
+          {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={t}>{tagLabel(t)}</option>)}
         </select>
         <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetTag(ids, tag, true), describeBulkResult)}>
           Add to list
