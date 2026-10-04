@@ -50,6 +50,10 @@ import { promptFields } from './transcribePrompt'
 import './source.css'
 
 const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
+// The value stays the model name; the text says which is the default and its Japanese/Korean caveat.
+const WHISPER_LABELS: Record<string, string> = {
+  'large-v3-turbo': 'large-v3-turbo (default, weaker on Japanese/Korean)',
+}
 const LANGUAGE_NAMES: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean' }
 // Display names for the Advanced backend choices (the option value stays raw).
 const OPTION_LABELS: Record<string, string> = {
@@ -466,7 +470,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           <Field label="Whisper model" help={config && !config.whisper_model_cached ? 'This model will be downloaded on first use.' : undefined}>
             <select value={cf.whisper_size} onChange={(e) => setC('whisper_size', e.target.value)}>
               {(WHISPER_SIZES.includes(cf.whisper_size) ? WHISPER_SIZES : [cf.whisper_size, ...WHISPER_SIZES]).map((o) => (
-                <option key={o} value={o}>{o}</option>
+                <option key={o} value={o}>{WHISPER_LABELS[o] ?? o}</option>
               ))}
             </select>
           </Field>
