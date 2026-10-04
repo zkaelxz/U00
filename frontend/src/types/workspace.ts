@@ -34,6 +34,8 @@ export interface TranscribeConfig {
   whisper_model_cached: boolean
   // Audio seconds per second of work on the last finished run of this model and device; null if none yet.
   measured_speed: number | null
+  // How many recent runs that speed is the median of.
+  measured_speed_runs?: number
   // False when faster-whisper isn't installed (transcription can't run).
   whisper_installed: boolean
   beam_size: number
@@ -61,6 +63,7 @@ export type TranscribeConfigUpdate = Partial<
     | 'audio_available'
     | 'whisper_model_cached'
     | 'measured_speed'
+    | 'measured_speed_runs'
     | 'whisper_installed'
     | 'has_video_source'
   >

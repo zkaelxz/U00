@@ -255,7 +255,8 @@ class TestDiarizeSubprocessWorker:
 
         assert outcome == ("ok", {"segments": direct_segments, "model": direct_model,
                                   "embeddings": direct_embeddings, "device": "cpu",
-                                  "fell_back_to_cpu": False, "fallback_reason": None})
+                                  "fell_back_to_cpu": False, "fallback_reason": None,
+                                  "fallback_kind": None})
 
     def test_reports_an_exception_instead_of_raising(self):
         pytest.importorskip("torch")
@@ -475,6 +476,19 @@ class TestCudaOomFallback:
         with pytest.raises(RuntimeError, match="out of memory"):
             diarize.diarize("/a.wav", "hf_x")
         assert state["loads"] == 1
+
+    def test_a_failed_move_to_the_gpu_is_reported_not_just_logged(self, monkeypatch):
+        state = _patch_oom_run(monkeypatch, ValueError("unused"))
+        monkeypatch.setattr(diarize, "select_device", lambda use_gpu=False: "cuda")
+        monkeypatch.setattr(diarize, "_place_pipeline", lambda p, use_gpu: "cpu")
+        monkeypatch.setattr(diarize, "_run_pipeline",
+                            lambda *a, **k: _FakeDiarizationResult([(0.0, 1.0, "S")]))
+        info = {}
+        diarize.diarize("/a.wav", "hf_x", use_gpu=True, run_info=info)
+        assert info["device"] == "cpu" and info["fell_back_to_cpu"] is True
+        assert info["fallback_kind"] == "placement"
+        assert "slower" in diarize.fallback_done_message("placement")
+        assert diarize.fallback_done_message("oom") == diarize.OOM_FALLBACK_DONE_MESSAGE
 
     def test_no_oom_leaves_run_info_unchanged(self, monkeypatch):
         state = _patch_oom_run(monkeypatch, ValueError("unused"))

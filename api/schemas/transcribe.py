@@ -116,6 +116,8 @@ class TranscribeConfig(BaseModel):
     whisper_model_cached: bool
     # Audio seconds per second of work on the last finished run of this model and device.
     measured_speed: Optional[float] = None
+    # How many recent runs the measured speed is the median of (0 = none yet).
+    measured_speed_runs: int = 0
     # False when faster-whisper isn't installed, so a run can't start.
     whisper_installed: bool = True
     beam_size: int

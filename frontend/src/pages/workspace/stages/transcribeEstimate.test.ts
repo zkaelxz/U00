@@ -46,6 +46,14 @@ describe('whisperEstimateSeconds', () => {
     expect(whisperEstimateSeconds({ ...base, measuredSpeed: -1 })).toEqual({ low_s: 5400, high_s: 14400 })
     expect(whisperEstimateSeconds({ ...base, whisperSize: 'custom', measuredSpeed: 2 })).not.toBeNull()
   })
+  it('the median of several runs narrows the range around the same time', () => {
+    const one = whisperEstimateSeconds({ ...base, measuredSpeed: 2, measuredRuns: 1 })!
+    const many = whisperEstimateSeconds({ ...base, measuredSpeed: 2, measuredRuns: 5 })!
+    expect(many.low_s).toBeGreaterThan(one.low_s)
+    expect(many.high_s).toBeLessThan(one.high_s)
+    expect(many.low_s).toBeLessThan(1800)
+    expect(many.high_s).toBeGreaterThan(1800)
+  })
 })
 
 describe('transcribeEstimate', () => {
@@ -64,6 +72,7 @@ describe('transcribeEstimate', () => {
   })
   it('says when it is based on the last run', () => {
     expect(transcribeEstimate({ ...base, measuredSpeed: 2 })).toContain('based on your last run')
+    expect(transcribeEstimate({ ...base, measuredSpeed: 2, measuredRuns: 4 })).toContain('based on your last 4 runs')
   })
   it('gives nothing without a duration, for an unknown model or for a Groq (cloud) run', () => {
     expect(transcribeEstimate({ ...base, audioSeconds: null })).toBeNull()
@@ -88,6 +97,15 @@ describe('liveEtaSeconds', () => {
     expect(liveEtaSeconds(steady(3), 25)).toBeNull()
     expect(liveEtaSeconds(steady(1), 100)).toBeNull()
     expect(liveEtaSeconds([], 100)).toBeNull()
+  })
+  it('uses the recorded-speed prior only before the live readings settle', () => {
+    // 3600 s expected, 2% done: about 3528 s left, instead of nothing.
+    expect(liveEtaSeconds([{ t: 0, p: 0.02 }], 10, 3600)).toBeCloseTo(3528)
+    expect(liveEtaSeconds(steady(3), 25, 3600)).not.toBeNull()
+    expect(liveEtaSeconds([], 10, 3600)).toBeNull()
+    expect(liveEtaSeconds([{ t: 0, p: 0.02 }], 10, null)).toBeNull()
+    // Steady readings win over the prior.
+    expect(liveEtaSeconds(steady(6), 50, 100000)).toBe(liveEtaSeconds(steady(6), 50))
   })
   it('extrapolates from time since the first percent and the progress made since', () => {
     const left = liveEtaSeconds(steady(6), 50)! // p=0.10 at t=50: 5 points per 50 s

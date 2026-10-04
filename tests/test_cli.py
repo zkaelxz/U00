@@ -513,6 +513,21 @@ class TestCmdAlignUsesDramaSettings:
             cli.cmd_align(self._args(id=did))
         assert seen["model_size"] == "large-v3"
 
+    def test_a_gpu_to_cpu_fallback_is_printed(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db)
+
+        def fake_transcribe(audio_path, model_size, on_gpu_fallback=None, **kw):
+            on_gpu_fallback(RuntimeError("cuDNN failed"))
+            return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+        monkeypatch.setattr(cli, "transcribe_for_timing", fake_transcribe)
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_align(self._args(id=did))
+        text = out.getvalue()
+        assert "WARNING: Transcription ran on the CPU because the GPU couldn't be used" in text
+        assert "cuDNN failed" in text and "slower" in text
+
     def test_an_explicit_flag_still_overrides_the_dramas_saved_size(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, whisper_size="large-v3")
         seen = {}

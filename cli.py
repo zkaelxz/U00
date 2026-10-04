@@ -44,6 +44,7 @@ import time
 import traceback
 
 import audio_preprocess
+import core as core_module
 import db
 import diagnostics
 from core import (
@@ -381,7 +382,7 @@ def cmd_diarize(args):
         finally:
             release_gpu_models()
         if run_info.get("fell_back_to_cpu"):
-            print(f"#{d['id']} WARNING: {diarize.OOM_FALLBACK_DONE_MESSAGE}")
+            print(f"#{d['id']} WARNING: {diarize.fallback_done_message(run_info.get('fallback_kind'))}")
         diarize.save_turns(ddir, turns, num_speakers=num_speakers, model=model,
                           embeddings=embeddings, min_speakers=min_speakers,
                           max_speakers=max_speakers, device=run_info.get("device"))
@@ -475,12 +476,29 @@ def cmd_align(args):
             audio_path = audio_preprocess.separate_vocals(
                 audio_path, os.path.join(os.path.dirname(audio_path), "vocals.wav"),
                 backend=cfg["separation_backend"], use_gpu=use_gpu)
+        local_model_path = settings_service.get_whisper_model_path()
+        gpu_fallback = []
+        started = time.monotonic()
         segments = transcribe_for_timing(
             audio_path, whisper_size, language=language, use_gpu=use_gpu,
-            local_model_path=settings_service.get_whisper_model_path(),
+            local_model_path=local_model_path,
             fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
             initial_prompt=initial_prompt, beam_size=cfg["beam_size"],
-            min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"])
+            min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
+            on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
+        # The model's own load can fall back to CPU before any inference runs.
+        load_error = core_module.get_whisper_device_info(
+            whisper_size, use_gpu=use_gpu, local_model_path=local_model_path).get("gpu_error")
+        if load_error:
+            gpu_fallback.insert(0, load_error)
+        if gpu_fallback:
+            print(f"#{d['id']} WARNING: "
+                  f"{core_module.gpu_fallback_notice('Transcription', gpu_fallback[0])}")
+        elif segments and not cfg["whisper_fast_mode"] and not getattr(args, "fast", False):
+            # Same history the app's estimate reads; fast mode runs at another speed.
+            transcribe_service.record_transcribe_speed(
+                whisper_size, bool(use_gpu), transcribe_service._audio_duration_seconds(audio_path),
+                time.monotonic() - started)
         if cfg["realign_long_segments"] and segments:
             import word_align
             try:

@@ -88,7 +88,8 @@ interface Props {
   // A pre-checked file chosen in the media picker, or null.
   file: File | null
   busy: boolean
-  onJobStarted: (jobId: string) => void
+  // expectedSeconds: this PC's recorded speed applied to this media, when there is one.
+  onJobStarted: (jobId: string, expectedSeconds?: number | null) => void
 }
 
 type ConfigForm = {
@@ -347,6 +348,9 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       flag(refused)
       return
     }
+    // A file picked but not uploaded yet has no known length, and a cloud run's time isn't this PC's.
+    const speed = config.whisper_size === cf.whisper_size ? config.measured_speed : null
+    const expectedRunSeconds = whisperRun && !file && !cf.use_groq && duration && speed ? duration / speed : null
     const start = () => (file ? uploadAndTranscribe(dramaId, file, req) : startTranscribe(dramaId, req))
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
@@ -359,7 +363,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       : Promise.resolve()
     saveFirst.then(start).then((r) => {
       setError(null)
-      onJobStarted(r.job_id)
+      onJobStarted(r.job_id, expectedRunSeconds)
     }, fail)
   }
 
@@ -445,6 +449,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         fastMode: cf.whisper_fast_mode,
         modelCached: config?.whisper_model_cached,
         measuredSpeed: config?.whisper_size === cf.whisper_size ? config.measured_speed : null,
+        measuredRuns: config?.measured_speed_runs,
         useGroq: cf.use_groq,
         detectSpeakers: runDiarize,
       })

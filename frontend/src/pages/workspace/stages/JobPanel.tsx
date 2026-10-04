@@ -18,11 +18,14 @@ interface Props {
   // Transcribe only: show elapsed time and, once the percent has moved for a
   // while, "about N min left".
   liveEta?: boolean
+  // Transcribe only: the run's expected seconds from this PC's recorded speed,
+  // shown as the ETA until the live readings settle.
+  expectedSeconds?: number | null
 }
 
 // Elapsed time and the ETA for a running job; null until the job exists.
 // Percent readings are kept per stage, so a new stage starts a fresh clock.
-function useLiveProgress(job: JobRecord | null, enabled: boolean) {
+function useLiveProgress(job: JobRecord | null, enabled: boolean, expectedSeconds?: number | null) {
   const running = enabled && job !== null && !TERMINAL_STATUSES.includes(job.status)
   const [now, setNow] = useState(() => Date.now() / 1000)
   const [firstSeen, setFirstSeen] = useState<number | null>(null)
@@ -57,12 +60,12 @@ function useLiveProgress(job: JobRecord | null, enabled: boolean) {
   const started = job.started_at ?? firstSeen ?? now
   const left = isNoPercentStage(message) || samples.stage !== etaStage(message)
     ? null
-    : liveEtaSeconds(samples.list, now)
+    : liveEtaSeconds(samples.list, now, expectedSeconds)
   return { elapsed: Math.max(0, now - started), left }
 }
 
-export function JobPanel({ job, pollError, note, liveEta = false }: Props) {
-  const { elapsed, left } = useLiveProgress(job, liveEta)
+export function JobPanel({ job, pollError, note, liveEta = false, expectedSeconds }: Props) {
+  const { elapsed, left } = useLiveProgress(job, liveEta, expectedSeconds)
   const [cancelError, setCancelError] = useState<unknown>(null)
   const active = job !== null && !TERMINAL_STATUSES.includes(job.status)
   // Server text goes through safeDetail like job.error; if it is unsafe or

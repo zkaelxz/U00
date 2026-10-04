@@ -150,43 +150,93 @@ _SPEED_SETTING = "transcribe_speed"
 # Outside this range a reading is a clock glitch or a near-empty file, not a speed.
 _SPEED_BOUNDS = (0.01, 1000.0)
 _SPEED_MIN_WORK_SECONDS = 5.0
+# The median of this many recent runs is the estimate: one slow run (a busy
+# PC) doesn't move it, and an old run from before a driver update ages out.
+_SPEED_RUNS_KEPT = 5
+# Stages of a run that are worth remembering; anything else is dropped.
+_STAGE_KEYS = ("separate", "load", "decode_vad", "transcribe", "align")
 
 
 def _speed_key(model: str, on_gpu: bool) -> str:
     return f"{model}|{'gpu' if on_gpu else 'cpu'}"
 
 
-def measured_transcribe_speed(model: str, on_gpu: bool) -> Optional[float]:
-    """Seconds of audio transcribed per second of work on the last finished
-    run of this (model, device), or None. Never raises."""
+def _valid_speed(value) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and _SPEED_BOUNDS[0] <= value <= _SPEED_BOUNDS[1])
+
+
+def _recorded_runs(model: str, on_gpu: bool) -> list:
+    """The remembered runs of this (model, device), oldest first, each
+    {"speed", "stages"}. A bare number is the single-value format earlier
+    versions stored. Never raises."""
     try:
         stored = db.get_app_setting(_SPEED_SETTING, {})
-        value = stored.get(_speed_key(model, on_gpu)) if isinstance(stored, dict) else None
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return None
-        value = float(value)
-        return value if _SPEED_BOUNDS[0] <= value <= _SPEED_BOUNDS[1] else None
+        entry = stored.get(_speed_key(model, on_gpu)) if isinstance(stored, dict) else None
+        if isinstance(entry, dict):
+            entry = entry.get("runs")
+        elif entry is not None:
+            entry = [{"speed": entry}]
+        runs = []
+        for run in entry if isinstance(entry, list) else []:
+            if isinstance(run, dict) and _valid_speed(run.get("speed")):
+                stages = run.get("stages")
+                runs.append({"speed": float(run["speed"]),
+                             "stages": {k: float(v) for k, v in stages.items()
+                                        if k in _STAGE_KEYS and isinstance(v, (int, float))
+                                        and not isinstance(v, bool) and v >= 0}
+                             if isinstance(stages, dict) else {}})
+        return runs[-_SPEED_RUNS_KEPT:]
     except Exception:
-        return None
+        return []
 
 
-def record_transcribe_speed(model: str, on_gpu: bool, audio_seconds, work_seconds) -> None:
-    """Keeps an exponential average (half old, half new) of a finished run's
-    speed. Ignores non-numeric or out-of-range readings; never raises, so a
-    settings hiccup cannot fail a finished transcription."""
+def _median(values):
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def measured_transcribe_speed(model: str, on_gpu: bool) -> Optional[float]:
+    """Seconds of audio transcribed per second of work: the median of the
+    last few finished runs of this (model, device), or None. Never raises."""
+    runs = _recorded_runs(model, on_gpu)
+    return round(_median([r["speed"] for r in runs]), 4) if runs else None
+
+
+def measured_transcribe_runs(model: str, on_gpu: bool) -> int:
+    """How many recorded runs back measured_transcribe_speed."""
+    return len(_recorded_runs(model, on_gpu))
+
+
+def measured_stage_seconds(model: str, on_gpu: bool) -> dict:
+    """Median seconds per stage over the recorded runs that have it."""
+    runs = _recorded_runs(model, on_gpu)
+    return {k: round(_median([r["stages"][k] for r in runs if k in r["stages"]]), 3)
+            for k in _STAGE_KEYS if any(k in r["stages"] for r in runs)}
+
+
+def record_transcribe_speed(model: str, on_gpu: bool, audio_seconds, work_seconds,
+                            stage_seconds=None) -> None:
+    """Appends a finished run's speed (and its per-stage seconds) to the
+    last few for this (model, device). Ignores non-numeric or out-of-range
+    readings; never raises, so a settings hiccup cannot fail a finished
+    transcription."""
     try:
         if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in (audio_seconds, work_seconds)):
             return
         if work_seconds < _SPEED_MIN_WORK_SECONDS or audio_seconds <= 0:
             return
         speed = float(audio_seconds) / float(work_seconds)
-        if not _SPEED_BOUNDS[0] <= speed <= _SPEED_BOUNDS[1]:
+        if not _valid_speed(speed):
             return
+        stages = {k: round(float(v), 3) for k, v in (stage_seconds or {}).items()
+                  if k in _STAGE_KEYS and isinstance(v, (int, float)) and not isinstance(v, bool)
+                  and v >= 0}
+        runs = _recorded_runs(model, on_gpu) + [{"speed": round(speed, 4), "stages": stages}]
         stored = db.get_app_setting(_SPEED_SETTING, {})
         stored = dict(stored) if isinstance(stored, dict) else {}
-        key = _speed_key(model, on_gpu)
-        old = measured_transcribe_speed(model, on_gpu)
-        stored[key] = round(speed if old is None else (old + speed) / 2, 4)
+        stored[_speed_key(model, on_gpu)] = {"runs": runs[-_SPEED_RUNS_KEPT:]}
         db.set_app_setting(_SPEED_SETTING, stored)
     except Exception:
         pass
@@ -282,6 +332,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "whisper_size": whisper_size,
         "whisper_model_cached": core_module.is_whisper_model_cached(whisper_size),
         "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get_use_gpu()),
+        "measured_speed_runs": measured_transcribe_runs(whisper_size, settings_service.get_use_gpu()),
         "whisper_installed": diagnostics.check_dependency("faster_whisper"),
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
@@ -930,6 +981,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     back to the diff alignment and is reported as forced_align_error."""
     gpu_fallback_msg = []
     whisper_clock = {}
+    stage_seconds = {}
     word_align_error = None
     forced_align_error = None
     coverage_msg = None
@@ -979,6 +1031,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     rep.progress(0.0, _sep_message(0.0))
 
             rep.progress(0.0, "Separating vocals from background music...")
+            separate_started = time.monotonic()
             try:
                 separated = audio_preprocess.separate_vocals(
                     audio_path, os.path.join(vocals_work_dir, "vocals.wav")
@@ -993,6 +1046,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             finally:
                 if sep["ticker"]:
                     sep["ticker"].stop()
+            stage_seconds["separate"] = time.monotonic() - separate_started
             if vocals_work_dir and os.path.abspath(separated) != os.path.abspath(vocals_path):
                 _move_into_place(separated, vocals_path)
                 separated = vocals_path
@@ -1087,13 +1141,19 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 # Loaded here (cached in core, so transcribe_for_timing reuses
                 # it) so the download/load phase and the device actually
                 # chosen are visible instead of "Starting..." for minutes.
+                load_started = time.monotonic()
                 with rep.stage(_model_loading_message(whisper_size, model_cached)):
                     core_module.load_whisper_model(whisper_size, use_gpu=use_gpu,
                                                    local_model_path=local_model_path)
+                stage_seconds["load"] = time.monotonic() - load_started
                 rep.raise_if_cancelled()
-                device_msg = core_module.describe_whisper_device(
-                    core_module.get_whisper_device_info(whisper_size, use_gpu=use_gpu,
-                                                        local_model_path=local_model_path))
+                device_info = core_module.get_whisper_device_info(
+                    whisper_size, use_gpu=use_gpu, local_model_path=local_model_path)
+                device_msg = core_module.describe_whisper_device(device_info)
+                # The model fell back to CPU while loading, before any
+                # inference could fail: say so in the result too.
+                if device_info.get("gpu_error"):
+                    gpu_fallback_msg.append(device_info["gpu_error"])
                 device_suffix = f" ({device_msg})" if device_msg else ""
                 rep.progress(0.0, f"Transcribing... starting; the percent appears once "
                                   f"the first lines are found{device_suffix}")
@@ -1103,9 +1163,13 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     # load are not transcription speed.
                     if frac > 0 and "t" not in whisper_clock:
                         whisper_clock.update(t=time.monotonic(), p=min(frac, 1.0))
+                        # faster-whisper decodes and runs VAD lazily before its
+                        # first segment, so that wait is the best "decode and VAD" reading.
+                        stage_seconds["decode_vad"] = whisper_clock["t"] - transcribe_started
                     rep.raise_if_cancelled()
                     rep.progress(min(frac, 1.0) * stage_max,
                                  f"Transcribing{step_label}... {frac * 100:.0f}%{device_suffix}")
+                transcribe_started = time.monotonic()
                 segments = transcribe_for_timing(
                     audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
                     local_model_path=local_model_path, hf_token=None,
@@ -1117,6 +1181,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     fast_mode=whisper_fast_mode)
                 if "t" in whisper_clock:
                     whisper_clock["work"] = time.monotonic() - whisper_clock["t"]
+                    stage_seconds["transcribe"] = whisper_clock["work"]
             except core_module.ModelDownloadError as exc:
                 return {"failed_reason": "model_download", "detail": str(exc)}
             except background_jobs.JobCancelled:
@@ -1128,12 +1193,14 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
 
         if realign_long_segments and not moss_run and not vad_run and not rep.cancelled():
             import word_align
+            align_started = time.monotonic()
             try:
                 with rep.stage("Splitting long merged lines", frac=stage_max):
                     segments = word_align.realign_oversized_segments(
                         segments, audio_path, source_language, chinese_script=chinese_script)
             except word_align.WordAlignError as exc:
                 word_align_error = str(exc)
+            stage_seconds["align"] = time.monotonic() - align_started
 
         if transcript_mode == "whisper":
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
@@ -1215,7 +1282,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     return {"lines": lines, "segments": segments, "raw_backend": raw_backend,
             "raw_model": raw_model, "raw_mode": raw_mode, "audio_path": audio_path,
             "gpu_fallback_msgs": gpu_fallback_msg, "device_msg": device_msg,
-            "whisper_clock": whisper_clock, "word_align_error": word_align_error,
+            "whisper_clock": whisper_clock, "stage_seconds": stage_seconds,
+            "word_align_error": word_align_error,
             "forced_align_error": forced_align_error, "coverage_warning": coverage_msg,
             "moss_run": moss_run, "moss_truncated": bool(moss_info.get("truncated"))}
 
@@ -1284,11 +1352,14 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
         if audio_seconds:
             record_transcribe_speed(
                 whisper_size, bool(use_gpu) and not gpu_fallback_msg,
-                audio_seconds * (1.0 - whisper_clock["p"]), whisper_clock["work"])
+                audio_seconds * (1.0 - whisper_clock["p"]), whisper_clock["work"],
+                stage_seconds=outcome["stage_seconds"])
 
     return {
         "line_count": len(lines),
         "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
+        "device_notice": (core_module.gpu_fallback_notice("Transcription", gpu_fallback_msg[0])
+                          if gpu_fallback_msg else None),
         "device": (f"GPU unavailable ({gpu_fallback_msg[0]}); using CPU"
                    if gpu_fallback_msg else outcome["device_msg"]) or None,
         "word_align_error": outcome["word_align_error"],
@@ -1590,6 +1661,8 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
               "base_zh": zh_before or "", "base_start": start, "base_end": end}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
+        result["device_notice"] = core_module.gpu_fallback_notice(
+            "Re-transcribing this line", gpu_fallback[0])
     background_jobs.set_result(job_id, result)
 
 
