@@ -51,8 +51,8 @@ they cannot currently be re-derived from Actions run history, so re-verify befor
   `HF_TOKEN` alone isn't enough; the account it belongs to also has to
   have accepted that specific model's license on huggingface.co first
   (`diagnostics.check_pyannote_gated_access` is what checks this in-app;
-  the CLI's own `--hf-token`/`HF_TOKEN`/`BAIHE_HF_TOKEN`, `cli.py:186-188`,
-  and the UI's `settings_hf_token` both need the same accepted token). If
+  the CLI's own `--hf-token`/`HF_TOKEN`/`BAIHE_HF_TOKEN` (`cli.py diarize`)
+  and the app's saved Hugging Face token setting both need the same accepted token). If
   a step touches diarization and needs a real (not mocked) run to verify
   — a real audio file, not `tests/`'s fake model classes — **ask the user
   for a real, gated-access-accepted token up front** rather than
@@ -100,8 +100,7 @@ Manual steps that stay with you:
 - **Avoid duplicate runs**: batch related commits into one push rather
   than pushing each small edit separately. Both workflows also cancel
   their own superseded runs automatically (`concurrency:` with
-  `cancel-in-progress: true`, on `${{ github.workflow }}-${{
-  github.ref }}`) — checked safe for this repo specifically because
+  `cancel-in-progress: true`, grouped by workflow and ref; in `tests.yml` a push gets its own group keyed on the commit, #658) — checked safe for this repo specifically because
   neither `tests.yml` nor `windows-bootstrap.yml` does anything
   irreversible mid-run (no deployment, no publish step); re-check that's
   still true before adding a workflow that does, and don't rely on

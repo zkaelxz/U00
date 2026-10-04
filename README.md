@@ -37,7 +37,7 @@ URL you have the right to download from, only.
 
 ## Project status and architecture
 
-*Verified against the repository on 2026-09-29.*
+*Verified against the repository on 2026-10-04.*
 
 - **Launcher.** `start.bat` starts `python -m api` on
   `http://127.0.0.1:8600/` (loopback only), which serves the prebuilt
@@ -46,24 +46,25 @@ URL you have the right to download from, only.
 - **Streamlit app (removed).** The old UI (`app.py`, `tabs/`) was deleted;
   `legacy/streamlit` and the `pre-streamlit-removal` tag hold the last version.
   The React app is the only UI.
-- **FastAPI + React app (the app going forward).** An HTTP API (`api/`)
+- **FastAPI + React app.** An HTTP API (`api/`)
   and a React frontend (`frontend/`) over the *same* library, database and
-  background jobs. Pages: Library, the per-drama Workspace
+  background jobs. Pages: Library (and Library tools), the per-drama Workspace
   stages, the standalone Translate page, Reader, Discover, Live, Sources,
-  Comic (Scanlate), Benchmark Lab, Assistant, Diagnostics and Settings
-  (`frontend/src/pages/`; status in `docs/STATUS.md`).
+  Comic (Scanlate), Saved manga, Benchmark Lab, Assistant, Diagnostics, Settings
+  and Admin (`frontend/src/pages/`; status in `docs/STATUS.md`).
 - **Layers.** `db.py` (plain `sqlite3`) and the domain modules at the
   repo root hold the logic; `services/` wraps them in UI-independent
   functions; `api/` exposes those as HTTP routes; `frontend/` is the
   React client and calls `/api`. `cli.py` uses the same underlying
   modules.
-- **Not a production deployment story yet.** `python -m api` serves the
-  built `frontend/dist` at `/` (`api/static_frontend.py`). It is
-  loopback-only with no login, so other devices on your network can't
-  reach it until authentication exists (`docs/remote-access-decision.md`).
-- **Background services.** `python -m api` also starts the browser-extension
-  bridge (`page_server.py`) and the scheduled chapter check
-  (`api/background.py`).
+- **Access.** `python -m api` serves the
+  built `frontend/dist` at `/` (`api/static_frontend.py`). The PC's own port is
+  loopback-only with no login. Other household devices can use a separate
+  listener with Google sign-in, which is opt-in (see "Access from other
+  devices" below and `docs/remote-access-decision.md`).
+- **Background services.** `python -m api` also starts the scheduled chapter
+  check and other schedulers (`api/background.py`), and the browser-extension
+  bridge (`page_server.py`) when the extension setting is on.
 
 Where to read more: [`FILE_ORGANIZATION.md`](FILE_ORGANIZATION.md) (file
 map), [`docs/README.md`](docs/README.md) (docs index),
@@ -1663,47 +1664,36 @@ confirming a fresh install is working before you start real work.
 
 ### Diagnostics ("Check my setup")
 
-A Diagnostics page that reports, in one place:
-- Python version and whether ffmpeg is on PATH
-- Which optional dependencies are actually installed, grouped by what
-  they power (core / translation engines / optional features), with an
-  inline install button for anything missing
-- Whether every expected project file is present -- the usual cause of
-  a cryptic `ModuleNotFoundError` after a partial download
-- Which API keys are currently configured
-- Whether the library directory is writable
+The Diagnostics page (under the header's cogwheel) reports, in one place:
+- **Setup** -- Python version, whether ffmpeg is on PATH, GPU and PyTorch
+  state, the Deno install, which API keys are configured, whether the library
+  folder is writable, and the pyannote gated-model check (an on-demand check
+  that your Hugging Face token can actually access the diarization model,
+  separate from just having a token set), plus one list of the models in use.
+- **Jobs** -- a live view of every background job across the whole app
+  (translate, transcribe, dub, diarize, Live capture, etc.) with progress, a
+  per-job cancel button and delete for finished jobs.
+- **Model health** -- every model the app is set up to use, flagged when
+  it is retired, deprecated or no longer listed by its provider (the provider
+  check runs only when you press its button).
+- **Packages** -- installed versions, install-by-task presets, per-package
+  Install / Update (PC only), a "Test first" upgrade check and the GPU PyTorch
+  set-up.
+- **Ports**, **Job history** and **Log** (recent redacted lines of the app's own
+  log, 50/100/200).
+- **Danger zone** -- the "Reset everything" button described in
+  [Resetting for testing](#usage).
+- A link to the Benchmark Lab, described below.
 
-None of the above appears until you click "🔍 Run diagnostics" -- the
-tab is empty on load.
+The redacted support report (strips API keys, paths and user names) is in the
+header's "Report a problem" dialog ("Copy a report for a bug"). The App
+Assistant (Developer Mode, PC only) is its own page.
 
-The same page also holds:
-- **Running jobs** -- a live view of every background job across the
-  whole app (translate, transcribe, dub, diarize, Live capture, etc.)
-  with progress bars and a per-job cancel button.
-- **Downloaded model cache** -- lists Hugging Face cache entries
-  (Whisper, pyannote, TTS models) with size and a delete button per
-  revision.
-- **Model & engine versions** -- installed versions per engine/model,
-  plus a one-click GPU PyTorch install if it detects an NVIDIA GPU with
-  only CPU PyTorch installed.
-- **pyannote gated model access** -- an on-demand check (only makes a
-  network call when you click it) that your Hugging Face token can
-  actually access the diarization model, separate from just having a
-  token set.
-- **App Assistant** -- a chat box (needs its own API key) that answers
-  "where is X" questions about the app itself, with a button to copy a
-  bundled Q&A + diagnostics report for a developer.
-- **Copy diagnostics for support** -- a redacted, one-click copyable
-  report (strips API keys, paths, and username).
-- **Log** -- the last 50 lines of the app's own log file.
-
-Run this first whenever something isn't working. The same page holds
-the "Reset everything" danger-zone button described in
-[Resetting for testing](#usage).
+Run Diagnostics first whenever something isn't working.
 
 ### Accuracy benchmark
 
-Also in the Diagnostics page, above the danger zone: catches a
+The Benchmark Lab (opened from the Diagnostics page) catches a
 pipeline "improvement" that actually makes things worse. `run_tests.py`
 proves the code does what it's supposed to against mocked libraries --
 it can't tell you whether a VAD-threshold change, a new translation
