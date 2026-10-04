@@ -114,7 +114,7 @@ EXCLUDED_DIR_NAMES = frozenset({
 # Excluded at the repo root only (frontend/dist is staged on its own).
 EXCLUDED_TOP_LEVEL = frozenset({
     "tests", "docs", "scripts", "installer", "frontend", "build", "dist", "env",
-    ".github", ".claude", ".streamlit",
+    ".github", ".claude",
 })
 EXCLUDED_FILE_NAMES = frozenset({
     # Per-copy state and markers that must never ship.

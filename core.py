@@ -258,21 +258,11 @@ WHISPER_MODELS = {
     "large-v3-turbo": "large-v3-turbo -- ~large-v3 accuracy much faster, but weaker on Japanese/Korean",
 }
 DEFAULT_WHISPER_SIZE = "large-v3"
-_TURBO_WEAK_LANGUAGES = {"ja", "ko"}
 # Step 6h: auto-tune's default candidate min_silence_duration_ms values --
 # spans the "Speech-splitting sensitivity" slider's real range meaningfully
 # (300 is the new default, 3000 the slider's max) without an unbounded
 # number of full re-transcriptions.
 DEFAULT_AUTOTUNE_CANDIDATES_MS = [300, 800, 1500]
-
-
-def whisper_model_warning(model_size: str, language: str) -> str:
-    """A note to show when the picked model is a known poor fit for the
-    drama's language, or "" if there's nothing to warn about."""
-    if model_size == "large-v3-turbo" and (language or "") in _TURBO_WEAK_LANGUAGES:
-        return ("large-v3-turbo is reported noticeably weaker on Japanese and Korean -- "
-                "large-v3 (or medium) is the safer choice for this drama.")
-    return ""
 
 
 # Decoder settings that stop Whisper's repeated-phrase loops at the source
