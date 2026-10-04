@@ -1309,12 +1309,6 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
     return slices
 
 
-def is_webtoon_strip(width: int, height: int, target_height: int = 1600) -> bool:
-    """Tall enough, and narrow enough for its height, to be a long strip
-    rather than an ordinary (even high-resolution) page."""
-    return height > max(target_height, 3 * width)
-
-
 def slice_webtoon_to_files(image_path: str, out_dir: str, target_height: int = 1600,
                            overlap: int = 100) -> list:
     """Writes each split_webtoon_strip() slice as its own PNG in

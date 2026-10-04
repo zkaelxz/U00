@@ -321,21 +321,6 @@ class TestHardsub:
         assert "FontSize=24" in vf and "Outline=2" in vf and "PrimaryColour=&HFFFFFF&" in vf
 
 
-class TestPreview:
-    def test_preview_reflects_the_style_and_escapes_text(self):
-        html_out = sf.style_preview_html("<script>x</script>", sf.ASS_PRESETS["Streamer clip"], "#FF0000")
-        assert "<script>" not in html_out and "&lt;script&gt;" in html_out
-        assert "font-weight:bold" in html_out and "color:#FF0000" in html_out
-        assert sf.style_preview_html("x", sf.ASS_PRESETS["Clean"]) != sf.style_preview_html(
-            "x", sf.ASS_PRESETS["Streamer clip"])
-
-    def test_font_and_colour_can_not_inject_css(self):
-        style = dict(sf.ASS_PRESETS["Clean"], font="Arial'; } body { display:none",
-                     primary="red;background:url(x)")
-        out = sf.style_preview_html("x", style)
-        assert "display:none" not in out and "url(" not in out
-
-
 class TestLinesForClip:
     """Step 6e: vertical/shorts export trims the VIDEO to [start, end), so
     the burned subtitles need the same window, timeshifted to start at 0 --

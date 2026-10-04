@@ -944,18 +944,6 @@ def check_engine_reachable(engine_name: str, api_key: str = None, model: str = N
                 "error": translate_engines.redact_secrets(str(e))}
 
 
-def doctor_report(engines: list) -> list:
-    """Runs check_engine_reachable for a list of
-    {"engine", "api_key"?, "model"?, "base_url"?} dicts -- the CLI
-    `doctor` command's own batch form, and reusable by any future UI
-    button that wants to check several configured engines at once."""
-    results = []
-    for spec in engines:
-        results.append(check_engine_reachable(
-            spec["engine"], spec.get("api_key"), spec.get("model"), spec.get("base_url")))
-    return results
-
-
 # ---------------------------------------------------------------------------
 # Step 9b.2: "Copy diagnostics for support" -- the existing key/token
 # redaction (translate_engines.redact_secrets) plus stripping local file
