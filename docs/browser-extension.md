@@ -1,49 +1,19 @@
-# Translate the page you're reading (Step 34 / 34b / 96)
+# Translate the page you're reading
 
-A browser extension that sends what you're looking at into Baihe --
-either a comic page, drawing the translation over it in place, or (Step
-96) a block of page text, translated in a panel on the page.
+A browser extension that sends what you're looking at into Baihe: either a comic page, with the translation drawn over it in place, or a block of page text, translated in a panel on the page.
 
-This does **not** replace the source adapters in `sources/`. Those do
-bulk import, chapter tracking, new-chapter checks and an offline library.
-This is "translate what I'm looking at right now." Both exist, and they
-answer different questions.
+This does **not** replace the source adapters in `sources/` (bulk import, chapter tracking, an offline library). This is "translate what I'm looking at right now."
 
-## Why it's worth having, beyond convenience
+## Why it's worth having
 
-It reaches content the adapters structurally can't, and it does so
-**without this app ever touching a protection mechanism** — the same line
-`manhuaku.py` and `mangaz.py` already draw:
-
-- **mangaz.com** serves tile-scrambled pages (a 1190x1684 page arrives as
-  a ~4760x421 strip). Only its own reader reassembles them. The adapter
-  drives that reader in a headless browser, which works but is slow
-  (~3 minutes for a 43-page book), flaky in sandboxes, and has to be
-  paced carefully to avoid being throttled.
-- **manhuaku.net** hands its protected chapters out as `blob:` URLs that
-  only exist inside the rendering tab.
-- **Bilibili Manga** needs a signed-in session for anything real.
-
-In every one of those, **your own browser has already done the work** —
-decrypted, descrambled, authenticated — because you're reading the page
-legitimately. The extension reads what's already on your screen. No
-headless driving, no pacing games, no session to forge, nothing to
-circumvent. It's strictly less invasive than what the adapters do.
-
-It also covers sites with no adapter at all, which is most of them.
-
-The same reasoning applies just as well to text-heavy pages -- a web
-novel chapter, or any site you're already logged into and reading
-normally. Your browser has already rendered the text; Step 96 adds a mode
-that reads it the same way the image mode reads pixels, rather than only
-covering comics.
+It reaches pages the adapters can't (blob-protected chapters like manhuaku's, tile-scrambled readers, sessions that need a sign-in, and sites with no adapter) **without this app touching a protection mechanism**. Your own browser has already decrypted, descrambled and authenticated the page because you're reading it legitimately, and the extension reads what is already on your screen. It also reads text-heavy pages such as a web novel chapter.
 
 ## Setting it up
 
 1. In Baihe: **Settings → Browser extension** → tick **Run the local
    endpoint**. It's off by default because it opens a port.
 2. Pick the engine extension pages should be translated with. It uses
-   that engine's key from *API keys & endpoints*. With no key set, pages
+   that engine's configured key. With no key set, pages
    still come back with their original text read by OCR, clearly marked
    as untranslated.
 3. Copy the **token** shown there.
@@ -69,13 +39,13 @@ Click the extension on a page you're reading:
 Paging back to something already translated is instant: results are
 cached by image content hash, so nothing is ever translated twice.
 
-### Translating a page's text (Step 96)
+### Translating a page's text
 
 A separate section of the popup, for prose rather than comic pages:
 
 - Pick a direction (**zh/ja/ko → English**, or **English → zh/ja/ko**) —
-  the same directions the **Standalone translate** tab in Baihe itself
-  supports, since this reuses that exact pipeline.
+  the same directions the **Translate** page in Baihe itself supports,
+  since this reuses that exact pipeline.
 - **Translate this page's text** — if you've selected text on the page,
   that selection is what gets sent. With nothing selected, the extension
   captures the page's own largest contiguous block of paragraph text
@@ -87,13 +57,11 @@ A separate section of the popup, for prose rather than comic pages:
   the moment it loses focus, exactly when you want to keep reading. The
   panel has a **Show original** toggle and a close button, and it's
   reused on the next translate rather than stacking a second one.
-- Every translation is also saved into Baihe's own **Standalone
-  translate** tab's history (Step 26b), the same table that tab writes
-  to -- there is no separate history for the extension.
+- Every translation is also saved into the **Translate** page's history,
+  the same table that page writes to.
 
-Unlike the image modes, this always uses the engine configured in
-Settings → Browser extension; the extension itself has no engine picker
-or key of its own to keep in sync.
+The extension has no engine picker or key of its own; it uses the engine
+set in Settings → Browser extension.
 
 ## Two things it checks for before capturing
 
@@ -101,8 +69,8 @@ or key of its own to keep in sync.
   Before reading an element's pixels, the extension takes a cheap sample,
   waits, and takes another; it only proceeds once two samples in a row
   match (bounded to 1.5s, then it proceeds anyway rather than hang
-  forever). This matters for a page like mangaz's own reader, whose JS
-  reassembles a tile-scrambled page onto a canvas after it loads —
+  forever). This matters for a tile-scrambling reader like mangaz.com's, whose JS
+  reassembles a tile-scrambled page onto a canvas after it loads --
   capturing the instant you click, rather than once that's settled, could
   grab a half-drawn frame. An already-static image settles in well under
   a fifth of a second, so this adds no noticeable delay to the ordinary
@@ -134,23 +102,15 @@ or key of its own to keep in sync.
   to the part you care about.
 - **Firefox is not supported yet.** MV3 covers Chrome and Edge; Firefox
   differs enough to be its own work.
-- **The free bubble detector is not usable on colour artwork.** Measured
-  on a real mangaz page (see below): it found no bubbles at all on a
-  colour 4-koma page full of dialogue, where the ML backend found 63
-  regions. If pages come back with nothing overlaid, that's usually
-  this, not the extension. It's a Settings choice (**Bubble detection →
-  ML**), not something this step changes.
-- **For Japanese, use `manga_ocr`, not Tesseract.** Manga is vertical
-  text; on the same real page Tesseract returned unreadable fragments
-  where `manga_ocr` returned correct dialogue. Auto already picks
-  `manga_ocr` for Japanese — just don't override it.
-- **(Step 96) The "largest paragraph block" heuristic can pick the wrong
+- **The free bubble detector is not usable on colour artwork.** On a real colour 4-koma page it found no bubbles where the ML backend found 63 regions. If pages come back with nothing overlaid, that's usually this. Choose **Bubble detection → ML** in Settings.
+- **For Japanese, use `manga_ocr`, not Tesseract.** Manga is vertical text; Tesseract returned unreadable fragments on the same page. Auto already picks `manga_ocr` for Japanese.
+- **The "largest paragraph block" heuristic can pick the wrong
   block on an unusual layout** — a page with no real `<p>` tags (some
   sites lay out prose in bare `<div>`s), or one where a comment section
   happens to out-weigh the actual chapter. Select the passage yourself
   when that happens; an explicit selection always wins.
-- **(Step 96) `/text` only translates one side of a pair with English**,
-  the same limit the Standalone translate tab already has — a
+- **`/text` only translates one side of a pair with English**,
+  the same limit the Translate page already has — a
   non-English-to-non-English page (say, a Japanese site's Chinese fan
   translation) isn't a supported direction.
 
@@ -163,8 +123,9 @@ extension/                     the browser side
   content.js                   injected on a click: collects images/text, draws overlays/panel
   popup.html / popup.js        pick a drama, send, toggle
   options.html / options.js    paste the token
-page_server.py                 the endpoint, on a thread beside Streamlit
-tabs/settings_tab.py           the opt-in switch, the token, the settings bridge
+page_server.py                 the endpoint, on a thread started by the API
+services/extension_service.py  the opt-in switch, the token, the engine setting
+api/routers/extension_routes.py  /api/extension/*, PC-only; UI in Settings → Browser extension
 ```
 
 The endpoint's four routes:
@@ -174,7 +135,7 @@ The endpoint's four routes:
 | `GET /health` | Confirms the app is up, and lists the dramas to send to. |
 | `POST /page` | One image. |
 | `POST /pages` | Several — a spread, or everything visible. |
-| `POST /text` | A block of raw page text (Step 96). |
+| `POST /text` | A block of raw page text. |
 
 Everything funnels into the existing, tested pipeline
 (`scanlate.detect_and_ocr_page` → `scanlate.translate_page_bubbles`) and
@@ -186,7 +147,7 @@ implementation in JavaScript that would drift from it.
 
 `/text` follows the same "one pipeline" rule from the other side: it
 funnels into `translate_engines.standalone_translate`, the exact function
-`tabs/translate_tab.py`'s Standalone translate tab already calls, rather
+`services/translate_service.py` calls for the Translate page, rather
 than a second translation path for text captured by the extension. It
 does no detection or OCR -- the extension already sends real text, not
 pixels -- so it's a much thinner route than `/page`/`/pages`: validate
@@ -226,135 +187,36 @@ tab can make requests to localhost**. So:
   generous chapter), the source/target language pair is validated against
   a fixed set rather than passed through freely, and it shares `/page`'s
   body-size cap, peer check, token check, and lack of a CORS preflight.
-- API keys are never written to disk by any of this. The UI hands the
-  current engine and key to the server thread in memory on each render,
-  the same way `settings_tab` already pushes into
-  `background_jobs.set_gpu_limit_enabled`.
+- API keys are never written to disk by any of this. The engine choice is
+  an app setting (`extension_translation_engine`); the endpoint resolves it
+  and reads the key from `.env` on each request (`services/extension_service.py`).
 
 `tests/test_extension_manifest.py` pins the browser-side half of that
 statically, because none of it can be checked by running the app.
 
 ## What was actually verified
 
-The endpoint and the settings bridge have ordinary mocked tests
-(`tests/test_page_server.py`, `tests/test_page_server_settings.py`),
-including every refusal above.
+Mocked tests: `tests/test_page_server.py`, including every refusal above.
 
-Beyond that, the extension was run for real, and that run is repeatable:
+The extension was also run for real, repeatably:
 
 ```
 python extension/verify_end_to_end.py
 ```
 
-It loads the extension unpacked into a real Chromium, points it at a real
-running endpoint, and drives a page holding both a normal `<img>` and a
-`blob:`-backed one. It needs Playwright with a **full** Chromium build
-(the headless *shell* can't load extensions) and skips cleanly without
-one. It touches no real site and needs no API key. Run it after changing
-anything in `extension/` or `page_server.py` — the Python suite cannot
-execute any of that JavaScript. All 20 of its checks pass as of this
-merge (12 image, 6 text from Step 96, 1 shared, 1 content-stability +
-challenge-page detection). What it establishes:
+It loads the extension unpacked into a real Chromium, points it at a real running endpoint, and drives a page holding a normal `<img>` and a `blob:`-backed one. It needs Playwright with a **full** Chromium build (the headless shell can't load extensions), skips cleanly without one, touches no real site and needs no API key. Run it after changing anything in `extension/` or `page_server.py`. It establishes:
 
-- A **`blob:`-backed page image translated end to end** and landed in the
-  library — the case the adapters structurally cannot reach. It still
-  does after adding the pre-capture content-stability wait, so that wait
-  doesn't hang or corrupt the capture on the case that matters most.
-- A box at `x=40, w=220` in image pixels drew at `x=20, w=110` over an
-  image displayed at half scale, and stayed exact after a window resize.
-- Click-to-see-original and the overlay toggle both behaved.
-- The same image appearing twice on a page was sent once, and a second
-  translate of an already-translated page came from the cache without
-  calling the engine again.
-- **(Step 96) With nothing selected, the page's own largest contiguous
-  block of paragraph text was captured, and a `<nav>`'s links on the same
-  page were not**, even when made deliberately longer than the real
-  content -- the tag-based skip, not just the length floor, is what kept
-  it out.
-- **(Step 96) That captured text ran through the real, unmocked
-  `translate_engines.standalone_translate`** (via `TestOfflineEngine`,
-  which needs no network or key) rather than a faked pipeline, and the
-  result was drawn into a panel on the page and saved into Standalone
-  translate's own history table.
-- **(Step 96) An explicit text selection overrode the heuristic block** —
-  selecting one paragraph sent only that paragraph, not the whole
-  captured article.
-- A page with its title set to `"Just a moment..."` (a real Cloudflare
-  interstitial title) was recognized and refused with `CHALLENGE_DETECTED`
-  instead of being sent for OCR/translation.
+- A `blob:`-backed page image is translated end to end and lands in the library.
+- Overlay boxes scale correctly and stay exact after a resize; click-to-see-original and the overlay toggle work.
+- The same image twice on a page is sent once, and re-translating a translated page comes from the cache.
+- With nothing selected, the largest paragraph block is captured and a `<nav>` is not; an explicit selection overrides it; the text runs through the real `standalone_translate` and is saved to history.
+- A page titled `"Just a moment..."` is refused with `CHALLENGE_DETECTED`.
 
-That run also found two real problems, since fixed: the same image
-appearing more than once on a page was encoded and uploaded once per
-element, and a rejected inline `data:`/`blob:` URL was echoed back whole
-in the response. Reviewing the endpoint afterwards found two more: a
-request refused on its headers (an unauthenticated POST) left its body
-unread in a keep-alive socket, which would desync the next request on
-that connection, and the connection timeout was set on the server rather
-than per connection, so a peer that opened a socket and stopped talking
-held a worker thread. Both are fixed and covered by tests that were
-confirmed to fail without the fix.
+### Against a real mangaz.com chapter
 
-### Against the real mangaz.com
+A real Chromium and mangaz.com's own reader, one page load. The captured page was 1190x1684 (a descrambled page; a scrambled strip would be ~4760x421), read from the reader's `blob:` and saved as a 4.3MB PNG. On that page the ML detector found 63 regions and `manga_ocr` returned correct Japanese dialogue, while the free OpenCV detector found none and Tesseract produced garbage. Translation itself was not run (no API key there).
 
-The extension was then pointed at a real chapter on **mangaz.com** — the
-sharpest possible test, because its pages are tile-scrambled and only its
-own reader reassembles them. A real Chromium, the real viewer, one page
-load:
-
-- The page the extension captured was **1190x1684** — a real,
-  **descrambled** page, read straight out of the `blob:` the site's own
-  reader produced. A scrambled strip would have been ~4760x421. It landed
-  in the library as a 4.3MB PNG.
-- It took **one page view**, at reading speed. For comparison, the
-  adapter's headless path takes ~3 minutes for a 43-page book, is flaky,
-  has to be paced against a 120s crawl delay, and its best real run still
-  only recovered 38 of 43 pages. Nothing here is unscrambled, driven or
-  paced — the browser had already done it.
-
-Then the rest of the chain was run over that captured page (no further
-traffic to the site):
-
-- **The free OpenCV detector found nothing.** The page is a colour
-  4-koma full of Japanese speech bubbles, and
-  `scanlate.detect_bubbles_cv` returned zero regions, rejecting its
-  handful of candidates as "too small". Worth knowing, because it's the
-  default when the ML weights aren't cached: on artwork like this, the
-  free heuristic is not usable.
-- **The ML detector found 63 regions** (25 `bubble`, 25 `text_bubble`,
-  13 `text_free`) at 0.92–0.97 confidence, in ~10s on CPU.
-- **OCR with Tesseract produced garbage** — `だ見さ け当? 全 の子 が`.
-  Manga is vertical text, and Tesseract is poor at it.
-- **OCR with `manga_ocr`, which is what `auto_ocr_backend("ja")` picks
-  anyway, produced correct dialogue**: `おお！それはすごい裏技ケロッ`,
-  `勝手に変なトコに入らないでくださいーっ`, `王子様ステキー♥`,
-  `ひっ引き返すケロー！！！`. Checked against the page itself.
-
-So the whole chain works on a real page from a real scrambled site:
-browser → descrambled `blob:` → capture → ML detection → real Japanese
-text. Only translation is unproven, for want of an API key in that
-environment.
-
-**Two things to know before trusting the output**, both in `scanlate`'s
-existing pipeline rather than anything this step added:
-
-1. **Use the ML detection backend for real artwork.** The free heuristic
-   found nothing at all here.
-2. **The ML detector double-counts.** It returns a `bubble` and a
-   `text_bubble` for the same balloon and nothing dedupes them: 46 of
-   those 63 regions overlap another by more than 70%. The same text is
-   OCR'd twice (visibly, in the results above), which means roughly
-   double the translation cost and two overlay boxes stacked on each
-   bubble. This affects the Scanlate tab equally and is worth its own
-   fix.
-
-**Also not verified:** manhuaku.net and Bilibili Manga, and the real
-toolbar-click flow. Clicking the extension's icon grants `activeTab`,
-which is what lets the content script be injected; Playwright can't click
-browser chrome, so that one grant was simulated by loading a throwaway
-copy of the extension with a host permission for that single site. The
-shipped manifest is untouched and stays loopback-only. That copy isn't
-committed, deliberately — a script that rewrites the manifest is too easy
-to mistake for the real configuration.
+**Also not verified:** manhuaku.net and Bilibili Manga, and the real toolbar-click flow. Clicking the icon grants `activeTab`, which Playwright can't do, so that grant was simulated with a throwaway copy of the extension; the shipped manifest stays loopback-only.
 
 The browser-side test suite is static only. There is no automated test
 that drives a real browser, on purpose: this project's tests are mocked
