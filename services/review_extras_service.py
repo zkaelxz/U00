@@ -147,7 +147,7 @@ def apply_merge_short(drama_id: int, expected_line_ids, expected_groups, min_dur
         if groups != expected_groups:
             raise ConflictError("The lines to merge changed since the preview -- preview again.")
         return merged, [ln for ln in merged if ln.merged_ids]
-    out = restructure_service._structural_write(drama_id, expected_line_ids, "before merge", build)
+    out = restructure_service.structural_write(drama_id, expected_line_ids, "before merge", build)
     return {"line_ids": out["line_ids"], "lines": out["lines"], "merged_groups": len(expected_groups)}
 
 
@@ -442,7 +442,7 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
     preset = preset or "Clean"
     if preset not in subtitle_formats.ASS_PRESETS:
         raise InvalidInputError("Unknown subtitle style preset.")
-    merged_style = export_service._build_ass_style(preset, style)
+    merged_style = export_service.build_ass_style(preset, style)
     if speaker_colors is not None:
         if not isinstance(speaker_colors, dict) or \
                 len(speaker_colors) > export_service.MAX_SPEAKER_COLORS:
@@ -450,9 +450,9 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
         for label, color in speaker_colors.items():
             if not isinstance(label, str) or len(label) > export_service.MAX_SPEAKER_LABEL_LEN:
                 raise InvalidInputError("A speaker label is too long.")
-            export_service._check_color(color, "speaker_colors")
-    export_service._check_wrap(wrap_chars_en, "wrap_chars_en")
-    export_service._check_wrap(wrap_chars_source, "wrap_chars_source")
+            export_service.check_color(color, "speaker_colors")
+    export_service.check_wrap(wrap_chars_en, "wrap_chars_en")
+    export_service.check_wrap(wrap_chars_source, "wrap_chars_source")
     video = _video_path(drama_id)
     if video is None:
         raise UnsupportedOperationError("This drama has no source video to preview on.")
@@ -472,7 +472,7 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
              for c in db.list_characters_with_series_names(drama_id) if c.get("character_name")}
     start, end, ass = media_playback_service.burn_preview_ass(
         lines, line, {"style": merged_style, "speaker_colors": colors, "speaker_names": names,
-                      "wrap_chars": export_service._build_wrap_chars(wrap_chars_en,
+                      "wrap_chars": export_service.build_wrap_chars(wrap_chars_en,
                                                                      wrap_chars_source)},
         pad=pad)
     end = min(end, start + MAX_CLIP_SECONDS)

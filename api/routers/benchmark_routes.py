@@ -25,7 +25,7 @@ from api.benchmark_schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseC
                                    BenchmarkRegressionResult, BenchmarkRunDetail,
                                    BenchmarkRunList, BenchmarkRunRequest,
                                    BenchmarkRunStarted, BenchmarkSetList)
-from api.routers.settings_routes import _require_confirm
+from api.routers.settings_routes import require_confirm
 from api.schemas import ErrorResponse
 from services import benchmark_lab_service as svc
 
@@ -71,7 +71,7 @@ def post_case(body: BenchmarkCaseCreate):
              response_model=BenchmarkDeleted, responses=_ERRS,
              summary="PC only: delete a benchmark case (confirm=true)")
 def delete_case(body: BenchmarkCaseDelete, case_id: int = Path(ge=1)):
-    _require_confirm(body.confirm)
+    require_confirm(body.confirm)
     return svc.delete_case(case_id)
 
 
@@ -100,7 +100,7 @@ def post_estimate(body: BenchmarkRunRequest):
              responses=_ERRS,
              summary="PC only: start a benchmark run (two or more engines = Model Arena; confirm=true)")
 def post_run(body: BenchmarkRunRequest):
-    _require_confirm(body.confirm)
+    require_confirm(body.confirm)
     return svc.start_run(body.stage, _configs(body), body.tier, body.set_name, body.case_ids,
                          body.label, body.prompt_version)
 

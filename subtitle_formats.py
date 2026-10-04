@@ -21,7 +21,7 @@ import copy
 import html
 import re
 
-from core import _notes_suffix, sfx_cue_text
+from core import notes_suffix, sfx_cue_text
 
 # ---------------------------------------------------------------- wrapping
 
@@ -219,7 +219,7 @@ def _cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=True, escape=Fals
         text = esc(text)
         if sfx:
             text = sfx_cue_text(text, italic_tags)
-    return text + esc(_notes_suffix(ln.idx, notes_by_idx))
+    return text + esc(notes_suffix(ln.idx, notes_by_idx))
 
 
 def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None) -> str:
@@ -379,7 +379,7 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
             events.append(f"Dialogue: 0,{start},{end},"
                           f"{style_for.get(ln.speaker, 'Default')},{name if ln.speaker else ''},0,0,0,,{text}")
         if notes_as_separate_line:
-            note_text = _notes_suffix(ln.idx, notes_by_idx).lstrip("\n")
+            note_text = notes_suffix(ln.idx, notes_by_idx).lstrip("\n")
             if note_text:
                 events.append(f"Dialogue: 0,{start},{end},Notes,,0,0,0,,{_ass_escape(note_text)}")
     return "\n".join(header + events) + "\n"

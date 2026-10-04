@@ -67,7 +67,7 @@ def fakes(isolated_db, monkeypatch):
                        "finished_at": 2.0}})
     from services import library_admin_service
     RUNNING["on"] = False
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: RUNNING["on"])
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: RUNNING["on"])
     import applog
     monkeypatch.setattr(applog, "tail", lambda n: [f"INFO line {i}" for i in range(n - 1)]
                         + [f"ERROR {DIRTY}"])
@@ -80,7 +80,7 @@ def fakes(isolated_db, monkeypatch):
         yield {"line": DIRTY}
         yield {"returncode": 0, "timed_out": False}
 
-    monkeypatch.setattr(svc, "_stream_tree", fake_stream)
+    monkeypatch.setattr(svc, "stream_tree", fake_stream)
     monkeypatch.setattr(diagnostics, "nvidia_driver_info",
                         lambda: {"gpu_name": "NVIDIA GeForce RTX 3080 Ti", "driver_version": "580.97"})
     monkeypatch.setattr(svc, "verify_torch", lambda blocking=True: {
@@ -139,7 +139,7 @@ def test_install_failure_hint(client, monkeypatch):
         yield {"line": "ERROR: [Errno 13] Permission denied: "
                        "'C:\\users\\x\\appdata\\local\\pip\\cache\\wheels\\a.whl'"}
         yield {"returncode": 1, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake_stream)
+    monkeypatch.setattr(svc, "stream_tree", fake_stream)
     b = client.post("/api/diagnostics/dependencies/jieba/install", json={"confirm": True}).json()
     assert b["ok"] is False and "pip\\cache" in b["hint"]
 

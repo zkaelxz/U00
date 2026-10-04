@@ -1543,7 +1543,7 @@ def is_cancel_requested(job_id: str) -> bool:
     return _db_cancel_requested(job_id)
 
 
-def _kill_tree(proc):
+def kill_tree(proc):
     """Kills proc and everything it started (it runs in its own process
     group/session -- see run_cancellable), so a wrapper script's ffmpeg
     grandchild can't keep the pipes open."""
@@ -1589,7 +1589,7 @@ def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: floa
         except subprocess.TimeoutExpired:
             cancelled = is_cancel_requested(job_id)
             if cancelled or (deadline is not None and time.monotonic() >= deadline):
-                _kill_tree(proc)
+                kill_tree(proc)
                 try:
                     proc.communicate(timeout=kill_timeout)
                 except subprocess.TimeoutExpired:

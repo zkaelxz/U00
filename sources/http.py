@@ -367,7 +367,7 @@ class FetchLimits:
     clock: object = time.monotonic
 
 
-def _header(headers, name: str) -> str:
+def header(headers, name: str) -> str:
     for k, v in (headers or {}).items():
         if k.lower() == name:
             return str(v)
@@ -490,13 +490,13 @@ def _read_body(r, limits: FetchLimits, deadline_at: float) -> bytes:
     (BodyDecoder), checking cancel and the deadline between every raw
     piece and every decode step. Both the raw and the decoded bytes are
     counted against the cap, so a compressed bomb is capped too."""
-    ctype = _header(r.headers, "content-type").lower()
+    ctype = header(r.headers, "content-type").lower()
     cap = limits.max_image_bytes if ctype.startswith("image/") else limits.max_page_bytes
-    length = _header(r.headers, "content-length").strip()
+    length = header(r.headers, "content-length").strip()
     if length.isdigit() and int(length) > cap:
         raise ResponseTooLarge()
     check = lambda: _check_limits(limits, deadline_at)  # noqa: E731
-    decoder = BodyDecoder(_header(r.headers, "content-encoding"), cap, check)
+    decoder = BodyDecoder(header(r.headers, "content-encoding"), cap, check)
     chunks, raw_total = [], 0
     while True:
         check()
@@ -511,7 +511,7 @@ def _read_body(r, limits: FetchLimits, deadline_at: float) -> bytes:
     return b"".join(chunks)
 
 
-def _ascii_url(url: str) -> str:
+def ascii_url(url: str) -> str:
     """The URL with its host in the exact ASCII form requests will connect
     to (UTS46 IDNA, lowercased), so the name that is validated, pinned and
     sent is one and the same (B-25 review H1: getaddrinfo's IDNA2003 maps
@@ -569,7 +569,7 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
         cur_headers["Accept-Encoding"] = ACCEPT_ENCODING
     for _ in range(MAX_REDIRECTS + 1):
         _check_limits(limits, deadline_at)
-        current = _ascii_url(current)
+        current = ascii_url(current)
         try:
             ip = url_guard.resolve_public(current)
         except url_guard.UnsafeURLError:

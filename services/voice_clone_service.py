@@ -114,13 +114,13 @@ _NO_FFMPEG = "ffmpeg is not installed or not on PATH, which cutting clips needs.
 # --- shared helpers -----------------------------------------------------------
 
 def _require_drama(drama_id: int) -> dict:
-    return characters_service._require_drama(drama_id)
+    return characters_service.require_drama(drama_id)
 
 
 def _require_speaker(drama_id: int, speaker_label) -> str:
     if not isinstance(speaker_label, str) or not speaker_label or len(speaker_label) > 200:
         raise InvalidInputError("speaker_label is required.")
-    if speaker_label not in characters_service._known_speakers(drama_id):
+    if speaker_label not in characters_service.known_speakers(drama_id):
         raise NotFoundError("No such speaker in this drama.")
     return speaker_label
 
@@ -178,7 +178,7 @@ def _clip_reading_job_active(drama_id: int) -> bool:
         job = background_jobs.get_status(job_id)
         if job and job.get("status") in ("running", "queued"):
             return True
-    cutoff = time.time() - drama_service._STALE_JOB_RECORD_SECONDS
+    cutoff = time.time() - drama_service.STALE_JOB_RECORD_SECONDS
     for job_id in job_ids:
         rec = db.get_job_record(job_id)
         if (rec and rec.get("status") in ("running", "queued")
@@ -245,7 +245,7 @@ def upload_reference_clip(drama_id: int, speaker_label, client_filename, fileobj
     ext = _clip_extension(client_filename)
     _require_no_clip_reading_job(drama_id)
     if ref_text is not None:
-        characters_service._check_len("ref_text", ref_text, characters_service.MAX_REF_TEXT_LEN)
+        characters_service.check_len("ref_text", ref_text, characters_service.MAX_REF_TEXT_LEN)
     refs = os.path.join(db.drama_dir(drama_id), REFS_DIR)
     os.makedirs(refs, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".clip_", suffix=ext, dir=refs)
@@ -279,7 +279,7 @@ def upload_reference_clip(drama_id: int, speaker_label, client_filename, fileobj
                         ref_text=None if ref_text is None else ref_text.strip())
     if old != rel:
         _remove_owned_clip(drama_id, old, speaker_label)
-    return characters_service._get_one(drama_id, speaker_label)
+    return characters_service.get_one(drama_id, speaker_label)
 
 
 def remove_reference_clip(drama_id: int, speaker_label, confirm: bool = False) -> dict:
@@ -297,7 +297,7 @@ def remove_reference_clip(drama_id: int, speaker_label, confirm: bool = False) -
     if old:
         db.upsert_character(drama_id, speaker_label, ref_audio_filename="")
         _remove_owned_clip(drama_id, old, speaker_label)
-    return characters_service._get_one(drama_id, speaker_label)
+    return characters_service.get_one(drama_id, speaker_label)
 
 
 # --- C01: extract candidates ----------------------------------------------------
@@ -473,7 +473,7 @@ def list_candidates(drama_id: int) -> dict:
     text, hence lines.read). Candidates whose file is gone are dropped.
     Speakers no longer in the drama are skipped."""
     _require_drama(drama_id)
-    known = characters_service._known_speakers(drama_id)
+    known = characters_service.known_speakers(drama_id)
     texts = {ln["id"]: ln.get("zh") or "" for ln in db.load_lines(drama_id)}
     speakers = []
     for label, entry in sorted(_load_manifest(drama_id).items()):
@@ -539,7 +539,7 @@ def choose_candidate(drama_id: int, candidate_id: str) -> dict:
     a job may hold its path); otherwise the old clip stays on disk."""
     _require_drama(drama_id)
     label, cand, path = _find_candidate(drama_id, candidate_id)
-    if label not in characters_service._known_speakers(drama_id):
+    if label not in characters_service.known_speakers(drama_id):
         raise NotFoundError("No such speaker in this drama.")
     root = db.drama_dir(drama_id)
     rel = f"{REFS_DIR}/clone_pick_{candidate_id}.wav"
@@ -564,7 +564,7 @@ def choose_candidate(drama_id: int, candidate_id: str) -> dict:
     db.upsert_character(drama_id, label, ref_audio_filename=rel, ref_text=ref_text)
     if old != rel and _PICKED_CLIP.match(old) and not _clip_reading_job_active(drama_id):
         _remove_owned_clip(drama_id, old, label)
-    return characters_service._get_one(drama_id, label)
+    return characters_service.get_one(drama_id, label)
 
 
 # --- C13: save to the voice bank ------------------------------------------------
@@ -579,8 +579,8 @@ def save_to_voice_bank(drama_id: int, speaker_label, name, notes: str = "") -> d
     _require_speaker(drama_id, speaker_label)
     if not isinstance(name, str) or not name.strip():
         raise InvalidInputError("Type a name for this voice first.")
-    characters_service._check_len("name", name, MAX_BANK_NAME_LEN)
-    characters_service._check_len("notes", notes or "", MAX_NOTES_LEN)
+    characters_service.check_len("name", name, MAX_BANK_NAME_LEN)
+    characters_service.check_len("notes", notes or "", MAX_NOTES_LEN)
     row = _character_row(drama_id, speaker_label)
     clip = _safe_file(_drama_path(drama_id), row.get("ref_audio_filename") or "")
     if clip is None:
@@ -611,8 +611,8 @@ def link_series_character(drama_id: int, speaker_label, series_character_id) -> 
     _require_speaker(drama_id, speaker_label)
     if series_character_id is None:
         db.clear_character_series_link(drama_id, speaker_label)
-        return characters_service._get_one(drama_id, speaker_label)
-    characters_service._check_id("series_character_id", series_character_id)
+        return characters_service.get_one(drama_id, speaker_label)
+    characters_service.check_id("series_character_id", series_character_id)
     series_id = drama.get("series_id")
     match = next((sc for sc in (db.list_series_characters(series_id) if series_id else [])
                   if sc["id"] == series_character_id), None)
@@ -620,4 +620,4 @@ def link_series_character(drama_id: int, speaker_label, series_character_id) -> 
         raise NotFoundError("No such character in this drama's series.")
     db.upsert_character(drama_id, speaker_label, character_name=match["character_name"],
                         series_character_id=match["id"])
-    return characters_service._get_one(drama_id, speaker_label)
+    return characters_service.get_one(drama_id, speaker_label)

@@ -42,15 +42,15 @@ as before. BAIHE_DATA_DIR overrides both.
 import os
 import sys
 
-_APP_DIR = os.path.dirname(os.path.abspath(__file__))
-_MARKER_PATH = os.path.join(_APP_DIR, "PORTABLE")
-_INSTALLED_MARKER_PATH = os.path.join(_APP_DIR, "INSTALLED")
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_MARKER_PATH = os.path.join(APP_DIR, "PORTABLE")
+_INSTALLED_MARKER_PATH = os.path.join(APP_DIR, "INSTALLED")
 DATA_DIR_ENV = "BAIHE_DATA_DIR"
 INSTALLED_DATA_DIR_NAME = "Baihe Studio"
 
 # Everything this mode redirects lives under one folder, so "copy this
 # whole app folder" really does carry every downloaded model with it.
-MODEL_CACHE_DIR = os.path.join(_APP_DIR, "model_cache")
+MODEL_CACHE_DIR = os.path.join(APP_DIR, "model_cache")
 
 # {env var this app's own code (or a library it calls) reads for a model
 # cache location: the subfolder under MODEL_CACHE_DIR it gets redirected
@@ -121,7 +121,7 @@ def data_dir() -> str:
         return os.path.abspath(override)
     if is_installed():
         return _marker_data_dir() or default_installed_data_dir()
-    return _APP_DIR
+    return APP_DIR
 
 
 def activate_portable_mode() -> bool:

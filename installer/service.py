@@ -442,7 +442,7 @@ def _replace_text(path, text: str) -> None:
 
 
 def read_env_file(path) -> dict:
-    """The data folder's .env, parsed like settings_service._read_env_file
+    """The data folder's .env, parsed like settings_service.read_env_file
     (utf-8-sig, comments and blank lines skipped, surrounding quotes
     stripped); {} if it's missing or unreadable. The service account can
     change this file, so only a value compared to a fixed string is used."""

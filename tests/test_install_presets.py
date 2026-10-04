@@ -89,7 +89,7 @@ def test_failed_install_returns_the_hint_even_though_output_is_redacted(monkeypa
     def fake(cmd, timeout):
         yield {"line": WIN_LINE}
         yield {"returncode": 1, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
     out = svc._run_commands([(["pip"], 1)])
     assert out["ok"] is False and out["hint"] == diagnostics.PIP_CACHE_PERMISSION_HINT
     assert "kae" not in " ".join(out["output_tail"])
@@ -99,7 +99,7 @@ def test_success_has_no_hint(monkeypatch):
     def fake(cmd, timeout):
         yield {"line": WIN_LINE}
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
     assert svc._run_commands([(["pip"], 1)])["hint"] is None
 
 
@@ -196,7 +196,7 @@ def test_moss_is_not_offered_and_refused():
 
 
 def test_moss_install_is_refused_by_the_service(monkeypatch):
-    monkeypatch.setattr(svc, "_guard", lambda confirm: None)
+    monkeypatch.setattr(svc, "guard", lambda confirm: None)
     with pytest.raises(svc.AdminActionUnknownPackage):
         svc.install_dependency("moss_transcribe_diarize", confirm=True)
 

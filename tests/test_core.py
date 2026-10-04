@@ -183,22 +183,22 @@ class TestModelDownloadErrorHandling:
     regression cover for the real error seen in the field."""
 
     def test_classifies_the_real_windows_dns_failure(self):
-        from core import _is_network_error
+        from core import is_network_error
         exc = Exception("Got: ConnectError: [Errno 11004] getaddrinfo failed")
-        assert _is_network_error(exc) is True
+        assert is_network_error(exc) is True
 
     def test_classifies_common_network_failures(self):
-        from core import _is_network_error
+        from core import is_network_error
         for msg in ("httpx.ConnectError", "Max retries exceeded",
                     "LocalEntryNotFoundError", "Connection timed out",
                     "Temporary failure in name resolution", "proxy error"):
-            assert _is_network_error(Exception(msg)) is True, msg
+            assert is_network_error(Exception(msg)) is True, msg
 
     def test_does_not_misclassify_real_audio_or_gpu_errors(self):
-        from core import _is_network_error
+        from core import is_network_error
         for msg in ("Invalid audio file format", "CUDA out of memory",
                     "unsupported sample rate"):
-            assert _is_network_error(Exception(msg)) is False, msg
+            assert is_network_error(Exception(msg)) is False, msg
 
     def test_model_download_error_is_a_runtime_error(self):
         from core import ModelDownloadError
@@ -708,21 +708,21 @@ class TestGpuInferenceFailureFallback:
     time. transcribe_for_timing now catches it there instead."""
 
     def test_classifies_the_exact_reported_error(self):
-        from core import _is_gpu_error
+        from core import is_gpu_error
         exc = RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
-        assert _is_gpu_error(exc) is True
+        assert is_gpu_error(exc) is True
 
     def test_classifies_common_cuda_failures(self):
-        from core import _is_gpu_error
+        from core import is_gpu_error
         for msg in ("CUDA error: no kernel image is available",
                     "cuDNN error", "no CUDA-capable device is detected",
                     "CUDA out of memory"):
-            assert _is_gpu_error(RuntimeError(msg)) is True, msg
+            assert is_gpu_error(RuntimeError(msg)) is True, msg
 
     def test_does_not_misclassify_network_or_genuine_errors(self):
-        from core import _is_gpu_error
-        assert _is_gpu_error(RuntimeError("Connection timed out")) is False
-        assert _is_gpu_error(ValueError("Invalid audio file format")) is False
+        from core import is_gpu_error
+        assert is_gpu_error(RuntimeError("Connection timed out")) is False
+        assert is_gpu_error(ValueError("Invalid audio file format")) is False
 
     def _stub_faster_whisper(self):
         import sys, types

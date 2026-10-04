@@ -55,8 +55,8 @@ class TestRunStageIsolatesFailures:
         monkeypatch.setitem(sys.modules, "torch", None)
         with pytest.raises(ImportError):
             import torch  # noqa: F401  -- confirms the mock actually took effect
-        assert asr_benchmark._peak_vram_mb() is None
-        asr_benchmark._reset_vram_counter()  # must not raise
+        assert asr_benchmark.read_peak_vram_mb() is None
+        asr_benchmark.reset_vram_counter()  # must not raise
 
     def test_vram_helpers_return_none_when_torch_present_but_cuda_unavailable(self, monkeypatch):
         # Distinct from the "torch absent" case above: torch genuinely
@@ -71,8 +71,8 @@ class TestRunStageIsolatesFailures:
         fake_torch = types.SimpleNamespace(
             cuda=types.SimpleNamespace(is_available=lambda: False))
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        assert asr_benchmark._peak_vram_mb() is None
-        asr_benchmark._reset_vram_counter()  # must not raise
+        assert asr_benchmark.read_peak_vram_mb() is None
+        asr_benchmark.reset_vram_counter()  # must not raise
 
 
 class TestRunBenchmarkSequencing:

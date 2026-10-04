@@ -316,15 +316,15 @@ def test_oversized_zip_rejected_before_change(isolated_db, monkeypatch):
     called = []
     monkeypatch.setattr(wjs, "restore_library_backup", lambda *a: called.append(a))
     data = _zip({"library.db": b"x" * 100, "big.bin": b"y" * 1000})
-    monkeypatch.setattr(wjs, "_MAX_RESTORE_MEMBER_BYTES", 500)
+    monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 500)
     with pytest.raises(InvalidInputError):
         las.restore_backup(data, confirm=True, confirm_text="RESTORE")
-    monkeypatch.setattr(wjs, "_MAX_RESTORE_MEMBER_BYTES", 10 ** 9)
-    monkeypatch.setattr(wjs, "_MAX_RESTORE_TOTAL_BYTES", 900)
+    monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 10 ** 9)
+    monkeypatch.setattr(wjs, "MAX_RESTORE_TOTAL_BYTES", 900)
     with pytest.raises(InvalidInputError):
         las.restore_backup(data, confirm=True, confirm_text="RESTORE")
-    monkeypatch.setattr(wjs, "_MAX_RESTORE_TOTAL_BYTES", 10 ** 9)
-    monkeypatch.setattr(wjs, "_MAX_RESTORE_MEMBERS", 1)
+    monkeypatch.setattr(wjs, "MAX_RESTORE_TOTAL_BYTES", 10 ** 9)
+    monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBERS", 1)
     with pytest.raises(InvalidInputError):
         las.restore_backup(data, confirm=True, confirm_text="RESTORE")
     assert not called
@@ -601,7 +601,7 @@ def test_restore_rechecks_jobs_before_swap(isolated_db, monkeypatch):
     data = _backup_bytes()
     b = _new("B")
     answers = iter([False, True])
-    monkeypatch.setattr(las, "_any_job_running", lambda: next(answers))
+    monkeypatch.setattr(las, "any_job_running", lambda: next(answers))
     with pytest.raises(ConflictError):
         _restore(data)
     assert db.get_drama(a) and db.get_drama(b)
@@ -677,10 +677,10 @@ def test_restore_caps(isolated_db, monkeypatch):
         zf.writestr("library.db", b"x" * 100)
         zf.writestr("big.bin", b"y" * 5000)   # compresses far below 5000 bytes
     data = buf.getvalue()
-    monkeypatch.setattr(las, "_RESTORE_MAX_MEMBERS", 1)
+    monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 1)
     with pytest.raises(InvalidInputError):
         las.restore_backup(data, confirm=True, confirm_text="RESTORE")
-    monkeypatch.setattr(las, "_RESTORE_MAX_MEMBERS", 100)
+    monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 100)
     monkeypatch.setattr(las, "_RESTORE_MIN_TOTAL_BYTES", 1)
     monkeypatch.setattr(las, "_RESTORE_EXPANSION_FACTOR", 1)   # cap = upload size
     monkeypatch.setattr(las, "_library_size", lambda: 0)
@@ -883,7 +883,7 @@ def test_restore_aborts_if_auth_changed_meanwhile(isolated_db, monkeypatch):
     a = _new("A")
     data = _backup_bytes()
     b = _new("B")
-    orig = las._any_job_running
+    orig = las.any_job_running
     calls = []
 
     def running():
@@ -891,7 +891,7 @@ def test_restore_aborts_if_auth_changed_meanwhile(isolated_db, monkeypatch):
         if len(calls) == 2:   # the before_swap re-check: a sign-in happens now
             auth_service.add_user("new@example.com")
         return orig()
-    monkeypatch.setattr(las, "_any_job_running", running)
+    monkeypatch.setattr(las, "any_job_running", running)
     with pytest.raises(ConflictError):
         _restore(data)
     assert db.get_drama(a) and db.get_drama(b)

@@ -232,7 +232,7 @@ def _safe_filename(stem: str, ext: str, fallback: str = "vocab") -> str:
     return f"{cleaned[:120]}.{ext}"
 
 
-def _llm_engine(engine_name=None, model=None):
+def llm_engine(engine_name=None, model=None):
     """A reference-capable LLM engine with its key resolved server-side.
     The Reader tab always used Claude; that stays the default."""
     engine_name = engine_name or "claude"
@@ -463,7 +463,7 @@ def _define_words_llm(words: list, context_lines: list, engine, source_language:
         if not text:
             continue
         stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-        data = translate_engines._extract_first_json_value(stripped)
+        data = translate_engines.extract_first_json_value(stripped)
         if not isinstance(data, dict):
             continue
         for i, w in enumerate(batch, 1):
@@ -493,7 +493,7 @@ def lookup_page_definitions(drama_id: int, page: int, chapter_size: int = DEFAUL
     page_lines = lines[(page - 1) * chapter_size: page * chapter_size]
     lang = drama.get("source_language") or "zh"
     script = drama.get("chinese_script") or "simplified"
-    engine = _llm_engine(engine_name, model) if use_llm else None
+    engine = llm_engine(engine_name, model) if use_llm else None
 
     def work():
         try:
@@ -623,7 +623,7 @@ def who_is_character(drama_id: int, name: str, up_to_line_idx: int = None,
     drama = _require_drama(drama_id)
     name = _text_arg(name, "name", MAX_LOOKUP_TEXT_CHARS)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     answer = _run_engine(lambda: story_context.who_is_character(name, scoped, drama, engine))
     return {"drama_id": drama_id, "answer": answer}
 
@@ -633,7 +633,7 @@ def explain_reference(drama_id: int, phrase: str, up_to_line_idx: int = None,
     drama = _require_drama(drama_id)
     phrase = _text_arg(phrase, "phrase", MAX_LOOKUP_TEXT_CHARS)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     answer = _run_engine(lambda: story_context.explain_reference(
         phrase, scoped, engine, source_language=drama.get("source_language") or "zh"))
     return {"drama_id": drama_id, "answer": answer}
@@ -657,7 +657,7 @@ def recap(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
         total -= len(section[start].en or "")
         start += 1
     section = section[start:]
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     summary = _run_engine(lambda: story_context.summarize_section(
         section, engine, section_label=f"up to page {page}"))
     return {"drama_id": drama_id, "summary": summary, "truncated": len(section) < full}
@@ -669,7 +669,7 @@ def relationship_map(drama_id: int, up_to_line_idx: int = None,
     mermaid} -- characters/relationships are keyed by name, not position."""
     _require_drama(drama_id)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     rel = _run_engine(lambda: story_context.build_relationship_map(scoped, engine)) or {}
     has_chars = bool(rel.get("characters"))
     return {"drama_id": drama_id, "characters": rel.get("characters") or [],
@@ -717,7 +717,7 @@ def update_wiki(drama_id: int, up_to_line_idx: int = None,
     todo = [ln for ln in scoped if ln.idx >= (from_line_idx or 0) and (ln.en or ln.zh)]
     batch = todo[:MAX_WIKI_CHUNKS_PER_CALL * WIKI_CHUNK_LINES]
     remaining = len(todo) - len(batch)
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     if not batch:
         return {"drama_id": drama_id, "updated": 0, "remaining": 0, "next_line_idx": None}
     batch_limit = batch[-1].idx if remaining else limit
@@ -778,7 +778,7 @@ def ask_about_drama(drama_id: int, question: str, chat_history: list = None,
         raise InvalidInputError(f"chat_history is longer than {MAX_CHAT_TOTAL_CHARS} characters in total.")
     history = [{"role": m["role"], "content": m["content"]} for m in history]
     lines = _require_lines(drama_id)
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     answer = _run_engine(lambda: qa.ask_about_drama(question, lines, drama, engine,
                                                     chat_history=history))
     return {"drama_id": drama_id, "answer": answer}

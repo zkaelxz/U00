@@ -89,7 +89,7 @@ def overall(data: dict) -> dict:
 # Small text / URL helpers
 # ---------------------------------------------------------------------------
 
-def _squash(s: str) -> str:
+def squash(s: str) -> str:
     return re.sub(r"\s+", "", unicodedata.normalize("NFKC", s or ""))
 
 
@@ -164,7 +164,7 @@ def _looks_thumb(url: str) -> bool:
     return bool(_THUMB_DIR.search(parts.path.lower()) or _SIZE_SUFFIX.search(stem))
 
 
-def _file_number(url: str):
+def file_number(url: str):
     stem = urlsplit(url or "").path.rsplit("/", 1)[-1].rpartition(".")[0]
     m = re.findall(r"\d+", stem)
     return int(m[-1]) if m else None
@@ -231,7 +231,7 @@ class PageModel:
         self._blocks_by_id = {b.id: b for b in self.blocks}
         self._links_by_id = {l.id: l for l in self.links}
         self.text = "\n".join(b.text for b in self.blocks)
-        self.squashed = _squash(self.text)
+        self.squashed = squash(self.text)
 
     def _build_blocks(self):
         from bs4 import NavigableString, Tag
@@ -243,7 +243,7 @@ class PageModel:
             if text and len(self.blocks) < MAX_BLOCKS:
                 self.blocks.append(Block(id=f"b{len(self.blocks)}", tag=state["owner"].name,
                                          text=text, el=state["owner"],
-                                         link_only=state["link_chars"] >= 0.9 * len(_squash(text))))
+                                         link_only=state["link_chars"] >= 0.9 * len(squash(text))))
             state["link_chars"] = 0
 
         for node in self.soup.descendants:
@@ -266,7 +266,7 @@ class PageModel:
                 state["owner"] = owner
             buf.append(s)
             if node.find_parent("a") is not None:
-                state["link_chars"] += len(_squash(s))
+                state["link_chars"] += len(squash(s))
         flush()
 
     def _build_links(self):
@@ -286,7 +286,7 @@ class PageModel:
         return self._links_by_id.get(lid) if isinstance(lid, str) else None
 
     def contains(self, text: str) -> bool:
-        return bool(text) and _squash(text) in self.squashed
+        return bool(text) and squash(text) in self.squashed
 
 
 def blocks_payload(page: PageModel, budget: int = 14000) -> str:
@@ -331,7 +331,7 @@ _SENSITIVE_PARAM = re.compile(
 # above, plus priv/private/secure) so an ordinary chapter/page slug -- which
 # never sits right after a segment literally named "token"/"auth"/"priv" --
 # is never touched.
-_SENSITIVE_PATH_SEGMENT = re.compile(
+SENSITIVE_PATH_SEGMENT = re.compile(
     r"((?:^|/)(?:token|sign(?:ed)?|auth|session|sess|secret|credential|ticket|jwt|access|"
     r"policy|hmac|nonce|cookie|passport|key|priv(?:ate)?|secure)/)"
     r"[\w-]{16,}(?=/|$|[?#])", re.I)
@@ -342,7 +342,7 @@ def prompt_safe(prompt: str) -> str:
     anything else secret-shaped redacted."""
     from translate_engines import redact_secrets
     text = _SENSITIVE_PARAM.sub(r"\1\2[REDACTED]", prompt or "")
-    text = _SENSITIVE_PATH_SEGMENT.sub(r"\1[REDACTED]", text)
+    text = SENSITIVE_PATH_SEGMENT.sub(r"\1[REDACTED]", text)
     return redact_secrets(text)
 
 
@@ -405,7 +405,7 @@ def _is_dialogue(text: str) -> bool:
     return bool(_DIALOGUE_START.match(text or ""))
 
 
-def _chapter_num_str(title: str):
+def chapter_num_str(title: str):
     n = chapter_order.chapter_number(title or "") if title else None
     if n is None:
         return None
@@ -438,9 +438,9 @@ def blocks_for_text(page: PageModel, text: str) -> list:
     page order (so a trafilatura/heuristic result gets real block ids and
     paragraph boundaries, and can seed a profile). [] unless every line
     maps to a block -- a partial mapping would silently drop text."""
-    wanted = {_squash(l) for l in (text or "").splitlines() if l.strip()}
-    found = [b for b in page.blocks if _squash(b.text) in wanted]
-    if not wanted or {_squash(b.text) for b in found} != wanted:
+    wanted = {squash(l) for l in (text or "").splitlines() if l.strip()}
+    found = [b for b in page.blocks if squash(b.text) in wanted]
+    if not wanted or {squash(b.text) for b in found} != wanted:
         return []
     return found
 
@@ -464,7 +464,7 @@ def deterministic_novel(page: PageModel) -> dict:
     toc = [l for l in page.links if l.text.strip().lower() in _TOC_WORDS][:3]
     return novel_data(page, body, method=method, chapter_title=chapter_title,
                       chapter_title_id=heading.id if heading else None,
-                      chapter_number=_chapter_num_str(chapter_title),
+                      chapter_number=chapter_num_str(chapter_title),
                       next_url=nxt.url if nxt else None, previous_url=prv.url if prv else None,
                       toc=toc)
 
@@ -541,11 +541,11 @@ def _number_check(number, chapter_title, url, checks) -> float:
     if number is None:
         checks.append("not found on the page")
         return 0.0
-    got = chapter_order._num(unicodedata.normalize("NFKC", str(number)).strip())
+    got = chapter_order.number_value(unicodedata.normalize("NFKC", str(number)).strip())
     from_title = chapter_order.chapter_number(chapter_title or "") if chapter_title else None
     if got is not None and from_title is not None and got == from_title:
         return 0.9
-    if _squash(str(number)) and (_squash(str(number)) in _squash(chapter_title or "")):
+    if squash(str(number)) and (squash(str(number)) in squash(chapter_title or "")):
         return 0.8
     if got is not None and re.search(rf"(?<!\d){int(got) if got.is_integer() else got}(?!\d)",
                                      urlsplit(url or "").path):
@@ -581,19 +581,19 @@ def validate_novel(data: dict, page: PageModel, model_conf: dict = None) -> dict
         if len(texts) < 3:
             score -= 0.35
             checks.append(f"only {len(texts)} paragraph(s)")
-        longish = [_squash(t) for t in texts if len(_squash(t)) >= 4]
+        longish = [squash(t) for t in texts if len(squash(t)) >= 4]
         if longish:
             dup = 1 - len(set(longish)) / len(longish)
             if dup > 0.3:
                 score -= 0.6
                 checks.append(f"{dup:.0%} of the paragraphs are repeats (looks like navigation)")
         if texts:
-            short = sum(1 for t in texts if len(_squash(t)) <= 12) / len(texts)
+            short = sum(1 for t in texts if len(squash(t)) <= 12) / len(texts)
             if short > 0.6:
                 score -= 0.4
                 checks.append(f"{short:.0%} of it is short fragments (menus/links, not prose)")
-            link_texts = {_squash(l.text) for l in page.links if l.text}
-            linky = sum(1 for t in texts if _squash(t) in link_texts) / len(texts)
+            link_texts = {squash(l.text) for l in page.links if l.text}
+            linky = sum(1 for t in texts if squash(t) in link_texts) / len(texts)
             if linky > 0.3:
                 score -= 0.4
                 checks.append(f"{linky:.0%} of the paragraphs are link text")
@@ -786,7 +786,7 @@ def comic_from_filter(page: PageModel, candidates, kept, rejected, method="filte
     return comic_data(page, candidates, roles, method=method,
                       order={c.url: i for i, c in enumerate(kept)}, reasons=reasons,
                       chapter_title=heading or page.page_title or None,
-                      chapter_number=_chapter_num_str(heading or page.page_title))
+                      chapter_number=chapter_num_str(heading or page.page_title))
 
 
 def comic_needs_review(data: dict, candidates) -> list:
@@ -852,7 +852,7 @@ def validate_comic(data: dict, page: PageModel, measured: dict = None, model_con
     oc, os_ = [], 0.0
     if n:
         os_ = 0.9
-        nums = [_file_number(p["resource_url"]) for p in pages]
+        nums = [file_number(p["resource_url"]) for p in pages]
         if all(x is not None for x in nums) and len(set(nums)) == n and n > 1:
             if nums == sorted(nums):
                 os_ = 0.95

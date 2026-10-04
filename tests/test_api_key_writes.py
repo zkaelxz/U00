@@ -25,7 +25,7 @@ LOCAL = "http://127.0.0.1:8600"
 @pytest.fixture
 def env_file(tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(path))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
     for names in settings_service.ENV_NAMES.values():
         for n in names:
             monkeypatch.delenv(n, raising=False)

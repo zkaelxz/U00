@@ -313,11 +313,11 @@ def test_forget_signin(client, fakes):
 
 
 def test_forget_signin_while_open_is_409(client, fakes):
-    from page_fetch import _profile_lock
+    from page_fetch import profile_lock
     fakes["alpha"] = _make("alpha", auth=True, login_url=f"{SITE}/login")
     d = auth_browser.profile_dir("", "alpha")
     os.makedirs(d)
-    lock = _profile_lock(d)
+    lock = profile_lock(d)
     assert lock.acquire(blocking=False)
     try:
         r = client.post("/api/sources/alpha/signin/forget", json={"confirm": True})
