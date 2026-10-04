@@ -162,13 +162,19 @@ def _fake_engine_installed():
 
 
 @pytest.fixture(autouse=True)
-def _private_separator_model_dir(tmp_path_factory, monkeypatch):
+def _private_separator_model_dir(tmp_path_factory):
     """The vocal-separator model folder defaults to ~/.cache; the startup
     sweep and the download guard list and delete files there, so no test
-    may see the developer's real one (or race another xdist worker on it)."""
+    may see the developer's real one (or race another xdist worker on it).
+    Restores by hand: requesting `monkeypatch` here would make the test's
+    own patches (os.scandir, shutil.rmtree) outlive isolated_db's teardown."""
     import audio_preprocess
-    monkeypatch.setattr(audio_preprocess, "MODEL_DIR",
-                        str(tmp_path_factory.mktemp("separator_models")))
+    saved = audio_preprocess.MODEL_DIR
+    audio_preprocess.MODEL_DIR = str(tmp_path_factory.mktemp("separator_models"))
+    try:
+        yield
+    finally:
+        audio_preprocess.MODEL_DIR = saved
 
 
 @pytest.fixture(autouse=True)
