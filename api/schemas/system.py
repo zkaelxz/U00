@@ -454,6 +454,7 @@ class DiagnosticsSetupChecks(BaseModel):
     cuda: DiagnosticsSetupCuda
     files: DiagnosticsSetupFiles
     library_writable: bool
+    warnings: List[str] = []
 
 
 class DiagnosticsHfCacheEntry(BaseModel):

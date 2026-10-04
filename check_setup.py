@@ -76,6 +76,8 @@ def _print_report(file=sys.stdout):
             "expected this to find it, check your driver and that you installed a CUDA build "
             "of torch, not the CPU-only one.")
 
+    lines.extend(f"{sym['warn']} {w}" for w in diagnostics.startup_warnings())
+
     if not lines:
         print(f"{sym['ok']} ffmpeg, a JavaScript runtime, and CUDA are all set up.", file=file)
         return

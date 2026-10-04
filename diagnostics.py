@@ -420,6 +420,84 @@ def check_js_runtime():
     return {"found": False, "name": None, "path": None}
 
 
+YTDLP_STALE_DAYS = 90
+DENO_MIN_VERSION = (2, 3)
+PYANNOTE_MIN_VRAM_GB = 12
+
+
+def _ints(text: str, n: int):
+    m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", text or "")
+    return tuple(int(g or 0) for g in m.groups()[:n]) if m else None
+
+
+def _warn_ytdlp_old(today=None):
+    import datetime
+    parts = _ints(get_installed_version("yt-dlp"), 3)
+    if not parts:
+        return None
+    age = ((today or datetime.date.today()) - datetime.date(*parts)).days
+    if age > YTDLP_STALE_DAYS:
+        return ("yt-dlp is more than 3 months old, so video downloads may fail. "
+                "Upgrade it in the Packages list.")
+    return None
+
+
+def _warn_deno_old():
+    if not shutil.which("deno"):
+        return None
+    out = subprocess.run(["deno", "--version"], capture_output=True, text=True, timeout=5).stdout
+    ver = _ints(out, 2)
+    if ver and ver < DENO_MIN_VERSION:
+        return ("Deno is older than 2.3, which yt-dlp may not work with. "
+                "Reinstall Deno from deno.com.")
+    return None
+
+
+def _warn_qwen_transformers():
+    if not (get_installed_version("qwen-asr") and
+            (_ints(get_installed_version("transformers"), 1) or (0,))[0] >= 5):
+        return None
+    return ("Qwen3-ASR and transformers 5 or newer don't work together. "
+            "Uninstall Qwen3-ASR, or install transformers 4.57.6.")
+
+
+def _warn_qwen_nonascii_path():
+    if platform.system() != "Windows" or not get_installed_version("qwen-asr"):
+        return None
+    import portable
+    if portable.data_dir().isascii():
+        return None
+    return ("The data folder's name has non-English characters, which stops Qwen3-ASR "
+            "from loading. Move the data folder to a plain English path, or uninstall Qwen3-ASR.")
+
+
+def _warn_low_vram_pyannote():
+    pyannote = _ints(get_installed_version("pyannote.audio"), 1)
+    if not pyannote or pyannote[0] < 4:
+        return None
+    gpu = get_gpu_status()
+    total = gpu.get("vram_total_gb") if gpu.get("available") else None
+    if total is not None and total < PYANNOTE_MIN_VRAM_GB:
+        return ("This GPU has less than 12 GB of memory, so speaker detection may run out "
+                "and switch to the CPU, which is slower. No action needed unless it fails.")
+    return None
+
+
+def startup_warnings() -> list:
+    """Short, path-free warnings about risky dependency combinations. Each
+    check is local and cheap; one that fails for any reason adds nothing."""
+    out = []
+    for check in (_warn_ytdlp_old, _warn_deno_old, _warn_qwen_transformers,
+                  _warn_qwen_nonascii_path, _warn_low_vram_pyannote):
+        try:
+            msg = check()
+        except Exception:
+            msg = None
+        if msg:
+            out.append(msg)
+    return out
+
+
 def check_browser() -> dict:
     """{found, name}: the browser used for JavaScript-only sites (see
     page_fetch.browser_status). No path is returned."""
