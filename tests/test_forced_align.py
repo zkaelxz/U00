@@ -194,6 +194,31 @@ class TestRepairZeroDurationSpans:
         assert fa._repair_unit_spans([(0, 0)], 0.0, 0.0) == [(0, 0)]
 
 
+class TestRepairFlagsLines:
+    def test_repaired_lines_are_flagged_timing_uncertain_and_keep_repaired_times(
+            self, monkeypatch):
+        import forced_align as fa
+        user_lines = ["你好", "再见", "好的"]
+        segs = [{"start": 0.0, "end": 6.0, "text": "你好再见好的"}]
+        monkeypatch.setattr(fa, "_extract_audio_slice",
+                            lambda a, s, e, out: open(out, "wb").close())
+
+        class Model:
+            def align(self, audio, text, language):
+                # 再 comes back zero-length between real neighbours
+                spans = [(0, 1), (1, 2), (3, 3), (3, 4), (4, 5), (5, 6)]
+                return [[FakeUnit(c, s, e) for c, (s, e) in zip(text, spans)]]
+        monkeypatch.setattr(fa, "load_qwen3_aligner", lambda use_gpu=False: Model())
+
+        result = fa.align_with_qwen3("/f.wav", user_lines, segs, language="zh")
+        assert [ln.flag for ln in result] == [None, "timing_uncertain", None]
+        assert result[1].flag_note == fa.TIMING_REPAIRED_NOTE
+        # 再 is spread over the 2..3 gap before 见 (3..4); nothing falls back to coarse timing
+        assert (result[1].start, result[1].end) == (2.0, 4.0)
+        assert (result[0].start, result[0].end) == (0.0, 2.0)
+        assert (result[2].start, result[2].end) == (4.0, 6.0)
+
+
 class TestAlignWithQwen3:
     def _fake_model_returning(self, per_chunk_text_to_units):
         class FakeModel:
