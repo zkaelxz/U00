@@ -3,18 +3,18 @@ api/api_config.py -- where the FastAPI server's own settings come from.
 
 Deliberately *not* a second configuration system. Everything the app
 already configures stays where it is: the library/database location is
-`db.LIBRARY_DIR` (the same folder Streamlit and `cli.py` use), portable
+`db.LIBRARY_DIR` (the same folder `cli.py` uses), portable
 mode is `portable.py`, API keys stay in the environment / `.env`. This
-module only adds the handful of settings a network server needs that
-Streamlit never did, read from `BAIHE_API_*` environment variables in
+module only adds the handful of settings a network server needs,
+read from `BAIHE_API_*` environment variables in
 the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 `BAIHE_MONTHLY_CAP_USD` variables.
 
 - `BAIHE_API_HOST` (default `127.0.0.1`) -- loopback only by default.
   A non-loopback host is refused at startup unless `BAIHE_API_AUTH=on`
   (Step 133, see below).
-- `BAIHE_API_PORT` (default `8600`) -- not adjacent to Streamlit's 8501
-  or the extension bridge's 8756 (`page_server.DEFAULT_PORT`).
+- `BAIHE_API_PORT` (default `8600`) -- not adjacent to the extension
+  bridge's 8756 (`page_server.DEFAULT_PORT`).
 - `BAIHE_API_ENV` (`development` or `production`, default
   `production`) -- development turns on CORS for the React dev server's
   origins below. Production sends no CORS headers at all: the built
@@ -47,7 +47,7 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 - `BAIHE_API_COOKIE_SECURE` (`1` default) -- the session cookie is always
   `Secure` unless this is `0` AND the request is plain-http loopback (dev).
 - `BAIHE_API_BACKGROUND` (`1` default, or `0`) -- start the background
-  pieces Streamlit used to start (chapter-check scheduler; the extension
+  pieces (chapter-check scheduler; the extension
   endpoint when its setting is on) when the API starts; see
   `api/background.py`. `ApiSettings()` built directly defaults to off, and
   tests/conftest.py sets `0`, so tests never start them.
