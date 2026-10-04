@@ -142,6 +142,58 @@ class TestAlignChunk:
         assert max(result[0]) == 1.0
 
 
+class TestRepairZeroDurationSpans:
+    def _chunk(self, monkeypatch, tmp_path, units, text):
+        import forced_align as fa
+        monkeypatch.setattr(fa, "_extract_audio_slice",
+                            lambda a, s, e, out: open(out, "wb").close())
+
+        class Model:
+            def align(self, audio, text, language):
+                return [[FakeUnit(c, s, e) for c, (s, e) in zip(text, units)]]
+        lines = [Line(idx=0, start=10.0, end=14.0, zh=text)]
+        return fa._align_chunk(Model(), "/a.wav", lines, "Chinese", str(tmp_path))[0]
+
+    def _spans(self, times):
+        return list(zip(times[0::2], times[1::2]))
+
+    def _assert_good(self, spans):
+        assert all(e > s for s, e in spans)
+        assert all(b[0] >= a[1] - 1e-9 for a, b in zip(spans, spans[1:]))
+        assert spans[0][0] >= 10.0 and spans[-1][1] <= 14.0
+
+    def test_zero_span_at_start(self, monkeypatch, tmp_path):
+        spans = self._spans(self._chunk(monkeypatch, tmp_path, [(0, 0), (1, 2), (2, 4)], "ABC"))
+        self._assert_good(spans)
+        assert spans[0] == (10.0, 11.0)
+
+    def test_zero_span_in_middle(self, monkeypatch, tmp_path):
+        spans = self._spans(self._chunk(monkeypatch, tmp_path, [(0, 1), (2, 2), (3, 4)], "ABC"))
+        self._assert_good(spans)
+        assert spans[1] == (11.0, 13.0)
+
+    def test_zero_span_at_end(self, monkeypatch, tmp_path):
+        spans = self._spans(self._chunk(monkeypatch, tmp_path, [(0, 1), (1, 3), (4, 4)], "ABC"))
+        self._assert_good(spans)
+        assert spans[2] == (13.0, 14.0)
+
+    def test_all_zero_run_is_spread_over_the_chunk(self, monkeypatch, tmp_path):
+        spans = self._spans(self._chunk(monkeypatch, tmp_path, [(0, 0)] * 4, "ABCD"))
+        self._assert_good(spans)
+        assert spans == [(10.0, 11.0), (11.0, 12.0), (12.0, 13.0), (13.0, 14.0)]
+
+    def test_out_of_order_and_out_of_bounds_are_made_monotonic(self):
+        import forced_align as fa
+        out = fa._repair_unit_spans([(0, 2), (1, 1.5), (3, 9)], 0.0, 4.0)
+        assert out[0] == (0, 2)
+        assert all(b[0] >= a[1] for a, b in zip(out, out[1:]))
+        assert all(0.0 <= s <= e <= 4.0 for s, e in out)
+
+    def test_no_room_leaves_zero_so_fallback_still_triggers(self):
+        import forced_align as fa
+        assert fa._repair_unit_spans([(0, 0)], 0.0, 0.0) == [(0, 0)]
+
+
 class TestAlignWithQwen3:
     def _fake_model_returning(self, per_chunk_text_to_units):
         class FakeModel:

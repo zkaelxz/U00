@@ -149,6 +149,38 @@ def _bucket_into_chunks(coarse_lines, max_chunk_seconds: float = MAX_CHUNK_SECON
     return chunks
 
 
+def _repair_unit_spans(spans, lo: float, hi: float):
+    """Makes (start, end) spans monotonic, inside [lo, hi], and non-zero where
+    the neighbours leave room. The aligner can return items with start == end
+    (Qwen3-ASR issue #197), which collapse subtitle lines to zero length.
+    A run of zero-length spans is spread evenly over the gap between the
+    previous span's end and the next span's start (or lo/hi at the ends); if
+    that gap is itself empty the spans stay zero-length so _bad_line_timings
+    still sends the line to the coarse-timing fallback."""
+    fixed, prev_end = [], lo
+    for start, end in spans:
+        start = min(max(start, prev_end, lo), hi)
+        end = min(max(end, start), hi)
+        fixed.append([start, end])
+        prev_end = end
+    i = 0
+    while i < len(fixed):
+        if fixed[i][1] > fixed[i][0]:
+            i += 1
+            continue
+        j = i
+        while j < len(fixed) and fixed[j][1] <= fixed[j][0]:
+            j += 1
+        left = fixed[i - 1][1] if i > 0 else lo
+        right = fixed[j][0] if j < len(fixed) else hi
+        if right > left:
+            step = (right - left) / (j - i)
+            for k in range(i, j):
+                fixed[k] = [left + (k - i) * step, left + (k - i + 1) * step]
+        i = j
+    return [tuple(f) for f in fixed]
+
+
 def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_dir: str):
     """Runs the aligner on one chunk's audio slice against the REAL text
     of the lines assigned to it, and returns {global_line_idx: [times]}.
@@ -178,9 +210,14 @@ def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_di
             os.unlink(slice_path)
 
     units = results[0] if results else []
+    # The upper bound never cuts off a real unit that runs past the coarse
+    # chunk end; it only limits where a zero-length tail can be spread.
+    raw = [(u.start_time, u.end_time) for u in units]
+    spans = _repair_unit_spans(
+        raw, 0.0, max([chunk_end - chunk_start] + [e for _, e in raw]))
     per_line_times = {}
     pos = 0
-    for unit in units:
+    for unit, (unit_start, unit_end) in zip(units, spans):
         unit_len = max(len(unit.text), 1)
         for offset in range(unit_len):
             char_pos = pos + offset
@@ -188,7 +225,7 @@ def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_di
                 break
             li = line_of_char[char_pos]
             per_line_times.setdefault(li, []).extend(
-                [chunk_start + unit.start_time, chunk_start + unit.end_time]
+                [chunk_start + unit_start, chunk_start + unit_end]
             )
         pos += unit_len
     return per_line_times
