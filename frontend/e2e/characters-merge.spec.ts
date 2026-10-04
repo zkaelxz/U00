@@ -28,12 +28,7 @@ async function mockAll(page: Page) {
   const start = () => [entry('SPEAKER_01', { line_count: 4 }), entry('SPEAKER_03', { line_count: 3 })]
   let entries = start()
   const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
-  const row = { character_name: null, voice_actor: null, tts_voice: null, offline_voice: null, ref_audio_filename: null,
-    ref_text: null, elevenlabs_voice_id: null, clone_engine: null, voice_design: null, pronouns: null, series_character_id: null }
-  const undo = {
-    source_label: 'SPEAKER_03', target_label: 'SPEAKER_01', source_row: row, target_row: null,
-    previous: [{ id: 1, speaker: 'SPEAKER_03', speaker_manual: false }],
-  }
+  const undo = { undo_id: 'u'.repeat(32), expires_in: 900 }
 
   await page.route('**/api/**', (route) => {
     const r = route.request()
@@ -85,11 +80,26 @@ test('merge with a confirm step, then undo', async ({ page }) => {
   expect(m.posts).toEqual([{ path: '/merge-speakers', body: { source_label: 'SPEAKER_03', target_label: 'SPEAKER_01' } }])
   await expect(page.getByLabel('Name for SPEAKER_03')).toHaveCount(0)
   await expect(page.locator('.character-notice')).toContainText('Merged SPEAKER_03 into SPEAKER_01: 3 lines moved.')
+  expect((await page.getByRole('button', { name: 'Undo merge' }).boundingBox())!.height).toBeGreaterThanOrEqual(32)
   await page.getByRole('button', { name: 'Undo merge' }).click()
-  expect(m.posts.at(-1)).toEqual({ path: '/merge-speakers/undo', body: { undo: m.undo } })
+  expect(m.posts.at(-1)).toEqual({ path: '/merge-speakers/undo', body: { undo_id: m.undo.undo_id } })
   await expect(page.getByLabel('Name for SPEAKER_03')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Undo merge' })).toHaveCount(0)
   expect(m.unmocked).toEqual([])
+})
+
+test('editing the target clears the undo', async ({ page }) => {
+  const m = await mockAll(page)
+  await openCharacters(page)
+  await startMerge(page)
+  await page.getByRole('button', { name: /^Merge 3 lines/ }).click()
+  await expect(page.getByRole('button', { name: 'Undo merge' })).toBeVisible()
+  await page.route('**/api/characters/dramas/1/character', (route) =>
+    route.fulfill({ status: 200, json: entry('SPEAKER_01', { line_count: 7, character_name: 'Mei' }) }))
+  await page.getByLabel('Name for SPEAKER_01').fill('Mei')
+  await page.locator('button:enabled', { hasText: /^Save$/ }).first().click()
+  await expect(page.getByRole('button', { name: 'Undo merge' })).toHaveCount(0)
+  expect(m.posts.map((p) => p.path)).toEqual(['/merge-speakers'])
 })
 
 test('phone: no sideways scroll and 44px targets', async ({ page }) => {

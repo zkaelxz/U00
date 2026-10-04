@@ -7,7 +7,7 @@ import { Field } from '../../../components/Field'
 import { buttonClass } from '../../../components/uiClasses'
 import { Section } from '../../../components/Section'
 import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
-import type { MergeResult, MergeUndo, RememberResult, RenameResult, RenameUndo } from '../../../types/characters'
+import type { MergeResult, RememberResult, RenameResult, RenameUndo } from '../../../types/characters'
 import type { CharacterEntry, CloneEngines, VoiceBankEntry } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
 import { SeriesCast } from './SeriesCast'
@@ -24,7 +24,7 @@ import {
   unsetPronounsLabel,
   type CharacterForm,
 } from './characterForm'
-import { mergeChoices, mergeSummary, type MergeChoice } from './mergeSpeakers'
+import { mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, type MergeChoice, type MergeUndoHandle } from './mergeSpeakers'
 import { readRenameUndo, renameProblem, saveRenameUndo, takenNames } from './renameSpeaker'
 import './characters.css'
 
@@ -40,7 +40,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, onSaved, on
   onSaved: (e: CharacterEntry) => void
   onRemembered: (r: RememberResult) => void
   onRenamed: (r: RenameResult) => void
-  onMerged: (r: MergeResult, sourceLabel: string) => void
+  onMerged: (r: MergeResult, sourceLabel: string, targetLabel: string) => void
 }) {
   const { dramaId } = useStage()
   const [form, setForm] = useState<CharacterForm>(() => toCharacterForm(entry))
@@ -113,7 +113,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, onSaved, on
     setBusy(true)
     mergeSpeakers(dramaId, label, mergeInto).then((r) => {
       setBusy(false)
-      onMerged(r, label)
+      onMerged(r, label, mergeInto)
     }, fail)
   }
 
@@ -294,12 +294,19 @@ export function CharactersPanel() {
   const [castRefresh, setCastRefresh] = useState(0)
   const [undo, setUndo] = useState<RenameUndo | null>(() => readRenameUndo(dramaId))
   const [undoBusy, setUndoBusy] = useState(false)
-  // Held in the page only: it carries both Characters rows as they were.
-  const [mergeUndo, setMergeUndo] = useState<MergeUndo | null>(null)
+  // Only the server's opaque undo id and the two labels; the rows stay on the server.
+  const [mergeUndo, setMergeUndo] = useState<MergeUndoHandle | null>(() => readMergeUndo(dramaId))
+  const forgetMergeUndo = () => {
+    setMergeUndo(null)
+    saveMergeUndo(dramaId, null)
+  }
 
   // Replace by speaker label, never by position.
-  const replace = (saved: CharacterEntry) =>
+  const replace = (saved: CharacterEntry) => {
     setEntries((cur) => cur && cur.map((x) => (x.speaker_label === saved.speaker_label ? saved : x)))
+    // The undo would put the target back as it was, so editing the target ends it.
+    if (mergeUndo && saved.speaker_label === mergeUndo.target) forgetMergeUndo()
+  }
   const remembered = (r: RememberResult) => {
     setNotice(r.created
       ? `Added ${r.series_character.character_name} to the series cast.`
@@ -309,36 +316,41 @@ export function CharactersPanel() {
 
   const renamed = (r: RenameResult) => {
     setEntries(r.characters)
+    forgetMergeUndo()
     setUndo(r.undo)
     saveRenameUndo(dramaId, r.undo)
     setNotice(r.undo ? `Renamed ${r.undo.previous_label} to ${r.undo.speaker_label} on ${r.renamed} lines.` : null)
     setSuggestRefresh((n) => n + 1)
   }
-  const merged = (r: MergeResult, sourceLabel: string) => {
+  const merged = (r: MergeResult, sourceLabel: string, targetLabel: string) => {
     setEntries(r.characters)
-    setMergeUndo(r.undo)
+    const handle = r.undo
+      ? { id: r.undo.undo_id, source: sourceLabel, target: targetLabel, expiresAt: Date.now() + r.undo.expires_in * 1000 }
+      : null
+    setMergeUndo(handle)
+    saveMergeUndo(dramaId, handle)
     // A rename's undo names labels that may be gone now.
     setUndo(null)
     saveRenameUndo(dramaId, null)
-    setNotice(r.undo ? `Merged ${sourceLabel} into ${r.undo.target_label}: ${r.moved} ${r.moved === 1 ? 'line' : 'lines'} moved.` : null)
+    setNotice(`Merged ${sourceLabel} into ${targetLabel}: ${r.moved} ${r.moved === 1 ? 'line' : 'lines'} moved.`)
     setSuggestRefresh((n) => n + 1)
   }
   const runUndoMerge = () => {
     if (!mergeUndo) return
     setUndoBusy(true)
-    undoMergeSpeakers(dramaId, mergeUndo).then(
+    undoMergeSpeakers(dramaId, mergeUndo.id).then(
       (r) => {
         setUndoBusy(false)
         setEntries(r.characters)
-        setNotice(`Put ${mergeUndo.source_label} back on ${r.moved} ${r.moved === 1 ? 'line' : 'lines'}.`)
-        setMergeUndo(null)
+        setNotice(`Put ${mergeUndo.source} back on ${r.moved} ${r.moved === 1 ? 'line' : 'lines'}.`)
+        forgetMergeUndo()
         setSuggestRefresh((n) => n + 1)
       },
       (e: unknown) => {
         setUndoBusy(false)
         setError(e)
-        // Refused (lines edited since, label reused): retrying won't work.
-        setMergeUndo(null)
+        // Refused, spent or expired: retrying won't work.
+        forgetMergeUndo()
       },
     )
   }

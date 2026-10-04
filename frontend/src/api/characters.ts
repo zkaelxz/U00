@@ -1,6 +1,6 @@
 // Characters extras (inventory C02, C08). The base characters calls
 // (list, save, clone engines, voice bank) live in ./translateStage.
-import type { MergeResult, MergeUndo, RememberResult, RenameResult, RenameUndo, VoiceSuggestion, VoiceSuggestionResult } from '../types/characters'
+import type { MergeResult, RememberResult, RenameResult, RenameUndo, VoiceSuggestion, VoiceSuggestionResult } from '../types/characters'
 import { getJson, postJson } from './client'
 
 type Fetch = typeof fetch
@@ -34,5 +34,5 @@ export const undoRenameSpeaker = (id: number, undo: RenameUndo, f?: Fetch) =>
 export const mergeSpeakers = (id: number, sourceLabel: string, targetLabel: string, f?: Fetch) =>
   postJson<MergeResult>(`${base(id)}/merge-speakers`, { source_label: sourceLabel, target_label: targetLabel }, f)
 
-export const undoMergeSpeakers = (id: number, undo: MergeUndo, f?: Fetch) =>
-  postJson<MergeResult>(`${base(id)}/merge-speakers/undo`, { undo }, f)
+export const undoMergeSpeakers = (id: number, undoId: string, f?: Fetch) =>
+  postJson<MergeResult>(`${base(id)}/merge-speakers/undo`, { undo_id: undoId }, f)

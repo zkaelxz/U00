@@ -68,11 +68,10 @@ describe('merge speakers API', () => {
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ source_label: 'SPEAKER_03', target_label: 'SPEAKER_01' })
   })
 
-  it('posts the undo it was given', async () => {
+  it('posts only the opaque undo id', async () => {
     const calls: Call[] = []
-    const undo = { source_label: 'B', target_label: 'A', source_row: {}, target_row: null, previous: [] }
-    await undoMergeSpeakers(4, undo as never, fakeFetch(calls))
+    await undoMergeSpeakers(4, 'opaque-id', fakeFetch(calls))
     expect(calls[0].url).toBe('/api/characters/dramas/4/merge-speakers/undo')
-    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ undo })
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ undo_id: 'opaque-id' })
   })
 })

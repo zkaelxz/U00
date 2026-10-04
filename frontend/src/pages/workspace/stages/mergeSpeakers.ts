@@ -33,3 +33,62 @@ export function mergeSummary(source: CharacterEntry, targetLabel: string): strin
   return `${moved} from ${source.speaker_label} will move to ${targetLabel}, and ${source.speaker_label} will be removed from this list. `
     + `Its name, voice and pronouns fill any blanks on ${targetLabel}; anything ${targetLabel} already has is kept.`
 }
+
+/** What the page remembers of the last merge: the server's opaque undo id and
+ *  the two labels, for the button and the notice. No Characters row. */
+export interface MergeUndoHandle {
+  id: string
+  source: string
+  target: string
+  /** Epoch ms after which the server refuses the id. */
+  expiresAt: number
+}
+
+type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+
+const memory = new Map<number, MergeUndoHandle>()
+const storeKey = (dramaId: number) => `baihe.characters.mergeUndo.${dramaId}`
+
+function browserSession(): Store | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage
+  } catch {
+    return null
+  }
+}
+
+function isHandle(x: unknown): x is MergeUndoHandle {
+  const u = x as MergeUndoHandle
+  return Boolean(u) && typeof u.id === 'string' && typeof u.source === 'string'
+    && typeof u.target === 'string' && typeof u.expiresAt === 'number'
+}
+
+/** The saved handle, or null when none is saved or it has expired. */
+export function readMergeUndo(dramaId: number, now = Date.now(), store: Store | null = browserSession()): MergeUndoHandle | null {
+  let found: MergeUndoHandle | null = null
+  if (!store) found = memory.get(dramaId) ?? null
+  else {
+    try {
+      const raw = store.getItem(storeKey(dramaId))
+      const v: unknown = raw ? JSON.parse(raw) : null
+      found = isHandle(v) ? v : null
+    } catch {
+      found = null
+    }
+  }
+  return found && found.expiresAt > now ? found : null
+}
+
+export function saveMergeUndo(dramaId: number, undo: MergeUndoHandle | null, store: Store | null = browserSession()): void {
+  if (!store) {
+    if (undo) memory.set(dramaId, undo)
+    else memory.delete(dramaId)
+    return
+  }
+  try {
+    if (undo) store.setItem(storeKey(dramaId), JSON.stringify(undo))
+    else store.removeItem(storeKey(dramaId))
+  } catch {
+    // Storage full or blocked: the undo is still held in the page.
+  }
+}
