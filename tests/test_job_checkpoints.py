@@ -95,7 +95,7 @@ def test_interrupted_narration_tagging_resumes_from_the_last_finished_batch(isol
             raise RuntimeError("process killed")
         return {str(i): f"S{i % 3}" for i in batch_ids}
 
-    monkeypatch.setattr(translate_engines, "_id_keyed_batch_request", fake_batch)
+    monkeypatch.setattr("engine_backends.llm_tasks._id_keyed_batch_request", fake_batch)
     job_id = f"narration_{did}"
     with pytest.raises(RuntimeError):
         narration_service._run_narration_job(job_id, did, "novel", "claude", "k", None)
@@ -127,7 +127,7 @@ def test_changed_text_or_engine_never_reuses_checkpoints(isolated_db, monkeypatc
             raise RuntimeError("stop")
         return {str(i): "A" for i in batch_ids}
 
-    monkeypatch.setattr(translate_engines, "_id_keyed_batch_request", fake_batch)
+    monkeypatch.setattr("engine_backends.llm_tasks._id_keyed_batch_request", fake_batch)
     with pytest.raises(RuntimeError):
         narration_service._run_narration_job("j", did, "novel v1", "claude", "k", None)
     calls.clear()
@@ -536,7 +536,7 @@ def test_narration_start_over_drops_the_saved_batches(isolated_db, monkeypatch):
             raise RuntimeError("killed")
         return {str(i): "A" for i in batch_ids}
 
-    monkeypatch.setattr(translate_engines, "_id_keyed_batch_request", fake_batch)
+    monkeypatch.setattr("engine_backends.llm_tasks._id_keyed_batch_request", fake_batch)
     with pytest.raises(RuntimeError):
         narration_service._run_narration_job("j", did, "novel", "claude", "k", None)
     calls.clear()
@@ -600,6 +600,7 @@ def test_nllb_pipeline_survives_a_release_between_check_and_read(monkeypatch):
 
     cache = Vanishing({("fake-nllb", "zh", "en"): "OLD"})
     monkeypatch.setattr(translate_engines, "_nllb_pipeline_cache", cache)
+    monkeypatch.setattr("engine_backends.local._nllb_pipeline_cache", cache)
     assert engine._get_pipeline("zh") == "OLD" and made == []
 
 
@@ -621,7 +622,7 @@ def test_cli_narrate_prep_resumes_and_can_start_over(isolated_db, monkeypatch):
             raise RuntimeError("killed")
         return {str(i): "A" for i in batch_ids}
 
-    monkeypatch.setattr(translate_engines, "_id_keyed_batch_request", fake_batch)
+    monkeypatch.setattr("engine_backends.llm_tasks._id_keyed_batch_request", fake_batch)
     args = argparse.Namespace(id=did, engine="claude", api_key="k", model=None,
                               ollama_url=None, fresh=False)
     try:
