@@ -4,11 +4,12 @@ import { getWorkflowProgress } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { routeHref } from '../../router'
 import { isComicType } from '../comic/comicLogic'
 import type { WorkflowProgress } from '../../types/workspace'
 import { STAGE_COMPONENTS } from './stageRegistry'
-import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, stageStates, startStage } from './stages'
+import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, nextAction, stageStates, startStage } from './stages'
 import { StageContext, type StageContextValue } from './StageContext'
 import { useDrama } from './useDrama'
 import './workspace.css'
@@ -46,6 +47,10 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const { progress, opened } = useProgress(id, drama)
   const active = stage !== null ? startStage(stage, null, false) : opened
   const states = stageStates(progress?.stages)
+  const phone = useMediaQuery('(max-width: 640px)')
+  const next = nextAction(active, progress)
+  // On Review the phone's fixed edit bar owns the bottom edge, so the bar stays away.
+  const nextHref = next ? routeHref({ name: 'drama', id, stage: next.stage }) : null
   const Stage = active ? STAGE_COMPONENTS[active] : null
 
   const ctx = useMemo<StageContextValue | null>(
@@ -72,7 +77,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const title = drama ? drama.title_en || drama.title_zh || `Drama #${id}` : `Drama #${id}`
 
   return (
-    <section className="workspace" ref={sectionRef} aria-label={`Drama ${id} workspace`}>
+    <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Drama ${id} workspace`}>
       <div className="ws-strip" ref={stripRef}>
       <header className="workspace-header">
         <ButtonLink href={routeHref({ name: 'library' })} variant="ghost" size="sm" className="ws-back" aria-label="Back to Library">
@@ -103,6 +108,11 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
             className="ws-read"
           >
             Read
+          </ButtonLink>
+        )}
+        {next && nextHref && !phone && (
+          <ButtonLink href={nextHref} variant="primary" size="sm" className="ws-next" data-testid="next-action">
+            Next: {next.label}
           </ButtonLink>
         )}
       </header>
@@ -152,6 +162,13 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
             <span className="visually-hidden">Loading…</span>
           </div>
         )
+      )}
+      {next && nextHref && phone && active !== 'review' && (
+        <div className="ws-next-bar">
+          <ButtonLink href={nextHref} variant="primary" className="ws-next" data-testid="next-action">
+            Next: {next.label}
+          </ButtonLink>
+        </div>
       )}
     </section>
   )

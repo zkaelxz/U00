@@ -85,3 +85,15 @@
   .stage-tabs .stage-count,
   .stage-tabs .stage-count-slot { display: none; }
 }
+
+/* Next step: at the end of the strip on desktop, a sticky bottom bar on phones. */
+.workspace-header .ws-next { flex: 0 0 auto; }
+@media (max-width: 640px) {
+  .workspace.has-next-bar { padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--space-3)); }
+  .ws-next-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-sticky, 3);
+    display: flex; padding: var(--space-1) var(--space-2) calc(var(--space-1) + env(safe-area-inset-bottom, 0px));
+    background: var(--surface); border-top: 1px solid var(--border);
+  }
+  .ws-next-bar .ws-next { flex: 1 1 auto; justify-content: center; min-height: 44px; }
+}
