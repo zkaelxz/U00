@@ -53,7 +53,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - One task per branch, off the latest `baihe-subtitler`. Roadmap steps use `step-<id>-<short-name>`.
 - Re-check any claim from a doc or old note against the code before acting on it. If the code has moved on, say so.
 - Keep changes to what the task needs. No new files, docs, settings or abstractions unless the task asks for them. If your change makes something unused, delete it. Pre-existing problems you notice go in your summary, not your diff.
-- A new code comment states the constraint or the reason, never a Step, Slice, B- or PR id. Don't mass-rewrite old comments.
+- A new code comment states the constraint or the reason, never a Step, Slice, B- or PR id. Don't rewrite old comments in passing; fix them only in a dedicated comments-only PR (one area at a time, behaviour unchanged) under Commenting Standards.
 - Screenshots go on the PR as attachments, not in committed files.
 - A new top-level module, `services/*.py` or `api/routers/*.py` file gets a line in `FILE_ORGANIZATION.md` (a hook warns).
 - Finish with a short summary: what changed and what the user will notice, the commands you ran with pass counts, what you're unsure about, and follow-ups.
