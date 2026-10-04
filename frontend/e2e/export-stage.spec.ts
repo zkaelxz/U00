@@ -189,6 +189,9 @@ async function exportAss(page: Page, noCopy: boolean) {
   await withExportLines(page)
   await page.goto('/#/drama/1/export')
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
+  // The style options arrive after the page paints; Export before then is refused.
+  await expect(page.getByText('ASS style', { exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   await expect(page.getByTestId('export-text')).toContainText('[Script Info]')
 }
