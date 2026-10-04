@@ -646,10 +646,10 @@ def test_baihe_own_ports_includes_configured_ports(monkeypatch, tmp_path):
     monkeypatch.setattr(ss, "default_env_path", lambda: str(tmp_path / ".env"))
     for name in (ss.API_PORT_ENV, ss.HOUSEHOLD_PORT_ENV):
         monkeypatch.delenv(name, raising=False)
-    assert ss.baihe_own_ports() == {8501, 8600, 8756}
+    assert ss.baihe_own_ports() == {8600, 8756}
     monkeypatch.setenv(ss.API_PORT_ENV, "9123")
     monkeypatch.setenv(ss.HOUSEHOLD_PORT_ENV, " 9124 ")
     (tmp_path / ".env").write_text(f"{ss.API_PORT_ENV}=9125\n")
-    assert ss.baihe_own_ports() == {8501, 8600, 8756, 9123, 9124, 9125}
+    assert ss.baihe_own_ports() == {8600, 8756, 9123, 9124, 9125}
     monkeypatch.setenv(ss.API_PORT_ENV, "not-a-port")
     assert 9123 not in ss.baihe_own_ports()

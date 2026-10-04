@@ -1,12 +1,9 @@
 """
 api/server.py -- the FastAPI application: Baihe's HTTP API.
 
-Stage one of the React + FastAPI migration (see
-`docs/archive/migration-react-fastapi.md`). This runs *alongside* the Streamlit
-app, not instead of it: both import the same modules and read the same
-`library/` folder, and neither calls the other over HTTP. Streamlit
-still owns every feature; this API exposes only what has been moved
-into `services/` so far.
+It serves the React app and the JSON routes over the `services/` layer, and
+reads the same `library/` folder as `cli.py` (the two never call each other
+over HTTP). See `docs/archive/migration-react-fastapi.md` for the history.
 
 Run it with `python -m api` (reads `BAIHE_API_*`, see
 `api/api_config.py`). With `BAIHE_API_AUTH=off` (the default) every
@@ -123,7 +120,7 @@ from services import auth_service
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Starts the background pieces Streamlit used to start (chapter-check
+    """Starts the background pieces (chapter-check
     scheduler, extension endpoint when enabled, the GPU-queue re-check),
     only when `settings.background_services` is on -- never in tests.
     Idempotent. The GPU-queue re-check is stopped at shutdown, any
@@ -186,8 +183,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app = FastAPI(
         title="Baihe Studio API",
         version=API_VERSION,
-        description="HTTP API for Baihe Studio. Runs alongside the Streamlit app and "
-                    "shares its library. Authentication is off by default (local use); "
+        description="HTTP API for Baihe Studio. Shares its library with the "
+                    "CLI. Authentication is off by default (local use); "
                     "set BAIHE_API_AUTH=on to enforce sessions and permissions.",
         # With auth on, the interactive docs/schema would publish every route
         # to anyone who can reach the port, so they are not served.

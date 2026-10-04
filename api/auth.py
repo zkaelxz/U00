@@ -462,7 +462,7 @@ class LocalOnlyCrossSiteGate:
     With auth OFF (all_api=True) the rule covers every POST/PUT/PATCH under
     /api, not just local_only routes: off mode grants owner rights with no
     CSRF token, and the loopback Origin check ignores the port, so without
-    this a page on another local port (Streamlit, a dev server) could start
+    this a page on another local port (a dev server) could start
     a paid LLM run or cancel a job with a no-preflight simple POST. With
     auth on, every non-GET already needs the session's CSRF header (itself
     a custom header that forces a preflight), so only local_only routes are

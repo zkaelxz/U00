@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from api.api_config import ApiSettings
 from api.server import create_app
 
-OTHER_PORT = {"Origin": "http://127.0.0.1:8501"}
+OTHER_PORT = {"Origin": "http://127.0.0.1:5173"}
 
 
 def _local(auth="off"):
