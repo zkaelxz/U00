@@ -212,6 +212,15 @@ def _hf_token():
     return None
 
 
+def _whisper_model_path():
+    """Settings > Offline Whisper model folder, as the app's own jobs use it, so
+    a model already on disk is loaded instead of downloaded. None when unset."""
+    with contextlib.suppress(Exception):
+        from services import settings_service
+        return settings_service.get_whisper_model_path()
+    return None
+
+
 def _device_class(text) -> str:
     low = (text or "").lower()
     if not low:
@@ -254,8 +263,8 @@ def run_clip(profile: dict, audio_path, expected_texts=None) -> dict:
             size, int(profile.get("beam_size", 5)), int(profile.get("min_silence_ms", 300)),
             float(profile.get("vad_threshold", 0.5)), bool(profile.get("separate_vocals")),
             profile.get("separation_backend", "auto"), False, False, False, None, "", use_gpu,
-            "qwen3_asr" if qwen else "whisper", "whisper_diff", qwen_batch_size=1,
-            vocals_work_dir=work)
+            "qwen3_asr" if qwen else "whisper", "whisper_diff",
+            local_model_path=_whisper_model_path(), qwen_batch_size=1, vocals_work_dir=work)
         t_pipeline_end = time.monotonic()
         if "failed_reason" in outcome:
             detail = scrub(outcome.get("detail") or "")

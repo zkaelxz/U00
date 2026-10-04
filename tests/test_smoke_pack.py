@@ -260,3 +260,21 @@ def test_stage_recorder_durations():
     assert rec.durations(70.0) == {"model_load": 4.0, "transcribe": 66.0}
     rec.progress(0.1, "Separating vocals on GPU, 10%")
     assert rec.separation_device == "gpu"
+
+
+@pytest.mark.parametrize("configured", ["/models/whisper-small", None])
+def test_run_clip_passes_the_offline_whisper_folder(tmp_path, monkeypatch, configured):
+    from services import settings_service
+    from services import transcribe_service as ts
+    monkeypatch.setattr(settings_service, "get_whisper_model_path", lambda: configured)
+    seen = {}
+
+    def fake_pipeline(rep, *args, **kwargs):
+        seen.update(kwargs)
+        return {"lines": [], "segments": []}
+
+    monkeypatch.setattr(ts, "_transcribe_pipeline", fake_pipeline)
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"RIFF")
+    sp.run_clip({"language": "zh", "use_gpu": False}, str(clip))
+    assert seen["local_model_path"] == configured
