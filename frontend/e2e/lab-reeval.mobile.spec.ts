@@ -1,6 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockReeval, overview } from './reevalMocks'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the Model re-evaluation card with a mocked
 // report (reevalMocks.ts; the e2e API's production model is Claude with no
@@ -24,7 +30,7 @@ async function noSideways(page: Page) {
 async function smallTargets(page: Page) {
   return page.locator('.reeval button:not(.link):not(.field-help-btn):not(.toggle), .reeval summary, .reeval select, .reeval input, .reeval a.btn').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
 }
 
@@ -59,7 +65,7 @@ test('re-evaluation on a phone: stacked report, 44px targets, no sideways scroll
   await qwen.getByRole('button', { name: 'Promote Ollama · qwen2.5:14b to production' }).tap()
   expect(calls.filter((x) => x.path.endsWith('/promote'))).toEqual([])
   const confirm = qwen.getByRole('button', { name: 'Confirm: make Ollama · qwen2.5:14b production' })
-  expect((await confirm.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(confirm))).toBeGreaterThanOrEqual(44)
   await noSideways(page)
   await confirm.tap()
   await expect(c.getByTestId('reeval-promote-status')).toHaveText('Ollama · qwen2.5:14b is now the production model.')

@@ -1,4 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the Transcribe card's callout and flagged
 // field fit the width and keep 44px touch targets.
@@ -25,8 +31,7 @@ test('the "Still needed" callout fits and its button is 44px tall', async ({ pag
   await page.goto('/#/drama/1/source')
   const callout = page.locator('#transcribe-needed')
   await expect(callout).toBeVisible()
-  const box = await callout.getByRole('button', { name: 'Paste transcript' }).boundingBox()
-  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect(await hitHeight(callout.getByRole('button', { name: 'Paste transcript' }))).toBeGreaterThanOrEqual(44)
   await expectNoHorizontalOverflow(page)
   await shot(page, 'transcribe-callout-phone')
 })

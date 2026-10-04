@@ -1,4 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // U01: the Dub stage of a novel-narration drama warns about lines with no
 // English yet, worded for the chosen narration language. Config, narration
@@ -106,7 +112,7 @@ test.describe('phone', () => {
     expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
     const box = await note.getByRole('link', { name: 'Go to Translate' }).boundingBox()
     expect(box).not.toBeNull()
-    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(note.getByRole('link', { name: 'Go to Translate' }))).toBeGreaterThanOrEqual(44)
     expect(box!.x + box!.width).toBeLessThanOrEqual(390)
     if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/dub-untranslated-phone.png`, fullPage: true })
   })

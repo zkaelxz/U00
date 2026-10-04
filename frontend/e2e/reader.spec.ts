@@ -2,6 +2,12 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Reader page (#/read/<id>). The seeded API has dramas but no lines, so
 // before every test this writes 90 lines for drama 2 straight into the
@@ -267,8 +273,7 @@ test.describe('phone', () => {
     const list = page.getByRole('region', { name: 'Dramas' })
     await expect(list.locator('.drama-card-read')).toHaveCount(3)
     const read = list.getByRole('link', { name: "Read Heaven Official's Blessing", exact: true })
-    const box = await read.boundingBox()
-    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(read)).toBeGreaterThanOrEqual(44)
     await list.getByRole('button', { name: 'Select', exact: true }).tap()
     await expect(list.locator('.drama-card-read')).toHaveCount(0)
     await page.getByRole('region', { name: 'Selection' }).getByRole('button', { name: 'Done', exact: true }).tap()
@@ -303,7 +308,7 @@ test.describe('phone', () => {
     const small = await sheet.locator('select, input:not([type=checkbox]), button:not(.field-help-btn), label:has(> input[type=checkbox])').evaluateAll((els) =>
       els
         .filter((e) => (e as HTMLElement).offsetParent !== null)
-        .map((e) => ({ h: e.getBoundingClientRect().height, t: (e.textContent ?? '').trim() || e.getAttribute('aria-label') }))
+        .map((e) => ({ h: window.hitHeight(e), t: (e.textContent ?? '').trim() || e.getAttribute('aria-label') }))
         .filter(({ h }) => h < 44),
     )
     expect(small).toEqual([])

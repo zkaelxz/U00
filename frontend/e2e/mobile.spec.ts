@@ -1,5 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project only (390x844, touch): each screen fits the width and its
 // main touch targets are at least 44px tall.
@@ -16,7 +22,7 @@ async function expectTall(page: Page, selector: string) {
   const heights = await page.locator(selector).evaluateAll((els) =>
     els
       .filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent ?? '').trim().slice(0, 40) })),
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? '').trim().slice(0, 40) })),
   )
   expect(heights.length, `no visible ${selector}`).toBeGreaterThan(0)
   for (const { h, text } of heights) expect(h, `${selector} "${text}"`).toBeGreaterThanOrEqual(44)
@@ -111,8 +117,7 @@ test('Notion: the settings card and Export to Notion fit a phone', async ({ page
   await expect(card.getByTestId('notion-token')).toHaveText('Token saved')
   await expectNoHorizontalOverflow(page)
   for (const name of ['Save token', 'Test connection', 'Clear token']) {
-    const box = await card.getByRole('button', { name }).boundingBox()
-    expect(box?.height ?? 0, name).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(card.getByRole('button', { name })), name).toBeGreaterThanOrEqual(44)
   }
 
   await page.goto('/#/drama/1/export')
@@ -137,7 +142,7 @@ test('Jellyfin: the settings card fits a phone (labels on one line, full-width f
   const labels = await card.locator('.field-label-row label').evaluateAll((els) =>
     els.map((e) => {
       const lh = parseFloat(getComputedStyle(e).lineHeight) || 20
-      return { text: e.textContent ?? '', lines: Math.round(e.getBoundingClientRect().height / lh) }
+      return { text: e.textContent ?? '', lines: Math.round(window.hitHeight(e) / lh) }
     }),
   )
   expect(labels.length).toBeGreaterThanOrEqual(4)
@@ -147,7 +152,6 @@ test('Jellyfin: the settings card fits a phone (labels on one line, full-width f
     expect(box?.width ?? 0, 'field too narrow').toBeGreaterThanOrEqual(250)
   }
   for (const name of ['Save', 'Save key', 'Remove key', 'Test connection', 'Scan library']) {
-    const box = await card.getByRole('button', { name, exact: true }).boundingBox()
-    expect(box?.height ?? 0, name).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(card.getByRole('button', { name, exact: true })), name).toBeGreaterThanOrEqual(44)
   }
 })

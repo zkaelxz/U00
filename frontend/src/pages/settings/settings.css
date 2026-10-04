@@ -62,7 +62,7 @@
 }
 @media (max-width: 640px) {
   .settings-fold > details.section { padding-inline: var(--space-3); }
-  .settings-page { gap: var(--space-4); }
+  .settings-page { gap: var(--space-5); }
   .settings-page .status-list > li { padding-inline: var(--space-3); }
   .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-5); }
 }

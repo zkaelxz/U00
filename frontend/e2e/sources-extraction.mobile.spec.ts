@@ -3,6 +3,12 @@ import { expect as baseExpect, test, type Page } from '@playwright/test'
 import { COMIC_PAGE_PREVIEW, comicReview, followReview, mockExtraction, novelReview } from './sourcesExtractionMocks'
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { mockSources } from './sourcesMocks'
+import { installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the pasted-URL AI option and the Review
 // extraction step (parity SO09, SO06, SO10) fit the screen and have 44 px
@@ -23,7 +29,7 @@ async function tallTargets(page: Page) {
     const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="number"], input[type="url"], .extraction-fieldset label, .sources-skipped summary, .extraction-details summary'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
       .filter((x) => x.h < 44)
   })
   expect(small).toEqual([])

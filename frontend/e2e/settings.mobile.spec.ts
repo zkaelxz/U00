@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
+import { hitHeight, installHitArea } from './hitArea'
+
+// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone: each Settings switch has a >=44px-tall hit area (the ::after overlay)
 // and the page has no sideways scroll.
@@ -24,6 +30,6 @@ test('settings switches have 44px touch targets on a phone', async ({ page }) =>
   }
   // "Test" and "Set key" buttons in the engine rows are dense (.btn-sm) but still 44px on touch.
   for (const b of await page.getByRole('region', { name: 'Which engine does what' }).getByRole('button', { name: /^(Test|Set key|Replace|Close) / }).all())
-    expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect((await hitHeight(b))).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })

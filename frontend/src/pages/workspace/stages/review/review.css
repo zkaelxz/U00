@@ -310,3 +310,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 
 .review-flags { display: grid; gap: var(--space-2); justify-items: start; min-width: 0; }
 .review-flag-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+
+/* Phone: rows of dense buttons keep >= 12px between them so the 44px hit areas never overlap. */
+@media (max-width: 640px) {
+  .review-ai-panel, .review-ai-actions, .review-actions, .review-tools, .review-tm, .review-flagnav { gap: var(--space-3); }
+}
