@@ -15,7 +15,7 @@ test.afterEach(async ({ page }) => {
 
 async function open(page: Page, title: string) {
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
-  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.dispatchEvent('click')
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
 test('characters and glossary stay tables at 1280', async ({ page }) => {

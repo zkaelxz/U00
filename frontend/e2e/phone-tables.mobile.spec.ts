@@ -18,7 +18,7 @@ const sizes = [{ width: 390, height: 844 }, { width: 360, height: 800 }]
 
 async function openSection(page: Page, title: string) {
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
-  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.dispatchEvent('click')
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
 // On screen horizontally and the topmost thing at its centre (so nothing overlaps it).
@@ -95,7 +95,7 @@ for (const size of sizes) {
       expect(cell).toBeGreaterThanOrEqual(44)
       await expect(region.getByRole('cell', { name: 'Lin Wan' })).toBeVisible()
       await expect(region.locator('td[data-label="Aliases"]').first()).toHaveText('晚晚, 小晚')
-      await region.getByRole('button', { name: 'Edit 林晚' }).dispatchEvent('click')
+      await region.getByRole('button', { name: 'Edit 林晚' }).click()
       await expect(page.getByLabel('Original').first()).toBeVisible()
     })
 
