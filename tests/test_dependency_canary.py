@@ -15,6 +15,13 @@ dc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dc)
 
 
+@pytest.fixture(autouse=True)
+def _no_uv_by_default(monkeypatch):
+    # Whether uv happens to be installed must not change what the pip-path
+    # tests exercise; the uv tests below opt in explicitly.
+    monkeypatch.setattr(dc, "uv_path", lambda: None)
+
+
 def test_pin_is_strictly_below_failing_version():
     assert dc.compute_pin("pandas", "3.0.0") == "pandas<3.0.0"
     assert dc.is_newer("3.0.0", "2.2.3")
@@ -184,3 +191,74 @@ def test_report_does_not_pin_when_not_newer(tmp_path):
     res = dict(verdict=dc.FAIL, known_good="3.0.0", version="2.0.0", failures=[], tail="", reason="")
     dc.report(res, "pandas", True, p, out=lambda *_: None)
     assert p.read_text(encoding="utf-8") == ""
+
+
+def test_without_uv_uses_venv_and_pip(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(dc.subprocess, "run",
+                        _fake_runner(calls, ["1.0", "1.1"], lambda v: (0, "5 passed")))
+    dc.run_canary("requests", "1.1", False, False, root=_repo(tmp_path), log=lambda *_: None)
+    cmds = [c for c, _, _ in calls]
+    assert cmds[0][1:3] == ["-m", "venv"]
+    assert any(c[1:4] == ["-m", "pip", "install"] for c in cmds)
+    assert not any("uv" in c[0] for c in cmds)
+
+
+def test_with_uv_builds_venv_and_installs_through_uv(monkeypatch, tmp_path):
+    monkeypatch.setattr(dc, "uv_path", lambda: "/bin/uv")
+    monkeypatch.delenv("UV_CACHE_DIR", raising=False)
+    calls = []
+    inner = _fake_runner(calls, ["1.0", "1.1"], lambda v: (0, "5 passed"))
+
+    def fake(cmd, **kw):
+        if cmd[:3] == ["/bin/uv", "cache", "dir"]:
+            calls.append((list(cmd), kw.get("env"), kw.get("timeout")))
+            return SimpleNamespace(returncode=0, stdout="/real/uv-cache\n", stderr="")
+        return inner(cmd, **kw)
+    monkeypatch.setattr(dc.subprocess, "run", fake)
+    res = dc.run_canary("requests", "1.1", False, False, root=_repo(tmp_path), log=lambda *_: None)
+    assert res["verdict"] == dc.PASS
+    cmds = [c for c, _, _ in calls]
+    assert ["/bin/uv", "venv"] == cmds[1][:2]
+    installs = [c for c in cmds if c[:3] == ["/bin/uv", "pip", "install"]]
+    assert installs and all("--python" in c for c in installs)
+    assert any("--upgrade" in c for c in installs)
+    # The cache is the real one, not the throwaway HOME.
+    venv_env = next(e for c, e, _ in calls if c[:2] == ["/bin/uv", "venv"])
+    assert venv_env["UV_CACHE_DIR"] == "/real/uv-cache"
+
+
+def test_package_map_adds_tests_the_heuristic_misses(tmp_path):
+    t = tmp_path / "tests"
+    t.mkdir()
+    for n in ("test_static_analysis.py", "test_sources_a.py", "test_sources_b.py", "test_other.py"):
+        (t / n).write_text("import os\n")
+    assert dc.quick_test_files(t, "beautifulsoup4") == [
+        "tests/test_sources_a.py", "tests/test_sources_b.py", "tests/test_static_analysis.py"]
+    assert dc.quick_test_files(t, "Beautifulsoup4") == dc.quick_test_files(t, "beautifulsoup4")
+
+
+def test_every_mapped_glob_matches_a_real_test_file():
+    from pathlib import Path
+    tests = Path(ROOT, "tests")
+    for pkg, globs in dc.PACKAGE_TESTS.items():
+        for g in globs:
+            assert list(tests.glob(g)), f"{pkg}: {g} matches nothing"
+
+
+def test_then_full_runs_full_suite_only_after_quick_pass(monkeypatch, tmp_path):
+    calls, repo = [], _repo(tmp_path)
+    monkeypatch.setattr(dc.subprocess, "run",
+                        _fake_runner(calls, ["1.0", "1.1"], lambda v: (0, "5 passed")))
+    dc.run_canary("requests", "1.1", True, False, root=repo, log=lambda *_: None,
+                  then_full=True)
+    runs = [c for c, _, _ in calls if c[1:3] == ["-m", "pytest"]]
+    assert len(runs) == 2 and "-n" not in runs[0] and "-n" in runs[1]
+
+    calls.clear()
+    monkeypatch.setattr(dc.subprocess, "run", _fake_runner(
+        calls, ["1.0", "1.1"], lambda v: (1, "FAILED tests/test_a.py::t\n") if v == "1.1" else (0, "")))
+    res = dc.run_canary("requests", "1.1", True, False, root=repo, log=lambda *_: None,
+                        then_full=True)
+    assert res["verdict"] == dc.FAIL
+    assert not any("-n" in c for c, _, _ in calls if c[1:3] == ["-m", "pytest"])
