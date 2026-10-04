@@ -18,7 +18,7 @@ Do this only after a dependency change (`requirements-core.txt`, `constraints.tx
 - Everything: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` (takes 10+ minutes)
 - Frontend: `cd frontend && npx tsc --noEmit && npx vitest run`
 - Browser tests (`frontend/e2e/`) use the Chromium already installed. Never run `playwright install`.
-- GitHub CI is the merge gate until GitHub Actions minutes end (about 2026-10-03); after that the full local suite is the gate.
+- GitHub CI is the merge gate while the repo is public. If the repo becomes private or Actions minutes run out, the full local suite plus the frontend commands above is the gate.
 
 ## 2b. Check which source sites still answer
 - `python scripts/source_probe.py` does one polite GET of each site's root (sequential, 2 s apart, no cookies) and prints reachable / challenge-page / http-error / dns-failure / timeout. `--json` for machine output; `--include-set-aside` also lists set-aside sites that answered again. It never edits a file and does nothing when `CI` is set.
