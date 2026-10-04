@@ -231,7 +231,7 @@ Whisper often mishears proper nouns in Chinese without it showing. In order of v
 4. **Wider beam search** (8-10): costs time only.
 
 Other Transcribe options (Workspace > Transcribe):
-- **Speech-splitting sensitivity** and **speech detection sensitivity** (the Silero VAD threshold): the first controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing phantom lines.
+- **Speech-splitting sensitivity** (default 300 ms, range 300-3000 ms; 300 is the floor) and **speech detection sensitivity** (the Silero VAD threshold): the first controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing phantom lines.
 - **Remove background music before transcribing**: vocal separation with `audio-separator` (preferred) or Demucs. Adds a full extra pass; skip it for clean dialogue.
 - **Split long merged lines using word-level alignment** (experimental, off by default): re-aligns a line against its own audio with Meta's MMS aligner (`pip install torchaudio uroman`, ~1.1GB model on first use). It only re-times text Whisper already produced.
 - **Review > Check line coverage** (run before translating) flags overlong lines, large gaps, blank source text and untranslated lines.
@@ -375,7 +375,7 @@ The app already retries on CPU. The cause is usually a CPU-only PyTorch/ctransla
 
 ### GPU PyTorch (NVIDIA)
 
-`pip install torch` gives a CPU-only build on Windows, and installing torch, torchvision and torchaudio separately can leave mismatched versions. Diagnostics > Packages > GPU PyTorch shows your GPU, driver and installed torch family, and "Set up GPU PyTorch" (PC only) installs the matched CUDA build the app is tested with, then checks that CUDA works. The tested versions and index are in `diagnostics.TORCH_VARIANTS`. Afterwards every Install/Update pins the installed torch family, so a package wanting a different torch is refused instead of replacing your CUDA build.
+`pip install torch` gives a CPU-only build on Windows, and installing torch, torchvision and torchaudio separately can leave mismatched versions. Diagnostics > Packages > GPU PyTorch shows your GPU, driver and installed torch family, and "Set up GPU PyTorch" (PC only) installs the matched CUDA build the app is tested with, then checks that CUDA works. Afterwards every Install/Update pins the installed torch family, so a package wanting a different torch is refused instead of replacing your CUDA build.
 
 ### If your exported subtitles are blank
 
