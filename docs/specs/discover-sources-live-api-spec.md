@@ -10,7 +10,7 @@ Goal: expose Discover (title catalog, lookup helpers), Sources (the 15 content-s
 
 No service or router imports `sources`, `live_translate`, `title_library`, `known_sites`, `bulk_import` or `navigator` (grep of `services/` and `api/`).
 - `/api/source/dramas/{id}/config` is only the Workspace Source stage (`api/routers/source_routes.py:19-37`, `services/source_service.py`). Do not extend it; use a distinct router file name for the new `/api/sources` prefix.
-- Reusable: `/api/metadata/dramas/{id}/autofill` (SSRF pattern, `services/metadata_service.py`), `/api/jobs` (`JobRecord` has no `result` field, `api/schemas.py:156-170`), `services/novel_attach_service.py`, settings key presence and `resolve_key`.
+- Reusable: `/api/metadata/dramas/{id}/autofill` (SSRF pattern, `services/metadata_service.py`), `/api/jobs` (`JobRecord` has no `result` field, `api/schemas.py (before the package split):156-170`), `services/novel_attach_service.py`, settings key presence and `resolve_key`.
 - `source_service.get_source_config` reports `has_raw_novel_context` (`source_service.py:78`), the only observable trace of a Sources novel import.
 - The 15 adapters are in `sources/adapters/__init__.py:9-11` (`FILE_ORGANIZATION.md:163` still says "14 sites"). Search: 9 adapters (mangaz, manhuagui, baozimh, ranobes, zerosumonline, toonkor, missevan, guazimanhua, xbanxia). Sign-in: only bilibili and missevan set `auth_supported`. Adult toggle: only manhuagui. `auth_required` is set nowhere. `get_audio_url` (missevan) has no caller outside its tests, so missevan chapters cannot be imported (`run_import_job` falls to `get_chapter_text`, `sources/pipeline.py:134-149`). Bilibili is video-only (`get_metadata` and `download`, no series or chapter methods).
 
@@ -72,7 +72,7 @@ Rules: user-supplied URLs go through D-0 for the fetch and use no rendered or au
 ## 6. What the React screens need beyond the endpoints
 
 - Routes `/discover` and `/sources` (`parseRoute`, `frontend/src/router.ts:14-31`; job polling via `useJob`, `frontend/src/hooks/useJob.ts`).
-- A result-fetching hook: `JobRecord` carries no result (`types/jobs.ts`, `api/schemas.py:156`), so the UI calls `GET /api/sources/jobs/{id}/result` once polling reaches a terminal status.
+- A result-fetching hook: `JobRecord` carries no result (`types/jobs.ts`, `api/schemas.py (before the package split):156`), so the UI calls `GET /api/sources/jobs/{id}/result` once polling reaches a terminal status.
 - Handoff card: open in the user's own browser, a paste-page-source box, retry.
 - Per-source cards with the six capability fields; a Terms block must not read as "OK" while enforcement is off.
 - Chapter picker with select-all; an adult-toggle refresh that invalidates cached chapter lists (Class U, `sources_tab.py:824-829`).

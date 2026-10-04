@@ -179,7 +179,7 @@ Evidence:
 - The stage always defaults to the default stage (`stages.ts:23`, `router.ts:32`).
 - On phone the stage tabs scroll sideways and cut "Export" to "Ex" (`ws-*-phone.png`).
 - Stage content starts at about y=428 on a 390×844 phone.
-- **`GET /api/workflow/dramas/{id}/progress` exists** (`api/routers/workflow_routes.py:16-21`, schema `api/schemas.py:1846-1864`: `stage`, per-stage `state` done/current/pending/optional/blocked, `untranslated_count`, `flagged_count`) but **no frontend code calls it**.
+- **`GET /api/workflow/dramas/{id}/progress` exists** (`api/routers/workflow_routes.py:16-21`, schema `api/schemas.py (before the package split):1846-1864`: `stage`, per-stage `state` done/current/pending/optional/blocked, `untranslated_count`, `flagged_count`) but **no frontend code calls it**.
 
 | Task | Current | Proposed |
 |---|---|---|

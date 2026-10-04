@@ -45,7 +45,7 @@ Source browser-tier status (owner-reported 2026-10; static fetch returned an emp
 - Bilibili Manga: chapter import reads the browser-rendered page only; unverified for the `mc<comic>/<episode>` reader (needs a real-site check, signed in for locked chapters).
 - Piaotian: Cloudflare challenge on plain requests; stopped by design, not bypassed. Use a saved page from your own browser.
 
-Deferred: Step 108 (adapter interfaces), and the `db.py` and `api/schemas.py` splits.
+Deferred: Step 108 (adapter interfaces), and the `db.py` split (the `api/schemas.py` split is done: `api/schemas/` package).
 
 Deferred until a need arises (owner decision 2026-09-30):
 - A table-of-contents picker, a profile-management screen and a fixture-refresh command.

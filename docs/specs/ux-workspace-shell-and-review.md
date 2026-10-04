@@ -13,8 +13,8 @@ Seen as images: `scratchpad/shots/phone/workspace-review-phone-light.png`, `shot
 - Review is four stacked panels (`ReviewStage.tsx:18-21`); filter/search not sticky (`LinesPanel.tsx:81-109`); pager bottom only (`:117-123`); shortcut help is a `title` tooltip only (`:67-74`, fails rule 11); Alt+Up/Down only moves between flagged rows on the page (`:43-58`); save closes the editor with no advance (`LineRow.tsx:55-60`); meta row 0.8rem (`review.css:10`); about 176px per line on phone.
 - No React code calls `/api/restructure/*`, `/coverage`, `/pacing-flags`, `/provenance` or `/original-text`.
 - "Translate 0 lines" is enabled (`TranslateStage.tsx:81,139-141`).
-- No "set a flag" endpoint (`LinesPatchRequest`, `api/schemas.py:1007-1017`, has no flag field; only `dismiss-flag`). It accepts `sfx`, which the React `LinePatch` omits (`types/review.ts:44-52`).
-- Restructure writes need `expected_line_ids` for the whole drama (`schemas.py:1402-1406`, `restructure_service.py:93-94`); Review loads 40-line pages.
+- No "set a flag" endpoint (`LinesPatchRequest`, `api/schemas.py (before the package split):1007-1017`, has no flag field; only `dismiss-flag`). It accepts `sfx`, which the React `LinePatch` omits (`types/review.ts:44-52`).
+- Restructure writes need `expected_line_ids` for the whole drama (`schemas.py (before the package split):1402-1406`, `restructure_service.py:93-94`); Review loads 40-line pages.
 - Job ids are `<kind>_<dramaId>` across services. `compute_workspace_stage_index` (`services/workflow_service.py:10-56`) returns 0-6 on the 7-tab scale; no endpoint yet.
 - `FILE_ORGANIZATION.md:344-349` is stale for `frontend/src/components/` (lists only LibraryList and DramaDetailPanel).
 
