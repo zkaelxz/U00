@@ -683,7 +683,7 @@ def undo_merge_speakers(drama_id: int, undo_id: str, *, user_id=None) -> dict:
         # The id is kept in this case, so the UI keeps its undo button.
         raise ConflictError(_BUSY.format(what="undoing"), details={"reason": "job_running"})
     _sweep_merge_undos()
-    out = db.undo_merge_speakers_atomic(drama_id, undo_id, user_id, time.time(),
+    out = db.undo_merge_speakers_atomic(drama_id, undo_id, user_id, None,
                                         lambda rel: _clip_exists(drama_id, rel))
     if out["status"] == "missing":
         raise NotFoundError("There is nothing to undo; the undo was used or has expired.")

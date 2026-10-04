@@ -965,7 +965,7 @@ class TestMergeSpeakers:
         merged = self._merge(client, did, "S3", "S1")
         assert merged.status_code == 200
         assert _post(client, did, "S1", pronouns="he/him").status_code == 200  # committed edit, not a 500
-        assert self._undo(client, did, merged.json()["undo"]).status_code in (200, 409)
+        assert self._undo(client, did, merged.json()["undo"]).status_code == 409  # target edited after the merge
         assert self._undo(client, did, {"undo_id": "x" * 30}).status_code == 404  # the real answer
 
     def test_merge_needs_confirm(self, client, isolated_db):

@@ -2787,7 +2787,7 @@ def merge_speakers_atomic(drama_id: int, source: str, target: str, user_id, now:
         conn.close()
 
 
-def undo_merge_speakers_atomic(drama_id: int, undo_id: str, user_id, now: float, clip_exists):
+def undo_merge_speakers_atomic(drama_id: int, undo_id: str, user_id, now, clip_exists):
     """Reverses the merge recorded under undo_id, in ONE transaction. The
     record must belong to this drama and user and be unexpired; it is
     single-use, deleted whatever the outcome.
@@ -2802,6 +2802,11 @@ def undo_merge_speakers_atomic(drama_id: int, undo_id: str, user_id, now: float,
     conn = get_conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
+        if now is None:
+            # Read after the write lock is held: waiting for the lock can take
+            # seconds, and an expiry decided before it would let an undo run
+            # after live_speaker_merge_undo_clips already reported its clip unused.
+            now = time.time()
         rec = conn.execute(
             "SELECT * FROM speaker_merge_undos WHERE id = ? AND drama_id = ? "
             "AND COALESCE(user_id, -1) = COALESCE(?, -1)", (undo_id, drama_id, user_id)).fetchone()
