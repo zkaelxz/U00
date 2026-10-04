@@ -781,7 +781,7 @@ def test_failed_error_note_write_is_logged(isolated_db, monkeypatch):
         def warning(self, msg, *args):
             seen.append(msg % args)
     monkeypatch.setattr(applog, "get_logger", lambda: Log())
-    monkeypatch.setattr(run_svc.render_svc, "_check_cancel", lambda jid: None)
+    monkeypatch.setattr(run_svc.render_svc, "check_cancel", lambda jid: None)
     monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
     monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "auto")
     monkeypatch.setattr(run_svc.settings_service, "resolve_key", lambda k: None)
@@ -802,7 +802,7 @@ def test_failed_error_note_write_is_logged(isolated_db, monkeypatch):
 def test_stored_page_error_note_is_redacted(isolated_db, monkeypatch):
     import background_jobs
     stored = []
-    monkeypatch.setattr(run_svc.render_svc, "_check_cancel", lambda jid: None)
+    monkeypatch.setattr(run_svc.render_svc, "check_cancel", lambda jid: None)
     monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
     monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "auto")
     monkeypatch.setattr(run_svc.settings_service, "resolve_key", lambda k: None)

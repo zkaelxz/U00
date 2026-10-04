@@ -225,7 +225,7 @@ SIGN_IN_ENV_NAMES = ("BAIHE_GOOGLE_CLIENT_ID", "BAIHE_GOOGLE_CLIENT_SECRET", "BA
 def _sign_in_values(env, from_env_file: bool) -> dict:
     """The three sign-in settings. At real startup (`environ` not given) the
     project's `.env` is read too -- the same file and parser the engine keys
-    use (`settings_service._read_env_file`), with `.env` taking priority over
+    use (`settings_service.read_env_file`), with `.env` taking priority over
     the process environment, like `settings_service.resolve_key`."""
     file_env = {}
     if from_env_file:
