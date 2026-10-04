@@ -10,11 +10,11 @@ You find drift between Baihe's surfaces. CLI/UI parity is a rule learned from re
 **Surfaces:**
 - `cli.py`
 - `tabs/*.py` (frozen, being removed; useful as the reference for behaviour)
-- `services/*.py` and `api/routers/*.py`, with `api/schemas.py`
+- `services/*.py` and `api/routers/*.py`, with `api/schemas/`
 - the React client: `frontend/src/api/*.ts` (types in `frontend/src/api/types.ts`) and the pages/components that call it
 
 **Check:**
-1. **Contract drift:** for each response and request model in `api/schemas.py`, compare the matching TypeScript type. Look for missing or extra fields, optional vs required mismatches, and enum or literal values that differ.
+1. **Contract drift:** for each response and request model in `api/schemas/`, compare the matching TypeScript type. Look for missing or extra fields, optional vs required mismatches, and enum or literal values that differ.
 2. **Dead ends:**
    - API routes that no React code calls, where the feature should be in the UI;
    - React calls to paths or methods that no router defines;

@@ -3,7 +3,7 @@ api/routers/library_routes.py -- Library endpoints (reads, plus preset/voice-ban
 
 Every route here is a thin adapter: parse/validate the HTTP request,
 call `services.library_service`, convert the result into the contract
-in `api/schemas.py`. No SQL, no filtering logic of its own -- that all
+in `api/schemas/`. No SQL, no filtering logic of its own -- that all
 lives in the service, which the Streamlit Library tab calls too, so the
 two UIs can't disagree about what a filter means.
 

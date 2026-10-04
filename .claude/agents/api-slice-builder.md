@@ -17,7 +17,7 @@ The pattern:
   - A paid-engine route also uses `require_engines_allowed`/`require_paid_engines`.
   - Uploads, deletes and settings are local-only unless the lead says otherwise, and destructive actions need `confirm=true` (plus the typed word where the UI had one).
   - Routes that need the admin listener use `local_only()`.
-- **Schemas:** new Pydantic models are appended at the end of `api/schemas.py` under a slice header. Do not edit existing classes.
+- **Schemas:** new Pydantic models are appended at the end of the matching domain module in `api/schemas/` (`common` only for a shape several domains share), and its name is added to that module's `__all__`; `api/schemas/__init__.py` already star-imports every module. Do not edit existing classes.
 - **Server:** add one line to `api/server.py`.
 - **Route table:** add a row per route to the table in `docs/remote-access-decision.md`.
 - **Docs:** add an entry to `FILE_ORGANIZATION.md` for new files.

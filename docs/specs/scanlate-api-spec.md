@@ -27,7 +27,7 @@ Data model:
 - `bubbles(id, page_id, idx, x,y,w,h, source_text, translated_text, font_size, skip, font_category, kind, kind_confidence, confidence, language, orientation, panel_id, include_sfx)` `db.py:276` plus ALTERs :945-967. Reading order is `idx` (list position).
 - Files under `library/dramas/<id>/`: `pages/page_NNNN.ext` (original), `pages/typeset_NNNN.png` (render output, overwritten in place; the brush also writes it, tab :379-393), `pages/font_styles_NNNN.json`, `pages/typeset_pages.zip|pdf`, `fonts/<category>.ttf` (tab :327-345).
 - **Not stored anywhere:** cleanup/brush masks (applied straight to the typeset PNG); per-page rolling translation context (`st.session_state` only, tab :140-144; page_server keeps an in-memory dict); per-bubble text colour/align/font path (`render_text_in_box` accepts them, `process_page` never passes them); batch run notes; region history.
-- `JobRecord` has only status/progress/message/error (`api/schemas.py:156`, `db.py:733`), so job outputs must land in the DB or files.
+- `JobRecord` has only status/progress/message/error (`api/schemas.py (before the package split):156`, `db.py:733`), so job outputs must land in the DB or files.
 
 ## 2. Proposed slices (serial; one implementer session each)
 

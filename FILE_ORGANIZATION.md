@@ -491,7 +491,19 @@ baihe-subtitler/
 │   ├── llm_slots.py              shared cap for synchronous LLM/ffmpeg work in a request (2 server-wide,
 │   │                             1 per caller, 429 when busy): Reader LLM routes and the blocked-line retry
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
-│   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
+│   ├── schemas/                  the API contract (Pydantic models, API_VERSION), one module per domain;
+│   │                             domain modules import only from common
+│   │   ├── __init__.py     re-exports every module, so `from api.schemas import X` works
+│   │   ├── common.py       error envelope, API_VERSION and models shared by several domains
+│   │   ├── system.py       health, settings, diagnostics/setup, jobs, updates, notifications, extension, ports, bug reports
+│   │   ├── review.py       line views and edits, records/versions, restructure and resegment, Review AI extras
+│   │   ├── characters.py   characters, glossary and series-person models
+│   │   ├── translate.py    standalone translator, translate runs, workflow tiers, presets, bulk jobs
+│   │   ├── library.py      dramas, series, bulk actions, storage, media and export
+│   │   ├── sources.py      sources registry/config, Discover, tracked series
+│   │   ├── reader.py       Reader, novel text and novel file models
+│   │   ├── voice.py        dubbing, narration and voice-clone setup
+│   │   └── transcribe.py   transcribe runs/config, diarization, autotune, re-transcribe, live sessions
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
 │   ├── scanlate_schemas.py       automatic Scanlate request/response models (kept apart from schemas.py)
 │   ├── job_stage_schemas.py      Step 41 per-stage job timing models (kept apart from schemas.py)
@@ -676,7 +688,7 @@ baihe-subtitler/
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript). Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
-│   ├── src/api/                   client.ts (all HTTP) + types.ts (mirrors api/schemas.py); one <area>.ts per
+│   ├── src/api/                   client.ts (all HTTP) + types.ts (mirrors api/schemas/); one <area>.ts per
 │   │                              API area, e.g. review.ts, restructure.ts (add/delete/merge/split/re-segment/
 │   │                              restore), media.ts (Range stream URLs), libraryAdmin.ts (Library admin +
 │   │                              preset/voice-bank deletes), pcOnly.ts (PC-only mode store + pcOnlyFetch:

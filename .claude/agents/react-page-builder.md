@@ -7,7 +7,7 @@ model: sonnet
 
 You build one Baihe React feature in `frontend/`. Before editing, read only the files the task names, plus:
 - any UX spec the lead names (e.g. `docs/specs/ux-*.md`);
-- the API routes you call, in `api/routers/` and `api/schemas.py`. Never invent an endpoint. If one is missing, stop and report it.
+- the API routes you call, in `api/routers/` and `api/schemas/`. Never invent an endpoint. If one is missing, stop and report it.
 
 Style (a pro editor that stays minimal):
 - Reuse the shared `Section`/`Field` blocks and the patterns of the existing pages: collapsible Sections, Fields with tooltips, remembered state.
