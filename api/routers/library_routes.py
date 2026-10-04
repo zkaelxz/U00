@@ -39,7 +39,7 @@ def _to_summary(drama: dict) -> DramaSummary:
                         custom_tags=library_service.split_custom_tags(drama))
 
 
-def _to_detail(drama: dict) -> DramaDetail:
+def to_detail(drama: dict) -> DramaDetail:
     return DramaDetail(**{f: drama.get(f) for f in _DETAIL_FIELDS},
                        custom_tags=library_service.split_custom_tags(drama),
                        # Never the query: a pasted download link can carry a token.
@@ -75,7 +75,7 @@ def list_dramas(
 @router.get("/dramas/{drama_id}", dependencies=[require_permission("library.read")], response_model=DramaDetail, summary="One drama's details",
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def get_drama(drama_id: int = Path(ge=1)):
-    return _to_detail(library_service.get_library_drama(drama_id))
+    return to_detail(library_service.get_library_drama(drama_id))
 
 
 _ERR = {422: {"model": ErrorResponse}}

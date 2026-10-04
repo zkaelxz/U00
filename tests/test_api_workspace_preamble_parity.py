@@ -242,7 +242,7 @@ class TestCover:
         did = _drama()
         monkeypatch.setattr(cover_art_service, "MAX_COVER_BYTES", 10)
         monkeypatch.setattr(drama_routes, "_COVER_MULTIPART_OVERHEAD", 0)
-        monkeypatch.setattr(drama_routes, "_capped", lambda *a: (_ for _ in ()).throw(
+        monkeypatch.setattr(drama_routes, "capped", lambda *a: (_ for _ in ()).throw(
             AssertionError("body read")))
         r = client.post(f"/api/dramas/{did}/cover", files={"file": ("c.png", _image(), "image/png")})
         assert r.status_code == 413

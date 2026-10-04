@@ -371,8 +371,8 @@ def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
             "Falling back to the free heuristic for this page."
         ) from exc
     except Exception as exc:
-        from core import _is_network_error
-        if _is_network_error(exc):
+        from core import is_network_error
+        if is_network_error(exc):
             raise BubbleModelUnavailable(
                 "Couldn't download the bubble-detection model -- this is a network "
                 "problem, not a problem with your image.\n\n"
@@ -1040,7 +1040,7 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
     one id; they carry no rolling context."""
     import json
     import re
-    from translate_engines import (LANGUAGE_NAMES, _extract_first_json_value,
+    from translate_engines import (LANGUAGE_NAMES, extract_first_json_value,
                                    build_translation_context, call_llm_json)
     from translation_guide import build_glossary_block
 
@@ -1084,7 +1084,7 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
                          usage_cb=usage_cb)
     if not text:
         return None, previous_context
-    data = _extract_first_json_value(
+    data = extract_first_json_value(
         re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip())
     if not isinstance(data, dict) or not isinstance(data.get("translations"), dict):
         return None, previous_context

@@ -1,11 +1,6 @@
 """
-tests/test_media_preview.py -- Step 12c: Review & edit's media player
-(row-click seek, typed-timestamp jump, "Play current segment"), the
-burned-subtitle preview clip, and the per-line SFX/non-verbal cue marker.
-
-The player is Streamlit's own st.audio/st.video, seeked by re-drawing it
-with start_time/end_time -- so these tests drive the real widgets through
-AppTest and read back what the player element was actually given.
+tests/test_sfx_export.py -- the per-line SFX/non-verbal cue marker: how it
+is exported to subtitle formats, persisted, and positioned among notes.
 """
 import os
 import sys
@@ -16,9 +11,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import core as core_module
 import subtitle_formats
 from core import Line
-
-
-# ------------------------------------------------------------- player (AppTest)
 
 
 # ------------------------------------------------------------- SFX cue marker

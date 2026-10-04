@@ -823,7 +823,7 @@ class TestBulkReflectPipeline:
         status1 = self._drive_stage(isolated_db, engine, jid1, lambda lid: f"draft-{lid}")
         assert status1 == "applied"
 
-        stage2 = bt._sibling_stage_job(job1["pipeline_id"], "reflect")
+        stage2 = bt.sibling_stage_job(job1["pipeline_id"], "reflect")
         assert stage2 is not None and stage2["status"] == "submitted"
         assert len(isolated_db.list_bulk_jobs(did)) == 2
         # Stage 2's own prompt embeds stage 1's actual saved draft, not a
@@ -838,7 +838,7 @@ class TestBulkReflectPipeline:
             lambda lid: "needs polish" if lid == ids[0] else None)
         assert status2 == "applied"
 
-        stage3 = bt._sibling_stage_job(job1["pipeline_id"], "expressive")
+        stage3 = bt.sibling_stage_job(job1["pipeline_id"], "expressive")
         assert stage3 is not None and stage3["status"] == "submitted"
         assert len(isolated_db.list_bulk_jobs(did)) == 3
         stage3_prompt = engine.client.messages.batches.created[0]["params"]["messages"][0]["content"]
@@ -864,14 +864,14 @@ class TestBulkReflectPipeline:
         lines = isolated_db.load_line_objects(did)
         jid1 = bt.submit_reflect_pipeline(did, lines, engine, "claude", {"locale": "en-US"})
         self._drive_stage(isolated_db, engine, jid1, lambda i: "draft")
-        stage2 = bt._sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "reflect")
+        stage2 = bt.sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "reflect")
         self._drive_stage(isolated_db, engine, stage2["id"], lambda i: None)
 
         mutated = isolated_db.load_line_objects(did)
         mutated[0].en = "my own edit"
         isolated_db.save_lines(did, mutated, fields=("en",))
 
-        stage3 = bt._sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "expressive")
+        stage3 = bt.sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "expressive")
         self._drive_stage(isolated_db, engine, stage3["id"], lambda i: "FINAL")
         assert isolated_db.get_bulk_job(stage3["id"])["result_summary"]["kept_your_edit"] == 1
         assert isolated_db.load_line_objects(did)[0].en == "my own edit"

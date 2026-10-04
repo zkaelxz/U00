@@ -193,18 +193,6 @@ def test_one_session_at_a_time(client, fake_live):
     assert _wait(lambda: client.post("/api/live/sessions", json=body).status_code == 200)
 
 
-def test_streamlit_capture_job_blocks_a_start(client, fake_live):
-    import threading
-    gate = threading.Event()
-    assert background_jobs.start_job("live_capture", lambda: gate.wait(60))  # set in finally
-    try:
-        r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake"})
-        assert r.status_code == 409
-    finally:
-        gate.set()
-        _wait(lambda: not background_jobs.is_running("live_capture"))
-
-
 def test_job_gets_stream_check_and_ffmpeg_whitelist(client, fake_live):
     r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake"})
     assert r.status_code == 200

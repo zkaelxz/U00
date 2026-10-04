@@ -39,7 +39,7 @@ from urllib.parse import urlsplit
 import db
 import translate_engines
 from services import drama_service, library_service, settings_service
-from services.metadata_service import SUGGEST_FIELDS, _require_drama
+from services.metadata_service import SUGGEST_FIELDS, require_drama
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
@@ -381,7 +381,7 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     bad mode/model or no title 422; free allowance used up without
     allow_paid, a paid search on a free-tier key, or the monthly cap 409;
     no key / API failure 503 (fixed text)."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     if mode not in MODES:
         raise InvalidInputError("Unknown research mode.", details={"allowed": list(MODES)})
     model = model or DEFAULT_MODEL
@@ -460,7 +460,7 @@ def apply_research(drama_id: int, research_id: str, choices: dict, seen: Optiona
     replaced. "confirm" records the sources for a value that already matches.
     Returns
     {"drama_id", "replaced", "saved_alternates", "kept", "drama"}."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     if not isinstance(research_id, str) or not _RESEARCH_ID.match(research_id):
         raise InvalidInputError("research_id is not valid.")
     if not isinstance(choices, dict) or not choices:
@@ -518,5 +518,5 @@ def apply_research(drama_id: int, research_id: str, choices: dict, seen: Optiona
 
 
 def list_provenance(drama_id: int) -> dict:
-    _require_drama(drama_id)
+    require_drama(drama_id)
     return {"drama_id": drama_id, "fields": db.list_field_provenance(drama_id)}

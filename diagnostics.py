@@ -624,7 +624,7 @@ def model_folder(kind: str) -> str:
         return os.path.join(os.path.expanduser(home), "hub", "checkpoints")
     if kind == "audio_separator":
         import audio_preprocess
-        return audio_preprocess._MODEL_DIR
+        return audio_preprocess.MODEL_DIR
     raise ValueError(f"Unknown model folder {kind!r}")
 
 
@@ -885,7 +885,7 @@ def doctor_report(engines: list) -> list:
 # can leak the machine's username into a support conversation.
 # ---------------------------------------------------------------------------
 
-_PATH_PATTERN = re.compile(
+PATH_PATTERN = re.compile(
     r'(?:[A-Za-z]:)?[\\/](?:[^\s\\/:*?"<>|]+[\\/])+([^\s\\/:*?"<>|]+)')
 
 # ANSI escape sequences (CSI: colours, cursor moves), e.g. yt-dlp's
@@ -907,7 +907,7 @@ def redact_for_support(text: str) -> str:
     username = getpass.getuser()
     if username:
         text = re.sub(re.escape(username), "[USER]", text, flags=re.IGNORECASE)
-    text = _PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
+    text = PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
     return text
 
 
@@ -1052,7 +1052,7 @@ def parse_requirements_file(path: str) -> list:
     return specs
 
 
-def _deno_default_install_path() -> str:
+def deno_default_install_path() -> str:
     """Where Deno's own official installer puts the binary, regardless of
     whether the CURRENT process's PATH has picked it up yet -- used to
     tell "installed, but this process hasn't seen it yet" apart from

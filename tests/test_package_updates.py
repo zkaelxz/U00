@@ -187,14 +187,14 @@ def test_check_reports_each_installed_package_and_caches(monkeypatch):
 def test_upgrade_installs_exactly_the_checked_target(monkeypatch):
     _fake_env(monkeypatch, {"jieba": "0.42.0"}, {"jieba": ["0.42.0", "0.42.1"]})
     from services import library_admin_service
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
     svc.check_package_updates()
     seen = []
 
     def fake(cmd, timeout):
         seen.append(cmd)
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
     with pytest.raises(svc.AdminActionStale):             # the confirmed version is required
         svc.upgrade_dependency("jieba", confirm=True)
     assert svc.upgrade_dependency("jieba", confirm=True, target="0.42.1")["ok"] is True
@@ -202,14 +202,14 @@ def test_upgrade_installs_exactly_the_checked_target(monkeypatch):
     assert "jieba==0.42.1" in cmd and "--upgrade" not in cmd
     assert cmd[cmd.index("-c") + 1].endswith("constraints.txt")
     # pip may have moved other packages too: every cached target is dropped
-    assert svc._cached_update("jieba") is None
+    assert svc.cached_update("jieba") is None
 
 
 def test_upgrade_refused_when_the_check_found_nothing_allowed(monkeypatch):
     _fake_env(monkeypatch, {"pypdf": "5.0.0"}, {"pypdf": ["5.0.0"]})
     from services import library_admin_service
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("no pip"))
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
     svc.check_package_updates()
     with pytest.raises(svc.AdminActionStale):
         svc.upgrade_dependency("pypdf", confirm=True, target="5.0.0")
@@ -251,8 +251,8 @@ def test_a_concurrent_check_never_starts_a_second_fan_out(monkeypatch):
 def test_upgrade_refuses_a_target_the_check_no_longer_offers(monkeypatch):
     _fake_env(monkeypatch, {"jieba": "0.42.0"}, {"jieba": ["0.42.0", "0.42.1"]})
     from services import library_admin_service
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("no pip"))
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
     with pytest.raises(svc.AdminActionStale):              # no check yet
         svc.upgrade_dependency("jieba", confirm=True, target="0.42.1")
     svc.check_package_updates()
@@ -263,19 +263,19 @@ def test_upgrade_refuses_a_target_the_check_no_longer_offers(monkeypatch):
 def test_install_and_torch_setup_clear_the_cached_check(monkeypatch):
     _fake_env(monkeypatch, {"jieba": "0.42.0"}, {"jieba": ["0.42.0", "0.42.1"]})
     from services import library_admin_service
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
 
     def fake(cmd, timeout):
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
     svc.check_package_updates()
     svc.install_dependency("jieba", confirm=True)
-    assert svc._cached_update("jieba") is None
+    assert svc.cached_update("jieba") is None
     svc.check_package_updates()
     monkeypatch.setattr(diagnostics, "nvidia_driver_info", lambda: None)
     monkeypatch.setattr(svc, "verify_torch", lambda: {"torch": "2.11.0+cpu", "error": None})
     svc.setup_gpu_torch("cpu", confirm=True)
-    assert svc._cached_update("jieba") is None
+    assert svc.cached_update("jieba") is None
 
 
 def test_a_check_overtaken_by_an_install_stores_nothing(monkeypatch):
@@ -288,4 +288,4 @@ def test_a_check_overtaken_by_an_install_stores_nothing(monkeypatch):
     monkeypatch.setattr(diagnostics, "pypi_release_versions", fetch_during_an_install)
     out = svc.check_package_updates()
     assert out["packages"]["jieba"]["status"] == "update"     # the caller still sees it
-    assert svc._cached_update("jieba") is None                  # but Update can't use it
+    assert svc.cached_update("jieba") is None                  # but Update can't use it

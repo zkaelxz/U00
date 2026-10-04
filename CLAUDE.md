@@ -6,7 +6,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - `start.bat` runs `python -m api`: FastAPI on 127.0.0.1:8600, which also serves the built React app from `frontend/dist`.
 - Dev: `BAIHE_API_ENV=development python -m api`, and `cd frontend && npm ci && npm run dev` (Vite on :5173, proxies `/api`).
 - Layers, top to bottom: `frontend/` (React) -> `api/` (routers in `api/routers/*_routes.py`, Pydantic models in `api/schemas.py`, auth in `api/auth.py`) -> `services/*_service.py` (UI-free logic; raise the errors in `services/service_errors.py`) -> root domain modules -> `db.py`.
-- `db.py`: plain sqlite3, no ORM. Schema changes go through `ALTER TABLE ... ADD COLUMN` in `init_db`.
+- `db.py`: plain sqlite3, no ORM. Schema changes go through `ALTER TABLE ... ADD COLUMN` in `init_db`; list each new column in `_INIT_DB_MIGRATED_COLUMNS` in `tests/test_db.py` so the upgrade test covers it (a guard test fails if you forget).
 - `translate_engines.py`: every translation/LLM engine plus the id-keyed request, retry and redaction helpers.
 - `background_jobs.py`: thread-based jobs. The in-memory dict is the authority, with a best-effort mirror in the `job_records` table.
 - `sources/`: site adapters (`sources/adapters/`) and the fetch ladder. `cli.py`: headless batch runner.
@@ -20,7 +20,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - CI is the merge gate while the repo is public; if it becomes private or Actions minutes run out, the full local suite (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands is the gate. Never skip or weaken a test.
 
 ## Rules learned from real bugs
-- Match LLM results back to lines by explicit id, never by list position (`translate_engines._request_translations_with_retry`, `_parse_id_keyed_json`).
+- Match LLM results back to lines by explicit id, never by list position (`translate_engines.request_translations_with_retry`, `parse_id_keyed_json`).
 - API keys go in headers, never in URLs, log lines or stored error messages. Pass any error text through `translate_engines.redact_secrets` before showing, storing or logging it. API responses never include secrets, filesystem paths or fetched URLs (booleans only).
 - Every outbound HTTP call has a `timeout=`. `tests/test_static_analysis.py` enforces this for every file under `services/` and `api/` plus the other modules it lists; add a new HTTP-calling module outside those two packages to its list.
 - Background jobs write only the fields they own: `db.save_lines(drama_id, lines, fields=("en",))`. A full sync (`fields=None`) makes the list the drama's lines: rows are updated in place by id, rows missing from the list are deleted, and a field is written when it differs from the Line's `orig`. Build Lines with `core.line_from_row` (it carries every field and `orig`) so flags, speaker and the like aren't wiped.

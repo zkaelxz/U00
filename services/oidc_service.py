@@ -190,7 +190,7 @@ def _bounded(value) -> str:
 
 def _net56_key(ip: str) -> str:
     """The IPv6 /56 of a client address; "" for IPv4 or unparseable."""
-    addr = auth_service._parse_ip(ip)
+    addr = auth_service.parse_ip(ip)
     if addr is None or addr.version == 4:
         return ""
     return str(ipaddress.ip_network(f"{addr}/56", strict=False))
@@ -198,7 +198,7 @@ def _net56_key(ip: str) -> str:
 
 def _net_key(ip: str) -> str:
     """The wide net of a client address (IPv4 /24, IPv6 /48); "" if unparseable."""
-    return auth_service._ip_prefix(ip)
+    return auth_service.ip_prefix(ip)
 
 
 class SignIn:
@@ -239,7 +239,7 @@ class SignIn:
             try:
                 self._audit_limiter.hit("*")
                 auth_service.write_audit(None, "login.rate_limited",
-                                         f"{kind} ip {auth_service._ip_prefix(client_ip)}")
+                                         f"{kind} ip {auth_service.ip_prefix(client_ip)}")
             except RateLimitedError:
                 pass
             raise
@@ -328,7 +328,7 @@ class SignIn:
         user_id}; raises LoginError (already audited) on any refusal. On
         success the session the client presented, if any, is revoked and a
         fresh one is created (never adopted)."""
-        ip = auth_service._ip_prefix(client_ip)
+        ip = auth_service.ip_prefix(client_ip)
         email = None
         try:
             record = self._take(txn_id)

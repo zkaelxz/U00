@@ -114,7 +114,7 @@ EXCLUDED_DIR_NAMES = frozenset({
 # Excluded at the repo root only (frontend/dist is staged on its own).
 EXCLUDED_TOP_LEVEL = frozenset({
     "tests", "docs", "scripts", "installer", "frontend", "build", "dist", "env",
-    ".github", ".claude", ".streamlit",
+    ".github", ".claude",
 })
 EXCLUDED_FILE_NAMES = frozenset({
     # Per-copy state and markers that must never ship.
@@ -600,8 +600,8 @@ def stage_service(payload_dir, python_zip, winsw_exe, caddy_exe, caddy_licenses)
 def write_manifest(payload_dir, version, python_version=PYTHON_VERSION,
                    python_sha256=PYTHON_EMBED_SHA256) -> Path:
     """What this payload contains, for the upgrade logic the design keeps
-    (docs/windows-installer-design.md, update manifest). Installed as
-    <install dir>\\manifest.json."""
+    (docs/windows-installer-design.md, "7. Upgrade", the per-component
+    manifest). Installed as <install dir>\\manifest.json."""
     payload_dir = Path(payload_dir)
     wheels_dir = payload_dir / "wheels"
     wheels = [{"file": p.name, "sha256": sha256_of(p), "bytes": p.stat().st_size}

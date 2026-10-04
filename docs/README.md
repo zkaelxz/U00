@@ -27,16 +27,13 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`browser-extension.md`** — the Translate-the-page-you're-reading
   feature (Step 34/34b/96): what it does, what was verified against a
   real site.
-- **`react-ui-guidelines.md`** — concise-UI rules for the React app and a per-screen change list.
+- **`react-ui-guidelines.md`** — concise-UI rules for the React app.
 - **`engineering-standards.md`** — shared principles: precedence, scope,
   review policy, verification, git/safety.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
   CI-minutes notes.
 - **`household-access.md`** — step-by-step guide to reach Baihe from
   household devices through Caddy (`deploy/caddy/Caddyfile.template`).
-- **`media-server-metadata-design.md`** — Step 116: how Baihe's title
-  metadata could reach or come from Jellyfin/Plex (NFO sidecars, pulling
-  Jellyfin's metadata, a provider endpoint); design only, nothing built.
 - **`windows-installer-design.md`** — the Windows installer/uninstaller:
   Step 80's design, as built in Step 80b (`installer/`).
 - **`technical-notes.md`** — an engineering changelog of real bugs found
@@ -53,7 +50,8 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   truth: the migration review, handoff and React/FastAPI phase log, the
   old roadmap master tracker, the Streamlit test triage, the superseded
   remote-access and browser-extension handoffs, the installer research
-  notes and the Step 19 click-through audit.
+  notes, the Step 19 click-through audit, and the unbuilt Jellyfin/Plex metadata
+  design.
 
 ## `docs/secondary-review-notes.md` — not present here
 

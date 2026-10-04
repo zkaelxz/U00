@@ -201,10 +201,10 @@ def _xml_env_from(text):
 
 class TestEnvFile:
     def test_matches_the_apps_own_parser(self, tmp_path):
-        from services.settings_service import _read_env_file
+        from services.settings_service import read_env_file
         path = tmp_path / ".env"
         path.write_bytes("\ufeff# comment\n\nA=1\nB = 'two'\nC=\"th=ree\"\nnot a pair\n".encode("utf-8"))
-        assert service.read_env_file(path) == _read_env_file(str(path)) == {
+        assert service.read_env_file(path) == read_env_file(str(path)) == {
             "A": "1", "B": "two", "C": "th=ree"}
 
     def test_missing_file(self, tmp_path):
@@ -1444,7 +1444,7 @@ class TestPortsMatchTheApp:
 
     def test_the_household_port_may_not_be_one_of_baihes_own(self, monkeypatch, tmp_path):
         from services import settings_service as ss
-        monkeypatch.setattr(ss, "_default_env_path", lambda: str(tmp_path / ".env"))
+        monkeypatch.setattr(ss, "default_env_path", lambda: str(tmp_path / ".env"))
         for name in (ss.API_PORT_ENV, ss.HOUSEHOLD_PORT_ENV):
             monkeypatch.delenv(name, raising=False)
         for port in ss.baihe_own_ports():

@@ -57,7 +57,7 @@ class EdgeTTSBlockedError(RuntimeError):
     losing the line."""
 
 
-async def _edge_tts_synthesize(text: str, voice: str, out_path: str):
+async def edge_tts_synthesize(text: str, voice: str, out_path: str):
     import edge_tts
     communicate = edge_tts.Communicate(text, voice)
     try:
@@ -75,7 +75,7 @@ async def _edge_tts_synthesize(text: str, voice: str, out_path: str):
 
 def synthesize_line(text: str, voice: str, out_path: str):
     """Single hook point: swap this out for a voice-cloning backend later."""
-    asyncio.run(_edge_tts_synthesize(text, voice, out_path))
+    asyncio.run(edge_tts_synthesize(text, voice, out_path))
 
 
 # ---------------------------------------------------------------------------

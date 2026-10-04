@@ -1,11 +1,8 @@
 # Windows installer/uninstaller — design and as-built reference
 
-Roadmap Step 80 wrote the design (2026-09-27); Step 80b built it
-(2026-09-30, user decision "Yes, start it"). The first version of this
-document predates the React + FastAPI migration and described a Streamlit
-app. This version describes the app as it is now: `python -m api` serves
-the API and the prebuilt React screens from one process on
-`http://127.0.0.1:8600/`. Read it with
+Design and as-built reference (the installer was built 2026-09-30).
+`python -m api` serves the API and the prebuilt React screens from one
+process on `http://127.0.0.1:8600/`. Read it with
 [`archive/windows-installer-research-notes.md`](archive/windows-installer-research-notes.md),
 whose 2026-09-28 decisions are folded in below.
 
@@ -23,27 +20,22 @@ owed (see §9).
 
 ## 1. Decisions this builds on
 
-- **Inno Setup + bundled Python, not a frozen executable** (Step 80 §2, user-confirmed
-  2026-09-28). Freezers (PyInstaller/Nuitka) fit badly with the app's many
-  optional, sometimes mutually exclusive ML backends, and they can't reuse the
-  tiered `requirements-*.txt` files or Diagnostics' install buttons. Inno Setup is
-  free, scriptable, supports silent install/uninstall natively, and gives a real
-  Settings → Apps entry. MSI/WiX was ruled out (no fleet-management need), and so
-  was conda (research notes §3: it would duplicate the requirements files). Conda
-  is the fallback only if embeddable Python + pip fails in practice.
-- **The React screens ship inside the installer** (user, 2026-09-30). There is no
-  separate frontend zip for installed users: `frontend/dist` is built at package
-  time and served by FastAPI (`api/static_frontend.py`). No Node.js is needed on
-  the user's PC.
-- **Heavier components stay opt-in** (research notes, decision 2). The installer
-  installs the Basic tier only. Media and optional packages (GPU torch,
-  diarization, OCR, TTS, …) are added afterwards from Diagnostics, as today.
-- **Code signing is deferred** until a public release (research notes §8). The
-  installer is unsigned, so SmartScreen shows "Windows protected your PC" and
-  the user clicks More info → Run anyway.
-- **`start.bat`/`start.ps1` stay the source-checkout path**, unchanged. Two
-  audiences, two entry points; both run the same `python -m api` and share the
-  same requirements files.
+- **Inno Setup + bundled Python, not a frozen executable** (user-confirmed
+  2026-09-28). Freezers fit badly with the app's many optional, sometimes
+  mutually exclusive ML backends, and can't reuse the tiered
+  `requirements-*.txt` files or Diagnostics' install buttons. Inno Setup is
+  free, scriptable, supports silent install/uninstall and gives a real
+  Settings → Apps entry. MSI/WiX and conda were ruled out; conda is the
+  fallback only if embeddable Python + pip fails in practice.
+- **The React screens ship inside the installer** (user, 2026-09-30). `frontend/dist` is
+  built at package time and served by FastAPI (`api/static_frontend.py`); no
+  Node.js is needed on the user's PC.
+- **Heavier components stay opt-in** (research notes, decision 2): the installer
+  installs the Basic tier only; the rest comes from Diagnostics.
+- **Code signing is deferred** until a public release (research notes §8), so
+  SmartScreen shows "Windows protected your PC" (More info → Run anyway).
+- **`start.bat`/`start.ps1` stay the source-checkout path**; both run the same
+  `python -m api` and share the same requirements files.
 
 ## 2. What gets installed, and where
 
@@ -93,8 +85,7 @@ for the folder the previous install already used.
 `db.LIBRARY_DIR`, `dictionary.CEDICT_PATH` and `settings_service`'s `.env` path
 come from `data_dir()`. The app log already follows `db.LIBRARY_DIR`.
 For an installed copy, `activate_portable_mode()` also points `HF_HOME`,
-`TORCH_HOME` and `BAIHE_AUDIO_SEP_MODEL_DIR` at `<data>\model_cache\…`
-(Step 80 §5 item 3), always via `setdefault`, so a user's own `HF_HOME` wins.
+`TORCH_HOME` and `BAIHE_AUDIO_SEP_MODEL_DIR` at `<data>\model_cache\…`, always via `setdefault`, so a user's own `HF_HOME` wins.
 Portable mode (the `PORTABLE` marker) is unchanged.
 
 **Keys stay on the PC.** The payload never contains a `.env` (see §3). Keys
@@ -120,7 +111,7 @@ same as `start.bat`.
      anywhere, `venv`/`.venv`, `__pycache__`/`*.pyc`, logs and database files,
      `tests/`, `docs/`, `scripts/`, `frontend/` (except `frontend/dist`),
      `installer/` (except the two runtime scripts), `.github`, `.claude`,
-     `.streamlit`, `build`/`dist`, the source-checkout launchers (`start.bat`,
+     `build`/`dist`, the source-checkout launchers (`start.bat`,
      `start.ps1`, `uninstall.bat`, `make_*.bat`, `uninstall_path_cleanup.ps1`),
      the `PORTABLE`/`PYTHON_VERSION`/`INSTALLED` markers, and developer files.
      (`run_tests.py` does ship: Diagnostics' file-completeness check expects it.)
@@ -129,24 +120,18 @@ same as `start.bat`.
 4. Checks that `installer/wheels.lock.txt` pins every package named in
    `requirements-core.txt` and pip, then runs
    `pip download --only-binary=:all: --platform win_amd64 --python-version 3.12 --require-hashes --no-deps -r installer/wheels.lock.txt`.
-   pip itself refuses a file whose hash isn't pinned. The build then re-checks
-   every downloaded wheel on its own (see "Pinned wheels" below): a wheel whose
-   SHA-256 differs, a wheel that isn't in the lock, and a locked package with no
-   wheel each fail the build, naming the file. There is no unhashed fallback.
-   Because the lock is complete and `--no-deps` is used, nothing is resolved at
-   build time. `--update-lock` must run on Windows under Python 3.12, because
-   pip evaluates environment markers for the machine it runs on (a Linux resolve
-   drops Windows-only dependencies such as `tzdata`). The first lock was made on
-   Linux instead: `uv pip compile --python-platform windows --python-version 3.12`
-   for the versions, then `pip download --platform win_amd64 --no-deps` of those
-   pins, each hash cross-checked against uv's. The Windows job is what confirms it.
-5. Writes `manifest.json`, including the unpacked size of the wheels. That size
-   is passed to Inno's `ExtraDiskSpaceRequired`, so the free-space check counts
-   what pip will unpack (the disk-space preflight, research notes decision 2).
+   The build then re-checks every downloaded wheel (see "Pinned wheels"): a
+   wheel with a different SHA-256, a wheel not in the lock, and a locked package
+   with no wheel each fail the build, naming the file. There is no unhashed
+   fallback and nothing is resolved at build time. `--update-lock` must run on
+   Windows under Python 3.12, because pip evaluates environment markers for the
+   machine it runs on (a Linux resolve drops Windows-only dependencies such as
+   `tzdata`).
+5. Writes `manifest.json`, including the unpacked size of the wheels, which is
+   passed to Inno's `ExtraDiskSpaceRequired` for the free-space check.
 6. Compiles `installer/baihe.iss` with ISCC. Output:
    `build/installer/output/BaiheStudio-Setup-<version>.exe`, about 100 MB
-   (measured locally with the current core requirements; roughly 300 MB once
-   installed).
+   (roughly 300 MB installed).
 
 `build/` is git-ignored.
 
@@ -164,36 +149,31 @@ Regenerating on an intentional dependency change (a change to
 `requirements-core.txt`, `constraints.txt`, or a version bump):
 
 1. A maintainer, on Windows with Python 3.12 and network access to PyPI, runs
-   `python installer/build_installer.py --update-lock`. It does an ordinary
-   `pip download` of `requirements-core.txt` + pip (constrained by
-   `constraints.lock.txt` if present, else `constraints.txt`) and writes the
-   SHA-256 of each wheel it got.
-2. The maintainer reads `git diff installer/wheels.lock.txt`, checking that only
-   the intended packages and versions moved, and commits the file with the
-   dependency change.
+   `python installer/build_installer.py --update-lock` (an ordinary
+   `pip download` of `requirements-core.txt` + pip, constrained by
+   `constraints.lock.txt` if present, else `constraints.txt`; it writes each
+   wheel's SHA-256).
+2. The maintainer reads `git diff installer/wheels.lock.txt`, checks that only
+   the intended packages and versions moved, and commits it with the dependency
+   change.
 3. CI does not regenerate it. The Windows Installer workflow builds from the
-   committed lock; it fails if the lock doesn't cover `requirements-core.txt`,
-   if pip rejects a hash, or if the build's own check finds any mismatch.
-   `tests/test_installer_payload.py` also checks on every PR (Linux) that the
-   committed lock parses and covers `requirements-core.txt`.
+   committed lock and fails on a coverage gap, a rejected hash or a mismatch;
+   `tests/test_installer_payload.py` checks on every PR that the lock parses and
+   covers `requirements-core.txt`.
 
-What this proves, honestly: the wheels in the installer are the same files, byte
-for byte, as the ones whose hashes were committed. It does not show that those
-packages, or the versions the maintainer accepted in step 1, are safe; step 1
-trusts whatever PyPI served at that moment, and the review of the diff is a
-human's. Its value is that a later change on PyPI, a mirror or the build
-machine's network path can't swap in different bytes unnoticed.
+The lock proves the installed wheels are byte-for-byte the files whose hashes
+were committed, so a later change on PyPI or the network path can't swap in
+different bytes. It does not show the packages themselves are safe; that is the
+maintainer's review of the diff.
 
 ## 4. Install flow
 
 1. Wizard: install folder (default `%LOCALAPPDATA%\Programs\Baihe Studio`),
    then the data folder page, then an optional desktop shortcut.
    Free-space check. Setup refuses an install folder that already holds a
-   `python\` or `app\` folder Baihe Studio didn't put there: an update would
-   overwrite it and an uninstall would delete it. "Baihe Studio's own" means
-   its `manifest.json` names the product and this installer's AppId, or this
-   app's uninstall entry points at the folder; some other program's
-   `manifest.json` doesn't count.
+   `python\` or `app\` folder Baihe Studio didn't put there (its
+   `manifest.json` must name the product and this AppId, or this app's
+   uninstall entry must point at the folder).
 2. `PrepareToInstall`: check both folders again, note whether the data folder
    is new, check it can be written, and stop a server a previous install
    started (`launcher.py --stop`) so its files can be replaced.
@@ -301,17 +281,13 @@ user's pip-redirecting variables are dropped, so Diagnostics' Install buttons
 
 | Tier | How it gets installed |
 |---|---|
-| **Basic**: `requirements-core.txt` (FastAPI/uvicorn, requests, anthropic, pandas, …) | The installer, offline, from bundled wheels |
+| **Basic**: `requirements-core.txt` (FastAPI/uvicorn, requests, anthropic, pandas, …; `installer/wheels.lock.txt` still pins `streamlit==1.64.0`, which `requirements-core.txt` no longer lists) | The installer, offline, from bundled wheels |
 | **Media**: `requirements-media.txt` | Diagnostics → the tier's bulk Install button (Step 62), into the bundled interpreter. Needs network. |
 | **Optional / GPU torch / engines**: `requirements-optional.txt`, `diagnostics.TORCH_VARIANTS` | Diagnostics' per-package and GPU PyTorch buttons, as today. The CPU fallback and GPU reporting (research notes decision 2) are Diagnostics' existing behaviour; the installer adds no GPU detection of its own. |
 
-This keeps the design's §7 promise: the installer reuses, rather than
-replaces, the tiered requirements files and Diagnostics' install machinery.
-The installer-side tier picker and prompted GPU/torch opt-in with size
-estimates, from the original §3, are **not built**: installing them offline
-would multiply the download to several GB. Diagnostics already does this
-online with real pip output. Revisit if users want an all-in-one offline
-installer.
+The installer reuses the tiered requirements files and Diagnostics' install
+machinery. An installer-side tier picker and GPU/torch opt-in are **not built**:
+bundling them would multiply the offline download to several GB.
 
 Known limit: Diagnostics' Step 66 "will this upgrade break the app?" check runs
 the test suite in a throwaway venv. An installed copy has no `tests/` (it is
@@ -334,13 +310,10 @@ Running a newer `BaiheStudio-Setup-<v>.exe`:
   the new bundled wheels, which changes only what changed.
 - The data folder is never touched.
 - A Python minor-version bump (3.12 → 3.13) would make the kept `site-packages`
-  unusable. When that happens, the release must say "uninstall first" or add
-  an `[InstallDelete]` for `python\Lib\site-packages`. This is not needed yet.
-- There are no delta updates (research notes §9). An upgrade re-downloads the
-  whole ~100 MB installer. Model files are in the data folder and are never
-  re-downloaded. The per-component manifest the design keeps
-  (`manifest.json`) records versions and hashes for the future updater; nothing
-  reads it yet.
+  unusable; the release would then need "uninstall first" or an
+  `[InstallDelete]` for `python\Lib\site-packages`.
+- There are no delta updates: an upgrade re-downloads the whole ~100 MB
+  installer; model files in the data folder are never re-downloaded.
 
 ## 8. Uninstall
 
@@ -399,16 +372,11 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
 
 ## 9. Testing
 
-- Linux (the test suite): `tests/test_installer_payload.py` covers staging,
-  exclusions, `._pth`, the wheel commands, the hash-lock parser and verifier
-  (match, mismatch, extra, missing, malformed lines), the manifest and ISCC
-  arguments.
-  `tests/test_installer_iss.py` statically checks the `.iss` (per-user install,
-  no secrets, sources only from the payload, the data folder, opt-in deletion,
-  two Pascal pitfalls that broke the compile) and the workflow (on-demand only,
-  pinned Inno Setup, what the smoke test covers). `tests/test_installer_runtime.py`
-  covers the launcher and post-install logic with fakes. `tests/test_portable.py`
-  covers `data_dir()`.
+- Linux (the test suite): `tests/test_installer_payload.py` (staging, exclusions,
+  `._pth`, wheel commands, lock parser and verifier, manifest, ISCC arguments),
+  `tests/test_installer_iss.py` (static checks of the `.iss` and the workflow),
+  `tests/test_installer_runtime.py` (launcher and post-install logic with fakes)
+  and `tests/test_portable.py` (`data_dir()`).
 - Windows CI, **on demand** (Actions → Windows Installer → Run workflow, or push
   an `installer-v*` tag; never on PRs, because of the minutes budget): it builds
   the `.exe`, uploads it as an artifact, and smoke-tests it. The smoke test runs
@@ -419,21 +387,16 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   `/api/library/dramas` creates `library.db` in the data folder, not the
   program folder. Then it runs `--stop`, a silent uninstall, confirms the
   program is gone, and confirms the library and `.env` survived.
-  - **Stop check.** Before stopping, `installer/smoke_child.py` puts a
-    long-running stand-in child (`ping`) into the server's Job Object. The
-    smoke test asserts that `--stop` reports a clean shutdown, the child is
-    gone, and no process from the install folder is left.
-  - **Breakaway check.** `installer/smoke_child.py --breakaway-check` runs a
-    stand-in server with the real `process_guard.contain_children()`. Its
-    job must refuse `CREATE_BREAKAWAY_FROM_JOB` except inside
-    `breakaway_allowed()` (the update installer's Setup launch). Ending the
-    job must end an ordinary child and a child in a nested job, and leave the
-    Setup-style child running.
-  - **Clean-uninstall check.** A second install into new folders is
-    clean-uninstalled with `/CLEAN`. The smoke test asserts that the install
-    folder, the data folder and a `%TEMP%\baihe_*` folder are gone. It also
-    asserts that a non-Baihe `%TEMP%` folder, a file next to the folders, and
-    the first install's data folder are untouched.
+  - **Stop check.** `installer/smoke_child.py` puts a stand-in child into the
+    server's Job Object; `--stop` must report a clean shutdown with the child
+    and every install-folder process gone.
+  - **Breakaway check.** `smoke_child.py --breakaway-check` runs a stand-in
+    server with the real `process_guard.contain_children()`: its job must refuse
+    `CREATE_BREAKAWAY_FROM_JOB` except inside `breakaway_allowed()`.
+  - **Clean-uninstall check.** A second install is removed with `/CLEAN`; its
+    folders and a `%TEMP%\baihe_*` folder must be gone while a non-Baihe
+    `%TEMP%` folder, a neighbouring file and the first install's data folder
+    are untouched.
 - Only the Windows job proves that pip accepts `installer/wheels.lock.txt` for
   the real win_amd64 downloads and installs, and that the pinned wheels are the
   ones the Windows pip picks.

@@ -175,10 +175,10 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
         if not page.get("rendered_filename"):
             notes = []
             render_svc.render_page(drama_id, page_id, notes)
-            render_svc._append_notes(page_id, notes)
+            render_svc.append_notes(page_id, notes)
         return "skipped"
     expected_ids, expected_rev = [b["id"] for b in existing], int(page.get("rev") or 0)
-    src = render_svc._original_path(drama_id, page)
+    src = render_svc.original_path(drama_id, page)
     lang = drama.get("source_language") or "zh"
     with pages_svc.pipeline_lock():
         bubbles, detect_notes = scanlate.detect_and_ocr_page(src, lang, page_id=page_id,
@@ -217,7 +217,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     except Exception as exc:
         render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
                              f"{translate_engines.redact_secrets(str(exc))}"))
-    render_svc._append_notes(page_id, render_notes)
+    render_svc.append_notes(page_id, render_notes)
     return "translated" if new_context is not None else "done"
 
 
@@ -234,7 +234,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
     counts = {"translated": 0, "done": 0, "skipped": 0, "stale": 0, "kept": 0, "failed": 0}
     total = len(page_ids)
     for n, pid in enumerate(page_ids, start=1):
-        render_svc._check_cancel(jid)
+        render_svc.check_cancel(jid)
         background_jobs.update_progress(jid, (n - 1) / total, f"Page {n} of {total}")
         try:
             counts[_process_page(drama_id, drama, pid, mode, engine, engine_name,

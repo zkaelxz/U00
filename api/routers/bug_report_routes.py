@@ -31,7 +31,7 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.formparsers import MultiPartException
 
-from api.auth import _auth_enabled, _holds, is_local_request, local_only, require_permission
+from api.auth import is_auth_enabled, holds, is_local_request, local_only, require_permission
 from api.schemas import (BugReportClient, BugReportDeleteConfirm, BugReportDeleted,
                          BugReportListItem, BugReportSaved, BugReportText, ErrorResponse)
 from services import bug_report_service as svc
@@ -57,11 +57,11 @@ _OPENAPI_BODY = {"requestBody": {"required": True, "content": {"multipart/form-d
                    "screenshot": {"type": "string", "format": "binary"}}}}}}}
 
 
-class _BodyTooLarge(Exception):
+class BodyTooLarge(Exception):
     pass
 
 
-def _capped(request: Request, limit: int) -> Request:
+def capped(request: Request, limit: int) -> Request:
     """The same request with a receive channel that counts body bytes and
     stops once more than `limit` arrive, independent of any header."""
     receive, seen = request.receive, 0
@@ -72,7 +72,7 @@ def _capped(request: Request, limit: int) -> Request:
         if message.get("type") == "http.request":
             seen += len(message.get("body", b""))
             if seen > limit:
-                raise _BodyTooLarge()
+                raise BodyTooLarge()
         return message
 
     return Request(request.scope, counting)
@@ -87,7 +87,7 @@ def _principal_key(request: Request) -> str:
 def _screenshot_allowed(request: Request) -> bool:
     """Uploads are PC-only: auth on, a direct loopback request; auth off,
     every request (off mode already refuses anything but direct loopback)."""
-    return not _auth_enabled(request.app) or is_local_request(request)
+    return not is_auth_enabled(request.app) or is_local_request(request)
 
 
 async def _read_upload(upload, limit: int) -> bytes:
@@ -118,9 +118,9 @@ async def post_bug_report(request: Request):
     # parser stops at the file's headers, before any of it is spooled.
     shots_ok = _screenshot_allowed(request)
     try:
-        form = await _capped(request, _MAX_BODY).form(
+        form = await capped(request, _MAX_BODY).form(
             max_files=1 if shots_ok else 0, max_fields=1, max_part_size=svc.MAX_JSON_BYTES)
-    except _BodyTooLarge:
+    except BodyTooLarge:
         raise StarletteHTTPException(413, _TOO_LARGE)
     except (MultiPartException, StarletteHTTPException) as e:
         # Starlette re-raises the parser's MultiPartException as a 400.
@@ -146,7 +146,7 @@ async def post_bug_report(request: Request):
         await form.close()
     return await run_in_threadpool(
         svc.create_report, client.model_dump(), data,
-        include_server_in_response=_holds(request, "admin.diagnostics"))
+        include_server_in_response=holds(request, "admin.diagnostics"))
 
 
 @router.get("", dependencies=[require_permission("admin.diagnostics")],

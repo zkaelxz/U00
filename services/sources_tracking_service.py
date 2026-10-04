@@ -30,9 +30,9 @@ import db
 from services import ownership_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
-from services.sources_registry_service import (_require_link_editable, _require_source,
+from services.sources_registry_service import (require_link_editable, require_source,
                                                list_tracked)
-from services.sources_search_service import _series_id
+from services.sources_search_service import clean_series_id
 from sources import chapter_check, registry, store
 
 CHECK_JOB_ID = chapter_check.CHECK_JOB_ID
@@ -71,12 +71,12 @@ def set_tracked_drama(source: str, series_id: str, drama_id, principal=None) -> 
     or one the principal can't edit (the auto-import writes chapters into
     it), or a series currently linked to such a drama; 422 a drama of the
     wrong media type. `principal` None is auth off / the PC owner."""
-    _require_source(source)
-    series_id = _series_id(series_id)
+    require_source(source)
+    series_id = clean_series_id(series_id)
     if not any(r["source"] == source and r["series_id"] == series_id
                for r in store.list_tracked_series()):
         raise NotFoundError("That series isn't tracked.")
-    _require_link_editable(source, series_id, principal)
+    require_link_editable(source, series_id, principal)
     if drama_id is not None:
         drama = db.get_drama(drama_id)
         if drama is None or not ownership_service.can_edit_drama(principal, drama_id):
@@ -93,9 +93,9 @@ def set_tracked_save(source: str, series_id: str, save_cbz: bool, principal=None
     off (the check saves them into the save folder; no drama is involved).
     404 unknown source, untracked series, or one linked to a drama the
     principal can't edit (as relinking it); 400 a source without pages."""
-    cls = _require_source(source)
-    series_id = _series_id(series_id)
-    _require_link_editable(source, series_id, principal)
+    cls = require_source(source)
+    series_id = clean_series_id(series_id)
+    require_link_editable(source, series_id, principal)
     if not cls().supports("get_pages"):
         raise UnsupportedOperationError("Only comic sources can save chapters as CBZ files.",
                                         details={"reason": "NOT_SUPPORTED"})

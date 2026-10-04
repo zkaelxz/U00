@@ -189,7 +189,7 @@ def fmt_ts(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def _notes_suffix(line_idx: int, notes_by_idx: dict) -> str:
+def notes_suffix(line_idx: int, notes_by_idx: dict) -> str:
     """notes_by_idx: {line_idx: [{"term", "note"}, ...]}, from
     db.list_translation_notes() grouped by line -- see
     translation_guide.group_notes_by_line(). Renders as a bracketed
@@ -223,7 +223,7 @@ def lines_to_srt(lines, field="en", notes_by_idx: dict = None) -> str:
         text = getattr(ln, field)
         if getattr(ln, "sfx", False):
             text = sfx_cue_text(text)
-        text += _notes_suffix(ln.idx, notes_by_idx)
+        text += notes_suffix(ln.idx, notes_by_idx)
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
 
@@ -235,7 +235,7 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
         if getattr(ln, "sfx", False):
             en, zh = sfx_cue_text(en), sfx_cue_text(zh)
         text = f"{en}\n{zh}" if en else zh
-        text += _notes_suffix(ln.idx, notes_by_idx)
+        text += notes_suffix(ln.idx, notes_by_idx)
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
 
@@ -258,21 +258,11 @@ WHISPER_MODELS = {
     "large-v3-turbo": "large-v3-turbo -- ~large-v3 accuracy much faster, but weaker on Japanese/Korean",
 }
 DEFAULT_WHISPER_SIZE = "large-v3"
-_TURBO_WEAK_LANGUAGES = {"ja", "ko"}
 # Step 6h: auto-tune's default candidate min_silence_duration_ms values --
 # spans the "Speech-splitting sensitivity" slider's real range meaningfully
 # (300 is the new default, 3000 the slider's max) without an unbounded
 # number of full re-transcriptions.
 DEFAULT_AUTOTUNE_CANDIDATES_MS = [300, 800, 1500]
-
-
-def whisper_model_warning(model_size: str, language: str) -> str:
-    """A note to show when the picked model is a known poor fit for the
-    drama's language, or "" if there's nothing to warn about."""
-    if model_size == "large-v3-turbo" and (language or "") in _TURBO_WEAK_LANGUAGES:
-        return ("large-v3-turbo is reported noticeably weaker on Japanese and Korean -- "
-                "large-v3 (or medium) is the safer choice for this drama.")
-    return ""
 
 
 # Decoder settings that stop Whisper's repeated-phrase loops at the source
@@ -353,7 +343,7 @@ def diagnose_hostname(hostname: str = "huggingface.co") -> dict:
     return {"status": "ok", "hostname": hostname, "addresses": sorted(addrs), "detail": ""}
 
 
-def _is_gpu_error(exc: Exception) -> bool:
+def is_gpu_error(exc: Exception) -> bool:
     """CUDA/cuBLAS/cuDNN library-loading and device errors.
 
     Distinct from _is_network_error and from a genuine audio/data
@@ -372,7 +362,7 @@ def _is_gpu_error(exc: Exception) -> bool:
     return any(m in text for m in markers)
 
 
-def _is_network_error(exc: Exception) -> bool:
+def is_network_error(exc: Exception) -> bool:
     """Whisper models download from Hugging Face on first use. A failure
     there is almost always network (DNS, firewall, proxy, VPN) rather
     than anything wrong with the audio or the app, and deserves a
@@ -404,7 +394,7 @@ def is_whisper_model_cached(model_size: str) -> bool:
 _whisper_device_info = {}   # cache_key -> {"device", "compute_type", "gpu_error"}
 
 
-def _short_reason(exc, limit: int = 200) -> str:
+def short_reason(exc, limit: int = 200) -> str:
     """One-line, secret-redacted description of an exception, for
     surfacing why the GPU couldn't be used."""
     from translate_engines import redact_secrets
@@ -444,14 +434,14 @@ def gpu_status() -> dict:
     except ImportError:
         pass
     except Exception as exc:
-        status["errors"].append("ctranslate2: " + _short_reason(exc))
+        status["errors"].append("ctranslate2: " + short_reason(exc))
     try:
         import torch
         status["torch_cuda_available"] = bool(torch.cuda.is_available())
     except ImportError:
         pass
     except Exception as exc:
-        status["errors"].append("torch: " + _short_reason(exc))
+        status["errors"].append("torch: " + short_reason(exc))
     return status
 
 
@@ -491,16 +481,16 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
                 model = _build("cuda", "float16")
                 device_info = {"device": "cuda", "compute_type": "float16", "gpu_error": None}
             except Exception as gpu_exc:
-                if _is_network_error(gpu_exc):
+                if is_network_error(gpu_exc):
                     raise
                 # No usable GPU: degrade, don't fail -- but remember why, so
                 # callers can say the GPU was NOT used.
-                device_info["gpu_error"] = _short_reason(gpu_exc)
+                device_info["gpu_error"] = short_reason(gpu_exc)
                 model = _build("cpu", "int8")
         else:
             model = _build("cpu", "int8")
     except Exception as exc:
-        if _is_network_error(exc):
+        if is_network_error(exc):
             diag = diagnose_hostname("huggingface.co")
             if diag["status"] == "blocked":
                 raise ModelDownloadError(
@@ -820,7 +810,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         # here, never at model construction, no matter how that's wrapped.
         # See load_whisper_model's own GPU->CPU fallback, which protects
         # a different (earlier, rarer) failure point and cannot catch this.
-        if use_gpu and _is_gpu_error(exc):
+        if use_gpu and is_gpu_error(exc):
             if on_gpu_fallback:
                 on_gpu_fallback(exc)
             cpu_model = load_whisper_model(model_size, use_gpu=False,
@@ -1028,7 +1018,7 @@ def split_user_transcript(raw_text: str):
     return [p.strip() for p in parts if p.strip()]
 
 
-def _lines_from_char_times(user_lines, per_line_times, total_audio_end):
+def lines_from_char_times(user_lines, per_line_times, total_audio_end):
     """Shared reconstruction step: given, for each line index, whichever
     character timestamps could be attributed to it, produce ordered,
     non-overlapping Line objects -- interpolating from neighboring known
@@ -1092,7 +1082,7 @@ def align_transcript_to_timing(user_lines, whisper_segments):
             per_line_times[li].append(w_times[block.a + k])
 
     total_audio_end = whisper_segments[-1]["end"] if whisper_segments else 0.0
-    return _lines_from_char_times(user_lines, per_line_times, total_audio_end)
+    return lines_from_char_times(user_lines, per_line_times, total_audio_end)
 
 
 # ---------------------------------------------------------------------------

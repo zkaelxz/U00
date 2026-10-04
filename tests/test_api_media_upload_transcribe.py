@@ -281,14 +281,14 @@ def test_audio_run_started_while_upload_claim_held(client, monkeypatch):
     seen = {}
 
     def run(drama_id, **opts):
-        seen["claimed"] = drama_id in media_upload_service._claimed
+        seen["claimed"] = drama_id in media_upload_service.claimed
         return {"job_id": f"transcribe_{drama_id}"}
     monkeypatch.setattr(transcribe_service, "start_transcribe_run", run)
     r = _post(client, did)
     assert r.status_code == 200 and r.json()["job_id"] == f"transcribe_{did}"
     assert "transcribe_job_id" not in r.json()["upload"]
     assert seen["claimed"] is True
-    assert did not in media_upload_service._claimed
+    assert did not in media_upload_service.claimed
 
 
 def test_upload_passes_the_speaker_range(client, monkeypatch):
