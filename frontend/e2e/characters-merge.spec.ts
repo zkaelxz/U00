@@ -77,7 +77,7 @@ test('merge with a confirm step, then undo', async ({ page }) => {
   expect(m.posts).toEqual([]) // nothing is sent before the confirm
   await confirm.click()
 
-  expect(m.posts).toEqual([{ path: '/merge-speakers', body: { source_label: 'SPEAKER_03', target_label: 'SPEAKER_01' } }])
+  expect(m.posts).toEqual([{ path: '/merge-speakers', body: { source_label: 'SPEAKER_03', target_label: 'SPEAKER_01', confirm: true } }])
   await expect(page.getByLabel('Name for SPEAKER_03')).toHaveCount(0)
   await expect(page.locator('.character-notice')).toContainText('Merged SPEAKER_03 into SPEAKER_01: 3 lines moved.')
   expect((await page.getByRole('button', { name: 'Undo merge' }).boundingBox())!.height).toBeGreaterThanOrEqual(32)

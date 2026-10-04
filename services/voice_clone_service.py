@@ -50,11 +50,13 @@ at most one pick per speaker instead of growing the disk.
 No FastAPI import.
 """
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 
@@ -65,6 +67,8 @@ from services import characters_service, drama_service
 from services.media_upload_service import AUDIO_EXTENSIONS
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
+
+log = logging.getLogger(__name__)
 
 REFS_DIR = "voice_refs"
 CANDIDATES_DIR = "candidates"
@@ -165,6 +169,44 @@ def _remove_owned_clip(drama_id: int, rel: str, keep_speaker: str):
     path = _safe_file(_drama_path(drama_id), rel)
     if path:
         os.remove(path)
+
+
+# Makes choose_candidate's copy-then-link and the unused-copy sweep one step
+# each, so the sweep cannot delete a pick copy in the gap before its row links it.
+_PICK_LOCK = threading.Lock()
+
+
+def remove_unused_pick_copies(drama_id: int):
+    """Deletes this drama's clone_pick_ copies that no Characters row uses and
+    no usable merge undo would give back. Uploads (clone_ref_), voice-bank
+    copies and any other file are never touched, because removing those is a
+    PC-only action. Skipped while a dub, narration or audiobook job may hold a
+    clip path. A file that can't be removed (a Windows lock) stays and the
+    next sweep of this drama retries it."""
+    if _clip_reading_job_active(drama_id):
+        return
+    refs = os.path.join(_drama_path(drama_id), REFS_DIR)
+    with _PICK_LOCK:
+        try:
+            names = os.listdir(refs)
+        except OSError:
+            return
+        in_use = {r.get("ref_audio_filename") for r in db.list_characters(drama_id)}
+        in_use |= db.live_speaker_merge_undo_clips(drama_id, time.time())
+        for name in names:
+            rel = f"{REFS_DIR}/{name}"
+            if not _PICKED_CLIP.match(rel) or rel in in_use:
+                continue
+            path = _safe_file(_drama_path(drama_id), rel)
+            if not path:
+                continue
+            try:
+                os.remove(path)
+            except OSError as exc:
+                from translate_engines import redact_secrets
+                log.warning("Could not remove an unused reference clip copy (%s); "
+                            "a later sweep will retry: %s", type(exc).__name__,
+                            redact_secrets(str(exc.strerror or "")))
 
 
 def _clip_reading_job_active(drama_id: int) -> bool:
@@ -541,27 +583,28 @@ def choose_candidate(drama_id: int, candidate_id: str) -> dict:
         raise NotFoundError("No such speaker in this drama.")
     root = db.drama_dir(drama_id)
     rel = f"{REFS_DIR}/clone_pick_{candidate_id}.wav"
-    if _safe_file(root, rel) is None:
-        fd, tmp = tempfile.mkstemp(prefix=".pick_", suffix=".tmp", dir=os.path.join(root, REFS_DIR))
-        os.close(fd)
-        try:
-            shutil.copyfile(path, tmp)
-            os.replace(tmp, os.path.join(root, rel))
-        except BaseException:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-            raise
-    old = _character_row(drama_id, label).get("ref_audio_filename") or ""
-    ref_text = None
-    line_id = cand.get("line_id")
-    if line_id is not None:
-        for ln in db.load_lines(drama_id):
-            if ln.get("id") == line_id and (ln.get("zh") or "").strip():
-                ref_text = ln["zh"].strip()
-                break
-    db.upsert_character(drama_id, label, ref_audio_filename=rel, ref_text=ref_text)
-    if old != rel and _PICKED_CLIP.match(old) and not _clip_reading_job_active(drama_id):
-        _remove_owned_clip(drama_id, old, label)
+    with _PICK_LOCK:
+        if _safe_file(root, rel) is None:
+            fd, tmp = tempfile.mkstemp(prefix=".pick_", suffix=".tmp", dir=os.path.join(root, REFS_DIR))
+            os.close(fd)
+            try:
+                shutil.copyfile(path, tmp)
+                os.replace(tmp, os.path.join(root, rel))
+            except BaseException:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+                raise
+        old = _character_row(drama_id, label).get("ref_audio_filename") or ""
+        ref_text = None
+        line_id = cand.get("line_id")
+        if line_id is not None:
+            for ln in db.load_lines(drama_id):
+                if ln.get("id") == line_id and (ln.get("zh") or "").strip():
+                    ref_text = ln["zh"].strip()
+                    break
+        db.upsert_character(drama_id, label, ref_audio_filename=rel, ref_text=ref_text)
+        if old != rel and _PICKED_CLIP.match(old) and not _clip_reading_job_active(drama_id):
+            _remove_owned_clip(drama_id, old, label)
     return characters_service.get_one(drama_id, label)
 
 

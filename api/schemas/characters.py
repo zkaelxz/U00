@@ -3,7 +3,7 @@
 
 from typing import Annotated, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
 __all__ = [
     "CharactersEntry",
@@ -370,6 +370,13 @@ class CharactersMergeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source_label: str = Field(min_length=1, max_length=200)
     target_label: str = Field(min_length=1, max_length=200)
+    confirm: StrictBool = False
+
+    @model_validator(mode="after")
+    def _needs_confirm(self):
+        if self.confirm is not True:
+            raise ValueError("Merging speakers needs confirm=true.")
+        return self
 
 
 class CharactersMergeUndo(BaseModel):

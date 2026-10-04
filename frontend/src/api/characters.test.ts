@@ -65,7 +65,7 @@ describe('merge speakers API', () => {
     await mergeSpeakers(4, 'SPEAKER_03', 'SPEAKER_01', fakeFetch(calls))
     expect(calls[0].url).toBe('/api/characters/dramas/4/merge-speakers')
     expect(calls[0].init?.method).toBe('POST')
-    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ source_label: 'SPEAKER_03', target_label: 'SPEAKER_01' })
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ source_label: 'SPEAKER_03', target_label: 'SPEAKER_01', confirm: true })
   })
 
   it('posts only the opaque undo id', async () => {

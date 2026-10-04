@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import type { CharacterEntry } from '../../../types/translateStage'
-import { mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo } from './mergeSpeakers'
+import { ApiError } from '../../../api/client'
+import { mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, undoIdSurvives } from './mergeSpeakers'
 
 const e = (label: string, over: Partial<CharacterEntry> = {}) =>
   ({ speaker_label: label, character_name: '', line_count: 2, series_character_id: null, ...over }) as CharacterEntry
@@ -50,5 +51,19 @@ describe('saved merge undo', () => {
     const s = store()
     s.setItem('baihe.characters.mergeUndo.1', JSON.stringify({ source_row: {}, previous: [] }))
     expect(readMergeUndo(1, 0, s)).toBeNull()
+  })
+})
+
+describe('undoIdSurvives', () => {
+  const err = (status: number, details?: unknown) => new ApiError(status, { code: 'x', message: 'm', details })
+
+  it('keeps the id on a job-running 409 and on a network failure', () => {
+    expect(undoIdSurvives(err(409, { reason: 'job_running' }))).toBe(true)
+    expect(undoIdSurvives(new TypeError('Failed to fetch'))).toBe(true)
+  })
+
+  it('forgets it on not found and on a stale 409', () => {
+    expect(undoIdSurvives(err(404))).toBe(false)
+    expect(undoIdSurvives(err(409))).toBe(false)
   })
 })

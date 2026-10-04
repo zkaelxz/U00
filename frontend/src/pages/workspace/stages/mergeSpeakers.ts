@@ -1,3 +1,4 @@
+import { ApiError } from '../../../api/client'
 import type { CharacterEntry } from '../../../types/translateStage'
 
 export interface MergeChoice {
@@ -91,4 +92,13 @@ export function saveMergeUndo(dramaId: number, undo: MergeUndoHandle | null, sto
   } catch {
     // Storage full or blocked: the undo is still held in the page.
   }
+}
+
+/** Whether the server still holds the undo id after this failure: a "job
+ *  running" 409 (nothing was spent) or no answer at all. Not found, a stale
+ *  409 and anything else mean the id is gone or can never work. */
+export function undoIdSurvives(e: unknown): boolean {
+  if (!(e instanceof ApiError)) return true
+  const details = e.details as { reason?: unknown } | undefined
+  return e.status === 409 && details?.reason === 'job_running'
 }

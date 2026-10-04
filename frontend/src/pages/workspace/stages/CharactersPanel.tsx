@@ -24,7 +24,7 @@ import {
   unsetPronounsLabel,
   type CharacterForm,
 } from './characterForm'
-import { mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, type MergeChoice, type MergeUndoHandle } from './mergeSpeakers'
+import { mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, undoIdSurvives, type MergeChoice, type MergeUndoHandle } from './mergeSpeakers'
 import { readRenameUndo, renameProblem, saveRenameUndo, takenNames } from './renameSpeaker'
 import './characters.css'
 
@@ -349,8 +349,9 @@ export function CharactersPanel() {
       (e: unknown) => {
         setUndoBusy(false)
         setError(e)
-        // Refused, spent or expired: retrying won't work.
-        forgetMergeUndo()
+        // Refused, spent or expired: retrying won't work. A busy job or a lost
+        // connection leaves the id with the server, so the button stays.
+        if (!undoIdSurvives(e)) forgetMergeUndo()
       },
     )
   }

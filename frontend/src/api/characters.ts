@@ -32,7 +32,7 @@ export const undoRenameSpeaker = (id: number, undo: RenameUndo, f?: Fetch) =>
   postJson<RenameResult>(`${base(id)}/rename-speaker/undo`, { undo }, f)
 
 export const mergeSpeakers = (id: number, sourceLabel: string, targetLabel: string, f?: Fetch) =>
-  postJson<MergeResult>(`${base(id)}/merge-speakers`, { source_label: sourceLabel, target_label: targetLabel }, f)
+  postJson<MergeResult>(`${base(id)}/merge-speakers`, { source_label: sourceLabel, target_label: targetLabel, confirm: true }, f)
 
 export const undoMergeSpeakers = (id: number, undoId: string, f?: Fetch) =>
   postJson<MergeResult>(`${base(id)}/merge-speakers/undo`, { undo_id: undoId }, f)

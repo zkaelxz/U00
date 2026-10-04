@@ -563,7 +563,7 @@ class TestMergeSpeakers:
 
     def _merge(self, client, did, source, target):
         return client.post(f"/api/characters/dramas/{did}/merge-speakers",
-                           json={"source_label": source, "target_label": target})
+                           json={"source_label": source, "target_label": target, "confirm": True})
 
     def _undo(self, client, did, undo):
         undo_id = undo["undo_id"] if isinstance(undo, dict) else undo
@@ -898,36 +898,54 @@ class TestMergeSpeakers:
         assert dismissals() == before
 
     # --- the source's clip file when the target did not take it ---------------------
+    # Only clone_pick_ copies are ever deleted; an upload (clone_ref_) is PC-only to remove.
 
-    def _unused_clip_setup(self, db):
+    def _unused_clip_setup(self, db, kind="clone_pick_"):
         did = self._setup(db)
         mine = "voice_refs/clone_ref_" + "4" * 32 + ".wav"
-        theirs = "voice_refs/clone_ref_" + "5" * 32 + ".wav"
+        theirs = f"voice_refs/{kind}" + "5" * 32 + ".wav"
         self._clip(db, did, mine)
         path = self._clip(db, did, theirs)
         db.upsert_character(did, "S1", ref_audio_filename=mine)
         db.upsert_character(did, "S3", ref_audio_filename=theirs)
         return did, path
 
-    def test_unused_clip_stays_while_undo_is_possible_and_goes_when_it_expires(self, client, isolated_db, monkeypatch):
+    def _expire(self, monkeypatch, undo):
+        real = time.time
+        monkeypatch.setattr(time, "time", lambda: real() + undo["expires_in"] + 1)
+
+    def test_unused_pick_copy_stays_while_undo_is_possible_and_goes_after_expiry(self, client, isolated_db, monkeypatch):
         did, path = self._unused_clip_setup(isolated_db)
         undo = self._merge(client, did, "S3", "S1").json()["undo"]
         assert os.path.isfile(path)
         assert client.get(f"/api/characters/dramas/{did}").status_code == 200
         assert os.path.isfile(path)  # still undoable
-        real = time.time
-        monkeypatch.setattr(time, "time", lambda: real() + undo["expires_in"] + 1)
+        self._expire(monkeypatch, undo)
         assert client.get(f"/api/characters/dramas/{did}").status_code == 200
+        assert os.path.isfile(path)  # a GET never deletes
+        assert _post(client, did, "S1", pronouns="he/him").status_code == 200
         assert not os.path.isfile(path)
 
-    def test_unused_clip_goes_when_a_409_spends_the_undo(self, client, isolated_db):
+    @pytest.mark.parametrize("action", ["expire", "retire", "spend"])
+    def test_an_uploaded_clip_survives_expiry_retire_and_a_spent_undo(self, client, isolated_db, monkeypatch, action):
+        did, path = self._unused_clip_setup(isolated_db, kind="clone_ref_")
+        undo = self._merge(client, did, "S3", "S1").json()["undo"]
+        if action == "expire":
+            self._expire(monkeypatch, undo)
+        elif action == "spend":
+            isolated_db.upsert_character(did, "S1", pronouns="he/him")
+            assert self._undo(client, did, undo).status_code == 409
+        assert _post(client, did, "S1", pronouns="she/her").status_code == 200
+        assert os.path.isfile(path)
+
+    def test_unused_pick_copy_goes_when_a_409_spends_the_undo(self, client, isolated_db):
         did, path = self._unused_clip_setup(isolated_db)
         undo = self._merge(client, did, "S3", "S1").json()["undo"]
         isolated_db.upsert_character(did, "S1", pronouns="he/him")
         assert self._undo(client, did, undo).status_code == 409
         assert not os.path.isfile(path)
 
-    def test_unused_clip_goes_when_an_edit_makes_the_undo_stale(self, client, isolated_db):
+    def test_unused_pick_copy_goes_when_an_edit_makes_the_undo_stale(self, client, isolated_db):
         did, path = self._unused_clip_setup(isolated_db)
         self._merge(client, did, "S3", "S1")
         assert _post(client, did, "S1", pronouns="he/him").status_code == 200
@@ -939,9 +957,44 @@ class TestMergeSpeakers:
         assert self._undo(client, did, undo).status_code == 200
         assert os.path.isfile(path)
 
+    def test_nothing_is_removed_while_a_clip_reading_job_runs(self, client, isolated_db, monkeypatch):
+        from services import voice_clone_service
+        did, path = self._unused_clip_setup(isolated_db)
+        self._merge(client, did, "S3", "S1")
+        with monkeypatch.context() as m:
+            m.setattr(voice_clone_service, "_clip_reading_job_active", lambda d: True)
+            assert _post(client, did, "S1", pronouns="he/him").status_code == 200
+            assert os.path.isfile(path)
+        assert _post(client, did, "S1", pronouns="she/her").status_code == 200
+        assert not os.path.isfile(path)  # a later sweep retries
+
+    def test_a_file_that_cannot_be_removed_does_not_fail_the_write_and_is_retried(self, client, isolated_db, monkeypatch):
+        did, path = self._unused_clip_setup(isolated_db)
+        undo = self._merge(client, did, "S3", "S1").json()["undo"]
+        isolated_db.upsert_character(did, "S1", pronouns="he/him")
+        real = os.remove
+        def locked(p, *a, **k):
+            if p == path:
+                raise PermissionError(13, "in use")
+            return real(p, *a, **k)
+        with monkeypatch.context() as m:
+            m.setattr(os, "remove", locked)
+            assert self._undo(client, did, undo).status_code == 409  # the status, not a 500
+            assert os.path.isfile(path)
+        assert _post(client, did, "S1", pronouns="she/her").status_code == 200
+        assert not os.path.isfile(path)
+
+    def test_merge_needs_confirm(self, client, isolated_db):
+        did = self._setup(isolated_db)
+        for body in ({}, {"confirm": False}, {"confirm": "yes"}):
+            r = client.post(f"/api/characters/dramas/{did}/merge-speakers",
+                            json={"source_label": "S3", "target_label": "S1", **body})
+            assert r.status_code == 422
+        assert [ln.speaker for ln in isolated_db.load_line_objects(did)][1] == "S3"
+
     def test_a_clip_another_speaker_still_uses_survives(self, client, isolated_db):
         did, path = self._unused_clip_setup(isolated_db)
-        rel = "voice_refs/clone_ref_" + "5" * 32 + ".wav"
+        rel = "voice_refs/clone_pick_" + "5" * 32 + ".wav"
         isolated_db.upsert_character(did, "S2", ref_audio_filename=rel)  # shared by another speaker
         self._merge(client, did, "S3", "S1")
         assert _post(client, did, "S1", pronouns="he/him").status_code == 200

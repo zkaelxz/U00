@@ -34,7 +34,7 @@ describe('retry a content-blocked line (R10)', () => {
     const calls: { url: string; init?: RequestInit }[] = []
     const line = {
       id: 7, idx: 1, start: 0, end: 1, zh: '再见', en: 'Bye', speaker: null, speaker_manual: false,
-      sfx: false, flag: null, flag_note: '', dub_filename: null,
+      sfx: false, flag: null, flag_note: '', dub_filename: null, lang: null,
     }
     const out = { drama_id: 1, line_id: 7, engine: 'ollama', model: null, retried: true, blocked: false, reason: null, line }
     const r = await review.retryBlockedLine(1, 7, 'ollama', fakeFetch(200, out, calls))
