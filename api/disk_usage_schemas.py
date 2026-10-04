@@ -163,3 +163,49 @@ class DiskUsageTrashEmptyDone(BaseModel):
     freed_bytes: int
     removed: int
     failed: int = Field(description="Entries that couldn't be removed; they stay in Trash.")
+
+
+class UnusedVoiceClip(BaseModel):
+    id: str = Field(description="Opaque; only valid until the server restarts.")
+    file_type: str = Field(description="wav, mp3, m4a, flac or ogg.")
+    size_bytes: int
+    modified_at: Optional[str] = None
+
+
+class UnusedVoiceClipTitle(BaseModel):
+    title: str
+    size_bytes: int
+    clips: List[UnusedVoiceClip]
+
+
+class UnusedVoiceClipList(BaseModel):
+    titles: List[UnusedVoiceClipTitle]
+    total_bytes: int
+    total_count: int
+    titles_in_use: int = Field(description="Titles left out because a dub, narration or "
+                                           "audiobook job is running for them.")
+    busy_reason: Optional[str] = None
+
+
+class UnusedVoiceClipChoice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: StrictStr = Field(min_length=1, max_length=64)
+    expected_size_bytes: StrictInt = Field(ge=0, description="The size the user was shown.")
+
+
+class UnusedVoiceClipTrashRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    clips: List[UnusedVoiceClipChoice] = Field(min_length=1, max_length=500)
+    confirm: StrictBool = False
+
+
+class UnusedVoiceClipSkipped(BaseModel):
+    id: str
+    reason: Literal["no_longer_unused", "changed"]
+
+
+class UnusedVoiceClipTrashDone(BaseModel):
+    moved_count: int
+    moved_bytes: int = Field(description="Moved into Trash; nothing is freed until it is "
+                                         "deleted from there.")
+    skipped: List[UnusedVoiceClipSkipped]

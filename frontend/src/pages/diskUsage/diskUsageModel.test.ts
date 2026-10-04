@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { DiskUsageItem } from '../../types/diskUsage'
 import {
   barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
-  filesText, formatBytes, itemTone, moveBlock, percentText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
+  clipLine, clipTitle, clipsInUseText, describeClipsMoved, filesText, formatBytes, itemTone, moveBlock, percentText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
@@ -97,5 +97,26 @@ describe('what can be done', () => {
     expect(cellLabel(item(), 5, 5)).toBe('')
     expect(cellLabel(item(), 10, 10)).toBe('tmp')
     expect(cellLabel(item(), 30, 20)).toBe('tmp\n1.5 MB')
+  })
+})
+
+describe('unused voice clips text', () => {
+  it('describes a clip by type, size and date only', () => {
+    expect(clipLine({ file_type: 'wav', size_bytes: 1_500_000, modified_at: '2026-09-30T08:00:00+00:00' })).toBe('WAV clip · 1.5 MB · 2026-09-30')
+    expect(clipLine({ file_type: 'mp3', size_bytes: 900, modified_at: null })).toBe('MP3 clip · 900 B')
+  })
+
+  it('names an untitled title and the left-out titles', () => {
+    expect(clipTitle('  ')).toBe('Untitled')
+    expect(clipTitle('Show')).toBe('Show')
+    expect(clipsInUseText(1)).toContain('1 title is left out')
+    expect(clipsInUseText(2)).toContain('2 titles are left out')
+  })
+
+  it('says what moved and what was skipped', () => {
+    expect(describeClipsMoved({ moved_count: 2, moved_bytes: 3000, skipped: [] }))
+      .toBe('Moved 2 clips (3.0 KB) to Trash. Nothing is freed until you delete them from Trash; you can restore them from there.')
+    expect(describeClipsMoved({ moved_count: 0, moved_bytes: 0, skipped: [{ id: 'x', reason: 'changed' }] }))
+      .toBe('No clips were moved. 1 clip skipped: it changed or a speaker started using it.')
   })
 })

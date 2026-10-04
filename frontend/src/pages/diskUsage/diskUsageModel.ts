@@ -1,6 +1,7 @@
 // Pure helpers for the Disk usage section (DiskUsageSection.tsx).
 import type {
-  DiskUsageClearDone, DiskUsageItem, DiskUsageMoveDone, DiskUsageScan, DiskUsageTrashItem,
+  DiskUsageClearDone, DiskUsageItem, DiskUsageMoveDone, DiskUsageScan, DiskUsageTrashItem, UnusedVoiceClip,
+  UnusedVoiceClipTrashDone,
 } from '../../types/diskUsage'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
 
@@ -112,3 +113,24 @@ export const describeEmptied = (r: { freed_bytes: number; removed: number; faile
   r.failed > 0
     ? `Deleted ${r.removed} item${r.removed === 1 ? '' : 's'} (${formatBytes(r.freed_bytes)} freed). ${r.failed} could not be deleted and ${r.failed === 1 ? 'is' : 'are'} still in Trash; they may be in use.`
     : `Emptied Trash: ${r.removed} item${r.removed === 1 ? '' : 's'} deleted, ${formatBytes(r.freed_bytes)} freed.`
+
+export const clipsText = (n: number) => `${n.toLocaleString('en-US')} clip${n === 1 ? '' : 's'}`
+
+export const UNUSED_CLIPS_INTRO = 'Not used by any speaker. Moves to the Baihe trash, where you can restore it.'
+
+export const clipTitle = (title: string) => title.trim() || 'Untitled'
+
+/** "WAV clip · 120 KB · 2026-10-01" (the date is left out when unknown). */
+export const clipLine = (c: Pick<UnusedVoiceClip, 'file_type' | 'size_bytes' | 'modified_at'>) =>
+  [`${c.file_type.toUpperCase()} clip`, formatBytes(c.size_bytes), (c.modified_at ?? '').slice(0, 10)].filter(Boolean).join(' · ')
+
+export const clipsInUseText = (n: number) =>
+  `${n} title${n === 1 ? ' is' : 's are'} left out because a dub, narration or audiobook job is running. Check again when it finishes.`
+
+export function describeClipsMoved(r: UnusedVoiceClipTrashDone): string {
+  const moved = r.moved_count === 0
+    ? 'No clips were moved.'
+    : `Moved ${clipsText(r.moved_count)} (${formatBytes(r.moved_bytes)}) to Trash. Nothing is freed until you delete them from Trash; you can restore them from there.`
+  const n = r.skipped.length
+  return n === 0 ? moved : `${moved} ${clipsText(n)} skipped: ${n === 1 ? 'it changed or a speaker started using it' : 'they changed or a speaker started using them'}.`
+}

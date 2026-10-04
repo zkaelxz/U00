@@ -22,7 +22,8 @@ from api.disk_usage_schemas import (
     DiskUsageClearDone, DiskUsageClearRequest, DiskUsageMoveDone, DiskUsageMoveRequest,
     DiskUsageScan, DiskUsageTrashEmptyDone, DiskUsageTrashEmptyRequest, DiskUsageTrashList,
     DiskUsageTrashPurgeDone, DiskUsageTrashPurgeRequest, DiskUsageTrashRestoreDone,
-    DiskUsageTrashRestoreRequest)
+    DiskUsageTrashRestoreRequest, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
+    UnusedVoiceClipTrashRequest)
 from api.schemas import ErrorResponse
 from services import disk_usage_service as svc
 
@@ -94,3 +95,22 @@ async def post_trash_empty(body: DiskUsageTrashEmptyRequest):
         svc.trash_empty, confirm_text=body.confirm_text,
         expected_item_count=body.expected_item_count,
         expected_size_bytes=body.expected_size_bytes)
+
+
+@router.get("/unused-voice-clips", dependencies=[local_only()],
+            response_model=UnusedVoiceClipList, responses=_ERR,
+            summary="Voice clips no speaker uses, per title: type, size and date only (no "
+                    "file names or paths), with an opaque id for each")
+async def get_unused_voice_clips():
+    return await run_in_threadpool(svc.unused_voice_clips)
+
+
+@router.post("/unused-voice-clips/to-trash", dependencies=[local_only()],
+             response_model=UnusedVoiceClipTrashDone, responses=_ERR,
+             summary="Move listed unused clips into Baihe's Trash folder (confirm=true and the "
+                     "size shown for each). A clip that is used or changed meanwhile is skipped.")
+async def post_unused_voice_clips_to_trash(body: UnusedVoiceClipTrashRequest):
+    return await run_in_threadpool(
+        svc.trash_unused_voice_clips,
+        [{"id": c.id, "expected_size_bytes": c.expected_size_bytes} for c in body.clips],
+        confirm=body.confirm)
