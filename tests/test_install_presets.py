@@ -264,7 +264,7 @@ def test_required_min_versions_from_active_requirement_lines(tmp_path):
 
 def test_real_requirements_give_known_minimums():
     mins = diagnostics.required_min_versions()
-    assert mins["jieba"] == "0.42" and mins["opencv-python"] == "4.8"
+    assert mins["jieba"] == "0.42" and mins["opencv-python"] == "4.8.1.78"
     assert "paddleocr" not in mins               # commented out in requirements-optional.txt
 
 
