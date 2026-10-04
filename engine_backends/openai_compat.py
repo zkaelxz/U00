@@ -1,15 +1,24 @@
 """DeepSeek and OpenAI engines (OpenAI-style chat APIs)."""
 
+import json
+
+from services import capped_body
+
 from .pricing import OPENAI_CHAT_URL, OPENAI_MODELS, openai_listed_extra_models
 from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import (
     ContentModerationBlocked,
+    ProviderResponseTooLarge,
     SDK_REQUEST_TIMEOUT,
     _add_usage,
     _empty_usage,
+    read_json_capped,
     redact_secrets,
     request_translations_with_retry,
 )
+
+# An error reply is a short JSON object; only its message is kept.
+ERROR_BODY_MAX_BYTES = 64 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -105,17 +114,20 @@ class OpenAIEngine:
         limits are still recognised) on an HTTP error."""
         import requests
         resp = requests.post(self.url, headers=self._headers(),
-                             json=self.build_request_body(messages), timeout=SDK_REQUEST_TIMEOUT)
+                             json=self.build_request_body(messages), timeout=SDK_REQUEST_TIMEOUT,
+                             stream=True)
         if not resp.ok:
             detail = ""
             try:
-                detail = str((resp.json().get("error") or {}).get("message") or "")[:300]
+                body = json.loads(capped_body.read_capped(
+                    resp, ERROR_BODY_MAX_BYTES, SDK_REQUEST_TIMEOUT, ProviderResponseTooLarge))
+                detail = str((body.get("error") or {}).get("message") or "")[:300]
             except Exception:
                 pass
             raise requests.HTTPError(
                 redact_secrets(f"OpenAI returned HTTP {resp.status_code}"
                                + (f": {detail}" if detail else "")), response=resp)
-        data = resp.json()
+        data = read_json_capped(resp, SDK_REQUEST_TIMEOUT)
         usage = data.get("usage") or {}
         cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
         parsed = {"input_tokens": usage.get("prompt_tokens") or 0,

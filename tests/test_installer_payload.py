@@ -589,3 +589,58 @@ class TestWheelHashVerifier:
         lock.write_text(f"a==1 --hash=sha256:{_sha(b'x')}\n")
         with pytest.raises(bi.BuildError, match="a-1-py3-none-any.whl"):
             bi.verify_wheel_hashes(d, lock)
+
+
+class TestDownloadCap:
+    class _Resp:
+        def __init__(self, body, headers=None):
+            self._body, self.headers = body, headers or {}
+            self.reads = 0
+
+        def read(self, n):
+            self.reads += 1
+            chunk, self._body = self._body[:n], self._body[n:]
+            return chunk
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _serve(self, monkeypatch, resp):
+        seen = {}
+
+        def urlopen(url, timeout=None):
+            seen["timeout"] = timeout
+            return resp
+        monkeypatch.setattr(bi.urllib.request, "urlopen", urlopen)
+        return seen
+
+    def test_writes_the_file(self, monkeypatch, tmp_path):
+        seen = self._serve(monkeypatch, self._Resp(b"abc"))
+        dest = bi.download("https://example.invalid/x.zip", tmp_path / "x.zip")
+        assert dest.read_bytes() == b"abc" and seen["timeout"] == 120
+        assert not (tmp_path / "x.zip.part").exists()
+
+    def test_over_the_cap_leaves_nothing(self, monkeypatch, tmp_path):
+        self._serve(monkeypatch, self._Resp(b"x" * 101))
+        with pytest.raises(bi.BuildError) as exc:
+            bi.download("https://example.invalid/x.zip", tmp_path / "x.zip", max_bytes=100)
+        assert "example.invalid" not in str(exc.value)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_declared_length_over_the_cap_refused_before_reading(self, monkeypatch, tmp_path):
+        resp = self._Resp(b"x", headers={"Content-Length": "101"})
+        self._serve(monkeypatch, resp)
+        with pytest.raises(bi.BuildError):
+            bi.download("https://example.invalid/x.zip", tmp_path / "x.zip", max_bytes=100)
+        assert resp.reads == 0 and list(tmp_path.iterdir()) == []
+
+    def test_slow_transfer_hits_the_deadline(self, monkeypatch, tmp_path):
+        self._serve(monkeypatch, self._Resp(b"x" * (3 << 20)))
+        ticks = iter(range(0, 1000, 10))
+        with pytest.raises(bi.BuildError):
+            bi.download("https://example.invalid/x.zip", tmp_path / "x.zip",
+                        deadline_seconds=15, clock=lambda: next(ticks))
+        assert list(tmp_path.iterdir()) == []

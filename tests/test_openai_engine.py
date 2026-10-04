@@ -10,11 +10,12 @@ import translate_engines as te
 from core import Line
 from services import settings_service, translate_run_service, translate_service
 from services.service_errors import DependencyUnavailableError, InvalidInputError
+from tests.http_fakes import StreamedBody
 
 KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
 
 
-class FakeResp:
+class FakeResp(StreamedBody):
     def __init__(self, status=200, body=None):
         self.status_code = status
         self._body = body if body is not None else {}
@@ -116,6 +117,7 @@ def test_http_error_is_redacted_and_keeps_the_response(posts):
         engine.chat([{"role": "user", "content": "hi"}])
     assert KEY not in str(exc.value)
     assert "401" in str(exc.value)
+    assert "Incorrect API key provided" in str(exc.value)  # the provider's explanation still comes through the capped read
     assert exc.value.response.status_code == 401
 
 
