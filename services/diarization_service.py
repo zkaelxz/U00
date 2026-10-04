@@ -204,9 +204,15 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
                        max_speakers: Optional[int] = None):
     """The on_done hook for a diarize_<drama_id> process job."""
     def _on_done(job_id, result):
-        background_jobs.update_progress(job_id, 0.97, "Matching speakers to lines...")
+        fell_back = bool((result or {}).get("fell_back_to_cpu"))
+        background_jobs.update_progress(
+            job_id, 0.97, ("Ran on CPU after running out of GPU memory. " if fell_back else "")
+            + "Matching speakers to lines...")
         apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
                                  min_speakers=min_speakers, max_speakers=max_speakers)
+        if fell_back:
+            # Replaces the stored result so the finished job still says it.
+            return {"device": "cpu", "gpu_fallback": diarize.OOM_FALLBACK_DONE_MESSAGE}
     return _on_done
 
 
