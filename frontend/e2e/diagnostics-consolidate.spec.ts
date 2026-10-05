@@ -107,3 +107,53 @@ test('Packages has no Missing packages fold; a task lists what it still needs', 
   await expect(page.getByRole('list', { name: 'Packages not part of a task' })).toContainText("isn't on PyPI")
   expect(unmocked).toEqual([])
 })
+
+test('each model engine is listed once, with Install in its Setup row; the other folds link to it', async ({ page }) => {
+  await guardWrites(page)
+  await mockDiagnostics(page)
+  const installed: string[] = []
+  await page.route('**/api/meta', (r) =>
+    r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: true } }))
+  await page.route('**/api/diagnostics/dependencies/*/install', (r) => {
+    installed.push(r.request().url())
+    return r.fulfill({ json: { ok: true, output_tail: ['done'], hint: null } })
+  })
+  await page.goto('/#/diagnostics')
+  // Open every fold: a name must still show up in only one engine list.
+  for (const title of [/^Setup/, /^Model health/, /^Packages/]) await openSection(page, title)
+
+  const engines = page.getByRole('list', { name: 'Model engines', exact: true })
+  await expect(engines).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'Model engines not installed' })).toHaveCount(0)
+  for (const name of ['Whisper (faster-whisper)', 'Qwen3-ASR', 'SenseVoice (FunASR)', 'pyannote diarization model']) {
+    await expect(engines.locator(':scope > li', { hasText: name })).toHaveCount(1)
+    await expect(page.locator('li', { hasText: `${name}:` })).toHaveCount(1)
+  }
+  await expect(page.getByTestId('diagnostics-summary')).toBeVisible()
+
+  // Install lives in the engine's row, only for an engine that isn't installed.
+  const qwen = engines.locator(':scope > li', { hasText: 'Qwen3-ASR' })
+  await expect(engines.getByRole('button', { name: /^Install/ })).toHaveCount(1)
+  await qwen.getByRole('button', { name: /^Install/ }).click()
+  await qwen.getByRole('button', { name: /^Confirm install/ }).click()
+  await expect(qwen.getByTestId('install-result')).toBeVisible()
+  expect(installed).toHaveLength(1)
+})
+
+test('the links in Packages and Model health open Setup at its model engines', async ({ page }) => {
+  await guardWrites(page)
+  await mockDiagnostics(page)
+  await page.goto('/#/diagnostics')
+  const setup = fold(page, /^Setup/)
+  await expect(setup).toHaveJSProperty('open', false)
+  await openSection(page, /^Packages/)
+  await page.getByTestId('dependency-panel').getByRole('button', { name: 'Show model engines' }).click()
+  await expect(setup).toHaveJSProperty('open', true)
+  await expect(page.getByRole('heading', { name: 'Model engines' })).toBeFocused()
+
+  await setup.locator('> summary').click()
+  await expect(setup).toHaveJSProperty('open', false)
+  await openSection(page, /^Model health/)
+  await fold(page, /^Model health/).getByRole('button', { name: 'Show model engines' }).click()
+  await expect(setup).toHaveJSProperty('open', true)
+})

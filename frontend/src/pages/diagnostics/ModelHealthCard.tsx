@@ -21,7 +21,7 @@ import {
  * another model for a built-in default or tier, which ask for a second press.
  * Nothing switches by itself.
  */
-export function ModelHealthCard({ pc }: { pc: PcMode }) {
+export function ModelHealthCard({ pc, onShowEngines }: { pc: PcMode; onShowEngines: () => void }) {
   const [status, setStatus] = useState<ModelStatus | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -162,6 +162,10 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
       )}
       {status && (
         <>
+          <p className="muted">
+            Local model engines (install, status, downloads) are listed in Setup.{' '}
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={onShowEngines}>Show model engines</button>
+          </p>
           <p className="muted">
             Nothing switches automatically: a preset only changes when you confirm it here.{' '}
             {canAct
