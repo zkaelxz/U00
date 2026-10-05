@@ -15,8 +15,14 @@ export default defineConfig({
   // One worker: the specs share one seeded throwaway library (library-page.spec.ts
   // creates and deletes a drama while library.spec.ts asserts a count of 3).
   workers: 1,
+  // A committed test.only would silently run one test and pass.
+  forbidOnly: !!process.env.CI,
+  // The HTML report and traces are uploaded by the e2e job when it fails.
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: `http://127.0.0.1:${WEB_PORT}`,
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
     // Lets a machine with a preinstalled Chromium (e.g. PLAYWRIGHT_CHROMIUM_PATH=
     // /opt/pw-browsers/chromium) skip `playwright install`.
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_PATH
