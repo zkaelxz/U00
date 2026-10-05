@@ -16,7 +16,7 @@ export function sampleJobs() {
 // Jobs tied to titles and kinds, for the Jobs page (links, kind filter, Mine).
 export function pageJobs() {
   const t = now()
-  const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, drama_id: null, kind: 'other' }
+  const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, drama_id: null, kind: 'other', page: null }
   return [
     { ...base, job_id: 'translate_3', status: 'running', progress: 0.4, message: 'Batch 2 of 5', description: 'Translate Signal', started_at: t - 185, finished_at: null, drama_id: 3, kind: 'translate' },
     { ...base, job_id: 'dub_4', status: 'queued', description: 'Dub Kae', started_at: null, finished_at: null, drama_id: 4, kind: 'dub', owned_by_me: false },

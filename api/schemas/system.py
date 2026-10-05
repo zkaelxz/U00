@@ -54,7 +54,6 @@ __all__ = [
     "DiagnosticsModelCache",
     "DiagnosticsPyannoteModel",
     "DiagnosticsPyannoteReadiness",
-    "DiagnosticsJobHistoryItem",
     "DiagnosticsLogTail",
     "DiagnosticsSupportReport",
     "DiagnosticsAdminConfirm",
@@ -271,6 +270,11 @@ class JobRecord(BaseModel):
     drama_id: Optional[int] = None
     kind: Literal["transcribe", "translate", "align", "dub", "export", "review",
                   "import", "other"] = "other"
+    # The page a job belongs to (services/jobs_service.job_page), so a job
+    # with no title can still link somewhere. A page name only; None when
+    # the id names no page.
+    page: Optional[Literal["title", "sources", "discover", "live", "settings",
+                           "diagnostics"]] = None
 
 
 class JobListResponse(BaseModel):
@@ -500,19 +504,6 @@ class DiagnosticsPyannoteReadiness(BaseModel):
     hf_token_configured: bool
     models: Optional[List[DiagnosticsPyannoteModel]] = None
     ready: bool
-
-
-class DiagnosticsJobHistoryItem(BaseModel):
-    job_id: str
-    label: str
-    status: Optional[str] = None
-    description: Optional[str] = None
-    message: str = ""
-    error: Optional[str] = None
-    gpu_touching: bool = False
-    started_at: Optional[float] = None
-    finished_at: Optional[float] = None
-    duration_seconds: Optional[float] = None
 
 
 class DiagnosticsLogTail(BaseModel):

@@ -45,6 +45,21 @@ test('running jobs first, with title and stage links, a progress bar and live du
   await expect(page.getByTestId('job-row-lncrawl_9').getByRole('link')).toHaveCount(0)
 })
 
+test('a title-less job links its Stage cell to the page the server names', async ({ page }) => {
+  const t = Math.floor(Date.now() / 1000)
+  const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, drama_id: null, kind: 'other', status: 'done', outcome: 'ok', started_at: t - 60, finished_at: t - 50 }
+  await mockJobsApi(page, [
+    { ...base, job_id: 'sources_search', description: 'Search sources', page: 'sources' },
+    { ...base, job_id: 'deno_install', description: 'Install Deno', page: 'diagnostics' },
+    { ...base, job_id: 'benchmark_lab', description: 'Benchmark', page: null },
+  ], true)
+  await page.goto('/#/jobs')
+  await chip(page, 'All').click()
+  await expect(page.getByTestId('job-row-sources_search').getByRole('link', { name: 'Sources', exact: true })).toHaveAttribute('href', '#/sources')
+  await expect(page.getByTestId('job-row-deno_install').getByRole('link', { name: 'Diagnostics', exact: true })).toHaveAttribute('href', '#/diagnostics')
+  await expect(page.getByTestId('job-row-benchmark_lab').getByRole('link')).toHaveCount(0)
+})
+
 test('status chips show counts and filters combine, then are remembered', async ({ page }) => {
   await mockJobsApi(page, pageJobs(), true)
   await page.goto('/#/jobs')
