@@ -522,7 +522,10 @@ def cmd_align(args):
                 try:
                     import forced_align
                     lines = forced_align.align_with_qwen3(
-                        audio_path, user_lines, segments, language=language, use_gpu=use_gpu)
+                        audio_path, user_lines, segments, language=language, use_gpu=use_gpu,
+                        on_gpu_fallback=lambda exc: print(
+                            f"#{d['id']} WARNING: " + core_module.gpu_fallback_notice(
+                                "Qwen3 forced alignment", core_module.short_reason(exc))))
                 except ImportError as exc:
                     raise _qwen3_missing(exc) from exc
                 except ModelDownloadError as exc:
