@@ -84,7 +84,7 @@ async function health() {
   return call("/health");
 }
 
-// Text mode (Step 96) sends the app raw text instead of an image -- see
+// Text mode sends the app raw text instead of an image -- see
 // content.js's collectPageText. Same token, same server, no new auth.
 async function sendText({ text, sourceLanguage, targetLanguage, store }) {
   if (!text) {
