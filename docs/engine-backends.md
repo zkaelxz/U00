@@ -91,13 +91,13 @@ engine in the app: the key-free `FakeEngine` lives in `tests/fake_engine.py`
 
 ### Response size caps
 
-The engine modules do not stream or cap response bodies; they rely on
-`timeout=` and `resp.json()`. The byte-and-deadline capped read is
-`services/capped_body.read_capped`, used today by the Notion, Jellyfin, web
-search and update services, with a caller-supplied `make_error` so no URL or
-header reaches the message. There is no `ProviderResponseTooLarge` class in the
-tree. If you add an engine that fetches something of unknown size, use
-`capped_body` rather than a new reader.
+The OpenAI-compatible engines read provider replies through
+`engine_backends.shared.read_json_capped`, which streams the body through
+`services/capped_body.read_capped` (16 MB and a deadline) and raises
+`ProviderResponseTooLarge` with no URL or header in the message. The other
+engine modules still rely on `timeout=` and `resp.json()`. If you add an engine
+that fetches something of unknown size, use `read_json_capped` or `capped_body`
+rather than a new reader.
 
 ### Engine ids, lists and what the UI sees
 
@@ -207,11 +207,16 @@ past `HARD_CAP_SECONDS` (300 s, the aligner's own limit), and falls back to the
 coarse timing with `TIMING_FALLBACK_NOTE` / `TIMING_REPAIRED_NOTE` when the
 aligner returns zero-length or out-of-order spans.
 
-`vad_segments.py` is a pure helper (`speech_spans`, `merge_close`, `cap_spans`)
-that builds Silero speech spans and cuts long ones at the quietest point. It is
-**not wired into any pipeline yet**: only `tests/test_vad_segments.py` imports
-it. There is no VAD-first ASR backend, and no `mixed_language.py` or "Mixed
-languages" option in this tree.
+`vad_segments.py` (`speech_spans`, `merge_close`, `cap_spans`) builds Silero
+speech spans and cuts long ones at the quietest point. `Qwen3ASRVadBackend`
+(`asr_backend_choice` `qwen3_asr_vad`, opt-in) uses it to feed Qwen3 spans of
+at most about 15 s instead of Whisper's segments.
+
+`mixed_language.py` backs the "mixed languages" option (`mixed_languages` in
+the ASR options): language is detected per speech span, the text's script is
+checked against it, and a span that disagrees is retried once in the title's
+language. A line is given a `lang` only when it differs from the title's, and
+one that still can't be confirmed gets the `language_uncertain` flag.
 
 **Model folders and offline use.** Settings > "Offline Whisper model folder"
 (`whisper_model_path`, read by `settings_service.get_whisper_model_path`) is
