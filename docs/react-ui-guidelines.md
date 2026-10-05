@@ -1,8 +1,7 @@
 # React UI guidelines: keep pages short
 
-<<<<<<< HEAD
 Rules for every new or reworked React page; section 2 is the house standard and code and agents cite the rules by number. Kit: `frontend/src/components/{Toggle,Button,Badge,Card,Section,Field}.tsx`, `components/labels.ts` and the design-kit block in `index.css`. Rules 4 and 8 and rules 16-22 come from `docs/design/ui-refresh-spec.md` §2.2 and §2.4.
-=======
+
 Status: design guidance plus a prioritised change list. Docs only; no code changed by this file.
 Note (2026-10-04): the Streamlit app and the `tabs/` files this refers to were deleted in #502, so those `tabs/` paths and line numbers no longer resolve; the text is kept as the record of the comparison.
 Implementation status (2026-09-29): every screen in section 3 is implemented (Library #285 and #302, Source #299, Translate #297/#300, Review #298, Dub #295, Export #296, Settings and Diagnostics #301, shared Section/Field #293). Remaining gaps are backend-blocked (e.g. a pending-batch list endpoint).
@@ -43,7 +42,6 @@ Read from the code, not guessed:
 - **Stage set differs.** Streamlit has 7 stage tabs (Source, Transcript, Diarize, Translate, Review, Dub,
   Export) and opens on the drama's current stage. React has 5 (Transcript and Diarize live inside Source)
   and always opens on `DEFAULT_STAGE`.
->>>>>>> origin/baihe-subtitler
 
 ## 2. Rules
 

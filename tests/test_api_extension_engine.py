@@ -202,3 +202,65 @@ def test_remote_household_user_cannot_read(env):
     r = remote.get("/api/extension/engine",
                    headers={"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}"})
     assert r.status_code == 403
+
+
+HF_TOKEN = "hf_" + "A1b2C3d4E5" * 4
+
+
+def _set_prefs(**prefs):
+    for name, value in prefs.items():
+        db.set_app_setting(settings_service._PREF_PREFIX + name, value)
+
+
+def test_resolved_config_carries_no_ocr_overrides_by_default(env):
+    config = extension_service.resolved_translation_config()
+    assert config["tesseract_cmd"] is None and config["hf_token"] is None
+    assert config["ocr_backend"] is None and config["prefer_paddle_vl_manga"] is False
+
+
+def test_resolved_config_carries_the_saved_ocr_settings(env):
+    env.write_text(f"BAIHE_HF_TOKEN={HF_TOKEN}\n", encoding="utf-8")
+    _set_prefs(tesseract_cmd="/opt/tess/tesseract", ocr_backend="tesseract",
+               ocr_prefer_paddle_vl_manga=True)
+    config = extension_service.resolved_translation_config()
+    assert config["tesseract_cmd"] == "/opt/tess/tesseract"
+    assert config["ocr_backend"] == "tesseract"
+    assert config["prefer_paddle_vl_manga"] is True
+    assert config["hf_token"] == HF_TOKEN
+    # Also with no engine chosen: OCR-only pages still use the saved OCR setup.
+    assert extension_service.get_translation_settings()["engine"] is None
+    extension_service.push_translation_config()
+    assert page_server.get_translation_config()["tesseract_cmd"] == "/opt/tess/tesseract"
+
+
+def test_a_saved_auto_backend_stays_language_driven(env):
+    _set_prefs(ocr_backend="auto")
+    assert extension_service.resolved_translation_config()["ocr_backend"] is None
+
+
+def test_the_page_pipeline_receives_the_saved_ocr_settings(env, monkeypatch):
+    import scanlate
+    env.write_text(f"BAIHE_HF_TOKEN={HF_TOKEN}\n", encoding="utf-8")
+    _set_prefs(tesseract_cmd="/opt/tess/tesseract")
+    seen = {}
+
+    def fake_detect(image_path, source_language, **kwargs):
+        seen.update(kwargs)
+        return [], [("warning", f"download failed with token {HF_TOKEN}")]
+
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", fake_detect)
+    page_server.set_config_provider(extension_service.resolved_translation_config)
+    out = page_server.translate_image(b"not-really-a-png", "image/png", store=False,
+                                      source_language="zh")
+    assert seen["tesseract_cmd"] == "/opt/tess/tesseract"
+    assert seen["hf_token"] == HF_TOKEN
+    assert HF_TOKEN not in str(out) and "[REDACTED]" in str(out["notes"])
+
+
+def test_no_response_exposes_the_ocr_settings_or_hf_token(env):
+    env.write_text(f"BAIHE_HF_TOKEN={HF_TOKEN}\n", encoding="utf-8")
+    _set_prefs(tesseract_cmd="/opt/tess/tesseract")
+    c = _client()
+    for r in (c.get("/api/extension/status"), c.get("/api/extension/engine"),
+              c.post("/api/extension/engine", json={"engine": "fake"})):
+        assert HF_TOKEN not in r.text and "/opt/tess" not in r.text

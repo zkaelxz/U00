@@ -380,7 +380,10 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 tesseract_cmd=config.get("tesseract_cmd") or None,
                 prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
                 page_id=(page or {}).get("id"))
-            notes.extend([list(n) for n in (detect_notes or [])])
+            # Detector/OCR notes can quote a Hugging Face download error;
+            # the saved HF token now reaches that call, so redact them.
+            notes.extend([[n[0], translate_engines.redact_secrets(str(n[1]))]
+                          for n in (detect_notes or [])])
 
             engine = _build_engine(config)
             if bubbles and engine is not None:
