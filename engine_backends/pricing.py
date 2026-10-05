@@ -90,7 +90,12 @@ PRICING_PER_MILLION_TOKENS = {
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
     "claude-sonnet-5": {"input": 2.0, "output": 10.0},
     "claude-haiku-4-5-20251001": {"input": 1.0, "output": 5.0},
-    "claude-opus-4-8": {"input": 15.0, "output": 75.0},
+    "claude-opus-4-8": {"input": 5.0, "output": 25.0},
+    # Anthropic's pricing page, October 2026. Cache reads are 10% of input and
+    # 5-minute cache writes 125%, which CACHE_*_PRICE_FACTOR already encode.
+    "claude-sonnet-5-5": {"input": 2.0, "output": 10.0},
+    "claude-opus-5-5": {"input": 4.0, "output": 20.0},
+    "claude-fable-5-1": {"input": 10.0, "output": 50.0},
     # Corrected against api-docs.deepseek.com/quick_start/pricing's
     # raw page source (checked directly, not a summarized fetch) -- these
     # previous flat figures didn't match DeepSeek's real pricing structure
