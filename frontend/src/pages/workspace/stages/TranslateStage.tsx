@@ -68,6 +68,7 @@ import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
 import { translateBlocker } from './stageBlockers'
 import './translate.css'
+import { AI_ENGINE_LABEL, NOTHING_STARTS_HELP, NO_KEY_ENGINES_HELP } from '../../../helpText'
 
 function EstimateView({ e }: { e: TranslateRunEstimate }) {
   const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown' : `about $${e.estimated_usd.toFixed(2)}`
@@ -135,7 +136,7 @@ function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onAppli
   }
   return (
     <div className="check-row translate-tier">
-      <Field label="Starting tier" help="Sets the engine, model and Reflect together. Draft: DeepSeek, no Reflect. Standard: Claude Sonnet, no Reflect. Release: Claude Opus, Reflect on, Auto QC on. Everything stays editable afterward, and nothing starts until you press Translate.">
+      <Field label="Starting tier" help={`Sets engine, model and Reflect together (Draft: DeepSeek; Standard: Claude Sonnet; Release: Claude Opus with Reflect and Auto QC), and stays editable. ${NOTHING_STARTS_HELP}`}>
         <select value={tier} onChange={(e) => setTier(e.target.value)}>
           {tiers.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
         </select>
@@ -184,7 +185,7 @@ function PresetPicker({ onApplied }: { onApplied: (p: TranslatePresetApplied) =>
   }
   return (
     <div className="check-row translate-tier">
-      <Field label="Saved preset" help="Fills in the engine, model, style, English variant and the two guidance toggles from a preset saved with Save as preset. Everything stays editable, and nothing starts until you press Translate. Manage presets in the Library.">
+      <Field label="Saved preset" help={`Fills in engine, model, style, English variant and guidance toggles from a saved preset. ${NOTHING_STARTS_HELP} Manage presets in the Library.`}>
         <select value={picked} onChange={(e) => { setPicked(e.target.value); setApplied(null) }}>
           <option value="">Choose a preset</option>
           {presets.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
@@ -378,7 +379,7 @@ function RunPanel({
     <section className="panel" aria-label="Translate run">
       <h3>Translate</h3>
       <div className="translate-basics">
-        <Field label="Engine" help="Which service translates. The default comes from Settings; engines marked (no key) cannot run.">
+        <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP}`}>
           <select value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
             <option value="">Default ({engineLabel(config.translation_engine)})</option>
             {config.engines.map((e) => (

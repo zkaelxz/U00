@@ -214,7 +214,13 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
     with no error shown anywhere.
     """
     import segment as segment_module
+    from core import SOURCE_LANGUAGES
 
+    # A mixed-language title's segment carries its own language; the CJK
+    # segmenters would mangle an English one, so it stays unsplit.
+    language = segment.get("lang") or language
+    if language not in SOURCE_LANGUAGES:
+        return [segment]
     words = [w for w, _ in segment_module.segment_and_annotate(
         segment["text"], language, chinese_script=chinese_script) if w.strip()]
     if len(words) < 2:
@@ -240,6 +246,9 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
             os.remove(slice_path)
 
     lines = _group_aligned_words_into_lines(aligned, segment["start"], min_pause_seconds)
+    if segment.get("lang"):
+        for line in lines:
+            line["lang"] = segment["lang"]
     return lines or [segment]
 
 

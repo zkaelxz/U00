@@ -12,8 +12,9 @@
  */
 import { useState, type ReactNode } from 'react'
 
-import { clearEndpointUrl, setEndpointUrl, updatePreferences } from '../../api/settings'
+import { clearEndpointUrl, resetMonthCounter, setEndpointUrl, undoMonthCounterReset, updatePreferences } from '../../api/settings'
 import { Card } from '../../components/Card'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { humanize, humanizeValue } from '../../components/labels'
@@ -54,7 +55,6 @@ export function DefaultsCard(props: Props) {
       {...common}
       as="card"
       title="Translation style"
-      storageKey="settings.defaults"
       summary={`${humanize('locale', p.default_locale)}${p.default_style_note ? ' · style note' : ''}`}
       fromPrefs={(x) => ({
         default_locale: x.default_locale,
@@ -89,7 +89,6 @@ export function SpendingCard(props: Props) {
       {...common}
       as="card"
       title="Spending"
-      storageKey="settings.spending"
       summary={capSummary(p.monthly_cap_usd, settings.monthly_cap_env_usd)}
       fromPrefs={(x) => ({ monthly_cap_usd: x.monthly_cap_usd === null ? '' : String(x.monthly_cap_usd) })}
       toPatch={(d) => {
@@ -111,9 +110,69 @@ export function SpendingCard(props: Props) {
               ? `Cap in effect: $${settings.effective_monthly_cap_usd.toFixed(2)} a month.`
               : 'No monthly cap in effect.'}
           </p>
+          <MonthCounter {...props} remote={common.remote} />
         </>
       )}
     </PrefsSection>
+  )
+}
+
+// Outside the preferences form: the reset is its own PC-only action, not a saved field.
+function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolean }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const cap = settings.effective_monthly_cap_usd
+  const run = (work: typeof resetMonthCounter) => {
+    setBusy(true)
+    setError(null)
+    work().then(
+      (r) => {
+        onSettings({ ...settings, ...r.after })
+        setBusy(false)
+      },
+      (e: unknown) => {
+        setError(e)
+        setBusy(false)
+      },
+    )
+  }
+  const resetAt = settings.month_spend_reset_at
+  return (
+    <div data-testid="month-counter">
+      <p data-testid="month-spend">
+        This month: ${settings.month_spend_usd.toFixed(2)}
+        {resetAt ? `, counted toward the cap since reset: $${settings.month_spend_counted_usd.toFixed(2)}` : ''}
+      </p>
+      {resetAt ? (
+        <p className="muted" data-testid="month-reset-at">
+          Counter reset on {new Date(resetAt + 'Z').toLocaleString()}.
+        </p>
+      ) : null}
+      {error ? <ErrorBanner error={error} /> : null}
+      {remote ? null : (
+        <div className="actions">
+          <ConfirmButton
+            name="this month's counter"
+            label="Reset this month's counter…"
+            verb="reset"
+            tone="primary"
+            busy={busy}
+            onConfirm={() => run(resetMonthCounter)}
+          />
+          {resetAt ? (
+            <button type="button" className="link" disabled={busy} onClick={() => run(undoMonthCounterReset)}>
+              Undo reset
+            </button>
+          ) : null}
+        </div>
+      )}
+      {remote ? null : (
+        <p className="muted">
+          Keeps your history, starts counting from now.{' '}
+          {cap > 0 ? `The cap stays at $${cap.toFixed(2)}.` : 'No cap is set.'}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -127,7 +186,6 @@ export function AdvancedCard(props: Props) {
       <PrefsSection
         {...common}
         title="OCR"
-        storageKey="settings.ocr"
         summary={OCR_LABELS[p.ocr_backend] ?? humanizeValue(p.ocr_backend)}
         fromPrefs={(x) => ({
           ocr_backend: x.ocr_backend,
@@ -159,7 +217,6 @@ export function AdvancedCard(props: Props) {
       <PrefsSection
         {...common}
         title="Offline and performance"
-        storageKey="settings.offline"
         summary={[
           p.whisper_model_path ? 'Whisper folder set' : 'Whisper downloads',
           p.ollama_num_ctx_override ? `num_ctx ${p.ollama_num_ctx_override}` : 'num_ctx auto',
@@ -189,7 +246,6 @@ export function AdvancedCard(props: Props) {
       <PrefsSection
         {...common}
         title="Downloads"
-        storageKey="settings.downloads"
         summary={`Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file)}`}
         fromPrefs={(x) => ({ cookies_browser: x.cookies_browser ?? '', cookies_file: x.cookies_file, lncrawl_cmd: x.lncrawl_cmd })}
         toPatch={(d) => {
@@ -244,7 +300,6 @@ type Draft = Record<string, string | boolean | number | null>
 type PrefsSectionProps = {
   as?: 'card' | 'section'
   title: string
-  storageKey: string
   summary: string
   prefs: SettingsPreferences
   remote: boolean
@@ -254,7 +309,7 @@ type PrefsSectionProps = {
   children: (d: Draft, set: (key: string, value: string | boolean) => void) => ReactNode
 }
 
-function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
+function PrefsSection({ as = 'section', title, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
   const [draft, setDraft] = useState<Draft>(() => fromPrefs(prefs))
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -263,7 +318,7 @@ function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remot
 
   if (remote) {
     return (
-      <Block as={as} title={title} summary={PC_ONLY_SUMMARY} storageKey={storageKey}>
+      <Block as={as} title={title} summary={PC_ONLY_SUMMARY}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Block>
     )
@@ -305,7 +360,7 @@ function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remot
   }
 
   return (
-    <Block as={as} title={title} summary={summary} storageKey={storageKey}>
+    <Block as={as} title={title} summary={summary}>
       <div style={grid}>
         <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
         {children(draft, set)}
@@ -328,7 +383,7 @@ function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remot
 }
 
 // A Card (always open; the summary is its meta line) or a Section fold.
-function Block({ as, title, summary, storageKey, children }: { as: 'card' | 'section'; title: string; summary: string; storageKey: string; children: ReactNode }) {
+function Block({ as, title, summary, children }: { as: 'card' | 'section'; title: string; summary: string; children: ReactNode }) {
   if (as === 'card')
     return (
       <Card title={title} meta={summary} aria-label={title}>
@@ -336,7 +391,7 @@ function Block({ as, title, summary, storageKey, children }: { as: 'card' | 'sec
       </Card>
     )
   return (
-    <Section title={title} summary={summary} storageKey={storageKey}>
+    <Section title={title} summary={summary}>
       {children}
     </Section>
   )
@@ -349,13 +404,13 @@ function EndpointsSection({ settings, remote, onSettings }: { settings: Settings
     // Away from the PC the addresses aren't sent, but whether each is set is (engine_keys).
     const configured = ENDPOINTS.filter((e) => settings.engine_keys[e.name]).length
     return (
-      <Section title={title} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`} storageKey="settings.endpoints">
+      <Section title={title} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )
   }
   return (
-    <Section title={title} summary={`${set} of ${ENDPOINTS.length} set`} storageKey="settings.endpoints">
+    <Section title={title} summary={`${set} of ${ENDPOINTS.length} set`}>
       <div style={grid}>
         <p className="settings-note">
           Addresses of local servers Baihe talks to. {SAVED_ON_PC_NOTE}

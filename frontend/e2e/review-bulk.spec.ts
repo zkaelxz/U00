@@ -126,7 +126,7 @@ test('Bulk is off and explained for an engine without a batch API', async ({ pag
 
   // Picking Claude under Check options makes Bulk available.
   const opts = await open(page, 'Check options')
-  await opts.getByRole('combobox', { name: 'Engine' }).selectOption('claude')
+  await opts.getByRole('combobox', { name: 'AI engine' }).selectOption('claude')
   await expect(ai.getByRole('switch', { name: 'Bulk: Flag lines for a second look' })).toBeEnabled()
   await expect(ai.getByText(/^Still needed for Bulk/)).toHaveCount(0)
 })

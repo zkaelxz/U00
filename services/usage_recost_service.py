@@ -96,7 +96,7 @@ def preview() -> dict:
             month_new += new
     stored = sum(r["estimated_cost_usd"] for r, _ in plan)
     recomputed = sum(n for _, n in plan)
-    month_total = db.get_month_spend()
+    month_total = db.get_month_spend(since_reset=False)
     return {
         "rows": len(plan),
         "models": sorted(by_model.values(), key=lambda m: -m["stored_usd"]),
@@ -119,9 +119,10 @@ def apply(confirm: bool, previewed: int, fingerprint: str) -> dict:
     updates = [(row["id"], row["estimated_cost_usd"], new) for row, new in plan]
     changed = db.apply_usage_recost(updates) if updates else 0
     return {"rows": changed, "previewed": previewed, "changed": changed,
-            "month_spend_usd": db.get_month_spend(), "recosted_rows": _recosted_rows()}
+            "month_spend_usd": db.get_month_spend(since_reset=False), "recosted_rows": _recosted_rows()}
 
 
 def undo() -> dict:
     rows = db.undo_usage_recost()
-    return {"rows": rows, "month_spend_usd": db.get_month_spend(), "recosted_rows": _recosted_rows()}
+    return {"rows": rows, "month_spend_usd": db.get_month_spend(since_reset=False),
+            "recosted_rows": _recosted_rows()}

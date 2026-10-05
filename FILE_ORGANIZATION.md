@@ -711,6 +711,7 @@ baihe-subtitler/
 │   │                              when React never mounts; index.html also holds a static no-JS note).
 │   │                              src/labels.ts: display labels for status, media type, language and engine
 │   │                              codes (unknown codes title-cased; one source of truth; unit-tested).
+│   │                              src/helpText.ts: engine-picker labels and help sentences shared by several screens.
 │   │                              Design kit (docs/design/ui-refresh-spec.md): Toggle (role=switch), Button
 │   │                              (ButtonLink), Badge (pill), Card, components/labels.ts (humanize via src/labels.ts, status
 │   │                              tones), uiClasses.ts (buttonClass/badgeClass); tokens in src/index.css

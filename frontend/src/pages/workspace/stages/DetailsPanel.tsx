@@ -28,6 +28,7 @@ import {
 import { useStage } from '../StageContext'
 import { CreditsCover } from './CreditsCoverPanel'
 import { ContentModeField } from './SourceModes'
+import { SERIES_HELP } from '../../../helpText'
 
 export function DetailsPanel({ openSignal, onAddCredits }: { openSignal?: number; onAddCredits?: () => void }) {
   const { dramaId, drama, refetchDrama } = useStage()
@@ -163,7 +164,7 @@ export function DetailsPanel({ openSignal, onAddCredits }: { openSignal?: number
             {kind === 'audio' && <ContentModeField />}
             <Field
               label="Series"
-              help="Shares characters and glossary with other dramas in the series. A drama taken out of a private series stays private."
+              help={`${SERIES_HELP} A drama taken out of a private series stays private.`}
               error={errors.series_id}
             >
               <select value={form.series_id} onChange={set('series_id')}>

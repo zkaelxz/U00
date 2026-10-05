@@ -2,12 +2,14 @@ import type {
   EndpointName,
   EndpointUrlResult,
   EngineKeyResult,
+  MonthCounterResetResult,
   SettingsOverview,
   SettingsPreferences,
   SettingsToggleKey,
   SettingsUpdate,
 } from '../types/settings'
 import { getJson, postJson } from './client'
+import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
 
@@ -62,3 +64,9 @@ export const setEndpointUrl = (name: EndpointName, url: string, f?: Fetch) =>
   postJson<EndpointUrlResult>(endpointPath(name), { url, confirm: true }, f)
 export const clearEndpointUrl = (name: EndpointName, f?: Fetch) =>
   postJson<EndpointUrlResult>(`${endpointPath(name)}/clear`, { confirm: true }, f)
+
+// PC only: they change what the monthly cap counts. Nothing is deleted.
+export const resetMonthCounter = (f?: Fetch) =>
+  postJson<MonthCounterResetResult>('/api/settings/month-counter/reset', {}, pcOnlyFetch(f))
+export const undoMonthCounterReset = (f?: Fetch) =>
+  postJson<MonthCounterResetResult>('/api/settings/month-counter/undo', {}, pcOnlyFetch(f))
