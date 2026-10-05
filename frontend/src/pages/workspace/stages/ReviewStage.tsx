@@ -10,6 +10,7 @@ import { AiExtrasMerge } from './review/AiExtrasMerge'
 import { AiExtrasSenseVoice } from './review/AiExtrasSenseVoice'
 import { AiExtrasStyle } from './review/AiExtrasStyle'
 import { LinesPanel } from './review/LinesPanel'
+import { LineSelectionProvider } from './review/LineSelectionContext'
 import { RecordsPanel } from './review/RecordsPanel'
 import { ReviewChecks } from './review/ReviewChecks'
 import { ReviewFlags } from './review/ReviewFlags'
@@ -73,6 +74,7 @@ export default function ReviewStage() {
   }, [dramaId, drama.has_audio])
 
   return (
+    <LineSelectionProvider titleId={dramaId}>
     <div className="stage-review" role="region" aria-label="Review">
       <LinesPanel
         dramaId={dramaId}
@@ -135,5 +137,6 @@ export default function ReviewStage() {
         )}
       />
     </div>
+    </LineSelectionProvider>
   )
 }
