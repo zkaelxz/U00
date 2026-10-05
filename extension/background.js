@@ -17,35 +17,41 @@
 // If you ever see a CORS error here, the fix is to make the request from
 // this worker -- never to add a permissive header on the server.
 
-const DEFAULT_PORT = 8756;
+// Fixed on purpose: the app's bridge always binds this port (page_server.DEFAULT_PORT)
+// and the manifest's host permission is narrowed to it, so it is not a setting.
+const BRIDGE_PORT = 8756;
+
+// An earlier version stored a "port" the app never honoured; drop it.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.remove("port");
+});
 
 async function settings() {
   const stored = await chrome.storage.local.get(
-    ["token", "port", "dramaBySite", "overlay", "textDirection"]);
+    ["token", "dramaBySite", "overlay", "textDirection"]);
   return {
     token: stored.token || "",
-    port: stored.port || DEFAULT_PORT,
     dramaBySite: stored.dramaBySite || {},
     overlay: stored.overlay !== false,
     textDirection: stored.textDirection || { source: "zh", target: "en" },
   };
 }
 
-function base(port) {
-  return `http://127.0.0.1:${port}`;
+function base() {
+  return `http://127.0.0.1:${BRIDGE_PORT}`;
 }
 
 // Every request carries the token as a header. Never as a query
 // parameter: a URL reaches logs, history and referrers, and this repo's
 // standing rule is that nothing token-shaped goes into one.
 async function call(path, { method = "GET", body = null } = {}) {
-  const { token, port } = await settings();
+  const { token } = await settings();
   if (!token) {
     return { ok: false, error: "No token yet. Open the extension's options and paste the token from Baihe's Settings." };
   }
   let response;
   try {
-    response = await fetch(base(port) + path, {
+    response = await fetch(base() + path, {
       method,
       headers: {
         "X-Baihe-Token": token,
@@ -58,7 +64,7 @@ async function call(path, { method = "GET", body = null } = {}) {
     // and is worth saying plainly rather than as a network error.
     return {
       ok: false,
-      error: `Couldn't reach Baihe on ${base(port)}. Is the app running, with the Extension bridge switch on in Settings → Browser extension?`,
+      error: `Couldn't reach Baihe on ${base()}. Is the app running, with the Extension bridge switch on in Settings → Browser extension?`,
     };
   }
   let payload = null;

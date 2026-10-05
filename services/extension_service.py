@@ -1,25 +1,31 @@
 """
 services/extension_service.py -- the browser-extension bridge's on/off
-switch and token, for the PC-only Browser extension control in Settings.
+switch, token and translation settings, behind Settings > Browser extension.
 
-The bridge is `page_server.py`: a loopback-only HTTP endpoint (port 8756)
-that needs its own shared token on every request. Its on/off state is the
-Sources setting `page_server_enabled` (sources/store.py), the same one the
-API startup hook (api/background.py) reads.
+The bridge is `page_server.py`: a loopback-only HTTP endpoint on a fixed
+port that needs its own shared token on every request. It runs on its own
+thread with no API request to read settings from, so this module is how
+saved state reaches it: its on/off state is the Sources setting
+`page_server_enabled` (sources/store.py, the one api/background.py reads at
+startup), and `push_translation_config` registers a provider that
+page_server calls on every request. Resolving per request means a key,
+engine or OCR path saved in Settings applies to the next page without a
+restart.
 
-Every function here is meant for `local_only()` routes. `get_status` never
-returns the port or the token; only `reveal_token` returns the token.
+Every function here is meant for `local_only()` routes, because the token
+and the settings behind them must not be reachable by a remote household
+user. `get_status` never returns the port or the token; only `reveal_token`
+returns the token. Keys and the Hugging Face token never leave the PC: the
+config this module builds is for page_server only, and the API reports
+whether a key is configured, never its value.
 
-Translation engine (inventory row G16): the engine and model are an
-app setting (`extension_translation_engine`); `push_translation_config`
-registers a provider with `page_server` that resolves them, and the key from
-.env, on every request. Keys never leave the PC: no function here returns a
-key, only whether one is configured.
+The OCR settings (Tesseract path, OCR backend, PaddleOCR-VL preference, HF
+token) come from the same settings the Comic Scanlate run reads, so a page
+read through the extension is OCR'd like the same page in the app.
 
-Stopping: turning the bridge off persists the setting and stops the
-endpoint in this process at once (`page_server.stop_server`, safe from an
-API request thread), so `restart_needed` stays False unless it could not
-be stopped.
+Turning the bridge off persists the setting and stops the endpoint in this
+process at once (`page_server.stop_server`, safe from an API request
+thread), so `restart_needed` stays False unless it could not be stopped.
 """
 
 import threading
@@ -94,13 +100,28 @@ def _engine_entry(engines: list, name):
     return next((e for e in engines if e["name"] == name), None)
 
 
+def _ocr_config() -> dict:
+    """The saved OCR settings the Scanlate run reads (services/scanlate_run_service.py).
+    The backend stays None for "auto" because the bridge only learns the
+    page's language per request, and scanlate picks the same
+    language-based default from `prefer_paddle_vl_manga` there."""
+    backend = settings_service.get_preference("ocr_backend")
+    return {
+        "hf_token": settings_service.resolve_key("hf_token") or None,
+        "tesseract_cmd": settings_service.get_tesseract_cmd(),
+        "ocr_backend": None if backend in (None, "", "auto") else backend,
+        "prefer_paddle_vl_manga": bool(settings_service.get_preference("ocr_prefer_paddle_vl_manga")),
+    }
+
+
 def resolved_translation_config() -> dict:
     """Server-side only: the page_server config for the saved engine,
     including its key. Never return this over HTTP."""
     engine, model = _saved_engine()
+    ocr = _ocr_config()
     if engine is None:
         return {"engine": None, "model": None, "api_key": "", "free_tier": False,
-                "base_url": None}
+                "base_url": None, **ocr}
     key = translate_service.resolve_api_key(engine)
     if key is None and engine == "nllb":
         key = "local"       # NLLB needs no key; page_server only wants a non-empty one
@@ -110,6 +131,7 @@ def resolved_translation_config() -> dict:
         "api_key": key or "",
         "free_tier": engine == "gemini" and settings_service.get_gemini_free_tier(),
         "base_url": (settings_service.resolve_key("ollama_url") or None) if engine == "ollama" else None,
+        **ocr,
     }
 
 
