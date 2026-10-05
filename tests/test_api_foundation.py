@@ -741,7 +741,6 @@ class TestSourceConfigEndpoints:
     services/source_service.py's own docstring for why."""
 
     def test_get_config_contract_shape(self, client, isolated_db):
-        from services import transcribe_service
         did = isolated_db.create_drama(title_en="D")
         body = client.get(f"/api/source/dramas/{did}/config").json()
         assert body == {
@@ -800,7 +799,8 @@ class TestTranscribeConfigEndpoints:
             "drama_id": did, "transcript_mode": "have_transcript", "has_audio_pipeline": True,
             "audio_available": False, "alignment_method": "whisper_diff",
             "asr_backend_choice": "whisper", "whisper_size": transcribe_service.CPU_DEFAULT_WHISPER_SIZE,
-            "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None,
+            "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None, "measured_speed_runs": 0,
+            "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": body["whisper_installed"],
             "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5,
             "separate_vocals_first": False, "separation_backend": "auto",
@@ -885,3 +885,17 @@ class TestTranscribeConfigEndpoints:
         resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})
         assert resp.status_code == 409
 
+
+def test_auth_module_imports_no_router():
+    """api.auth holds the loopback helpers itself; importing a router from it
+    (even lazily, inside a function) brings back the settings_routes <->
+    api.auth import cycle."""
+    import ast
+    import api.auth
+    import api.routers.settings_routes as settings_routes
+    with open(api.auth.__file__, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    imported = [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
+    imported += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
+    assert not [m for m in imported if m and m.startswith("api.routers")]
+    assert settings_routes.is_loopback_peer is api.auth.is_loopback_peer

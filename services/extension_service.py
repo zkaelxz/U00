@@ -1,8 +1,6 @@
 """
 services/extension_service.py -- the browser-extension bridge's on/off
-switch and token, for the PC-only React control that replaces the Settings
-sidebar's "Browser extension" expander (tabs/settings_tab.py:430-484) once
-Streamlit is gone. User decision, 2026-09-29.
+switch and token, for the PC-only Browser extension control in Settings.
 
 The bridge is `page_server.py`: a loopback-only HTTP endpoint (port 8756)
 that needs its own shared token on every request. Its on/off state is the
@@ -12,19 +10,19 @@ API startup hook (api/background.py) reads.
 Every function here is meant for `local_only()` routes. `get_status` never
 returns the port or the token; only `reveal_token` returns the token.
 
-Translation engine (inventory row G16): Streamlit pushed the extension's
-engine and key into `page_server` from session state, so nothing was saved
-and the API ran the bridge untranslated. The engine and model are now an
+Translation engine (inventory row G16): the engine and model are an
 app setting (`extension_translation_engine`); `push_translation_config`
 registers a provider with `page_server` that resolves them, and the key from
 .env, on every request. Keys never leave the PC: no function here returns a
 key, only whether one is configured.
 
-Stopping: `page_server` has no stop function (Streamlit never stopped it
-either; unticking the box only stopped the tab from starting it again), so
-turning the bridge off persists the setting and reports `restart_needed`
-while this process still serves it. It stops at the next API restart.
+Stopping: turning the bridge off persists the setting and stops the
+endpoint in this process at once (`page_server.stop_server`, safe from an
+API request thread), so `restart_needed` stays False unless it could not
+be stopped.
 """
+
+import threading
 
 import db
 import page_server
@@ -34,6 +32,10 @@ from services.service_errors import InvalidInputError
 from sources import store as src_store
 
 ENGINE_SETTING = "extension_translation_engine"
+
+# Two toggles at once (a double click, two tabs) would otherwise interleave
+# so that "off" saves and reports stopped while "on" opens the port after it.
+_toggle_lock = threading.Lock()
 
 
 def get_status() -> dict:
@@ -47,15 +49,19 @@ def set_enabled(enabled, start_now: bool = True) -> dict:
     """Persists `page_server_enabled`. When turning it on and `start_now`
     (the API passes its own background-services flag, so a process that
     starts no background pieces never opens the port) the endpoint is
-    started in this process, as the startup hook would. Returns
+    started in this process, as the startup hook would. Turning it off
+    stops the endpoint whatever `start_now` is. Returns
     {enabled, running, restart_needed}."""
     if not isinstance(enabled, bool):
         raise InvalidInputError("enabled must be true or false.")
-    src_store.set_setting("page_server_enabled", enabled)
-    if enabled and start_now:
-        push_translation_config()
-        page_server.ensure_server_started()
-    status = get_status()
+    with _toggle_lock:
+        src_store.set_setting("page_server_enabled", enabled)
+        if enabled and start_now:
+            push_translation_config()
+            page_server.ensure_server_started()
+        elif not enabled:
+            page_server.stop_server()
+        status = get_status()
     status["restart_needed"] = bool(status["running"] and not enabled)
     return status
 

@@ -95,7 +95,7 @@ export interface ImportMockState {
   urlmedia: 'none' | 'running' | 'done'
   // POST download-url answers 403 (the viewer is not at the PC).
   downloadForbidden: boolean
-  // Step 107 GET /api/sources/{name}/import-state, for any series and drama.
+  // GET /api/sources/{name}/import-state, for any series and drama.
   importState: { imported_chapter_ids: string[]; retry: { chapter_id: string; title: string; status: string; error: string }[] }
   // Save as CBZ (job sources_save): none -> 404, running -> done on the next poll.
   saveJob: 'none' | 'running' | 'done'
@@ -243,7 +243,7 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
     return json(route, { job_id: 'sources_save', status: 'done', progress: 1, message: null, result: m.saveBody })
   })
 
-  // Step 107 import state: reads only.
+  // Import state: reads only.
   await page.route(/\/api\/sources\/(alpha|beta)\/import-state\?.*$/, (route) => {
     if (route.request().method() !== 'GET') return guard(route)
     const url = record(route)

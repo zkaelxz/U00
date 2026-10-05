@@ -1,10 +1,10 @@
 """
 asr_backend.py -- pluggable transcription backends for the
 "I don't have a transcript, let Whisper transcribe it" workflow in
-tabs/workspace_tab.py (the _use_whisper_text branch).
+services/transcribe_service.py (Whisper-text mode).
 
-Backends are registered in BACKENDS / get_backend() at the bottom (Step 104
-added that seam and the experimental MossTranscribeDiarizeBackend, whose
+Backends are registered in BACKENDS / get_backend() at the bottom (a
+seam that also holds the experimental MossTranscribeDiarizeBackend, whose
 segments also carry a "speaker"). Each backend's transcribe() returns the same
 shape core.transcribe_for_timing() already produces: a list of {"start": float, "end": float, "text": str}
 segments -- a drop-in replacement at that one call site.
@@ -31,8 +31,7 @@ If timing itself is the problem, that's forced_align.py's job, not this
 module's -- and note forced_align.py needs a real reference transcript to
 align against, which this whisper-text-only mode by definition doesn't have.
 
-SETUP (not run inside this sandbox -- no GPU, no network; code is here to
-run locally):
+SETUP:
     pip install qwen-asr torch
 Same Python 3.14/CUDA-wheel caveat as forced_align.py -- see that module's
 docstring.
@@ -58,9 +57,11 @@ from forced_align import LANGUAGE_NAMES
 # safer than guessing at an undocumented cap and failing the whole run.
 SEGMENT_DURATION_WARNING_SECONDS = 300.0
 
+# Loaded models stay cached across calls; core.release_gpu_models() clears
+# this dict by name (it never imports this module), so keep the name.
 _asr_model_cache = {}
 
-# Step 103: batching (Qwen3ASRBackend.transcribe's batch_size) was written
+# Batching (Qwen3ASRBackend.transcribe's batch_size) was written
 # against qwen-asr 0.0.6, whose transcribe(list) returns one result per input
 # in input order -- the order texts are assigned back to segments in. Any
 # other installed version runs one segment per call, since that ordering is
@@ -99,7 +100,7 @@ class WhisperBackend:
     """Wraps the existing Whisper transcription path unchanged -- a pure
     refactor behind a common interface, not a behavior change. Existing
     callers of core.transcribe_for_timing() are unaffected; this exists
-    so tabs/workspace_tab.py can pick a backend without an if/else on
+    so a caller can pick a backend without an if/else on
     which model to call directly."""
     name = "whisper"
 
@@ -173,7 +174,7 @@ class Qwen3ASRBackend:
         for why this backend needs Whisper's boundaries rather than
         producing its own.
 
-        batch_size (Step 103, experimental): how many segments go to Qwen3-ASR
+        batch_size (experimental): how many segments go to Qwen3-ASR
         in one call. 1 (the default) is the original one-segment-at-a-time
         behaviour. Timing is Whisper's either way; only throughput changes.
         Only used with the tested qwen-asr version (effective_qwen_batch_size);
@@ -214,7 +215,7 @@ class Qwen3ASRBackend:
         return out
 
     def _transcribe_batch(self, model, audio_path, segments, indices, language_name, tmp_dir):
-        """{segment index: text} for one batch. Step 103: with more than one
+        """{segment index: text} for one batch. With more than one
         index, qwen-asr's transcribe() gets a list of slices and returns one
         result per input in input order (checked against qwen-asr 0.0.6's
         own code); results are keyed back by segment index, and a batch that
@@ -250,8 +251,132 @@ class Qwen3ASRBackend:
                     os.unlink(path)
 
 
+def load_audio_16k(audio_path):
+    """The file as a 16 kHz mono float32 waveform (what the Silero VAD takes).
+    Raises VadNotInstalledError when faster-whisper (which decodes it) is missing."""
+    from vad_segments import VadNotInstalledError
+    try:
+        from faster_whisper.audio import decode_audio
+    except ImportError as exc:
+        raise VadNotInstalledError(str(exc)) from exc
+    return decode_audio(audio_path, sampling_rate=16000)
+
+
+class Qwen3ASRVadBackend:
+    """Qwen3-ASR with its own segment boundaries: speech spans from the Silero
+    VAD (vad_segments), capped at ~15 s, each transcribed by Qwen3ASRBackend.
+    Unlike Qwen3ASRBackend it does not need Whisper at all. A line's start and
+    end are its span's bounds (a long span's text is split into several lines
+    with estimated times), or, with refine_timing, the forced aligner's times.
+    Opt-in only (asr_backend_choice "qwen3_asr_vad")."""
+    name = "qwen3_asr_vad"
+
+    def __init__(self, model_size: str = "1.7B"):
+        self.model_size = model_size
+
+    def transcribe(self, audio_path, language, use_gpu=False, batch_size=1, progress_cb=None,
+                   cancel_check=None, refine_timing=False, vad_fn=None,
+                   mixed_languages=False):
+        """Segments as {"start", "end", "text"} (plus "flag"/"flag_note" where
+        refined timing is uncertain). cancel_check() is called between batches
+        and between aligned spans and should raise to stop; nothing is written
+        here, so a cancel leaves the caller's lines untouched.
+        progress_cb(fraction) is as for Qwen3ASRBackend.transcribe, scaled to
+        the transcription part (the last 10% when refine_timing is on).
+
+        mixed_languages: each span is transcribed with Qwen3-ASR's own
+        language detection (one span per call, no batching) and a line's
+        "lang" is set where it differs from `language` (mixed_language.py).
+        refine_timing is ignored then: the aligner takes one language per run."""
+        import vad_segments
+        from core import filter_hallucinated_segments, split_long_segments
+        if language not in LANGUAGE_NAMES:
+            raise ValueError(
+                f"Qwen3-ASR doesn't cover language={language!r} in this project's usage "
+                f"(supported: {sorted(LANGUAGE_NAMES)}) -- use WhisperBackend instead."
+            )
+        # Uses vad_segments' defaults, not the drama's saved vad_threshold/min_silence_ms,
+        # which are tuned for Whisper's own VAD.
+        audio = load_audio_16k(audio_path)
+        sr = 16000
+        spans = vad_segments.cap_spans(
+            vad_segments.merge_close(vad_segments.speech_spans(audio, sr, vad_fn=vad_fn)),
+            audio, sr)
+        del audio
+        if not spans:
+            return []
+        if cancel_check:
+            cancel_check()
+        span_segments = [{"start": s.start_s, "end": s.end_s, "text": ""} for s in spans]
+        refine_timing = refine_timing and not mixed_languages
+        scale = 0.9 if refine_timing else 1.0
+
+        def _progress(frac):
+            if cancel_check:
+                cancel_check()
+            if progress_cb:
+                progress_cb(frac * scale)
+
+        if mixed_languages:
+            transcribed = self._transcribe_mixed(audio_path, language, spans, use_gpu,
+                                                 _progress, cancel_check)
+        else:
+            transcribed = Qwen3ASRBackend(model_size=self.model_size).transcribe(
+                audio_path, language, span_segments, use_gpu=use_gpu, batch_size=batch_size,
+                progress_cb=_progress)
+
+        # Filter after splitting: a loop shows up as identical consecutive pieces.
+        pieces = []
+        for n, seg in enumerate(transcribed):
+            text = (seg["text"] or "").strip()
+            if text:
+                pieces.extend({**p, "span": n} for p in split_long_segments(
+                    [{**seg, "text": text}]))
+        pieces = filter_hallucinated_segments(pieces)
+        groups = {}
+        for p in pieces:
+            groups.setdefault(p.pop("span"), []).append(p)
+        if refine_timing and groups:
+            import forced_align
+            lines = forced_align.refine_segment_timing(
+                audio_path, list(groups.values()), language, use_gpu=use_gpu,
+                cancel_check=cancel_check,
+                progress_cb=(lambda f: progress_cb(0.9 + 0.1 * f)) if progress_cb else None)
+            return lines
+        return [p for group in groups.values() for p in group]
+
+    def _transcribe_mixed(self, audio_path, language, spans, use_gpu, progress_cb, cancel_check):
+        """Up to one segment per span (none when it has no text), with
+        "lang"/"flag" set per mixed_language.transcribe_spans."""
+        import mixed_language
+        model = load_qwen3_asr(use_gpu=use_gpu, model_size=self.model_size)
+        with tempfile.TemporaryDirectory(prefix="baihe_qwen3_asr_") as tmp_dir:
+            def transcribe(span, language_name):
+                path = os.path.join(tmp_dir, "span.wav")
+                extract_audio_slice(audio_path, span.start_s, span.end_s, path)
+                try:
+                    results = model.transcribe(audio=path, language=language_name)
+                finally:
+                    if os.path.exists(path):
+                        os.unlink(path)
+                first = results[0] if results else None
+                text = (getattr(first, "text", "") or "").strip()
+                seg = {"start": span.start_s, "end": span.end_s, "text": text}
+                return ([seg] if text else []), getattr(first, "language", None)
+
+            def run_span(span):
+                # language=None: Qwen3-ASR detects this span's language itself.
+                segments, name = transcribe(span, None)
+                return segments, mixed_language.qwen_language_code(name)
+
+            return mixed_language.transcribe_spans(
+                spans, language, run_span,
+                lambda span, lang: transcribe(span, LANGUAGE_NAMES[lang])[0],
+                cancel_check=cancel_check, progress_cb=progress_cb)
+
+
 # ---------------------------------------------------------------------------
-# Step 104 (experimental pilot): MOSS-Transcribe-Diarize
+# MOSS-Transcribe-Diarize (experimental, opt-in)
 # ---------------------------------------------------------------------------
 #
 # One model that transcribes AND labels speakers in a single pass
@@ -266,8 +391,8 @@ class Qwen3ASRBackend:
 # picked explicitly per drama -- never switched to automatically.
 #
 # Unlike Qwen3ASRBackend it produces its own segment boundaries (that is the
-# point of the pilot), so a comparison against Whisper+pyannote measures
-# both segmentation and text at once; see the Step 104 write-up.
+# point of trying it), so a comparison against Whisper+pyannote measures
+# both segmentation and text at once; see docs/asr-experiments.md.
 
 MOSS_MODEL_ID = "OpenMOSS-Team/MOSS-Transcribe-Diarize"
 # Package tested: pip install
@@ -371,6 +496,7 @@ class MossTranscribeDiarizeBackend:
 BACKENDS = {
     WhisperBackend.name: WhisperBackend,
     Qwen3ASRBackend.name: Qwen3ASRBackend,
+    Qwen3ASRVadBackend.name: Qwen3ASRVadBackend,
     MossTranscribeDiarizeBackend.name: MossTranscribeDiarizeBackend,
 }
 EXPERIMENTAL_BACKENDS = frozenset({MossTranscribeDiarizeBackend.name})

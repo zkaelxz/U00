@@ -1,5 +1,5 @@
 """
-services/line_provenance_service.py -- Step 41 item 4: what produced each
+services/line_provenance_service.py -- what produced each
 line's current translation (engine, model, prompt version, glossary
 version, a hash of the run's settings, of the source text and of the
 translation it produced, and the Baihe version). UI-free; rows live in db.py's `line_provenance`, one per

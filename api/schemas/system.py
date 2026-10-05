@@ -167,11 +167,9 @@ class RunningJob(BaseModel):
 
 
 class DiagnosticsOverview(BaseModel):
-    """A read-only snapshot of Diagnostics' routine view (Migration
-    Slice 5) -- no admin action (install/upgrade/delete) is exposed
-    here; those stay Streamlit-only. Log lines and job messages/errors
-    are redacted the same way the Streamlit tab's own "copy for
-    support" export already is."""
+    """A read-only snapshot of Diagnostics' routine view -- no admin action (install/upgrade/delete) is exposed
+    here; those are PC-only routes under /api/diagnostics. Log lines and
+    job messages/errors are redacted."""
     dependencies: dict[str, DependencyStatus]
     file_completeness: FileCompleteness
     library_writable: bool
@@ -236,8 +234,8 @@ class RemoteIpCheckTestResult(BaseModel):
 
 
 class JobRecord(BaseModel):
-    """One job's cross-process record (Migration Slice 8, reading
-    Migration Slice 7's job_records mirror) -- the last status this app
+    """One job's cross-process record (read from the
+    job_records mirror) -- the last status this app
     knows about, from any process, not necessarily the current one (see
     job_records' own "no resume" limitation)."""
     job_id: str
@@ -307,7 +305,7 @@ class SettingsChoices(BaseModel):
 
 
 class SettingsOverview(BaseModel):
-    """Non-secret settings snapshot (Migration Slice 10) -- engine_keys
+    """Non-secret settings snapshot -- engine_keys
     reports only whether a key/endpoint is configured, never its value
     (D2: keys are server-side only). endpoints carries the Ollama
     and GPT-SoVITS URLs only when they have no userinfo,
@@ -328,7 +326,7 @@ class SettingsOverview(BaseModel):
 
 
 class SettingsUpdateRequest(BaseModel):
-    """Non-secret Settings writes (Migration Slice 23; preferences added for
+    """Non-secret Settings writes (preferences added for
     settings parity). Unknown fields are rejected; keys and endpoint URLs
     are never accepted here (they have their own guarded routes).
     settings_service.set_settings re-validates every value. For
@@ -378,7 +376,7 @@ class ArtifactInfo(BaseModel):
 
 
 class EngineKeySetRequest(BaseModel):
-    """Write-only engine key (Migration Slice 24). `value` is a secret:
+    """Write-only engine key. `value` is a secret:
     it is never echoed back and validation errors never include it."""
     model_config = ConfigDict(extra="forbid")
     value: str = Field(..., repr=False)
@@ -410,7 +408,7 @@ class EndpointUrlResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API batch 1: Diagnostics gaps (Streamlit retirement M1) -- /api/diagnostics/...
+# API batch 1: Diagnostics gaps -- /api/diagnostics/...
 # ---------------------------------------------------------------------------
 class DiagnosticsSetupPython(BaseModel):
     version: Optional[str] = None
@@ -664,8 +662,7 @@ class DiagnosticsGpuTorchSetupResult(DiagnosticsInstallResult):
 
 
 class DiagnosticsResetRequest(BaseModel):
-    """confirm=true and confirm_text "RESET" (the word the Streamlit button
-    made the user type)."""
+    """confirm=true and confirm_text "RESET" (the word the user types to confirm)."""
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
     confirm_text: str = Field("", max_length=20)
@@ -691,8 +688,8 @@ class ExtensionEnabledRequest(BaseModel):
 
 
 class ExtensionEnabledResult(BaseModel):
-    """`restart_needed`: turned off, but this process still serves the
-    endpoint until the API restarts (page_server has no stop)."""
+    """`restart_needed`: turned off, but this process could not stop the
+    endpoint, so it serves until the API restarts. Normally False."""
     enabled: bool
     running: bool
     restart_needed: bool
@@ -723,7 +720,7 @@ class ExtensionEngineRequest(BaseModel):
     model: Optional[StrictStr] = None
 
 
-# --- Step 44: job notifications (Discord / ntfy) ------------------------------
+# --- Job notifications (Discord / ntfy) ---------------------------------------
 NotificationChannel = Literal["discord", "ntfy"]
 
 
@@ -877,7 +874,7 @@ class DiagnosticsCacheDeleteResult(BaseModel):
     name: str
 
 
-# Step 80b: clean stop for the installed app (POST /api/system/shutdown).
+# Clean stop for the installed app (POST /api/system/shutdown).
 class ShutdownResponse(BaseModel):
     status: str = Field(description="`stopping`: jobs were asked to stop and the server exits shortly.")
     cancelled_jobs: int = Field(description="How many running or queued jobs were asked to stop.")

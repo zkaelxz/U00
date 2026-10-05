@@ -84,8 +84,8 @@ export function pacingRows(lines: DubPacingLine[]): DubPacingLine[] {
 }
 
 // A narration run that picked up an interrupted run's tagged batches reports
-// "Resuming: N of M chunks already tagged..." (services/narration_service.py,
-// Step 41); the Job panel then says how to start over instead.
+// "Resuming: N of M chunks already tagged..." (services/narration_service.py);
+// the Job panel then says how to start over instead.
 export const NARRATION_RESUME_NOTE = 'Resuming an interrupted run. Use Start over to tag everything again.'
 
 export function narrationResumeNote(message: string | null | undefined): string | null {

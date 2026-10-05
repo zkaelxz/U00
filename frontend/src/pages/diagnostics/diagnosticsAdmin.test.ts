@@ -248,9 +248,11 @@ describe('browser extension', () => {
   })
 
   it('notes what a toggle did', () => {
-    expect(extensionToggleNote({ enabled: false, running: true, restart_needed: true })).toBe('Off. Restart Baihe to stop it now.')
+    expect(extensionToggleNote({ enabled: false, running: true, restart_needed: true }))
+      .toBe('Off, but it could not be stopped. Restart Baihe to stop it.')
     expect(extensionToggleNote({ enabled: true, running: false, restart_needed: false })).toBe('On. It starts next time Baihe starts.')
     expect(extensionToggleNote({ enabled: true, running: true, restart_needed: false })).toBeNull()
-    expect(extensionToggleNote({ enabled: false, running: false, restart_needed: false })).toBeNull()
+    expect(extensionToggleNote({ enabled: false, running: false, restart_needed: false }))
+      .toBe("Off. The extension can't reach Baihe now.")
   })
 })

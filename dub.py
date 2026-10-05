@@ -1,7 +1,7 @@
 """
 dub.py -- generates an AI dub/narration track from your translated lines.
 Normally speaks the English translation; novel narration (build_narration_
-track) can instead speak the drama's own source-language text (Step 26c's
+track) can instead speak the drama's own source-language text (via
 narrate_original) -- video/audio dubbing (build_dub_track) always speaks
 the translation, since a video already has its own original-language audio.
 
@@ -38,7 +38,7 @@ DEFAULT_VOICE_POOL = [
     "en-GB-SoniaNeural", "en-AU-NatashaNeural", "en-US-AriaNeural",
 ]
 
-# Step 26c: the same spread, but in the drama's own source language, for
+# The same spread, but in the drama's own source language, for
 # novel narration's "original language" mode -- real edge-tts voice names,
 # confirmed against Microsoft's own voice list, not guessed.
 DEFAULT_VOICE_POOL_BY_LANGUAGE = {
@@ -200,9 +200,9 @@ _f5tts_model = None
 def _get_f5tts_model():
     """Lazily loads F5-TTS. Requires `pip install f5-tts` and, on first
     run, downloads model checkpoints (needs internet on your machine).
-    NOTE: written against F5-TTS's documented Python API but not run
-    end-to-end in this environment -- sanity-check on one short line
-    before batch-processing a whole drama."""
+    NOTE: written against F5-TTS's documented Python API, not verified
+    end-to-end -- sanity-check on one short line before batch-processing
+    a whole drama."""
     global _f5tts_model
     if _f5tts_model is None:
         from f5_tts.api import F5TTS
@@ -221,16 +221,15 @@ def synthesize_line_cloned(text: str, ref_audio_path: str, ref_text: str, out_pa
 
 
 # ---------------------------------------------------------------------------
-# Step 11b: more local voice engines, chosen per character
+# More local voice engines, chosen per character
 # (characters.clone_engine). Each is optional and imported only when a
 # character actually uses it. Written against each project's own
-# documented Python/HTTP API, not run end-to-end in this environment (no
-# GPU, no model downloads) -- sanity-check one short line before
-# narrating a whole novel.
+# documented Python/HTTP API, not verified end-to-end -- sanity-check one
+# short line before narrating a whole novel.
 # ---------------------------------------------------------------------------
 
 # NULL clone_engine in the database means F5-TTS -- the only local cloning
-# engine before Step 11b -- so characters set up earlier keep their voice.
+# engine before multi-engine support -- so characters set up earlier keep their voice.
 CLONE_ENGINES = {
     "f5tts": "F5-TTS (clone from a clip)",
     "omnivoice": "OmniVoice (clone from a clip, or describe a voice)",
@@ -240,7 +239,7 @@ CLONE_ENGINES = {
 }
 DEFAULT_CLONE_ENGINE = "f5tts"
 
-# Step 26c: which of the multi-engine clone backends are confirmed to speak
+# Which of the multi-engine clone backends are confirmed to speak
 # non-English text well, for gating novel narration's "original language"
 # mode. Checked directly against each engine's own real capabilities, not
 # assumed -- F5-TTS and GPT-SoVITS aren't here because they're already
@@ -291,7 +290,7 @@ def _cuda_available() -> bool:
 
 
 def _check_vram(model_name):
-    """Step 41 item 7: refuse a GPU load that clearly won't fit, with a
+    """Refuse a GPU load that clearly won't fit, with a
     plain message, before the model starts loading."""
     from services import vram_service
     vram_service.check_fits(model_name)
@@ -338,8 +337,11 @@ def synthesize_line_omnivoice(text: str, out_path: str, ref_audio_path: str = No
 
 GPT_SOVITS_DEFAULT_URL = "http://127.0.0.1:9880"
 # GPT-SoVITS's own language codes -- used both for the reference clip's
-# transcript (prompt_lang) and, since Step 26c, the text actually being
+# transcript (prompt_lang) and, for original-language narration, the text actually being
 # spoken (text_lang, previously hardcoded to "en").
+# One spoken line as WAV is a few MB; the cap leaves room for a very long one.
+GPT_SOVITS_AUDIO_MAX_BYTES = 128 * 1024 * 1024
+GPT_SOVITS_ERROR_MAX_BYTES = 64 * 1024
 _GPT_SOVITS_LANGUAGES = {"zh": "zh", "ja": "ja", "ko": "ko", "en": "en"}
 
 
@@ -352,7 +354,7 @@ def synthesize_line_gpt_sovits(text: str, ref_audio_path: str, ref_text: str, ou
     3-10s clip; the server reads it from disk, so this passes an absolute
     path on the same machine. text_lang: the language of `text` itself --
     "en" for ordinary dubbing/translation-mode narration, or the drama's
-    source_language for Step 26c's original-language narration mode."""
+    source_language for original-language narration mode."""
     import requests
     try:
         resp = requests.post(f"{base_url.rstrip('/')}/tts", json={
@@ -361,14 +363,21 @@ def synthesize_line_gpt_sovits(text: str, ref_audio_path: str, ref_text: str, ou
             "prompt_text": ref_text or "",
             "prompt_lang": _GPT_SOVITS_LANGUAGES.get(ref_language, "zh"),
             "media_type": "wav",
-        }, timeout=300)
+        }, timeout=300, stream=True)
     except requests.ConnectionError as e:
         raise RuntimeError(f"GPT-SoVITS server isn't reachable at {base_url} -- start it with "
                            "`python api_v2.py` in your GPT-SoVITS folder") from e
+    from services import capped_body
+
+    def too_big():
+        return RuntimeError("GPT-SoVITS sent back more audio than one line can need.")
     if resp.status_code != 200:
-        raise RuntimeError(f"GPT-SoVITS server error {resp.status_code}: {resp.text[:300]}")
+        detail = capped_body.read_capped(resp, GPT_SOVITS_ERROR_MAX_BYTES, 300,
+                                         too_big).decode("utf-8", errors="replace")
+        raise RuntimeError(f"GPT-SoVITS server error {resp.status_code}: {detail[:300]}")
+    audio = capped_body.read_capped(resp, GPT_SOVITS_AUDIO_MAX_BYTES, 300, too_big)
     with open(out_path, "wb") as f:
-        f.write(resp.content)
+        f.write(audio)
     return out_path
 
 
@@ -462,8 +471,8 @@ def synthesize_line_tada(text: str, ref_audio_path: str, ref_text: str, out_path
 def _synthesize_cloned(clone: dict, text: str, out_path: str, exaggeration: float = 0.5,
                        text_lang: str = "en"):
     """Routes one character_clone_map entry to its engine. An entry with
-    no "engine" key is F5-TTS (the shape that predates Step 11b). text_lang
-    (Step 26c) only reaches GPT-SoVITS, the one engine here whose API takes
+    no "engine" key is F5-TTS (the shape that predates multi-engine cloning). text_lang
+    only reaches GPT-SoVITS, the one engine here whose API takes
     an explicit language for the text being spoken -- the others are
     zero-shot/multilingual and infer it from the text itself."""
     engine = clone.get("engine", DEFAULT_CLONE_ENGINE)
@@ -494,8 +503,8 @@ def clone_map_from_characters(characters, drama_dir: str,
       3. Chatterbox picked with no clip (its built-in voice, still
          emotion-aware).
     A character matching none isn't in the map, so it gets the plain TTS
-    voice. A character's elevenlabs_voice_id (hosted cloning, removed in
-    Step 11d) is ignored -- see clone_removed_message(). ref_language:
+    voice. A character's elevenlabs_voice_id (hosted cloning, since removed)
+    is ignored -- see clone_removed_message(). ref_language:
     the drama's source language -- the language spoken in its reference
     clips."""
     out = {}
@@ -517,7 +526,7 @@ def clone_map_from_characters(characters, drama_dir: str,
     return out
 
 
-# Step 11d: hosted cloning was removed, but characters cloned with it keep
+# Hosted cloning was removed, but characters cloned with it keep
 # their stored voice id (the column stays, as the record of how their
 # already-generated audio was made) -- they're simply not cloned any more.
 REMOVED_CLONE_MESSAGE = ("This character was previously cloned via ElevenLabs, which has been "
@@ -611,11 +620,11 @@ def fill_missing_voices(voice_map: dict, speaker_labels, voice_pool=None) -> dic
     return voice_map
 
 
-# Step 11e: a clip's filename carries a short signature of exactly what
+# A clip's filename carries a short signature of exactly what
 # it was synthesized from, not just the line's index -- otherwise a line
 # edited after dubbing silently reused its old audio, since a file already
 # existed at that path. Unchanged lines keep the same name, so a cancelled
-# run still resumes from every clip it already finished (Step 4e).
+# run still resumes from every clip it already finished.
 def clip_signature(text: str, voice: dict) -> str:
     """Short hash of the text sent to TTS plus the voice/engine settings
     (a character_clone_map entry, or the plain TTS engine and voice)."""
@@ -625,7 +634,7 @@ def clip_signature(text: str, voice: dict) -> str:
 
 
 def _voice_for_signature(clone, tts_engine, voice, exaggeration=None, lang=None) -> dict:
-    """lang (Step 26c): the narration language mode ("zh"/"ja"/"ko" for
+    """lang: the narration language mode ("zh"/"ja"/"ko" for
     original-language narration, omitted/None for ordinary translation-mode
     narration or dubbing) -- folded into the signature explicitly so
     switching a drama's narration language always regenerates its clips,
@@ -643,7 +652,7 @@ def _voice_for_signature(clone, tts_engine, voice, exaggeration=None, lang=None)
     return out
 
 
-# Step 11c: a dubbed clip that doesn't match its line's original time
+# A dubbed clip that doesn't match its line's original time
 # window is time-stretched to fit -- pitch-preserving (ffmpeg's atempo),
 # but never faster than DUB_MAX_SPEEDUP (past that it sounds chipmunked)
 # or slower than DUB_MAX_SLOWDOWN. A line needing more speed-up than the
@@ -795,6 +804,8 @@ def build_dub_track(lines, drama_dir: str, character_voice_map: dict,
         else:
             voice = character_voice_map.get(ln.speaker, default_voice)
         signature = clip_signature(ln.en, _voice_for_signature(clone, tts_engine, voice, exaggeration))
+        # The signature is part of the name (see clip_signature): an edited
+        # line gets a fresh clip, an unchanged one is reused on resume.
         clip_path = os.path.join(clips_dir, f"line_{ln.idx:04d}_{signature}.wav")
 
         clip = None
@@ -918,7 +929,7 @@ def _narration_steps(lines, character_clone_map, tts_engine, emotion_map, paragr
     budget -- never across a paragraph end or a chapter heading, which
     always stands alone so it can mark an audiobook chapter.
 
-    narrate_original (Step 26c): speaks ln.zh (the drama's source text)
+    narrate_original: speaks ln.zh (the drama's source text)
     instead of ln.en -- for novel narration's "original language" mode."""
     from emotion import chatterbox_exaggeration
     steps, current = [], None
@@ -960,7 +971,7 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
     actual timing of its generated audio -- so you get a usable .srt
     alongside the narration audio.
 
-    narrate_original/source_language (Step 26c): when narrate_original,
+    narrate_original/source_language: when narrate_original,
     speaks ln.zh (the drama's source text, in source_language) instead of
     ln.en -- caller is responsible for warning that exported subtitles
     still need ln.en to stay bilingual.
@@ -1004,6 +1015,8 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
             unit["clone"], tts_engine, voice, unit["exaggeration"],
             lang=(source_language if narrate_original else None)))
         span = f"{first:04d}" if first == last else f"{first:04d}-{last:04d}"
+        # Signature in the name for the same reason as build_dub_track's
+        # clips: an edited unit gets a fresh clip, an unchanged one is reused.
         unit["clip_path"] = os.path.join(clips_dir, f"line_{span}_{signature}.wav")
 
     def synthesize(unit, clip_path) -> bool:
@@ -1090,7 +1103,7 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
         clip = AudioSegment.from_file(item["clip_path"])
         start_ms, end_ms = cursor_ms, cursor_ms + len(clip)
         members = item["lines"]
-        # Step 26c: split proportionally by whichever text was actually
+        # Split proportionally by whichever text was actually
         # spoken (narrate_original: the source text, not the translation).
         _split_texts = [(ln.zh if narrate_original else ln.en) for ln in members]
         cuts = (split_times(SimpleNamespace(start=start_ms, end=end_ms), _split_texts)
@@ -1118,7 +1131,7 @@ def narration_chapters(lines, paragraph_ends=None, narrate_original: bool = Fals
     of its source text; otherwise (source text missing or edited since)
     one per generated clip, which never crosses a paragraph end.
 
-    narrate_original (Step 26c): "voiced" and chapter titles come from
+    narrate_original: "voiced" and chapter titles come from
     ln.zh (what was actually spoken) instead of ln.en."""
     text_field = "zh" if narrate_original else "en"
     voiced = [ln for ln in lines if getattr(ln, text_field).strip()]
@@ -1185,7 +1198,7 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
     """Encodes narration_track.wav as an M4B audiobook (AAC) with chapter
     markers (narration_chapters). Needs the narration generated first --
     lines carrying the timing build_narration_track gave them -- and
-    ffmpeg on PATH. Returns the .m4b path. narrate_original (Step 26c):
+    ffmpeg on PATH. Returns the .m4b path. narrate_original:
     chapter titles come from the source text, matching the narration
     audio's own language. cancel_job_id: a thread job whose cancel request
     kills the ffmpeg run (background_jobs.run_cancellable)."""
@@ -1238,7 +1251,7 @@ def _read_background_meta(meta_path: str):
 def mix_original_background(track_path: str, source_audio_path: str, drama_dir: str,
                             backend: str = "auto", gain_db: float = BACKGROUND_GAIN_DB,
                             progress_cb=None, cancel_check_cb=None) -> str:
-    """Step 95: lays the original recording's background (music/ambience/
+    """Lays the original recording's background (music/ambience/
     effects, i.e. the source minus its vocals) back under a finished dub
     track, rewriting track_path in place. The separated background is cached
     in drama_dir and reused, since separation is the slow part, while its
@@ -1273,7 +1286,7 @@ def build_track_subprocess_worker(lines, drama_dir, character_voice_map, default
                                   max_speedup, max_slowdown, offline_voice_map, result_queue,
                                   narrate_original=False, source_language="zh",
                                   background_source=None, separation_backend="auto"):
-    """Step 4e: entry point for running build_dub_track()/build_narration_track()
+    """Entry point for running build_dub_track()/build_narration_track()
     in its own OS process via background_jobs.start_process_job(), so
     Cancel can actually stop it. Confirmed safe to hard-stop: each clip
     is written to its own file, and both functions already reuse (rather
@@ -1290,10 +1303,10 @@ def build_track_subprocess_worker(lines, drama_dir, character_voice_map, default
     max_speedup/max_slowdown: build_dub_track's time-stretch clamp (a
     narration has no timing to fit, so it ignores them). offline_voice_map:
     each speaker's Piper voice, separate from character_voice_map's
-    edge-tts names. narrate_original/source_language (Step 26c): narration
+    edge-tts names. narrate_original/source_language: narration
     only (build_dub_track's video-dub path ignores both -- dubbing a video
-    in its own original language doesn't make sense). background_source
-    (Step 95): path of the original audio; when given on a video dub, its
+    in its own original language doesn't make sense). background_source:
+    path of the original audio; when given on a video dub, its
     background is mixed back under the finished track. A failed/missing
     separation never loses the dub -- the plain track is kept and the result
     carries background_mixed False plus a fixed background_error text."""

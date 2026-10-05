@@ -1,7 +1,7 @@
 """
 services/novel_attach_service.py -- attach novel text to a drama and OCR
-chapter images (Migration Slice 38), mirroring the Streamlit Source tab's
-novel-narration branch. Text lands in `novel_narration_source.txt` (the
+chapter images for a novel-narration drama. Text
+lands in `novel_narration_source.txt` (the
 file `narration_service` and `cli.cmd_dub` read).
 
 Only extracted plain text is ever stored: an uploaded EPUB is opened with
@@ -288,9 +288,8 @@ RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.save_novel_text
 
 def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
     """Uses the chapters imported in Sources (or saved as the original novel),
-    `raw_novel_context.txt`, as the narration text (inventory S12; the
-    Streamlit tab pre-filled the narration box from it). 404 when there is
-    none."""
+    `raw_novel_context.txt`, as the narration text (inventory S12). 404
+    when there is none."""
     _require_drama(drama_id)
     _check_mode(mode)
     path = os.path.join(db.DRAMAS_DIR, str(drama_id), RAW_NOVEL_FILENAME)
@@ -327,7 +326,7 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
     """images: list of (client_filename, fileobj). Stages them under
     generated names, then starts the job that OCRs them in order and writes
     the text. Returns {"job_id"}. tesseract_cmd None: the Settings
-    Tesseract path (as the Streamlit tab)."""
+    Tesseract path."""
     drama = _require_drama(drama_id)
     _check_mode(mode)
     language = drama.get("source_language") or "zh"

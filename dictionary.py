@@ -10,6 +10,7 @@ define feature.
       the LLM engine instead, for words CC-CEDICT doesn't cover too.
 """
 
+import io
 import os
 import re
 import urllib.request
@@ -18,6 +19,8 @@ import portable
 from core import atomic_write
 
 CEDICT_URL = "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
+CEDICT_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024   # the gzip is a few MB
+CEDICT_MAX_UNPACKED_BYTES = 80 * 1024 * 1024    # the text is a few tens of MB
 CEDICT_PATH = os.path.join(portable.data_dir(), "library", "cedict.txt")
 
 _cedict_cache = None
@@ -25,14 +28,20 @@ _cedict_cache = None
 
 def _ensure_cedict():
     """Downloads CC-CEDICT if not already present locally. Requires
-    internet on first run only; the app polls this so subsequent
-    Reader use is fully offline."""
+    internet on first use only; the file is then kept at CEDICT_PATH,
+    so later Reader use is fully offline."""
     if os.path.exists(CEDICT_PATH):
         return
     import gzip
     os.makedirs(os.path.dirname(CEDICT_PATH), exist_ok=True)
     with urllib.request.urlopen(CEDICT_URL, timeout=30) as resp:
-        raw = gzip.decompress(resp.read())
+        packed = resp.read(CEDICT_MAX_DOWNLOAD_BYTES + 1)
+    if len(packed) > CEDICT_MAX_DOWNLOAD_BYTES:
+        raise RuntimeError("The CC-CEDICT download is larger than expected.")
+    with gzip.GzipFile(fileobj=io.BytesIO(packed)) as gz:
+        raw = gz.read(CEDICT_MAX_UNPACKED_BYTES + 1)
+    if len(raw) > CEDICT_MAX_UNPACKED_BYTES:
+        raise RuntimeError("The CC-CEDICT download is larger than expected.")
     atomic_write(CEDICT_PATH, raw, binary=True)
 
 

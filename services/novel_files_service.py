@@ -1,21 +1,18 @@
 """
-services/novel_files_service.py -- the two per-drama novel files that only
-Streamlit could set (parity audit B1 #3 and #4), so they survive the
-Streamlit deletion:
+services/novel_files_service.py -- the two per-drama novel files (parity
+audit B1 #3 and #4):
 
   - the English novel translation reference (T01): `novel_reference.txt`
     in the drama folder, recorded in `dramas.novel_reference_filename`
-    (tabs/workspace_tab.py tab_transcript "Upload novel translation
-    (.txt/.md)", saved on Prepare). Read by translate_run_service,
+    (.txt/.md). Read by translate_run_service,
     workspace_job_service, glossary_service and cli.
   - the raw original-language novel (S04): `raw_novel_context.txt` (no DB
     field; its presence is the flag). Primes the automatic Whisper prompt
     (transcribe_service.build_auto_initial_prompt) and pairs with the
-    reference for glossary building. Streamlit accepted .txt/.md/.epub and
-    wrote core.load_novel_text_for_context's plain text.
+    reference for glossary building. Accepts .txt/.md/.epub.
 
 Both can also be set from pasted text (save_reference_text /
-save_raw_novel_text; Streamlit had a paste box for the reference only).
+save_raw_novel_text).
 
 Removal of the raw novel already exists (delete_service.remove_raw_novel,
 POST /api/novel/dramas/{id}/raw-novel/remove); removal of the reference is
@@ -30,8 +27,8 @@ Safety:
     ebooklib). The decoded text is capped on characters.
   - Encoding: BOM first, then strict UTF-8, then the legacy encodings
     usual for the language (GB18030/Big5, CP932, CP949, CP1252), then
-    UTF-8 with replacement characters. Streamlit decoded UTF-8 with
-    errors="ignore", which silently dropped a GBK novel to nothing.
+    UTF-8 with replacement characters. Decoding UTF-8 with errors="ignore"
+    would silently drop a GBK novel to nothing.
   - Writes are atomic (temp file in the drama folder + os.replace), so a
     reader never sees a half-written file.
   - A running drama job (the per-drama job ids in
@@ -43,7 +40,7 @@ Safety:
     no drama, so raw-novel writes are also refused while ANY source import
     is running or queued (conservative: it may be for another drama).
 
-No Streamlit or FastAPI import: takes a binary file-like object.
+No FastAPI import: takes a binary file-like object.
 """
 import codecs
 import io
@@ -60,8 +57,8 @@ from services.service_errors import ConflictError, InvalidInputError, NotFoundEr
 
 log = logging.getLogger(__name__)
 
-REFERENCE_FILENAME = "novel_reference.txt"   # tabs/workspace_tab.py
-RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # tabs/workspace_tab.py, sources/pipeline.py
+REFERENCE_FILENAME = "novel_reference.txt"
+RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.py
 REFERENCE_EXTENSIONS = (".txt", ".md")
 RAW_NOVEL_EXTENSIONS = (".txt", ".md", ".epub")
 MAX_TEXT_BYTES = 32 * 1024 * 1024

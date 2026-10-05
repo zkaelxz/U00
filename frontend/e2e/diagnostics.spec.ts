@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-// The page is not routed yet (the lead wires #/diagnostics), so this checks
-// the contract the page depends on through the real proxy + API: the
+// Checks the contract the page depends on through the real proxy + API: the
 // overview shape, an empty job list on the seeded library, and the 404 a
 // Cancel click on an unknown job must turn into an error banner.
 test('diagnostics and jobs endpoints match what the page reads', async ({ request }) => {

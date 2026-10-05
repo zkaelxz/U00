@@ -8,16 +8,16 @@ from .local import NLLBEngine, OllamaEngine
 from .openai_compat import DeepSeekEngine, OpenAIEngine
 
 
-# Step 12e: Draft / Standard / Release starting tiers -- sensible starting
-# points for engine + Step 7's Reflect mode + Step 12b's Auto QC pass,
+# Draft / Standard / Release starting tiers -- sensible starting
+# points for engine + Reflect mode + the Auto QC pass,
 # applied in one click. Built-in and fixed, layered on top of (not
-# replacing) Step 9c's saved presets, which stay the way to keep a
+# replacing) the saved presets, which stay the way to keep a
 # customized set of values. Engines follow §7.2's price ordering: DeepSeek
 # is the cheapest capable LLM, Claude Sonnet the recommended default,
 # Claude Opus the highest quality.
 #
-# auto_qc turns on Workspace's "Auto QC before export" check (auto_qc.py,
-# Step 12b) -- the export section then lists lines with a factual-detail
+# auto_qc turns on Workspace's "Auto QC before export" check (auto_qc.py)
+# -- the export section then lists lines with a factual-detail
 # mismatch before anything is downloaded.
 WORKFLOW_TIERS = {
     "draft": {"label": "Draft -- fast and cheap", "translation_engine": "deepseek",
@@ -33,9 +33,8 @@ WORKFLOW_TIERS = {
 ENGINES = {
     # Paid/normal engines first, then the free-for-testing ones grouped
     # together at the end (see FREE_ENGINES/engine_picker_label below) --
-    # st.selectbox has no real optgroup support, so keeping them
-    # contiguous in iteration order is the closest every picker built
-    # from ENGINES.keys() can get to a visually grouped list.
+    # keeping them contiguous in iteration order is what lets every picker
+    # built from ENGINES.keys() show them as one visual group.
     "claude": ClaudeEngine,
     "deepseek": DeepSeekEngine,
     "gemini": GeminiEngine,
@@ -45,10 +44,9 @@ ENGINES = {
 }
 
 # Pure machine-translation engines: no instruction-following ability at
-# all, so they can only ever translate. Plugging one into any other
-# feature used to silently produce nothing (each feature's own
-# `supports_reference` guard already declines quietly; call_llm_json's
-# fallback used to do the same before Step 1d made it raise instead).
+# all, so they can only ever translate. Any other feature must refuse them
+# rather than silently produce nothing (each feature's own
+# `supports_reference` guard declines; call_llm_json raises).
 TRANSLATION_ONLY_ENGINES = {"nllb"}
 
 # Engines that used to be offered. Saved presets, routing rules, fallback
@@ -65,7 +63,7 @@ def unknown_engine_message(engine_name) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 36: capability tags per engine -- what each engine can actually do,
+# Capability tags per engine -- what each engine can actually do,
 # so a task asks services/engine_routing_service.resolve_capability() for a
 # capability instead of naming an engine. Descriptive only: nothing here
 # switches engines on its own (settled decision: no automatic switching).
@@ -101,9 +99,10 @@ def engines_with_capability(tag: str) -> list:
 
 # Engines that are free to use every time, no conditions attached.
 # Gemini isn't here -- it uses the same engine/API for free and paid
-# keys, so whether a given run is "free" depends on the per-session
-# "My Gemini key is free-tier" setting (settings_tab.py), not on which
-# engine was picked. See engine_picker_label / estimate_cost_for_engine.
+# keys, so whether a given run is "free" depends on the saved
+# "My Gemini key is free-tier" setting (services/settings_service.py
+# get_gemini_free_tier), not on which engine was picked. See
+# engine_picker_label / estimate_cost_for_engine.
 FREE_ENGINES = {"ollama", "nllb"}
 
 # Engines that run without an API key: a local model or a local server.
@@ -137,10 +136,10 @@ GEMINI_FREE_TIER_NOTE = (
 
 def engine_picker_label(engine_name: str, gemini_free_tier: bool = False) -> str:
     """The descriptive text an engine picker shows next to `engine_name`
-    (format_func's job in every st.selectbox built from ENGINES.keys()).
+    (services/translate_service.list_engines puts it on every entry).
     A plain lookup except for Gemini, whose free-vs-paid status isn't a
-    property of the engine itself but of the per-session "My Gemini key
-    is free-tier" setting."""
+    property of the engine itself but of the saved "My Gemini key is
+    free-tier" setting."""
     if engine_name == "gemini" and gemini_free_tier:
         return GEMINI_FREE_TIER_NOTE
     return ENGINE_NOTES[engine_name]

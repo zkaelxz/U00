@@ -1,18 +1,12 @@
 """
 services/diarization_service.py -- Diarize-stage services for one drama,
-shared by the FastAPI /api/diarization routes (a later integration step,
-not this file) and the Streamlit Diarize tab (`tabs/workspace_tab.py`'s
-`with tab_diarize:` block, lines ~2411-2443, and `_render_speaker_rerun`,
-lines ~1068-1110).
+used by the /api/diarization routes (api/routers/diarization_routes.py).
 
-Migration Slice 16 (Phase 6's second Workspace stage). This re-detects
-speakers from the drama's already-stored audio -- it never touches
-transcript text or timing (see diarize.merge_speakers's own docstring).
-The "run diarization during alignment" checkbox and the actual
-turns-to-lines merge are a future Transcript/Align-stage slice's
-concern, not this one.
+This re-detects speakers from the drama's already-stored audio -- it never
+touches transcript text or timing (see diarize.merge_speakers's own
+docstring).
 
-No Streamlit or FastAPI import: plain functions, plain dicts in, plain
+No FastAPI import: plain functions, plain dicts in, plain
 values out, so a CLI or another service could call them too. The HF
 token itself is never returned (D2 -- server-side keys are never
 exposed over an API), only whether one is configured.
@@ -31,8 +25,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError, 
 
 def _drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
     """The on-disk path to this drama's stored audio, or None if there's
-    no audio_filename set or the file isn't actually there -- mirrors
-    tabs/workspace_tab.py's own `_speaker_audio` check at line ~2434."""
+    no audio_filename set or the file isn't actually there."""
     audio_filename = drama.get("audio_filename")
     if not audio_filename:
         return None
@@ -111,7 +104,7 @@ def get_diarization_config(drama_id: int) -> dict:
         "expected_speakers": diarize.load_last_speaker_count(ddir),
         "min_speakers": last_run["min_speakers"],
         "max_speakers": last_run["max_speakers"],
-        # Step 101: the device the last run's pyannote pipeline actually
+        # The device the last run's pyannote pipeline actually
         # ran on ("cuda"/"cpu"), None before any run that recorded it.
         "last_device": last_run["device"],
         "audio_available": audio_path is not None,
@@ -128,26 +121,19 @@ def apply_diarization_result(drama_id: int, result: dict,
                              overwrite_manual: bool = False,
                              min_speakers: Optional[int] = None,
                              max_speakers: Optional[int] = None) -> None:
-    """UI-free port of the DB half of tabs/workspace_tab.py's
-    _apply_diarization_job_result/_apply_speaker_turns (Migration Slice
-    49), used as the process job's on_done hook so an API-started
-    diarization persists its own result: saves the turns (+model,
+    """The process job's on_done hook, so a diarization run persists its
+    own result: saves the turns (+model,
     embeddings, the count the job was started with), re-merges speakers
     onto the saved lines (speaker_manual lines are kept), upserts a
     character row per label, and writes ONLY the speaker/speaker_manual
     fields -- never a full sync.
 
-    Deviation from Streamlit: there, if any manual line would change, the
-    merge is skipped and the user is asked to confirm an overwrite. There
-    is no user to ask here, so the merge runs with overwrite_manual=False
-    by default -- manual corrections are never undone unless the caller
+    There is no user to ask when the job finishes, so the merge runs with
+    overwrite_manual=False by default -- manual corrections are never undone unless the caller
     started the run with an explicit, confirmed overwrite_manual=True
     (see start_diarization_run).
 
-    Double-apply note: Streamlit's render loop only sees jobs in ITS
-    process's memory (a job started via the API lives in the API
-    process), so it normally never applies an API job's result too. If
-    both did run (same process), it is harmless: save_turns overwrites
+    Applying the same result twice is harmless: save_turns overwrites
     the same file, and merge_speakers over the same turns is idempotent
     (a second pass changes nothing; manual lines stay manual)."""
     turns = (result or {}).get("segments")
@@ -199,27 +185,45 @@ def relabel_from_saved_turns(drama_id: int, only_ids=None) -> dict:
     return counts
 
 
+def _record_run_speed(drama_id: int, result) -> None:
+    """Feeds the run's duration to the speaker-detection estimate. Never
+    raises: a finished detection must not fail over its own bookkeeping."""
+    try:
+        seconds = (result or {}).get("seconds")
+        drama = db.get_drama(drama_id)
+        audio_path = _drama_audio_path(drama_id, drama) if drama else None
+        if seconds is None or audio_path is None:
+            return
+        from services import transcribe_service  # imports this module, so not at the top
+        transcribe_service.record_diarize_speed(
+            result.get("device") == "cuda", transcribe_service._audio_duration_seconds(audio_path),
+            seconds)
+    except Exception:
+        pass
+
+
 def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
                        overwrite_manual: bool = False, min_speakers: Optional[int] = None,
                        max_speakers: Optional[int] = None):
     """The on_done hook for a diarize_<drama_id> process job."""
     def _on_done(job_id, result):
         fell_back = bool((result or {}).get("fell_back_to_cpu"))
+        notice = diarize.fallback_done_message((result or {}).get("fallback_kind"))
         background_jobs.update_progress(
-            job_id, 0.97, ("Ran on CPU after running out of GPU memory. " if fell_back else "")
-            + "Matching speakers to lines...")
+            job_id, 0.97, (notice + " " if fell_back else "") + "Matching speakers to lines...")
         apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
                                  min_speakers=min_speakers, max_speakers=max_speakers)
+        _record_run_speed(drama_id, result)
         if fell_back:
             # Replaces the stored result so the finished job still says it.
-            return {"device": "cpu", "gpu_fallback": diarize.OOM_FALLBACK_DONE_MESSAGE}
+            return {"device": "cpu", "gpu_fallback": notice, "device_notice": notice}
     return _on_done
 
 
 def worker_options(min_speakers: Optional[int] = None,
                    max_speakers: Optional[int] = None) -> dict:
     """The options dict diarize.diarize_subprocess_worker takes: the
-    persisted use_gpu setting (Step 101) and the speaker range (Step 105)."""
+    persisted use_gpu setting and the speaker range."""
     return {"use_gpu": settings_service.get_use_gpu(),
             "min_speakers": min_speakers or None, "max_speakers": max_speakers or None}
 
@@ -229,17 +233,16 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
                           min_speakers: Optional[int] = None,
                           max_speakers: Optional[int] = None) -> dict:
     """Starts a real background job to re-detect speakers from this
-    drama's stored audio -- the same action as the Diarize tab's own
-    "Re-run speaker detection" button (_render_speaker_rerun). The
-    transcript text/timing are never touched; only merging the resulting
-    turns back onto lines is out of scope here (a later slice). Raises
+    drama's stored audio. The transcript text/timing are never touched;
+    the on_done hook (apply_diarization_result) merges the resulting turns
+    back onto the lines' speakers. Raises
     NotFoundError for an unknown drama id or if no audio is available,
     DependencyUnavailableError if no Hugging Face token is configured,
     ConflictError if a diarization job is already running for this drama.
     overwrite_manual=True lets the result replace hand-corrected speakers
     (destructive), so it needs confirm=True too, else InvalidInputError
     (HTTP 422). Default False keeps manual speakers.
-    min_speakers/max_speakers (Step 105): an optional speaker-count range
+    min_speakers/max_speakers: an optional speaker-count range
     for pyannote; InvalidInputError if min > max, either is below 1, or it
     is combined with an exact expected_speakers.
     Returns {"job_id": ...} -- poll it via the existing GET /api/jobs/
@@ -270,11 +273,8 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
 
     job_id = f"diarize_{drama_id}"
-    # Migration Slice 20 fix: start_process_job returns False without
-    # starting anything if this job id is already running/queued -- this
-    # went unchecked here, silently no-opping a duplicate start instead of
-    # telling the caller (a pre-existing bug found by Slice 20's own
-    # scoping pass, fixed here since it needs the same new error class).
+    # start_process_job returns False without starting anything if this job
+    # id is already running/queued: report it instead of silently no-opping.
     started = background_jobs.start_process_job(
         job_id, diarize.diarize_subprocess_worker,
         args=(audio_path, hf_token, expected_speakers or None,
@@ -294,7 +294,7 @@ def diarization_estimate_caption(audio_duration_seconds):
     honest estimate available: diarization runtime scales roughly linearly
     with audio length, so a range scaled off the audio's own length (rather
     than a fixed number that ignores it) is truthful without pretending to
-    more precision than a single st.spinner can back up."""
+    more precision than a single spinner can back up."""
     if not audio_duration_seconds or audio_duration_seconds <= 0:
         return "Usually takes anywhere from under a minute to a few minutes, depending on audio length and hardware."
 

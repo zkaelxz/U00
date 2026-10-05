@@ -4,8 +4,8 @@
  * translation arrive chunk by chunk (pushed over GET /api/events: a status
  * event says new lines exist and the page reads them from its own cursor;
  * polled every POLL_MS only while that stream is down). Stop ends it
- * and discards a chunk still in flight. Ports tabs/live_tab.py (LV01-LV06)
- * over /api/live (services/live_service.py): each session has its own temp
+ * and discards a chunk still in flight. Talks to /api/live
+ * (services/live_service.py): each session has its own temp
  * folder, Use GPU reaches Whisper, and "Stop after" is a hard cap.
  *
  * One session at a time (the API answers 409 to a second). On load the

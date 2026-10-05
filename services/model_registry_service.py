@@ -1,5 +1,5 @@
 """
-services/model_registry_service.py -- Step 40: model deprecation /
+services/model_registry_service.py -- model deprecation /
 migration assistant. UI-free.
 
 Answers "is a model this app is set up to use deprecated, retired, or no
@@ -16,7 +16,7 @@ automatically (a settled decision: no automatic model switching).
   key, or without a list endpoint, are reported as not checked.
 - "Configured" models are every place a model string is set in this app:
   each engine's built-in default, the workflow tiers and saved presets.
-  (Step 36's capability routing, when it lands, can add its own.)
+  (Capability routing, when it lands, can add its own.)
 - The guided switch changes one saved preset's model to the replacement,
   only when the user confirms, and only if the preset still has the model
   the user saw (409 otherwise).
@@ -40,7 +40,7 @@ import time
 
 import db
 import translate_engines
-from services import settings_service, translate_service
+from services import capped_body, settings_service, translate_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      RateLimitedError)
 
@@ -49,6 +49,7 @@ STATUSES = ("current", "legacy", "deprecated", "retired")
 CHECK_CACHE_KEY = translate_engines.PROVIDER_CHECK_CACHE_KEY
 CHECK_MIN_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 15
+MAX_RESPONSE_BYTES = 2_000_000
 MAX_MODELS_PER_ENGINE = 2000
 MAX_CANDIDATES = 200
 
@@ -359,9 +360,15 @@ def _fetch_models(engine: str, key: str) -> list:
     # No redirects: a custom key header (x-api-key, x-goog-api-key) would
     # otherwise follow one to another host.
     resp = requests.get(spec["url"], headers=spec["headers"](key), timeout=HTTP_TIMEOUT,
-                        allow_redirects=False)
-    resp.raise_for_status()
-    body = resp.json()
+                        allow_redirects=False, stream=True)
+    try:
+        resp.raise_for_status()
+    except Exception:
+        resp.close()
+        raise
+    body = json.loads(capped_body.read_capped(
+        resp, MAX_RESPONSE_BYTES, HTTP_TIMEOUT * 3,
+        lambda: ValueError("the provider's model list was too large")))
     if not isinstance(body, dict):
         raise ValueError("unexpected response shape")
     models = [m for m in spec["extract"](body) if isinstance(m, str) and m]

@@ -5,7 +5,6 @@ import { expect, test, type Page } from '@playwright/test'
 import { openFoldFor } from './reviewFolds'
 import { installHitArea } from './hitArea'
 
-// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })
@@ -538,7 +537,7 @@ test('restore a line-history snapshot with the typed word', async ({ page }) => 
   expect(body).toEqual({ expected_line_ids: ids })
 })
 
-// ---- player (Slice 52 Range endpoint) ----
+// ---- player (Range endpoint) ----
 
 test('without media there are no play controls', async ({ page }) => {
   await open(page)

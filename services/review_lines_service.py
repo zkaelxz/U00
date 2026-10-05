@@ -2,19 +2,13 @@
 services/review_lines_service.py -- the Review stage's READ-ONLY line views
 (migration slice R1a): filtered/paginated line list, transcript search,
 find-and-replace PREVIEW, coverage check, pacing check, "What happened
-here?" provenance, and original-transcript-text lookup. Mirrors the
-matching blocks of `with tab_review:` in `tabs/workspace_tab.py`, but reads
-the database by permanent `Line.id` instead of the browser session list.
+here?" provenance, and original-transcript-text lookup. Reads the
+database by permanent `Line.id`, never a browser session list.
 
 Also read-only, added later: the nearest flagged line across pages and
 the page it is on (review parity R08).
 
-Explicitly OUT OF SCOPE for this slice (each its own later slice): every
-write (applying a replace, editing, flagging, restoring original text), the
-media player / burned preview / pronunciation, translation-memory
-suggestions, LLM tools, bulk modes, and history/versions/notes reads.
-
-Nothing here writes to the database or disk. No Streamlit/FastAPI import:
+Nothing here writes to the database or disk. No FastAPI import:
 plain dicts in and out. Identity is always `Line.id`; `idx` is returned for
 display only and never accepted as an identifier.
 """
@@ -52,7 +46,7 @@ def line_dict(ln) -> dict:
         "id": ln.id, "idx": ln.idx, "start": ln.start, "end": ln.end,
         "zh": ln.zh, "en": ln.en, "speaker": ln.speaker,
         "speaker_manual": bool(ln.speaker_manual), "sfx": bool(ln.sfx),
-        "flag": ln.flag, "flag_note": ln.flag_note,
+        "flag": ln.flag, "flag_note": ln.flag_note, "lang": ln.lang,
         # bare filename only, never the relative folder layout (D2)
         "dub_filename": os.path.basename(ln.dub_filename) if ln.dub_filename else None,
     }
@@ -80,8 +74,8 @@ def _check_len(name: str, value: str):
 
 def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
                       only: str = "all") -> dict:
-    """One page of lines, optionally only flagged or only untranslated
-    (same definitions and totals as the Review tab). The two counts are
+    """One page of lines, optionally only flagged or only untranslated.
+    The two counts are
     always over the whole drama, not the filtered view. An out-of-range
     page returns an empty `lines` list rather than an error."""
     if only not in _ONLY_VALUES:
@@ -269,7 +263,7 @@ def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int = None,
 
 def adjacent_flagged_idx(all_lines, ref_idx, forward):
     """The nearest flagged line's idx strictly after (forward=True) or
-    before (forward=False) ref_idx, or None if there isn't one. Step 20's
+    before (forward=False) ref_idx, or None if there isn't one. The
     next/previous-flagged navigation -- there was previously no way to
     step through flagged lines one at a time, only the "Show flagged
     lines only" filter."""

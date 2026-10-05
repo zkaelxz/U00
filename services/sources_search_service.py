@@ -11,7 +11,7 @@ adapters build their own URLs. Everything returned is plain dicts with URLs
 reduced to scheme+host+path and free text scrubbed of secrets and paths
 (the helpers in services/sources_registry_service.py).
 
-ToS/robots enforcement is OFF by user decision (Step 90; spec Q1), but each
+ToS/robots enforcement is OFF by user decision, but each
 fetch still goes through `ladder.check_terms(...)` (registry.multi_search
 calls it per source; the series job calls it before fetching), so turning
 that one function back on covers the API too.
@@ -397,7 +397,7 @@ def known_chapter_ids(series_result: dict) -> list:
     """Chapter ids to record as already known when a series starts being
     tracked from this fetched result, so the first check doesn't announce
     (or auto-import) the whole back catalogue. Accepts either the
-    `get_job_result` payload or its inner `result`. Not wired to tracking."""
+    `get_job_result` payload or its inner `result`."""
     r = series_result or {}
     if isinstance(r.get("result"), dict):
         r = r["result"]

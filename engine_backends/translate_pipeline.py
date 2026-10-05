@@ -20,7 +20,7 @@ def build_reflect_faithful_prompt(instructions: str, batch_ctx: str, ids: list, 
                                   speaker_by_id: dict = None) -> str:
     """Reflect mode's pass 1 (faithfulness) prompt for one batch of ids.
     Shared by reflect_translate_batch (live, in-process) and
-    bulk_translate.py's Reflect pipeline (Step 9d) -- both build
+    bulk_translate.py's Reflect pipeline -- both build
     byte-for-byte the same prompt for the same ids/lines."""
     numbered = build_numbered_lines(
         ids, [zh_by_id[i] for i in ids],
@@ -90,7 +90,7 @@ def build_reflect_expressive_prompt(instructions: str, batch_ctx: str, ids: list
 
 def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None, max_retries: int = 1):
     """
-    Step 7's "High quality" Reflect mode: three separate LLM passes for
+    "High quality" Reflect mode: three separate LLM passes for
     one batch, instead of translate_batch's single call --
 
       1. Faithfulness: a literal translation preserving exact meaning,
@@ -112,7 +112,7 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     differently-worded passes need -- translate_batch is fixed to one
     particular (already-natural-reading) prompt shape and isn't reusable
     for this. Every pass is id-keyed via _id_keyed_batch_request, the
-    same exact-id matching translate_batch uses (Step 1) -- deliberately
+    same exact-id matching translate_batch uses -- deliberately
     not VideoLingo's own SequenceMatcher fuzzy-similarity matching, which
     is strictly less robust than an exact id.
 
@@ -140,7 +140,7 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     pos = {i: p for p, i in enumerate(ids)}
     speaker_names = context.get("speaker_labels")
 
-    # Step 9e: build_llm_instructions() alone never actually inserts the
+    # build_llm_instructions() alone never actually inserts the
     # reference novel text anywhere -- only build_stable_prompt()'s own
     # novel_block does that (the normal, non-Reflect path already goes
     # through it). Calling build_llm_instructions() directly here meant
@@ -212,7 +212,7 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
     }
 
 
-# Step 41 item 4: recorded with each translated line (line_provenance).
+# Recorded with each translated line (line_provenance).
 # Bump it whenever the translate prompt or its batching changes meaning.
 TRANSLATE_PROMPT_VERSION = "1"
 
@@ -232,7 +232,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     racing a destructive action like a full library reset against a
     thread that's still writing).
 
-    reflect: Step 7's "High quality" mode -- runs reflect_translate_batch
+    reflect: "High quality" mode -- runs reflect_translate_batch
     (three passes: faithfulness, reflection, expressiveness) per batch
     instead of engine.translate_batch's single pass. notes_cb, if given,
     is called once per batch with a list of {line_idx, term, note_type,
@@ -372,7 +372,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                          if ln.zh.strip() and ln.idx not in batch_idxs]
         def _translate_chunk(chunk):
             """Runs one translate attempt for chunk (the whole batch, or
-            one bisected half of it -- Step 31 item 3). Returns
+            one bisected half of it). Returns
             (translations, critiques) -- critiques is None outside Reflect
             mode. A ContentModerationBlocked (or any other exception)
             propagates to the caller, which decides what to do about it."""
@@ -397,7 +397,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             objects, or flagging/recording an error for whichever lines
             couldn't be translated. allow_bisect: whether a
             ContentModerationBlocked caught here should trigger one
-            bisection retry (Step 31 item 3's bounded, one-level split --
+            bisection retry (a bounded, one-level split --
             only True for the original, un-split batch, never for an
             already-bisected half)."""
             try:
@@ -459,6 +459,9 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
 def translate_lines_with_engine(*args, **kwargs):
     """Runs _translate_lines_with_engine with the job's cancel check
     visible to the backoff and throttle waits (see _cancellable_sleep)."""
+    # Bind against the real signature so cancel_check_cb is found whether
+    # the caller passed it positionally or by keyword; the context var lets
+    # sleeps deep in shared.py see it without threading it through every call.
     bound = inspect.signature(_translate_lines_with_engine).bind(*args, **kwargs)
     token = _cancel_check_var.set(bound.arguments.get("cancel_check_cb"))
     try:

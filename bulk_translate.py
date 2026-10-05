@@ -1,5 +1,5 @@
 """
-bulk_translate.py -- Step 9's "Bulk (cheaper, slower)" translation, for
+bulk_translate.py -- the "Bulk (cheaper, slower)" translation, for
 work nobody is waiting on.
 
   - Claude: Message Batches API (50% off, most batches within an hour,
@@ -9,8 +9,8 @@ work nobody is waiting on.
     is scheduled into the next off-peak window and runs as a normal
     translation then.
 
-Every batch request is submitted at once, numbered by permanent line id
-(Step 2), and the batch id is saved on disk (db.bulk_jobs) with each
+Every batch request is submitted at once, numbered by permanent line id,
+and the batch id is saved on disk (db.bulk_jobs) with each
 line's id, a hash of its source text and its English at submission, so a
 restarted app can pick the batch back up. Results can come back hours
 later and in any order, so they're applied by line id only, and only to
@@ -44,6 +44,11 @@ POLL_INTERVAL_SECONDS = 60
 # public holidays are off-peak too, but aren't listed here -- on one of
 # those a job just waits for a window it didn't strictly need to.
 DEEPSEEK_PEAK_HOURS_UTC = ((1, 4), (6, 10))
+
+# A finished Gemini batch carries every result inline in one reply, and
+# Gemini accepts up to 20 MB of inline requests, so the reply can be large.
+BATCH_RESPONSE_MAX_BYTES = 64 * 1024 * 1024
+BATCH_READ_DEADLINE_SECONDS = 300
 
 
 class BulkAuthError(Exception):
@@ -105,7 +110,7 @@ class ClaudeBatchProvider:
         return {"custom_id": key, "params": self.engine.build_request_params(context, numbered)}
 
     def build_prompt_request(self, key: str, prompt: str, max_tokens: int = 3000) -> dict:
-        """Step 9d: a plain single-user-message request, no system prompt
+        """A plain single-user-message request, no system prompt
         and no glossary/style context -- the same shape call_llm_json's
         own Claude branch sends, used by flag/consistency/emotion/
         translation-notes and Reflect's own three passes, none of which
@@ -156,16 +161,17 @@ class GeminiBatchProvider:
                 "metadata": {"key": key}}
 
     def build_prompt_request(self, key: str, prompt: str, max_tokens: int = 3000) -> dict:
-        """Step 9d: see ClaudeBatchProvider.build_prompt_request's own
+        """See ClaudeBatchProvider.build_prompt_request's own
         docstring -- same plain-prompt shape, no systemInstruction."""
         return {"request": {"contents": [{"parts": [{"text": prompt}]}]},
                 "metadata": {"key": key}}
 
     def _check(self, resp):
         if resp.status_code in (401, 403):
+            resp.close()
             raise BulkAuthError(f"Gemini refused the API key (HTTP {resp.status_code}).")
-        resp.raise_for_status()
-        return resp.json()
+        return translate_engines.read_json_capped(resp, BATCH_READ_DEADLINE_SECONDS,
+                                                  BATCH_RESPONSE_MAX_BYTES)
 
     def _headers(self):
         return {"x-goog-api-key": self.engine.api_key}
@@ -174,7 +180,7 @@ class GeminiBatchProvider:
         import requests
         resp = requests.post(
             f"{self.BASE}/models/{self.engine.model}:batchGenerateContent",
-            headers=self._headers(), timeout=120,
+            headers=self._headers(), timeout=120, stream=True,
             json={"batch": {"display_name": "baihe-bulk-translation",
                             "input_config": {"requests": {"requests": requests_}}}})
         return self._check(resp)["name"]
@@ -182,7 +188,7 @@ class GeminiBatchProvider:
     def _get(self, batch_id: str) -> dict:
         import requests
         return self._check(requests.get(f"{self.BASE}/{batch_id}", headers=self._headers(),
-                                        timeout=60))
+                                        timeout=60, stream=True))
 
     @staticmethod
     def _state(data: dict) -> str:
@@ -231,7 +237,7 @@ class GeminiBatchProvider:
     def cancel(self, batch_id: str):
         import requests
         self._check(requests.post(f"{self.BASE}/{batch_id}:cancel", headers=self._headers(),
-                                  json={}, timeout=60))
+                                  json={}, timeout=60, stream=True))
 
 
 def make_provider(engine_choice: str, engine):
@@ -277,7 +283,7 @@ def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_siz
         ctx["upcoming_lines"] = [ln.zh for ln in lines[last_pos + 1:last_pos + 1 + context_window_ahead]
                                  if ln.zh.strip() and ln.id not in batch_ids] if context_window_ahead > 0 else []
         speaker_labels = [character_names.get(ln.speaker) for ln in batch]
-        # Step 50: same per-batch signal the live translation loop already
+        # Same per-batch signal the live translation loop already
         # sets, so build_stable_prompt()'s bounded novel-reference retrieval
         # works identically for a bulk-submitted batch.
         ctx["batch_source_lines"] = [ln.zh for ln in batch]
@@ -331,7 +337,7 @@ def schedule_offpeak_translation(drama_id: int, lines, engine_choice: str, model
 
 
 # ---------------------------------------------------------------------------
-# Step 9d: generic per-line LLM batch kinds -- flag_uncertain_lines,
+# Generic per-line LLM batch kinds -- flag_uncertain_lines,
 # check_consistency_llm, detect_emotions and generate_translation_notes_llm
 # all already batch-process a drama's lines through one LLM call per
 # window; this reuses everything above (the providers, db.bulk_jobs/
@@ -346,7 +352,7 @@ def schedule_offpeak_translation(drama_id: int, lines, engine_choice: str, model
 # numbers its prompt by permanent line id (id_fn=lambda
 # ln: ln.id on the id-aware builders; consistency's own prompt has no
 # per-line id at all -- see build_consistency_prompt's docstring), never
-# by ln.idx -- exactly the reason Step 2 moved translation off idx in the
+# by ln.idx -- exactly the reason translation moved off idx in the
 # first place: a bulk result can land hours later, by which point a
 # position could point at a completely different line.
 
@@ -493,7 +499,7 @@ def submit_bulk_translation_notes(drama_id: int, lines: list, engine, engine_cho
 
 
 # ---------------------------------------------------------------------------
-# Step 9d: Reflect mode, bulk -- the same faithfulness -> reflection ->
+# Reflect mode, bulk -- the same faithfulness -> reflection ->
 # expressiveness pipeline as translate_engines.reflect_translate_batch,
 # but as three SEQUENTIAL bulk submissions instead of three in-process
 # calls. Confirmed directly against both Claude's Message Batches and
@@ -682,11 +688,10 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
         db.save_translation_version(
             job["drama_id"], current, label=f"{job['engine']} bulk · {args.get('style_preset', '')}",
             engine=job["engine"], model=job["model"] or "", make_active=True)
-        # Step 25d item 13: same root cause as item 4's -- a batch that
-        # applied SOME lines (dropped/flagged/kept-your-edit lines aside)
-        # used to mark the whole drama "translated" even with lines still
-        # missing, same as the CLI/Workspace bug Step 25c already fixed
-        # there via this same untranslated_line_count() == 0 gate.
+        # Mark the drama "translated" only when no line is left
+        # untranslated: a batch that applied SOME lines (dropped/flagged/
+        # kept-your-edit lines aside) must not claim the whole drama. Same
+        # untranslated_line_count() == 0 gate as finish_translation_run.
         _status = dict(translation_engine=job["engine"])
         if untranslated_line_count(job["drama_id"]) == 0:
             _status["status"] = "translated"
@@ -993,7 +998,7 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
         db.save_translation_version(
             job["drama_id"], current, label=f"{job['engine']} bulk reflect", engine=job["engine"],
             model=job["model"] or "", make_active=True)
-        # Step 25d item 13: see apply_bulk_results' own comment above.
+        # Same "translated" gate as apply_bulk_results above.
         _status = dict(translation_engine=job["engine"])
         if untranslated_line_count(job["drama_id"]) == 0:
             _status["status"] = "translated"
@@ -1336,9 +1341,8 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
     summary = {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
                "batch_errors": len(errors), "cap_reached": cap.get("spent")}
-    # Step 25d item 13: see apply_bulk_results' own comment above -- a run
-    # with batch failures or skipped (source-changed) lines used to be
-    # marked "translated" anyway.
+    # Same gate as apply_bulk_results above: a run with batch failures or
+    # skipped (source-changed) lines must stay re-runnable, not "translated".
     _status = dict(translation_engine=job["engine"])
     if untranslated_line_count(job["drama_id"]) == 0:
         _status["status"] = "translated"
@@ -1465,7 +1469,7 @@ def cancel_bulk_job(bulk_job_id: int, provider=None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 25c: after a normal (non-bulk) whole-drama translation run
+# After a normal (non-bulk) whole-drama translation run
 # ---------------------------------------------------------------------------
 
 def untranslated_line_count(drama_id: int) -> int:
@@ -1511,7 +1515,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                            enforce_ids=None, flags_needing_recheck: set = None) -> bool:
     """What happens after translate_engines.translate_lines_with_engine
     returns, shared by Workspace's run_translate_job and `cli.py translate`
-    so the two can't drift (the CLI used to skip most of it): applies
+    so the two can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
     the run as the active translation version, and persists its batch
     failures (dramas.last_translate_errors).
@@ -1523,7 +1527,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     untranslated selection. A cancelled run saves no version: it isn't a
     finished translation to compare against.
 
-    summary_engine (Step 74), if given, generates this episode's running
+    summary_engine, if given, generates this episode's running
     summary ONCE, here -- only once the drama actually reaches "translated"
     and only for a non-cancelled run -- and stores it on the drama row for
     the next episode of the same series to read forward. None (the
@@ -1533,11 +1537,11 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     spending cap; a paid summary engine is skipped once it's used up
     (checked right before the call). None or 0 means no cap.
 
-    line_scoped (B-27) marks a run restricted to some lines (e.g. a retry
+    line_scoped marks a run restricted to some lines (e.g. a retry
     of one content-blocked line on another engine): it must not replace
     the drama's recorded translation_engine, which describes the whole-
     drama run, nor its last_translate_errors, nor save a new active
-    translation version (the Streamlit retry touched only its line).
+    translation version.
 
     Returns False, recording nothing, if every line this run translated
     has since been replaced (e.g. a new transcription finished meanwhile)
@@ -1566,13 +1570,11 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                      and (ln.en or "") == run_en[ln.id]]
         landed = {ln.id for ln in own_fresh}
     if enforced:
-        # Step 25d item 5: this used to substitute into `lines` -- the
-        # job's own in-memory copies, which can be stale by the time the
-        # job actually finishes (a user can edit a line's English while
-        # the job is still running). Writing that back unconditionally
-        # meant a live edit could be clobbered by a substitution computed
-        # from a baseline that was no longer current, with no warning.
-        # Loading fresh here and substituting into *that* means this only
+        # Substitute into a fresh DB read, not `lines` -- the job's own
+        # in-memory copies, which can be stale by the time the job finishes
+        # (a user can edit a line's English while the job is still running),
+        # so writing those back could clobber a live edit. Substituting into
+        # the fresh read means this only
         # ever overwrites whatever is actually in the database right now,
         # and db.save_lines' own orig-comparison (see its docstring) then
         # skips writing any line the substitution didn't actually change.
@@ -1606,7 +1608,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # the review queue like any other flag (never replacing an existing one).
     # Unconditional (not just when flag_dense_lines finds something new):
     # translate_lines_with_engine may already have set a content_blocked flag
-    # on some lines (Step 31), and that has to reach the database too, or it
+    # on some lines, and that has to reach the database too, or it
     # only ever exists on this run's in-memory copies.
     import subtitle_formats
     subtitle_formats.flag_dense_lines(lines)
@@ -1625,10 +1627,10 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     if line_ids and not db.line_ids_exist(drama_id, line_ids):
         return False
 
-    # A line-scoped run (a one-line retry, B-27) matches the Streamlit
-    # retry: it touches only its own lines, so it neither saves a new
-    # active version (which would be labelled with the retry engine) nor
-    # replaces the drama's persisted record of a whole run's failures.
+    # A line-scoped run (e.g. a one-line retry) touches only its own
+    # lines, so it neither saves a new active version (which would be
+    # labelled with the retry engine) nor replaces the drama's persisted
+    # record of a whole run's failures.
     if not cancelled and not line_scoped:
         label = f"{engine_choice} · {style_preset}"
         if engine_choice in translate_engines.FREE_ENGINES or getattr(engine, "free_tier", False):

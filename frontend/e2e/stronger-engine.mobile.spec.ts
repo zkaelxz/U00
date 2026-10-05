@@ -4,13 +4,12 @@ import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { installHitArea } from './hitArea'
 
-// .btn-sm keeps a 44px hit area but is 32px tall: measure the hit area, not the box.
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
 })
 
 // Phone project (390x844, touch): the stronger-engine offer and its result
-// fit the width with 44px targets (Step 99). The try is mocked.
+// fit the width with 44px targets. The try is mocked.
 
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')

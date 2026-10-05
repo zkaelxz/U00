@@ -36,6 +36,8 @@ __all__ = [
     "LinesMatchIn",
     "LinesFindReplaceApplyRequest",
     "LinesFindReplaceApplyResult",
+    "LinesSetLangRequest",
+    "LinesSetLangResult",
     "LinesAcceptTmRequest",
     "LinesNoteCreate",
     "LinesNote",
@@ -94,7 +96,7 @@ __all__ = [
 ]
 
 
-# --- Review read-only line views (Migration Slice 47) -----------------------
+# --- Review read-only line views -----------------------
 # Names are prefixed `ReviewLines` on purpose. Identity is always the permanent
 # line `id`; `idx` is display-only.
 class ReviewLinesLine(BaseModel):
@@ -110,6 +112,8 @@ class ReviewLinesLine(BaseModel):
     flag: Optional[str] = None
     flag_note: Optional[str] = None
     dub_filename: Optional[str] = None
+    lang: Optional[str] = Field(default=None, description=(
+        "This line's spoken language (zh/ja/ko/en); null means the drama's source_language."))
 
 
 class ReviewLinesPage(BaseModel):
@@ -214,7 +218,7 @@ class ReviewLinesOriginalText(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Review read-only records (Migration Slice 48) -- see
+# Review read-only records -- see
 # services/review_records_service.py. Every model is prefixed
 # ReviewRecords to stay clear of the sibling ReviewLines* models.
 # ---------------------------------------------------------------------------
@@ -344,7 +348,7 @@ class ReviewRecordsTmSuggestion(BaseModel):
     entry_id: int
 
 
-# --- Migration Slice 43: per-line edit writes (services/lines_service.py) ---
+# --- Per-line edit writes (services/lines_service.py) ---
 class LinesPatchRequest(BaseModel):
     """Partial line edit: only fields the client sets are applied. `expected`
     maps field -> the old value the client saw (409 if the line differs)."""
@@ -355,6 +359,8 @@ class LinesPatchRequest(BaseModel):
     en: Optional[str] = Field(default=None, max_length=2000)
     speaker: Optional[str] = Field(default=None, max_length=100)
     sfx: Optional[bool] = None
+    lang: Optional[str] = Field(default=None, max_length=8,
+                                description="zh/ja/ko/en; \"\" sets the drama's source_language.")
     expected: Optional[Dict[str, Any]] = None
 
 
@@ -375,6 +381,21 @@ class LinesFindReplaceApplyResult(BaseModel):
     stale: int
     applied_ids: List[int]
     stale_ids: List[int]
+
+
+class LinesSetLangRequest(BaseModel):
+    """Exactly one of line_ids / speaker picks the lines."""
+    model_config = ConfigDict(extra="forbid")
+    lang: Optional[str] = Field(max_length=8,
+                                description="zh/ja/ko/en; null or \"\" sets the drama's source_language.")
+    line_ids: Optional[List[int]] = Field(default=None, max_length=10000)
+    speaker: Optional[str] = Field(default=None, max_length=100)
+
+
+class LinesSetLangResult(BaseModel):
+    updated: int = Field(description="Lines whose language changed.")
+    line_ids: List[int]
+    skipped_ids: List[int] = Field(description="Requested ids that are not lines of this drama.")
 
 
 class LinesAcceptTmRequest(BaseModel):
@@ -407,7 +428,7 @@ class LinesNoteDeleteResult(BaseModel):
 
 
 class ReviewJobStart(BaseModel):
-    """Start a Review-stage AI job (Migration Slice 44). No keys/URLs."""
+    """Start a Review-stage AI job. No keys/URLs."""
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
@@ -439,7 +460,7 @@ class ReviewJobStarted(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Migration Slice 45: restructure lines + version-history restore
+# Restructure lines + version-history restore
 # ---------------------------------------------------------------------------
 class _RestructureBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -551,7 +572,7 @@ class RestoreVersionResult(BaseModel):
 
 
 class LineExplainRequest(BaseModel):
-    """Per-line AI helper request (Migration Slice 50). No keys/URLs."""
+    """Per-line AI helper request. No keys/URLs."""
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)

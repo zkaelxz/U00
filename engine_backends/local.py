@@ -1,7 +1,7 @@
 """Local engines: NLLB-200 and Ollama."""
 
 from .prompts import build_batch_user_message, build_stable_system_text
-from .shared import request_translations_with_retry
+from .shared import read_json_capped, request_translations_with_retry
 
 
 # ---------------------------------------------------------------------------
@@ -9,7 +9,7 @@ from .shared import request_translations_with_retry
 # ---------------------------------------------------------------------------
 
 # NLLB-200's own language codes for the three source languages this app
-# supports, plus English (Step 26b: needed as a target for zh/ja/ko ->
+# supports, plus English (needed as a target for zh/ja/ko ->
 # English, the app's existing default, and as a source for the standalone
 # tool's new English -> zh/ja/ko direction). zh always maps to Simplified
 # here (NLLB has a separate zho_Hant code for Traditional) -- see
@@ -24,7 +24,7 @@ NLLB_MODELS = {
 
 # Keyed by (model_name, source_language, target_language) -- NLLB bakes
 # both src_lang and tgt_lang into the pipeline object itself, so a drama
-# that mixes source languages across runs (or Step 26b's standalone tool,
+# that mixes source languages across runs (or the standalone tool,
 # which can ask for either direction) needs a separate pipeline per
 # language pair, same shape as Whisper's own _whisper_model_cache in
 # core.py.
@@ -106,7 +106,7 @@ def estimate_ollama_num_ctx(system_text: str, numbered: str, floor: int = OLLAMA
 
 
 # A flat {"<id>": "<text>"} object, matching exactly what
-# _parse_id_keyed_json expects back -- passed as Ollama's `format` so
+# parse_id_keyed_json expects back -- passed as Ollama's `format` so
 # structured output does the work of staying on-shape instead of hoping
 # the model follows the prompt's instructions unprompted.
 _OLLAMA_ID_KEYED_JSON_SCHEMA = {"type": "object", "additionalProperties": {"type": "string"}}
@@ -114,7 +114,7 @@ _OLLAMA_ID_KEYED_JSON_SCHEMA = {"type": "object", "additionalProperties": {"type
 
 # Local Ollama models offered in the picker. qwen3:8b is the default: it
 # beat qwen2.5:7b on translation benchmarks at the same size (see the
-# roadmap's Step 5 / model registry). 14B is opt-in -- its quantized weights
+# model registry). 14B is opt-in -- its quantized weights
 # don't fit cleanly alongside everything else in 8 GB of VRAM, so Ollama
 # offloads part of it to the CPU and it runs much slower there.
 OLLAMA_DEFAULT_MODEL = "qwen3:8b"
@@ -137,15 +137,19 @@ class OllamaUnavailableError(Exception):
         self.message = message
 
 
-def _ollama_chat(base_url: str, payload: dict):
-    """POST /api/chat with the slow-local-model timeout; returns the
-    response after raise_for_status. A refused/unresolvable/unreachable
+# Local models can be slow, especially CPU-only or larger ones.
+OLLAMA_CHAT_TIMEOUT = 300
+
+
+def _ollama_chat(base_url: str, payload: dict) -> dict:
+    """POST /api/chat with the slow-local-model timeout; returns the JSON
+    reply, read with the provider byte cap. A refused/unresolvable/unreachable
     server and a model that isn't pulled become OllamaUnavailableError;
     requests' own messages embed the URL, so none of that text is kept."""
     import requests
     try:
-        resp = requests.post(f"{base_url}/api/chat", json=payload,
-                             timeout=300)  # local models can be slow, especially CPU-only or larger ones
+        resp = requests.post(f"{base_url}/api/chat", json=payload, stream=True,
+                             timeout=OLLAMA_CHAT_TIMEOUT)
     except requests.ConnectionError:  # includes ConnectTimeout and DNS failures
         raise OllamaUnavailableError(
             "ollama_unreachable",
@@ -157,6 +161,7 @@ def _ollama_chat(base_url: str, payload: dict):
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
+        resp.close()
         if getattr(exc.response, "status_code", None) != 404:
             raise
         model = str(payload.get("model") or "")
@@ -164,7 +169,21 @@ def _ollama_chat(base_url: str, payload: dict):
             "ollama_model_missing",
             f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
             "or pick another model in Settings.") from None
-    return resp
+    try:
+        return read_json_capped(resp, OLLAMA_CHAT_TIMEOUT)
+    except (requests.ConnectionError, requests.exceptions.ChunkedEncodingError) as exc:
+        # The body is read after the headers now, so a stall or reset there
+        # raises from the read, not from post(), and its text names the host.
+        # requests reports a read timeout during iter_content as a
+        # ConnectionError wrapping urllib3's ReadTimeoutError, not ReadTimeout.
+        from urllib3.exceptions import ReadTimeoutError
+        if exc.args and isinstance(exc.args[0], ReadTimeoutError):
+            raise OllamaUnavailableError(
+                "ollama_timeout",
+                "Ollama took too long to answer. Try a smaller model, or pick another translator in Settings.") from None
+        raise OllamaUnavailableError(
+            "ollama_unreachable",
+            "Ollama isn't running. Start it, or pick another translator in Settings.") from None
 
 
 class OllamaEngine:
@@ -211,7 +230,7 @@ class OllamaEngine:
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
                 "options": {"num_ctx": num_ctx},
             })
-            return resp.json()["message"]["content"].strip()
+            return resp["message"]["content"].strip()
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="ollama")
@@ -219,12 +238,11 @@ class OllamaEngine:
 
 # {base_url: (checked_at, reachable)} -- Ollama is exempted from the
 # API-key check entirely, so with nothing in its place, clicking
-# Translate against a stopped local server used to start a background
-# job that only failed once translate_batch's own 300s request timeout
-# expired. check_ollama_reachable() lets the UI disable that button
-# BEFORE starting the job instead. Cached briefly per base_url so a
-# Streamlit rerun (which happens on almost every interaction) doesn't
-# re-hit the health check every time.
+# Translate against a stopped local server would start a background job
+# that only fails once translate_batch's own 300s request timeout expires.
+# check_ollama_reachable() lets the UI disable that button BEFORE starting
+# the job instead. Cached briefly per base_url so a UI that re-checks on
+# nearly every interaction doesn't re-hit the health check every time.
 _ollama_reachability_cache = {}
 OLLAMA_REACHABILITY_CACHE_SECONDS = 5
 
@@ -240,8 +258,10 @@ def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
     if cached and now - cached[0] < OLLAMA_REACHABILITY_CACHE_SECONDS:
         return cached[1]
     try:
-        resp = requests.get(f"{base_url}/api/tags", timeout=2.5)
+        # stream=True so only the status is read; the model list isn't needed here.
+        resp = requests.get(f"{base_url}/api/tags", timeout=2.5, stream=True)
         reachable = resp.ok
+        resp.close()
     except Exception:
         reachable = False
     _ollama_reachability_cache[base_url] = (now, reachable)

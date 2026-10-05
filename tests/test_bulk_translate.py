@@ -18,6 +18,7 @@ import background_jobs
 import bulk_translate as bt
 import translate_engines as te
 from core import Line
+from tests.http_fakes import StreamedBody
 
 
 # ---------------------------------------------------------------------------
@@ -434,7 +435,7 @@ class TestRestartCancelAuth:
 # Gemini provider
 # ---------------------------------------------------------------------------
 
-class _Resp:
+class _Resp(StreamedBody):
     def __init__(self, data, status=200):
         self._data = data
         self.status_code = status
@@ -454,7 +455,7 @@ class TestGeminiProvider:
     def test_submission_shape_and_key_in_header(self, isolated_db, monkeypatch):
         sent = {}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             sent.update(url=url, headers=headers, json=json, timeout=timeout)
             return _Resp({"name": "batches/abc123"})
         monkeypatch.setattr("requests.post", fake_post)
@@ -471,7 +472,7 @@ class TestGeminiProvider:
 
     def test_results_are_matched_by_metadata_key_not_position(self, isolated_db, monkeypatch):
         submitted = {}
-        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None:
+        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None, stream=None:
                             submitted.update(json=json) or _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=4)
         lines = isolated_db.load_line_objects(did)
@@ -487,7 +488,7 @@ class TestGeminiProvider:
         done = {"name": "batches/abc", "done": True,
                 "metadata": {"state": "BATCH_STATE_SUCCEEDED"},
                 "response": {"inlinedResponses": {"inlinedResponses": list(reversed(responses))}}}
-        monkeypatch.setattr("requests.get", lambda url, headers=None, timeout=None: _Resp(done))
+        monkeypatch.setattr("requests.get", lambda url, headers=None, timeout=None, stream=None: _Resp(done))
         assert bt.check_once(bulk_id, bt.make_provider("gemini", self._engine())) == "applied"
         assert all(r["en"] == f"G[{r['zh']}]" for r in isolated_db.load_lines(did))
 
@@ -526,7 +527,7 @@ class TestGeminiProvider:
 
     def test_cancel_posts_to_the_cancel_endpoint(self, isolated_db, monkeypatch):
         calls = []
-        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None:
+        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None, stream=None:
                             calls.append(url) or _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=1)
         bulk_id = bt.submit_bulk_translation(did, isolated_db.load_line_objects(did), self._engine(),

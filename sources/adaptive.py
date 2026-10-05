@@ -1,6 +1,6 @@
 """
 sources/adaptive.py -- the order things are tried in when a pasted URL
-has no dedicated adapter (roadmap Step 23g items 4, 6, 7, 8).
+has no dedicated adapter.
 
     saved site profile        -> 0 LLM calls
     (dedicated adapter        -> 0 LLM calls; handled before this module)
@@ -71,7 +71,7 @@ class ExtractionReport:
     # PC-only in the API).
     hold_profiles: bool = False
     data: dict = None
-    access: dict = field(default_factory=dict)          # Step 23k: ladder.access_facts()
+    access: dict = field(default_factory=dict)          # ladder.access_facts()
     resource_types: list = field(default_factory=list)  # ContentAccess values found on the page
 
     def note(self, line: str):
@@ -137,7 +137,7 @@ def _note_if_translated(report: ExtractionReport, html: str):
 def _unreachable_reason(report: ExtractionReport) -> str:
     """The most specific reason a page couldn't be read -- a protected
     resource or a missing purchase is named as exactly that, never folded
-    into a generic failure (Step 23k item 6)."""
+    into a generic failure."""
     if report.access.get("protection_detail"):
         return " ".join(report.access["protection_detail"])
     if report.access.get("purchase_required"):
@@ -362,7 +362,7 @@ def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_h
                  use_cache: bool = True, allow_signed_in: bool = True,
                  allow_browser: bool = True, remember: bool = True,
                  hold_profiles: bool = False):
-    """The generic novel import with the Step 23g ladder. Returns
+    """The generic novel import with the fetch ladder. Returns
     (NovelImportResult, report); raises NoContentFound (with `.report`).
     `remember=False`: see extract_novel; the ladder result is not recorded
     on the source's capability record either. `hold_profiles`: never
@@ -707,7 +707,7 @@ def extract_comic(page, candidates, engine=None, download=None, remember: bool =
                     f"({why}). It's kept as it was; ran the full ladder instead.")
 
     # The existing filter, on <img>/<source> candidates first (as before
-    # Step 23g). Script-listed (manifest) URLs are only downloaded when the
+    # the fetch ladder). Script-listed (manifest) URLs are only downloaded when the
     # tags alone give nothing -- a script blob can list hundreds of
     # unrelated covers, and each download is a paced request.
     pool = [c for c in candidates if c.attr != "manifest"]
@@ -752,7 +752,7 @@ def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_h
                  remember: bool = True, use_cache: bool = True, allow_signed_in: bool = True,
                  allow_browser: bool = True, budget=None, hold_profiles: bool = False,
                  learn: bool = True):
-    """The generic comic import with the Step 23g ladder. Returns
+    """The generic comic import with the fetch ladder. Returns
     (ComicImportResult, report); raises NoContentFound (with `.report`).
     `budget` (generic_import.DownloadBudget) caps the image downloads;
     `hold_profiles`: never auto-save a generated site profile; `learn=False`

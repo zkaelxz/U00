@@ -1,6 +1,6 @@
 """
 services/sources_registry_service.py -- the Sources catalog and status for
-the API (Migration Slice 56, S-1 read-only part; S-2 adds the config writes
+the API (read-only part; a later part adds the config writes
 below). This is NOT the Workspace Source stage (services/source_service.py).
 
 Everything returned is plain dicts. Nothing here returns a proxy URL, a
@@ -9,7 +9,7 @@ site profile or a query string: URLs are reduced to scheme+host+path and
 free text goes through `_scrub` (secrets via translate_engines.redact_secrets,
 then paths and URL queries).
 
-ToS/robots enforcement is OFF by user decision (Step 90, 2026-09-29 Q1), so
+ToS/robots enforcement is OFF by user decision (user decision 2026-09-29), so
 the recorded `terms` block is information only: nothing here ever says a
 source is "permitted".
 
@@ -90,7 +90,7 @@ def scrub_any(value):
 
 def _visible_classes() -> dict:
     """Adapter classes the API lists. The offline demo source is hidden
-    unless switched on, exactly like the Sources tab."""
+    unless switched on."""
     out = {}
     for name, cls in registry.adapter_classes().items():
         if getattr(cls, "is_demo", False) and not store.get_setting("demo_source_enabled"):
@@ -169,7 +169,7 @@ def get_source(name: str) -> dict:
         "technical_status": d["technical_status"],
         "access_method": d["access_method"],
         "content_access_status": d["content_access_status"],
-        # The separate Step 23k fields, never collapsed into one verdict.
+        # The separate access fields, never collapsed into one verdict.
         "authentication_required": d["authentication_required"],
         "purchase_required": d["purchase_required"],
         "technical_protection": d["technical_protection"],
@@ -265,7 +265,7 @@ def list_notifications(include_dismissed: bool = False) -> list:
 # exists before it changes anything.
 # ---------------------------------------------------------------------------
 
-# Same ranges as tabs/sources_tab.py's settings form. http_proxy_url and
+# http_proxy_url and
 # page_server_enabled are NOT settable here (a proxy URL set by a remote
 # client is an exfiltration/SSRF pivot; the page server opens a port).
 _RANGES = {
@@ -305,9 +305,8 @@ def set_adult_enabled(name: str, enabled: bool) -> dict:
 def update_settings(changes: dict) -> dict:
     """Partial update of the whitelisted settings. Unknown keys (including
     http_proxy_url and page_server_enabled) are rejected. The pacing floor:
-    pace_min_delay may not go below the built-in default (the tab lets a
-    local user pick 0; the API does not). reset_pacing_state() runs after
-    saving, as the tab does."""
+    pace_min_delay may not go below the built-in default. reset_pacing_state()
+    runs after saving."""
     changes = dict(changes or {})
     if not changes:
         raise InvalidInputError("No settings to change.")
@@ -332,7 +331,7 @@ def update_settings(changes: dict) -> dict:
         raise InvalidInputError(f"pace_min_delay can't be below {floor:g} seconds.")
     cur = store.all_settings()
     merged = {**{k: cur[k] for k in SETTING_KEYS}, **clean}
-    # Same normalisation as the tab: a max is never below its min.
+    # A max is never below its min.
     for lo_key, hi_key in (("pace_min_delay", "pace_max_delay"),
                            ("session_break_min_requests", "session_break_max_requests"),
                            ("session_break_min_delay", "session_break_max_delay")):

@@ -1,6 +1,6 @@
 """
 check_setup.py -- start.bat's own "print anything missing in plain
-words" step (Step 10), run once on every launch before the app starts.
+words" step, run once on every launch before the app starts.
 
 Deliberately a separate, tiny script rather than importing the app's own
 modules: those pull in heavy, sometimes-optional dependencies
@@ -25,11 +25,9 @@ import diagnostics
 def _report_symbols(encoding):
     """The warning/info/ok symbols this report uses, falling back to
     plain ASCII when the target stream's encoding can't represent the
-    real Unicode ones. Real, confirmed bug on Windows: a plain cmd.exe
-    console's default codepage (cp1252) can't encode U+26A0 (warning
-    sign), which used to crash this script outright with a
-    UnicodeEncodeError -- found on this project's own Windows CI job,
-    not just a hypothetical. Checked per-symbol (not a single "is this
+    real Unicode ones. A plain Windows cmd.exe console's default codepage
+    (cp1252) can't encode U+26A0 (warning sign), so printing it raises
+    UnicodeEncodeError. Checked per-symbol (not a single "is this
     stream UTF-8" test) so a console that can handle some of these but
     not others still gets the ones it can."""
     def pick(nice, ascii_fallback):

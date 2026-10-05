@@ -107,7 +107,7 @@ class TranslateRunDefaults(BaseModel):
 
 
 class TranslateRunConfig(BaseModel):
-    """Read-only Translate-stage summary (Migration Slice 39). Booleans and
+    """Read-only Translate-stage summary. Booleans and
     numbers only -- never a key or the novel text (D2)."""
     drama_id: int
     translation_engine: str
@@ -136,7 +136,7 @@ class TranslateRunConfig(BaseModel):
 
 
 class TranslateRunEstimate(BaseModel):
-    """Advisory pre-run cost estimate (Migration Slice 39)."""
+    """Advisory pre-run cost estimate."""
     engine: str
     model: Optional[str] = None
     estimated_usd: Optional[float] = None
@@ -149,7 +149,7 @@ class TranslateRunEstimate(BaseModel):
 
 
 class TranslateRunStart(BaseModel):
-    """Start a normal translation (Migration Slice 40). No keys/URLs."""
+    """Start a normal translation. No keys/URLs."""
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
@@ -164,9 +164,9 @@ class TranslateRunStart(BaseModel):
     gemini_free_tier: Optional[bool] = None  # None: the saved setting
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
     fallback_chain: Optional[List["TranslateFallbackEngine"]] = Field(None, max_length=2)
-    reflect: bool = False  # Slice 41: Step 7's three-pass Reflect mode
-    bulk: bool = False  # Slice 41: batch API / DeepSeek off-peak, job bulk_translate_{id}
-    # A preset's prompt toggles; None = the tab's defaults (she/her off, genre notes on).
+    reflect: bool = False  # Three-pass Reflect mode
+    bulk: bool = False  # Batch API / DeepSeek off-peak, job bulk_translate_{id}
+    # A preset's prompt toggles; None = the defaults (she/her off, genre notes on).
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
 
@@ -183,7 +183,7 @@ class TranslateRunStarted(BaseModel):
 
 
 class TranslateFallbackEngine(BaseModel):
-    """One entry of TranslateRunStart.fallback_chain (Step 97b)."""
+    """One entry of TranslateRunStart.fallback_chain."""
     model_config = ConfigDict(extra="forbid")
     engine: str = Field(max_length=40)
     model: Optional[str] = Field(None, max_length=200)
@@ -269,16 +269,16 @@ class TranslateBulkResumeEntry(BaseModel):
 
 
 class TranslateBulkResumeResult(BaseModel):
-    """Pending bulk jobs picked back up after a restart (Migration Slice 41)."""
+    """Pending bulk jobs picked back up after a restart."""
     drama_id: int
     jobs: List[TranslateBulkResumeEntry]
 
 
 # ---------------------------------------------------------------------------
-# Migration Slice 51: pending bulk batch list + cancel
+# Pending bulk batch list + cancel
 # ---------------------------------------------------------------------------
 class TranslateBulkJobEntry(BaseModel):
-    """One bulk batch as last recorded (Migration Slice 51). No prompts,
+    """One bulk batch as last recorded. No prompts,
     provider batch id or keys."""
     bulk_job_id: int
     engine: str

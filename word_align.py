@@ -34,10 +34,10 @@ sudachipy/kiwipiepy, already built for Reader ruby-text) rather than
 raw text, matching torchaudio's own documented MMS_FA usage pattern of
 aligning a pre-split word list, not inferring boundaries itself.
 
-EXPERIMENTAL, off by default: written against torchaudio's documented
-MMS_FA API and uroman's documented Python API, but NOT run against real
-Chinese/Japanese/Korean speech in this environment (no GPU, no real
-audio, no network for the ~1.1GB model download). There IS a confirmed
+Experimental and opt-in per drama (realign_long_segments, off by
+default): written against torchaudio's documented MMS_FA API and uroman's
+documented Python API rather than tuned on real Chinese/Japanese/Korean
+speech. There IS a confirmed
 real GitHub issue (m-bain/whisperX#84) of a DIFFERENT but related CTC
 aligner failing outright on some Japanese text ("no characters in this
 segment found in model dictionary") -- so realign_long_segment() fails
@@ -82,7 +82,7 @@ def _check_dependencies():
 class _LoadedAligner:
     """The MMS_FA model plus its tokenizer/aligner/uromanizer, loaded once
     and reused across every oversized segment in one realignment run
-    (Step 102) -- reloading the model per segment was real, avoidable
+    -- reloading the model per segment was real, avoidable
     latency and memory churn on audio with several long segments."""
 
     def __init__(self, bundle, model, tokenizer, aligner, uromanizer, device):
@@ -120,7 +120,7 @@ def align_words(audio_path: str, words: list, device: str = "cpu",
     ORIGINAL (un-romanized) input, just with timing attached.
 
     Reads audio_path via soundfile, not torchaudio.load() -- the same
-    Step 4c fix diarize() already needed: torchaudio>=2.9 routes
+    fix diarize() already needed: torchaudio>=2.9 routes
     load()/save() through torchcodec by default, which can fail (no
     compiled-per-FFmpeg-version DLLs) for a plain WAV read that never
     needed torchcodec's decode path at all. MMS_FA itself is still the
@@ -209,7 +209,7 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
     that line or crash a whole transcription job over it. The real
     exception is logged (applog) before falling back, though -- silently
     swallowing it made a real, confirmed break in align_words() itself
-    (a torchcodec-routing failure, the same class Step 4c already fixed
+    (a torchcodec-routing failure, the same class already fixed
     for diarize()) invisible: every segment just quietly stayed unsplit
     with no error shown anywhere.
     """
@@ -261,7 +261,7 @@ def realign_oversized_segments(segments, audio_path: str, language: str,
     """
     _check_dependencies()
     out = []
-    loaded = None  # loaded lazily on the first oversized segment, then reused (Step 102)
+    loaded = None  # loaded lazily on the first oversized segment, then reused
     load_failed = False
     for seg in segments:
         duration = seg["end"] - seg["start"]

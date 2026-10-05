@@ -1,21 +1,17 @@
 """
-services/diagnostics_service.py -- Migration Slice 5: a read-only
-snapshot of Diagnostics, shared by the FastAPI `/api/diagnostics` route
-and (in a later slice) the Streamlit Diagnostics tab.
+services/diagnostics_service.py -- a read-only snapshot of Diagnostics for
+GET /api/diagnostics.
 
-Scope, matching Phase 2 of docs/archive/migration-review.md's own recommended
-sequence ("Low-risk reads ... Diagnostics read-only (deps, versions,
-running jobs, log)"): this wraps `diagnostics.py`'s and
-`background_jobs.py`'s existing read-only checks verbatim -- no new
-logic, no admin action (install/upgrade/delete buttons stay
-Streamlit-only, gated by D5's admin-action rules in
-docs/archive/migration-review.md). Every check here is local (imports,
+This wraps `diagnostics.py`'s and `background_jobs.py`'s existing
+read-only checks verbatim -- no new logic, no admin action (those are in
+diagnostics_gaps_service and diagnostics_installs_service, behind PC-only
+routes). Every check here is local (imports,
 filesystem, GPU driver, in-process job state) -- never a network call,
 matching this service's own "diagnostics overview" scope; version
 freshness checks hit PyPI, so they live in diagnostics_gaps_service.
 check_package_updates, behind an explicit click.
 
-No Streamlit import, no HTTP types: takes no arguments, returns a plain
+No HTTP types: takes no arguments, returns a plain
 dict, so `cli.py` or a script could call it too.
 """
 
@@ -53,8 +49,8 @@ def get_diagnostics_overview() -> dict:
     model_engine_versions, running_jobs, recent_log_lines} -- the same
     facts Diagnostics' own routine view already shows, reusing its
     existing functions rather than recomputing anything. Log lines are
-    redacted the same way the Streamlit tab's own "copy for support"
-    export already is."""
+    redacted with diagnostics.redact_for_support, as in the support
+    report."""
     running = background_jobs.list_running_jobs()
     import core
     gpu = dict(diagnostics.get_gpu_status())

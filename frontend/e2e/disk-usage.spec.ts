@@ -316,3 +316,91 @@ test('Empty Trash after the list changed is refused and the list is reloaded', a
   await expect(trash).toContainText('model_cache/old')
   expect(mock.trash).toHaveLength(2)
 })
+
+// Unused voice clips: no file name or path is ever on screen; the server only sends type, size, date.
+const CLIPS = [
+  { title: 'Moonlit Court', clips: [{ id: 'a'.repeat(32), type: 'wav', size: 1_200_000 }, { id: 'b'.repeat(32), type: 'mp3', size: 300_000 }] },
+  { title: 'Harbor Nights', clips: [{ id: 'c'.repeat(32), type: 'wav', size: 500_000 }] },
+]
+
+test('unused voice clips list per title with a total and no file names', async ({ page }) => {
+  await mockDiskUsage(page, { clips: CLIPS })
+  const sec = await openSection(page)
+  const clips = sec.getByRole('region', { name: 'Unused voice clips' })
+  await expect(clips).toContainText('Not used by any speaker. Moves to the Baihe trash, where you can restore it.')
+  await expect(clips.getByTestId('clips-line')).toHaveText('3 clips · 2.0 MB')
+  await expect(clips.locator('.du-clip-heading')).toHaveText(['Moonlit Court · 2 clips · 1.5 MB', 'Harbor Nights · 1 clip · 500.0 KB'])
+  await expect(clips.locator('.du-clip-title').first().locator('.du-name').first()).toHaveText('WAV clip · 1.2 MB · 2026-09-30')
+  await expect(clips).not.toContainText(/clone_|voice_refs|\.wav|\.mp3/)
+})
+
+test('moving one unused clip needs the second press and sends its id and shown size', async ({ page }) => {
+  const mock = await mockDiskUsage(page, { clips: CLIPS })
+  const sec = await openSection(page)
+  const clips = sec.getByRole('region', { name: 'Unused voice clips' })
+  await clips.getByRole('button', { name: 'Move clip 2 of Moonlit Court to Trash' }).click()
+  expect(mock.posts.filter((p) => p.path === 'clips-to-trash')).toHaveLength(0)
+  await clips.getByRole('button', { name: 'Confirm: move clip (300.0 KB) to Trash' }).click()
+  await expect(sec.getByRole('status').filter({ hasText: 'Moved 1 clip (300.0 KB) to Trash' })).toBeVisible()
+  expect(mock.posts.find((p) => p.path === 'clips-to-trash')!.body)
+    .toEqual({ clips: [{ id: 'b'.repeat(32), expected_size_bytes: 300_000 }], confirm: true })
+  await expect(clips.getByTestId('clips-line')).toHaveText('2 clips · 1.7 MB')
+})
+
+test('move all skips a clip a speaker started using and says so', async ({ page }) => {
+  const mock = await mockDiskUsage(page, { clips: CLIPS })
+  const sec = await openSection(page)
+  mock.clips[1].clips[0].used = true
+  const clips = sec.getByRole('region', { name: 'Unused voice clips' })
+  await clips.getByRole('button', { name: 'Move all unused voice clips to Trash' }).click()
+  await clips.getByRole('button', { name: 'Confirm: move 3 clips (2.0 MB) to Trash' }).click()
+  await expect(sec.getByRole('status').filter({ hasText: '1 clip skipped: it changed or a speaker started using it.' })).toBeVisible()
+  await expect(clips.getByTestId('clips-line')).toHaveText('1 clip · 500.0 KB')
+})
+
+const manyClips = (n: number) => [{
+  title: 'Big Show', clips: Array.from({ length: n }, (_, i) => ({ id: i.toString(16).padStart(32, '0'), type: 'wav', size: 1 })),
+}]
+
+test('move all sends batches of at most 500 clips, one after another', async ({ page }) => {
+  const mock = await mockDiskUsage(page, { clips: manyClips(1001) })
+  const sec = await openSection(page)
+  const clips = sec.getByRole('region', { name: 'Unused voice clips' })
+  await clips.getByRole('button', { name: 'Move all unused voice clips to Trash' }).click()
+  await clips.getByRole('button', { name: /^Confirm: move 1,001 clips/ }).click()
+  await expect(sec.getByRole('status').filter({ hasText: 'Moved 1,001 clips' })).toBeVisible()
+  const sizes = mock.posts.filter((p) => p.path === 'clips-to-trash').map((p) => (p.body.clips as unknown[]).length)
+  expect(sizes).toEqual([500, 500, 1])
+})
+
+test('move all stops at the first failing batch and reports the totals', async ({ page }) => {
+  const mock = await mockDiskUsage(page, { clips: manyClips(1001), clipsFailPost: 2 })
+  const sec = await openSection(page)
+  const clips = sec.getByRole('region', { name: 'Unused voice clips' })
+  await clips.getByRole('button', { name: 'Move all unused voice clips to Trash' }).click()
+  await clips.getByRole('button', { name: /^Confirm: move 1,001 clips/ }).click()
+  await expect(sec.getByRole('status').filter({ hasText: 'Moved 502 of 1,001 clips' })).toContainText('stopped because A job, restore or other library task is running.')
+  expect(mock.posts.filter((p) => p.path === 'clips-to-trash')).toHaveLength(2)
+})
+
+test('titles with a clip-reading job are called out, and an empty list says so', async ({ page }) => {
+  await mockDiskUsage(page, { clips: [], clipsInUse: 2 })
+  const sec = await openSection(page)
+  const clips = sec.getByRole('region', { name: 'Unused voice clips' })
+  await expect(clips).toContainText('No unused voice clips.')
+  await expect(clips).toContainText('2 titles are left out because a dub, narration or audiobook job is running.')
+})
+
+test('unused voice clips on a phone: no sideways scroll, 44 px buttons', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 800 })
+  await mockDiskUsage(page, { clips: CLIPS })
+  const sec = await openSection(page)
+  const clips = sec.getByRole('region', { name: 'Unused voice clips' })
+  await expect(clips.getByRole('button', { name: 'Move all unused voice clips to Trash' })).toBeVisible()
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
+  expect(wide).toBe(false)
+  for (const b of await clips.getByRole('button', { name: /^Move (all|clip)/ }).all()) {
+    expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  }
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/unused-clips-phone.png`, fullPage: true })
+})

@@ -1,6 +1,6 @@
 """
 services/jellyfin_service.py -- the optional Jellyfin connector (roadmap
-Step 39). Off by default; API + filesystem only, never a Jellyfin plugin.
+Off by default; API + filesystem only, never a Jellyfin plugin.
 
   - get_config / set_config / clear_key: the server URL, the library folder
     on this PC and an on/off switch are stored in app_settings; the API key
@@ -23,13 +23,13 @@ Network: the URL must be http(s) with a host, no user name/password, query or
 fragment. Every address it resolves to is checked at call time: loopback and
 private LAN addresses are fine (Jellyfin usually runs on this PC or the LAN),
 but link-local (cloud metadata), multicast, reserved and unspecified
-addresses are refused, and so are Baihe's own ports on this PC (8501, 8600 or
+addresses are refused, and so are Baihe's own ports on this PC (8600 or
 BAIHE_API_PORT, 8756). The check is not pinned to the connection (the address
 is the PC owner's own choice, and a key-write-gated setting). Requests carry
 timeout=, follow no redirects, ignore proxy settings and read at most
 MAX_RESPONSE_BYTES within READ_DEADLINE. Errors are fixed text: never the URL, a path or the key.
 
-No Streamlit or FastAPI import: plain dicts in, plain dicts out.
+No FastAPI import: plain dicts in, plain dicts out.
 """
 import contextlib
 import ipaddress

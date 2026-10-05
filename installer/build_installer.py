@@ -1,7 +1,7 @@
 """
 installer/build_installer.py -- assembles the Windows installer's payload
 and, where Inno Setup is available, compiles BaiheStudio-Setup-<version>.exe
-(Step 80b; design: docs/windows-installer-design.md).
+(design: docs/windows-installer-design.md).
 
     python installer/build_installer.py --version 0.1.0
         [--skip-frontend-build]   # frontend/dist is already built
@@ -59,6 +59,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -90,6 +91,10 @@ WINSW_VERSION = "2.12.0"
 WINSW_URL = f"https://github.com/winsw/winsw/releases/download/v{WINSW_VERSION}/WinSW.NET461.exe"
 WINSW_SHA256 = "b5066b7bbdfba1293e5d15cda3caaea88fbeab35bd5b38c41c913d492aadfc4f"
 WINSW_LICENSE = INSTALLER_DIR / "licenses" / "WinSW-LICENSE.txt"
+
+# The embeddable Python zip is about 11 MB and WinSW under 1 MB.
+DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
+DOWNLOAD_DEADLINE_SECONDS = 600
 
 # Caddy, the only internet-facing part: stock Caddy plus the rate_limit module
 # deploy/caddy/Caddyfile.template needs, built from installer/caddy, where
@@ -274,11 +279,31 @@ def sha256_of(path) -> str:
     return h.hexdigest()
 
 
-def download(url: str, dest: Path) -> Path:
+def download(url: str, dest: Path, max_bytes: int = DOWNLOAD_MAX_BYTES,
+             deadline_seconds: float = DOWNLOAD_DEADLINE_SECONDS, clock=time.monotonic) -> Path:
+    """Fetches `url` to `dest`, refusing more than `max_bytes` (declared or
+    actual) or a transfer slower than `deadline_seconds` in all. Standard
+    library only, like the rest of installer/, so services.capped_body isn't
+    used; the caller checks the pinned hash afterwards."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
-    with urllib.request.urlopen(url, timeout=120) as resp, open(tmp, "wb") as f:
-        shutil.copyfileobj(resp, f)
+    started = clock()
+    try:
+        with urllib.request.urlopen(url, timeout=120) as resp, open(tmp, "wb") as f:
+            declared = (resp.headers.get("Content-Length") or "").strip()
+            if declared.isascii() and declared.isdigit() and int(declared) > max_bytes:
+                raise BuildError(f"{dest.name} is larger than {max_bytes} bytes.")
+            total = 0
+            for chunk in iter(lambda: resp.read(1 << 20), b""):
+                total += len(chunk)
+                if total > max_bytes:
+                    raise BuildError(f"{dest.name} is larger than {max_bytes} bytes.")
+                if clock() - started > deadline_seconds:
+                    raise BuildError(f"Downloading {dest.name} took over {deadline_seconds} seconds.")
+                f.write(chunk)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     os.replace(tmp, dest)
     return dest
 

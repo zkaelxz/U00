@@ -12,7 +12,7 @@
  */
 import { useCallback, useRef, useState } from 'react'
 
-import { listTrash, moveItem, moveToTrash, scanDiskUsage } from '../../api/diskUsage'
+import { listTrash, listUnusedVoiceClips, moveItem, moveToTrash, scanDiskUsage } from '../../api/diskUsage'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -20,12 +20,13 @@ import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
-import type { DiskUsageItem, DiskUsageScan, DiskUsageTrashList } from '../../types/diskUsage'
+import type { DiskUsageItem, DiskUsageScan, DiskUsageTrashList, UnusedVoiceClipList } from '../../types/diskUsage'
 import {
   PARTIAL_TEXT, barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeMoved,
   diskLine, itemTone, moveBlock, moveConfirmLabel, percentText, sizeLine,
 } from './diskUsageModel'
 import { TrashPanel } from './TrashPanel'
+import { UnusedVoiceClips } from './UnusedVoiceClips'
 import { squarify } from './treemap'
 import './diskUsage.css'
 
@@ -48,6 +49,7 @@ export function DiskUsageSection({ pc }: { pc: PcMode }) {
 function DiskUsageLive() {
   const [scan, setScan] = useState<DiskUsageScan | null>(null)
   const [trash, setTrash] = useState<DiskUsageTrashList | null>(null)
+  const [clips, setClips] = useState<UnusedVoiceClipList | null>(null)
   const [loading, setLoading] = useState(false)
   const [cancelled, setCancelled] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -56,7 +58,11 @@ function DiskUsageLive() {
   const abort = useRef<AbortController | null>(null)
   const latest = useRef(0)
   const latestTrash = useRef(0)
+  const latestClips = useRef(0)
 
+  // A new scan aborts the previous one, and the ticket drops the aborted scan's late answer so it cannot
+  // overwrite the newer scan or set `cancelled`. Only the user's Cancel aborts without bumping the ticket,
+  // so it is the only abort that reaches setCancelled.
   const load = useCallback((path: string, keepNotice = false) => {
     abort.current?.abort()
     const ctl = new AbortController()
@@ -92,6 +98,16 @@ function DiskUsageLive() {
     )
   }, [])
 
+  const loadClips = useCallback(() => {
+    const ticket = ++latestClips.current
+    listUnusedVoiceClips().then(
+      (l) => { if (ticket === latestClips.current) setClips(l) },
+      () => {
+        // Like the Trash list: the scan's banner covers a broken connection; the list stays as it was.
+      },
+    )
+  }, [])
+
   const cancel = () => {
     abort.current?.abort()
   }
@@ -100,6 +116,7 @@ function DiskUsageLive() {
   const rescan = (keepNotice = false) => {
     load(here, keepNotice)
     loadTrash()
+    loadClips()
   }
 
   return (
@@ -111,6 +128,7 @@ function DiskUsageLive() {
           started.current = true
           load('')
           loadTrash()
+          loadClips()
         }
       }}
     >
@@ -177,6 +195,14 @@ function DiskUsageLive() {
             </ul>
           </>
         )}
+        <UnusedVoiceClips
+          clips={clips}
+          onChanged={(msg) => {
+            setDone(msg)
+            rescan(true)
+          }}
+          onStale={() => rescan(true)}
+        />
         <TrashPanel
           trash={trash}
           onChanged={(msg) => {

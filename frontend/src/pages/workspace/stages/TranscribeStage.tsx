@@ -45,11 +45,15 @@ import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
 import { TranscriptModePicker } from './SourceModes'
 import { mediaFileInputId } from './stageBlockers'
-import { diarizeEstimate, transcribeEstimate } from './transcribeEstimate'
+import { diarizeEstimate, measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import './source.css'
 
 const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
+// The value stays the model name; the text says which is the default and its Japanese/Korean caveat.
+const WHISPER_LABELS: Record<string, string> = {
+  'large-v3-turbo': 'large-v3-turbo (default, weaker on Japanese/Korean)',
+}
 const LANGUAGE_NAMES: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean' }
 // Display names for the Advanced backend choices (the option value stays raw).
 const OPTION_LABELS: Record<string, string> = {
@@ -57,6 +61,7 @@ const OPTION_LABELS: Record<string, string> = {
   qwen3_forced_align: 'Qwen3 forced alignment',
   whisper: 'Whisper',
   qwen3_asr: 'Qwen3 ASR',
+  qwen3_asr_vad: 'Qwen3 ASR with speech detection (no Whisper)',
   moss_td: 'MOSS-Transcribe-Diarize (experimental)',
   auto: 'Automatic',
   audio_separator: 'Audio separator',
@@ -87,7 +92,8 @@ interface Props {
   // A pre-checked file chosen in the media picker, or null.
   file: File | null
   busy: boolean
-  onJobStarted: (jobId: string) => void
+  // expectedSeconds: this PC's recorded speed applied to this media, when there is one.
+  onJobStarted: (jobId: string, expectedSeconds?: number | null) => void
 }
 
 type ConfigForm = {
@@ -346,6 +352,15 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       flag(refused)
       return
     }
+    // A file picked but not uploaded yet has no known length, and a cloud run's time isn't this PC's.
+    const speed = config.whisper_size === cf.whisper_size ? config.measured_speed : null
+    const expectedRunSeconds = whisperRun && !file && !cf.use_groq
+      ? measuredRunSeconds({
+          audioSeconds: duration, whisperSize: cf.whisper_size, useGpu, measuredSpeed: speed,
+          measuredStages: speed ? config.measured_stage_seconds : undefined, separateVocals: cf.separate_vocals_first,
+          realignLong: cf.realign_long_segments,
+        })
+      : null
     const start = () => (file ? uploadAndTranscribe(dramaId, file, req) : startTranscribe(dramaId, req))
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
@@ -358,7 +373,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       : Promise.resolve()
     saveFirst.then(start).then((r) => {
       setError(null)
-      onJobStarted(r.job_id)
+      onJobStarted(r.job_id, expectedRunSeconds)
     }, fail)
   }
 
@@ -444,6 +459,12 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         fastMode: cf.whisper_fast_mode,
         modelCached: config?.whisper_model_cached,
         measuredSpeed: config?.whisper_size === cf.whisper_size ? config.measured_speed : null,
+        measuredRuns: config?.measured_speed_runs,
+        measuredStages: config?.whisper_size === cf.whisper_size ? config.measured_stage_seconds : undefined,
+        separateVocals: cf.separate_vocals_first,
+        realignLong: cf.realign_long_segments,
+        measuredDiarizeSpeed: config?.measured_diarize_speed,
+        measuredDiarizeRuns: config?.measured_diarize_runs,
         useGroq: cf.use_groq,
         detectSpeakers: runDiarize,
       })
@@ -451,7 +472,6 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
 
   return (
     <section className="panel source-panel" aria-label="Transcribe" ref={panelRef}>
-      <h3>Transcribe</h3>
       <TranscriptModePicker onChanged={(m) => setConfig((c) => (c ? { ...c, transcript_mode: m } : c))} />
       {mediaSlot}
       <div className="source-grid">
@@ -462,6 +482,15 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             <option value="ko">Korean</option>
           </select>
         </Field>
+        {cf && (
+          <Field label="Whisper model" help={config && !config.whisper_model_cached ? 'This model will be downloaded on first use.' : undefined}>
+            <select value={cf.whisper_size} onChange={(e) => setC('whisper_size', e.target.value)}>
+              {(WHISPER_SIZES.includes(cf.whisper_size) ? WHISPER_SIZES : [cf.whisper_size, ...WHISPER_SIZES]).map((o) => (
+                <option key={o} value={o}>{WHISPER_LABELS[o] ?? o}</option>
+              ))}
+            </select>
+          </Field>
+        )}
         {language === 'zh' && (
           <Field label="Chinese script">
             <select value={script} onChange={(e) => setScript(e.target.value)}>
@@ -472,6 +501,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           </Field>
         )}
       </div>
+      {turboWarning && <p className="muted" role="note">{turboWarning}</p>}
       {haveTranscript && (
         <Field label="Transcript text">
           <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
@@ -535,23 +565,6 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         <p className="muted source-summary" aria-hidden="true">&nbsp;</p>
       )}
 
-      <Section
-        storageKey="source.transcribe"
-        title="More options"
-        summary={`Whisper ${cf?.whisper_size ?? 'model'} · speakers and tuning`}
-      >
-      <div className="source-grid">
-        {cf && (
-          <Field label="Whisper model" help={config && !config.whisper_model_cached ? 'This model will be downloaded on first use.' : undefined}>
-            <select value={cf.whisper_size} onChange={(e) => setC('whisper_size', e.target.value)}>
-              {(WHISPER_SIZES.includes(cf.whisper_size) ? WHISPER_SIZES : [cf.whisper_size, ...WHISPER_SIZES]).map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </select>
-          </Field>
-        )}
-      </div>
-      {turboWarning && <p className="muted" role="note">{turboWarning}</p>}
       <Section storageKey="source.speakers" title="Speakers" summary={speakersSummary(speakers, minSpeakers, maxSpeakers)}>
         <div className="source-grid">
           <Field label="Expected speakers" help="0-20. Blank lets the app decide." error={fieldError('speakers')}>
@@ -603,7 +616,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           {needsAck ? (
             <span className="muted" id="diarize-needed">Still needed: tick the confirmation above, or turn Replace off.</span>
           ) : (
-            hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration)}</span>
+            hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration, config?.measured_diarize_speed, config?.measured_diarize_runs)}</span>
           )}
         </div>
         <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
@@ -681,7 +694,6 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           />
           </>}
         </Section>
-      </Section>
       <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />
     </section>
   )

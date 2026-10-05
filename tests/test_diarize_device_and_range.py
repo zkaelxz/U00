@@ -109,7 +109,8 @@ class TestStep101DevicePlacement:
         info = {}
         segments = diarize.diarize("/fake.wav", "hf", use_gpu=True, run_info=info)
         assert segments == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
-        assert info == {"device": "cpu"}
+        assert info == {"device": "cpu", "fell_back_to_cpu": True, "fallback_kind": "placement",
+                        "fallback_reason": "Couldn't move the speaker model to the GPU"}
 
     def test_worker_reports_the_device_in_its_result(self, monkeypatch):
         _install_fakes(monkeypatch, cuda_available=True)

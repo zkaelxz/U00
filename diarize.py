@@ -11,8 +11,7 @@ lines can be grouped by character. Uses pyannote.audio, which needs:
 
 This requires internet access on YOUR machine (to download the model
 the first time) and works better with a GPU, but runs on CPU too --
-just slower. Not run inside this sandbox since it has no network; the
-code is here for you to run locally.
+just slower.
 
 pyannote.audio 4.x needs Python 3.10+. Its pipeline(audio) call also
 returns a different result type than 3.x -- see the getattr() in
@@ -36,6 +35,7 @@ untouched.
 import datetime
 import json
 import os
+import time
 
 DIARIZATION_MODELS = ("pyannote/speaker-diarization-community-1",
                       "pyannote/speaker-diarization-3.1")
@@ -74,7 +74,7 @@ def load_pipeline(hf_token: str):
 
 
 def validate_speaker_hints(num_speakers=None, min_speakers=None, max_speakers=None):
-    """Step 105: checks the speaker-count hints and returns the cleaned
+    """Checks the speaker-count hints and returns the cleaned
     (num_speakers, min_speakers, max_speakers), each None when unset.
     0/None means "not set" for all three (0 is the existing "auto-detect"
     value for the exact count). An exact count and a range are mutually
@@ -96,7 +96,7 @@ def validate_speaker_hints(num_speakers=None, min_speakers=None, max_speakers=No
 
 
 def select_device(use_gpu: bool = False) -> str:
-    """Step 101: "cuda" when use_gpu is on and torch sees a CUDA device,
+    """Returns "cuda" when use_gpu is on and torch sees a CUDA device,
     else "cpu". Never raises -- a torch without CUDA support means CPU."""
     if not use_gpu:
         return "cpu"
@@ -108,7 +108,7 @@ def select_device(use_gpu: bool = False) -> str:
 
 
 def _place_pipeline(pipeline, use_gpu: bool) -> str:
-    """Step 101: moves the loaded pyannote pipeline onto the GPU when
+    """Moves the loaded pyannote pipeline onto the GPU when
     use_gpu is on and CUDA is available. pyannote's own docs require an
     explicit pipeline.to(torch.device("cuda")); without it the pipeline
     stays on CPU even inside a job tagged gpu_touching. Returns the device
@@ -163,6 +163,11 @@ OOM_FALLBACK_MESSAGE = ("Speaker detection ran out of GPU memory and is running 
 # Past tense, fixed text: for a finished run's result and the CLI summary.
 OOM_FALLBACK_DONE_MESSAGE = ("Speaker detection ran out of GPU memory and ran on CPU, "
                              "which is slower.")
+# The speaker model could not be moved onto the GPU at all (driver or CUDA
+# build problem); the reason goes to the log, not into this fixed text.
+PLACEMENT_FALLBACK_DONE_MESSAGE = ("Speaker detection ran on the CPU because the speaker "
+                                   "model couldn't be moved to the GPU. This was slower than "
+                                   "on the GPU.")
 
 
 def is_cuda_oom(exc: BaseException) -> bool:
@@ -198,14 +203,14 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     extract_speaker_embeddings() below. Both extra flags default off, so
     every existing call keeps its exact current return shape.
 
-    use_gpu (Step 101): place the pipeline on CUDA when available.
-    min_speakers/max_speakers (Step 105): a speaker-count range passed to
+    use_gpu: place the pipeline on CUDA when available.
+    min_speakers/max_speakers: a speaker-count range passed to
     pyannote's own min_speakers/max_speakers; mutually exclusive with
     num_speakers (validate_speaker_hints). run_info: an optional dict this
     fills with {"device": "cuda"|"cpu"}, the device actually used, plus
-    "fell_back_to_cpu": True and "fallback_reason" (short, only after a fallback;
-    secrets redacted). A CUDA out-of-memory during the run is retried once on
-    CPU (loudly, via on_progress and the log); the device selection is
+    "fell_back_to_cpu": True, "fallback_kind" ("oom" or "placement") and
+    "fallback_reason" (short, only after a fallback; secrets redacted). A CUDA
+    out-of-memory during the run is retried once on CPU (loudly, via on_progress and the log); the device selection is
     otherwise unchanged. If the CPU retry fails too, RuntimeError.
     on_progress: optional on_progress(fraction 0-1, message), called as the
     stages change and (where pyannote's hook reports it) as each step advances.
@@ -218,6 +223,9 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     device = _place_pipeline(pipeline, use_gpu)
     if run_info is not None:
         run_info["device"] = device
+        if device == "cpu" and use_gpu and select_device(use_gpu) == "cuda":
+            run_info.update(fell_back_to_cpu=True, fallback_kind="placement",
+                            fallback_reason="Couldn't move the speaker model to the GPU")
     import applog
     applog.get_logger().info(f"diarization: running {model} on {device}")
     import soundfile as sf
@@ -246,7 +254,8 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
         _free_gpu_memory()
         applog.get_logger().error(f"diarization: {OOM_FALLBACK_MESSAGE} ({oom_reason})")
         if run_info is not None:
-            run_info.update(device="cpu", fell_back_to_cpu=True, fallback_reason=oom_reason)
+            run_info.update(device="cpu", fell_back_to_cpu=True, fallback_kind="oom",
+                            fallback_reason=oom_reason)
         _say(0.08, OOM_FALLBACK_MESSAGE)
 
         def cpu_progress(frac, message):
@@ -276,7 +285,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
 
 
 def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *rest):
-    """Step 4d: entry point for running diarize() in its own OS process,
+    """Entry point for running diarize() in its own OS process,
     via background_jobs.start_process_job() -- pyannote's pipeline(...)
     call is one opaque call with no cooperative-cancellation checkpoint
     of its own (unlike every other job type in this app, which checks
@@ -291,10 +300,10 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
     couldn't cross the process boundary at all.
 
     Called as (audio_path, hf_token, num_speakers, result_queue) -- the
-    original shape, still used by the frozen Streamlit tab -- or as
+    original shape, still accepted -- or as
     (audio_path, hf_token, num_speakers, options, result_queue), where
-    options is a plain dict with any of use_gpu/min_speakers/max_speakers
-    (Steps 101/105). The result also carries "device", the device the
+    options is a plain dict with any of use_gpu/min_speakers/max_speakers.
+    The result also carries "device", the device the
     pipeline actually ran on.
     """
     result_queue = rest[-1]
@@ -302,6 +311,7 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
     try:
         import background_jobs
         run_info = {}
+        started = time.monotonic()
         segments, model, embeddings = diarize(
             audio_path, hf_token, num_speakers=num_speakers,
             return_model=True, return_embeddings=True,
@@ -311,23 +321,24 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
                 result_queue, frac, message))
         result_queue.put(("ok", {"segments": segments, "model": model, "embeddings": embeddings,
                                  "device": run_info.get("device", "cpu"),
+                                 "seconds": time.monotonic() - started,
                                  "fell_back_to_cpu": bool(run_info.get("fell_back_to_cpu")),
-                                 "fallback_reason": run_info.get("fallback_reason")}))
+                                 "fallback_reason": run_info.get("fallback_reason"),
+                                 "fallback_kind": run_info.get("fallback_kind")}))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, str(exc)))
 
 
 def extract_speaker_embeddings(result, annotation) -> dict:
-    """Step 8: {speaker_label: [float, ...]} one voice fingerprint per
+    """{speaker_label: [float, ...]} one voice fingerprint per
     detected speaker, from pyannote.audio 4.x's DiarizeOutput.speaker_embeddings
     -- {} on pyannote 3.x (no such attribute there) or if extraction fails
     for any reason, since this is a bonus signal for voice-match
     suggestions, never something a diarization run itself should fail
     over just because embeddings couldn't be read out.
 
-    NOT verified against a real pyannote 4 install -- this sandbox has no
-    network (see this module's own top-of-file docstring), so this is
-    written directly against pyannote's documented DiarizeOutput shape:
+    Written directly against pyannote's documented DiarizeOutput shape
+    rather than checked against a real pyannote 4 install:
     speaker_embeddings is one row per speaker, in the same order
     annotation.labels() returns them in. Confirm this against a real run
     before relying on it.
@@ -376,11 +387,10 @@ def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
               embeddings: dict = None, min_speakers: int = None, max_speakers: int = None,
               device: str = None) -> str:
     """Stores pyannote's output next to the drama, so speakers can be
-    re-merged (or voice clips extracted) later without re-running it --
-    it used to live only in st.session_state and vanish on a refresh.
+    re-merged (or voice clips extracted) later without re-running it.
     Replaced on each detection run; it's the current result, not history.
 
-    embeddings: Step 8's optional {speaker_label: [float, ...]} voice
+    embeddings: optional {speaker_label: [float, ...]} voice
     fingerprints (extract_speaker_embeddings()), saved alongside the
     turns -- {} (not None) when there's nothing to save, so load_embeddings
     always gets a dict back, never needing a None check of its own."""
@@ -422,7 +432,7 @@ def load_last_speaker_count(drama_dir: str):
 
 def load_last_run_info(drama_dir: str) -> dict:
     """{"min_speakers", "max_speakers", "device"} from the last detection
-    run (Steps 101/105), each None if unset, no run yet, or an older file."""
+    run, each None if unset, no run yet, or an older file."""
     data = _read_turns_file(drama_dir)
     return {k: data.get(k) for k in ("min_speakers", "max_speakers", "device")}
 
@@ -430,5 +440,10 @@ def load_last_run_info(drama_dir: str) -> dict:
 def load_embeddings(drama_dir: str) -> dict:
     """The stored {speaker_label: [float, ...]} voice fingerprints from
     the last detection run, or {} if there are none (no run yet, an
-    older save from before Step 8, or pyannote 3.x with nothing to save)."""
+    older save from before embeddings were stored, or pyannote 3.x with nothing to save)."""
     return _read_turns_file(drama_dir).get("embeddings") or {}
+
+
+def fallback_done_message(kind) -> str:
+    """The past-tense sentence for a finished run that fell back to CPU."""
+    return PLACEMENT_FALLBACK_DONE_MESSAGE if kind == "placement" else OOM_FALLBACK_DONE_MESSAGE

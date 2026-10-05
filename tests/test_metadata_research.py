@@ -430,8 +430,13 @@ def test_call_sends_key_as_header_with_timeout(monkeypatch):
         def raise_for_status(self):
             pass
 
-        def json(self):
-            return {}
+        headers = {}
+
+        def iter_content(self, size):
+            yield b"{}"
+
+        def close(self):
+            pass
 
     def post(url, **kw):
         seen.update(kw, url=url)
@@ -501,3 +506,26 @@ def test_remote_research_needs_engines_paid(setup):
     assert c.post(url, json={}, headers=_h(imp)).status_code == 403  # Gemini is paid
     assert c.post(url, json={}, headers=_h(both)).status_code == 200
     assert c.get("/api/metadata/research/budget", headers=_h(s)).status_code == 200
+
+
+def test_an_oversized_gemini_response_is_refused(monkeypatch):
+    import requests
+
+    class Endless:
+        headers = {}
+        closed = False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, size):
+            while True:
+                yield b"x" * size
+
+        def close(self):
+            Endless.closed = True
+    monkeypatch.setattr(mrs, "MAX_RESPONSE_BYTES", 1000)
+    monkeypatch.setattr(requests, "post", lambda *a, **k: Endless())
+    with pytest.raises(ValueError, match="too large"):
+        mrs._call_gemini(KEY, "gemini-flash-lite-latest", "p")
+    assert Endless.closed

@@ -1,6 +1,6 @@
 """
-sources/mock.py -- an offline demo source (Step 23 item 7: "tested
-against a fake/mock source only").
+sources/mock.py -- an offline demo source (tested
+against a fake/mock source only).
 
 Nothing here touches the network. Requests still go through the real
 paced SourceClient, served by a fake transport, so the Source Access

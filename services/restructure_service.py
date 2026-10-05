@@ -1,12 +1,9 @@
 """
-services/restructure_service.py -- Migration Slice 45: STRUCTURAL line
+services/restructure_service.py -- STRUCTURAL line
 changes for one drama (add, delete, merge, split, re-segmentation) and
-Version-history restore. Mirrors `tabs/workspace_tab.py`'s "Restructure
-lines" popover (Apply merge, Preview/Apply re-segmentation) and "Version
-history / undo" -> Restore; add/delete/split of a single line have no tab
-equivalent yet and follow the same rules.
+Version-history restore.
 
-Correctness rules (Steps 2, 6c, 6f, 25l, 25m):
+Correctness rules:
 - Every change loads the drama's lines FRESH from the database, checks the
   client's `expected_line_ids` (the drama's line ids, in order, as the
   client last saw them) against them -- any difference is a 409 with
@@ -25,11 +22,11 @@ Atomicity gap: the snapshot, the id-set re-check and `save_lines` are three
 separate transactions (db.py has no API to run them in one). Guarded by a
 per-drama lock held across load -> check -> snapshot -> save for every write
 in this module (including the re-segmentation job's apply step), and by
-re-reading the id set immediately before `save_lines`. Another process (the
-Streamlit app) can still full-sync between that re-check and the save; a
+re-reading the id set immediately before `save_lines`. Another process
+(e.g. the CLI) can still full-sync between that re-check and the save; a
 failure between snapshot and save leaves only an extra snapshot.
 
-No Streamlit/FastAPI import: plain dicts in and out. Messages never echo
+No FastAPI import: plain dicts in and out. Messages never echo
 line text, keys or paths.
 """
 import dataclasses
@@ -176,7 +173,7 @@ def add_line(drama_id: int, expected_line_ids, *, after_line_id: Optional[int] =
 
 def delete_line(drama_id: int, line_id: int, expected_line_ids, confirm: bool = False) -> dict:
     """Deletes one line (its notes and emotion tag with it). Needs
-    confirm=True, like the tab's other destructive deletes."""
+    confirm=True, like the other destructive deletes."""
     if confirm is not True:
         raise InvalidInputError("Deleting a line needs confirm=true.")
 
@@ -190,7 +187,7 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
     """Merges 2+ ADJACENT lines (given in order) into the first: text joined
     as core.merge_adjacent_short_lines joins it, end = last line's end, the
     first line keeps its id/speaker; its flag, else the first merged line's
-    flag, is kept. The others' notes/emotions move onto it (the first
+    flag, is kept. Its lang stays only when every merged line shares it. The others' notes/emotions move onto it (the first
     line's own win on a conflict)."""
     line_ids = _id_list("line_ids", line_ids)
     if not 2 <= len(line_ids) <= MAX_MERGE_LINES:
@@ -209,6 +206,8 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             if not head.flag and ln.flag:
                 head.flag, head.flag_note = ln.flag, ln.flag_note
             head.merged_ids = list(head.merged_ids) + [ln.id]
+            if ln.lang != head.lang:
+                head.lang = None
         head.end = max(head.end, rest[-1].end)
         return lines[:first + 1] + lines[first + len(line_ids):], [head]
     return structural_write(drama_id, expected_line_ids, "before merge", build)
@@ -218,7 +217,7 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
                expected_zh: str, at_time=None, en_at_char: Optional[int] = None) -> dict:
     """Splits one line's source text at character offset `at_char`. The
     first piece keeps the line's id (so its flag, notes and emotion stay
-    on it); the second is a new line with the same speaker/sfx and no
+    on it); the second is a new line with the same speaker/sfx/lang and no
     flag. Its translation stays whole on the first piece unless
     `en_at_char` splits it too. The cut time is `at_time` (strictly inside
     the line) or proportional to piece length. `expected_zh` must equal
@@ -251,7 +250,7 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
             en_first, en_second = ln.en[:en_at_char].rstrip(), ln.en[en_at_char:].strip()
         second = core_module.Line(idx=0, start=cut, end=ln.end, zh=pieces[1], en=en_second,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                  sfx=ln.sfx)
+                                  sfx=ln.sfx, lang=ln.lang)
         ln.zh, ln.en, ln.end = pieces[0], en_first, cut
         return lines[:i + 1] + [second] + lines[i + 1:], [ln, second]
     return structural_write(drama_id, expected_line_ids, "before split", build)
@@ -313,7 +312,7 @@ def preview_resegmentation(drama_id: int) -> dict:
 
 
 def _apply_resegmented(drama_id: int, new_lines, source_ids: list) -> dict:
-    """The job's write step: same guard as the tab's Apply (Step 6f)."""
+    """The job's write step: same guard as Apply."""
     with _drama_lock(drama_id):
         current = db.load_line_objects(drama_id)
         if [ln.id for ln in current] != source_ids:
@@ -375,7 +374,7 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
                          model: Optional[str] = None, use_preview: bool = False) -> dict:
     """Starts a `resegment_<drama_id>` job that re-segments AND saves (with
     a "before re-segment" snapshot). Split lines lose their translation,
-    flag, notes and emotion tag (Step 6c); confirm=true is required when
+    flag, notes and emotion tag; confirm=true is required when
     any line long enough to be split carries one. A local Ollama LLM pass
     runs in a subprocess (cancellable) and saves via on_done.
 
@@ -587,13 +586,13 @@ def _start_preview_apply(drama_id: int, expected_line_ids: list, confirm: bool) 
 def restore_version(drama_id: int, history_id: int, expected_line_ids) -> dict:
     """Restores a history snapshot over the current lines, after taking a
     "before restore" snapshot (so the restore itself can be undone). Lines
-    are matched by permanent id (core.restore_saved_lines / adopt_ids,
-    Step 25l): a line whose id still exists keeps its notes/emotion; flag,
+    are matched by permanent id (core.restore_saved_lines / adopt_ids):
+    a line whose id still exists keeps its notes/emotion; flag,
     flag note and SFX mark come from the snapshot (or, for a snapshot saved
     before those were recorded, stay as the line has them now); a line
     merged/deleted since gets a fresh id and nothing is reattached by
     position. Refused while a job
-    runs on the drama. No confirm field: the tab's Restore has none."""
+    runs on the drama. No confirm field."""
     get_line_history_snapshot(drama_id, history_id)  # 404 unless it's this drama's
     # the raw rows: the read above returns dub_filename as a bare basename
     rows = db.get_line_history_snapshot(history_id)
@@ -695,7 +694,7 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
                 ln.flag, ln.flag_note = first["flag"], first["flag_note"]
             new_pieces = [core_module.Line(idx=0, start=p["start"], end=p["end"], zh=p["text"],
                                            speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                           sfx=ln.sfx, flag=p.get("flag"),
+                                           sfx=ln.sfx, lang=ln.lang, flag=p.get("flag"),
                                            flag_note=p.get("flag_note", ""))
                           for p in rest]
             new_lines.append(ln)

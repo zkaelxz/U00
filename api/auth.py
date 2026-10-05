@@ -1,5 +1,5 @@
 """
-api/auth.py -- the deny-by-default permission layer (Step 133; see
+api/auth.py -- the deny-by-default permission layer (see
 docs/remote-access-decision.md, which holds the route -> permission table).
 
 Every route in `api/routers/*.py` (and the frontend catch-all in
@@ -258,12 +258,29 @@ def local_only():
     return _marked(dependency, "local_only")
 
 
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
+PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded",
+                  "x-real-ip", "tailscale-user-login", "cf-connecting-ip", "cf-ray", "via")
+
+
+def host_name(netloc: str) -> str:
+    """Host part of a Host header / URL netloc, port removed, lower-cased."""
+    netloc = (netloc or "").strip().lower()
+    if netloc.startswith("["):
+        end = netloc.find("]")
+        return netloc[:end + 1] if end != -1 else netloc
+    return netloc.rsplit(":", 1)[0] if netloc.count(":") == 1 else netloc
+
+
+def is_loopback_peer(host) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except (ValueError, TypeError):
+        return False
+
+
 def _is_local_scope(client_host, headers) -> bool:
-    """Reuses the loopback helpers from settings_routes (imported lazily:
-    that module imports this one). `headers` is any case-insensitive
-    mapping (Starlette Headers)."""
-    from api.routers.settings_routes import (LOOPBACK_HOSTS, PROXY_HEADERS, host_name,
-                                             is_loopback_peer)
+    """`headers` is any case-insensitive mapping (Starlette Headers)."""
     if not is_loopback_peer(client_host):
         return False
     host_header = headers.get("host", "")
@@ -380,7 +397,6 @@ def client_ip(request: Request) -> str:
     rightmost `X-Forwarded-For` entry (the one Caddy itself appends; a client
     can only add entries to the left of it) is used instead -- but only when
     the peer is loopback, so a remote client can't pick its own bucket."""
-    from api.routers.settings_routes import is_loopback_peer
     peer = request.client.host if request.client else ""
     if not is_loopback_peer(peer):
         return peer or "unknown"
@@ -462,7 +478,7 @@ class LocalOnlyCrossSiteGate:
     With auth OFF (all_api=True) the rule covers every POST/PUT/PATCH under
     /api, not just local_only routes: off mode grants owner rights with no
     CSRF token, and the loopback Origin check ignores the port, so without
-    this a page on another local port (Streamlit, a dev server) could start
+    this a page on another local port (a dev server) could start
     a paid LLM run or cancel a job with a no-preflight simple POST. With
     auth on, every non-GET already needs the session's CSRF header (itself
     a custom header that forces a preflight), so only local_only routes are

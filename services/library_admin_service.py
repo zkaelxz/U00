@@ -1,10 +1,10 @@
 """
-services/library_admin_service.py -- the Library tab's destructive and
-admin actions (migration E0 remainder): bulk status/tags/delete, bulk
-translate, export-all zip, full backup, backup of one person's items,
+services/library_admin_service.py -- the Library and Library tools pages'
+destructive and admin actions (migration E0 remainder): bulk
+status/tags/delete, bulk translate, export-all zip, full backup, backup of one person's items,
 restore and storage cleanup.
 
-Service half only; no router yet. Rules this module keeps:
+Routes: api/routers/library_admin_routes.py. Rules this module keeps:
   - Destructive actions need `confirm is True` plus an exact typed word
     (the migration decision: match today's UI bar with a typed confirm).
     A wrong or missing confirm raises InvalidInputError before anything
@@ -25,10 +25,10 @@ Service half only; no router yet. Rules this module keeps:
   - No result or error message carries a filesystem path. Finished export
     and backup files live in library-level folders excluded from backups;
     `latest_admin_artifact` returns name/size, and
-    `admin_artifact_path` (server-side only) is what a future download
-    route streams.
+    `admin_artifact_path` (server-side only) is what the download route
+    streams.
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 
 import contextlib
@@ -65,7 +65,7 @@ DELETE_CONFIRM_TEXT = "DELETE"
 RESTORE_CONFIRM_TEXT = "RESTORE"
 CLEAN_CONFIRM_TEXT = "CLEAN"
 
-BULK_TRANSLATE_JOB_ID = "bulk_series_translate"  # same id the Streamlit tab uses
+BULK_TRANSLATE_JOB_ID = "bulk_series_translate"
 EXPORT_JOB_ID = "library_export_zip"
 BACKUP_JOB_ID = "library_backup"
 DATABASE_BACKUP_JOB_ID = "library_db_backup"
@@ -324,7 +324,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                          default_female_pronouns: bool = False) -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
-    dramas whose status is "aligned" (the same filter the tab applies) and
+    dramas whose status is "aligned" and
     that have no running or queued job.
     Keys, Ollama URL, monthly cap and Gemini free tier come from Settings
     server-side. expected_engines ({drama_id: engine}, from
@@ -600,8 +600,7 @@ def _database_backup_job(job_id):
 
 
 def start_database_backup() -> dict:
-    """Job: database-only backup (the tab's "Database-only backup (fast,
-    small)"): one consistent library.db snapshot, auth sessions removed,
+    """Job: database-only backup (fast, small): one consistent library.db snapshot, auth sessions removed,
     no media. Fetch it with admin_artifact_path("database")."""
     refuse_during_maintenance("database backup")
     _refuse_duplicate(DATABASE_BACKUP_JOB_ID, "database backup")
@@ -659,6 +658,7 @@ USER_BACKUP_TABLES = {
     "bulk_job_lines": ("empty", "belongs to bulk_jobs"),
     "voice_bank": ("empty", "household clips; the clip files are not copied either"),
     "job_records": ("empty", "this PC's job history"),
+    "speaker_merge_undos": ("empty", "short-lived undo records"),
     "job_checkpoints": ("empty", "this PC's job state"),
     "job_stage_timings": ("empty", "this PC's job history"),
     "gpu_lock": ("empty", "this PC's job state"),
@@ -896,7 +896,7 @@ _BUSY = ("A background job is running -- wait for it to finish or cancel it befo
          "restoring.")
 
 # Restore-specific limits for an uploaded (network) zip, tighter than
-# workspace_job_service's generous Step 25k guardrails: expanded total at
+# workspace_job_service's generous guardrails: expanded total at
 # most max(factor x upload size, 2 x current library size, 1 GiB), a
 # member-count cap, and enough free disk for the expanded total plus a
 # margin before anything is extracted.
@@ -904,6 +904,17 @@ RESTORE_MAX_MEMBERS = 100_000
 _RESTORE_EXPANSION_FACTOR = 10
 _RESTORE_MIN_TOTAL_BYTES = 1024 ** 3
 RESTORE_DISK_MARGIN_BYTES = 256 * 1024 ** 2
+
+
+def has_disk_room(folder: str, need: int) -> bool:
+    """Whether `folder`'s drive has `need` bytes plus RESTORE_DISK_MARGIN_BYTES
+    free. True when the free space can't be read, so a drive that doesn't
+    report it never blocks a restore."""
+    try:
+        free = shutil.disk_usage(folder).free
+    except OSError:
+        return True
+    return free >= need + RESTORE_DISK_MARGIN_BYTES
 
 
 def _unsafe_member(info: zipfile.ZipInfo) -> bool:
@@ -946,7 +957,7 @@ def _restore_total_cap(upload_size: int) -> int:
 def validate_backup_zip(zip_bytes) -> None:
     """Every check restore runs before touching the library: a real zip,
     library.db present, no absolute/traversal/symlink/encrypted member,
-    within the Step 52 limits and the tighter restore limits above
+    within the upload limits and the tighter restore limits above
     (member count, expanded total, free disk), no corrupt member.
     Fixed-text InvalidInputError on failure (no member names or paths
     echoed). The library.db itself is checked with SQLite after extraction
@@ -997,13 +1008,9 @@ def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True
                 if check_limits and total > total_cap:
                     raise InvalidInputError("The backup would expand too large; it looks "
                                             "corrupted or unsafe to extract.")
-            if check_disk:
-                try:
-                    free = shutil.disk_usage(os.path.dirname(os.path.abspath(db.LIBRARY_DIR))).free
-                except OSError:
-                    free = None
-                if free is not None and free < total + RESTORE_DISK_MARGIN_BYTES:
-                    raise InvalidInputError("Not enough free disk space to restore this backup.")
+            if check_disk and not has_disk_room(os.path.dirname(os.path.abspath(db.LIBRARY_DIR)),
+                                                 total):
+                raise InvalidInputError("Not enough free disk space to restore this backup.")
             if zf.testzip() is not None:
                 raise InvalidInputError("The backup zip is corrupted.")
     except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, ValueError, NotImplementedError,

@@ -7,11 +7,14 @@ import type { ReviewLine } from '../../../../types/review'
 import { AddLineForm, type NewLine } from './AddLineForm'
 import { MergeConfirm } from './MergeConfirm'
 import { RegressionTestButton } from './RegressionTestButton'
-import { JOB_RUNNING_MESSAGE, type ToolMode } from './reviewLogic'
+import { Field } from '../../../../components/Field'
+import { buttonClass } from '../../../../components/uiClasses'
+import { languageLabel } from '../../../../labels'
+import { JOB_RUNNING_MESSAGE, LINE_LANGUAGES, titleDefaultLabel, type LanguageScope, type ToolMode } from './reviewLogic'
 import { SplitDialog, type SplitChoice } from './SplitDialog'
 import { lineNumber } from '../../../../lineNumber'
 
-export type SheetView = 'menu' | 'split' | 'merge' | 'add'
+export type SheetView = 'menu' | 'split' | 'merge' | 'add' | 'language'
 
 export interface SheetState {
   lineId: number | null
@@ -48,7 +51,9 @@ interface Props {
   onMerge: (ids: number[]) => void
   onAdd: (line: NewLine) => void
   onDelete: () => void
-  // Step 38: shows "Add as regression test" (PC only) when given.
+  sourceLanguage: string | null
+  onSetLanguage: (lang: string, scope: LanguageScope) => void
+  // Shows "Add as regression test" (PC only) when given.
   dramaId?: number
 }
 
@@ -85,6 +90,55 @@ function DeleteButton({ idx, initialArmed, busy, blocked, onDelete }: {
   )
 }
 
+// The line's spoken language, for this line or every line of its speaker.
+function LanguageForm({ line, sourceLanguage, busy, onApply, onCancel }: {
+  line: ReviewLine
+  sourceLanguage: string | null
+  busy: boolean
+  onApply: (lang: string, scope: LanguageScope) => void
+  onCancel: () => void
+}) {
+  const [lang, setLang] = useState(line.lang ?? '')
+  const [scope, setScope] = useState<LanguageScope>('line')
+  return (
+    <form
+      className="review-form"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (!busy) onApply(lang, scope)
+      }}
+    >
+      <Field label="Spoken language">
+        <select value={lang} onChange={(e) => setLang(e.target.value)}>
+          <option value="">{titleDefaultLabel(sourceLanguage)}</option>
+          {LINE_LANGUAGES.map((l) => (
+            <option key={l} value={l}>{languageLabel(l)}</option>
+          ))}
+        </select>
+      </Field>
+      {line.speaker && (
+        <fieldset className="review-lang-scope">
+          <legend>Apply to</legend>
+          <label>
+            <input type="radio" name="lang-scope" checked={scope === 'line'} onChange={() => setScope('line')} />
+            This line
+          </label>
+          <label>
+            <input type="radio" name="lang-scope" checked={scope === 'speaker'} onChange={() => setScope('speaker')} />
+            All lines by {line.speaker}
+          </label>
+        </fieldset>
+      )}
+      <div className="actions">
+        <button type="submit" className={buttonClass('primary')} disabled={busy}>
+          {busy ? 'Saving…' : 'Set language'}
+        </button>
+        <button type="button" className={buttonClass('ghost')} onClick={onCancel}>Back</button>
+      </div>
+    </form>
+  )
+}
+
 export function LineActionsSheet(p: Props) {
   const { state, line } = p
   const key = state ? `${state.lineId}-${state.view}-${state.armDelete ? 1 : 0}` : ''
@@ -98,7 +152,9 @@ export function LineActionsSheet(p: Props) {
         ? `Merge #${lineNumber(line.idx)} with next`
         : view === 'add'
           ? `Add a line after #${lineNumber(line.idx)}`
-          : `Line #${lineNumber(line.idx)}`
+          : view === 'language'
+            ? `Spoken language of #${lineNumber(line.idx)}`
+            : `Line #${lineNumber(line.idx)}`
   const next = line ? p.run[1] ?? null : null
   const back = () => p.onView('menu')
 
@@ -136,6 +192,16 @@ export function LineActionsSheet(p: Props) {
           )}
           {line && view === 'merge' && (
             <MergeConfirm key={line.id} run={p.run} busy={p.busy} blocked={blocked} onMerge={p.onMerge} onCancel={back} />
+          )}
+          {line && view === 'language' && (
+            <LanguageForm
+              key={line.id}
+              line={line}
+              sourceLanguage={p.sourceLanguage}
+              busy={p.busy}
+              onApply={p.onSetLanguage}
+              onCancel={back}
+            />
           )}
           {line && view === 'menu' && line.flag && (
             <p className="review-flag-full" data-testid="sheet-flag">
@@ -204,6 +270,7 @@ export function LineActionsSheet(p: Props) {
                 <li><button type="button" onClick={p.onDismissFlag}>Dismiss flag</button></li>
               )}
               <li><button type="button" onClick={p.onAddNote}>Add note</button></li>
+              <li><button type="button" onClick={() => p.onView('language')}>Set language…</button></li>
               {p.dramaId !== undefined && (
                 <li><RegressionTestButton key={line.id} dramaId={p.dramaId} line={line} /></li>
               )}

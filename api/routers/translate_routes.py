@@ -1,11 +1,11 @@
 """
 api/routers/translate_routes.py -- Translate-standalone endpoints.
 
-Migration Slice 11 added the two read-only routes: the engine list
+The two read-only routes: the engine list
 (name/label/free/models/key_configured, never a key value -- D2) and
-translate history. Migration Slice 13 added the translate action itself,
-resolving a server-side key per engine rather than accepting one from the
-caller. Migration Slice 17 adds clearing history -- a confirm-gated
+translate history. The translate action itself resolves
+a server-side key per engine rather than accepting one from the
+caller. Clearing history is also here -- a confirm-gated
 delete (see services/translate_service.py's own docstring for why it
 requires an explicit confirm=true rather than a bare DELETE).
 """
@@ -47,6 +47,7 @@ def post_translate(payload: TranslateRequest, request: Request):
             principal=request.state.principal)
 
 
+# Deletes are PC-only (docs/remote-access-decision.md).
 @router.delete("/history", dependencies=[local_only()], response_model=ClearHistoryResult,
               summary="Clear standalone-translate history (requires confirm=true)",
               responses={422: {"model": ErrorResponse}})

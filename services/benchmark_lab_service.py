@@ -1,7 +1,7 @@
 """
-services/benchmark_lab_service.py -- Step 38: the Benchmark Lab. UI-free.
+services/benchmark_lab_service.py -- the Benchmark Lab. UI-free.
 
-Builds on Step 24's benchmark (benchmark.py's runners and scoring, the
+Builds on the earlier benchmark (benchmark.py's runners and scoring, the
 benchmark_cases table) rather than beside it:
 
 - Golden sets. Every case has a tier -- "public" (an imported public test
@@ -13,12 +13,11 @@ benchmark_cases table) rather than beside it:
   engine, model, prompt version, context settings, aggregate score, average
   latency, cost, peak VRAM) with one benchmark_results row per case, so a
   model or prompt change is provably better or worse. The older
-  benchmark_runs history (the Streamlit panel's run-over-run check) is not
-  written to.
+  benchmark_runs history (an older run-over-run check) is not written to.
 - Model Arena. Starting a run with two or more configs runs the same cases
   through each in turn under one arena_group; arena() lines their results
-  up case by case. This replaces Step 24's "compare engines on one case"
-  with a persisted, whole-set version (roadmap Step 38 item 9).
+  up case by case. This replaces the "compare engines on one case"
+  check with a persisted, whole-set version.
 - Metrics (item 11): translation scores are benchmark.score_text_similarity;
   transcription and OCR use 1 - CER (character error rate), or 1 - WER for
   a transcript in a space-delimited language. Each result records its
@@ -38,7 +37,7 @@ Keys are resolved server-side (translate_service.resolve_api_key) and never
 returned; errors are passed through translate_engines.redact_secrets before
 they are stored.
 
-Not built here (see the Step 38 PR): scoped translation-memory saves,
+Not built here: scoped translation-memory saves,
 the auto-derived Translation Profile and a COMET scorer.
 """
 import functools

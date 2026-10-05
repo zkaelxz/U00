@@ -29,8 +29,7 @@ FINAL, precise timestamps. Only the coarse pass's chunk boundaries survive
 into the output -- its per-character proportional-guess timestamps are
 discarded and replaced by the aligner's real ones.
 
-SETUP (not run inside this sandbox -- no GPU, no network; code is here to
-run locally):
+SETUP:
     pip install qwen-asr torch
 qwen-asr recommends a clean Python 3.12 environment. If you're on Python
 3.14 (as this project's own requirements-optional.txt already warns for
@@ -50,7 +49,7 @@ import tempfile
 
 from core import (
     ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname,
-    lines_from_char_times, align_transcript_to_timing,
+    Line, lines_from_char_times, align_transcript_to_timing,
     extract_audio_slice as _extract_audio_slice, LANGUAGE_NAMES,
 )
 
@@ -62,6 +61,8 @@ from core import (
 MAX_CHUNK_SECONDS = 60.0
 HARD_CAP_SECONDS = 300.0
 
+# Loaded models stay cached across calls; core.release_gpu_models() clears
+# this dict by name (it never imports this module), so keep the name.
 _aligner_model_cache = {}
 
 
@@ -306,3 +307,63 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
         elif ln.idx in repaired:
             ln.flag, ln.flag_note = "timing_uncertain", TIMING_REPAIRED_NOTE
     return lines
+
+
+def refine_segment_timing(audio_path: str, groups, language: str, use_gpu: bool = False,
+                          cancel_check=None, progress_cb=None):
+    """Refines the line times inside each speech span with the forced aligner.
+
+    groups: one list per span of {"start", "end", "text"} dicts, in order; the
+    first start and last end of a group are the span's bounds, and the
+    aligner only sees that slice. Returns the flat segment list with refined
+    start/end. A line whose aligned times are unusable keeps its estimated
+    times and is flagged timing_uncertain (as are repaired ones), the same
+    repair rules as align_with_qwen3. Times stay inside their span and never
+    overlap. cancel_check() runs before each span and should raise to stop."""
+    if language not in LANGUAGE_NAMES:
+        raise ValueError(
+            f"Qwen3-ForcedAligner doesn't cover language={language!r} in this project's "
+            f"usage (supported: {sorted(LANGUAGE_NAMES)}).")
+    model = load_qwen3_aligner(use_gpu=use_gpu)
+    language_name = LANGUAGE_NAMES[language]
+    out = []
+    with tempfile.TemporaryDirectory(prefix="baihe_forced_align_") as tmp_dir:
+        for n, group in enumerate(groups):
+            if cancel_check:
+                cancel_check()
+            lines = [Line(idx=i, start=s["start"], end=s["end"], zh=s["text"])
+                     for i, s in enumerate(group)]
+            span_start, span_end = lines[0].start, lines[-1].end
+            repaired = set()
+            times = _align_chunk(model, audio_path, lines, language_name, tmp_dir,
+                                 repaired_lines=repaired)
+            bad = _bad_line_timings(times)
+            prev_end = span_start
+            for ln, seg in zip(lines, group):
+                new = dict(seg)
+                t = times.get(ln.idx)
+                if t and ln.idx not in bad:
+                    start = min(max(min(t), prev_end, span_start), span_end)
+                    end = min(max(max(t), start), span_end)
+                    if end > start:
+                        new["start"], new["end"] = start, end
+                        if ln.idx in repaired:
+                            new["flag"], new["flag_note"] = "timing_uncertain", TIMING_REPAIRED_NOTE
+                    else:
+                        bad.add(ln.idx)
+                else:
+                    bad.add(ln.idx)
+                if ln.idx in bad:
+                    if prev_end < new["end"]:
+                        new["start"] = max(new["start"], prev_end)
+                    elif out and out[-1]["start"] < new["start"] < out[-1]["end"]:
+                        # The previous line was aligned over this line's whole estimate.
+                        out[-1]["end"] = new["start"]
+                        out[-1]["flag"], out[-1]["flag_note"] = (
+                            "timing_uncertain", TIMING_REPAIRED_NOTE)
+                    new["flag"], new["flag_note"] = "timing_uncertain", TIMING_FALLBACK_NOTE
+                prev_end = max(prev_end, new["end"])
+                out.append(new)
+            if progress_cb:
+                progress_cb((n + 1) / len(groups))
+    return out

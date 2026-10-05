@@ -1,12 +1,10 @@
 """
 services/media_upload_service.py -- upload an audio/video file into a
-drama's folder (Migration Slice 31), mirroring the Streamlit Source tab's
-"Upload a file" branch (`tabs/workspace_tab.py`, `run_prep`): the file is
-saved as `source<ext>` in the drama folder; a video also gets its audio
+drama's folder: the file is saved as `source<ext>` in the drama folder; a video also gets its audio
 track extracted to `audio.wav` and both filenames recorded, an audio file
 records just `audio_filename`.
 
-B-09: a video's audio extraction (ffmpeg) runs in background job
+A video's audio extraction (ffmpeg) runs in background job
 `extract_audio_<drama_id>`, not in the request. The job owns the whole
 step (extraction, then the field-scoped DB write) and, for
 upload-and-transcribe, starts the transcribe run and follows it, so the
@@ -35,8 +33,8 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm")
 _CHUNK = 1024 * 1024
 _DEFAULT_MAX_MB = 2048
 _TOO_LARGE = "The uploaded file is too large."
-# Streamlit offers the audio/video upload only when content_mode is one of
-# these (tabs/workspace_tab.py `has_audio_pipeline`); keep in sync by hand.
+# The content modes with an audio pipeline (source_service's
+# `has_audio_pipeline`); keep in sync by hand.
 UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
 NO_UPLOAD_MODE = ("This drama has no audio to upload (it is set to work from a novel). "
                    "Change what you are working from to Audio drama or Streamer/VOD first.")
@@ -48,7 +46,7 @@ EXTRACT_JOB_PREFIX = "extract_audio_"
 EXTRACT_TIMEOUT_SECONDS = 2 * 60 * 60
 _FOLLOW_POLL_SECONDS = 0.5
 _BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
-# Per-drama upload claim (B-09): held from the running-job check until the
+# Per-drama upload claim: held from the running-job check until the
 # file is in place and any extraction job is registered, so a concurrent
 # upload is refused before it touches `source<ext>`. In-process only;
 # another process is covered by job_running_for_drama's job_records check.

@@ -23,7 +23,7 @@ scanlate.py -- hybrid manga/comic typesetting pipeline.
 
 Hybrid workflow: run detection + inpainting + auto-placement first,
 then let the person review/adjust each bubble's box, font size, and
-text in a table before final render -- see the Scanlate tab in app.py.
+text in a table before final render -- the Scanlate page in the web app.
 """
 
 import os
@@ -159,19 +159,14 @@ def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str =
     Downloads the model checkpoint from Hugging Face on first use
     (needs internet once; cached locally after).
 
-    Step 11 real fix: this used to load the checkpoint through
-    `ultralytics.YOLO`, but the model itself is RT-DETR-v2, not a YOLO
-    architecture -- `ultralytics` can never load it (confirmed against
-    `requirements.txt`, which installed `ultralytics` for exactly this
-    function), which is plausibly why this hook was never actually
-    wired up before. Loads through `transformers`'s own RT-DETR-v2
-    support instead, which also means huggingface_hub's own
+    Loads through `transformers`'s own RT-DETR-v2 support: the model is
+    RT-DETR-v2, not a YOLO architecture, so `ultralytics.YOLO` can never
+    load it. This also means huggingface_hub's own
     HF_TOKEN-from-environment handling covers auth for free.
 
     NOTE: written against the documented transformers/huggingface_hub
-    APIs but not run end-to-end in the environment this was built in
-    (no network access there to download a model or test inference).
-    Sanity-check on one page before relying on it for a whole batch --
+    APIs, not verified end-to-end against the real model. Sanity-check
+    on one page before relying on it for a whole batch --
     if the checkpoint ID below has moved or been renamed, swap in
     whatever comic/manga text-detection checkpoint you find current on
     Hugging Face; the rest of this function (box extraction, confidence
@@ -226,8 +221,7 @@ def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str =
 
 def bubble_ml_weights_cached() -> bool:
     """True if the ML bubble detector's weights are already in the local
-    Hugging Face cache. Lets detect_bubbles(backend="auto") (Step 11
-    item 5) pick the better backend automatically once someone's
+    Hugging Face cache. Lets detect_bubbles(backend="auto") pick the better backend automatically once someone's
     installed it, without the auto mode itself ever triggering a
     surprise first-run download -- that only happens when "ml" is
     picked explicitly."""
@@ -244,7 +238,7 @@ def bubble_ml_weights_cached() -> bool:
 
 def lama_ml_weights_cached() -> bool:
     """Same idea as bubble_ml_weights_cached(), for the LaMa-manga
-    inpainting checkpoint (Step 11 items 2 and 5)."""
+    inpainting checkpoint."""
     try:
         from huggingface_hub import try_to_load_from_cache
     except ImportError:
@@ -269,7 +263,7 @@ def _box_iou(a: dict, b: dict) -> float:
 
 # Real id2label values from ogkalu/comic-text-and-bubble-detector's own
 # config.json (checked directly against the checkpoint, not this model's
-# docstring paraphrase -- Step 35's own "re-verify before building" note).
+# docstring paraphrase).
 # Lower number wins a merge: the box literally labeled "bubble" traces the
 # whole balloon, which is the cleaner crop boundary to keep over a
 # "text_bubble"/"text_free" box describing the same physical object.
@@ -280,7 +274,7 @@ def dedupe_overlapping_boxes(boxes: list, iou_threshold: float = 0.5) -> list:
     """
     Merges boxes that describe the SAME physical balloon detected under
     more than one class -- the shape detect_bubbles_ml()'s 3-class model
-    produces for every balloon (Step 35 bug 1): a "bubble" box and a
+    produces for every balloon: a "bubble" box and a
     "text_bubble" box for one balloon are near-identical in position and
     size by construction (one model, two classes for the same object), so
     both survive as independent regions downstream unless merged here.
@@ -342,8 +336,8 @@ class BubbleModelUnavailable(RuntimeError):
 
 def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
     """Dispatcher: backend='cv' (free heuristic), 'ml' (trained model,
-    better accuracy, heavier install), or 'auto' (default, Step 11 item
-    5) -- use the ML model if its weights are already cached locally,
+    better accuracy, heavier install), or 'auto' (default)
+    -- use the ML model if its weights are already cached locally,
     the free heuristic otherwise. 'auto' never triggers a fresh
     multi-hundred-MB download on its own; pick 'ml' explicitly for that.
 
@@ -353,7 +347,7 @@ def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
     problem degrades to a working-but-rougher result rather than failing
     the page entirely.
 
-    The ML model's own boxes are deduped (Step 35 bug 1) before being
+    The ML model's own boxes are deduped before being
     returned -- its 3-class output otherwise reports the same balloon
     twice, once as "bubble" and once as "text_bubble"/"text_free".
     """
@@ -409,8 +403,7 @@ def _build_lama_generator():
 
     NOTE, same honesty as detect_bubbles_ml()'s own docstring: written
     against the published architecture, not verified against
-    mayocream/lama-manga's actual state_dict key names in this
-    environment (no network/GPU here to download the real checkpoint).
+    mayocream/lama-manga's actual state_dict key names.
     _load_lama_generator() loads with strict=False and refuses to use
     the result if most of the checkpoint's weights don't match this
     shape, so a naming mismatch fails loudly and falls back to plain
@@ -618,8 +611,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
     array instead.
 
     backend='cv' (free, plain OpenCV inpainting), 'ml' (LaMa-manga,
-    Step 11 item 2 -- shape-aware, not just a rectangular inset), or
-    'auto' (default, Step 11 item 5) -- use LaMa-manga if its weights
+    shape-aware, not just a rectangular inset), or
+    'auto' (default) -- use LaMa-manga if its weights
     are already cached locally, OpenCV otherwise. If the ML backend is
     picked (explicitly or via auto) but can't actually run, this falls
     back to OpenCV inpainting and raises InpaintModelUnavailable with
@@ -680,7 +673,7 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
 
 def inpaint_mask_region(image_path: str, mask, out_path: str = None, padding: int = 4,
                          backend: str = "auto", hf_token: str = None):
-    """Manual erase/heal brush (Step 11 item 10): inpaints exactly the
+    """Manual erase/heal brush: inpaints exactly the
     pixels the person painted, independent of any detected bubble box --
     a sound effect, background text, or a stray detection artifact the
     auto/manual bubble tools never touch.
@@ -835,7 +828,7 @@ def _mask_band_span(mask, top: int, bottom: int):
 
 def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
     """Shape-aware counterpart to render_text_in_box()'s rectangle layout
-    (Step 12d item 3): tries the largest font first, and for each size the
+    tries the largest font first, and for each size the
     fewest lines first, centring the block vertically and giving each line
     only the width the mask has at that line's height -- so text in an
     oval bubble narrows toward the top and bottom instead of running into
@@ -892,7 +885,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
 
     mask: optional boolean array the size of the box (h, w), True inside
     the bubble's real shape -- see bubble_shape_mask(). When given, each
-    line's width follows the shape (Step 12d item 3) rather than the
+    line's width follows the shape rather than the
     bounding rectangle; if the text can't fit the shape at any size, this
     falls back to the rectangle layout below rather than dropping text.
 
@@ -970,8 +963,8 @@ def translate_page_with_context(texts, engine, drama_meta: dict, previous_contex
     -- pass new_context into the next page's call to keep the chain going.
 
     glossary_terms: rows from db.list_glossary_terms() for the drama's
-    series -- the same lookup Workspace's own translation uses (Step 12d
-    item 5), rendered through translation_guide.build_glossary_block() so
+    series -- the same lookup Workspace's own translation uses,
+    rendered through translation_guide.build_glossary_block() so
     honorifics (category "honorific") and every other fixed term reach
     comic translations under the same rules as subtitles.
     """
@@ -1026,14 +1019,15 @@ _MAX_CONTEXT_CHARS = 1000
 
 def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
                             previous_context: str = "", usage_cb=None, glossary_terms=None):
-    """Id-keyed page translation (Scanlate S5; replaces the positional
-    translate_page_with_context for API jobs, which keeps it for Streamlit
-    and the extension bridge). `texts_by_id` maps each region's id to its
-    source text. Returns ({id: translation}, new_context), or (None,
-    previous_context) when the answer can't be trusted as a whole: no
-    answer, unparseable JSON, not an object keyed by id, any sent id
-    missing or not a string, or an id that wasn't sent. Nothing is ever
-    matched by position, so a short or reordered answer applies nothing.
+    """Id-keyed page translation, replacing the positional
+    translate_page_with_context: translate_page_bubbles (and so the
+    extension bridge) and the API jobs go through this. `texts_by_id`
+    maps each region's id to its source text. Returns ({id: translation},
+    new_context), or (None, previous_context) when the answer can't be
+    trusted as a whole: no answer, unparseable JSON, not an object keyed
+    by id, any sent id missing or not a string, or an id that wasn't sent.
+    Nothing is ever matched by position, so a short or reordered answer
+    applies nothing.
 
     Engines without the JSON prompt path (pure MT, or no LLM client) are called
     once per region with a single text, so each answer belongs to exactly
@@ -1155,9 +1149,9 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
     person only discovering a blank spot after the fact.
 
     A region classified as SFX is left alone unless its include_sfx
-    override is set (Step 12d item 6) -- see region_excluded_from_auto().
+    override is set -- see region_excluded_from_auto().
     Speech/thought bubbles get their text fitted to the bubble's real
-    shape (bubble_shape_mask(), Step 12d item 3), not just its rectangle.
+    shape (bubble_shape_mask()), not just its rectangle.
 
     The working copy is a unique temp file next to out_path (removed even
     on failure), so two renders of the same page can't collide on it; the
@@ -1312,12 +1306,6 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
         if idx > 200:  # guard against pathological images
             break
     return slices
-
-
-def is_webtoon_strip(width: int, height: int, target_height: int = 1600) -> bool:
-    """Tall enough, and narrow enough for its height, to be a long strip
-    rather than an ordinary (even high-resolution) page."""
-    return height > max(target_height, 3 * width)
 
 
 def slice_webtoon_to_files(image_path: str, out_dir: str, target_height: int = 1600,
@@ -1487,7 +1475,7 @@ def export_font_style_report(bubbles: list, out_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# OCR backend auto-routing (Step 11 item 4) and manual-region OCR (item 8)
+# OCR backend auto-routing and manual-region OCR
 # ---------------------------------------------------------------------------
 
 def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False) -> str:
@@ -1527,7 +1515,7 @@ def ocr_box_region(image_path: str, box: dict, source_language: str, backend: st
     the auto-routed backend for source_language, or an explicit
     `backend` override.
 
-    Shared by auto-detected bubbles and Step 11 item 8's manual-region
+    Shared by auto-detected bubbles and manual-region
     OCR: draw/type a box the auto-detector missed and run OCR on it,
     instead of requiring the translated text to be typed in by hand.
     """
@@ -1554,7 +1542,7 @@ def ocr_box_region(image_path: str, box: dict, source_language: str, backend: st
 
 
 # ---------------------------------------------------------------------------
-# PDF import/export (Step 11 item 7)
+# PDF import/export
 # ---------------------------------------------------------------------------
 
 def pdf_to_page_images(pdf_path: str, out_dir: str, prefix: str = "page") -> tuple:
@@ -1597,7 +1585,7 @@ def pdf_to_page_images(pdf_path: str, out_dir: str, prefix: str = "page") -> tup
 
 
 # ---------------------------------------------------------------------------
-# Bulk find-and-replace across a drama's saved bubble text (Step 11 item 9)
+# Bulk find-and-replace across a drama's saved bubble text
 # ---------------------------------------------------------------------------
 
 def bulk_find_replace_preview(items: list, find: str, replace: str, text_field: str = "translated_text",
@@ -1612,8 +1600,8 @@ def bulk_find_replace_preview(items: list, find: str, replace: str, text_field: 
     inconsistently before a glossary entry existed, a typo that repeats).
 
     items: dicts carrying whatever identifying fields the caller needs
-    (Scanlate: "id"/"page_idx" from db.list_bubbles_for_drama(); Step 23c
-    item 2's novel/workspace lines: "idx", or "id" once Line rows are
+    (Scanlate: "id"/"page_idx" from db.list_bubbles_for_drama(); the
+    novel/workspace lines: "idx", or "id" once Line rows are
     saved) plus text_field itself -- "translated_text" for a Scanlate
     bubble (the default, unchanged from before this parameter existed),
     "en" for a drama's translated lines. Returns only the items that
@@ -1649,7 +1637,7 @@ def bulk_find_replace_preview(items: list, find: str, replace: str, text_field: 
 
 # ---------------------------------------------------------------------------
 # Structured text regions, SFX handling, shape-aware fitting, and the shared
-# per-page / whole-chapter detect+OCR+translate pipeline (Step 12d)
+# per-page / whole-chapter detect+OCR+translate pipeline
 # ---------------------------------------------------------------------------
 
 # Region kinds whose text is fitted to the bubble's own outline rather than
@@ -1740,8 +1728,8 @@ def _panel_for_box(box: dict, panels: list):
 
 @dataclass
 class TextRegion:
-    """One detected text region as a single structured object (Step 12d
-    item 1), instead of fields scattered across detection, classification
+    """One detected text region as a single structured object,
+    instead of fields scattered across detection, classification
     and panel functions.
 
     confidence is the detector's own score -- only the ML detector has
@@ -1899,7 +1887,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b = region.to_bubble()
         # ocr_box_region() insets the box before cropping -- OCRing a
         # bubble's own border can make some backends return nothing -- and
-        # routes to the right backend for the language (Step 11 item 4).
+        # routes to the right backend for the language.
         try:
             b["source_text"] = ocr_box_region(
                 image_path, b, source_language, backend=ocr_backend,
@@ -1921,7 +1909,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
 def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
                            glossary_terms=None, usage_cb=None) -> str:
     """Translates a page's bubbles from their CURRENT source_text -- so an
-    OCR mistake fixed by hand in the review step (Step 12d item 2) is what
+    OCR mistake fixed by hand in the review step is what
     reaches the translation call, not the raw OCR output. Skipped regions
     and SFX left out of the automated pass (region_excluded_from_auto())
     aren't sent at all and keep whatever translated_text they had; neither
@@ -1956,8 +1944,8 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
 def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
                         drama_meta: dict = None, glossary_terms=None, previous_context: str = "",
                         usage_cb=None, progress_cb=None, **detect_kwargs) -> dict:
-    """Detect + OCR + translate across a chapter's saved pages (Step 12d
-    item 4), reusing the exact per-page functions the single-page Detect
+    """Detect + OCR + translate across a chapter's saved pages,
+    reusing the exact per-page functions the single-page Detect
     button uses, in page order, carrying the rolling prior-page context
     from one page to the next.
 
@@ -1971,8 +1959,8 @@ def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
     bulk_render_pages()); a failed translation still saves that page's
     OCR text. Returns {"processed": [{"page_id", "bubbles", "notes",
     "context"}], "errors": [{"page_id", "error"}], "context": final
-    rolling context}. Each processed entry's own "context" (Step 25d item
-    12) is the rolling context AS OF right after that page -- the
+    rolling context}. Each processed entry's own "context"
+    is the rolling context AS OF right after that page -- the
     caller's own per-page context store should key off that, not just
     the run's single final "context" value, so a later out-of-order
     re-run of an earlier page in this same run can still find its real

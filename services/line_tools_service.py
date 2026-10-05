@@ -1,7 +1,7 @@
 """
 services/line_tools_service.py -- two Review per-line tools that aren't
-plain read-only LLM text (review parity R19, R28). Streamlit-free; plain
-dicts/bytes in and out. The LLM text tools (improve, explain, alternatives,
+plain read-only LLM text (review parity R19, R28). Plain dicts/bytes in
+and out. The LLM text tools (improve, explain, alternatives,
 grammar) live in services/line_ai_service.py.
 
   - pronounce_line(): an edge-tts clip of one line's SOURCE text in the
@@ -11,7 +11,7 @@ grammar) live in services/line_ai_service.py.
     The clip is made in a temporary folder that is removed before return;
     nothing is written to the drama or the database. The text is the
     stored line's, never client-supplied.
-  - shorten_overlong(): the tab's "Auto-shorten overlong lines with LLM":
+  - shorten_overlong(): "Auto-shorten overlong lines with LLM":
     lines the pacing check calls too long for their time slot are
     rewritten more concisely by `translate_engines.rewrite_for_pacing_llm`
     (id-keyed, never matched back by position). Writes ONLY `en`, one
@@ -95,7 +95,7 @@ def _snapshot_row(ln) -> dict:
             "dub_filename": getattr(ln, "dub_filename", None),
             "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
             "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
-            "sfx": bool(getattr(ln, "sfx", False))}
+            "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None)}
 
 
 def _shorten_pass_key(drama_id: int) -> str:

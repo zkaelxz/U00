@@ -3,7 +3,7 @@ import path from 'node:path'
 
 import { expect, test, type Page, type Route } from '@playwright/test'
 
-// Review → "Try with a stronger engine" (Step 99). Drama 3 (engine: Claude,
+// Review → "Try with a stronger engine". Drama 3 (engine: Claude,
 // the column default) gets a flagged translated line; Settings' "Stronger
 // translation for hard lines" is set to DeepSeek through the real route, so
 // the suggestion comes from the real API. The try itself (a paid call) is

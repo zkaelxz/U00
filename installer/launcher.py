@@ -1,6 +1,6 @@
 """
 installer/launcher.py -- what the installed app's Start-menu shortcut runs
-(Step 80b, the Windows installer).
+(the Windows installer).
 
 The installed layout is `<install dir>\\python\\` (the bundled embeddable
 Python), `<install dir>\\app\\` (the code, including the prebuilt React app
@@ -115,10 +115,10 @@ def port_from_env(env) -> int:
 
 # installer/service.py's admin-only folder and its config.json, which users
 # can read. The ports the service refuses besides being out of range
-# (installer/service.api_port_problem): Streamlit's, the extension bridge's
+# (installer/service.api_port_problem): the extension bridge's
 # and the default household port.
 SERVICE_CONFIG_PATH = ("Baihe Studio Services", "helper", "config.json")
-SERVICE_REFUSED_PORTS = (8501, 8756, 8610)
+SERVICE_REFUSED_PORTS = (8756, 8610)
 
 
 def service_config_file():

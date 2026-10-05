@@ -25,7 +25,7 @@ dialogue-only audio with no music bed gets no benefit from running it
 Requires: `pip install demucs` (pulls in torch/torchaudio, already a
 transitive dependency of faster-whisper elsewhere in this app).
 
-Step 6 added a second, preferred backend: `audio-separator` (MIT,
+A second, preferred backend is `audio-separator` (MIT,
 https://github.com/nomadkaraoke/python-audio-separator) running a Mel-Band
 RoFormer vocal model, which gives cleaner vocals than Demucs on content
 with a music bed. Demucs's own repo is archived and no longer maintained,
@@ -49,13 +49,13 @@ SEPARATION_BACKENDS = {
 # audio-separator's own model registry (models.json).
 MEL_ROFORMER_VOCAL_MODEL = "vocals_mel_band_roformer.ckpt"
 # BAIHE_AUDIO_SEP_MODEL_DIR: set by portable.py's activate_portable_mode()
-# under Step 10's portable mode, so a copied app folder's downloaded
+# under portable mode, so a copied app folder's downloaded
 # separator model comes with it -- audio-separator itself has no env var
 # of its own for this, unlike huggingface_hub's HF_HOME.
 MODEL_DIR = os.environ.get("BAIHE_AUDIO_SEP_MODEL_DIR") or os.path.join(
     os.path.expanduser("~"), ".cache", "audio-separator-models")
 
-# Step 4g: neither backend exposes a per-chunk callback of its own (each
+# Neither backend exposes a per-chunk callback of its own (each
 # is one opaque call over the whole file), so real progress and a
 # genuine mid-run cancel are done outside the backend -- split the input
 # into overlapping windows, run each one through the backend separately,
@@ -557,7 +557,7 @@ def _separate_vocals_chunked(audio_path: str, out_path: str, process_chunk_fn,
     length rather than needing a separate no-chunking branch.
 
     Uses soundfile (not torchaudio) for the plain-WAV reads/writes here,
-    same reasoning as Step 4c: no compiled-per-FFmpeg-version DLLs.
+    same reasoning as diarize()'s torchaudio workaround: no compiled-per-FFmpeg-version DLLs.
     """
     import soundfile as sf
 

@@ -1,5 +1,5 @@
 """
-portable.py -- Step 10's "the whole app folder just works when copied
+portable.py -- "the whole app folder just works when copied
 elsewhere" mode.
 
 Off by default: model downloads (Whisper, pyannote, F5-TTS, the
@@ -25,12 +25,12 @@ caution the roadmap itself calls for.
 Must be activated (activate_portable_mode()) before any other module in
 this app is imported: huggingface_hub and torch each read their own
 cache-location environment variable once, at their own first import,
-not on every call -- app.py and cli.py both call this as their literal
-first lines for exactly that reason. A module that imports one of them
-at ITS OWN top level (audio_preprocess.py, torch-backed ASR/TTS/OCR
+not on every call -- api/__main__.py and cli.py both call this before
+their other imports for exactly that reason. A module that imports one of
+them at ITS OWN top level (audio_preprocess.py, torch-backed ASR/TTS/OCR
 backends) must not be imported anywhere before this runs either.
 
-Installed copies (Step 80b, the Windows installer) keep their data out of
+Installed copies (the Windows installer) keep their data out of
 the program folder: an INSTALLED marker file next to this one says so,
 and its first line names the per-user data folder (default
 %LOCALAPPDATA%\\Baihe Studio). data_dir() is where db.py puts library/,

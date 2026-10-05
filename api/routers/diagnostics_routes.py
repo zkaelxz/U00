@@ -1,14 +1,12 @@
 """
-api/routers/diagnostics_routes.py -- read-only Diagnostics endpoint
-(Migration Slice 5).
+api/routers/diagnostics_routes.py -- read-only Diagnostics endpoint.
 
 The full overview `services.diagnostics_service` builds, and the last
 remote-access health check (`services.remote_health_service`; the check
 itself runs on a schedule, never from this read).
 No admin action (install/upgrade/delete a cached model, etc.) is
-exposed here -- those stay Streamlit-only per
-docs/archive/migration-review.md's D5 (admin actions need explicit confirmation
-and, for now, stay PC-local).
+exposed here: those are PC-only routes in diagnostics_gaps_routes.py and
+diagnostics_installs_routes.py (`local_only()` plus confirm=true).
 
 The remote-access public-address check (`/remote-health/ip-check`) is PC
 only (`local_only()`): its status is a boolean; setting and clearing it

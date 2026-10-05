@@ -1,7 +1,7 @@
-// Mirrors the S-4/S-5 import contract (docs spec s4-s5-url-import §2): the
-// paste-a-URL preview (R1), the novel-text URL import (R2), the chapter
-// import (R3), tracking (R4, existing TrackedSeries shape) and the Workspace
-// video-URL download (R5). Server text is scrubbed; URLs are scheme+host+path.
+// Mirrors api/schemas/sources.py and api/sources_import_schemas.py (contract: docs/specs/discover-sources-live-api-spec.md,
+// S-4/S-5): the paste-a-URL preview, the novel-text URL import, the chapter
+// import, tracking (existing TrackedSeries shape) and the Workspace
+// video-URL download. Server text is scrubbed; URLs are scheme+host+path.
 
 export type UrlContentType = 'video' | 'novel' | 'comic' | 'unknown'
 export type UrlRoute = 'series' | 'chapter' | 'video' | 'page'
@@ -26,7 +26,7 @@ export interface UrlPreview {
   display_url: string | null
 }
 
-// not_attempted (Step 107): the run stopped (cancel, browser check) before this chapter.
+// not_attempted: the run stopped (cancel, browser check) before this chapter.
 // needs_ai: the page loaded but the adapter's layout no longer fits; waits for an AI-recovery confirm.
 export type ChapterOutcome = 'imported' | 'skipped' | 'failed' | 'not_found' | 'not_attempted' | 'needs_ai'
 
@@ -46,7 +46,7 @@ export interface ChapterImportResult {
   imported_count: number
   skipped_count: number
   failed_count: number
-  // Step 107: failed + not attempted ids (the retry set) and whether any exist.
+  // Failed + not attempted ids (the retry set) and whether any exist.
   not_attempted_count: number
   retry_chapter_ids: string[]
   partial: boolean
@@ -113,7 +113,7 @@ export interface UrlDownloadRequest {
   confirm_replace_audio: boolean
 }
 
-// Step 107: GET /api/sources/{name}/import-state?series_id=&drama_id= --
+// GET /api/sources/{name}/import-state?series_id=&drama_id= --
 // which chapters of a series are already in a drama, and the ones the last
 // imports left failed or not attempted ("Retry failed chapters (N)").
 export interface ImportRetryRow {

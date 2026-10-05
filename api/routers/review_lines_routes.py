@@ -1,16 +1,12 @@
 """
 api/routers/review_lines_routes.py -- the Review stage's READ-ONLY line
-views for one drama (Migration Slice 47): paginated/filtered line list,
+views for one drama: paginated/filtered line list,
 transcript search, find-and-replace PREVIEW, coverage check, pacing check,
 per-line provenance and original-transcript text.
 
 Every route here only reads. The find-and-replace preview is a POST solely
 because it takes a request body; it writes nothing. Lines are addressed by
 permanent line id, never by position.
-
-Out of scope (later slices): applying a replace or any other edit/flag/
-restore, the media player and preview, translation-memory suggestions, LLM
-tools, bulk modes, and history/versions/notes reads (Slice 48).
 """
 
 from typing import List, Literal, Optional

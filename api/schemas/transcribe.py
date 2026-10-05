@@ -2,7 +2,7 @@
 diarization, autotune, re-transcribe and live sessions.
 """
 
-from typing import Annotated, List, Optional
+from typing import Annotated, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
@@ -54,16 +54,15 @@ class SpeakerTimeSummary(BaseModel):
 
 
 class DiarizationConfig(BaseModel):
-    """Read-only Diarize-stage summary for one drama (Migration Slice
-    16) -- hf_token_configured is a boolean only, never the token value
+    """Read-only Diarize-stage summary for one drama -- hf_token_configured is a boolean only, never the token value
     itself (D2)."""
     drama_id: int
     hf_token_configured: bool
     expected_speakers: Optional[int] = None
-    # Step 105: the speaker-count range the last run used, if any.
+    # The speaker-count range the last run used, if any.
     min_speakers: Optional[int] = None
     max_speakers: Optional[int] = None
-    # Step 101: "cuda" or "cpu" -- where the last run's pipeline ran.
+    # "cuda" or "cpu" -- where the last run's pipeline ran.
     last_device: Optional[str] = None
     audio_available: bool
     manual_speaker_count: int = 0   # parity D06: hand-corrected speakers
@@ -75,7 +74,7 @@ class DiarizationRunResult(BaseModel):
 
 
 class SourceConfig(BaseModel):
-    """Source-stage config for one drama (Migration Slice 19) -- config
+    """Source-stage config for one drama -- config
     only (language/script/content mode/transcript mode) plus read-only
     audio/video/transcript-source presence. Never includes an upload or
     a secret."""
@@ -102,10 +101,10 @@ class SourceConfigUpdate(BaseModel):
 
 
 class TranscribeConfig(BaseModel):
-    """Read-only Transcript-stage summary for one drama (Migration Slice
-    20) -- which action the transcribe button would run (from Slice 19's
-    transcript_mode) plus every tuning knob's current value, falling back
-    to the same defaults the Streamlit widgets use."""
+    """Read-only Transcript-stage summary for one drama -- which action the
+    transcribe button would run (from the source config's transcript_mode)
+    plus every tuning knob's current value, falling back
+    to the defaults the Transcribe stage shows."""
     drama_id: int
     transcript_mode: str
     has_audio_pipeline: bool
@@ -116,6 +115,13 @@ class TranscribeConfig(BaseModel):
     whisper_model_cached: bool
     # Audio seconds per second of work on the last finished run of this model and device.
     measured_speed: Optional[float] = None
+    # How many recent runs the measured speed is the median of (0 = none yet).
+    measured_speed_runs: int = 0
+    # Median seconds per stage (separate, load, decode_vad, transcribe, align) over those runs.
+    measured_stage_seconds: Dict[str, float] = Field(default_factory=dict)
+    # Audio seconds per second of speaker detection on this device; None until enough runs.
+    measured_diarize_speed: Optional[float] = None
+    measured_diarize_runs: int = 0
     # False when faster-whisper isn't installed, so a run can't start.
     whisper_installed: bool = True
     beam_size: int
@@ -154,7 +160,7 @@ class TranscribeConfigUpdate(BaseModel):
 
 class TranscribeRunRequest(BaseModel):
     """transcript_text is required (and only used) when this drama's
-    transcript_mode is "have_transcript" -- per Slice 19, it's never
+    transcript_mode is "have_transcript" -- it's never
     persisted server-side. tesseract_cmd is an optional, client-supplied
     path to the tesseract binary (hardsub_ocr with the "tesseract"
     backend only). The server runs it, so the run route accepts it only from
@@ -164,7 +170,7 @@ class TranscribeRunRequest(BaseModel):
     transcript_text: Optional[str] = None
     run_diarize: bool = False
     expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
-    # Step 105: a speaker-count range for the chained speaker detection
+    # A speaker-count range for the chained speaker detection
     # (pyannote min_speakers/max_speakers); not combined with expected_speakers.
     min_speakers: Optional[int] = Field(default=None, ge=0, le=20)
     max_speakers: Optional[int] = Field(default=None, ge=0, le=20)
@@ -233,8 +239,6 @@ class LiveSessionStopped(BaseModel):
 
 # ---------------------------------------------------------------------------
 # Route batch 2C: auto-tune speech splitting + glossary from novel
-# (imports kept local to this section so parallel slices don't collide on
-# the module's import line)
 # ---------------------------------------------------------------------------
 AutotuneCandidateMs = Annotated[StrictInt, Field(ge=300, le=3000)]
 

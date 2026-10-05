@@ -1,9 +1,7 @@
 """
 api/benchmark_schemas.py -- request/response models for the Benchmark Lab
-routes (api/routers/benchmark_routes.py, Step 38). Kept out of
-api/schemas.py so the step could be built alongside other branches editing
-that file; the shared ErrorResponse still lives there. No key, path or
-file name field exists on any model.
+routes (api/routers/benchmark_routes.py). No key, path or file
+name field exists on any model.
 """
 
 from typing import Dict, List, Literal, Optional

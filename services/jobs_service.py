@@ -1,17 +1,17 @@
 """
-services/jobs_service.py -- Migration Slice 8: a read-only view of every
+services/jobs_service.py -- a read-only view of every
 job this app knows about, cross-process, shared by the FastAPI
 `/api/jobs` routes.
 
-Reads `db.job_records` (Migration Slice 7's records-only mirror of
+Reads `db.job_records` (the records-only mirror of
 `background_jobs.py`'s own in-memory state) rather than
-`background_jobs` itself -- the whole point of this slice is answering
+`background_jobs` itself -- the whole point of this service is answering
 "what jobs exist" from a process (the API host) that never started any
 of them, which `background_jobs`'s own in-memory `_jobs` dict can't do.
-Slice 22 adds cancel_job: it flags the job_records row, which the
+cancel_job flags the job_records row, which the
 owning process's throttled check in background_jobs picks up.
 
-No Streamlit import, no HTTP types: takes plain values, returns plain
+No HTTP types: takes plain values, returns plain
 dicts, so `cli.py` or a script could call it too.
 """
 
@@ -41,14 +41,14 @@ STALE_JOB_SECONDS = background_jobs.STALE_JOB_SECONDS
 RESULT_ALLOWED_KEYS = (
     "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
     "fixed_count", "total_flagged", "existing_line_count", "line_count",
-    "gpu_fallback", "device", "word_align_error", "forced_align_error",
+    "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
     "coverage_warning",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
     # Sources chapter import (S-4): int counts only, never text.
     "imported_count", "skipped_count", "failed_count",
-    # lightnovel-crawler import (Step 115b): the EPUB's reading-order count.
+    # lightnovel-crawler import: the EPUB's reading-order count.
     "epub_chapters",
     # Own-lines re-translate: line ids whose review flag wasn't saved because
     # the line's text, timing or flag changed while the job ran.
@@ -339,10 +339,13 @@ def derive_outcome(status, error, result):
         parts.append(f"{len(errors)} problem(s), first: {errors[0]}")
     if result.get("partial"):
         parts.append("Only part of the work finished.")
-    # Transcribe warnings (Streamlit warned on these): the job worked, but
-    # not the way the user asked, so it is reported as partial, not ok.
+    # Transcribe warnings: the job worked, but not the way the user asked,
+    # so it is reported as partial, not ok.
     warned = False
-    if result.get("gpu_fallback"):
+    if result.get("device_notice"):
+        parts.append(str(result["device_notice"]))
+        warned = True
+    elif result.get("gpu_fallback"):
         parts.append(f"Ran on CPU because the GPU wasn't available ({result['gpu_fallback']}).")
         warned = True
     if result.get("word_align_error"):
@@ -513,7 +516,7 @@ def get_job(job_id: str, principal=None) -> dict:
 
 
 def get_job_stages(job_id: str, principal=None) -> dict:
-    """Step 41 item 5: the job's per-stage timing and spend for its latest
+    """The job's per-stage timing and spend for its latest
     runs (services/job_timing_service). Same visibility as get_job."""
     record = db.get_job_record(job_id)
     if record is None or not _visible(principal, record):

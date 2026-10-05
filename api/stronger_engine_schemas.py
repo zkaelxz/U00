@@ -1,8 +1,7 @@
 """
-api/stronger_engine_schemas.py -- request/response models for Step 99's
+api/stronger_engine_schemas.py -- request/response models for the
 "Try with a stronger engine" routes (api/routers/stronger_engine_routes.py).
-Kept out of api/schemas.py so this step could be built alongside another
-branch editing that file. No key, URL or path field exists on any model.
+No key, URL or path field exists on any model.
 """
 
 from typing import Dict, List, Optional

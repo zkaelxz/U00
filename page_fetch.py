@@ -82,7 +82,7 @@ def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
     }
 
 
-# B-28: a public page must not be able to redirect or script the browser onto
+# A public page must not be able to redirect or script the browser onto
 # a private address. Two layers:
 #  1. Every Chromium this module launches sends ALL its traffic (navigations,
 #     every redirect hop, subresources, fetch/XHR, WebSockets) through a
@@ -343,7 +343,7 @@ def _goto(page, url: str, proxy, allow_unguarded: bool = False, **kwargs):
     """`page.goto`, then fail closed: with no proxy for this launch, or when
     an http(s) navigation returned a response but the pinning proxy saw no
     request at all (e.g. a managed browser policy overriding the proxy
-    setting), the B-28 protection is not in force. `allow_unguarded` is
+    setting), the private-address protection is not in force. `allow_unguarded` is
     only for an injected test launcher, which has no proxy."""
     if proxy is None and not allow_unguarded:
         raise ProxyBypassed(_BYPASSED)
@@ -355,7 +355,7 @@ def _goto(page, url: str, proxy, allow_unguarded: bool = False, **kwargs):
 
 
 def _guard_context(context):
-    """Install the B-28 request guard on a browser context."""
+    """Install the private-address request guard on a browser context."""
     context.route("**/*", make_request_guard())
     return context
 
@@ -368,15 +368,46 @@ def _guarded_page(browser):
     return context.new_page()
 
 
-def fetch_static(url: str, timeout: int = 20):
-    """Plain fetch. Returns (html, text). Raises on network failure."""
-    import requests
-    from bs4 import BeautifulSoup
+STATIC_FETCH_MAX_BYTES = 5_000_000
+STATIC_FETCH_MAX_REDIRECTS = 5
+_REDIRECT_CODES = (301, 302, 303, 307, 308)
 
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"}
-    resp = requests.get(url, headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    html = resp.text
+
+def fetch_static(url: str, timeout: int = 20):
+    """Plain fetch. Returns (html, text). Raises on network failure, and
+    `url_guard.UnsafeURLError` when the URL or any redirect hop is not a
+    public http(s) address."""
+    from urllib.parse import urljoin
+    from bs4 import BeautifulSoup
+    from services import metadata_service, url_guard
+
+    headers = {"User-Agent": _UA}
+    current = url
+    # Redirects are followed by hand so every hop is validated and the
+    # connection pinned to the validated IP (no DNS-rebinding window).
+    for _ in range(STATIC_FETCH_MAX_REDIRECTS + 1):
+        ip = url_guard.resolve_public(current)
+        resp = metadata_service.pinned_get(current, ip, headers, timeout=timeout)
+        location = resp.headers.get("Location")
+        if resp.status_code in _REDIRECT_CODES and location:
+            resp.close()
+            current = urljoin(current, location)
+            continue
+        break
+    else:
+        raise url_guard.UnsafeURLError("Too many redirects.")
+    try:
+        resp.raise_for_status()
+        encoding = resp.encoding or "utf-8"
+    except Exception:
+        resp.close()
+        raise
+    from services import capped_body
+
+    def too_big():
+        return ValueError("The page is too large to fetch.")
+    html = capped_body.read_capped(resp, STATIC_FETCH_MAX_BYTES, max(timeout, 1) * 3,
+                                   too_big).decode(encoding, errors="replace")
 
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
@@ -405,7 +436,7 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
 # Resolves every `<img src="blob:...">` on the page into real bytes from
 # inside that page's own JS context, before the browser (and with it, the
 # blob's only storage) closes. Manhuaku's own real readPic() mechanism
-# (Step 23j) writes decrypted page images into the DOM exactly this way --
+# writes decrypted page images into the DOM exactly this way --
 # a blob: URL only exists in that one tab's memory and can never be
 # independently re-fetched afterward. Chunked base64 encoding avoids
 # blowing the call stack on a large image (a naive
@@ -793,7 +824,7 @@ def _visible_lines(html: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Persistent browser profiles (Step 23k)
+# Persistent browser profiles
 # ---------------------------------------------------------------------------
 #
 # One Chromium profile directory per source, opened with Playwright's
@@ -803,7 +834,7 @@ def _visible_lines(html: str) -> str:
 #
 # What persists is the profile directory -- the browser process itself is
 # started per call and closed after. Playwright's sync objects only work
-# on the thread that created them (Streamlit runs each rerun on its own
+# on the thread that created them (each background job runs on its own
 # thread), a Chromium profile can only be open in one browser at a time,
 # and the visible sign-in window and the headless reads need separate
 # launches anyway. Login state survives all of that because it lives in
@@ -949,6 +980,22 @@ def open_login_window(url: str, profile_dir: str, launcher=None):
         lock.release()
 
 
+def _redact(exc) -> str:
+    """A fixed-text reason for a failed fetch. str(exc) is never echoed: a
+    requests error carries the URL it connected to (the pinned IP, or a
+    redirect target the site chose) and may hold query-string tokens, which
+    redact_secrets does not mask. Only the guard's own fixed messages and
+    the install hint for a missing browser are passed through."""
+    from engine_backends.shared import redact_secrets
+    from services import url_guard
+    if isinstance(exc, (url_guard.UnsafeURLError, url_guard.URLResolveError, ImportError)):
+        return redact_secrets(str(exc))
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status, int):
+        return f"the site answered HTTP {status}"
+    return "the connection failed"
+
+
 def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
     """
     Fetches a page and tells you honestly what you got.
@@ -969,7 +1016,7 @@ def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
         html, text = fetch_static(url, timeout=timeout)
     except Exception as e:
         result["needs_manual"] = True
-        result["message"] = f"Couldn't reach that page: {e}"
+        result["message"] = f"Couldn't reach that page: {_redact(e)}"
         return result
 
     check = looks_like_unrendered_shell(html, text)
@@ -1005,11 +1052,11 @@ def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
             result["needs_manual"] = True
             result["message"] = (
                 "This page is built with JavaScript, so a plain fetch only returns an "
-                f"empty shell.\n\n{e}\n\nOr use the manual paste option below.")
+                f"empty shell.\n\n{_redact(e)}\n\nOr use the manual paste option below.")
             return result
         except Exception as e:
             result["needs_manual"] = True
-            result["message"] = f"Browser rendering failed: {e}. Try the manual paste option."
+            result["message"] = f"Browser rendering failed: {_redact(e)}. Try the manual paste option."
             return result
 
     result["needs_manual"] = True

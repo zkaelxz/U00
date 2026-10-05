@@ -1,4 +1,4 @@
-// Hand-written mirrors of api/schemas.py (ReviewLines*, ReviewRecords*, Lines*,
+// Hand-written mirrors of api/schemas/review.py (ReviewLines*, ReviewRecords*, Lines*,
 // ReviewJob*). Identity is always the permanent line `id`; `idx` is display-only.
 
 export type LineFilter = 'all' | 'flagged' | 'untranslated'
@@ -16,6 +16,8 @@ export interface ReviewLine {
   flag: string | null
   flag_note: string | null
   dub_filename: string | null
+  // The line's spoken language; null means the drama's source_language.
+  lang: string | null
 }
 
 export interface ReviewLinesPage {
@@ -48,8 +50,19 @@ export interface LinePatch {
   en?: string
   speaker?: string
   sfx?: boolean
+  // '' sets the drama's source language.
+  lang?: string
   // Field -> the old value the client saw; a mismatch is a 409.
   expected?: Record<string, unknown>
+}
+
+// Exactly one of line_ids / speaker. lang null sets the drama's source language.
+export type SetLanguageRequest = { lang: string | null } & ({ line_ids: number[] } | { speaker: string })
+
+export interface SetLanguageResult {
+  updated: number
+  line_ids: number[]
+  skipped_ids: number[]
 }
 
 export interface ApplyResult {

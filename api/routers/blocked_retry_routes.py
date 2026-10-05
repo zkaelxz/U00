@@ -3,9 +3,8 @@ api/routers/blocked_retry_routes.py -- retry one line an engine blocked on
 content-moderation grounds, usually with another engine (parity item R10).
 Thin adapter over `services.blocked_retry_service`.
 
-Synchronous (the tab ran it under a spinner), so it takes a slot from the
-shared LLM cap (api/llm_slots.py: 2 server-wide, 1 per caller, 429 when
-busy). Declares `jobs.start`; the paid-engine check
+Synchronous, so it takes a slot from the shared LLM cap (api/llm_slots.py;
+429 when busy). Declares `jobs.start`; the paid-engine check
 (`require_engines_allowed` on the named engine) runs as a dependency ahead
 of body validation, so a household user naming a paid engine gets 403
 whatever else the body holds. Only the engine name is accepted: never a

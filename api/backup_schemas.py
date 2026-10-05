@@ -1,9 +1,7 @@
 """
 api/backup_schemas.py -- request/response models for the automatic backup
-routes (api/routers/backup_routes.py, roadmap Step 43 as redefined
-2026-09-29). Kept out of api/schemas.py so this slice could be built
-alongside other branches editing that file; the shared ErrorResponse still
-lives there. The only path on any model is `folder`, the backup folder the
+routes (api/routers/backup_routes.py, as redefined
+2026-09-29). The only path on any model is `folder`, the backup folder the
 owner typed themselves (every route here is local_only). Backup copies are
 named by file name only; a name sent back is matched against the backup
 folder's own listing, never used as a path.

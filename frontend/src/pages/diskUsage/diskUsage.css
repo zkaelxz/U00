@@ -55,3 +55,6 @@ button.du-name { min-height: 44px; text-align: left; padding-inline: 0; }
   .du-total { margin-left: 0; flex: 1 1 100%; }
   .du-treemap { aspect-ratio: 100 / 70; }
 }
+
+.du-clip-title { display: grid; gap: var(--space-2); min-width: 0; }
+.du-clip-heading { margin: 0; font-size: var(--text-md, 1rem); overflow-wrap: anywhere; }

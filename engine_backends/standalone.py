@@ -5,7 +5,7 @@ from core import LANGUAGE_NAMES
 
 
 class UnsupportedDirectionError(Exception):
-    """Raised by standalone_translate (Step 26b) when the requested engine
+    """Raised by standalone_translate when the requested engine
     can't handle the requested translation direction -- see
     standalone_direction_support for which engines/directions this
     applies to and why."""
@@ -13,7 +13,7 @@ class UnsupportedDirectionError(Exception):
 
 def standalone_direction_support(engine_name: str, source_language: str, target_language: str):
     """(ok, message) for whether engine_name can translate FROM
-    source_language TO target_language in Step 26b's standalone translate
+    source_language TO target_language in the standalone translate
     tool. ok=False means refuse outright -- the caller must not call
     translate_batch at all. ok=True with a message means attempt it but
     show the message as a warning; ok=True with message=None means no
@@ -21,7 +21,7 @@ def standalone_direction_support(engine_name: str, source_language: str, target_
 
     zh/ja/ko -> English is this app's existing, well-tested direction --
     every engine already does this and keeps doing it unchanged. English
-    -> zh/ja/ko is new (Step 26b item 6):
+    -> zh/ja/ko is new:
       - NLLB takes an explicit source+target pair in its own
         pipeline, so they're just as capable in either direction.
       - Claude/DeepSeek/Gemini are prompted for the direction
@@ -43,7 +43,7 @@ def standalone_direction_support(engine_name: str, source_language: str, target_
 
 
 def chunk_standalone_text(text: str, max_chars_per_chunk: int = 1500) -> list:
-    """Splits text into paragraph-based chunks for Step 26b's standalone
+    """Splits text into paragraph-based chunks for the standalone
     translate tool, keeping paragraph breaks intact so translated chunks
     can be rejoined the same way. Consecutive short paragraphs are grouped
     up to max_chars_per_chunk; a single paragraph longer than that is kept
@@ -68,7 +68,7 @@ def chunk_standalone_text(text: str, max_chars_per_chunk: int = 1500) -> list:
 
 def standalone_translate(text: str, engine, source_language: str, target_language: str,
                          batch_size: int = 8) -> str:
-    """Step 26b's standalone translate tool: translates arbitrary pasted
+    """The standalone translate tool: translates arbitrary pasted
     text -- not tied to any drama/project -- from source_language to
     target_language (one side of which is always "en"). Chunks long text
     with chunk_standalone_text, sent in groups of batch_size per
@@ -76,7 +76,7 @@ def standalone_translate(text: str, engine, source_language: str, target_languag
     own batch_size, just simpler since there's no cross-batch context
     window here), and reassembled using each engine's own translate_batch
     -- which already resolves a response back to its own chunk by id
-    rather than by position (see _request_translations_with_retry's own
+    rather than by position (see request_translations_with_retry's own
     docstring for the exact bug that protects against) -- built once
     there, not reimplemented here.
 

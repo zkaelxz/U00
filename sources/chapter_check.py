@@ -1,6 +1,6 @@
 """
 sources/chapter_check.py -- scheduled checks for new chapters on tracked
-series (Step 23 item 5), the same simple shape as Mihon's library update:
+series, the same simple shape as Mihon's library update:
 re-fetch each tracked title's chapter list, diff by chapter id against
 what's already known, and tell the person about anything new.
 
@@ -38,7 +38,7 @@ def check_series(adapter, row: dict) -> list:
     """Returns the ChapterInfo list of chapters that are new since the last
     check, and records them (known + a notification each).
 
-    Step 106: the chapter list is fetched as a conditional re-poll. When
+    The chapter list is fetched as a conditional re-poll. When
     the last poll was one plain GET that returned an ETag or Last-Modified,
     this poll sends them back; a 304 means nothing changed, so the list is
     neither downloaded nor parsed."""
@@ -86,11 +86,11 @@ def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = 
     """One pass over every tracked series. `adapter_factory(name)` is
     injectable for tests; defaults to the registry.
 
-    Safe to run from two processes (the API and Streamlit each run a
-    scheduler): the cycle is claimed first (store.claim_check_cycle), and a
-    cycle that can't claim returns {"skipped": True, ...} without checking
-    anything. A `scheduled` cycle is also skipped when another process
-    finished one within the interval since this one was found due.
+    Safe to run from two processes that each run a scheduler: the cycle
+    is claimed first (store.claim_check_cycle), and a cycle that can't
+    claim returns {"skipped": True, ...} without checking anything. A
+    `scheduled` cycle is also skipped when another process finished one
+    within the interval since this one was found due.
 
     `allow_browser=False` (a manual check from another device) keeps every
     adapter from launching a browser on this PC; scheduled cycles are local."""

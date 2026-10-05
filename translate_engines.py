@@ -13,11 +13,7 @@ keep working. A patch must target the module that uses the name (for example
 engine_backends.llm_tasks.call_llm_json), not this re-export.
 """
 
-import re  # noqa: F401  (kept as module attributes: callers and tests reach translate_engines.time etc.)
-import json  # noqa: F401
-import time  # noqa: F401
-import contextvars  # noqa: F401
-import inspect  # noqa: F401
+import time  # noqa: F401  (tests patch translate_engines.time.sleep)
 
 from core import LANGUAGE_NAMES  # noqa: F401
 
@@ -68,6 +64,7 @@ from engine_backends.shared import (  # noqa: F401
     gemini_usage,
     parse_id_keyed_json,
     parse_json_array,
+    read_json_capped,
     redact_for_storage,
     redact_secrets,
     request_translations_with_retry,

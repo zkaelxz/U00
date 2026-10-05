@@ -293,6 +293,25 @@ class TestOverwriteManual:
         assert r.status_code == 200
 
 
+class TestDiarizationSpeedRecording:
+    def _run(self, isolated_db, monkeypatch, result):
+        from services import transcribe_service
+        did = isolated_db.create_drama(title_en="D")
+        monkeypatch.setattr(diarization_service, "apply_diarization_result", lambda *a, **k: None)
+        monkeypatch.setattr(diarization_service, "_drama_audio_path", lambda d, dr: "/x.wav")
+        monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda p: 600.0)
+        diarization_service.make_apply_on_done(did)("diarize_1", result)
+        return transcribe_service
+
+    def test_a_finished_run_records_its_seconds_per_device(self, isolated_db, monkeypatch):
+        ts = self._run(isolated_db, monkeypatch, {"segments": [], "device": "cuda", "seconds": 60.0})
+        assert ts.measured_diarize_runs(True) == 1 and ts.measured_diarize_runs(False) == 0
+
+    def test_a_result_without_seconds_is_not_recorded(self, isolated_db, monkeypatch):
+        ts = self._run(isolated_db, monkeypatch, {"segments": [], "device": "cpu"})
+        assert ts.measured_diarize_runs(False) == 0
+
+
 class TestDiarizationEstimateCaption:
     """Moved out of the Workspace tab: an honest estimated-duration
     caption, scaled off the audio's own length, since pyannote exposes no
@@ -342,7 +361,10 @@ def test_on_done_reports_cpu_fallback_loudly(isolated_db, monkeypatch):
     on_done = diarization_service.make_apply_on_done(1)
     assert on_done("j", {"segments": [], "fell_back_to_cpu": True,
                          "fallback_reason": "C:\\secret\\path"}) == {
-        "device": "cpu", "gpu_fallback": diarize.OOM_FALLBACK_DONE_MESSAGE}
-    assert messages[-1].startswith("Ran on CPU after running out of GPU memory")
+        "device": "cpu", "gpu_fallback": diarize.OOM_FALLBACK_DONE_MESSAGE,
+        "device_notice": diarize.OOM_FALLBACK_DONE_MESSAGE}
+    assert messages[-1].startswith(diarize.OOM_FALLBACK_DONE_MESSAGE)
+    assert on_done("j", {"segments": [], "fell_back_to_cpu": True, "fallback_kind": "placement"})[
+        "device_notice"] == diarize.PLACEMENT_FALLBACK_DONE_MESSAGE
     assert on_done("j", {"segments": [], "fell_back_to_cpu": False}) is None
     assert messages[-1] == "Matching speakers to lines..."

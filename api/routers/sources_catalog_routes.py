@@ -1,6 +1,6 @@
 """
-api/routers/sources_catalog_routes.py -- the Sources registry and status
-(Migration Slice 56). Prefix /api/sources. Deliberately a different file
+api/routers/sources_catalog_routes.py -- the Sources registry and status.
+Prefix /api/sources. Deliberately a different file
 name from source_routes.py, which is the Workspace Source stage
 (/api/source/dramas/{id}/config).
 
@@ -66,6 +66,8 @@ def get_source(name: str = _NAME):
 _ERR = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
 
 
+# PC-only like every settings write: pacing, retries and concurrency decide
+# how often this PC requests from each site (docs/remote-access-decision.md).
 @router.post("/settings", dependencies=[local_only()], response_model=SourcesSettings,
              summary="Update whitelisted source settings (no proxy URL; pacing floor enforced)",
              responses=_ERR)

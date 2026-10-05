@@ -1,6 +1,6 @@
 """
 services/metadata_research_service.py -- "Research online" for a drama's
-metadata (roadmap Step 37): Gemini with Google Search grounding, returning
+metadata: Gemini with Google Search grounding, returning
 per-field values with their own cited sources, for the user to review before
 anything is written.
 
@@ -24,7 +24,7 @@ searches, which also needs a paid (non-free-tier) key and room under the
 monthly cap. Values are matched to fields by name, never by list position.
 Cited source URLs are kept only when they are http(s).
 
-No Streamlit or FastAPI import: plain dicts in, plain dicts out.
+No FastAPI import: plain dicts in, plain dicts out.
 """
 import datetime
 import hashlib
@@ -38,7 +38,7 @@ from urllib.parse import urlsplit
 
 import db
 import translate_engines
-from services import drama_service, library_service, settings_service
+from services import capped_body, drama_service, library_service, settings_service
 from services.metadata_service import SUGGEST_FIELDS, require_drama
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -76,6 +76,7 @@ EST_OUTPUT_TOKENS = {"quick": 800, "deep": 2000, "verify": 1000}
 MAX_RELATED = 10
 MAX_SOURCES = 20
 REQUEST_TIMEOUT = 60
+MAX_RESPONSE_BYTES = 4_000_000
 BUDGET_SETTING = "grounded_search_usage"
 _RESEARCH_ID = re.compile(r"^[0-9a-f]{64}$")
 _SELF_CONFIDENCE = {"high": 0.9, "medium": 0.6, "low": 0.3}
@@ -191,9 +192,15 @@ def _call_gemini(api_key: str, model: str, prompt: str) -> dict:
     resp = requests.post(url, headers={"x-goog-api-key": api_key},
                          json={"contents": [{"parts": [{"text": prompt}]}],
                                "tools": [{"google_search": {}}]},
-                         timeout=REQUEST_TIMEOUT)
-    resp.raise_for_status()
-    return resp.json()
+                         timeout=REQUEST_TIMEOUT, stream=True)
+    try:
+        resp.raise_for_status()
+    except Exception:
+        resp.close()
+        raise
+    return json.loads(capped_body.read_capped(
+        resp, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT * 3,
+        lambda: ValueError("the Gemini response was too large")))
 
 
 def _safe_url(url) -> Optional[str]:

@@ -17,12 +17,9 @@ import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
 import { checkUploadFile, sourceJobIds, UPLOAD_EXTENSIONS } from '../sourceForm'
 import { useStage } from '../StageContext'
-import { CreditsCoverPanel } from './CreditsCoverPanel'
 import { DetailsPanel } from './DetailsPanel'
-import { AnalyzePanel, AutofillPanel } from './MetadataPanel'
-import { ResearchPanel } from './ResearchPanel'
+import { FillInPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
-import { NovelGlossary } from './NovelGlossary'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
@@ -36,6 +33,7 @@ export default function SourceStage() {
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null)
   const [reloads, setReloads] = useState(0)
   const pc = usePcOnly()
   const [removeError, setRemoveError] = useState<unknown>(null)
@@ -44,7 +42,7 @@ export default function SourceStage() {
   const fromUrl = from === 'url'
 
   // Arriving from Library "Create and auto-fill" must show the Auto-fill panel,
-  // which now lives inside the collapsed "Details and credits" group.
+  // which lives in the collapsed "Details and credits" group's Fill in details fold.
   useState(() => {
     if (wantsAutofill(window.location.hash)) {
       try {
@@ -221,16 +219,17 @@ export default function SourceStage() {
       title="Transcribe audio or video"
       summary={hasMedia ? 'audio attached' : 'upload or download a file'}
     >
-      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
-      <AnalyzePanel hasMedia={hasMedia} onNeedMedia={needMedia} />
+      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy}
+        onJobStarted={(id, expected) => {
+          setExpectedSeconds(expected ?? null)
+          setJobId(id)
+        }}
+      />
     </Section>
   )
   const novel = (
     <div key="novel" className="source-group">
       <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} />
-      <section className="panel" aria-label="Glossary from novel">
-        <NovelGlossary title="Glossary from novel" storageKey="source.glossary.novel" />
-      </section>
     </div>
   )
   const groups = kind === 'audio' ? [transcribe, novel] : [novel, transcribe]
@@ -242,14 +241,12 @@ export default function SourceStage() {
         storageKey="source.group.details"
         openSignal={revealDetails}
         title="Details and credits"
-        summary={`${drama.title_en || drama.title_zh || `#${dramaId}`} · credits, cover, auto-fill, research`}
+        summary={`${drama.title_en || drama.title_zh || `#${dramaId}`} · credits, cover, fill in`}
       >
-        <DetailsPanel openSignal={revealDetails} />
-        <CreditsCoverPanel onAddCredits={addCredits} />
-        <AutofillPanel />
-        <ResearchPanel />
+        <DetailsPanel openSignal={revealDetails} onAddCredits={addCredits} />
+        <FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />
       </Section>
-      {jobId && <JobPanel job={job} pollError={pollError} liveEta={jobId.startsWith('transcribe_')} />}
+      {jobId && <JobPanel job={job} pollError={pollError} liveEta={jobId.startsWith('transcribe_')} expectedSeconds={expectedSeconds} />}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 """
 services/metadata_service.py -- Media analysis and metadata auto-fill for one
-drama (Migration Slice 37), the API counterpart of the New-drama form's
+drama, the API counterpart of the New-drama form's
 "Analyze a media file" and "Auto-fill from a public listing page" expanders.
 
   - analyze_media: ffprobe read of the drama's stored media. Numbers and
@@ -23,7 +23,7 @@ timeout=, keys are resolved server-side and never sent by clients, and
 exception text is never echoed (fixed messages only), so no secret can reach
 an error.
 
-No Streamlit or FastAPI import: plain dicts in, plain dicts out.
+No FastAPI import: plain dicts in, plain dicts out.
 """
 import math
 import os
@@ -112,7 +112,7 @@ def analyze_media(drama_id: int) -> dict:
         except (TypeError, ValueError):
             sample_rate = None
     # Parity P05: resolution, subtitle tracks and the suggested (never
-    # applied) pipeline, as the tab's media analysis shows them.
+    # applied) pipeline.
     try:
         info = media_inspect.analysis_from_probe(probe, os.path.basename(path))
     except (TypeError, ValueError, AttributeError):
@@ -156,7 +156,7 @@ def check_public_url(url: str) -> str:
         raise InvalidInputError(_BAD_URL) from None
 
 
-def pinned_get(url: str, ip: str, headers: dict):
+def pinned_get(url: str, ip: str, headers: dict, timeout: float = FETCH_TIMEOUT):
     """GET url connecting to the validated ip, not a fresh DNS lookup."""
     import requests
     from requests.adapters import HTTPAdapter
@@ -182,7 +182,7 @@ def pinned_get(url: str, ip: str, headers: dict):
     session = requests.Session()
     session.trust_env = False  # a proxy would re-resolve the hostname itself
     session.mount(f"{parts.scheme}://", _PinnedAdapter())
-    return session.get(url, headers=headers, timeout=FETCH_TIMEOUT,
+    return session.get(url, headers=headers, timeout=timeout,
                        allow_redirects=False, stream=True)
 
 
@@ -341,7 +341,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
     romanized = {k: v.strip()[:drama_service.MAX_NAME_LEN] for k, v in (found or {}).items()
                  if k in CREDIT_FIELDS and credits.get(k) and isinstance(v, str) and v.strip()}
     if romanized:
-        # All four, as the Streamlit button did: a credit not returned (e.g.
+        # All four: a credit not returned (e.g.
         # one since removed) loses its stale romanized form.
         db.update_drama(drama_id, **{f"{k}_romanized": romanized.get(k) for k in CREDIT_FIELDS})
     return {"drama_id": drama_id, "romanized": romanized, "updated": bool(romanized)}

@@ -1,7 +1,6 @@
 """
-sources/models.py -- the shared vocabulary of the source-adapter system
-(roadmap Step 23): the access-ladder tiers, the named failure reasons,
-the two status scales, the result records adapters return, and the
+sources/models.py -- the shared vocabulary of the source-adapter system: the access-ladder tiers,
+the named failure reasons, the two status scales, the result records adapters return, and the
 exceptions the rest of the system catches.
 
 Everything here is plain data. Nothing in this file touches the network.
@@ -22,7 +21,7 @@ class ContentType(str, Enum):
 
 
 class AccessTier(str, Enum):
-    """The access-method ladder, simplest first (Step 23 item 2)."""
+    """The access-method ladder, simplest first."""
     STATIC_HTTP = "STATIC_HTTP"
     RENDERED_BROWSER = "RENDERED_BROWSER"
     AUTHENTICATED_BROWSER = "AUTHENTICATED_BROWSER"
@@ -37,7 +36,7 @@ LADDER_ORDER = [AccessTier.STATIC_HTTP, AccessTier.RENDERED_BROWSER,
 
 
 class FailureReason(str, Enum):
-    """Why one tier's attempt failed (Step 23 item 2b). Never collapsed
+    """Why one tier's attempt failed. Never collapsed
     into a bare "blocked"."""
     HTTP_ERROR = "HTTP_ERROR"            # a network failure or a 4xx that isn't more specific
     NOT_FOUND = "NOT_FOUND"              # 404/410: this page is gone; the site itself is fine
@@ -60,7 +59,7 @@ class FailureReason(str, Enum):
     ENCRYPTED_RESOURCE = "ENCRYPTED_RESOURCE"
     SIGNED_RESOURCE = "SIGNED_RESOURCE"
     NOT_INSTALLED = "NOT_INSTALLED"      # the tier's own tooling isn't set up here
-    TOS_PROHIBITED = "TOS_PROHIBITED"    # refused before any request: the source's terms forbid it
+    TOS_PROHIBITED = "TOS_PROHIBITED"    # terms forbid it; recorded only, check_terms is a no-op
     # Every domain on the source's domain list failed to connect or kept erroring
     # (sources/domains.py); a challenge on any of them is never this.
     ALL_DOMAINS_UNREACHABLE = "ALL_DOMAINS_UNREACHABLE"
@@ -82,7 +81,7 @@ ENVIRONMENT_BLOCK_REASONS = {
 PROTECTION_REASONS = {FailureReason.DRM_DETECTED, FailureReason.ENCRYPTED_RESOURCE,
                       FailureReason.SIGNED_RESOURCE}
 
-# Step 23k item 6: a protected resource is always reported as exactly
+# A protected resource is always reported as exactly
 # that -- never collapsed into a bare "blocked" or a generic failure.
 _PROTECTED = ("Protected resource could not be processed without bypassing a technical "
               "control ({what}) -- recorded, never decrypted or worked around.")
@@ -117,7 +116,7 @@ SPA_SHELL_BROWSER_NOTE = ("This site needs JavaScript and the browser tier also 
 
 
 class CapabilityStatus(str, Enum):
-    """The graduated status on a SourceCapabilities record (Step 23 item 1)."""
+    """The graduated status on a SourceCapabilities record."""
     VERIFIED = "VERIFIED"
     VERIFIED_WITH_AUTH = "VERIFIED_WITH_AUTH"
     BROWSER_ASSISTED = "BROWSER_ASSISTED"
@@ -130,7 +129,7 @@ class CapabilityStatus(str, Enum):
 
 
 class TechnicalStatus(str, Enum):
-    """Never a binary blocked/not-blocked (Step 23 item 2b)."""
+    """Never a binary blocked/not-blocked."""
     DISQUALIFIED = "DISQUALIFIED"
     UNRESOLVED = "UNRESOLVED"
     BLOCKED_IN_CURRENT_ENVIRONMENT = "BLOCKED_IN_CURRENT_ENVIRONMENT"
@@ -151,7 +150,7 @@ class ContentAccess(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-# --- Step 23k item 3: the granular capability fields. Each one is its own
+# --- The granular capability fields. Each one is its own
 # fact. Whether the content is technically visible to a (signed-in)
 # session and whether the site permits automated extraction of it are
 # never the same question -- a login answers the first, never the second.
@@ -211,7 +210,7 @@ class SourceCapabilities:
     access_method: Optional[str] = None        # the AccessTier that actually worked
     auth_supported: bool = False
     content_access_status: str = ContentAccess.UNKNOWN.value
-    # Step 23k item 3. `authentication_required` replaces the old
+    # `authentication_required` replaces the old
     # `auth_required: bool`, whose False default claimed "no login needed"
     # for a source nobody had tested -- UNKNOWN is the honest default.
     authentication_required: str = Requirement.UNKNOWN.value
@@ -241,7 +240,7 @@ class SourceCapabilities:
     @classmethod
     def from_dict(cls, d: dict) -> "SourceCapabilities":
         d = dict(d)
-        # Records stored before Step 23k carry the old boolean. Only a True
+        # Records stored before the granular fields carry the old boolean. Only a True
         # was ever an observation; False was just the default.
         if "auth_required" in d:
             legacy = d.pop("auth_required")
@@ -340,9 +339,9 @@ class AttemptRecord:
     # but it means the text here is a translation, not the source.
     machine_translated: list = field(default_factory=list)
     # How strongly the page looked like an unrendered JS shell, and why.
-    # `page_fetch.looks_like_unrendered_shell` works both out and
-    # `detect.classify` used to keep only its boolean; they are the
-    # closest thing here to "is the text really in the DOM?".
+    # `page_fetch.looks_like_unrendered_shell` works both out (not just a
+    # boolean); they are the closest thing here to "is the text really in
+    # the DOM?".
     shell_confidence: Optional[float] = None
     shell_reasons: list = field(default_factory=list)
 

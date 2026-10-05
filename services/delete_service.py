@@ -1,24 +1,19 @@
 """
-services/delete_service.py -- the PC-only deletes that had no API yet
-(migration handoff "Next queue" item 2), each doing exactly what today's
-Streamlit button does:
+services/delete_service.py -- the PC-only deletes:
 
-  - remove_media: a drama's audio/video (tabs/workspace_tab.py "Remove
-    current audio/video") -- deletes the files named by `audio_filename`
-    and `source_video_filename` and clears both fields; lines untouched.
-  - remove_raw_novel: `raw_novel_context.txt` (workspace_tab "Remove raw
-    novel context").
-  - delete_translation_version (workspace_tab "Translation versions").
-  - delete_series_character (workspace_tab "People & pronouns"): the
-    series row goes, drama characters keep their copied name.
-  - delete_preset / delete_voice_bank_entry (tabs/library_tab.py); the
-    voice-bank clip file is removed by db.delete_voice_bank_entry.
-  - clear_reading_history (tabs/library_tab.py "Clear reading history";
-    that button had no confirm, the API still asks for one).
+  - remove_media: a drama's audio/video -- deletes the files named by
+    `audio_filename` and `source_video_filename` and clears both fields;
+    lines untouched.
+  - remove_raw_novel: `raw_novel_context.txt`.
+  - delete_translation_version.
+  - delete_series_character: the series row goes, drama characters keep
+    their copied name.
+  - delete_preset / delete_voice_bank_entry; the voice-bank clip file is
+    removed by db.delete_voice_bank_entry.
+  - clear_reading_history.
 
-Every one of those Streamlit buttons is gated by a plain "Confirm"
-checkbox (no typed word), so every function here needs `confirm is True`
-and nothing more. Order, as in drama_service.delete_drama: unknown or
+Every function here needs `confirm is True` and nothing more (no typed
+word). Order, as in drama_service.delete_drama: unknown or
 foreign id -> NotFoundError; then no confirm -> InvalidInputError; then,
 for the drama-scoped file/version deletes, a running job for the drama ->
 ConflictError (drama_service.job_running_for_drama).
@@ -28,7 +23,7 @@ are documented read-only or rename-only, so the deletes live here rather
 than widening them. Results are plain dicts with ids and booleans; no
 path, filename, key or URL is ever returned.
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 import logging
 import os
@@ -40,7 +35,7 @@ from services.service_errors import ConflictError, InvalidInputError, NotFoundEr
 log = logging.getLogger(__name__)
 
 MAX_ID = 2**31 - 1
-RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # tabs/workspace_tab.py, sources/pipeline.py
+RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.py
 _MEDIA_FIELDS = ("audio_filename", "source_video_filename")
 _JOB_RUNNING = ("A job is running for this drama. Wait for it to finish or cancel it "
                 "before deleting.")
@@ -108,7 +103,7 @@ def _remove_file(path) -> bool:
 
 def remove_media(drama_id, confirm=False) -> dict:
     """Deletes the drama's audio and kept video files and clears both
-    filename fields (the tab's `db.update_drama(audio_filename=None,
+    filename fields (`db.update_drama(audio_filename=None,
     source_video_filename=None)`, a fixed field set). Lines, transcript and
     translation are untouched. 404 when neither field is set."""
     drama = _require_drama(drama_id)
@@ -212,8 +207,8 @@ def delete_voice_bank_entry(entry_id, confirm=False) -> dict:
 # ---------------------------------------------------------------------------
 
 def clear_reading_history(confirm=False) -> dict:
-    """Clears the default profile's reading history (the Library tab's
-    "Clear reading history"). Reading progress, and so the Continue
+    """Clears the default profile's reading history (the Library tools
+    page's "Clear reading history"). Reading progress, and so the Continue
     reading shelf, is kept."""
     _require_confirm(confirm, "reading history")
     removed = len(db.list_reading_history(limit=-1))

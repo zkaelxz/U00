@@ -1,13 +1,10 @@
 """
 api/routers/diarization_routes.py -- Diarize-stage endpoints for one drama
-(Phase 6's second Workspace stage, Migration Slice 16).
+(Phase 6's second Workspace stage).
 
-One config read and one job-starting action -- see
-services/diarization_service.py's own docstring for the scope decision
-(the "run diarization during alignment" checkbox and the turns-to-lines
-merge are a future Transcript/Align-stage slice's concern, not this one).
-Job status/cancel is not duplicated here: poll the started job through
-the existing GET /api/jobs/{job_id} (Migration Slice 8).
+One config read, the job-starting action, and re-labelling lines from the
+speaker turns already saved. Job status/cancel is not duplicated here: poll the started job through
+the existing GET /api/jobs/{job_id}.
 """
 
 from fastapi import APIRouter, Path, Query

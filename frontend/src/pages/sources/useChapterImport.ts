@@ -32,7 +32,7 @@ export function useChapterImport(source: string, seriesId: string, comic: boolea
     if (!dramaId || importReason(ids.length, dramaId) || running) return
     job.start(() => startChapterImport(source, { series_id: seriesId, chapter_ids: ids, drama_id: dramaId }))
   }
-  // Step 107: what's already in the drama, and "Retry failed chapters (N)":
+  // What's already in the drama, and "Retry failed chapters (N)":
   // exactly the retry ids (the server re-reads the list), at most 200 a run.
   const importState = useImportState(source, seriesId, dramaId, enabled, running)
   const retry = retryIds(importState.state, shownResult)

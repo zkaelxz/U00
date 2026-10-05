@@ -1,5 +1,5 @@
 """
-resegment.py -- meaning-based subtitle re-segmentation (Step 6c, idea from
+resegment.py -- meaning-based subtitle re-segmentation (idea from
 VideoLingo's core/_3_1_split_nlp.py and _3_2_split_meaning.py).
 
 A transcribed line's boundaries come from Whisper's voice-activity
@@ -62,7 +62,7 @@ LLM_MAX_ATTEMPTS = 3
 
 def max_line_chars(language: str) -> int:
     """A line longer than a two-line subtitle cue is "too long" -- the same
-    per-language line limits Step 6b's export wrapping uses, doubled."""
+    per-language line limits the export wrapping uses, doubled."""
     return 2 * subtitle_formats.line_char_limit(language)
 
 
@@ -319,7 +319,7 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
         for k, piece in enumerate(pieces):
             new_lines.append(Line(idx=0, start=edges[k], end=edges[k + 1], zh=piece,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                  sfx=ln.sfx))
+                                  sfx=ln.sfx, lang=ln.lang))
         changed.append((ln, pieces))
     for i, ln in enumerate(new_lines):
         ln.idx = i
@@ -327,9 +327,9 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
 
 
 def resegment_subprocess_worker(lines, language, engine, segments, chinese_script, result_queue):
-    """Step 4e: entry point for running resegment_lines() in its own OS
+    """Entry point for running resegment_lines() in its own OS
     process via background_jobs.start_process_job(), so Cancel can
-    actually stop it. Confirmed the lowest-risk of the three Step 4e
+    actually stop it. Confirmed the lowest-risk of the three
     cases to hard-stop: resegment_lines is a pure in-memory computation
     -- no DB write, no file write, anywhere in it. Its result only ever
     reaches the caller as a preview; the actual DB save happens later,

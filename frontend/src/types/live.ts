@@ -1,4 +1,4 @@
-// Hand-written mirrors of api/schemas.py (Live* models, API batch 1 L-1).
+// Hand-written mirrors of api/schemas/transcribe.py (Live* models).
 
 export type LiveStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 

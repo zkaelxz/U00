@@ -19,8 +19,8 @@ import time
 import db
 from translate_engines import redact_for_storage, safe_url
 
-# Step 23 item 3's concrete starting defaults, plus item 4's cache mode
-# and item 5's chapter-check schedule. All user-editable in Settings.
+# Concrete starting defaults, plus the cache mode
+# and the chapter-check schedule. All user-editable in Settings.
 DEFAULT_SETTINGS = {
     # Seconds between requests to one source, picked fresh at random in
     # this range for every request. Raised from 1-3s after a real live
@@ -55,18 +55,17 @@ DEFAULT_SETTINGS = {
     "demo_source_enabled": False,
     "disabled_sources": [],
     "adult_sources": [],            # sources the person opted in to adult-flagged works for
-    "extraction_diagnostics": False,  # Step 23g: always show Review Extraction + diagnostics
-    # Step 98: an HTTP(S) proxy URL (e.g. "http://127.0.0.1:8080") every
+    "extraction_diagnostics": False,  # Always show Review Extraction + diagnostics
+    # An HTTP(S) proxy URL (e.g. "http://127.0.0.1:8080") every
     # source adapter's requests go through. Empty (the default) means no
     # proxy -- direct connections, unchanged from before this setting
     # existed. HTTP(S) only, not SOCKS -- that needs the optional PySocks
     # package, which this app doesn't currently install.
     "http_proxy_url": "",
-    # Step 34: whether the browser extension's localhost endpoint runs.
+    # Whether the browser extension's localhost endpoint runs.
     # Off by default -- it opens a port, so it's opt-in, never something
-    # a fresh install starts on its own. Lives here because this is the
-    # app's only persisted settings store and the flag has to survive a
-    # restart (the sidebar's own settings are session-only by design);
+    # a fresh install starts on its own. Persisted here because the flag
+    # has to survive a restart (api/background.py reads it at startup);
     # it is not a secret, and the endpoint's token is deliberately NOT
     # stored here -- see page_server.token_path().
     "page_server_enabled": False,
@@ -85,8 +84,9 @@ BROWSER_PROFILES_DIRNAME = "profiles"
 
 
 def browser_profiles_root() -> str:
-    """Step 23k's persistent browser profiles (sign-in state). Left out of
-    library backups -- see tabs/library_tab.py."""
+    """Persistent browser profiles (sign-in state). A library restore keeps
+    the current ones rather than taking them from the upload
+    (services/workspace_job_service.restore_kept_names)."""
     return os.path.join(db.LIBRARY_DIR, BROWSER_PROFILES_DIRNAME)
 
 
@@ -431,7 +431,7 @@ def recent_attempts(source: str = None, limit: int = 50) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Tracked series, known chapters, notifications (Step 23 item 5)
+# Tracked series, known chapters, notifications
 # ---------------------------------------------------------------------------
 
 # The link owner follows the drama link: it changes only when drama_id does,
@@ -486,7 +486,7 @@ MANIFEST_STATUSES = RETRY_STATUSES + ("partial", "needs_ai")
 
 
 def record_import_retry(source: str, series_id: str, drama_id: int, pending, done_ids=()):
-    """Step 107's failed-chapter manifest for one (series, drama). `pending`
+    """The failed-chapter manifest for one (series, drama). `pending`
     is (chapter_id, title, status, error) per chapter that failed or was not
     attempted (status in MANIFEST_STATUSES; title and error already redacted by
     the caller); `done_ids` are chapters this import imported or skipped,
@@ -600,7 +600,7 @@ def untrack_series(source: str, series_id: str):
 
 def poll_validators(source: str, series_id: str, max_age: float = None) -> dict:
     """The ETag / Last-Modified the last chapter-list poll of this series
-    got for its one URL (Step 106), as conditional_poll() kwargs; {} if
+    got for its one URL, as conditional_poll() kwargs; {} if
     none, or if they were saved more than `max_age` seconds ago (a 304
     doesn't refresh them, so the list is fetched in full now and then)."""
     with connect() as conn:
@@ -646,7 +646,7 @@ def record_new_chapters(source: str, series_id: str, chapters) -> list:
     """Records chapters as known and adds one notification for each chapter
     that was not known yet. Returns the chapters actually recorded.
 
-    Idempotent, including across processes (the API and Streamlit can both
+    Idempotent, including across processes (two processes can both
     run a check): the known_chapters primary key decides, and each
     notification is inserted in the same write transaction as the
     known_chapters row it depends on, so a chapter two checks find at once
@@ -732,7 +732,7 @@ def dismiss_notification(notification_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Generic-import image memory (Step 23 item 8's cross-chapter duplicate filter)
+# Generic-import image memory (cross-chapter duplicate filter)
 # ---------------------------------------------------------------------------
 
 def remember_images(domain: str, chapter_url: str, hashes):
@@ -756,7 +756,7 @@ def hashes_seen_elsewhere(domain: str, chapter_url: str, hashes) -> set:
 
 
 # ---------------------------------------------------------------------------
-# Extraction-result cache (Step 23g item 6) -- keyed by a hash of what the
+# Extraction-result cache -- keyed by a hash of what the
 # model read, so an unchanged page never costs a second LLM call. Separate
 # from the raw-content cache (cache_index), which is about not re-fetching.
 # ---------------------------------------------------------------------------

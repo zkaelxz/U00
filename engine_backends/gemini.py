@@ -10,6 +10,7 @@ from .shared import (
     _cancellable_sleep,
     _empty_usage,
     gemini_usage,
+    read_json_capped,
     request_translations_with_retry,
 )
 
@@ -72,14 +73,15 @@ def progress_message_with_rate_status(engine, frac: float, base: str = None) -> 
 
 
 # ---------------------------------------------------------------------------
-# Gemini (Google) -- cheap, strong multilingual, OpenAI-style REST call
+# Gemini (Google) -- cheap, strong multilingual, native generateContent REST call
 # ---------------------------------------------------------------------------
 
 class GeminiEngine:
-    """Uses the plain generateContent REST endpoint with an API-key query
-    param, rather than the google-genai SDK --
-    no extra dependency needed, and it's a simple enough API that the SDK
-    doesn't buy much here."""
+    """Uses the plain generateContent REST endpoint rather than the
+    google-genai SDK -- no extra dependency needed, and it's a simple enough
+    API that the SDK doesn't buy much here. The key goes in the
+    x-goog-api-key header, never the URL, so it cannot reach logs or stored
+    error text."""
     name = "gemini"
     supports_reference = True
 
@@ -181,14 +183,14 @@ class GeminiEngine:
         def call_model(numbered):
             self._throttle_for_free_tier()
             resp = requests.post(url, headers={"x-goog-api-key": self.api_key},
-                                 json=self.build_request_body(context, numbered), timeout=120)
-            resp.raise_for_status()
-            data = resp.json()
+                                 json=self.build_request_body(context, numbered), timeout=120,
+                                 stream=True)
+            data = read_json_capped(resp, 120)
             usage = gemini_usage(data.get("usageMetadata"))
             _add_usage(self.last_usage, usage)
             if self.free_tier:
                 self._update_rate_status(resp.headers, usage)
-            # Step 31: a real safety block returns either no candidates at
+            # A real safety block returns either no candidates at
             # all (blocked before generation even started -- the reason is
             # in promptFeedback.blockReason) or a candidate whose
             # finishReason is SAFETY/PROHIBITED_CONTENT with no content --
@@ -210,7 +212,7 @@ class GeminiEngine:
 
 
 # Free-tier limits, confirmed against ai.google.dev/gemini-api/docs/rate-limits
-# in September 2026 -- Step 1d's original "~10 requests/minute on Flash" note
+# in September 2026 -- the original "~10 requests/minute on Flash" note
 # was a full year stale, didn't distinguish Flash from Flash-Lite, and didn't
 # mention the shared token ceiling at all. Three independent limits, not one.
 GEMINI_FREE_TIER_LIMITS = {

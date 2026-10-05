@@ -16,6 +16,8 @@ const OPTS = {
   qwen_asr_version: '0.0.6',
   qwen_asr_batching_available: true,
   moss_experimental: false,
+  qwen_vad_refine_timing: false,
+  mixed_languages: false,
   moss_installed: false,
 }
 
@@ -49,6 +51,13 @@ describe('asr options API', () => {
     expect(JSON.parse(String(calls[1].init?.body))).toEqual({ qwen_asr_batch_size: 4 })
   })
 
+  it('saves the mixed languages switch on its own', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const saved = await updateAsrOptions({ mixed_languages: true }, fakeFetch(200, { ...OPTS, mixed_languages: true }, calls))
+    expect(saved.mixed_languages).toBe(true)
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ mixed_languages: true })
+  })
+
   it('reads the diarization config for the device note', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     const cfg = { drama_id: 3, hf_token_configured: true, expected_speakers: null, min_speakers: null, max_speakers: null, last_device: 'cuda', audio_available: true }
@@ -59,8 +68,8 @@ describe('asr options API', () => {
 
 describe('asrBackendOptions (Step 104)', () => {
   it('offers MOSS only while the experimental toggle is on', () => {
-    expect(asrBackendOptions(false)).toEqual(['whisper', 'qwen3_asr'])
-    expect(asrBackendOptions(true)).toEqual(['whisper', 'qwen3_asr', 'moss_td'])
+    expect(asrBackendOptions(false)).toEqual(['whisper', 'qwen3_asr', 'qwen3_asr_vad'])
+    expect(asrBackendOptions(true)).toEqual(['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'moss_td'])
   })
 })
 

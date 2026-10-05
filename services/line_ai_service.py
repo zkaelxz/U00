@@ -1,18 +1,18 @@
 """
-services/line_ai_service.py -- Migration Slice 50: the two per-line AI
-helpers from the Review tab's line popover, "Improve translation" and
-"Why this?". Streamlit-free; plain dicts in and out.
+services/line_ai_service.py -- the two per-line AI
+helpers from the Review line popover, "Improve translation" and
+"Why this?". Plain dicts in and out.
 
-Both are synchronous single-line LLM calls (like the tab's spinner calls,
-not background jobs) and NEVER write: improve returns a suggestion and the
-caller applies it through the Slice 43 field-scoped compare-and-set line
+Both are synchronous single-line LLM calls (not background jobs) and NEVER
+write: improve returns a suggestion and the
+caller applies it through the field-scoped compare-and-set line
 patch. The line is looked up by permanent `Line.id`; the text sent to the
 model is the line's stored zh/en, not client-supplied text. Keys are
 resolved server-side (never accepted or returned), and any engine failure
 message is passed through `translate_engines.redact_secrets`. The prompts
 are `line_tools.improve_line` / `explain_translation`, reused unchanged;
 the drama's glossary, style guidelines and character gender hints are fed
-in as the translate run does (the tab passes only the source language).
+in as the translate run does.
 Not supported by the helpers, so not applied: the English-variant locale.
 
 Also here (review parity R17/R18): "Alternatives" (other valid renderings,
@@ -39,7 +39,7 @@ def _drama_tool_engine(drama: dict) -> str:
     """The drama's own translation engine when it can follow instructions;
     otherwise (none saved, a translation-only engine such as NLLB, or one that
     was removed) the
-    engine Settings picks for line helpers (Step 36 capability
+    engine Settings picks for line helpers (capability
     "llm.instructions"). Configuration only: never a switch on failure."""
     own = drama.get("translation_engine")
     if (own in translate_engines.ENGINES
@@ -137,7 +137,7 @@ def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: st
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
                                          gemini_free_tier)
     preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
-    # Same builder as a translate run (B-20), so the line's emotion guidance
+    # Same builder as a translate run, so the line's emotion guidance
     # is included too.
     _glossary, guidelines, _names = workspace_job_service.build_run_style_context(
         drama_id, drama, [line], preset)

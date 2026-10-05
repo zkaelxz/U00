@@ -5,8 +5,7 @@ api/routers/delete_routes.py -- the PC-only deletes that had no API yet
 
 Every route is a POST, declared `local_only()` (deletes are PC-only, see
 docs/remote-access-decision.md), and needs `{"confirm": true}` in the body
-(422 otherwise), matching the Streamlit Confirm checkbox each one had. No
-typed confirmation word: none of these buttons asked for one. The paths sit
+(422 otherwise). No typed confirmation word. The paths sit
 under the prefix of the resource they delete; they live in their own router
 so the owning routers stay unchanged.
 """

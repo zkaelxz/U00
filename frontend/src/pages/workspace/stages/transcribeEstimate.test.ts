@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { diarizeEstimate, etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, roughDuration, roughRange, transcribeEstimate, whisperEstimateSeconds } from './transcribeEstimate'
+import { diarizeEstimate, etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, measuredRunSeconds, roughDuration, roughRange, transcribeEstimate, whisperEstimateSeconds } from './transcribeEstimate'
 
 const base = { audioSeconds: 3600, whisperSize: 'large-v3', useGpu: false, useGroq: false, detectSpeakers: false }
 
@@ -46,6 +46,45 @@ describe('whisperEstimateSeconds', () => {
     expect(whisperEstimateSeconds({ ...base, measuredSpeed: -1 })).toEqual({ low_s: 5400, high_s: 14400 })
     expect(whisperEstimateSeconds({ ...base, whisperSize: 'custom', measuredSpeed: 2 })).not.toBeNull()
   })
+  it('the median of several runs narrows the range around the same time', () => {
+    const one = whisperEstimateSeconds({ ...base, measuredSpeed: 2, measuredRuns: 1 })!
+    const many = whisperEstimateSeconds({ ...base, measuredSpeed: 2, measuredRuns: 5 })!
+    expect(many.low_s).toBeGreaterThan(one.low_s)
+    expect(many.high_s).toBeLessThan(one.high_s)
+    expect(many.low_s).toBeLessThan(1800)
+    expect(many.high_s).toBeGreaterThan(1800)
+  })
+})
+
+describe('stage medians', () => {
+  const measured = { ...base, measuredSpeed: 2, measuredRuns: 5 } // 1800 s of Whisper work
+  const stages = { load: 60, decode_vad: 40, separate: 300, align: 100 }
+  it('adds load and decode, but separation and alignment only when the run has them', () => {
+    expect(measuredRunSeconds({ ...measured, measuredStages: stages })).toBe(1900)
+    expect(measuredRunSeconds({ ...measured, measuredStages: stages, separateVocals: true })).toBe(2200)
+    expect(measuredRunSeconds({ ...measured, measuredStages: stages, separateVocals: true, realignLong: true })).toBe(2300)
+  })
+  it('an older server with no stage medians gives the speed alone', () => {
+    expect(measuredRunSeconds(measured)).toBe(1800)
+    expect(measuredRunSeconds({ ...measured, measuredStages: {} })).toBe(1800)
+  })
+  it('has no measured time without a usable speed', () => {
+    expect(measuredRunSeconds({ ...base, measuredStages: stages })).toBeNull()
+  })
+})
+
+describe('measured speaker detection', () => {
+  it('uses the recorded speed once there is one, with the runs wording', () => {
+    expect(diarizeEstimate(3600)).toBe('Takes approx. 1 h to 2 h.')
+    expect(diarizeEstimate(3600, 4, 3)).toBe('Takes approx. 14 min to 17 min, based on your last 3 runs.')
+  })
+  it('falls back to the fixed range without a speed', () => {
+    expect(diarizeEstimate(3600, null, 1)).toBe(diarizeEstimate(3600))
+  })
+  it('feeds the transcribe caption too', () => {
+    const text = transcribeEstimate({ ...base, detectSpeakers: true, measuredDiarizeSpeed: 4, measuredDiarizeRuns: 3 })!
+    expect(text).toContain('plus 14 min to 17 min to detect speakers')
+  })
 })
 
 describe('transcribeEstimate', () => {
@@ -64,6 +103,7 @@ describe('transcribeEstimate', () => {
   })
   it('says when it is based on the last run', () => {
     expect(transcribeEstimate({ ...base, measuredSpeed: 2 })).toContain('based on your last run')
+    expect(transcribeEstimate({ ...base, measuredSpeed: 2, measuredRuns: 4 })).toContain('based on your last 4 runs')
   })
   it('gives nothing without a duration, for an unknown model or for a Groq (cloud) run', () => {
     expect(transcribeEstimate({ ...base, audioSeconds: null })).toBeNull()
@@ -88,6 +128,15 @@ describe('liveEtaSeconds', () => {
     expect(liveEtaSeconds(steady(3), 25)).toBeNull()
     expect(liveEtaSeconds(steady(1), 100)).toBeNull()
     expect(liveEtaSeconds([], 100)).toBeNull()
+  })
+  it('uses the recorded-speed prior only before the live readings settle', () => {
+    // 3600 s expected, 2% done: about 3528 s left, instead of nothing.
+    expect(liveEtaSeconds([{ t: 0, p: 0.02 }], 10, 3600)).toBeCloseTo(3528)
+    expect(liveEtaSeconds(steady(3), 25, 3600)).not.toBeNull()
+    expect(liveEtaSeconds([], 10, 3600)).toBeNull()
+    expect(liveEtaSeconds([{ t: 0, p: 0.02 }], 10, null)).toBeNull()
+    // Steady readings win over the prior.
+    expect(liveEtaSeconds(steady(6), 50, 100000)).toBe(liveEtaSeconds(steady(6), 50))
   })
   it('extrapolates from time since the first percent and the progress made since', () => {
     const left = liveEtaSeconds(steady(6), 50)! // p=0.10 at t=50: 5 points per 50 s

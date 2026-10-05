@@ -676,17 +676,6 @@ class TestCheckEngineReachable:
         assert result["ok"] is False
         assert "empty" in result["error"].lower()
 
-    def test_doctor_report_checks_a_batch_of_engines(self, monkeypatch):
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "standalone_translate",
-                            lambda text, engine, *a, **k: f"[{engine.name}] ok")
-        results = diagnostics.doctor_report([
-            {"engine": "fake"},
-            {"engine": "claude", "api_key": "sk-x"},
-        ])
-        assert [r["engine"] for r in results] == ["fake", "claude"]
-        assert all(r["ok"] for r in results)
-
 
 class TestDependencyVersionCheck:
     """Step 27: 'is this outdated' + Upgrade. Like the pyannote check
@@ -704,10 +693,13 @@ class TestDependencyVersionCheck:
     def test_get_latest_pypi_version_parses_a_successful_response(self, monkeypatch):
         class FakeResp:
             status_code = 200
-            def json(self):
-                return {"info": {"version": "9.9.9"}}
+            headers = {}
+            def iter_content(self, size):
+                yield b'{"info": {"version": "9.9.9"}}'
+            def close(self):
+                pass
         captured = {}
-        def fake_get(url, timeout=None):
+        def fake_get(url, timeout=None, stream=False, allow_redirects=True):
             captured["url"], captured["timeout"] = url, timeout
             return FakeResp()
         monkeypatch.setattr("requests.get", fake_get)
@@ -718,11 +710,29 @@ class TestDependencyVersionCheck:
     def test_get_latest_pypi_version_returns_none_on_404(self, monkeypatch):
         class FakeResp:
             status_code = 404
-        monkeypatch.setattr("requests.get", lambda url, timeout=None: FakeResp())
+            def close(self):
+                pass
+        monkeypatch.setattr("requests.get", lambda url, timeout=None, **kw: FakeResp())
         assert diagnostics.get_latest_pypi_version("no-such-package") is None
 
+    def test_get_latest_pypi_version_gives_up_on_an_oversized_body(self, monkeypatch):
+        closed = []
+
+        class FakeResp:
+            status_code = 200
+            headers = {}
+            def iter_content(self, size):
+                while True:             # a server that never stops
+                    yield b"x" * size
+            def close(self):
+                closed.append(True)
+        monkeypatch.setattr(diagnostics, "PYPI_JSON_MAX_BYTES", 1000)
+        monkeypatch.setattr("requests.get", lambda url, timeout=None, **kw: FakeResp())
+        assert diagnostics.get_latest_pypi_version("somepkg") is None
+        assert closed
+
     def test_get_latest_pypi_version_returns_none_on_network_error(self, monkeypatch):
-        def boom(url, timeout=None):
+        def boom(url, timeout=None, **kw):
             raise ConnectionError("no network")
         monkeypatch.setattr("requests.get", boom)
         assert diagnostics.get_latest_pypi_version("somepkg") is None

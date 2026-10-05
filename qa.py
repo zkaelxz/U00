@@ -6,7 +6,8 @@ for proofing continuity and catching context you might have missed --
 not a general chatbot, it only knows what's in the lines you give it.
 """
 
-from translate_engines import call_with_backoff, GeminiEngine, OllamaEngine, OpenAIEngine, estimate_ollama_num_ctx
+from translate_engines import (call_with_backoff, GeminiEngine, OllamaEngine, OpenAIEngine,
+                               estimate_ollama_num_ctx, read_json_capped)
 
 
 def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: int = 300,
@@ -47,7 +48,7 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
 
 def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 1000) -> str:
     """Shared multi-engine chat dispatch, factored out of ask_about_drama
-    so app_help.ask_about_app (Step 18b) can reuse the exact same
+    so services/maintenance_assistant_service.py can reuse the exact same
     Claude/OpenAI-shaped/Gemini/Ollama request handling -- only the
     system_prompt/grounding differs per caller, the dispatch mechanics
     (auth shape, free-tier throttling, Ollama's num_ctx estimate) don't."""
@@ -80,10 +81,11 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
         resp = call_with_backoff(lambda: requests.post(
             url, headers={"x-goog-api-key": engine.api_key},
             json={"systemInstruction": {"parts": [{"text": system_prompt}]},
-                  "contents": [{"parts": [{"text": history_text}]}]}, timeout=120))
-        resp.raise_for_status()
+                  "contents": [{"parts": [{"text": history_text}]}]}, timeout=120,
+            stream=True))
+        data = read_json_capped(resp, 120)
         try:
-            return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
         except (KeyError, IndexError):
             return "This engine doesn't support chat-style Q&A."
     if isinstance(engine, OpenAIEngine):
@@ -104,7 +106,6 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
             ],
             "stream": False,
             "options": {"num_ctx": estimate_ollama_num_ctx(system_prompt, history_text)},
-        }, timeout=300))
-        resp.raise_for_status()
-        return resp.json()["message"]["content"].strip()
+        }, timeout=300, stream=True))
+        return read_json_capped(resp, 300)["message"]["content"].strip()
     return "This engine doesn't support chat-style Q&A."
