@@ -70,6 +70,6 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
   .app-rail nav a, .rail-toggle, .rail-brand a { min-height: 44px; }
 }
 /* Drawer rows are 44px wherever it opens, touch or not (it only exists below 1024px). */
-.nav-drawer nav a { min-height: 44px; }
+.nav-drawer nav a, .nav-drawer nav a.rail-title { min-height: 44px; }
 :is(.app-rail, .nav-drawer) .rail-badge { margin-left: auto; }
 .app-rail[data-collapsed='true'] .rail-badge { display: none; }

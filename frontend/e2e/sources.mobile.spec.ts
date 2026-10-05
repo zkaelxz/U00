@@ -145,6 +145,8 @@ test('phone: every drawer link is inside the viewport at 360 and 390 px', async 
       expect(box.height).toBeGreaterThanOrEqual(44)
     }
     await noSideways(page)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Main menu' })).toBeHidden()
   }
   expect(s.unmocked).toEqual([])
 })

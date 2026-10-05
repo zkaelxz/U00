@@ -18,6 +18,8 @@ export const navLink = (page: Page, name: string): Locator =>
 
 // Opens the drawer when there is a Menu button (below 1024px); a no-op beside the always-visible rail.
 export async function openMenu(page: Page) {
+  // The header (and with it the Menu button) only renders once the session has answered.
+  await page.locator('.app-header').waitFor()
   const button = page.getByRole('button', { name: 'Menu', exact: true })
   if ((await button.count()) === 0) return
   if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click()
