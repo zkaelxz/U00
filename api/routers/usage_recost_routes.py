@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/settings/usage-recost", tags=["settings"])
 
 
 @router.get("", dependencies=[require_permission("admin.settings")], response_model=UsageRecostPreview,
-            summary="Preview re-costing past usage rows for models without a listed price (writes nothing)")
+            summary="Preview re-costing past usage rows for the reviewed list of mis-costed models (writes nothing)")
 def preview_recost():
     return usage_recost_service.preview()
 
@@ -27,7 +27,7 @@ def preview_recost():
              summary="PC only: re-cost past usage rows (needs confirm=true; Undo restores them)",
              responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def apply_recost(body: UsageRecostApplyRequest):
-    return usage_recost_service.apply(body.confirm, body.previewed)
+    return usage_recost_service.apply(body.confirm, body.previewed, body.fingerprint)
 
 
 @router.post("/undo", dependencies=[local_only()], response_model=UsageRecostResult,

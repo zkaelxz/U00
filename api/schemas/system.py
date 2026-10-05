@@ -956,19 +956,25 @@ class UsageRecostPreview(BaseModel):
     month_recomputed_usd: float
     # Rows a re-cost already replaced, which Undo can put back.
     recosted_rows: int
+    # Digest of the exact (row, new cost) set; apply refuses a different set
+    # even when it has the same number of rows.
+    fingerprint: str
 
 
 class UsageRecostApplyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
-    # Rows the user saw in the preview; a different count now means 409.
-    previewed: Optional[int] = Field(default=None, ge=0)
+    # What the user saw in the preview; a different count or set now means 409.
+    previewed: int = Field(ge=0)
+    fingerprint: str = Field(min_length=1, max_length=64)
 
 
 class UsageRecostResult(BaseModel):
     """POST apply or undo: rows written and this month's logged spend after."""
     rows: int
     month_spend_usd: float
+    # Rows holding a replaced cost after this call, so a client need not accumulate.
+    recosted_rows: int
     # Apply only: the previewed count the client sent and rows actually changed.
     previewed: Optional[int] = None
     changed: Optional[int] = None

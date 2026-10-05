@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 
 import { applyUsageRecost, getUsageRecost, recostSummary, undoUsageRecost, usd, type UsageRecostPreview } from '../../api/usageRecost'
+import { ApiError } from '../../api/client'
 import { getPcMode, loadPcMode } from '../../api/pcOnly'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -69,9 +70,17 @@ function Controls() {
 
   const apply = () =>
     run(async () => {
-      const r = await applyUsageRecost(preview?.rows ?? 0)
+      if (!preview) return
+      let r
+      try {
+        r = await applyUsageRecost(preview)
+      } catch (e) {
+        // The set changed (409): the old numbers must not stay applicable.
+        if (e instanceof ApiError && e.status === 409) setPreview(null)
+        throw e
+      }
       setPreview(null)
-      setRecosted((n) => n + r.rows)
+      setRecosted(r.recosted_rows)
       setResult(`Re-costed ${r.rows} ${r.rows === 1 ? 'entry' : 'entries'}. This month now shows ${usd(r.month_spend_usd)}.`)
     })
 
@@ -79,7 +88,7 @@ function Controls() {
     run(async () => {
       const r = await undoUsageRecost()
       setPreview(null)
-      setRecosted(0)
+      setRecosted(r.recosted_rows)
       setResult(`Restored ${r.rows} ${r.rows === 1 ? 'entry' : 'entries'}. This month now shows ${usd(r.month_spend_usd)}.`)
     })
 
