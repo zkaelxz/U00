@@ -46,7 +46,7 @@ test('from another device: PC only, no nav link, no Settings card', async ({ pag
   await expect(gearLink(page, 'Assistant')).toHaveCount(0)
   await page.goto('/#/settings')
   await openSettingsGroups(page)
-  await expect(page.getByRole('region', { name: 'Jobs' })).toBeVisible()
+  await expect(page.locator('#settings-jobs')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Developer Mode' })).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })

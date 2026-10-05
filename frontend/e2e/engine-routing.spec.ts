@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
+import { openSettingsGroups } from './settingsNav'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -18,6 +19,7 @@ const saved = (page: Page) =>
 test('choose an engine for a task, see it persist, and test the offline engine', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   await expect(card(page)).toBeVisible()
   await expect(card(page).getByText(/one short real call/)).toBeVisible()
 
@@ -26,6 +28,7 @@ test('choose an engine for a task, see it persist, and test the offline engine',
   await Promise.all([saved(page), task(page).selectOption('deepseek')])
   await expect(task(page)).toHaveValue('deepseek')
   await page.reload()
+  await openSettingsGroups(page)
   await expect(task(page)).toHaveValue('deepseek')
   await Promise.all([saved(page), task(page).selectOption('')])
   await expect(task(page)).toHaveValue('')
@@ -50,6 +53,7 @@ test('choose an engine for a task, see it persist, and test the offline engine',
 test('the card fits a phone with 44px controls', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   await expect(task(page)).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   for (const el of [task(page), card(page).getByRole('button', { name: 'Test Fake' })]) {
@@ -67,6 +71,7 @@ test('a refused change rolls the choice back and says it is PC only', async ({ p
     }),
   )
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   await expect(task(page)).toHaveValue('')
   await task(page).selectOption('deepseek')
   await expect(card(page).getByText('This only works on the main PC.')).toBeVisible()
@@ -91,6 +96,7 @@ test('a failed Ollama test shows a plain summary with the raw error under Detail
     })
   })
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const row = page.getByTestId('engine-ollama')
   await row.getByRole('button', { name: /^Test / }).click()
   await expect(row.getByText(/isn't running.*ollama\.com/)).toBeVisible()
