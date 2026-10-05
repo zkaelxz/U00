@@ -12,8 +12,9 @@
  */
 import { useState, type ReactNode } from 'react'
 
-import { clearEndpointUrl, setEndpointUrl, updatePreferences } from '../../api/settings'
+import { clearEndpointUrl, resetMonthCounter, setEndpointUrl, undoMonthCounterReset, updatePreferences } from '../../api/settings'
 import { Card } from '../../components/Card'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { humanize, humanizeValue } from '../../components/labels'
@@ -109,9 +110,69 @@ export function SpendingCard(props: Props) {
               ? `Cap in effect: $${settings.effective_monthly_cap_usd.toFixed(2)} a month.`
               : 'No monthly cap in effect.'}
           </p>
+          <MonthCounter {...props} remote={common.remote} />
         </>
       )}
     </PrefsSection>
+  )
+}
+
+// Outside the preferences form: the reset is its own PC-only action, not a saved field.
+function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolean }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const cap = settings.effective_monthly_cap_usd
+  const run = (work: typeof resetMonthCounter) => {
+    setBusy(true)
+    setError(null)
+    work().then(
+      (r) => {
+        onSettings({ ...settings, ...r.after })
+        setBusy(false)
+      },
+      (e: unknown) => {
+        setError(e)
+        setBusy(false)
+      },
+    )
+  }
+  const resetAt = settings.month_spend_reset_at
+  return (
+    <div data-testid="month-counter">
+      <p data-testid="month-spend">
+        This month: ${settings.month_spend_usd.toFixed(2)}
+        {resetAt ? `, counted toward the cap since reset: $${settings.month_spend_counted_usd.toFixed(2)}` : ''}
+      </p>
+      {resetAt ? (
+        <p className="muted" data-testid="month-reset-at">
+          Counter reset on {new Date(resetAt + 'Z').toLocaleString()}.
+        </p>
+      ) : null}
+      {error ? <ErrorBanner error={error} /> : null}
+      {remote ? null : (
+        <div className="actions">
+          <ConfirmButton
+            name="this month's counter"
+            label="Reset this month's counter…"
+            verb="reset"
+            tone="primary"
+            busy={busy}
+            onConfirm={() => run(resetMonthCounter)}
+          />
+          {resetAt ? (
+            <button type="button" className="link" disabled={busy} onClick={() => run(undoMonthCounterReset)}>
+              Undo reset
+            </button>
+          ) : null}
+        </div>
+      )}
+      {remote ? null : (
+        <p className="muted">
+          Keeps your history, starts counting from now.{' '}
+          {cap > 0 ? `The cap stays at $${cap.toFixed(2)}.` : 'No cap is set.'}
+        </p>
+      )}
+    </div>
   )
 }
 

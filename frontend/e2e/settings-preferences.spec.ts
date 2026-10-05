@@ -40,6 +40,9 @@ function overview() {
     endpoints: { ollama_url: null as string | null, gpt_sovits_url: null },
     monthly_cap_env_usd: 0,
     effective_monthly_cap_usd: 0,
+    month_spend_usd: 0,
+    month_spend_counted_usd: 0,
+    month_spend_reset_at: null as string | null,
     choices: {
       engines: ['claude', 'deepseek', 'gemini', 'ollama'],
       locales: ['en-US', 'en-GB', 'en-AU'],

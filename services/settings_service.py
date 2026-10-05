@@ -8,6 +8,7 @@ resolve_key() is for server-side use (e.g. the translate route) --
 never return its result over an HTTP response. key_status() and
 get_settings_overview() are what an API route may expose: booleans only.
 """
+import datetime
 import os
 import sqlite3
 import threading
@@ -216,6 +217,7 @@ def get_settings_overview(env_path: str = None) -> dict:
         "endpoints": endpoint_values(env_path),
         "monthly_cap_env_usd": _parse_cap(resolve_key("monthly_cap_usd", env_path)),
         "effective_monthly_cap_usd": get_monthly_cap_usd(env_path),
+        **month_spend_status(),
         "choices": preference_choices(),
     }
 
@@ -440,6 +442,31 @@ def get_monthly_cap_usd(env_path: str = None) -> float:
     if saved is not None:
         return float(saved)
     return _parse_cap(resolve_key("monthly_cap_usd", env_path))
+
+
+def month_spend_status() -> dict:
+    """Numbers and a timestamp only: the full month's logged spend, what the
+    cap counts (since an active reset), and when that reset was made."""
+    import db
+    return {"month_spend_usd": db.get_month_spend(since_reset=False),
+            "month_spend_counted_usd": db.get_month_spend(),
+            "month_spend_reset_at": db.get_month_spend_reset_at()}
+
+
+def reset_month_counter() -> dict:
+    """Start counting the monthly cap from now. Usage rows are kept; Undo
+    clears the marker."""
+    import db
+    before = month_spend_status()
+    db.set_app_setting(db.MONTHLY_SPEND_RESET_KEY, datetime.datetime.utcnow().isoformat())
+    return {"before": before, "after": month_spend_status()}
+
+
+def undo_month_counter_reset() -> dict:
+    import db
+    before = month_spend_status()
+    db.set_app_setting(db.MONTHLY_SPEND_RESET_KEY, None)
+    return {"before": before, "after": month_spend_status()}
 
 
 def get_default_engine() -> str:
