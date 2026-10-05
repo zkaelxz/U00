@@ -1,0 +1,43 @@
+/* The phone and tablet drawer (nav/NavDrawer.tsx); the links reuse the rail's group styles in sideNav.css. */
+html.nav-locked { overflow: hidden; }
+
+button.menu-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0; background: none; border-color: transparent; color: var(--muted); }
+button.menu-btn:hover { color: var(--text); }
+
+dialog.nav-drawer {
+  margin: 0;
+  padding: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  width: min(20rem, 85vw);
+  max-width: 85vw;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+dialog.nav-drawer::backdrop { background: color-mix(in srgb, black 45%, transparent); }
+/* Fade only, as Sheet does: a transform would move the links under a tap that lands while it opens. */
+@keyframes nav-drawer-in { from { opacity: 0; } }
+dialog.nav-drawer[open] { animation: nav-drawer-in var(--dur-3) var(--ease); }
+dialog.nav-drawer[open]::backdrop { animation: nav-drawer-in var(--dur-3) var(--ease); }
+@media (prefers-reduced-motion: reduce) {
+  dialog.nav-drawer[open], dialog.nav-drawer[open]::backdrop { animation: none; }
+}
+
+.nav-drawer-body {
+  display: grid;
+  gap: var(--space-2);
+  padding: calc(var(--space-3) + env(safe-area-inset-top, 0px)) var(--space-2) calc(var(--space-4) + env(safe-area-inset-bottom, 0px)) calc(var(--space-2) + env(safe-area-inset-left, 0px));
+}
+.nav-drawer-head { display: flex; align-items: center; gap: var(--space-2); }
+.nav-drawer-brand { flex: 1 1 auto; min-width: 0; padding: 0 var(--space-2); font-size: var(--text-lg); font-weight: 700; color: var(--text); text-decoration: none; }
+button.nav-drawer-close { min-width: 44px; min-height: 44px; padding: 0; font-size: var(--text-xl); line-height: 1; background: none; border-color: transparent; }
+.nav-drawer nav { display: grid; gap: var(--space-3); align-content: start; }
+
+/* Menu button, brand, then the icon group pushed to the far end (the header's default space-between would centre the brand). */
+.app-header:has(> .menu-btn) { justify-content: flex-start; }
+.app-header:has(> .menu-btn) > .header-end { margin-left: auto; }

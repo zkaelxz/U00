@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockAssistant } from './assistantMocks'
-import { gearLink, openGear } from './settingsNav'
+import { navLink, openMenu } from './settingsNav'
 import { installHitArea } from './hitArea'
 
 test.beforeEach(async ({ page }) => {
@@ -36,8 +36,9 @@ async function tallTargets(page: Page) {
 test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true })
   await page.goto('/#/assistant')
-  await openGear(page)
-  await expect(gearLink(page, 'Assistant')).toBeVisible()
+  await openMenu(page)
+  await expect(navLink(page, 'Assistant')).toBeVisible()
+  await page.keyboard.press('Escape') // the open drawer makes the page inert
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
   await chat.getByRole('textbox', { name: 'Question' }).fill('Why does dub skip lines?')
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
@@ -64,7 +65,7 @@ test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', a
 test('phone: mode off shows only the Settings link', async ({ page }) => {
   await mockAssistant(page)
   await page.goto('/#/assistant')
-  await expect(gearLink(page, 'Assistant')).toHaveCount(0)
+  await expect(navLink(page, 'Assistant')).toHaveCount(0)
   const link = page.getByRole('link', { name: 'Turn on in Settings' })
   await expect(link).toBeVisible()
   await noSideways(page)
