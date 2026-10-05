@@ -25,6 +25,11 @@ const personas: Record<string, NavContext> = {
     pcMode: 'remote',
     developerMode: false,
   },
+  'member with admin.diagnostics': {
+    session: meOf({ user: { ...owner, is_admin: false, is_local_owner: false }, permissions: [...MEMBER_PERMISSIONS, 'admin.diagnostics'] }),
+    pcMode: 'remote',
+    developerMode: false,
+  },
   'remote admin': {
     session: meOf({ user: { ...owner, is_local_owner: false }, permissions: [...MEMBER_PERMISSIONS, 'admin.users.read', 'admin.diagnostics', 'admin.settings'] }),
     pcMode: 'remote',
@@ -42,9 +47,13 @@ describe('nav registry shows what the header and gear showed before it existed',
     expect(labels('gear', personas['owner at the PC'])).toEqual(['Jobs', 'Settings', 'Admin', 'Diagnostics'])
   })
 
-  it('household member: no Admin; Diagnostics still listed (its page refuses)', () => {
+  it('household member: no Admin, no Diagnostics', () => {
     expect(labels('header', personas['household member'])).toEqual(HEADER)
-    expect(labels('gear', personas['household member'])).toEqual(['Jobs', 'Settings', 'Diagnostics'])
+    expect(labels('gear', personas['household member'])).toEqual(['Jobs', 'Settings'])
+  })
+
+  it('member holding admin.diagnostics: Diagnostics without Admin', () => {
+    expect(labels('gear', personas['member with admin.diagnostics'])).toEqual(['Jobs', 'Settings', 'Diagnostics'])
   })
 
   it('remote admin: Admin and Diagnostics, no Assistant', () => {
@@ -57,9 +66,9 @@ describe('nav registry shows what the header and gear showed before it existed',
     expect(labels('gear', ctx)).toEqual(['Jobs', 'Settings', 'Admin', 'Diagnostics'])
   })
 
-  it('session still loading: no Admin', () => {
+  it('session still loading: no Admin or Diagnostics', () => {
     const ctx: NavContext = { session: { status: 'loading' }, pcMode: 'unknown', developerMode: false }
-    expect(labels('gear', ctx)).toEqual(['Jobs', 'Settings', 'Diagnostics'])
+    expect(labels('gear', ctx)).toEqual(['Jobs', 'Settings'])
   })
 })
 
@@ -82,11 +91,12 @@ describe('registry data', () => {
     expect(new Set(l).size).toBe(l.length)
   })
 
-  it('records the permissions D6 asks about without hiding by them', () => {
+  it('hides Diagnostics and Benchmark Lab by admin.diagnostics', () => {
     const by = Object.fromEntries(NAV_ITEMS.map((i) => [i.label, i]))
     expect(by['Diagnostics'].requires).toBe('admin.diagnostics')
     expect(by['Benchmark Lab'].requires).toBe('admin.diagnostics')
-    expect(by['Diagnostics'].hideWithoutPermission).toBe(false)
+    expect(by['Diagnostics'].hideWithoutPermission).toBe(true)
+    expect(by['Benchmark Lab'].hideWithoutPermission).toBe(true)
     expect(by['Benchmark Lab'].surface).toBe('none')
   })
 })
@@ -102,16 +112,25 @@ describe('left rail', () => {
     expect(visibleRailGroups(owner).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Saved manga', 'Library tools']],
       ['Find and add', ['Sources', 'Discover']],
-      ['Tools', ['Translate text', 'Live', 'Jobs']],
-      ['System', ['Settings', 'Admin', 'Diagnostics', 'Benchmark Lab']],
+      ['Tools', ['Translate text', 'Live']],
+      ['System', ['Jobs', 'Settings', 'Admin', 'Diagnostics', 'Benchmark Lab']],
     ])
   })
 
-  it('household member: no Admin; Diagnostics and Benchmark Lab stay as the gear shows them today', () => {
+  it('household member: no Admin, Diagnostics or Benchmark Lab', () => {
     const labelsOf = railLabels(personas['household member'])
+    expect(labelsOf).toEqual(['Library', 'Saved manga', 'Library tools', 'Sources', 'Discover', 'Translate text', 'Live', 'Jobs', 'Settings'])
+  })
+
+  it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab but not Admin', () => {
+    const labelsOf = railLabels(personas['member with admin.diagnostics'])
+    expect(labelsOf).toEqual(expect.arrayContaining(['Diagnostics', 'Benchmark Lab']))
     expect(labelsOf).not.toContain('Admin')
-    expect(labelsOf).toContain('Diagnostics')
-    expect(labelsOf).not.toContain('Assistant')
+  })
+
+  it('the PC without sign-in sees every page', () => {
+    const ctx: NavContext = { session: { status: 'unavailable' }, pcMode: 'local', developerMode: false }
+    expect(railLabels(ctx)).toEqual(expect.arrayContaining(['Admin', 'Diagnostics', 'Benchmark Lab', 'Jobs']))
   })
 
   it('Assistant appears only on the PC in Developer Mode', () => {
