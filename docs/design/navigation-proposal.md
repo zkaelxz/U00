@@ -123,7 +123,7 @@ Design rules applied throughout: 32 px controls on desktop and 44 px on touch (`
 
 | Width | Behaviour |
 |---|---|
-| ≥ 1024 px | Rail, 15rem wide, with a collapse control that shrinks it to an icon rail (`title` plus visible tooltip text on focus). Remembered per viewer (`usePersistedState`, guideline 12). Content keeps the existing 1200 px cap, so the rail adds width rather than squeezing pages. |
+| ≥ 1024 px | Rail, 15rem wide, with a collapse control that shrinks it to an icon rail (`title` plus visible tooltip text on focus). Remembered per viewer (`usePersistedState`, guideline 12). Content keeps the existing 1200 px cap, so the rail adds width rather than squeezing pages. With no saved choice the rail starts collapsed below 1280 px and expanded from 1280 px up, following the viewport across that width; a saved choice wins at every width. |
 | 641-1023 px | Icon rail (collapsed form), expanding as an overlay on tap. |
 | ≤ 640 px | No rail. A "Menu" button (44 px) in the header opens the same list in the existing `Sheet` as a full-height drawer. Closes on choosing an item, on Esc and on the backdrop. The 3 by 2 nav grid in the header goes away. |
 

@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import type { AuthUser } from './api/auth'
 import { api } from './api/client'
 import { useMediaQuery } from './hooks/useMediaQuery'
-import { usePersistedState } from './hooks/usePersistedState'
 import { useDetailsMenu } from './hooks/useDetailsMenu'
 import { JobsProvider } from './hooks/JobsProvider'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
@@ -33,8 +32,8 @@ import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
 import { NavDrawer } from './nav/NavDrawer'
-import { RAIL_COLLAPSED_KEY } from './nav/navItems'
 import { SideNav } from './nav/SideNav'
+import { useRailCollapsed } from './nav/useRailCollapsed'
 import { ReportProblemButton } from './report/ReportProblem'
 import { usePcOnly } from './hooks/usePcOnly'
 import { routeHref, useRoute } from './router'
@@ -114,7 +113,7 @@ export default function App() {
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
   const wide = useMediaQuery('(min-width: 1024px)')
-  const [railCollapsed, setRailCollapsed] = usePersistedState(RAIL_COLLAPSED_KEY, false)
+  const [railCollapsed, toggleRail] = useRailCollapsed()
 
   if (view === 'connecting') {
     return (
@@ -181,7 +180,7 @@ export default function App() {
   return (
     <JobsProvider>
       <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
-        {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={() => setRailCollapsed(!railCollapsed)} />}
+        {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={toggleRail} />}
         <div className="app-main" data-width={WIDE_ROUTES.has(route.name) ? 'wide' : undefined}>
           {wide ? (
             <header className="app-header">{headerEnd}</header>

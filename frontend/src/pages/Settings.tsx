@@ -54,19 +54,18 @@ const FOLD_LABEL: Record<FoldId, string> = {
   experimental: 'Experimental & developer',
 }
 
-// One collapsible group. The jump links must not touch location.hash: the app routes on it.
+// One collapsible group. It has no storageKey so every visit starts closed. The jump links must
+// not touch location.hash: the app routes on it.
 function Fold({
   id,
   signals,
   summary,
-  defaultOpen,
   single,
   children,
 }: {
   id: FoldId
   signals: Record<string, number>
   summary: string
-  defaultOpen?: boolean
   single?: boolean
   children: ReactNode
 }) {
@@ -75,8 +74,6 @@ function Fold({
       <Section
         title={FOLD_LABEL[id]}
         summary={summary}
-        storageKey={`settings.${id}`}
-        defaultOpen={defaultOpen}
         openSignal={signals[id] ?? 0}
       >
         {children}
@@ -111,8 +108,25 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!jumpTo) return
     const el = document.getElementById(`settings-${jumpTo.id}`)
-    el?.scrollIntoView({ block: 'start' })
-    el?.querySelector('summary')?.focus({ preventScroll: true })
+    if (!el) return
+    el.scrollIntoView({ block: 'start' })
+    el.querySelector('summary')?.focus({ preventScroll: true })
+    // Cards above the target finish loading after the jump and push it out of
+    // view, so keep it aligned until the page stops growing or the person scrolls.
+    const page = el.closest('.settings-page')
+    if (!page || typeof ResizeObserver === 'undefined') return
+    const realign = () => el.scrollIntoView({ block: 'start' })
+    const observer = new ResizeObserver(realign)
+    observer.observe(page)
+    const stop = () => observer.disconnect()
+    const timer = window.setTimeout(stop, 1500)
+    const inputEvents = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const
+    inputEvents.forEach((name) => window.addEventListener(name, stop, { once: true, passive: true }))
+    return () => {
+      stop()
+      window.clearTimeout(timer)
+      inputEvents.forEach((name) => window.removeEventListener(name, stop))
+    }
   }, [jumpTo])
 
   useEffect(() => {
@@ -149,6 +163,16 @@ export default function SettingsPage() {
     }
   }
 
+  // No aria-label on the three Jobs cards: Notifications and Spending are also card names below.
+  const toggleField = (key: SettingsToggleKey) => {
+    const label = TOGGLES.find((t) => t.key === key)!.label
+    return (
+      <Field label={label} help={TOGGLE_HELP[key]}>
+        <Toggle checked={settings![key]} onChange={(next) => toggle(key, next)} />
+      </Field>
+    )
+  }
+
   const prefProps = settings
     ? {
         settings,
@@ -159,8 +183,7 @@ export default function SettingsPage() {
       }
     : null
 
-  // Cards are grouped into folds: Jobs and Engines and keys start open, the
-  // rest are folded and remember their state. Remote access and the
+  // Cards are grouped into folds that all start closed. Remote access and the
   // household's accounts live on the Admin page.
   const navIds: FoldId[] = prefProps
     ? ['jobs', 'engines', 'defaults', 'alerts', 'sharing', 'integrations', 'advanced', 'experimental']
@@ -178,14 +201,11 @@ export default function SettingsPage() {
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {settings && prefProps && (
         <>
-          <Fold id="jobs" signals={signals} summary="Background jobs and GPU" defaultOpen single>
-            <Card title="Jobs" aria-label="Jobs">
+          <Fold id="jobs" signals={signals} summary="Performance, notifications, spending">
+            <Card title="Performance">
               <div className="setting-list">
-                {TOGGLES.map(({ key, label }) => (
-                  <Field key={key} label={label} help={TOGGLE_HELP[key]}>
-                    <Toggle checked={settings[key]} onChange={(next) => toggle(key, next)} />
-                  </Field>
-                ))}
+                {toggleField('gpu_limit_enabled')}
+                {toggleField('use_gpu')}
                 <Field label="GPU jobs at once" help={gpuMaxParallelHelp(settings.gpu_max_parallel)}>
                   <input
                     type="number"
@@ -198,6 +218,12 @@ export default function SettingsPage() {
                   />
                 </Field>
               </div>
+            </Card>
+            <Card title="Notifications">
+              <div className="setting-list">{toggleField('notify_on_completion')}</div>
+            </Card>
+            <Card title="Spending">
+              <div className="setting-list">{toggleField('bulk_auto_resume')}</div>
             </Card>
           </Fold>
           <Fold id="engines" signals={signals} summary="Keys, tests and which engine does what">
