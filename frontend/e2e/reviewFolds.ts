@@ -10,6 +10,7 @@ const FOLD_OF: Record<string, string> = {
   Records: 'Versions and history',
   'Edit tendencies': 'Versions and history',
   'Compare versions': 'Versions and history',
+  'Compare transcription': 'Versions and history',
   'Notes export': 'Versions and history',
   'Learn my style': 'Versions and history',
   'Audio tags (SenseVoice)': 'Extras',
