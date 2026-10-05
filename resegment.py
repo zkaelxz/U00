@@ -61,8 +61,9 @@ LLM_MAX_ATTEMPTS = 3
 
 
 def max_line_chars(language: str) -> int:
-    """A line longer than a two-line subtitle cue is "too long" -- the same
-    per-language line limits the export wrapping uses, doubled."""
+    """A line longer than a two-line subtitle cue is "too long": twice the
+    per-language subtitle line limit (LINE_CHAR_LIMITS). Export wrapping takes
+    its own limits from the caller, so this is only the re-split threshold."""
     return 2 * subtitle_formats.line_char_limit(language)
 
 
