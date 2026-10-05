@@ -313,7 +313,10 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
         background_jobs.update_progress(job_id, 1.0, "Splitting long merged lines...")
         try:
             segments = word_align.realign_oversized_segments(
-                segments, audio_path, language, chinese_script=chinese_script)
+                segments, audio_path, language, chinese_script=chinese_script,
+                progress_cb=lambda done, total: background_jobs.update_progress(
+                    job_id, 1.0, f"Splitting long merged lines: {done} of {total}"),
+                cancel_check=lambda: background_jobs.is_cancel_requested(job_id))
         except word_align.WordAlignError as exc:
             # A missing dependency here must never cost the transcription
             # itself (the expensive part, already done) -- proceed with

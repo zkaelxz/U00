@@ -495,7 +495,7 @@ def test_realign_long_segments_runs_after_transcription(monkeypatch):
     import word_align
     seen = {}
 
-    def fake_realign(segments, audio_path, language, chinese_script="simplified"):
+    def fake_realign(segments, audio_path, language, chinese_script="simplified", **kwargs):
         seen["segments"] = segments
         seen["audio_path"] = audio_path
         seen["language"] = language
