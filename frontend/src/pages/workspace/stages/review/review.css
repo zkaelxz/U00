@@ -325,6 +325,22 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-ai-panel, .review-ai-actions, .review-actions, .review-tools, .review-tm, .review-flagnav { gap: var(--space-3); }
 }
 
+/* Compare transcription */
+.compare-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); }
+.compare-panel, .compare-pair > * { min-width: 0; }
+.compare-panel select, .compare-panel input[type=text], .compare-panel input[type=number] { max-width: 100%; }
+.compare-table td, .compare-table th { vertical-align: top; }
+.compare-table mark { background: var(--accent-soft); color: inherit; border-radius: 2px; }
+.compare-use { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.compare-use label, .compare-all-english { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; }
+@media (max-width: 640px) {
+  .compare-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .compare-table, .compare-table tbody, .compare-table tr, .compare-table td { display: block; width: 100%; }
+  .compare-table tr { border: 1px solid var(--border); border-radius: var(--radius-2, 6px); padding: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+  .compare-table td::before { content: attr(data-label) ': '; color: var(--text-muted, inherit); font-size: 0.85em; }
+  .compare-use button, .compare-use select, .compare-pair input, .compare-pair select { min-height: 44px; }
+}
+
 /* ---- line selection ---- */
 .review-selectall { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); font-size: var(--text-sm); }
 /* The box sits in the row's left padding (not the meta flow), so showing or hiding it never moves text. */

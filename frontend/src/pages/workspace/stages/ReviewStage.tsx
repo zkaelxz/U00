@@ -9,6 +9,7 @@ import { AiExtrasBurnPreview } from './review/AiExtrasBurnPreview'
 import { AiExtrasMerge } from './review/AiExtrasMerge'
 import { AiExtrasSenseVoice } from './review/AiExtrasSenseVoice'
 import { AiExtrasStyle } from './review/AiExtrasStyle'
+import { CompareTranscription } from './review/CompareTranscription'
 import { LinesPanel } from './review/LinesPanel'
 import { LineSelectionProvider } from './review/LineSelectionContext'
 import { RecordsPanel } from './review/RecordsPanel'
@@ -112,11 +113,12 @@ export default function ReviewStage() {
                 )}
               </Fold>
             )}
-            <Fold storageKey="review.fold.history" title="Versions and history" summary="Notes · versions · history · compare · edit tendencies">
+            <Fold storageKey="review.fold.history" title="Versions and history" summary="Notes · versions · history · compare · compare transcription · edit tendencies">
               {(opened) => (
                 <>
                   <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} onGoTo={goToLine} />
                   {parts.history}
+                  {!!lineCount && opened && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
                   {!!lineCount && opened && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />}
                 </>
               )}
