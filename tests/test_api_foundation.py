@@ -373,7 +373,8 @@ class TestSettingsEndpoint:
         body = client.get("/api/settings").json()
         assert set(body) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "notify_on_completion",
                              "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "preferences", "endpoints",
-                             "monthly_cap_env_usd", "effective_monthly_cap_usd", "choices"}
+                             "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
+                             "month_spend_counted_usd", "month_spend_reset_at", "choices"}
         assert isinstance(body["engine_keys"], dict)
         assert "claude" in body["engine_keys"]
         assert "monthly_cap_usd" not in body["engine_keys"]

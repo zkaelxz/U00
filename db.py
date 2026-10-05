@@ -4635,15 +4635,43 @@ def log_usage(drama_id: int, engine: str, model: str, operation: str,
         pass
 
 
-def get_month_spend(now: datetime.datetime = None) -> float:
-    """Estimated spend logged so far in the current calendar month (UTC),
-    across the whole library -- what the monthly cap is checked against."""
+MONTHLY_SPEND_RESET_KEY = "monthly_spend_reset_at"
+
+
+def get_month_spend_reset_at(now: datetime.datetime = None):
+    """The saved reset time (UTC ISO) while it applies to this month, else None.
+    A reset from an earlier month is ignored so the new month starts at its
+    own first day without anyone having to undo it. A marker that is not a
+    datetime or lies after `now` (clock was ahead when Reset was pressed, or a
+    restored library.db) is ignored too: honouring it would count ~nothing and
+    silently switch the monthly cap off."""
     now = now or datetime.datetime.utcnow()
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    saved = get_app_setting(MONTHLY_SPEND_RESET_KEY)
+    if not isinstance(saved, str):
+        return None
+    try:
+        when = datetime.datetime.fromisoformat(saved)
+    except ValueError:
+        return None
+    if when.tzinfo is not None:
+        when = when.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return when.isoformat() if month_start <= when <= now else None
+
+
+def get_month_spend(now: datetime.datetime = None, since_reset: bool = True) -> float:
+    """Estimated spend logged so far in the current calendar month (UTC),
+    across the whole library. By default only rows at or after an active
+    reset count: this is what the monthly cap is checked against.
+    `since_reset=False` is the full month, for stats and display."""
+    now = now or datetime.datetime.utcnow()
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    if since_reset:
+        start = get_month_spend_reset_at(now) or start
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute(
             "SELECT COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM usage_log WHERE created_at >= ?",
-            (month_start,)).fetchone()
+            (start,)).fetchone()
     return float(row["spent"])
 
 

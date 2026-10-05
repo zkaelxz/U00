@@ -137,7 +137,9 @@ def budget_status() -> dict:
             "free_lookup_min": MAX_QUERIES_PER_LOOKUP,
             "free_tier_key": settings_service.get_gemini_free_tier(),
             "key_configured": bool(settings_service.resolve_key("gemini")),
-            "monthly_cap_usd": cap, "month_spend_usd": round(db.get_month_spend(), 4),
+            "monthly_cap_usd": cap,
+            # Counted since any reset under a cap; the real spend with none.
+            "month_spend_usd": round(db.get_month_spend(since_reset=cap > 0), 4),
             "models": list(MODELS), "modes": list(MODES),
             "estimates_usd": {m: {mo: round(estimate_cost(m, mo, False), 4) for mo in MODELS}
                               for m in MODES}}

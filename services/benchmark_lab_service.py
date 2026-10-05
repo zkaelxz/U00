@@ -492,7 +492,8 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
     return {
         "stage": stage, "case_count": len(cases), "configs": per_config,
         "estimated_cost_usd": round(total, 6), "monthly_cap_usd": monthly_cap,
-        "month_spend_usd": round(spend, 6),
+        # With no cap the panel shows the month's real spend, not the since-reset count.
+        "month_spend_usd": round(spend if monthly_cap > 0 else db.get_month_spend(since_reset=False), 6),
         "remaining_usd": None if cap is None else round(cap, 6),
         "monthly_refusal": refusal,
         "estimate_above_cap": bool(cap is not None and total > cap),

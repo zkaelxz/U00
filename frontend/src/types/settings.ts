@@ -51,6 +51,10 @@ export interface SettingsOverview extends Record<SettingsToggleKey, boolean> {
   endpoints: Record<EndpointName, string | null>
   monthly_cap_env_usd: number
   effective_monthly_cap_usd: number
+  // Full month vs what the cap counts since an active reset (UTC ISO time).
+  month_spend_usd: number
+  month_spend_counted_usd: number
+  month_spend_reset_at: string | null
   choices: SettingsChoices
 }
 
@@ -68,4 +72,15 @@ export interface EndpointUrlResult {
   name: EndpointName
   url: string | null
   configured: boolean
+}
+
+export interface MonthSpendStatus {
+  month_spend_usd: number
+  month_spend_counted_usd: number
+  month_spend_reset_at: string | null
+}
+
+export interface MonthCounterResetResult {
+  before: MonthSpendStatus
+  after: MonthSpendStatus
 }

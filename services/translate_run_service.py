@@ -133,8 +133,9 @@ def get_translate_config(drama_id: int) -> dict:
         "last_translate_errors": _parse_errors(drama.get("last_translate_errors")),
         "previous_episode_summary_present": bool(drama.get("previous_episode_summary")),
         "monthly_cap_usd": monthly_cap,
-        # Always the real spend: the form shows it with or without a cap.
-        "month_spend": db.get_month_spend(),
+        # The form shows it as "X of $cap" (what the cap counts, since any
+        # reset) or, with no cap, as the month's real spend.
+        "month_spend": db.get_month_spend(since_reset=monthly_cap > 0),
         "cap_applies_by_engine": {name: engine_cap_applies(name, free_tier)
                                   for name in translate_engines.ENGINES},
         "bulk_supported_engines": [e for e in bulk_translate.BULK_ENGINES

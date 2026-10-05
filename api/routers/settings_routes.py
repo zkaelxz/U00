@@ -23,7 +23,8 @@ from fastapi import APIRouter, HTTPException, Request
 from api.auth import (LOOPBACK_HOSTS, PROXY_HEADERS, host_name, is_local_request,
                       is_loopback_peer, local_only, require_permission)
 from api.schemas import (EndpointUrlResult, EndpointUrlSetRequest, EngineKeyClearRequest,
-                         EngineKeyResult, EngineKeySetRequest, SettingsOverview,
+                         EngineKeyResult, EngineKeySetRequest, MonthCounterResetResult,
+                         SettingsOverview,
                          SettingsUpdateRequest)
 from services import settings_service
 from services.service_errors import InvalidInputError
@@ -108,6 +109,18 @@ async def read_body(request: Request, model):
         return model.model_validate(data)
     except Exception:
         raise InvalidInputError("The request is invalid.")
+
+
+@router.post("/month-counter/reset", dependencies=[local_only()], response_model=MonthCounterResetResult,
+             summary="PC only: count the monthly cap from now (history is kept; Undo clears it)")
+def reset_month_counter():
+    return settings_service.reset_month_counter()
+
+
+@router.post("/month-counter/undo", dependencies=[local_only()], response_model=MonthCounterResetResult,
+             summary="PC only: undo the monthly counter reset")
+def undo_month_counter_reset():
+    return settings_service.undo_month_counter_reset()
 
 
 @router.post("/keys/{engine}", dependencies=[local_only()], response_model=EngineKeyResult,
