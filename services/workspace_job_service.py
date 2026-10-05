@@ -543,6 +543,9 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     errors = []
     try:
         for i, ln in enumerate(flagged):
+            # Per line, so a cancel lands within one re-transcribe/translate call;
+            # the finally below still saves the lines already fixed.
+            _raise_if_cancelled(job_id)
             if audio_path and os.path.exists(audio_path):
                 slice_path = os.path.join(os.path.dirname(audio_path), f"_fixflag_slice_{ln.idx}.wav")
                 try:
