@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures'
 
-// Phone project (390x844, touch): the app header's nav and the Workspace
+// Phone project (390x844, touch): the app header and the Workspace
 // header keep to a few compact rows so the stage content starts high.
 
 const progress = {
@@ -12,14 +12,17 @@ const progress = {
   ],
 }
 
-test('the main nav is at most two rows, in order, each link 44px tall', async ({ page }) => {
+test('the header is one slim row and the drawer lists the pages, each link 44px tall and on screen', async ({ page }) => {
   await page.goto('/#/drama/1/source')
-  const links = page.getByRole('navigation', { name: 'Main' }).getByRole('link')
-  await expect(links).toHaveText(['Library', 'Translate text', 'Sources', 'Discover', 'Live'])
-  const boxes = await links.evaluateAll((els) =>
-    els.map((e) => { const r = e.getBoundingClientRect(); return { top: Math.round(r.top), left: r.left, right: r.right, h: r.height } }))
-  const tops = [...new Set(boxes.map((b) => b.top))]
-  expect(tops.length, 'nav rows').toBeLessThanOrEqual(2)
+  const header = (await page.locator('.app-header').boundingBox())!
+  // Brand, Menu, Jobs, bell, report, theme and account in one row: no 3 by 2 nav grid under them.
+  expect(header.height, 'header height').toBeLessThanOrEqual(72)
+  await page.getByRole('button', { name: 'Menu', exact: true }).tap()
+  const links = page.getByRole('dialog', { name: 'Main menu' }).getByRole('navigation', { name: 'Main' }).getByRole('link')
+  await expect(links.first()).toBeVisible()
+  const texts = (await links.allTextContents()).map((t) => t.trim())
+  expect(texts).toEqual(expect.arrayContaining(['Library', 'Translate text', 'Sources', 'Discover', 'Live', 'Settings']))
+  const boxes = await links.evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { left: r.left, right: r.right, h: r.height } }))
   for (const b of boxes) {
     expect(b.h).toBeGreaterThanOrEqual(44)
     expect(b.left).toBeGreaterThanOrEqual(0)

@@ -248,6 +248,11 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
             "what first.")
     if stronger != engine_name:
         raise ConflictError("The stronger engine was changed in Settings; try again.")
+    if translate_engines.is_english_line(line):
+        # Already English: the "translation" is the line itself, with no call or cost.
+        return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,
+                "model": None, "text": line.zh.strip(), "based_on_en": line.en or "",
+                "cost_usd": 0.0}
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
         raise DependencyUnavailableError(
@@ -272,6 +277,8 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     context["novel_reference"] = (context.get("novel_reference")
                                   if getattr(engine, "supports_reference", False) else None)
     context["line_ids"] = [line.id]
+    context["line_languages"] = translate_engines.tagged_line_languages(
+        [line], context["source_language"])
     context["speaker_labels"] = [character_names.get(line.speaker)]
     context["recent_context"] = recent
     try:

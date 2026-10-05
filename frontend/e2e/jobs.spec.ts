@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net'
 
 import { expect, test } from './fixtures'
 import { mockJobsApi, pageJobs } from './jobsMenuMocks'
-import { openGear } from './settingsNav'
+import { openMenu } from './settingsNav'
 
 // The Jobs page (#/jobs) with /api/jobs mocked: table, filters, states,
 // Cancel, PC-only Delete, row details and the remote-admin persona.
@@ -168,9 +168,13 @@ test('Delete is two-step and permanent; only finished jobs offer it', async ({ p
   await chip(page, 'All').click()
   await expect(page.getByRole('button', { name: /^Delete Translate Signal/ })).toHaveCount(0)
 
+  const titleHeader = page.getByRole('columnheader', { name: 'Title' })
+  const widthBefore = (await titleHeader.boundingBox())!.width
   await page.getByRole('button', { name: 'Delete Transcribe Signal' }).click()
   expect(log.deleted).toEqual([])
-  await page.getByRole('button', { name: 'Confirm delete Transcribe Signal' }).click()
+  // The long job title must not widen the Actions column and squeeze the table.
+  expect(Math.abs((await titleHeader.boundingBox())!.width - widthBefore)).toBeLessThan(24)
+  await page.getByRole('button', { name: 'Confirm delete', exact: true }).click()
   await expect.poll(() => log.deleted).toEqual(['transcribe_3'])
   await expect(rows(page)).toHaveCount(4)
 
@@ -309,15 +313,12 @@ test('PC owner gets Cancel on every job', async ({ page }) => {
 test('the menu has Jobs with a running count, and it opens the page', async ({ page }) => {
   await mockJobsApi(page, pageJobs(), true)
   await page.goto('/#/library')
-  await openGear(page)
-  // The count badge is part of the link's name, so match by prefix: the rail at 1024px and up, the cogwheel menu below.
-  const link = page
-    .getByRole('navigation', { name: 'Main' })
-    .getByRole('link', { name: /^Jobs/ })
-    .or(page.getByRole('group', { name: 'Settings and tools pages' }).getByRole('link', { name: /^Jobs/ }))
-  await expect(page.getByTestId(/^(gear|rail)-jobs-count$/)).toHaveText('2')
+  await openMenu(page)
+  // The count badge is part of the link's name, so match by prefix: the rail at 1024px and up, the drawer below.
+  const link = page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /^Jobs/ })
+  await expect(page.getByTestId('rail-jobs-count')).toHaveText('2')
   await link.click()
   await expect(page).toHaveURL(/#\/jobs$/)
-  await openGear(page)
+  await openMenu(page)
   await expect(link).toHaveAttribute('aria-current', 'page')
 })

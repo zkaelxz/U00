@@ -13,7 +13,9 @@ from .shared import (
     _id_keyed_batch_request,
     build_numbered_lines,
     call_with_backoff,
+    is_english_line,
     spoken_language_tag,
+    tagged_line_languages,
     redact_secrets,
 )
 
@@ -354,10 +356,10 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
         target_lines = [ln for ln in target_lines if getattr(ln, "id", None) in target_ids]
     # Already English: nothing to translate, so it's carried over as-is
     # instead of spending a model call on it.
-    english = [ln for ln in target_lines if getattr(ln, "lang", None) == "en"]
+    english = [ln for ln in target_lines if is_english_line(ln)]
     for ln in english:
         ln.en = ln.zh
-    target_lines = [ln for ln in target_lines if getattr(ln, "lang", None) != "en"]
+    target_lines = [ln for ln in target_lines if not is_english_line(ln)]
     if not target_lines:
         if english and save_cb:
             save_cb(lines)
@@ -439,12 +441,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             chunk_context["speaker_labels"] = [character_names.get(ln.speaker) for ln in chunk]
             chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
             chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
-            # Only lines in a language other than the title's are tagged, so
-            # a single-language title sends exactly the prompt it always did.
-            title_language = context["source_language"]
-            chunk_langs = [getattr(ln, "lang", None) for ln in chunk]
-            chunk_langs = [lang if lang and lang != title_language else None for lang in chunk_langs]
-            chunk_context["line_languages"] = chunk_langs if any(chunk_langs) else None
+            chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
             if reflect:
                 return call_with_backoff(
                     lambda: reflect_translate_batch(engine, [ln.zh for ln in chunk], chunk_context,
