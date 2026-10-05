@@ -845,15 +845,12 @@ speaker set; differences of a few CER points between the best rows are within no
 **Why.** On single-sentence FLEURS utterances `Qwen3ASRVadBackend` scored worse than plain Qwen3-ASR on the whole file
 (Korean, Chinese and Japanese above and in the brief), although the VAD has almost nothing to cut there.
 
-**Data and scorer.** The same first 60 test rows as the Korean and Chinese sections (same parquet revision; sha256 of
-`ko_kr` and `cmn_hans_cn` files matched those recorded above). Japanese (`ja_jp/test/0000.parquet`, sha256
-`e954b67e934b9a31d7a74a070a75225379660d50c8d1aacdb755852c57f23e6b`, 784.6 s) has no section in this file, so its row ids
-are here: 1828, 1834, 1813, 1869, 1744, 1731, 1910, 1771, 1764, 2003, 1980, 1822, 1837, 1736, 1980, 1942, 1733, 1916, 1701,
-1848, 1775, 1893, 1908, 1972, 1911, 1664, 1827, 1672, 1861, 1843, 1924, 1958, 1749, 1997, 1825, 1801, 1739, 1977, 1989,
-1869, 1667, 1742, 1876, 1943, 1718, 1725, 1690, 1955, 1959, 1721, 1978, 1968, 1718, 1974, 1920, 1733, 1902, 1718, 1750, 1983.
+**Data and scorer.** The same first 60 test rows per language as the Korean, Chinese and Japanese public-benchmark
+sections (same parquet revision; the sha256 of my `ko_kr`, `cmn_hans_cn` and `ja_jp` files matched those sections' rows
+and 784.6 s of Japanese audio).
 CPU, bfloat16, qwen-asr 0.0.6, 1.7B. CER is a plain Levenshtein over characters, with this file's normalisation (Korean and
-Japanese: NFKC, lower-case, letters and digits only, reference `transcription`; Chinese: the Chinese section's
-`raw_transcription` rules). My plain-Qwen numbers differ a little from the sections above (Korean 3.11 vs 3.34, Chinese
+Japanese: NFKC, lower-case, letters and digits only, reference `transcription` (the Japanese section uses `raw_transcription`); Chinese: the Chinese section's
+`raw_transcription` rules). My plain-Qwen numbers differ a little from the sections above (Korean 3.11 vs 3.34, Japanese 5.08 vs 5.38, Chinese
 3.16 vs 3.60) because of the scorer (no jiwer) and bfloat16 CPU nondeterminism; compare rows within this table only.
 
 **Stage-by-stage experiment.** Same utterances, same loaded model, forced language, one call per input, each step
