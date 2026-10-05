@@ -24,10 +24,12 @@ import './review/review.css'
 
 // A top-level fold of the stage. The body is handed `opened` (true once the
 // fold has been opened, or was remembered open) so heavy parts can wait.
-function Fold({ storageKey, title, summary, children }: {
+function Fold({ storageKey, title, summary, openSignal, children }: {
   storageKey: string
   title: string
   summary: string
+  // Each change opens the fold, as Section's openSignal does, and counts as opened.
+  openSignal?: number
   children: (opened: boolean) => ReactNode
 }) {
   const [opened, setOpened] = useState(() => {
@@ -37,8 +39,13 @@ function Fold({ storageKey, title, summary, children }: {
       return false
     }
   })
+  const [seenSignal, setSeenSignal] = useState(openSignal)
+  if (seenSignal !== openSignal) {
+    setSeenSignal(openSignal)
+    setOpened(true)
+  }
   return (
-    <Section storageKey={storageKey} title={title} summary={summary} onToggle={(open) => open && setOpened(true)}>
+    <Section storageKey={storageKey} title={title} summary={summary} openSignal={openSignal} onToggle={(open) => open && setOpened(true)}>
       <div className="stack">{children(opened)}</div>
     </Section>
   )
@@ -50,6 +57,10 @@ export default function ReviewStage() {
   const [reloads, setReloads] = useState(0)
   const changed = useCallback(() => setReloads((n) => n + 1), [])
   const jobRunning = useDramaJobRunning(dramaId, reloads)
+  // Bumped by the selection bar's "Compare transcription…": opens the fold and
+  // the section and shows the ticked lines there.
+  const [compareSignal, setCompareSignal] = useState(0)
+  const openCompare = useCallback(() => setCompareSignal((n) => n + 1), [])
   const [lineCount, setLineCount] = useState<number | null>(null)
   // A finding's line link: the editor opens that line (by id where known).
   const [goTo, setGoTo] = useState<{ target: LineTarget; seq: number; resolve: (m: string | null) => void } | null>(null)
@@ -86,6 +97,7 @@ export default function ReviewStage() {
         sourceLanguage={drama.source_language}
         onLineCount={setLineCount}
         onFlaggedCount={setFlaggedCount}
+        onCompareSelected={openCompare}
         goTo={goTo}
       />
       <ReviewChecks
@@ -113,12 +125,12 @@ export default function ReviewStage() {
                 )}
               </Fold>
             )}
-            <Fold storageKey="review.fold.history" title="Versions and history" summary="Notes · versions · history · compare · compare transcription · edit tendencies">
+            <Fold storageKey="review.fold.history" title="Versions and history" openSignal={compareSignal || undefined} summary="Notes · versions · history · compare · compare transcription · edit tendencies">
               {(opened) => (
                 <>
                   <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} onGoTo={goToLine} />
                   {parts.history}
-                  {!!lineCount && opened && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
+                  {!!lineCount && opened && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={compareSignal || undefined} />}
                   {!!lineCount && opened && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />}
                 </>
               )}

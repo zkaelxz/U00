@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { cancelJob } from '../../../../api/jobs'
 import {
@@ -13,6 +13,7 @@ import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
 import { Toggle } from '../../../../components/Toggle'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useLineSelectionContext } from './LineSelectionContext'
 import { TERMINAL_STATUSES } from '../../../../types/jobs'
 import type { CompareEstimate, CompareOptions, CompareProposal, CompareResult } from '../../../../types/workspace'
 import {
@@ -27,6 +28,8 @@ import {
 } from './compareTranscriptionLogic'
 
 const MODES: { id: SelectionMode; label: string }[] = [
+  // Its label carries the live count; see the picker.
+  { id: 'selected', label: 'Selected lines' },
   { id: 'flagged', label: 'All flagged lines' },
   { id: 'line', label: 'One line' },
   { id: 'range', label: 'A line range' },
@@ -58,17 +61,24 @@ function Cell({ a, b, lang }: { a: string; b: string; lang?: string }) {
 // English), so a reader who can't judge the source can compare the English.
 // Nothing is written until "Use this" / "Use all shown"; the server then
 // writes only source text (and English where asked) for lines unchanged since
-// the run. The line selection is a picker because Review has no multi-line
-// selection; the alignment method is shown but fixed (it sets timing, not text).
+// the run. The lines come from a picker or from the lines ticked in Review; the alignment method is shown but fixed (it sets timing, not text).
 export function CompareTranscription({
   dramaId,
   jobRunning,
   onChanged,
+  openSignal,
 }: {
   dramaId: number
   jobRunning: boolean
   onChanged: () => void
+  // Each change (the selection bar's action) opens the section, scrolls to it
+  // and switches the picker to the ticked lines.
+  openSignal?: number
 }) {
+  const { selectedIds } = useLineSelectionContext()
+  const panelRef = useRef<HTMLDivElement>(null)
+  // Counted after mount so a section mounted by the very action that opens it still sees a change.
+  const [sectionSignal, setSectionSignal] = useState(0)
   const [options, setOptions] = useState<CompareOptions | null>(null)
   const [form, setForm] = useState<SelectionForm>(EMPTY_SELECTION_FORM)
   const [size, setSize] = useState('')
@@ -102,7 +112,14 @@ export function CompareTranscription({
     }
   }, [dramaId])
 
-  const built = buildSelection(form)
+  useEffect(() => {
+    if (!openSignal) return
+    setForm((f) => ({ ...f, mode: 'selected' }))
+    setSectionSignal((n) => n + 1)
+    panelRef.current?.scrollIntoView({ block: 'start' })
+  }, [openSignal])
+
+  const built = buildSelection(form, selectedIds, options?.max_lines)
   const selectionKey = 'selection' in built ? JSON.stringify(built.selection) : null
 
   // The advisory count and cost for the current selection, before anything starts.
@@ -142,9 +159,11 @@ export function CompareTranscription({
 
   if (!options) {
     return (
-      <Section storageKey="review.compareTranscription" title="Compare transcription" summary="Loading…">
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      </Section>
+      <div ref={panelRef}>
+        <Section storageKey="review.compareTranscription" title="Compare transcription" summary="Loading…" openSignal={sectionSignal}>
+          <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        </Section>
+      </div>
     )
   }
 
@@ -226,10 +245,12 @@ export function CompareTranscription({
   )
 
   return (
+    <div ref={panelRef}>
     <Section
       storageKey="review.compareTranscription"
       title="Compare transcription"
       summary={`Saved: ${options.saved_asr_backend} · ${options.saved_whisper_size}`}
+      openSignal={sectionSignal}
     >
       <div className="compare-panel" data-testid="compare-transcription">
         <p className="muted">
@@ -238,8 +259,8 @@ export function CompareTranscription({
         </p>
         <Field label="Which lines">
           <select value={form.mode} onChange={(e) => setMode(e.target.value as SelectionMode)} disabled={busy}>
-            {MODES.map((m) => (
-              <option key={m.id} value={m.id}>{m.label}</option>
+            {MODES.filter((m) => m.id !== 'selected' || selectedIds.length > 0 || form.mode === 'selected').map((m) => (
+              <option key={m.id} value={m.id}>{m.id === 'selected' ? `${m.label} (${selectedIds.length})` : m.label}</option>
             ))}
           </select>
         </Field>
@@ -390,5 +411,6 @@ export function CompareTranscription({
         )}
       </div>
     </Section>
+    </div>
   )
 }

@@ -1,3 +1,4 @@
+import { compareSelectedProblem } from './compareTranscriptionLogic'
 import { formatLineNumbers } from './useLineSelection'
 
 export interface SelectionActionContext {
@@ -8,11 +9,16 @@ export interface SelectionActionContext {
   clear: () => void
   // A short message in the Review status line.
   notify: (message: string) => void
+  // Opens Review's Compare transcription section on the ticked lines.
+  openCompare: () => void
 }
 
 export interface SelectionAction {
   id: string
   label: string
+  // A plain-words reason the action can't run on this selection; the bar then
+  // disables the button and shows it.
+  unavailable?: (ctx: SelectionActionContext) => string | null
   run: (ctx: SelectionActionContext) => void | Promise<void>
 }
 
@@ -30,5 +36,11 @@ export const SELECTION_ACTIONS: SelectionAction[] = [
         notify('Could not copy to the clipboard.')
       }
     },
+  },
+  {
+    id: 'compare-transcription',
+    label: 'Compare transcription…',
+    unavailable: ({ selectedIds }) => compareSelectedProblem(selectedIds.length),
+    run: ({ openCompare }) => openCompare(),
   },
 ]
