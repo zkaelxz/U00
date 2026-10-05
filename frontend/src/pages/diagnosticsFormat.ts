@@ -5,18 +5,10 @@ export const isActive = (status: string) => status === 'queued' || status === 'r
 
 export const isFinished = (status: string) => status === 'done' || status === 'error' || status === 'cancelled'
 
-export const JOBS_PAGE_SIZE = 10
-
 // Queued/running jobs first (they are what the viewer is waiting on), then
 // the rest, each group keeping the server's newest-first order.
 export function orderJobs(jobs: JobRecord[]): JobRecord[] {
   return [...jobs.filter((j) => isActive(j.status)), ...jobs.filter((j) => !isActive(j.status))]
-}
-
-// The first `limit` jobs of an ordered list; active jobs are never cut off.
-export function visibleJobs(ordered: JobRecord[], limit: number): JobRecord[] {
-  const active = ordered.filter((j) => isActive(j.status)).length
-  return ordered.slice(0, Math.max(limit, active))
 }
 
 // "2 running, 1 failed" / "None running" (+ queued and failed when present).
@@ -64,12 +56,6 @@ export function formatSeconds(seconds: number): string {
   if (h) return `${h}h ${String(m).padStart(2, '0')}m`
   if (m) return `${m}m ${String(s).padStart(2, '0')}s`
   return `${s}s`
-}
-
-// A job card's status line: "Running 40% · 3m 05s".
-export function jobStatusLine(job: JobRecord, nowSec: number): string {
-  const pct = job.progress != null && isActive(job.status) ? ` ${Math.round(job.progress * 100)}%` : ''
-  return `${statusLabel(job.status)}${pct} · ${formatDuration(job, nowSec)}`
 }
 
 // The small line under a job's status: live progress text while it runs,

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { AuthUser } from './api/auth'
 import { api } from './api/client'
 import { useDetailsMenu } from './hooks/useDetailsMenu'
+import { JobsProvider } from './hooks/JobsProvider'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AdminPage from './pages/Admin'
@@ -17,6 +18,7 @@ import ComicPage from './pages/Comic'
 import BenchmarkPage from './pages/Benchmark'
 import DiagnosticsPage from './pages/Diagnostics'
 import DiscoverPage from './pages/Discover'
+import JobsPage from './pages/Jobs'
 import LibraryPage from './pages/Library'
 import LibraryToolsPage from './pages/LibraryTools'
 import LivePage from './pages/Live'
@@ -111,7 +113,7 @@ export default function App() {
   const navContext = { session, pcMode, developerMode }
 
   return (
-    <>
+    <JobsProvider>
       <header className="app-header">
         <h1>
           Baihe<span className="title-rest"> Studio</span>
@@ -158,6 +160,7 @@ export default function App() {
             page={route.page}
           />
         )}
+        {route.name === 'jobs' && <JobsPage />}
         {route.name === 'settings' && <SettingsPage />}
         {route.name === 'admin' && <AdminPage />}
         {route.name === 'translate' && <TranslatePage />}
@@ -168,6 +171,6 @@ export default function App() {
         {route.name === 'assistant' && <AssistantPage />}
         {route.name === 'benchmark' && <BenchmarkPage compare={route.compare} />}
       </RouteErrorBoundary>
-    </>
+    </JobsProvider>
   )
 }

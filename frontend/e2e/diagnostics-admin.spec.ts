@@ -87,8 +87,7 @@ test('keeps the testids, hides Jobs when empty, and opens Setup on a problem', a
   await expect(setupRows.locator('li').first().locator('.pill')).toHaveText('Problem')
   await expect(page.getByTestId('setup-summary')).toHaveText('1 problem: FFmpeg')
   await expect(page.getByTestId('dependency-panel')).toHaveCount(1)
-  await expect(page.getByTestId('job-list')).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: 'Jobs' })).toHaveCount(0)
+  await expect(page.getByTestId('jobs-summary')).toHaveCount(0)
   const header = await summary.boundingBox()
   expect(header!.height).toBeLessThan(40) // one line of badges
   expect(unmocked).toEqual([])
@@ -168,69 +167,37 @@ test('install errors: 409 shows the server sentence, 404 the unknown-package lin
   expect(unmocked).toEqual([])
 })
 
-test('a running job blocks install and reset with a reason, and Jobs stays open', async ({ page }) => {
+test('a running job blocks install and reset with a reason, and a banner links to Jobs', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, {
     jobs: [job()],
     stats: { total_dramas: 3, total_lines: 10, by_status: {}, by_media_type: {}, translated_lines: 0, usage: {} },
   })
-  await page.route('**/api/jobs/translate_1/cancel', (r) =>
-    r.fulfill({ json: { job_id: 'translate_1', cancel_requested: true, status: 'running' } }))
   await page.goto('/#/diagnostics')
   await expect(page.getByTestId('diagnostics-summary')).toContainText('1 job running')
-  await expect(page.getByTestId('job-list')).toBeVisible()
-  await expect(page.getByTestId('job-list')).toContainText('Running 40%')
+  const banner = page.getByTestId('jobs-summary')
+  await expect(banner).toContainText('1 running')
+  await expect(banner.getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '#/jobs')
+  // The table, Cancel and Delete moved to the Jobs page.
+  await expect(page.getByTestId('job-list')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Cancel Translate/ })).toHaveCount(0)
   await openSection(page, /^Packages/)
   await expect(page.getByTestId('dependency-panel')).toContainText('Wait for running jobs to finish before installing.')
   await openSection(page, /^Danger zone/)
   await expect(page.locator('.danger-zone')).toContainText('Stop running jobs first (see Jobs above).')
   await page.getByLabel(/Type RESET to confirm/).fill('RESET')
   await expect(page.getByRole('button', { name: 'Reset library' })).toBeDisabled()
-  await page.getByRole('button', { name: 'Cancel' }).click()
   expect(unmocked).toEqual([])
 })
 
-test('Jobs fold: newest 10 first, Show more, and permanent Delete with two presses', async ({ page }) => {
+test('without jobs the summary is hidden; with finished ones it is a quiet line and a link', async ({ page }) => {
   const unmocked = await guard(page)
-  let items = [
-    job({ job_id: 'run_1', description: 'Running one' }),
-    ...Array.from({ length: 14 }, (_, i) => job({
-      job_id: `old_${i}`, status: i === 0 ? 'error' : 'done', error: i === 0 ? 'x'.repeat(300) : null,
-      description: `Old job ${i}`, finished_at: 2, started_at: 100 - i,
-    })),
-  ]
-  await mockPage(page, { jobs: items })
-  await page.route('**/api/jobs', (r) => r.fulfill({ json: { items, count: items.length } }))
-  const deleted: string[] = []
-  await page.route('**/api/jobs/old_3/delete', (r) => {
-    deleted.push('old_3')
-    items = items.filter((j) => j.job_id !== 'old_3')
-    return r.fulfill({ json: { job_id: 'old_3', deleted: true } })
-  })
-  await page.route('**/api/jobs/clear-finished', (r) => {
-    items = items.filter((j) => j.status === 'running')
-    return r.fulfill({ json: { deleted_count: 13 } })
-  })
+  await mockPage(page, { jobs: [job({ status: 'done', finished_at: 2, progress: 1 })] })
   await page.goto('/#/diagnostics')
-  const rows = page.getByTestId('job-list').locator('tbody tr')
-  await expect(rows).toHaveCount(10)
-  await expect(rows.first()).toContainText('Running one')
-  await expect(page.getByTestId('jobs-more')).toContainText('Showing 10 of 15')
-  await page.getByRole('button', { name: 'Show 5 more' }).click()
-  await expect(rows).toHaveCount(15)
-  await expect(page.getByTestId('jobs-more')).toHaveCount(0)
-
-  await page.getByRole('button', { name: 'Delete Old job 3' }).click()
-  expect(deleted).toEqual([])
-  await page.getByRole('button', { name: 'Confirm delete Old job 3' }).click()
-  await expect(rows).toHaveCount(14)
-  expect(deleted).toEqual(['old_3'])
-  await expect(rows.first().getByRole('button', { name: /^Delete/ })).toHaveCount(0)
-
-  await page.getByRole('button', { name: 'Delete all finished jobs' }).click()
-  await expect(page.getByTestId('jobs-clear')).toContainText('Permanent')
-  await page.getByRole('button', { name: /Confirm delete 13 finished/ }).click()
-  await expect(rows).toHaveCount(1)
+  const summary = page.getByTestId('jobs-summary')
+  await expect(summary).toContainText('None running')
+  await expect(summary).not.toHaveClass(/banner/)
+  await expect(summary.getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '#/jobs')
   expect(unmocked).toEqual([])
 })
 

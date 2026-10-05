@@ -723,7 +723,12 @@ baihe-subtitler/
 │   │                              useReattachJob (a stage revisited mid-job picks its job up again;
 │   │                              per-stage job ids in src/pages/workspace/stageJobIds.ts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
+│   │                              useJobs + JobsProvider (the one jobs list and push subscription behind the
+│   │                              header Jobs popover, the Jobs page and Diagnostics' summary),
 │   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`), useMossExperimental (Step 104 toggle)
+│   ├── src/pages/Jobs.tsx         #/jobs: table (phone: cards) of every job the server lists, with filters, row details,
+│   │                              Cancel, PC-only Delete and links to the stage; pages/jobs/jobsFilter.ts is the pure
+│   │                              filter, sort and link logic (unit-tested), jobs.css its styles
 │   ├── src/pages/libraryAdmin/    Library admin: SelectionBar (bulk status/list/translate/export/delete),
 │   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
 │   │                              libraryAdmin.ts (pure, unit-tested)
@@ -732,7 +737,7 @@ baihe-subtitler/
 │   │                              updates" + packageUpdates.ts; "Install by task" presets, approx.
 │   │                              sizes, PyPI Source links; GpuTorchPanel + gpuTorch.ts: GPU/driver,
 │   │                              installed torch family, matched-set setup), PyannoteSection, ModelCacheSection,
-│   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection
+│   │                              JobStagesPanel ("Time by stage", shown in a Jobs page row's details), LogSection (+ CopyBlock), SupportReportSection
 │   │                              ("Copy a report for a bug" card: copy, download .txt, preview rows
 │   │                              via supportReport.ts, pure, unit-tested),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
