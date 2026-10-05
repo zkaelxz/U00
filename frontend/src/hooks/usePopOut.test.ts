@@ -16,6 +16,7 @@ const fakeDoc = () => {
     createElement: (tag: string) => ({ tag }) as Record<string, unknown>,
     documentElement: {
       className: '',
+      classList: { add: vi.fn() },
       attributes: [] as { name: string; value: string }[],
       setAttribute: (k: string, v: string) => void (attrs[k] = v),
     },
