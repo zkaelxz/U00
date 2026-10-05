@@ -278,7 +278,7 @@ function JobActions({ job, props, expanded }: { job: JobRecord; props: RowProps;
       <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={expanded} aria-label={`Details for ${name}`} onClick={() => props.onToggle(job.job_id)}>
         Details
       </button>
-      {props.pc !== 'remote' && isFinished(job.status) && <ConfirmButton name={name} onConfirm={() => props.onDelete(job.job_id)} />}
+      {props.pc !== 'remote' && isFinished(job.status) && <ConfirmButton name={name} confirmLabel="Confirm delete" onConfirm={() => props.onDelete(job.job_id)} />}
     </div>
   )
 }

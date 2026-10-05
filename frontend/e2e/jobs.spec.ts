@@ -168,9 +168,13 @@ test('Delete is two-step and permanent; only finished jobs offer it', async ({ p
   await chip(page, 'All').click()
   await expect(page.getByRole('button', { name: /^Delete Translate Signal/ })).toHaveCount(0)
 
+  const titleHeader = page.getByRole('columnheader', { name: 'Title' })
+  const widthBefore = (await titleHeader.boundingBox())!.width
   await page.getByRole('button', { name: 'Delete Transcribe Signal' }).click()
   expect(log.deleted).toEqual([])
-  await page.getByRole('button', { name: 'Confirm delete Transcribe Signal' }).click()
+  // The long job title must not widen the Actions column and squeeze the table.
+  expect(Math.abs((await titleHeader.boundingBox())!.width - widthBefore)).toBeLessThan(24)
+  await page.getByRole('button', { name: 'Confirm delete', exact: true }).click()
   await expect.poll(() => log.deleted).toEqual(['transcribe_3'])
   await expect(rows(page)).toHaveCount(4)
 
