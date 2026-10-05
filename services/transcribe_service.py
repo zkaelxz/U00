@@ -141,6 +141,9 @@ def _audio_duration_seconds(path) -> Optional[float]:
 # Qwen3's batches fill QWEN_SPLIT..RUNNING_MAX; otherwise Whisper's stage
 # fills 0..RUNNING_MAX.
 RUNNING_MAX = 0.99
+# Where the long-line split starts within the transcription stage's slice
+# (a fraction of that slice's end), so its per-segment progress has room to move.
+REALIGN_START = 0.9
 QWEN_SPLIT = 0.85
 
 
@@ -1239,12 +1242,31 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             import word_align
             align_started = time.monotonic()
             try:
-                with rep.stage("Splitting long merged lines", frac=stage_max):
+                # The ticker covers the model load and the first segment, which
+                # report nothing; the first finished segment hands over to real progress.
+                align_ticker = rep.stage("Splitting long merged lines",
+                                         frac=stage_max * REALIGN_START).start()
+
+                def _align_progress(done, total):
+                    align_ticker.stop()
+                    rep.progress(
+                        stage_max * (REALIGN_START + (1 - REALIGN_START) * done / total),
+                        f"Splitting long merged lines: {done} of {total}")
+
+                try:
                     segments = word_align.realign_oversized_segments(
-                        segments, audio_path, source_language, chinese_script=chinese_script)
+                        segments, audio_path, source_language, chinese_script=chinese_script,
+                        progress_cb=_align_progress, cancel_check=rep.cancelled)
+                finally:
+                    align_ticker.stop()
             except word_align.WordAlignError as exc:
                 word_align_error = str(exc)
             stage_seconds["align"] = time.monotonic() - align_started
+            # The segments already split are kept in `segments`; the job as a
+            # whole still ends cancelled, like a cancel in any other stage.
+            if rep.cancelled():
+                core_module.release_gpu_models()
+                return {"failed_reason": "cancelled"}
 
         if transcript_mode == "whisper":
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
