@@ -61,6 +61,8 @@ Source browser-tier status (owner-reported 2026-10; static fetch returned an emp
 
 Deferred: Step 108 (adapter interfaces), and the `db.py` split (the `api/schemas.py` split is done: `api/schemas/` package).
 
+Deferred, owner decision 2026-10-05: the merge confirm in Characters decides whether the leftover voice clip stays on disk with `leavesVoiceClip` (`mergeSpeakers.ts`), which copies the server's rule for when a clip moves (`db._folded_row`). If that rule changes, update both. A server-side boolean in the merge response would remove the duplication; skipped because the only effect of a mismatch is one line of confirm wording.
+
 Deferred until a need arises (owner decision 2026-09-30):
 - A table-of-contents picker, a profile-management screen and a fixture-refresh command.
 - Step 108 stays parked. Add the smallest per-site extension only when a real site needs login, scoped search, metadata or a scrape policy. Login goes through a persistent browser profile; the app never collects a username or password. Refactor the shared adapter contract only if repeated cases show it is awkward.
