@@ -99,12 +99,24 @@ test('Reading history on a remote device: no Clear button', async ({ page }) => 
   await expect(section.getByRole('button', { name: 'Clear reading history' })).toHaveCount(0)
 })
 
+test('Library header buttons show only below 1024px, where the left rail is absent', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 900 })
+  await page.goto('/')
+  const head = page.locator('.page-head')
+  await expect(head.getByRole('link', { name: 'Saved manga' })).toBeVisible()
+  await expect(head.getByRole('link', { name: 'Library tools' })).toBeVisible()
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(head.getByRole('link', { name: 'Saved manga' })).toBeHidden()
+  await expect(head.getByRole('link', { name: 'Library tools' })).toBeHidden()
+  await expect(head.getByRole('button', { name: 'New drama' })).toBeVisible()
+})
+
 test('Library keeps only a summary and links to Library tools', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Library tools' })).toHaveCount(0)
   await expect(page.locator('summary', { hasText: 'Backup & storage' })).toHaveCount(0)
-  await page.getByRole('main').getByRole('link', { name: 'Library tools' }).click()
+  await page.getByRole('navigation').getByRole('link', { name: 'Library tools', exact: true }).first().click()
   await expect(page.getByRole('heading', { name: 'Library tools', level: 2 })).toBeVisible()
   await expect(tools(page).locator('summary', { hasText: 'Backup & storage' })).toBeVisible()
   await page.getByRole('link', { name: 'Back to Library' }).click()

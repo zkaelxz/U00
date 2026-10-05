@@ -1,5 +1,6 @@
 /* Library parity batch B3 (inventory L01, L04, L05). */
-.stats-breakdown { display: flex; flex-wrap: wrap; gap: 0 var(--space-3); }
+/* The left rail lists these from 1024px up; below that the header buttons are the only way in. */
+@media (min-width: 1024px) { .page-head .actions .rail-duplicate { display: none; } }
 .cost-meta { font-size: var(--text-sm); }
 .series-item { gap: var(--space-1); }
 .series-meta { font-size: var(--text-sm); }
