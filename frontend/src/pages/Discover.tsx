@@ -27,6 +27,7 @@ import { discoverEngines } from './discover/discoverFormat'
 import { FindPanel } from './discover/FindPanel'
 import { NavigationHelp } from './discover/NavigationHelp'
 import './discover/discover.css'
+import { AI_ENGINE_LABEL } from '../helpText'
 
 type TabId = 'catalogue' | 'find' | 'add'
 const TABS: { id: TabId; label: string }[] = [
@@ -98,7 +99,7 @@ export default function DiscoverPage() {
           </p>
         ) : (
           <div className="discover-engine">
-            <Field label="AI engine" help="Used for every AI action on this page: translating a search, reading a listing or page.">
+            <Field label={AI_ENGINE_LABEL} help="Used for every AI action on this page: translating a search, reading a listing or page.">
               <select value={engine} onChange={(e) => setEngine(e.target.value)}>
                 {engines.map((e) => (
                   <option key={e.name} value={e.name}>

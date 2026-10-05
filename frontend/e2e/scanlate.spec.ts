@@ -17,7 +17,7 @@ test('translate all pages, follow the job, then read the typeset pages', async (
   const panel = page.getByRole('region', { name: 'Translate pages' })
   await expect(panel).toBeVisible()
   // Only engines with a key are offered; the unusable default falls back.
-  const engine = panel.getByLabel('Engine', { exact: true })
+  const engine = panel.getByLabel('AI engine', { exact: true })
   await expect(engine).toHaveValue('ollama')
   await expect(engine.locator('option')).toHaveCount(1)
 
