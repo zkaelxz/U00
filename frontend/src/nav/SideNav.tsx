@@ -2,6 +2,8 @@
  * Left rail for screens 1024px and wider: the registry's rail groups, a row for
  * the open title, and a collapse toggle that leaves an icon rail.
  */
+import { useMemo } from 'react'
+
 import { useLoad } from '../hooks/useLoad'
 import { api } from '../api/client'
 import { routeHref, type Route } from '../router'
@@ -32,15 +34,15 @@ function Icon({ d }: { d: string }) {
   )
 }
 
-const loadDrama = (id: number) => () => api.getDrama(id)
-
 // Only drama, reader and comic routes name a title; the viewers' own pages already show it, so this just labels the rail row.
 function openTitleId(route: Route): number | null {
   return route.name === 'drama' || route.name === 'read' || route.name === 'comic' ? route.id : null
 }
 
 function TitleRow({ id }: { id: number }) {
-  const { data } = useLoad(loadDrama(id), 0)
+  // useLoad refetches whenever `load` changes, so the loader must be stable per id.
+  const load = useMemo(() => () => api.getDrama(id), [id])
+  const { data } = useLoad(load, 0)
   const title = data ? data.title_en || data.title_zh || `Title #${id}` : `Title #${id}`
   return (
     <a className="rail-title" href={routeHref({ name: 'drama', id, stage: null })} title={title} data-testid="rail-title">
