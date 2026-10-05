@@ -4,6 +4,7 @@ import type { AuthUser } from './api/auth'
 import { api } from './api/client'
 import { useMediaQuery } from './hooks/useMediaQuery'
 import { useDetailsMenu } from './hooks/useDetailsMenu'
+import { JobsProvider } from './hooks/JobsProvider'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AdminPage from './pages/Admin'
@@ -18,6 +19,7 @@ import ComicPage from './pages/Comic'
 import BenchmarkPage from './pages/Benchmark'
 import DiagnosticsPage from './pages/Diagnostics'
 import DiscoverPage from './pages/Discover'
+import JobsPage from './pages/Jobs'
 import LibraryPage from './pages/Library'
 import LibraryToolsPage from './pages/LibraryTools'
 import LivePage from './pages/Live'
@@ -150,6 +152,7 @@ export default function App() {
             page={route.page}
           />
         )}
+        {route.name === 'jobs' && <JobsPage />}
         {route.name === 'settings' && <SettingsPage />}
         {route.name === 'admin' && <AdminPage />}
         {route.name === 'translate' && <TranslatePage />}
@@ -165,28 +168,30 @@ export default function App() {
 
   // One tree at every width, so crossing 1024px keeps the open page (and a playing video) mounted.
   return (
-    <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
-      {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={toggleRail} />}
-      <div className="app-main">
-        {wide ? (
-          <header className="app-header">{headerEnd(false)}</header>
-        ) : (
-          <header className="app-header">
-            <h1>
-              Baihe<span className="title-rest"> Studio</span>
-            </h1>
-            <nav aria-label="Main">
-              {visibleNavItems('header', navContext).map(({ label, target, active }) => (
-                <a key={label} href={routeHref(target)} aria-current={active.includes(route.name) ? 'page' : undefined}>
-                  {label}
-                </a>
-              ))}
-            </nav>
-            {headerEnd(true)}
-          </header>
-        )}
-        {content}
+    <JobsProvider>
+      <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
+        {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={toggleRail} />}
+        <div className="app-main">
+          {wide ? (
+            <header className="app-header">{headerEnd(false)}</header>
+          ) : (
+            <header className="app-header">
+              <h1>
+                Baihe<span className="title-rest"> Studio</span>
+              </h1>
+              <nav aria-label="Main">
+                {visibleNavItems('header', navContext).map(({ label, target, active }) => (
+                  <a key={label} href={routeHref(target)} aria-current={active.includes(route.name) ? 'page' : undefined}>
+                    {label}
+                  </a>
+                ))}
+              </nav>
+              {headerEnd(true)}
+            </header>
+          )}
+          {content}
+        </div>
       </div>
-    </div>
+    </JobsProvider>
   )
 }
