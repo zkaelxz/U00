@@ -5,6 +5,10 @@ import { GLOSSARY_EXPIRED } from './autotuneGlossary'
 import {
   PROPOSALS_CHANGED_TEXT,
   SOURCE_TEXT,
+  defaultSuggestSource,
+  startCardSuggestLabel,
+  suggestBlockers,
+  suggestButtonLabel,
   applyRequest,
   buildOverrides,
   editProposal,
@@ -31,13 +35,13 @@ describe('glossary extraction helpers', () => {
   it('has per-source copy and test ids', () => {
     expect(SOURCE_TEXT.novel.testId).toBe('novel-glossary')
     expect(SOURCE_TEXT.lines.testId).toBe('lines-glossary')
-    expect(SOURCE_TEXT.lines.intro('claude')).toContain('source lines')
-    expect(SOURCE_TEXT.novel.storageKey).not.toBe(SOURCE_TEXT.lines.storageKey)
+    expect(SOURCE_TEXT.lines.label).toBe('Transcript')
+    expect(SOURCE_TEXT.novel.label).toBe('Novel')
   })
 
   it('progress: the novel run has a percentage, the lines run does not', () => {
     expect(extractionProgressText('novel', 'running', 0.42)).toBe('Reading the novel… 42%')
-    expect(extractionProgressText('lines', 'running', 0.1)).toBe('Scanning the lines…')
+    expect(extractionProgressText('lines', 'running', 0.1)).toBe('Scanning the transcript…')
     expect(extractionProgressText('lines', 'queued', 0)).toBe('Waiting to start…')
   })
 
@@ -119,5 +123,58 @@ describe('run scoping and the apply body', () => {
     expect(glossaryApplyErrorText({ status: 400 })).toBe(GLOSSARY_EXPIRED)
     expect(glossaryApplyErrorText({ status: 500 })).toBeNull()
     expect(glossaryApplyErrorText(null)).toBeNull()
+  })
+})
+
+describe('suggest terms sources', () => {
+  const blockers = (series: number | null, novel: boolean | null, lines: boolean | null) =>
+    suggestBlockers(3, series, novel, lines)
+
+  it('lines only: the transcript runs and the novel says what it needs', () => {
+    const b = blockers(7, false, true)
+    expect(b.lines).toBeNull()
+    expect(b.novel?.text).toBe('Still needed: novel text')
+    expect(defaultSuggestSource(b, false)).toBe('lines')
+    expect(defaultSuggestSource(b, true)).toBe('lines')
+  })
+
+  it('novel only: defaults to the novel', () => {
+    const b = blockers(7, true, false)
+    expect(b.novel).toBeNull()
+    expect(b.lines).toEqual({ text: 'Still needed: transcript lines', link: 'transcribe it on Source', href: '#/drama/3/source' })
+    expect(defaultSuggestSource(b, false)).toBe('novel')
+  })
+
+  it('both: the title kind decides', () => {
+    const b = blockers(7, true, true)
+    expect(defaultSuggestSource(b, false)).toBe('lines')
+    expect(defaultSuggestSource(b, true)).toBe('novel')
+  })
+
+  it('neither: both blocked, the title kind still picks the shown one', () => {
+    const b = blockers(7, false, false)
+    expect(b.novel).not.toBeNull()
+    expect(b.lines).not.toBeNull()
+    expect(defaultSuggestSource(b, false)).toBe('lines')
+    expect(defaultSuggestSource(b, true)).toBe('novel')
+  })
+
+  it('no series blocks both with the series text', () => {
+    const b = blockers(null, true, true)
+    expect(b.novel?.text).toBe('Still needed: a series for this drama')
+    expect(b.lines?.text).toBe('Still needed: a series for this drama')
+  })
+
+  it('a source still being read is not blocked yet', () => {
+    const b = blockers(7, null, null)
+    expect(b.novel).toBeNull()
+    expect(b.lines).toBeNull()
+  })
+
+  it('button and card labels', () => {
+    expect(suggestButtonLabel(false)).toBe('Suggest terms')
+    expect(suggestButtonLabel(true)).toBe('Suggest more terms')
+    expect(startCardSuggestLabel('lines')).toBe('Suggest terms from the transcript')
+    expect(startCardSuggestLabel('novel')).toBe('Suggest terms from the novel')
   })
 })

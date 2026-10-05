@@ -1,7 +1,6 @@
 // Shared state for the glossary extraction runs (From novel, From lines).
-// The same run can be shown by more than one panel at once (Glossary →
-// From novel and the Source stage's copy, or a panel and the review before
-// translating), and each polls on its own. After any panel starts, cancels
+// The same run can be shown by more than one panel at once (the Suggest
+// terms bar and the review before translating), and each polls on its own. After any panel starts, cancels
 // or applies, bumpGlossaryRun(source) makes every mounted panel for that
 // source re-read at once and resume polling, so none shows a stale run.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -17,6 +16,7 @@ import {
   startNovelGlossary,
 } from '../../../api/autotuneGlossary'
 import { ApiError } from '../../../api/client'
+import { getReadiness } from '../../../api/export'
 import { getSourceConfig } from '../../../api/source'
 import { getGlossaryCatalogues } from '../../../api/translateStage'
 import { getNovelStatus } from '../../../api/workspace'
@@ -140,13 +140,11 @@ export function useGlossaryCatalogues(enabled: boolean): GlossaryCatalogues | nu
 
 // Whether the drama has novel text or a saved original-language novel.
 // null while reading. Re-reads when the drama is refetched (NovelPanel's
-// attach) or a novel file changes (NovelFilePanel). enabled=false skips the
-// reads and answers true (the lines source doesn't need a novel).
-export function useHasNovel(dramaId: number, reloadKey: unknown, enabled = true): boolean | null {
+// attach) or a novel file changes (NovelFilePanel).
+export function useHasNovel(dramaId: number, reloadKey: unknown): boolean | null {
   const [state, setState] = useState<{ id: number; value: boolean } | null>(null)
   const filesVersion = useNovelFilesVersion()
   useEffect(() => {
-    if (!enabled) return
     let cancelled = false
     Promise.all([
       getNovelStatus(dramaId).then((s) => s.has_novel_text, () => false),
@@ -155,7 +153,23 @@ export function useHasNovel(dramaId: number, reloadKey: unknown, enabled = true)
     return () => {
       cancelled = true
     }
-  }, [dramaId, reloadKey, filesVersion, enabled])
-  if (!enabled) return true
+  }, [dramaId, reloadKey, filesVersion])
+  return state && state.id === dramaId ? state.value : null
+}
+
+// Whether the drama has transcript lines to read. null while reading; a
+// failed read answers true so the server decides when the run starts.
+export function useHasLines(dramaId: number): boolean | null {
+  const [state, setState] = useState<{ id: number; value: boolean } | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    getReadiness(dramaId).then(
+      (r) => !cancelled && setState({ id: dramaId, value: r.total_lines > 0 }),
+      () => !cancelled && setState({ id: dramaId, value: true }),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId])
   return state && state.id === dramaId ? state.value : null
 }

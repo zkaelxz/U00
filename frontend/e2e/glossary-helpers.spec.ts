@@ -1,9 +1,10 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { suggestFrom } from './suggestTerms'
 
 import { ME } from './authMocks'
-import { withTranslateLines } from './stageLineMocks'
+import { withExportLines, withTranslateLines } from './stageLineMocks'
 
-// Glossary helpers: Glossary → From lines (parity X10), Review glossary
+// Glossary helpers: Glossary → Suggest terms from the transcript (parity X10), Review glossary
 // before translating (X28) and the novel glossary in Translate (T02).
 // Drama reads hit the real seeded API (drama 1, reported as in series 7);
 // the extraction jobs, applies, translate run and job polls are mocked, so
@@ -34,6 +35,7 @@ async function base(page: Page, { novel }: { novel: boolean }) {
     const resp = await route.fetch()
     await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
   })
+  await withExportLines(page)
   await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/novel/dramas/1/status', (route) =>
     route.fulfill({ json: { drama_id: 1, has_novel_text: novel, char_count: novel ? 900 : 0, chapters: novel ? 3 : 0, ocr_running: false } }),
@@ -114,10 +116,10 @@ test.describe('desktop', () => {
 
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From lines')
+    await suggestFrom(page, 'Transcript')
     const box = page.getByTestId('lines-glossary')
-    await expect(box).toContainText("this drama's source lines")
-    await box.getByRole('button', { name: 'Extract terms' }).click()
+    await expect(box).toContainText('Uses your translation engine. You review the suggestions before anything is added.')
+    await box.getByRole('button', { name: 'Suggest terms', exact: true }).click()
     const table = box.getByTestId('lines-glossary-proposals')
     await expect(table.locator('tbody tr')).toHaveCount(3)
     expect(starts).toEqual(['lines'])
@@ -304,9 +306,9 @@ test.describe('desktop', () => {
     await mockTranslateRun(page)
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From lines')
+    await suggestFrom(page, 'Transcript')
     const box = page.getByTestId('lines-glossary')
-    await box.getByRole('button', { name: 'Extract terms' }).click()
+    await box.getByRole('button', { name: 'Suggest terms', exact: true }).click()
     await expect(box.getByTestId('lines-glossary-proposals').locator('tbody tr')).toHaveCount(2)
     await box.getByLabel('Select 蓝湛').uncheck()
     await box.getByLabel('Policy for 魏婴').selectOption('hybrid')
@@ -348,9 +350,9 @@ test.describe('desktop', () => {
     })
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From lines')
+    await suggestFrom(page, 'Transcript')
     const box = page.getByTestId('lines-glossary')
-    await box.getByRole('button', { name: 'Extract terms' }).click()
+    await box.getByRole('button', { name: 'Suggest terms', exact: true }).click()
     await expect(box.getByTestId('lines-glossary-proposals').locator('tbody tr')).toHaveCount(2)
     await box.getByLabel('Select 蓝湛').uncheck()
     await box.getByLabel('Translation for 魏婴').fill('Wei Wuxian')
@@ -376,9 +378,9 @@ test.describe('desktop', () => {
     await mockRun(page, 'novel', [prop('魏婴', 'Wei Ying')], starts)
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From novel')
+    await suggestFrom(page, 'Novel')
     const box = page.getByTestId('novel-glossary')
-    await box.getByRole('button', { name: 'Extract terms' }).click()
+    await box.getByRole('button', { name: 'Suggest terms', exact: true }).click()
     await expect(box.getByTestId('novel-glossary-proposals').locator('tbody tr')).toHaveCount(1)
     expect(starts).toEqual(['novel'])
     await shot(page, 'translate-novel-glossary-desktop')
@@ -408,7 +410,7 @@ test.describe('phone 390px', () => {
     )
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From lines')
+    await suggestFrom(page, 'Transcript')
     const box = page.getByTestId('lines-glossary')
     await expect(box.locator('ul.novel-glossary-cards > li')).toHaveCount(3)
     await expect(box.getByLabel('Translation for 云深不知处')).toBeVisible()
@@ -440,7 +442,7 @@ test.describe('phone 390px', () => {
     )
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From novel')
+    await suggestFrom(page, 'Novel')
     await expect(page.getByTestId('novel-glossary').locator('ul.novel-glossary-cards > li')).toHaveCount(1)
     await noSideScroll(page)
     await shot(page, 'translate-novel-glossary-phone')

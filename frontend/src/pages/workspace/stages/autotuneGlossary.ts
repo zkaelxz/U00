@@ -60,7 +60,7 @@ export function autotuneApplyErrorText(err: unknown): string | null {
 
 // --- Glossary from novel -----------------------------------------------
 
-interface Blocker {
+export interface Blocker {
   text: string
   link: string
   href: string
