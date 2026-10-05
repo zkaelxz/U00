@@ -120,6 +120,9 @@ test('with 30 proposals the apply row stays in reach at the bottom', async ({ pa
     await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
   })
   await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/novel/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_novel_text: true, char_count: 900, chapters: 3, ocr_running: false } }),
+  )
   const proposals = Array.from({ length: 30 }, (_, i) => ({
     term: `术语${i + 1}`, suggested_translation: `Term ${i + 1}`, category: 'term', policy: 'translate',
     reason: 'Appears in several chapters', already_in_glossary: i % 7 === 0,
