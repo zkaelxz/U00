@@ -24,19 +24,20 @@ import {
   unsetPronounsLabel,
   type CharacterForm,
 } from './characterForm'
-import { mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, undoIdSurvives, type MergeChoice, type MergeUndoHandle } from './mergeSpeakers'
+import { VOICE_CLIP_NOTE, leavesVoiceClip, mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, undoIdSurvives, type MergeChoice, type MergeUndoHandle } from './mergeSpeakers'
 import { readRenameUndo, renameProblem, saveRenameUndo, takenNames } from './renameSpeaker'
 import './characters.css'
 
 const COLUMNS = 7
 
-function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, onSaved, onRemembered, onRenamed, onMerged }: {
+function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip, onSaved, onRemembered, onRenamed, onMerged }: {
   entry: CharacterEntry
   engines: CloneEngines | null
   bank: VoiceBankEntry[]
   hasSeries: boolean
   taken: string[]
   mergeTargets: MergeChoice[]
+  leavesClip: (target: string) => boolean
   onSaved: (e: CharacterEntry) => void
   onRemembered: (r: RememberResult) => void
   onRenamed: (r: RenameResult) => void
@@ -216,7 +217,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, onSaved, on
                     </option>
                   ))}
                 </select>
-                {mergeInto && <p className="character-merge-confirm">{mergeSummary(entry, mergeInto)}</p>}
+                {mergeInto && <p className="character-merge-confirm">{mergeSummary(entry, mergeInto)}{leavesClip(mergeInto) && ` ${VOICE_CLIP_NOTE}`}</p>}
                 <button type="submit" disabled={busy || !mergeInto}>
                   {mergeInto ? `Merge ${entry.line_count} ${entry.line_count === 1 ? 'line' : 'lines'}` : 'Merge'}
                 </button>
@@ -419,6 +420,7 @@ export function CharactersPanel() {
                 hasSeries={Boolean(drama.series_id)}
                 taken={takenNames(entries, e.speaker_label)}
                 mergeTargets={mergeChoices(entries, e)}
+                leavesClip={(t) => leavesVoiceClip(e, entries.find((x) => x.speaker_label === t))}
                 onSaved={(saved) => {
                   replace(saved)
                   setSuggestRefresh((n) => n + 1)

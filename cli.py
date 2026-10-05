@@ -27,6 +27,10 @@ Examples:
   # ...or when only a range is known (2 to 4 voices)
   python cli.py diarize --id 12 --min-speakers 2 --max-speakers 4
 
+  # Mark lines (ids from inspect-line) or a whole speaker as English;
+  # --lang default puts them back to the title's language
+  python cli.py set-language --id 12 --speaker SPEAKER_01 --lang en
+
   # List what's in the library and its status
   python cli.py list
 """
@@ -59,11 +63,11 @@ import bulk_translate
 import raw_transcript
 import dub as dub_module
 import background_jobs
-from services import (engine_routing_service, glossary_retranslate_service,
+from services import (engine_routing_service, glossary_retranslate_service, lines_service,
                       line_provenance_service, narration_service, settings_service,
                       transcribe_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
-from services.service_errors import DependencyUnavailableError
+from services.service_errors import DependencyUnavailableError, ServiceError
 from services.translate_run_service import engine_cap_applies, get_translate_config_defaults
 
 
@@ -963,9 +967,10 @@ def cmd_inspect_line(args):
         print(f"No line #{args.line} in drama #{args.id} ({len(lines)} line(s) total)")
         return
     info = debug_view.explain_line(args.id, line, lines)
-    print(f"Line #{args.line} -- {info['zh']}")
+    print(f"Line #{args.line} (id {line.id}) -- {info['zh']}")
     print(f"  Translation: {info['en']}")
     print(f"  Speaker: {info['speaker'] or '—'}" + (" (manual)" if info["speaker_manual"] else ""))
+    print(f"  Language: {line.lang or 'title language'}")
     print(f"  Engine/model: {info['engine'] or '—'} / {info['model'] or '—'} ({info['engine_source']})")
     if info["flag"]:
         print(f"  Flag: {info['flag_reason']}" + (f" -- {info['flag_note']}" if info["flag_note"] else ""))
@@ -977,6 +982,27 @@ def cmd_inspect_line(args):
         print("  Translation notes: " + "; ".join(
             f"{n['term']}: {n['note']}" for n in info["translation_notes"]))
     print(f"  ({info['context_window_note']})")
+
+
+def cmd_set_language(args):
+    """Sets the spoken language of some lines, same service as the
+    Workspace's "Set language" action. --lang default (or "") reverts the
+    lines to the title's own language."""
+    lang = None if args.lang.strip().lower() == "default" else args.lang
+    try:
+        result = lines_service.set_lines_lang(
+            args.id, lang,
+            line_ids=args.lines,
+            speaker=args.speaker)
+    except ServiceError as e:
+        print(f"Error: {e.message}")
+        sys.exit(1)
+    label = core_module.normalize_line_lang(lang) or "title language"
+    msg = f"#{args.id}: set {label} on {result['updated']} line(s)"
+    if result["skipped_ids"]:
+        msg += f"; skipped {len(result['skipped_ids'])} id(s) not in this drama: " + \
+            ", ".join(str(i) for i in result["skipped_ids"])
+    print(msg)
 
 
 def cmd_run(args):
@@ -997,6 +1023,13 @@ def cmd_doctor(args):
     else:
         print(f"FAILED: {result['engine']} -- {result['error']}")
         sys.exit(1)
+
+
+def _parse_line_ids(text):
+    try:
+        return [int(part) for part in text.split(",") if part.strip()]
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected comma-separated integers, e.g. 12,13,20")
 
 
 def main():
@@ -1023,12 +1056,20 @@ def main():
     p_inspect.add_argument("--line", type=int, required=True, help="1-based line number")
     p_inspect.set_defaults(func=cmd_inspect_line)
 
+    p_lang = sub.add_parser("set-language", help="Set the spoken language of some lines")
+    p_lang.add_argument("--id", type=int, required=True)
+    group = p_lang.add_mutually_exclusive_group(required=True)
+    group.add_argument("--lines", type=_parse_line_ids, help="Comma-separated line ids (see inspect-line)")
+    group.add_argument("--speaker", help="Every line with this speaker label")
+    p_lang.add_argument("--lang", required=True,
+                        help="A language code, or 'default' / '' for the title's language")
+    p_lang.set_defaults(func=cmd_set_language)
+
     p_align = sub.add_parser("align")
     p_align.add_argument("--id", type=int, default=None)
     p_align.add_argument("--whisper-size", default=None, choices=list(WHISPER_MODELS),
                          help="Defaults to the drama's own saved choice (Workspace's own "
-                              f"'3. Recognition accuracy'), or '{DEFAULT_WHISPER_SIZE}' (medium with "
-                              "the GPU off) if it has none.")
+                              f"'3. Recognition accuracy'), or '{DEFAULT_WHISPER_SIZE}' if it has none.")
     p_align.add_argument("--fast", action="store_true",
                          help="Batched decoding (~4x faster on a GPU, more VRAM)")
     p_align.add_argument("--transcript", default=None, metavar="FILE",

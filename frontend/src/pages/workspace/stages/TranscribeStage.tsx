@@ -52,7 +52,7 @@ import './source.css'
 const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
 // The value stays the model name; the text says which is the default and its Japanese/Korean caveat.
 const WHISPER_LABELS: Record<string, string> = {
-  'large-v3-turbo': 'large-v3-turbo (default, weaker on Japanese/Korean)',
+  'large-v3-turbo': 'large-v3-turbo (default)',
 }
 const LANGUAGE_NAMES: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean' }
 // Display names for the Advanced backend choices (the option value stays raw).
