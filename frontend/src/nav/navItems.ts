@@ -17,6 +17,14 @@ export type NavSurface = 'header' | 'gear' | 'none'
 /** usePersistedState key for the rail's collapsed state. */
 export const RAIL_COLLAPSED_KEY = 'nav.collapsed'
 
+/** Viewport width from which the rail starts expanded when the viewer never chose. */
+export const RAIL_EXPANDED_MIN_WIDTH = 1280
+
+/** A saved choice wins at every width; with none, narrow viewports start collapsed so pages keep their width. */
+export function resolveRailCollapsed(saved: boolean | null, wideEnoughToExpand: boolean): boolean {
+  return saved ?? !wideEnoughToExpand
+}
+
 export type RailGroup = 'library' | 'find' | 'tools' | 'system'
 
 /** Rail groups in on-screen order; the first has no heading because the Library item itself heads it. */
