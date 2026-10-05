@@ -19,7 +19,7 @@ test('previews with AI, shows before → after, and Apply needs the typed confir
     'A paid AI call, counted toward the monthly spending cap. Spent this month: $1.25 of $20.00.',
   )
   await group.locator('summary', { hasText: 'Advanced' }).click()
-  const engine = group.getByRole('combobox', { name: 'Engine' })
+  const engine = group.getByRole('combobox', { name: 'AI engine' })
   await expect(engine.locator('option').first()).toHaveText('Default (Claude)')
   await expect(engine.locator('option', { hasText: 'NLLB' })).toHaveCount(0)
   await engine.selectOption('gemini')

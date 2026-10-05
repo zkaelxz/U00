@@ -33,7 +33,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
   await expect(run.getByRole('status')).toContainText('Release recommends Auto QC; run it from the Export stage.')
   expect(tierBodies).toEqual([{ tier: 'release' }])
 
-  await expect(run.getByLabel('Engine', { exact: true })).toHaveValue('claude')
+  await expect(run.getByLabel('AI engine', { exact: true })).toHaveValue('claude')
   await run.getByText('Advanced', { exact: true }).click()
   await expect(run.getByRole('switch', { name: 'Reflect', exact: true })).toBeChecked()
   expect(runs).toEqual([])
@@ -120,7 +120,7 @@ test('after a tier, Default runs and saves with the new engine', async ({ page }
   await run.getByLabel('Starting tier', { exact: true }).selectOption(tier.key)
   await run.getByRole('button', { name: 'Apply tier' }).click()
   await expect(run.getByRole('status')).toContainText('Nothing has started')
-  const engine = run.getByLabel('Engine', { exact: true })
+  const engine = run.getByLabel('AI engine', { exact: true })
   await engine.selectOption('')
   await expect(engine.locator('option[value=""]')).toHaveText(
     `Default (${eng.label}${eng.key_configured ? '' : ' (no key)'})`)

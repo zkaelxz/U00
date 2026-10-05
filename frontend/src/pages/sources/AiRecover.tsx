@@ -15,6 +15,7 @@ import { buttonClass } from '../../components/uiClasses'
 import type { ImportRetryRow } from '../../types/sourcesImport'
 import { engineLabel, recoverSummary } from './extractionFormat'
 import { useAiEngines } from './useAiEngines'
+import { AI_ENGINE_LABEL } from '../../helpText'
 
 type Props = {
   rows: ImportRetryRow[]
@@ -43,7 +44,7 @@ export function AiRecover({ rows, disabled, onConfirm }: Props) {
             ) : (
               <div className="sources-ai-confirm">
                 <p className="muted">{r.error}</p>
-                <Field label="AI engine">
+                <Field label={AI_ENGINE_LABEL}>
                   <select value={engine ?? ''} disabled={disabled} onChange={(e) => setPicked(e.target.value || null)}>
                     {!engine && <option value="">Choose an engine…</option>}
                     {(ai.engines?.engines ?? []).map((n) => (

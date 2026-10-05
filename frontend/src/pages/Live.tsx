@@ -35,6 +35,7 @@ import { DEFAULT_DELAY, DELAY_RANGE, canDelay, parseStreamUrl } from './live/emb
 import type { LiveCue, LiveSessionStatus } from '../types/live'
 import type { TranslateEngine } from '../types/translate'
 import './live.css'
+import { AI_ENGINE_LABEL } from '../helpText'
 
 const numValue = (n: number) => (Number.isFinite(n) ? n : '')
 
@@ -205,7 +206,7 @@ export default function LivePage() {
               ))}
             </select>
           </Field>
-          <Field label="Engine" help="Engines without a key are hidden; add keys in Settings.">
+          <Field label={AI_ENGINE_LABEL} help="Engines without a key are hidden; add keys in Settings.">
             <select value={engine} disabled={active || !usable.length} onChange={(e) => setOpt('engine', e.target.value)}>
               {!usable.length && <option value="">{engines ? 'No engine with a key' : 'Loading…'}</option>}
               {usable.map((en) => (
