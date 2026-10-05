@@ -20,11 +20,15 @@ export function LineOrigin({
   lineId,
   onChanged,
   onRestored,
+  focusRetranscribe,
+  onRetranscribeFocused,
 }: {
   dramaId: number
   lineId: number
   onChanged?: (applied: RetranscribeApplyResult) => void
   onRestored?: (saved: ReviewLine) => void
+  focusRetranscribe?: boolean
+  onRetranscribeFocused?: () => void
 }) {
   const [data, setData] = useState<{ p: LineProvenance; o: LineOriginalText } | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -89,6 +93,8 @@ export function LineOrigin({
         dramaId={dramaId}
         lineId={lineId}
         reloadsEditor={!!onChanged}
+        focusOnReady={focusRetranscribe}
+        onFocused={onRetranscribeFocused}
         onChanged={(applied) => {
           if (open) load()
           onChanged?.(applied)

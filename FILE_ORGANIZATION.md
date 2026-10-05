@@ -717,6 +717,8 @@ baihe-subtitler/
 │   │                              reportDialogStore.ts (openReportDialog()), reportBundle.ts (pure: report,
 │   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
+│   ├── src/pages/workspace/       JobPill.tsx (sticky-strip pill for this title's queued/running jobs, popover with JobPanel and Cancel),
+│   │                              useDramaJobs.ts (3 s GET /api/jobs poll, finish flash), jobPillState.ts (pure: verbs, text, flash)
 │   ├── src/hooks/                 useJob (push, polling fallback), useEventStream (the tab's shared SSE stream,
 │   │                              src/api/eventStream.ts: reconnect with backoff, resync, poll fallback),
 │   │                              useMediaQuery, useShortcut (list keyboard shortcuts),
@@ -760,7 +762,8 @@ baihe-subtitler/
 │   │                              <html data-theme>, applied in index.html and main.tsx; the header button is
 │   │                              components/ThemeMenu.tsx; the header cogwheel, components/GearMenu.tsx, opens Settings, Admin
 │   │                              (pages/Admin.tsx: Users, Audit log, Remote access) and Diagnostics; its items and the header's main nav
-│   │                              come from src/nav/navItems.ts, the one navigation list with permission and PC-only flags). ApiKeysCard (Settings > API
+│   │                              come from src/nav/navItems.ts, the one navigation list with permission and PC-only flags; from 1024px up the header nav and
+│   │                              cogwheel give way to the left rail, nav/SideNav.tsx + nav/sideNav.css, rendered from the same list). ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
 │   │                              settings.css (the page's Card stack and status rows).
 │   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,
@@ -812,7 +815,8 @@ baihe-subtitler/
 │   │                              unit-tested), discover.css
 │   ├── src/pages/workspace/stages/  also DiarizationDeviceNote (Transcribe > Speakers: GPU/CPU of the last
 │   │                              pyannote run, Step 101; API in src/api/asrOptions.ts), AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:
-│   │                              Glossary > From novel / From lines, and the novel one on Source),
+│   │                              the run, progress and review under the Suggest terms bar), SuggestTerms (the
+│   │                              bar's source picker, blockers and default source, shared with the empty-state card),
 │   │                              GlossaryProposals (editable proposal table/cards), GlossaryReview
 │   │                              (Translate: review glossary before translating), useGlossaryRun
 │   │                              (shared run state across mounts), glossaryExtract.ts (pure,

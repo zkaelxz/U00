@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 
 import { expect, test } from './fixtures'
 import { mockJobsApi, pageJobs } from './jobsMenuMocks'
+import { openGear } from './settingsNav'
 
 // The Jobs page (#/jobs) with /api/jobs mocked: table, filters, states,
 // Cancel, PC-only Delete, row details and the remote-admin persona.
@@ -293,11 +294,15 @@ test('PC owner gets Cancel on every job', async ({ page }) => {
 test('the menu has Jobs with a running count, and it opens the page', async ({ page }) => {
   await mockJobsApi(page, pageJobs(), true)
   await page.goto('/#/library')
-  await page.locator('summary[aria-label="Settings and tools"]').click()
-  const link = page.getByRole('group', { name: 'Settings and tools pages' }).getByRole('link', { name: /^Jobs/ })
-  await expect(page.getByTestId('gear-jobs-count')).toHaveText('2')
+  await openGear(page)
+  // The count badge is part of the link's name, so match by prefix: the rail at 1024px and up, the cogwheel menu below.
+  const link = page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: /^Jobs/ })
+    .or(page.getByRole('group', { name: 'Settings and tools pages' }).getByRole('link', { name: /^Jobs/ }))
+  await expect(page.getByTestId(/^(gear|rail)-jobs-count$/)).toHaveText('2')
   await link.click()
   await expect(page).toHaveURL(/#\/jobs$/)
-  await page.locator('summary[aria-label="Settings and tools"]').click()
+  await openGear(page)
   await expect(link).toHaveAttribute('aria-current', 'page')
 })

@@ -191,7 +191,7 @@ export function validateRun(
   if (f.bulk && !bulkAvailable(eff, bulkSupported)) return 'Bulk needs Claude, Gemini or DeepSeek.'
   if (f.bulk && f.reflect && !bulkReflectAvailable(eff, bulkSupported)) return 'Bulk Reflect needs Claude or Gemini.'
   if ((f.bulk || f.reflect) && f.fallbacks.length) return 'Fallback engines only apply to a normal run.'
-  if (intIn(f.batch_size, 1, 200) === null) return 'Batch size must be a whole number from 1 to 200.'
+  if (intIn(f.batch_size, 1, 60) === null) return 'Batch size must be a whole number from 1 to 60.'
   if (intIn(f.context_window, 0, 100) === null) return 'Context window must be a whole number from 0 to 100.'
   if (intIn(f.context_window_ahead, 0, 100) === null)
     return 'Context window ahead must be a whole number from 0 to 100.'

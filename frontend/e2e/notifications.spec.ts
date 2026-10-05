@@ -316,9 +316,8 @@ test('header bell: fits the one-row header at 1280px, and its panel stays on scr
     const bell = page.getByRole('button', { name: /^Notifications/ })
     await expect(bell).toBeVisible()
     const b = (await bell.boundingBox())!
-    const nav = (await page.getByRole('navigation', { name: 'Main' }).boundingBox())!
-    // 1280: the bell did not push the header onto a second row.
-    if (width === 1280) expect(b.y).toBeLessThan(nav.y + nav.height)
+    // The header is a single row of icons beside the left rail, so the bell sits at the top of the page.
+    expect(b.y).toBeLessThan(80)
     await bell.click()
     const p = (await page.getByRole('region', { name: 'Recent notifications' }).boundingBox())!
     expect(p.x).toBeGreaterThanOrEqual(0)

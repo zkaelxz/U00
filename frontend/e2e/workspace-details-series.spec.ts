@@ -99,7 +99,7 @@ test('the glossary box explains a drama without a series and creates one in one 
   await box.getByRole('button', { name: /^Create series/ }).click()
   await expect.poll(() => bodies).toEqual([{ new_series_name: "Heaven Official's Blessing" }])
   await expect(page.getByTestId('series-assign-current')).toContainText('Saga')
-  await expect(page.getByRole('button', { name: 'Add term' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: /^Add (a )?term$/ })).toBeEnabled()
 })
 
 test('the glossary box can move the drama to another series', async ({ page }) => {

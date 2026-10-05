@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { SCREENS, cue, mockLive, openLive } from './liveMocks'
-import { mockEmbedHosts, ytFrame } from './liveVideoMocks'
+import { mockEmbedHosts, ytFrame, ytHtml } from './liveVideoMocks'
 
 // Live page: the optional stream video. The embed hosts are route-mocked.
 // The picture must be gone from the DOM (not hidden) whenever playback
@@ -46,6 +46,79 @@ test('video plays behind live while running and is removed on Stop', async ({ pa
   await expect(page.locator('iframe')).toHaveCount(0)
 })
 
+test('the player may go fullscreen', async ({ page }) => {
+  await startRunning(page)
+  const iframe = page.locator('iframe[title="Stream video"]')
+  await expect(iframe).toHaveAttribute('allowfullscreen', '')
+  await expect(iframe).toHaveAttribute('allow', /(^|;\s*)fullscreen(;|$)/)
+  // The sandbox has no token that blocks fullscreen; the browser's own answer for the cross-origin frame is the proof.
+  await expect.poll(() => ytFrame(page)?.evaluate(() => document.fullscreenEnabled)).toBe(true)
+})
+
+test('the note follows the slider within a second and reports what the player did', async ({ page }) => {
+  const { live } = await startRunning(page)
+  const note = live.getByTestId('live-video-note')
+  await expect(note).toHaveText('Playing about 15 s behind live.')
+  await live.getByLabel('Video delay', { exact: true }).fill('40')
+  await expect(note).toHaveText('Playing about 40 s behind live.', { timeout: 1_500 })
+  await live.getByLabel('Video delay', { exact: true }).fill('0')
+  await expect(note).toHaveText('Playing about 0 s behind live.', { timeout: 1_500 })
+})
+
+test('says when the stream allows less rewind than asked', async ({ page }) => {
+  const { live } = await startRunning(page, YT, ytHtml(45))
+  await expect(live.getByTestId('live-video-note')).toHaveText('Playing about 15 s behind live.')
+  await live.getByLabel('Video delay', { exact: true }).fill('90')
+  await expect(live.getByTestId('live-video-note')).toHaveText(
+    'Playing about 45 s behind live (this stream allows at most 45 s).', { timeout: 1_500 })
+})
+
+test('shows a waiting note until the player reports, then asks again when seeks are dropped', async ({ page }) => {
+  test.setTimeout(45_000)
+  const { live } = await startRunning(page, YT, ytHtml(300, 2))
+  const note = live.getByTestId('live-video-note')
+  await expect(note).toHaveText('Moving to about 15 s behind live…')
+  await expect(note).toHaveText('Playing about 15 s behind live.', { timeout: 10_000 })
+  expect(await ytFrame(page)!.evaluate(() => (window as unknown as { __cmds: unknown[] }).__cmds.length)).toBe(3)
+})
+
+test('before the player reports the note says it is waiting', async ({ page }) => {
+  test.setTimeout(45_000)
+  const { live } = await startRunning(page, YT, '<p>silent</p>')
+  await expect(live.getByTestId('live-video-note')).toHaveText('Waiting for the player…')
+})
+
+test('Larger video gives the picture the row and puts the lines under it, and is remembered', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const { live } = await startRunning(page)
+  const frame = page.locator('iframe[title="Stream video"]')
+  const list = live.getByRole('list', { name: 'Live lines, newest first' })
+  const body = page.locator('.live-body')
+
+  // Default wide layout: lines left, video right and the larger column.
+  let f = (await frame.boundingBox())!
+  let l = (await list.boundingBox())!
+  let b = (await body.boundingBox())!
+  expect(f.x).toBeGreaterThan(l.x + l.width - 1)
+  expect(f.width / b.width).toBeGreaterThan(0.5)
+  expect(f.width).toBeGreaterThan(440)
+
+  await live.getByRole('switch', { name: 'Larger video' }).click()
+  f = (await frame.boundingBox())!
+  l = (await list.boundingBox())!
+  b = (await body.boundingBox())!
+  expect(f.y + f.height).toBeLessThanOrEqual(l.y)
+  expect(f.width).toBeGreaterThan(b.width * 0.95)
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('baihe.pref.live.theater'))).toBe('true')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await page.screenshot({ path: `${SCREENS}/desktop-theater.png`, fullPage: true })
+
+  await live.getByRole('switch', { name: 'Larger video' }).click()
+  f = (await frame.boundingBox())!
+  l = (await list.boundingBox())!
+  expect(f.x).toBeGreaterThan(l.x)
+})
+
 test('toggling Show video off removes the iframe, and the choice is remembered', async ({ page }) => {
   const { live } = await startRunning(page)
   await expect(page.locator('iframe')).toHaveCount(1)
@@ -59,7 +132,7 @@ test('toggling Show video off removes the iframe, and the choice is remembered',
 test('leaving the page removes the iframe', async ({ page }) => {
   await startRunning(page)
   await expect(page.locator('iframe')).toHaveCount(1)
-  await page.getByRole('link', { name: 'Library' }).click()
+  await page.getByRole('link', { name: 'Library', exact: true }).click()
   await expect(page).toHaveURL(/#\/library/)
   await expect(page.locator('iframe')).toHaveCount(0)
 })

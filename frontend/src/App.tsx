@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 
 import type { AuthUser } from './api/auth'
 import { api } from './api/client'
+import { useMediaQuery } from './hooks/useMediaQuery'
+import { usePersistedState } from './hooks/usePersistedState'
 import { useDetailsMenu } from './hooks/useDetailsMenu'
 import { JobsProvider } from './hooks/JobsProvider'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
@@ -31,7 +33,8 @@ import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
-import { visibleNavItems } from './nav/navItems'
+import { RAIL_COLLAPSED_KEY, visibleNavItems } from './nav/navItems'
+import { SideNav } from './nav/SideNav'
 import { ReportProblemButton } from './report/ReportProblem'
 import { usePcOnly } from './hooks/usePcOnly'
 import { routeHref, useRoute } from './router'
@@ -98,6 +101,8 @@ export default function App() {
   const view = gateView(session)
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
+  const wide = useMediaQuery('(min-width: 1024px)')
+  const [railCollapsed, setRailCollapsed] = usePersistedState(RAIL_COLLAPSED_KEY, false)
 
   if (view === 'connecting') {
     return (
@@ -112,35 +117,22 @@ export default function App() {
   const user = menuUser(session)
   const navContext = { session, pcMode, developerMode }
 
-  return (
-    <JobsProvider>
-      <header className="app-header">
-        <h1>
-          Baihe<span className="title-rest"> Studio</span>
-        </h1>
-        <nav aria-label="Main">
-          {visibleNavItems('header', navContext).map(({ label, target, active }) => (
-            <a
-              key={label}
-              href={routeHref(target)}
-              aria-current={active.includes(route.name) ? 'page' : undefined}
-            >
-              {label}
-            </a>
-          ))}
-        </nav>
-        <div className="header-end">
-          <JobsMenu />
-          <NotificationBell />
-          <ReportProblemButton />
-          <ThemeMenu />
-          <GearMenu items={visibleNavItems('gear', navContext)} route={route} />
-          <ApiStatus />
-          {user && <UserMenu user={user} />}
-        </div>
-      </header>
+  const headerEnd = (withGear: boolean) => (
+    <div className="header-end">
+      <JobsMenu />
+      <NotificationBell />
+      <ReportProblemButton />
+      <ThemeMenu />
+      {withGear && <GearMenu items={visibleNavItems('gear', navContext)} route={route} />}
+      <ApiStatus />
+      {user && <UserMenu user={user} />}
+    </div>
+  )
+
+  // Header and nav stay outside the boundary so a crashed page can still be left.
+  const content = (
+    <>
       <RemoteHealthBanner />
-      {/* Header and nav stay outside the boundary so a crashed page can still be left. */}
       <RouteErrorBoundary>
         {route.name === 'library' && <LibraryPage />}
         {route.name === 'library-tools' && <LibraryToolsPage />}
@@ -171,6 +163,35 @@ export default function App() {
         {route.name === 'assistant' && <AssistantPage />}
         {route.name === 'benchmark' && <BenchmarkPage compare={route.compare} />}
       </RouteErrorBoundary>
+    </>
+  )
+
+  // One tree at every width, so crossing 1024px keeps the open page (and a playing video) mounted.
+  return (
+    <JobsProvider>
+      <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
+        {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={() => setRailCollapsed(!railCollapsed)} />}
+        <div className="app-main">
+          {wide ? (
+            <header className="app-header">{headerEnd(false)}</header>
+          ) : (
+            <header className="app-header">
+              <h1>
+                Baihe<span className="title-rest"> Studio</span>
+              </h1>
+              <nav aria-label="Main">
+                {visibleNavItems('header', navContext).map(({ label, target, active }) => (
+                  <a key={label} href={routeHref(target)} aria-current={active.includes(route.name) ? 'page' : undefined}>
+                    {label}
+                  </a>
+                ))}
+              </nav>
+              {headerEnd(true)}
+            </header>
+          )}
+          {content}
+        </div>
+      </div>
     </JobsProvider>
   )
 }

@@ -299,12 +299,13 @@ def _drama_title(description, shared_only=False):
     return _tidy(title, _TITLE_MAX) if title else None
 
 
-def build_message(description, status, shared_only=False) -> str:
+def build_message(description, status, shared_only=False, with_errors=False) -> str:
     """"Finished: Translation - <drama title>" / "Failed: ...". Only the
     job kind (description up to its first "("), the drama title and the
     outcome."""
     from translate_engines import redact_secrets
-    outcome = "Finished" if status == "done" else "Failed"
+    outcome = ("Finished with errors" if with_errors else "Finished") if status == "done" \
+        else "Failed"
     kind = _tidy(re.split(r"\s*\(", description or "", maxsplit=1)[0], _KIND_MAX)
     text = f"{outcome}: {kind or 'Background job'}"
     title = _drama_title(description, shared_only)
@@ -612,7 +613,8 @@ def _chapter_count(job_id):
         return 0
 
 
-def notify_job_finished(description, status, job_id=None, owner_user_id=None):
+def notify_job_finished(description, status, job_id=None, owner_user_id=None,
+                        with_errors=False):
     """Record a job-ended event in the in-app list and queue a push for the
     configured channels. Never raises, never blocks on the network."""
     global _timer
@@ -627,11 +629,12 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None):
         else:
             category = "jobs"
             kind = "job_done" if status == "done" else "job_failed"
-            message = build_message(description, status)
+            message = build_message(description, status, with_errors=with_errors)
         _record(kind, message, job_id, owner_user_id)
         if category == "jobs":
             # The in-app list is filtered per viewer; a push channel is not.
-            message = build_message(description, status, shared_only=True)
+            message = build_message(description, status, shared_only=True,
+                                    with_errors=with_errors)
         if os.environ.get(DISABLED_ENV) == "1" or not get_categories()[category]:
             return
         if not configured_channels():

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { canRetranscribe, jobIsForLine, retranscribeOutcome } from './retranscribeLogic'
+import { JOB_RUNNING_MESSAGE } from './reviewLogic'
+import { NO_AUDIO_MESSAGE, canRetranscribe, jobIsForLine, retranscribeMenuState, retranscribeOutcome } from './retranscribeLogic'
 
 const done = (result: Record<string, unknown> | null, outcome: 'ok' | 'failed' | 'cancelled' | 'partial' = 'ok') => ({
   status: 'done',
@@ -14,6 +15,19 @@ describe('canRetranscribe', () => {
     expect(canRetranscribe({ has_audio_pipeline: true, audio_available: true })).toBe(true)
     expect(canRetranscribe({ has_audio_pipeline: false, audio_available: true })).toBe(false)
     expect(canRetranscribe({ has_audio_pipeline: true, audio_available: false })).toBe(false)
+  })
+})
+
+describe('retranscribeMenuState', () => {
+  it('is enabled with audio and no running job', () => {
+    expect(retranscribeMenuState(true, null)).toEqual({ disabled: false, reason: null })
+  })
+  it('is disabled with a reason when there is no audio', () => {
+    expect(retranscribeMenuState(false, null)).toEqual({ disabled: true, reason: NO_AUDIO_MESSAGE })
+  })
+  it('is disabled with the job message while a job runs, even with audio', () => {
+    expect(retranscribeMenuState(true, JOB_RUNNING_MESSAGE)).toEqual({ disabled: true, reason: JOB_RUNNING_MESSAGE })
+    expect(retranscribeMenuState(false, JOB_RUNNING_MESSAGE).reason).toBe(JOB_RUNNING_MESSAGE)
   })
 })
 

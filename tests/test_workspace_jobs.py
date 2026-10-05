@@ -495,7 +495,7 @@ def test_realign_long_segments_runs_after_transcription(monkeypatch):
     import word_align
     seen = {}
 
-    def fake_realign(segments, audio_path, language, chinese_script="simplified"):
+    def fake_realign(segments, audio_path, language, chinese_script="simplified", **kwargs):
         seen["segments"] = segments
         seen["audio_path"] = audio_path
         seen["language"] = language
@@ -951,6 +951,33 @@ def test_fix_flagged_job_skips_retranscription_with_no_audio(isolated_db, monkey
     assert loaded[0]["zh"] == "画蛇添足"  # unchanged -- nothing to re-transcribe
     assert loaded[0]["en"] == "Gilding the lily"
     assert loaded[0]["flag"] is None
+    _clear(job_id)
+
+
+def test_fix_flagged_job_stops_on_cancel_and_keeps_fixed_lines(isolated_db):
+    """Cancel lands between lines: the lines already fixed are saved, the rest stay flagged."""
+    job_id = "test_fixflag_cancel"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=i, start=float(i), end=i + 1.0, zh=zh, en="old", flag="mistranslation",
+                  flag_note="check") for i, zh in enumerate(["一", "二", "三"])]
+    isolated_db.save_lines(did, lines)
+
+    class CancelAfterFirst(FakeFixEngine):
+        def translate_batch(self, zh_lines, context):
+            out = super().translate_batch(zh_lines, context)
+            background_jobs._jobs[job_id]["cancel_requested"] = True
+            return out
+
+    engine = CancelAfterFirst(translations={"一": "one", "二": "two", "三": "three"})
+    with pytest.raises(background_jobs.JobCancelled):
+        run_fix_flagged_lines_job(job_id, did, lines, None, "medium", False, "zh", engine, "claude")
+
+    loaded = isolated_db.load_lines(did)
+    assert [ln["en"] for ln in loaded] == ["one", "old", "old"]
+    assert [ln["flag"] for ln in loaded] == [None, "mistranslation", "mistranslation"]
     _clear(job_id)
 
 
