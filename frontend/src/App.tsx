@@ -31,6 +31,7 @@ import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
+import { CommandPalette } from './nav/CommandPalette'
 import { useHiddenNav } from './nav/hiddenNav'
 import { NavDrawer } from './nav/NavDrawer'
 import { SideNav } from './nav/SideNav'
@@ -132,6 +133,7 @@ export default function App() {
 
   const headerEnd = (
     <div className="header-end">
+      <CommandPalette route={route} context={navContext} />
       <JobsMenu />
       <NotificationBell />
       <ReportProblemButton />
