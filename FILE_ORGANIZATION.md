@@ -234,6 +234,7 @@ baihe-subtitler/
 │   │                             updates only Baihe's own properties and "Baihe transcript" block in place
 │   │                             (page id in dramas.notion_page_id); fixed host, throttled, chunked, 429 back-off
 │   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
+│   ├── usage_recost_service.py   opt-in re-cost of old usage_log rows priced at a whole family's top rate: preview, apply (old value kept), undo
 │   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
 │   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
 │   ├── diagnostics_gaps_service.py  M1 -- setup checks, model versions and cache,
@@ -679,6 +680,7 @@ baihe-subtitler/
 │       │                         key-write gate; Step 44)
 │       ├── asr_options_routes.py /api/settings/asr-options (GET admin.settings, POST local_only;
 │       │                         Steps 103/104)
+│       ├── usage_recost_routes.py /api/settings/usage-recost (GET admin.settings; /apply, /undo POST local_only)
 │       ├── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
 │       │                         /dramas/{id}/send -- all local_only (Step 39)
 │       ├── notion_routes.py      /api/notion/config (GET/POST), /token, /token/clear, /test,

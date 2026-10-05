@@ -9,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, Stri
 from api.schemas.common import TranslateEngine
 
 __all__ = [
+    "UsageRecostModelRow",
+    "UsageRecostPreview",
+    "UsageRecostApplyRequest",
+    "UsageRecostResult",
     "HealthResponse",
     "MetaResponse",
     "DependencyStatus",
@@ -940,3 +944,35 @@ class PortEntry(BaseModel):
 class PortsOverview(BaseModel):
     """GET /api/diagnostics/ports (PC only)."""
     ports: List[PortEntry]
+
+
+class UsageRecostModelRow(BaseModel):
+    model: str
+    rows: int
+    stored_usd: float
+    recomputed_usd: float
+
+
+class UsageRecostPreview(BaseModel):
+    """GET /api/settings/usage-recost: what a re-cost would change. Numbers
+    only; nothing is written."""
+    rows: int
+    models: List[UsageRecostModelRow]
+    stored_usd: float
+    recomputed_usd: float
+    difference_usd: float
+    month_stored_usd: float
+    month_recomputed_usd: float
+    # Rows a re-cost already replaced, which Undo can put back.
+    recosted_rows: int
+
+
+class UsageRecostApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class UsageRecostResult(BaseModel):
+    """POST apply or undo: rows written and this month's logged spend after."""
+    rows: int
+    month_spend_usd: float
