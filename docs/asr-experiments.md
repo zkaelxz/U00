@@ -407,7 +407,7 @@ changing one thing from the whole-file call:
 | Backend before: VAD spans, `merge_close` 0.3 s, `cap_spans` 15 s | 4.97 | 4.85 | 6.68 |
 | Same, full-precision slices | 4.74 | 4.85 | 6.78 |
 | **Backend after** (this change) | **3.34** | **3.78** | **5.42** |
-| After, utterances without digits (plain / before) | 2.54 (2.75 / 3.10) | 1.94 (1.94 / 2.22) | 4.32 (4.32 / 5.18) |
+| After, only utterances without digits (plain / before in brackets) | 2.54 (2.75 / 3.10) | 1.94 (1.94 / 2.22) | 4.32 (4.32 / 5.18) |
 
 Not responsible: the hallucination filter and `split_long_segments` (output with and without them identical in all
 60 x 3 files), language forcing, batch size and dtype (plain and the backend call the same `load_qwen3_asr` model with
@@ -427,11 +427,15 @@ Korean 13 / 11 / 9 / 12 / 12 of 15, Chinese 8 / 3 / 1 / 4 / 5 of 12, Japanese 23
 not enough (Korean got worse), 2 s is the largest tried. A 1 s or 2 s merge gap gave the same Korean result (3.82) and no
 change on Chinese or Japanese.
 
-**What is left.** The gap shrank from 1.5-1.8 points to 0.3-0.6 but is not closed (Korean +0.23, Chinese +0.62, Japanese
-+0.34 against plain); it is almost entirely digit utterances (Chinese: plain writes digits in 8 of 12 digit utterances, one span with 2 s of padding in 5) and the
-differences are inside the noise of 60 utterances (a few characters each). Whether digits or spelled-out numbers are better
-for subtitles is a style choice; FLEURS happens to reference digits. Audio that is not read speech (music, overlap, long
-files) was not tested, and padding adds up to 4 s of audio per span, so a run is a little slower on audio with long pauses.
+**What is left.** Lower CER is better. The old backend was 1.5-1.8 points worse than plain; the new one is 0.2-0.6 points
+worse (Korean +0.22, Chinese +0.61, Japanese +0.33). So the change removed most of the gap but not all of it: plain Qwen on
+the whole file is still the best score in all three languages, and the new backend is the closest we have that also gives
+timestamps. Against the old backend the improvement is real in all three (95% interval excludes zero: Korean -1.63, Chinese
+-1.07, Japanese -1.26 points). Against plain only Japanese is clearly worse; Korean and Chinese could be noise at 60
+utterances. Almost all of what is left comes from numbers: on utterances without digits the new backend ties plain (Chinese,
+Japanese) or is within 0.2 points (Korean). Whether digits or spelled-out numbers are better for subtitles is a style
+choice; FLEURS happens to use digits. Not tested: music, overlapping speakers, long files. Padding adds up to 4 s of audio
+per span, so a run is a little slower on audio with long pauses.
 
 **Automatic language (`language=None`).** One 318 s file: 24 FLEURS test utterances (rows 60-65 of `ko_kr`, `ja_jp`,
 `cmn_hans_cn` and `en_us`, sha256 of `en_us` `6428a4d04d3aac29e16b45e039bb1470a8bd7aa334cf92f7984c9c520d1f234d`),
