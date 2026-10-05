@@ -326,3 +326,27 @@ def test_config_route_carries_summary(isolated_db):
     body = c.get(f"/api/diarization/dramas/{did}/config").json()["speaker_summary"]
     assert body == {"speakers": [{"label": "A", "seconds": 4.0, "percent": 100.0, "turns": 1}],
                     "total_speech_seconds": 4.0, "uncovered_seconds": None}
+
+
+def test_align_job_aligns_each_line_in_its_own_language(monkeypatch):
+    did = db.create_drama(title_zh="D", source_language="zh", audio_filename="audio.wav")
+    with open(os.path.join(db.drama_dir(did), "audio.wav"), "wb") as f:
+        f.write(b"x")
+    db.save_lines(did, [
+        Line(idx=0, start=0.0, end=30.0, zh=LONG, lang="ja"),
+        Line(idx=1, start=30.0, end=60.0, zh=LONG),
+        Line(idx=2, start=60.0, end=90.0, zh=LONG, lang="en")])
+    ids = [r["id"] for r in db.load_lines(did)]
+    languages = []
+
+    def align(audio, texts, segs, language, use_gpu=False):
+        languages.append(language)
+        if language == "en":  # the aligner doesn't cover English
+            raise ValueError("unsupported language")
+        return [Line(idx=i, start=segs[0]["start"] + 9 * i + 1, end=segs[0]["start"] + 9 * (i + 1), zh=t)
+                for i, t in enumerate(texts)]
+    _fake_aligner(monkeypatch, align)
+    job = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])
+    assert job["status"] == "done", job
+    assert languages == ["ja", "zh", "en"]
+    assert job["result"]["aligned_lines"] == 2  # the English line stays proportional

@@ -508,3 +508,26 @@ class TestSpeakerColorsCap:
             export_service.generate_ass_text(did, speaker_colors={"x" * 101: "#123456"})
         export_service.generate_ass_text(
             did, speaker_colors={f"S{i}": "#123456" for i in range(200)})
+
+
+class TestWrapIsLanguageAgnostic:
+    """Export wraps by the caller's per-field caps and each line's own text, not by a
+    language default, so a mixed-language title needs no per-line handling."""
+
+    def test_each_line_wraps_by_its_own_script_under_one_source_cap(self, isolated_db):
+        did = _drama(isolated_db)
+        ja = "今日はとても良い天気ですね、散歩に行きましょう"
+        en = "It is a lovely day today so let us go for a walk"
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh=ja, lang="ja"),
+            Line(idx=1, start=2.0, end=4.0, zh=en, lang="en")])
+        text = export_service.generate_subtitle_text(did, "srt", "zh", wrap_chars_source=20)
+        cues = [c.split("\n")[2:] for c in text.strip().split("\n\n")]
+        assert all(len(part) <= 20 for part in cues[0]) and len(cues[0]) > 1
+        assert all(len(part) <= 20 for part in cues[1]) and " ".join(cues[1]) == en
+
+    def test_no_cap_leaves_every_language_unwrapped(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="長い" * 30, lang="ja")])
+        text = export_service.generate_subtitle_text(did, "srt", "zh")
+        assert text.strip().split("\n")[2] == "長い" * 30

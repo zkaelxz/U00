@@ -642,11 +642,14 @@ def _check_resplit_confirm(lines, plan, confirm):
 
 def _aligned_pieces(audio_path, ln, pieces, language, use_gpu):
     """Real word-based boundaries for one line's pieces from the Qwen3 forced
-    aligner, or None when its timing is unusable (outside the line, backwards)."""
+    aligner, or None when its timing is unusable (outside the line, backwards).
+    The aligner takes one language per run, so each line is aligned in its own
+    (title language when unset)."""
     import forced_align
     aligned = forced_align.align_with_qwen3(
         audio_path, [p["text"] for p in pieces],
-        [{"start": ln.start, "end": ln.end, "text": ln.zh}], language=language, use_gpu=use_gpu)
+        [{"start": ln.start, "end": ln.end, "text": ln.zh}],
+        language=ln.lang or language, use_gpu=use_gpu)
     if len(aligned) != len(pieces):
         return None
     spans = [(max(a.start, ln.start), min(a.end, ln.end)) for a in aligned]
