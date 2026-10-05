@@ -13,6 +13,9 @@ from .shared import (
     _id_keyed_batch_request,
     build_numbered_lines,
     call_with_backoff,
+    is_english_line,
+    spoken_language_tag,
+    tagged_line_languages,
     redact_secrets,
 )
 
@@ -148,6 +151,10 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
         ids = list(line_ids)
     pos = {i: p for p, i in enumerate(ids)}
     speaker_names = context.get("speaker_labels")
+    line_languages = context.get("line_languages")
+    if line_languages and len(line_languages) == len(zh_lines):
+        # Tagged here so all three passes show the model each source's language.
+        zh_lines = [spoken_language_tag(lang) + zh for lang, zh in zip(line_languages, zh_lines)]
 
     # build_llm_instructions() alone never actually inserts the
     # reference novel text anywhere -- only build_stable_prompt()'s own
@@ -347,7 +354,15 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     target_lines = lines if force_retranslate else [ln for ln in lines if not ln.en.strip()]
     if target_ids is not None:
         target_lines = [ln for ln in target_lines if getattr(ln, "id", None) in target_ids]
+    # Already English: nothing to translate, so it's carried over as-is
+    # instead of spending a model call on it.
+    english = [ln for ln in target_lines if is_english_line(ln)]
+    for ln in english:
+        ln.en = ln.zh
+    target_lines = [ln for ln in target_lines if not is_english_line(ln)]
     if not target_lines:
+        if english and save_cb:
+            save_cb(lines)
         if detail_cb:
             detail_cb(1.0, "Nothing to translate")
         elif progress_cb:
@@ -426,6 +441,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             chunk_context["speaker_labels"] = [character_names.get(ln.speaker) for ln in chunk]
             chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
             chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
+            chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
             if reflect:
                 return call_with_backoff(
                     lambda: reflect_translate_batch(engine, [ln.zh for ln in chunk], chunk_context,

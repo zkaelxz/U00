@@ -282,8 +282,8 @@ synthetic test images, not just reading the code:
 A title used to have exactly one spoken language (`dramas.source_language`),
 which broke on clips that mix speakers: transcribing a Korean speaker as
 Japanese produced Japanese text. Each line can now carry its own language.
-This is the data foundation only; transcription and translation still use
-the title's language until they read the field.
+Transcription detects it per span (Mixed languages); the live translate loop
+reads it too (see the last bullet).
 
 Contract:
 
@@ -310,3 +310,18 @@ Contract:
   not lines of that drama.
 - Review shows a language chip only on a line whose `lang` differs from the
   title's, so a single-language title looks the same as before.
+- Translation (`translate_pipeline._translate_lines_with_engine`, shared by the
+  app and `cli.py translate`): a line whose `lang` differs from the title's gets
+  a `(spoken in Korean)` tag in the numbered prompt text and in all three Reflect
+  passes (`context["line_languages"]`, `None` for a single-language batch, so
+  those prompts are unchanged); `en` lines are copied to `en` without a model
+  call; NLLB groups a batch by language.
+- The other paths read it through the same helpers in `engine_backends/shared.py`
+  (`tagged_line_languages`, `tagged_source_texts`, `is_english_line`):
+  bulk translate tags each request's numbered lines and copies `en` lines at
+  submission (bulk Reflect tags all three stages); the DeepSeek off-peak run and
+  `cli.py translate` go through the shared translate loop; `try_line` (stronger
+  engine), `retry_blocked_line` and the fix-flagged job tag the single line's
+  context and answer an `en` line without a call; the line AI tools
+  (`line_ai_service`) pass the line's own language to their prompts. Not yet
+  covered: glossary terms per language.

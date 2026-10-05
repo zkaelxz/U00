@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { JobRecord } from '../../types/jobs'
+import type { Route } from '../../router'
+import type { JobPage, JobRecord } from '../../types/jobs'
 import {
   NO_FILTERS, effectiveStatus, filterJobs, jobLinks, kindGroup, normalizeFilters, progressPercent, relativeTime, sortJobs, statusCounts,
   type JobFilters,
@@ -123,6 +124,20 @@ describe('links and display helpers', () => {
     expect(jobLinks({ drama_id: 7, kind: 'other' }).title).not.toBeNull()
     expect(jobLinks({ drama_id: null, kind: 'translate' })).toEqual({ title: null, stage: null })
     expect(jobLinks({})).toEqual({ title: null, stage: null })
+  })
+  it('links a title-less job to the page the server names, and nowhere without one', () => {
+    const cases: Array<[JobPage, string, Route]> = [
+      ['sources', 'Sources', { name: 'sources' }], ['discover', 'Discover', { name: 'discover' }],
+      ['live', 'Live', { name: 'live' }], ['settings', 'Settings', { name: 'settings' }],
+      ['diagnostics', 'Diagnostics', { name: 'diagnostics' }],
+    ]
+    for (const [page, label, route] of cases) {
+      expect(jobLinks({ drama_id: null, kind: 'other', page })).toEqual({ title: null, stage: { label, route } })
+    }
+    expect(jobLinks({ drama_id: null, kind: 'other', page: null })).toEqual({ title: null, stage: null })
+    expect(jobLinks({ drama_id: null, kind: 'other', page: 'title' })).toEqual({ title: null, stage: null })
+    // A titled job keeps its stage link whatever the page says.
+    expect(jobLinks({ drama_id: 7, kind: 'translate', page: 'title' }).stage?.route).toEqual({ name: 'drama', id: 7, stage: 'translate' })
   })
   it('shows progress only while a job is active, clamped', () => {
     expect(progressPercent({ status: 'running', progress: 0.404 })).toBe(40)

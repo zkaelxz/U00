@@ -91,8 +91,8 @@ test('collapsing keeps the links reachable and is remembered after a reload', as
   await expect(page.getByRole('button', { name: 'Side menu' })).toHaveAttribute('aria-expanded', 'true')
 })
 
-test('a wide screen at 1280 keeps the page column at its 1200px cap when the rail is collapsed', async ({ page }) => {
-  await page.goto('/#/library')
+test('a wide screen at 1280 keeps the form-page column at its 1200px cap when the rail is collapsed', async ({ page }) => {
+  await page.goto('/#/settings')
   await page.getByRole('button', { name: 'Side menu' }).click()
   const main = (await page.locator('.app-main').boundingBox())!
   expect(main.width).toBeLessThanOrEqual(1200)

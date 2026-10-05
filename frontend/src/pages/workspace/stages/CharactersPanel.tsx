@@ -9,7 +9,7 @@ import { Section } from '../../../components/Section'
 import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
 import type { MergeResult, RememberResult, RenameResult, RenameUndo } from '../../../types/characters'
 import type { CharacterEntry, CloneEngines, VoiceBankEntry } from '../../../types/translateStage'
-import { useStage } from '../StageContext'
+import { useStage, useStageFocus } from '../StageContext'
 import { SeriesCast } from './SeriesCast'
 import { VoiceSuggestions } from './VoiceSuggestions'
 import {
@@ -282,8 +282,9 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
   )
 }
 
-export function CharactersPanel() {
+export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
   const { dramaId, drama } = useStage()
+  const focusSignal = useStageFocus('characters', 'translate-characters', focusReady)
   const [entries, setEntries] = useState<CharacterEntry[] | null>(null)
   const [engines, setEngines] = useState<CloneEngines | null>(null)
   const [bank, setBank] = useState<VoiceBankEntry[]>([])
@@ -395,11 +396,12 @@ export function CharactersPanel() {
   return (
     <Section
       storageKey="translate.characters"
+      openSignal={focusSignal}
       title="Characters"
       count={entries?.length}
       summary={entries ? (entries.length ? 'names, pronouns and voices' : 'no speakers yet') : undefined}
     >
-      <div role="region" aria-label="Characters">
+      <div id="translate-characters" role="region" aria-label="Characters">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {entries && entries.length === 0 && <p className="muted">No speakers yet. They appear after transcription.</p>}
       {entries && entries.length > 0 && drama.series_id ? (

@@ -64,23 +64,23 @@ test('phone: signed-in header keeps the menu on the title row, 44 px targets, Si
   expect(s.unmocked).toEqual([])
 })
 
-test('signed in: the cogwheel sits in the header\'s right-hand group, not in the Main nav, and its menu stays on screen', async ({ page }) => {
+test('signed in: the Menu button leads the header, replaces the cogwheel, and its drawer stays on screen', async ({ page }) => {
   await mockAuth(page, ME.signedIn)
   await page.goto('/#/library')
-  const gear = page.locator('summary[aria-label="Settings and tools"]')
-  await expect(gear).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Main' }).locator('.gear-menu')).toHaveCount(0)
-  await expect(page.locator('.app-header .header-end .gear-menu')).toHaveCount(1)
-  const gb = (await gear.boundingBox())!
-  expect(gb.width).toBeGreaterThanOrEqual(44)
-  expect(gb.height).toBeGreaterThanOrEqual(44)
+  await expect(page.locator('summary[aria-label="Settings and tools"]')).toHaveCount(0)
+  const menu = page.getByRole('button', { name: 'Menu', exact: true })
+  await expect(menu).toBeVisible()
+  const mb = (await menu.boundingBox())!
+  expect(mb.width).toBeGreaterThanOrEqual(44)
+  expect(mb.height).toBeGreaterThanOrEqual(44)
   await noSideways(page)
   await maybeScreenshot(page, 'phone-header')
-  await gear.tap()
-  const panel = page.locator('.gear-menu-panel')
-  await expect(panel).toBeVisible()
-  const box = (await panel.boundingBox())!
+  await menu.tap()
+  const drawer = page.getByRole('dialog', { name: 'Main menu' })
+  await expect(drawer).toBeVisible()
+  const box = (await drawer.boundingBox())!
   expect(box.x).toBeGreaterThanOrEqual(0)
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width)
-  await maybeScreenshot(page, 'phone-gear-open')
+  await noSideways(page)
+  await maybeScreenshot(page, 'phone-menu-open')
 })
