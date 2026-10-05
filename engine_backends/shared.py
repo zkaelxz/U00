@@ -75,6 +75,10 @@ class FreeTierDailyLimitReached(RuntimeError):
 # backoff/throttle waits below can notice a cancel without every engine
 # call having to thread a callback through.
 _cancel_check_var = contextvars.ContextVar("translate_cancel_check", default=None)
+# Same idea for the retry-wait notice: Reflect passes retry inside
+# call_llm_json's own call_with_backoff, below any hook the pipeline could
+# pass explicitly.
+_backoff_wait_var = contextvars.ContextVar("translate_backoff_wait", default=None)
 _SLEEP_SLICE_SECONDS = 0.5
 # Longest free-tier throttle wait (RPM/TPM windows are 60 s) worth sleeping
 # through; anything longer is the daily limit.
@@ -99,7 +103,8 @@ def _cancellable_sleep(seconds: float):
         raise TranslationCancelled("cancelled")
 
 
-def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_delay: float = 60.0):
+def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_delay: float = 60.0,
+                      on_wait=None):
     """Runs fn() with retry logic:
     - Rate-limit errors get exponential backoff (2s, 4s, 8s, ... capped
       at max_delay) up to max_retries -- these are expected/recoverable,
@@ -108,9 +113,15 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
       network blip) before being raised -- so a genuinely broken
       request (bad key, malformed input) fails fast instead of
       retrying pointlessly for a minute.
+
+    on_wait: optional callable (delay_seconds, next_attempt, max_retries)
+    invoked just before each retry sleep, so a caller can show a long wait
+    as "waiting to retry" instead of a hang. It gets numbers only, never the
+    exception, so nothing from an error body can reach a job message.
     """
     last_exception = None
     non_rate_limit_retried = False
+    on_wait = on_wait or _backoff_wait_var.get()
     for attempt in range(max_retries):
         try:
             return fn()
@@ -123,10 +134,14 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
                 raise
             if _is_rate_limit_error(e):
                 delay = min(base_delay * (2 ** attempt), max_delay)
+                if on_wait:
+                    on_wait(delay, attempt + 2, max_retries)
                 _cancellable_sleep(delay)
                 continue
             elif not non_rate_limit_retried:
                 non_rate_limit_retried = True
+                if on_wait:
+                    on_wait(1, attempt + 2, max_retries)
                 _cancellable_sleep(1)
                 continue
             else:
