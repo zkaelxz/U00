@@ -1,0 +1,52 @@
+name: Dependency canary
+
+# Weekly early warning: installs the newest versions the requirements and the
+# upper bounds in constraints.txt allow (the exact pins are dropped so the API
+# stack can move too) into a clean venv and runs the fast mocked tests. A
+# failure means "a new release broke something", never "this change is broken".
+# It only reports through a failing run: no PRs, no pushes, no secrets.
+#
+# Scheduled and manually dispatched runs only work from the repository's default
+# branch, so this takes effect when the default branch is baihe-subtitler.
+on:
+  schedule:
+    - cron: "43 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+
+      # A venv, not the runner's Python, so nothing preinstalled satisfies a
+      # requirement and hides a resolution problem.
+      - name: Install the latest allowed versions, unpinned
+        run: |
+          python -m venv "$RUNNER_TEMP/canary"
+          grep -Ev '^[A-Za-z0-9_.-]+==' constraints.txt > "$RUNNER_TEMP/caps.txt"
+          "$RUNNER_TEMP/canary/bin/pip" install --upgrade \
+            -r requirements-core.txt faster-whisper \
+            pytest pytest-xdist httpx -c "$RUNNER_TEMP/caps.txt"
+          "$RUNNER_TEMP/canary/bin/pip" list --format=freeze
+
+      # Mocked tests only (no GPU, models or network). Slow-by-design GPU or
+      # media work stays in the on-your-PC smoke pack.
+      - name: Run the mocked tests
+        run: |
+          "$RUNNER_TEMP/canary/bin/python" -m pytest -q -n auto -p no:cacheprovider -o addopts=""
+
+      # `versions` only reads installed package versions, so it needs no GPU,
+      # models or clip; the log then shows exactly what this run resolved.
+      - name: Smoke check (package versions)
+        run: $RUNNER_TEMP/canary/bin/python scripts/smoke_pack.py versions
