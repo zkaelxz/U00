@@ -16,7 +16,7 @@ import { buttonClass } from '../../../components/uiClasses'
 import type { GlossaryCatalogues, GlossaryTerm } from '../../../types/translateStage'
 import { splitLines } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
-import { useStage } from '../StageContext'
+import { useStage, useStageFocus } from '../StageContext'
 import { GlossaryImport } from './GlossaryImport'
 import { SeriesAssign } from './SeriesAssign'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
@@ -146,8 +146,9 @@ function InstructionsEditor({ scope, initial }: { scope: 'project' | 'series'; i
   )
 }
 
-export function GlossaryPanel() {
+export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
   const { dramaId, drama } = useStage()
+  const focusSignal = useStageFocus('glossary', 'translate-glossary', focusReady)
   const seriesId = drama.series_id ?? null
   const [terms, setTerms] = useState<GlossaryTerm[] | null>(null)
   const [catalogues, setCatalogues] = useState<GlossaryCatalogues | null>(null)
@@ -252,12 +253,13 @@ export function GlossaryPanel() {
   return (
     <Section
       storageKey="translate.glossary"
+      openSignal={focusSignal}
       title="Glossary"
       defaultOpen
       count={terms?.length}
       summary={seriesId == null ? 'not in a series' : terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined}
     >
-      <div role="region" aria-label="Glossary">
+      <div id="translate-glossary" role="region" aria-label="Glossary">
       <SeriesAssign />
       <SuggestTerms
         sources={sources}

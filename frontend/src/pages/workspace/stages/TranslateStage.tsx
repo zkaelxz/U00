@@ -722,8 +722,8 @@ export default function TranslateStage() {
       {jobId && <JobPanel job={job} pollError={pollError} />}
       <BulkBatchesPanel reloadKey={reloads} />
       <NovelFilePanel kind="reference" busy={busy} onChanged={() => setReloads((n) => n + 1)} />
-      <GlossaryPanel />
-      <CharactersPanel />
+      <GlossaryPanel focusReady={config !== null || error !== null} />
+      <CharactersPanel focusReady={config !== null || error !== null} />
     </div>
   )
 }

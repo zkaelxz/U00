@@ -14,6 +14,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
+import { useRoute } from '../router'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { DevicesCard } from './settings/DevicesCard'
@@ -92,11 +93,20 @@ export default function SettingsPage() {
   const bumpRouting = () => setRoutingToken((t) => t + 1)
   // Jump links: bump a section's signal (opens it), then scroll once it is open.
   const [signals, setSignals] = useState<Record<string, number>>({})
-  const [jumpTo, setJumpTo] = useState<{ id: FoldId; n: number } | null>(null)
+  const [jumpTo, setJumpTo] = useState<{ id: string; n: number } | null>(null)
   function jump(id: FoldId) {
     setSignals((cur) => ({ ...cur, [id]: (cur[id] ?? 0) + 1 }))
     setJumpTo((cur) => ({ id, n: (cur?.n ?? 0) + 1 }))
   }
+  // The fold holding the Developer Mode card only exists once the settings load.
+  const route = useRoute()
+  const wantsDeveloperMode = route.name === 'settings' && route.section === 'developer-mode'
+  const loaded = settings !== null
+  useEffect(() => {
+    if (!wantsDeveloperMode || !loaded) return
+    setSignals((cur) => ({ ...cur, experimental: (cur.experimental ?? 0) + 1 }))
+    setJumpTo((cur) => ({ id: 'developer-mode', n: (cur?.n ?? 0) + 1 }))
+  }, [wantsDeveloperMode, loaded])
   useEffect(() => {
     if (!jumpTo) return
     const el = document.getElementById(`settings-${jumpTo.id}`)
@@ -233,7 +243,9 @@ export default function SettingsPage() {
           </Fold>
           <Fold id="experimental" signals={signals} summary="Transcription experiments, Developer Mode">
             <TranscriptionExperimentsCard />
-            <DeveloperModeCard />
+            <div id="settings-developer-mode">
+              <DeveloperModeCard />
+            </div>
           </Fold>
         </>
       )}
