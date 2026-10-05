@@ -1791,3 +1791,82 @@ class TestLocaleParity:
         # humanize() looks labels up lower-cased.
         assert set(re.findall(r"'([a-z]{2}-[a-z]{2})':", block)) == {
             c.lower() for c in settings_service.LOCALE_CHOICES}
+
+
+class TestCmdSetLanguage:
+    def _drama(self, db_, **kw):
+        did = db_.create_drama(title_en="Test", status="aligned")
+        db_.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="你好", speaker="A"),
+            Line(idx=1, start=1.0, end=2.0, zh="再见", speaker="B"),
+            Line(idx=2, start=2.0, end=3.0, zh="好的", speaker="A"),
+        ])
+        return did, [ln.id for ln in db_.load_line_objects(did)]
+
+    def _run(self, *argv):
+        old = sys.argv
+        sys.argv = ["cli.py", "set-language", *argv]
+        try:
+            cli.main()
+        finally:
+            sys.argv = old
+
+    def test_sets_by_ids_and_reports_skipped(self, isolated_db, capsys):
+        did, ids = self._drama(isolated_db)
+        self._run("--id", str(did), "--lines", f"{ids[0]},{ids[1]},99999", "--lang", "EN")
+        langs = [ln.lang for ln in isolated_db.load_line_objects(did)]
+        assert langs == ["en", "en", None]
+        out = capsys.readouterr().out
+        assert "2 line(s)" in out and "skipped 1" in out and "99999" in out
+
+    def test_sets_by_speaker(self, isolated_db):
+        did, _ = self._drama(isolated_db)
+        self._run("--id", str(did), "--speaker", "A", "--lang", "en")
+        assert [ln.lang for ln in isolated_db.load_line_objects(did)] == ["en", None, "en"]
+
+    @pytest.mark.parametrize("clear", ["default", "DEFAULT", ""])
+    def test_clears_to_title_language(self, isolated_db, clear):
+        did, ids = self._drama(isolated_db)
+        self._run("--id", str(did), "--lines", str(ids[0]), "--lang", "en")
+        self._run("--id", str(did), "--lines", str(ids[0]), "--lang", clear)
+        assert isolated_db.load_line_objects(did)[0].lang is None
+
+    def test_invalid_code_exits_nonzero_and_changes_nothing(self, isolated_db, capsys):
+        did, ids = self._drama(isolated_db)
+        with pytest.raises(SystemExit) as exc:
+            self._run("--id", str(did), "--lines", str(ids[0]), "--lang", "klingon")
+        assert exc.value.code == 1
+        assert "lang must be one of" in capsys.readouterr().out
+        assert all(ln.lang is None for ln in isolated_db.load_line_objects(did))
+
+    def test_unknown_drama_exits_nonzero(self, isolated_db, capsys):
+        with pytest.raises(SystemExit) as exc:
+            self._run("--id", "9999", "--lines", "1", "--lang", "en")
+        assert exc.value.code == 1
+        assert "No drama with id 9999" in capsys.readouterr().out
+
+    def test_other_dramas_line_ids_are_skipped(self, isolated_db, capsys):
+        did, _ = self._drama(isolated_db)
+        other, other_ids = self._drama(isolated_db)
+        self._run("--id", str(did), "--lines", str(other_ids[0]), "--lang", "en")
+        assert "0 line(s)" in capsys.readouterr().out
+        assert all(ln.lang is None for ln in isolated_db.load_line_objects(other))
+
+    def test_lines_and_speaker_are_mutually_exclusive(self, isolated_db):
+        with pytest.raises(SystemExit) as exc:
+            self._run("--id", "1", "--lines", "1", "--speaker", "A", "--lang", "en")
+        assert exc.value.code == 2
+
+    def test_inspect_line_shows_language(self, isolated_db, capsys):
+        did, ids = self._drama(isolated_db)
+        self._run("--id", str(did), "--lines", str(ids[0]), "--lang", "en")
+        cli.cmd_inspect_line(argparse.Namespace(id=did, line=1))
+        assert "Language: en" in capsys.readouterr().out
+
+    def test_resave_through_cli_path_keeps_lang(self, isolated_db):
+        did, ids = self._drama(isolated_db)
+        self._run("--id", str(did), "--lines", str(ids[0]), "--lang", "en")
+        lines = isolated_db.load_line_objects(did)
+        lines[0].en = "Hello"
+        isolated_db.save_lines(did, lines)
+        assert isolated_db.load_line_objects(did)[0].lang == "en"
