@@ -423,6 +423,9 @@ def check_js_runtime():
 YTDLP_STALE_DAYS = 90
 DENO_MIN_VERSION = (2, 3)
 PYANNOTE_MIN_VRAM_GB = 12
+# PyTorch reports a card's usable memory, a little under its label (a 12 GB
+# RTX 3080 Ti shows about 11.7-11.9), so the warning compares with a margin.
+PYANNOTE_VRAM_MARGIN_GB = 0.5
 
 
 def _ints(text: str, n: int):
@@ -477,7 +480,7 @@ def _warn_low_vram_pyannote():
         return None
     gpu = get_gpu_status()
     total = gpu.get("vram_total_gb") if gpu.get("available") else None
-    if total is not None and total < PYANNOTE_MIN_VRAM_GB:
+    if total is not None and total < PYANNOTE_MIN_VRAM_GB - PYANNOTE_VRAM_MARGIN_GB:
         return ("This GPU has less than 12 GB of memory, so speaker detection may run out "
                 "and switch to the CPU, which is slower. No action needed unless it fails.")
     return None
@@ -1060,6 +1063,57 @@ def pip_cache_permission_hint(lines) -> str:
         if "permission denied" in low and ("pip\\cache" in low or "cache\\pip" in low):
             return PIP_CACHE_PERMISSION_HINT
     return None
+
+
+# qwen-asr 0.0.6 declares exactly these runtime dependencies besides `sox`
+# (its pyproject.toml), and the app's Qwen3 paths run without `sox`: nothing
+# in qwen_asr, librosa (uses `soxr`) or transformers imports it, and it needs
+# no SoX program either. `sox` is the only dependency pip must build from
+# source (sdist only), so it is the one that breaks in environments with a
+# missing, old or unreachable setuptools. Kept here, in one place, for the
+# fallback install; bump together with requirements-optional.txt's qwen-asr.
+QWEN_ASR_FALLBACK_DEPS = (
+    "transformers==4.57.6", "accelerate==1.12.0", "nagisa==0.2.11", "soynlp==0.0.493",
+    "qwen-omni-utils", "librosa", "soundfile", "gradio", "flask", "pytz",
+)
+
+SOX_BUILD_HINT = (
+    "pip couldn't build the small `sox` helper that Qwen3-ASR lists as a dependency "
+    "(Baihe doesn't use it). Usually Python's build tools are too old or can't be "
+    "downloaded: update them with `python -m pip install --upgrade pip setuptools wheel`, "
+    "check your internet connection or proxy, then try again.")
+
+_SOX_SDIST_RE = re.compile(r"\bsox-\d[\w.]*\.tar\.gz", re.IGNORECASE)
+_SOX_BUILT_RE = re.compile(r"Successfully built sox\b|Building wheel for sox .*status 'done'",
+                           re.IGNORECASE)
+
+
+class SoxBuildWatch:
+    """Feed it pip's output lines; `failed` is True when pip fetched the `sox`
+    source package (the only reason it does) and never reported building it,
+    so a failed run that shows this is the sox build failure. Judged on pip's
+    own output because the failure text varies (a traceback, a missing
+    setuptools or distutils, or build dependencies that couldn't be
+    downloaded)."""
+
+    def __init__(self):
+        self._fetched = self._built = False
+
+    def feed(self, line: str):
+        line = line or ""
+        self._fetched = self._fetched or bool(_SOX_SDIST_RE.search(line))
+        self._built = self._built or bool(_SOX_BUILT_RE.search(line))
+
+    @property
+    def failed(self) -> bool:
+        return self._fetched and not self._built
+
+
+def qwen_asr_fallback_pip_args() -> list:
+    """pip args, in order, for installing qwen-asr without its `sox`
+    dependency: its other dependencies first, then qwen-asr itself with
+    --no-deps, so a failure part-way leaves no half-working qwen-asr."""
+    return [list(QWEN_ASR_FALLBACK_DEPS), ["--no-deps", "qwen-asr"]]
 
 
 def stream_pip_install(pip_args: list, python_executable: str = None):

@@ -50,6 +50,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
 
+      # Dependabot edits the requirements floors but not constraints.txt or the
+      # installer lock; this fails the PR when they stop agreeing.
+      - name: Check requirements, constraints and installer lock agree
+        run: python scripts/check_constraints.py
+
       - name: Run tests
         run: python run_tests.py -n auto
 
@@ -98,7 +103,42 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: End-to-end
+  # The browser tests, split into four shards that run at the same time. Each
+  # shard starts its own seeded API and library, so specs that share state keep
+  # running together exactly as they did in the single-worker run.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Python dependencies (for the e2e API server)
+        working-directory: .
+        run: pip install -r requirements-core.txt -c constraints.txt
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: End-to-end (shard ${{ matrix.shard }} of 4)
         run: |
           npx playwright install --with-deps chromium
-          npm run e2e
+          npx playwright test --shard=${{ matrix.shard }}/4

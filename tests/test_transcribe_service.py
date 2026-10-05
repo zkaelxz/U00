@@ -90,8 +90,8 @@ class TestGetTranscribeConfig:
             "audio_available": False,
             "alignment_method": "whisper_diff",
             "asr_backend_choice": "whisper",
-            "whisper_size": transcribe_service.CPU_DEFAULT_WHISPER_SIZE,
-            "whisper_model_cached": core_module.is_whisper_model_cached(transcribe_service.CPU_DEFAULT_WHISPER_SIZE),
+            "whisper_size": core_module.DEFAULT_WHISPER_SIZE,
+            "whisper_model_cached": core_module.is_whisper_model_cached(core_module.DEFAULT_WHISPER_SIZE),
             "measured_speed": None,
             "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
@@ -689,6 +689,35 @@ class TestRunTranscribeAndApplyJob:
 
         assert seen and seen[0].startswith("Loading Whisper model medium")
         assert "elapsed" in seen[0] and "no progress is available" in seen[0]
+        _clear(job_id)
+
+    def test_realign_reports_progress_and_cancel_ends_the_job_cancelled(
+            self, isolated_db, monkeypatch):
+        import word_align
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 20.0, "text": "hi"}])
+        seen = []
+
+        def fake_realign(segments, *a, progress_cb=None, cancel_check=None, **k):
+            progress_cb(1, 3)
+            seen.append((background_jobs.get_status(job_id)["progress"],
+                         background_jobs.get_status(job_id)["message"]))
+            background_jobs.request_cancel(job_id)
+            assert cancel_check()
+            return segments
+        monkeypatch.setattr(word_align, "realign_oversized_segments", fake_realign)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", True, False, False, None, None, None)
+
+        progress, message = seen[0]
+        assert message == "Splitting long merged lines: 1 of 3"
+        assert transcribe_service.REALIGN_START * transcribe_service.RUNNING_MAX < progress < transcribe_service.RUNNING_MAX
+        assert background_jobs.get_status(job_id)["result"] == {"failed_reason": "cancelled"}
         _clear(job_id)
 
     def test_realign_error_is_reported_but_lines_still_saved(self, isolated_db, monkeypatch):
@@ -1330,7 +1359,9 @@ def _process_gone(pid):
     try:
         with open(f"/proc/{pid}/stat") as f:
             return f.read().rsplit(")", 1)[1].split()[0] == "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
+        # A process that exits between the open and the read fails the read
+        # with ESRCH, not ENOENT; either way it is gone.
         return True
 
 
@@ -1428,7 +1459,7 @@ class TestTranscribeProcessJob:
         assert [r["zh"] for r in isolated_db.load_lines(did)] == ["hi", "there"]
         assert isolated_db.get_drama(did)["status"] == "aligned"
         assert os.path.exists(os.path.join(ddir, "raw_transcript.json"))
-        assert messages[0][1].startswith("Loading Whisper model medium")
+        assert messages[0][1].startswith(f"Loading Whisper model {core_module.DEFAULT_WHISPER_SIZE}")
         assert background_jobs.stage_ticker.NOTE in messages[0][1]
         assert any(f == pytest.approx(0.5 * transcribe_service.RUNNING_MAX)
                    and m.startswith("Transcribing... 50%") for f, m in messages)
@@ -1750,7 +1781,7 @@ class TestTranscribeSpeedCalibration:
 
     def test_config_reports_stage_medians_and_diarize_speed(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        model = transcribe_service.CPU_DEFAULT_WHISPER_SIZE
+        model = core_module.DEFAULT_WHISPER_SIZE
         transcribe_service.record_transcribe_speed(model, False, 600, 300, stage_seconds={"load": 12})
         for work in (300, 300, 300):
             transcribe_service.record_diarize_speed(False, 600, work)
@@ -1786,7 +1817,7 @@ class TestTranscribeSpeedCalibration:
     def test_config_reports_the_speed_for_the_stored_model_and_device(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         # An unsaved drama's model follows the GPU setting, so each device has its own default.
-        transcribe_service.record_transcribe_speed(transcribe_service.CPU_DEFAULT_WHISPER_SIZE, False, 600, 300)
+        transcribe_service.record_transcribe_speed(core_module.DEFAULT_WHISPER_SIZE, False, 600, 300)
         assert transcribe_service.get_transcribe_config(did)["measured_speed"] == 2.0
         assert transcribe_service.get_transcribe_config(did)["measured_speed_runs"] == 1
         transcribe_service.record_transcribe_speed(core_module.DEFAULT_WHISPER_SIZE, True, 3000, 100)

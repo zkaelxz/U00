@@ -277,15 +277,15 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
 _whisper_model_cache = {}
 
 # Speech-recognition models offered in the Workspace picker (faster-whisper
-# names). large-v3-turbo is the default (owner decision): near large-v3
-# accuracy at a fraction of the time and memory. It is reported weaker than
-# large-v3 on Japanese and Korean, so the label and the Transcribe stage's
-# warning keep saying so and large-v3 stays one pick away.
+# names). large-v3-turbo is the default: in our benchmarks (docs/asr-experiments.md)
+# it matched large-v3 on Japanese, trailed it by about half a point on Korean and
+# by more on clean Chinese, and ran about twice as fast. medium was never ahead
+# of it. The labels and the Transcribe stage's note say only what was measured.
 WHISPER_MODELS = {
     "small": "small -- fastest, least accurate",
-    "medium": "medium -- balanced, lighter on CPU",
-    "large-v3": "large-v3 -- most accurate, slower, ~3GB",
-    "large-v3-turbo": "large-v3-turbo -- default; much faster, near large-v3 on Chinese, weaker on Japanese/Korean",
+    "medium": "medium -- no faster or more accurate than turbo in our tests",
+    "large-v3": "large-v3 -- slightly more accurate on Korean and clean Chinese, about 2x slower, ~3GB",
+    "large-v3-turbo": "large-v3-turbo -- default; close to large-v3 in our tests, about 2x faster",
 }
 DEFAULT_WHISPER_SIZE = "large-v3-turbo"
 # Auto-tune's default candidate min_silence_duration_ms values -- spans the
@@ -653,6 +653,9 @@ SPLIT_MAX_CJK_CHARS = 40
 _SENTENCE_END_RE = re.compile(r"(?:[。！？!?…]+|\.+(?=\s|$))[\"'”’」』）)\]]*\s*")
 _CLAUSE_END_RE = re.compile(r"[,，、;；:：]+[\"'”’」』）)\]]*\s*")
 _CJK_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+# Only a space run touching CJK on at least one side is a phrase break; a space
+# between two Latin/digit tokens ("Q&A NG") stays inside its piece.
+_CJK_SPACE_RE = re.compile(r"(?<=[぀-ヿ㐀-鿿가-힯])\s+|\s+(?=[぀-ヿ㐀-鿿가-힯])")
 
 
 def _cut_after(text: str, pattern) -> list:
@@ -670,12 +673,13 @@ def _cut_after(text: str, pattern) -> list:
 def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
                         max_cjk_chars: int = SPLIT_MAX_CJK_CHARS) -> list:
     """Cuts over-long segments ({"start","end","text",...}) at sentence-ending
-    punctuation, then at commas, packing neighbouring sentences up to the limits.
+    punctuation, then at commas, then at spaces next to CJK text, packing
+    neighbouring pieces up to the limits.
 
     Whisper segments carry no word timing at this point, so each piece gets a
     share of the original span proportional to its character count: boundaries
     are estimates, but pieces stay contiguous, increasing and inside the span.
-    Text without punctuation, and short segments, are returned as they are.
+    Text with no usable cut, and short segments, are returned as they are.
     Other keys (speaker) are copied onto every piece."""
     out = []
     for seg in segments:
@@ -706,7 +710,9 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
         pieces = []
         for chunk in pack(_cut_after(text, _SENTENCE_END_RE)):
             # one sentence that is still too long: fall back to its commas
-            pieces.extend([chunk] if fits(chunk) else pack(_cut_after(chunk, _CLAUSE_END_RE)))
+            for sub in [chunk] if fits(chunk) else pack(_cut_after(chunk, _CLAUSE_END_RE)):
+                # Whisper often separates CJK phrases with plain spaces instead of commas
+                pieces.extend([sub] if fits(sub) else pack(_cut_after(sub, _CJK_SPACE_RE)))
         pieces = [p for p in pieces if p.strip()]
         if len(pieces) < 2:
             out.append(seg)

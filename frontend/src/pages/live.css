@@ -21,8 +21,18 @@
 .live-video-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .live-video-note { margin: 0; }
 .live-video input[type='range'] { width: 100%; min-height: 44px; }
+/* Wide layout follows the page's own width (no fixed pixels): the form keeps a readable measure, the video gets ~60%. */
+/* #root > .panel caps pages at 860px; the video needs the whole content width. */
+#root > .panel.live-page.live-wide { max-width: none; }
+.live-wide .live-form, .live-wide .live-error { max-width: 52rem; }
+.live-theater-field { display: none; }
 @media (min-width: 641px) {
-  .live-body.has-video { grid-template-columns: minmax(0, 1fr) minmax(18rem, 26rem); align-items: start; }
+  .live-theater-field { display: block; }
+  .live-body.has-video { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; }
   .live-body.has-video .live-video { grid-column: 2; grid-row: 1; position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2)); }
   .live-body.has-video .live-feed { grid-column: 1; grid-row: 1; }
+  /* Larger video: the picture takes the row, the lines go under it. */
+  .live-body.has-video.theater { grid-template-columns: minmax(0, 1fr); }
+  .live-body.has-video.theater .live-video { grid-column: 1; grid-row: 1; position: static; }
+  .live-body.has-video.theater .live-feed { grid-column: 1; grid-row: 2; }
 }

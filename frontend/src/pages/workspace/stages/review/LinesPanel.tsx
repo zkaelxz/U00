@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { ApiError } from '../../../../api/client'
 import type { MediaKind } from '../../../../api/media'
+import { getTranscribeConfig } from '../../../../api/workspace'
 import { addLine, deleteLine, listAllLines, mergeLines, splitLine } from '../../../../api/restructure'
 import {
   acceptTm as acceptTmSuggestion,
@@ -29,6 +30,7 @@ import { FindReplacePanel } from './FindReplacePanel'
 import { LineActionsSheet, type SheetState, type SheetView } from './LineActionsSheet'
 import { LineRow, type EditState, type NoteDraft, type RowActions, type RowIssue } from './LineRow'
 import { Player, type PlayerHandle } from './Player'
+import { canRetranscribe } from './retranscribeLogic'
 import {
   adjacentRun,
   buildPatch,
@@ -135,6 +137,19 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const busyRef = useRef(false)
   const [structError, setStructError] = useState<unknown>(null)
   const [sheetNote, setSheetNote] = useState<string | null>(null)
+  const [canRetranscribeLine, setCanRetranscribeLine] = useState(false)
+  const [retranscribeFocusId, setRetranscribeFocusId] = useState<number | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    setCanRetranscribeLine(false)
+    getTranscribeConfig(dramaId).then(
+      (cfg) => !cancelled && setCanRetranscribeLine(canRetranscribe(cfg)),
+      () => {},
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId])
   const [status, setStatus] = useState<string | null>(null)
   const [keysOpen, setKeysOpen] = useState(false)
   // Row density is a per-viewer choice, remembered in localStorage.
@@ -458,6 +473,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
 
     const actions: RowActions = {
       activate: (id) => void activate(id),
+      retranscribeFocused: () => setRetranscribeFocusId(null),
       openEdit: (id, details) => void openEdit(id, details),
       setDraft: (patch: Partial<LineDraft>) => {
         const cur = st.current.edit
@@ -1064,6 +1080,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               actions={actions}
               searchHit={searching}
               jumped={jumpedId === l.id}
+              focusRetranscribe={retranscribeFocusId === l.id}
             />
           ))}
         </ul>
@@ -1134,6 +1151,14 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onClose={() => setSheet(null)}
           onPlay={() => closeSheetThen(() => sheetLine && player.current?.playLine(sheetLine))}
           onEditDetails={() => closeSheetThen(() => sheetLine && void ctl.openEdit(sheetLine.id, true))}
+          canRetranscribe={canRetranscribeLine}
+          onRetranscribe={() =>
+            closeSheetThen(() => {
+              if (!sheetLine) return
+              const id = sheetLine.id
+              void ctl.openEdit(id, true).then((ok) => ok && setRetranscribeFocusId(id))
+            })
+          }
           onImprove={() => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'improve'))}
           onWhy={() => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'explain'))}
           onTool={(mode) => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, mode))}

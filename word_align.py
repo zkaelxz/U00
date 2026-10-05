@@ -243,10 +243,16 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
     return lines or [segment]
 
 
+def _is_oversized(seg, min_duration_to_realign: float) -> bool:
+    return (seg["end"] - seg["start"] >= min_duration_to_realign
+            and bool((seg.get("text") or "").strip()))
+
+
 def realign_oversized_segments(segments, audio_path: str, language: str,
                                 chinese_script: str = "simplified",
                                 min_duration_to_realign: float = 12.0,
-                                min_pause_seconds: float = 0.6, device: str = "cpu"):
+                                min_pause_seconds: float = 0.6, device: str = "cpu",
+                                progress_cb=None, cancel_check=None):
     """
     Re-splits every segment longer than min_duration_to_realign using
     realign_long_segment(); shorter segments are returned unchanged --
@@ -258,15 +264,24 @@ def realign_oversized_segments(segments, audio_path: str, language: str,
     Raises WordAlignError immediately (not per-segment) if the
     dependencies aren't installed at all -- so the caller sees one clear
     message instead of every segment silently, invisibly no-op'ing.
+
+    progress_cb(done, total) is called after each oversized segment, so a
+    long CPU run can show real progress. cancel_check() is polled before
+    each oversized segment; when it returns true the loop stops and the
+    result keeps the segments already split plus every remaining one
+    unchanged, so a cancel never costs the transcript.
     """
     _check_dependencies()
+    total = sum(1 for seg in segments if _is_oversized(seg, min_duration_to_realign))
+    done = 0
     out = []
     loaded = None  # loaded lazily on the first oversized segment, then reused
     load_failed = False
-    for seg in segments:
-        duration = seg["end"] - seg["start"]
-        if (not load_failed and duration >= min_duration_to_realign
-                and (seg.get("text") or "").strip()):
+    for i, seg in enumerate(segments):
+        if not load_failed and _is_oversized(seg, min_duration_to_realign):
+            if cancel_check is not None and cancel_check():
+                out.extend(segments[i:])
+                break
             if loaded is None:
                 try:
                     loaded = load_aligner(device)
@@ -281,6 +296,9 @@ def realign_oversized_segments(segments, audio_path: str, language: str,
             out.extend(realign_long_segment(
                 audio_path, seg, language, chinese_script=chinese_script,
                 min_pause_seconds=min_pause_seconds, device=device, aligner=loaded))
+            done += 1
+            if progress_cb is not None:
+                progress_cb(done, total)
         else:
             out.append(seg)
     return out

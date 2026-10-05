@@ -41,7 +41,7 @@ baihe-subtitler/
 │
 ├── .github/
 │   ├── pull_request_template.md
-│   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check),
+│   └── workflows/                tests.yml (core-only suite), dependency-canary.yml (weekly unpinned install), windows-bootstrap.yml (launcher check),
 │                                 windows-installer.yml (on demand / installer-v* tags: builds the
 │                                 Setup .exe and smoke-tests a silent install + uninstall)
 │
@@ -75,6 +75,8 @@ baihe-subtitler/
 │                                 checked by tests/test_caddyfile_template.py)
 ├── scripts/
 │   ├── build_release.py          packages the built React app as a release zip (baihe-frontend-<version>.zip)
+│   ├── check_constraints.py      fails when requirements, constraints.txt and installer/wheels.lock.txt disagree
+│   │                             (run by tests.yml; docs/testing-and-ci.md)
 │   ├── dependency_canary.py      tests one package upgrade in a throwaway venv against the offline suite;
 │   │                             --write-pin caps constraints.txt on FAIL (docs/testing-and-ci.md)
 │   ├── smoke_pack.py             run on your PC (GPU, real models): checks the transcription pipeline on your own clip
@@ -232,6 +234,7 @@ baihe-subtitler/
 │   │                             updates only Baihe's own properties and "Baihe transcript" block in place
 │   │                             (page id in dramas.notion_page_id); fixed host, throttled, chunked, 429 back-off
 │   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
+│   ├── usage_recost_service.py   opt-in re-cost of old usage_log rows of a reviewed list of mis-costed models: preview, apply (old value kept), undo
 │   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
 │   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
 │   ├── diagnostics_gaps_service.py  M1 -- setup checks, model versions and cache,
@@ -274,7 +277,7 @@ baihe-subtitler/
 │   ├── assistant_roles_service.py  Step 60 -- the assistant's implement -> independent review roles: reviewer
 │   │                             prompt, verdict parsing, cross-provider check (off by default; same read-only tools)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
-│   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
+│   │                             db.job_records, Slice 7's mirror); also cancels, deletes and clears finished jobs
 │   ├── shutdown_service.py       Step 80b -- the API's clean stop: stops schedulers and new browsers,
 │   │                             cancels this process's jobs, stops page_server; the launcher's token-gated
 │   │                             POST /api/system/shutdown, a closed console window and Ctrl+C run it
@@ -652,7 +655,7 @@ baihe-subtitler/
 │       │                         deliver (POST; all local_only; Step 72); tests/test_assistant_github.py
 │       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{backlog_id}/delete)
 │       │                         (all local_only; Step 42); tests/test_maintenance_assistant.py
-│       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
+│       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|log|
 │       │                         support-report|install-presets|gpu-torch (GET) and gpu-torch/check,
 │       │                         package-updates/check (POST, on click), all admin.diagnostics;
 │       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library,
@@ -677,6 +680,7 @@ baihe-subtitler/
 │       │                         key-write gate; Step 44)
 │       ├── asr_options_routes.py /api/settings/asr-options (GET admin.settings, POST local_only;
 │       │                         Steps 103/104)
+│       ├── usage_recost_routes.py /api/settings/usage-recost (GET admin.settings; /apply, /undo POST local_only)
 │       ├── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
 │       │                         /dramas/{id}/send -- all local_only (Step 39)
 │       ├── notion_routes.py      /api/notion/config (GET/POST), /token, /token/clear, /test,
@@ -715,13 +719,20 @@ baihe-subtitler/
 │   │                              reportDialogStore.ts (openReportDialog()), reportBundle.ts (pure: report,
 │   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
+│   ├── src/pages/workspace/       JobPill.tsx (sticky-strip pill for this title's queued/running jobs, popover with JobPanel and Cancel),
+│   │                              useDramaJobs.ts (3 s GET /api/jobs poll, finish flash), jobPillState.ts (pure: verbs, text, flash)
 │   ├── src/hooks/                 useJob (push, polling fallback), useEventStream (the tab's shared SSE stream,
 │   │                              src/api/eventStream.ts: reconnect with backoff, resync, poll fallback),
 │   │                              useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              useReattachJob (a stage revisited mid-job picks its job up again;
 │   │                              per-stage job ids in src/pages/workspace/stageJobIds.ts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
+│   │                              useJobs + JobsProvider (the one jobs list and push subscription behind the
+│   │                              header Jobs popover, the Jobs page and Diagnostics' summary),
 │   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`), useMossExperimental (Step 104 toggle)
+│   ├── src/pages/Jobs.tsx         #/jobs: table (phone: cards) of every job the server lists, with filters, row details,
+│   │                              Cancel, PC-only Delete and links to the stage; pages/jobs/jobsFilter.ts is the pure
+│   │                              filter, sort and link logic (unit-tested), jobs.css its styles
 │   ├── src/pages/libraryAdmin/    Library admin: SelectionBar (bulk status/list/translate/export/delete),
 │   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
 │   │                              libraryAdmin.ts (pure, unit-tested)
@@ -730,7 +741,7 @@ baihe-subtitler/
 │   │                              updates" + packageUpdates.ts; "Install by task" presets, approx.
 │   │                              sizes, PyPI Source links; GpuTorchPanel + gpuTorch.ts: GPU/driver,
 │   │                              installed torch family, matched-set setup), PyannoteSection, ModelCacheSection,
-│   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection
+│   │                              JobStagesPanel ("Time by stage", shown in a Jobs page row's details), LogSection (+ CopyBlock), SupportReportSection
 │   │                              ("Copy a report for a bug" card: copy, download .txt, preview rows
 │   │                              via supportReport.ts, pure, unit-tested),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
@@ -751,8 +762,11 @@ baihe-subtitler/
 │   │                              Downloads, Server addresses; persisted PC-side, PC only); API in
 │   │                              src/api/settings.ts. src/theme.ts: system/light/dark/sepia theme (localStorage,
 │   │                              <html data-theme>, applied in index.html and main.tsx; the header button is
-│   │                              components/ThemeMenu.tsx; the header cogwheel, components/GearMenu.tsx, opens Settings, Admin
-│   │                              (pages/Admin.tsx: Users, Audit log, Remote access) and Diagnostics). ApiKeysCard (Settings > API
+│   │                              components/ThemeMenu.tsx. All page links come from
+│   │                              src/nav/navItems.ts, the one navigation list with permission and PC-only flags, rendered by
+│   │                              nav/navLinks.tsx: from 1024px up as the left rail (nav/SideNav.tsx + nav/sideNav.css), below it as the
+│   │                              drawer behind the header's Menu button (nav/NavDrawer.tsx + nav/navDrawer.css). Admin
+│   │                              is pages/Admin.tsx: Users, Audit log, Remote access. ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
 │   │                              settings.css (the page's Card stack and status rows).
 │   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,
@@ -803,8 +817,9 @@ baihe-subtitler/
 │   │                              (fixed-id job polling via pollSourcesJob), discoverFormat.ts (pure,
 │   │                              unit-tested), discover.css
 │   ├── src/pages/workspace/stages/  also DiarizationDeviceNote (Transcribe > Speakers: GPU/CPU of the last
-│   │                              pyannote run, Step 101; API in src/api/asrOptions.ts), AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:
-│   │                              Glossary > From novel / From lines, and the novel one on Source),
+│   │                              pyannote run, Step 101; API in src/api/asrOptions.ts), AutoTune (Transcribe > Advanced), GlossaryExtractPanel (
+│   │                              the run, progress and review under the Suggest terms bar), SuggestTerms (the
+│   │                              bar's source picker, blockers and default source, shared with the empty-state card),
 │   │                              GlossaryProposals (editable proposal table/cards), GlossaryReview
 │   │                              (Translate: review glossary before translating), useGlossaryRun
 │   │                              (shared run state across mounts), glossaryExtract.ts (pure,
@@ -857,7 +872,8 @@ baihe-subtitler/
 │   └── test_*.py                  one or more files per module above, named to match
 │
 └── library/                    ← YOUR DATA. Created automatically. Gitignored.
-    ├── library.db                everything: dramas, lines, glossaries, progress
+    ├── library.db                dramas, lines, glossaries, progress, jobs and users (sources.db beside it
+    │                             holds the Discover/Sources registry; other folders sit alongside)
     ├── cedict.txt                Chinese dictionary (downloaded once)
     └── dramas/<id>/              per-drama files
         ├── source.mp3|mp4        original media
@@ -880,7 +896,7 @@ baihe-subtitler/
 | `run_tests.py` | test runner wrapper |
 | `core.py` | timing, alignment, SRT formatting, line merging |
 | `db.py` | all database access (plain `sqlite3`, no ORM) |
-| `background_jobs.py` | in-memory background-job tracker (thread + dict) |
+| `background_jobs.py` | background-job tracker: thread and child-process jobs, in-memory dict as the authority, mirrored to `job_records` |
 | `applog.py` | a single rotating log file for the whole app |
 | `diagnostics.py` | environment self-check: which optional dependencies/models are available |
 | `check_setup.py` | `start.bat`/`start.ps1`'s "print anything missing in plain words" check |

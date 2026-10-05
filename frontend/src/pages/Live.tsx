@@ -45,6 +45,7 @@ export default function LivePage() {
   const [prefs, setPrefs] = usePersistedState<LiveOptions>('live.options', DEFAULT_OPTIONS)
   const [url, setUrl] = useState('')
   const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
+  const [theater, setTheater] = usePersistedState<boolean>('live.theater', false)
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
   const form: LiveForm = { ...DEFAULT_FORM, ...prefs, url }
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
@@ -177,7 +178,7 @@ export default function LivePage() {
   const total = session?.next ?? 0
 
   return (
-    <section className="panel page-narrow live-page" aria-label="Live">
+    <section className={videoLive ? 'panel live-page live-wide' : 'panel page-narrow live-page'} aria-label="Live">
       <h2>Live</h2>
       {/* noValidate: buildStartBody clamps the numbers, as the service does. */}
       <form onSubmit={start} className="live-form" noValidate>
@@ -268,11 +269,16 @@ export default function LivePage() {
       )}
 
       {session && (
-        <div className={videoLive ? 'live-body has-video' : 'live-body'}>
+        <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>
         {videoLive && (
           <div className="card live-video" role="group" aria-label="Stream video">
             <div className="card-head">
               <h3 className="card-title">Video</h3>
+              <div className="live-theater-field">
+                <Field label="Larger video" help="Gives the video the full width and puts the lines under it.">
+                  <Toggle checked={theater} onChange={setTheater} />
+                </Field>
+              </div>
               <Field label="Show video" help="Plays the stream next to the lines. It stops when you stop the session or turn this off.">
                 <Toggle checked={showVideo} onChange={setShowVideo} />
               </Field>

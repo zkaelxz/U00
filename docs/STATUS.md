@@ -1,6 +1,6 @@
 # Status
 
-What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (at 22b3bdc, after #672) and the open PR list on 2026-10-04.
+What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (at 611e69e, after #742) and the open PR list on 2026-10-05.
 Each session replaces its own entry here when it finishes. Git and the PR list win over this file.
 
 ## Where the app is
@@ -28,14 +28,28 @@ Merged 2026-10-03 and 2026-10-04 (#661-#675):
 - Live capture takes a GPU slot only when Use GPU is on (#667).
 - Disk usage view: see what takes space in the data folder, send items to a Trash folder, move backups (#657).
 - Library "Get started" card with a first-run translator choice (#673).
-- Source tab: the common transcribe path first, tuning folded, and the medium model as the CPU default (#672).
+- Source tab: the common transcribe path first, tuning folded, and, at the time, the medium model as the CPU default (#672; the CPU default is now large-v3-turbo, same as the GPU).
 - A nested `db.get_conn()` no longer closes the caller's connection (#675).
 - Idle job polls answer 200 with status idle instead of 404 (#666).
 - Also merged since #603 and not listed one by one: see `git log origin/baihe-subtitler` (for example the MangaK source #645, removal of the Mangaz source #648 and of the LibreTranslate engine #621, removal of the Diagnostics bug-bundle helpers #638).
 
+Merged 2026-10-04 and 2026-10-05 (#676-#742):
+- Transcription and models:
+  - The default Whisper model is `large-v3-turbo` (#730). The CPU fallback is still `medium`, and the label still says turbo is weaker on Japanese and Korean; the public benchmarks below don't fully support that (a follow-up is open).
+  - Estimates use your last five runs per model and device, the recorded diarization time and per-stage medians (#721, #731). Every GPU-to-CPU fallback is reported in plain words.
+  - Opt-in `qwen3_asr_vad` backend: Qwen3-ASR with its own speech detection (#713, #701). Zero-duration forced-aligner spans are repaired (#694). Speaker detection retries on CPU after a CUDA out-of-memory (#695). Cancel stops a transcription (#687). A cancelled model download no longer leaves a truncated checkpoint (#702).
+  - Mixed languages (off by default): each line can carry its own spoken language (`Line.lang`, #727; chip, "Spoken language" select and "Set language" in Review) and transcription can detect the language per speech span (#734). Translation reads it: a line spoken in another language than the title's is tagged in the prompt, an English line is copied across, and NLLB translates each language with its own pipeline. The same holds for bulk (batch API, including its Reflect stages), the stronger-engine and blocked-line retries, the fix-flagged job and the single-line AI tools.
+  - Measurements are in `docs/asr-experiments.md`: your Chinese and Japanese drama clips, a mixed Korean/Japanese/English clip, and public FLEURS benchmarks for Korean, Japanese and Chinese (#736, #738, #740, #742).
+- Review and Characters: name a speaker once for every line, with Undo (#699); merge two speakers with one server-side undo (#728, it never deletes clip files); re-split long lines and a per-speaker time summary (#676); four folds for the lower tools (#696); stacked cards for Characters and Glossary tables on phones (#706).
+- Library tools > Disk usage lists voice clips no speaker uses and moves them to the restorable Trash (#735).
+- Look and layout: indigo palette, Atkinson font, one type scale (#697); sentence-case copy (#704); calmer phone spacing (#705); a sticky stage strip with a Next button (#690); a simpler Source stage (#715).
+- Safety and robustness: every redirect hop in `fetch_static` is checked (#722); the remaining HTTP response reads are capped (#711, #725); turning the extension bridge off stops it at once (#726); `init_db` split into helpers (#679); `api/schemas.py` and `translate_engines.py` split into packages (#691, #700); a shared capped body reader (#677); the `api.auth` import cycle ended (#712).
+- Housekeeping: Streamlit-only code removed (#686, #709); commenting standards in CLAUDE.md (#708) and the comment cleanups (#714, #723, #724, #733); roadmap ids removed from user-visible text (#739); verified-dead code removed (#716); Dependabot and a weekly audit are in the repo but only run once `baihe-subtitler` is the default branch (#720); smoke pack (#693, #718); the roadmap's pending manual checks are triaged in `docs/manual-check-triage.md` (#729).
+- Plan only, not built: a main server with an optional second-machine GPU worker, `docs/specs/gpu-worker-plan.md` (#741).
+
 ## In flight and queued
 Open (lead session merges once CI is green):
-- #677 (one shared capped body reader) and #676 (Review: re-split long lines and a per-speaker time summary) are open drafts. #640 and #660 are roadmap-only drafts.
+- Open drafts at the time of writing: the roadmap-only drafts #640 and #660. Follow-up sessions are running for: the browser extension check and fixes, the navigation proposal (left menu, Ctrl+K, Jobs table), five docs pages (database, background jobs, engine backends, API and services, frontend), a `docs/specs/` sweep, the dependency canary and constraints check, Qwen speech-detection auto language, Whisper labels from the benchmarks, the `qwen-asr` install check, a note in the merge confirm, a CLI command to set a line's language, and a portable ffprobe test fixture. Public benchmarks for mixed languages and for noisy audio are still being measured.
 - #589 is parked unmerged (see Live capture and SSRF below).
 - WP5 is merged except the owner's real-PC checks and network steps: forward router port 443, a domain/DDNS name, the firewall rule `enable-remote` prints, and the Google client values plus `BAIHE_PUBLIC_URL` in `.env`.
 - Step 141 build (after its spec).
@@ -46,6 +60,8 @@ Source browser-tier status (owner-reported 2026-10; static fetch returned an emp
 - Piaotian: Cloudflare challenge on plain requests; stopped by design, not bypassed. Use a saved page from your own browser.
 
 Deferred: Step 108 (adapter interfaces), and the `db.py` split (the `api/schemas.py` split is done: `api/schemas/` package).
+
+Deferred, owner decision 2026-10-05: the merge confirm in Characters decides whether the leftover voice clip stays on disk with `leavesVoiceClip` (`mergeSpeakers.ts`), which copies the server's rule for when a clip moves (`db._folded_row`). If that rule changes, update both. A server-side boolean in the merge response would remove the duplication; skipped because the only effect of a mismatch is one line of confirm wording.
 
 Deferred until a need arises (owner decision 2026-09-30):
 - A table-of-contents picker, a profile-management screen and a fixture-refresh command.

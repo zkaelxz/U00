@@ -184,7 +184,7 @@ def test_reflect_live_run_uses_reflect_helper_and_saves_notes(isolated_db, monke
     did = _seed([("你好", ""), ("再见", "keep")])
     seen = []
 
-    def fake_reflect(engine, zh_lines, context, usage_cb=None, max_retries=1):
+    def fake_reflect(engine, zh_lines, context, usage_cb=None, max_retries=1, pass_cb=None):
         seen.append(list(context["line_ids"]))
         return [f"R:{z}" for z in zh_lines], ["crit" for _ in zh_lines]
     monkeypatch.setattr("engine_backends.translate_pipeline.reflect_translate_batch", fake_reflect)

@@ -13,6 +13,7 @@ import { languageLabel } from '../../../../labels'
 import { JOB_RUNNING_MESSAGE, LINE_LANGUAGES, titleDefaultLabel, type LanguageScope, type ToolMode } from './reviewLogic'
 import { SplitDialog, type SplitChoice } from './SplitDialog'
 import { lineNumber } from '../../../../lineNumber'
+import { retranscribeMenuState } from './retranscribeLogic'
 
 export type SheetView = 'menu' | 'split' | 'merge' | 'add' | 'language'
 
@@ -42,6 +43,8 @@ interface Props {
   onClose: () => void
   onPlay: () => void
   onEditDetails: () => void
+  canRetranscribe: boolean
+  onRetranscribe: () => void
   onImprove: () => void
   onWhy: () => void
   onTool: (mode: ToolMode) => void
@@ -144,6 +147,7 @@ export function LineActionsSheet(p: Props) {
   const key = state ? `${state.lineId}-${state.view}-${state.armDelete ? 1 : 0}` : ''
   const blocked = p.jobRunning ? JOB_RUNNING_MESSAGE : null
   const view = state?.view ?? 'menu'
+  const retranscribe = retranscribeMenuState(p.canRetranscribe, blocked)
   const title = !line
     ? 'Add first line'
     : view === 'split'
@@ -215,6 +219,12 @@ export function LineActionsSheet(p: Props) {
                 <li><button type="button" onClick={p.onPlay}>▶ Play line</button></li>
               )}
               <li><button type="button" onClick={p.onEditDetails}>Edit details</button></li>
+              <li>
+                <button type="button" disabled={retranscribe.disabled} onClick={p.onRetranscribe}>
+                  Re-transcribe…
+                  {retranscribe.reason && <span className="sheet-reason">{retranscribe.reason}</span>}
+                </button>
+              </li>
               <li>
                 <button type="button" disabled={!line.en} onClick={p.onImprove}>
                   Improve translation (AI)

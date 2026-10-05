@@ -24,7 +24,7 @@ Remote access must be in place first: `docs/STATUS.md` says the API must not be 
 
 - `_jobs` is the in-memory authority (lines 7-8); the docstring says "One machine, one process owning each job: not a distributed job queue" (line 26).
 - Best-effort mirror to `job_records` (`_mirror_locked`, 79-111). Heartbeat every 60 s; `STALE_JOB_SECONDS` is 15 minutes (118-123). A restart marks running jobs "Interrupted" with no resume (`INTERRUPTED_MESSAGE` 1695; `jobs_service.sweep_stale_job_records`, `services/jobs_service.py:474`).
-- GPU guard: in-process FIFO `_gpu_queue` (187); cross-process `db.gpu_lock` with up to 4 slots (`db.py:824`, 4384, 4427); free-VRAM rule for parallel jobs (`GPU_PARALLEL_RESERVE_MB`, settle time; 227-266); other programs' GPU load via nvidia-smi (`try_take_gpu_slot` 269-301; `diagnostics.py:1799-1833`).
+- GPU guard: in-process FIFO `_gpu_queue` (187); cross-process `db.gpu_lock` with up to 4 slots (`db.py`: the table, `GPU_LOCK_MAX_SLOTS` and `try_acquire_gpu_lock`; they moved from 824, 4384 and 4427 to 840, 4652 and 4695 after the plan was drafted); free-VRAM rule for parallel jobs (`GPU_PARALLEL_RESERVE_MB`, settle time; 227-266); other programs' GPU load via nvidia-smi (`try_take_gpu_slot` 269-301; `diagnostics.py:1799-1833`).
 - `start_process_job` (1010-1119): the child returns a plain result and the parent applies it in `on_done` before marking the job done (1039-1049, watcher 1378-1398). A cancel that arrives after the child finished applies nothing (1384-1388). **This is the seam a remote run plugs into.**
 - Cancel: `request_cancel` (1739-1769); a cancel from another process is read from the database (1779-1812); process jobs are killed by the watcher (1320-1335).
 - Holds: `acquire_exclusive` (restore) refuses while any job is queued or running (869-879); maintenance count (888-913); `refuse_new_jobs` at shutdown (925-941).
@@ -34,7 +34,7 @@ Remote access must be in place first: `docs/STATUS.md` says the API must not be 
 
 - `_transcribe_worker` (901-937) writes nothing to the database. `_transcribe_pipeline` (981-1337) touches no database row. `_apply_transcription` (1340-1425) does every library write: history snapshot (1370), full-sync `db.save_lines` (1373), raw transcript and status, MOSS characters, chained diarization (1388), speed record (1397-1405).
 - Server-local values mixed into the args: `settings_service.get_whisper_model_path()` (650), `scratch_dir` (640), `use_gpu` (621). The outcome carries `"audio_path"` (1332) and `Line` objects, so it is not JSON as it stands.
-- Vocal separation moves `vocals.wav` next to the title's audio (1046, 1082-1084). Only `workspace_job_service.py:249` writes it and nothing under `services/` reads it. Unknown: whether anything outside `services/` does.
+- Vocal separation moves `vocals.wav` next to the title's audio (1046, 1082-1084). Besides that stage, `workspace_job_service.py:249` (the standalone separation job) and `cli.py` (`cmd_align`) write it, and nothing under `services/` reads it back. Unknown: whether anything outside `services/` does.
 - Inputs built from library state on the server at start: the initial prompt from series glossary names (`build_auto_initial_prompt` 302-316), transcript text, title tuning (613-619). Keys: `hf_token` (607) and the Groq key are read on the server.
 - Speed records are keyed `model|gpu|cpu` only (`_speed_key` 166; 245-268), with no machine dimension.
 - Hardsub OCR is a thread job that takes `tesseract_cmd` (622-636). PC-only path rules apply. Not offloadable.

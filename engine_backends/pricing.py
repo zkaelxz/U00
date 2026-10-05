@@ -90,7 +90,12 @@ PRICING_PER_MILLION_TOKENS = {
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
     "claude-sonnet-5": {"input": 2.0, "output": 10.0},
     "claude-haiku-4-5-20251001": {"input": 1.0, "output": 5.0},
-    "claude-opus-4-8": {"input": 15.0, "output": 75.0},
+    "claude-opus-4-8": {"input": 5.0, "output": 25.0},
+    # Anthropic's pricing page, October 2026. Cache reads are 10% of input and
+    # 5-minute cache writes 125%, which CACHE_*_PRICE_FACTOR already encode.
+    "claude-sonnet-5-5": {"input": 2.0, "output": 10.0},
+    "claude-opus-5-5": {"input": 4.0, "output": 20.0},
+    "claude-fable-5-1": {"input": 10.0, "output": 50.0},
     # Corrected against api-docs.deepseek.com/quick_start/pricing's
     # raw page source (checked directly, not a summarized fetch) -- these
     # previous flat figures didn't match DeepSeek's real pricing structure
@@ -140,14 +145,34 @@ CACHE_WRITE_PRICE_FACTOR = 1.25
 _PRICED_FAMILY_PREFIXES = ("claude-", "gemini-", "deepseek-", "gpt-")
 
 
+# Tier words per provider, most specific first ("flash-lite" before "flash").
+_FAMILY_TIERS = {
+    "claude-": ("sonnet", "opus", "haiku"),
+    "gemini-": ("flash-lite", "flash", "pro"),
+}
+
+
+def _model_tier(prefix: str, model: str):
+    for tier in _FAMILY_TIERS.get(prefix, ()):
+        if re.search(rf"(?:^|[-.]){tier}(?:[-.]|$)", model):
+            return tier
+    return None
+
+
 def _highest_family_rates(model: str):
     if is_openai_extra_model(model):
         return dict(OPENAI_EXTRA_MODEL_CEILING)
     prefix = next((p for p in _PRICED_FAMILY_PREFIXES if model.startswith(p)), None)
-    family = [r for m, r in PRICING_PER_MILLION_TOKENS.items() if prefix and m.startswith(prefix)]
-    if not family:
+    family = [(m, r) for m, r in PRICING_PER_MILLION_TOKENS.items() if prefix and m.startswith(prefix)]
+    # A new Sonnet must not be costed at Opus rates (~7x too high, which
+    # inflates the spend caps), so prefer priced models of the same tier and
+    # only widen to the whole family when the id names no known tier.
+    tier = _model_tier(prefix, model) if prefix else None
+    same_tier = [r for m, r in family if tier and _model_tier(prefix, m) == tier]
+    rates = same_tier or [r for _, r in family]
+    if not rates:
         return None
-    return {"input": max(r["input"] for r in family), "output": max(r["output"] for r in family)}
+    return {"input": max(r["input"] for r in rates), "output": max(r["output"] for r in rates)}
 
 
 def estimate_cost(model: str, input_tokens: int, output_tokens: int,

@@ -1,28 +1,32 @@
 /*
  * The header Jobs button: a running-count badge (hidden at zero) and a small
  * panel with the active jobs, then the latest finished ones, with Cancel for
- * the jobs the viewer may stop. Permanent delete stays on Diagnostics.
+ * the jobs the viewer may stop. Permanent delete lives on the Jobs page.
  *
- * Job changes arrive on the shared push stream; GET /api/jobs is read on
- * mount, after each (re)connect and when the window regains focus. Only while
- * the stream is down does it poll, and only while the tab is visible.
- * Errors are quiet: a failed read keeps the last list, and a refusal
+ * The list comes from the shared useJobs hook, the same one the Jobs page
+ * reads. Errors are quiet: a failed read keeps the last list, and a refusal
  * (401/403) or a server without the route (404) hides the button.
  */
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
-import { ApiError } from '../api/client'
-import { cancelJob, listJobs } from '../api/jobs'
-import { useEventStream } from '../hooks/useEventStream'
+import { cancelJob } from '../api/jobs'
+import { jobsRefusal, useJobs, useNow } from '../hooks/useJobs'
 import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSession'
-import { isActive, jobDetail, statusLabel, upsertJob } from '../pages/diagnosticsFormat'
+import { isActive, jobDetail, statusLabel } from '../pages/diagnosticsFormat'
+import { jobLinks } from '../pages/jobs/jobsFilter'
+import { routeHref, type Route } from '../router'
 import { offersCancel, type JobRecord } from '../types/jobs'
 import { Badge } from './Badge'
 import { statusTone } from './labels'
-import { HIDE_ON, JOBS_POLL_MS, activeCount, badgeText, elapsedText, jobsButtonLabel, menuJobs } from './jobsMenuState'
-import { writeSectionOpen } from './sectionStorage'
+import { activeCount, badgeText, elapsedText, jobsButtonLabel, menuJobs } from './jobsMenuState'
 import { buttonClass } from './uiClasses'
 import './jobsMenu.css'
+
+// A job name opens its stage, or its title when the kind has no stage, or the page the server says a title-less job belongs to, or else the Jobs page.
+const jobTarget = (j: JobRecord): Route => {
+  const links = jobLinks(j)
+  return links.stage?.route ?? links.title ?? { name: 'jobs' }
+}
 
 const PANEL_REM = 24 // .jobs-panel width in jobsMenu.css
 const GUTTER = 16
@@ -36,61 +40,17 @@ function panelFitsLeftwards(el: HTMLElement | null): boolean | null {
 
 export function JobsMenu() {
   const remoteAdmin = isRemoteAdmin(useSession())
-  const [jobs, setJobs] = useState<JobRecord[]>([])
-  const [hidden, setHidden] = useState(false)
+  const { jobs: loaded, error, reload } = useJobs()
+  const jobs = loaded ?? []
   const [open, setOpen] = useState(false)
   const [alignStart, setAlignStart] = useState(false)
-  const [now, setNow] = useState(() => Date.now() / 1000)
   const wrap = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
-  const hiddenRef = useRef(false)
   const panelId = useId()
-
-  const stream = useEventStream((type, data) => {
-    const pushed = data as Partial<JobRecord> | null
-    if (hiddenRef.current || !pushed?.job_id || (type !== 'job' && type !== 'job_gone')) return
-    setJobs((cur) => (type === 'job' ? upsertJob(cur, pushed as JobRecord) : cur.filter((j) => j.job_id !== pushed.job_id)))
-    setNow(Date.now() / 1000)
-  })
-  const polling = stream.mode === 'poll'
-
-  const load = useCallback(() => {
-    if (hiddenRef.current) return
-    listJobs().then(
-      (r) => {
-        setJobs(Array.isArray(r?.items) ? r.items : [])
-        setNow(Date.now() / 1000)
-      },
-      (e: unknown) => {
-        if (e instanceof ApiError && HIDE_ON.includes(e.status)) {
-          hiddenRef.current = true
-          setHidden(true)
-        }
-      },
-    )
-  }, [])
-
-  useEffect(() => {
-    load()
-    const timer = polling
-      ? window.setInterval(() => {
-          if (document.visibilityState !== 'hidden') load()
-        }, JOBS_POLL_MS)
-      : undefined
-    window.addEventListener('focus', load)
-    return () => {
-      window.clearInterval(timer)
-      window.removeEventListener('focus', load)
-    }
-  }, [load, polling, stream.syncs])
 
   const running = activeCount(jobs)
   // Elapsed times keep counting while the panel shows a running job.
-  useEffect(() => {
-    if (!open || running === 0) return
-    const t = window.setInterval(() => setNow(Date.now() / 1000), 1000)
-    return () => window.clearInterval(t)
-  }, [open, running])
+  const now = useNow(open && running > 0)
 
   // Close on a click elsewhere or Escape, like the bell.
   useEffect(() => {
@@ -110,7 +70,7 @@ export function JobsMenu() {
     }
   }, [open])
 
-  if (hidden) return null
+  if (jobsRefusal(error) !== null) return null
   const shown = menuJobs(jobs)
   const cancellable = (j: JobRecord) => isActive(j.status) && offersCancel(j, remoteAdmin)
 
@@ -124,16 +84,7 @@ export function JobsMenu() {
     } catch {
       // quiet: the list below shows what the server says
     }
-    load()
-  }
-  // The Jobs fold on Diagnostics is remembered per viewer; open it for this visit.
-  const allJobs = () => {
-    try {
-      writeSectionOpen(window.localStorage, 'diagnostics.jobs', true)
-    } catch {
-      // storage unavailable: the fold keeps its own default
-    }
-    setOpen(false)
+    reload()
   }
 
   return (
@@ -170,7 +121,9 @@ export function JobsMenu() {
                 const detail = jobDetail(j)
                 return (
                   <li key={j.job_id} className="jobs-item">
-                    <p className="jobs-item-name">{name}</p>
+                    <p className="jobs-item-name">
+                      <a href={routeHref(jobTarget(j))} onClick={() => setOpen(false)}>{name}</a>
+                    </p>
                     <div className="jobs-item-meta">
                       <Badge tone={statusTone(j.status)}>{statusLabel(j.status)}</Badge>
                       <span>{elapsedText(j, now)}</span>
@@ -188,7 +141,7 @@ export function JobsMenu() {
           )}
           {shown.some((j) => isActive(j.status) && !cancellable(j)) && <p className="jobs-note">{REMOTE_ADMIN_NOTE} That includes cancelling their jobs.</p>}
           <p className="jobs-foot">
-            <a href="#/diagnostics" onClick={allJobs}>
+            <a href={routeHref({ name: 'jobs' })} onClick={() => setOpen(false)}>
               All jobs
             </a>
           </p>

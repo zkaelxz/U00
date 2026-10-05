@@ -9,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, Stri
 from api.schemas.common import TranslateEngine
 
 __all__ = [
+    "UsageRecostModelRow",
+    "UsageRecostPreview",
+    "UsageRecostApplyRequest",
+    "UsageRecostResult",
     "HealthResponse",
     "MetaResponse",
     "DependencyStatus",
@@ -54,7 +58,6 @@ __all__ = [
     "DiagnosticsModelCache",
     "DiagnosticsPyannoteModel",
     "DiagnosticsPyannoteReadiness",
-    "DiagnosticsJobHistoryItem",
     "DiagnosticsLogTail",
     "DiagnosticsSupportReport",
     "DiagnosticsAdminConfirm",
@@ -265,6 +268,17 @@ class JobRecord(BaseModel):
     # owner: every job). Server-computed from the caller's session; true
     # only where the caller may also cancel it.
     owned_by_me: bool = False
+    # The title a drama-scoped job runs on, and a fixed-vocabulary label for
+    # what it does (services/jobs_service.JOB_KIND_BY_PREFIX), so clients
+    # never parse job ids. Only set for jobs the caller may already see.
+    drama_id: Optional[int] = None
+    kind: Literal["transcribe", "translate", "align", "dub", "export", "review",
+                  "import", "other"] = "other"
+    # The page a job belongs to (services/jobs_service.job_page), so a job
+    # with no title can still link somewhere. A page name only; None when
+    # the id names no page.
+    page: Optional[Literal["title", "sources", "discover", "live", "settings",
+                           "diagnostics"]] = None
 
 
 class JobListResponse(BaseModel):
@@ -494,19 +508,6 @@ class DiagnosticsPyannoteReadiness(BaseModel):
     hf_token_configured: bool
     models: Optional[List[DiagnosticsPyannoteModel]] = None
     ready: bool
-
-
-class DiagnosticsJobHistoryItem(BaseModel):
-    job_id: str
-    label: str
-    status: Optional[str] = None
-    description: Optional[str] = None
-    message: str = ""
-    error: Optional[str] = None
-    gpu_touching: bool = False
-    started_at: Optional[float] = None
-    finished_at: Optional[float] = None
-    duration_seconds: Optional[float] = None
 
 
 class DiagnosticsLogTail(BaseModel):
@@ -934,3 +935,46 @@ class PortEntry(BaseModel):
 class PortsOverview(BaseModel):
     """GET /api/diagnostics/ports (PC only)."""
     ports: List[PortEntry]
+
+
+class UsageRecostModelRow(BaseModel):
+    model: str
+    rows: int
+    stored_usd: float
+    recomputed_usd: float
+
+
+class UsageRecostPreview(BaseModel):
+    """GET /api/settings/usage-recost: what a re-cost would change. Numbers
+    only; nothing is written."""
+    rows: int
+    models: List[UsageRecostModelRow]
+    stored_usd: float
+    recomputed_usd: float
+    difference_usd: float
+    month_stored_usd: float
+    month_recomputed_usd: float
+    # Rows a re-cost already replaced, which Undo can put back.
+    recosted_rows: int
+    # Digest of the exact (row, new cost) set; apply refuses a different set
+    # even when it has the same number of rows.
+    fingerprint: str
+
+
+class UsageRecostApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    # What the user saw in the preview; a different count or set now means 409.
+    previewed: int = Field(ge=0)
+    fingerprint: str = Field(min_length=1, max_length=64)
+
+
+class UsageRecostResult(BaseModel):
+    """POST apply or undo: rows written and this month's logged spend after."""
+    rows: int
+    month_spend_usd: float
+    # Rows holding a replaced cost after this call, so a client need not accumulate.
+    recosted_rows: int
+    # Apply only: the previewed count the client sent and rows actually changed.
+    previewed: Optional[int] = None
+    changed: Optional[int] = None

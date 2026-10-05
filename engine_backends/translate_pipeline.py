@@ -8,10 +8,14 @@ from .prompts import build_batch_context, build_stable_prompt
 from .shared import (
     ContentModerationBlocked,
     FreeTierDailyLimitReached,
+    _backoff_wait_var,
     _cancel_check_var,
     _id_keyed_batch_request,
     build_numbered_lines,
     call_with_backoff,
+    is_english_line,
+    spoken_language_tag,
+    tagged_line_languages,
     redact_secrets,
 )
 
@@ -88,7 +92,11 @@ def build_reflect_expressive_prompt(instructions: str, batch_ctx: str, ids: list
     )
 
 
-def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None, max_retries: int = 1):
+REFLECT_PASSES = ("draft", "critique", "rewrite")
+
+
+def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None, max_retries: int = 1,
+                            pass_cb=None):
     """
     "High quality" Reflect mode: three separate LLM passes for
     one batch, instead of translate_batch's single call --
@@ -127,6 +135,10 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     returned, then "" if even that never came back. critiques is the
     reflection pass's critique for that line, or "" if it had none (a
     draft judged already good) or the pass never returned one.
+
+    pass_cb: optional callable (pass_no, name) invoked as each pass is
+    about to start (pass_no 1-3, name from REFLECT_PASSES), so a caller can
+    show which of the three slow calls is running.
     """
     if not getattr(engine, "supports_reference", False):
         raise RuntimeError(f"{getattr(engine, 'name', type(engine).__name__)} can't run Reflect "
@@ -139,6 +151,10 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
         ids = list(line_ids)
     pos = {i: p for p, i in enumerate(ids)}
     speaker_names = context.get("speaker_labels")
+    line_languages = context.get("line_languages")
+    if line_languages and len(line_languages) == len(zh_lines):
+        # Tagged here so all three passes show the model each source's language.
+        zh_lines = [spoken_language_tag(lang) + zh for lang, zh in zip(line_languages, zh_lines)]
 
     # build_llm_instructions() alone never actually inserts the
     # reference novel text anywhere -- only build_stable_prompt()'s own
@@ -160,6 +176,11 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
             instructions, batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids},
             {i: speaker_names[pos[i]] for i in batch_ids} if speaker_names else None)
 
+    def announce(pass_no):
+        if pass_cb:
+            pass_cb(pass_no, REFLECT_PASSES[pass_no - 1])
+
+    announce(1)
     direct_map = _id_keyed_batch_request(ids, build_faithful_batch, call, max_retries)
     direct = {i: direct_map.get(str(i), "") for i in ids}
 
@@ -178,6 +199,8 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     # it's rare for every single line to get a critique. An id absent
     # here just means "no critique".
     has_draft_ids = [i for i in ids if direct[i]]
+    if has_draft_ids:
+        announce(2)
     critique_map = (_id_keyed_batch_request(has_draft_ids, build_reflection_batch, call, max_retries=0)
                    if has_draft_ids else {})
 
@@ -186,6 +209,8 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
             instructions, batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct,
             {i: critique_map.get(str(i)) for i in batch_ids})
 
+    if has_draft_ids:
+        announce(3)
     final_map = (_id_keyed_batch_request(has_draft_ids, build_expressive_batch, call, max_retries)
                 if has_draft_ids else {})
     translations = [final_map.get(str(i), direct.get(i, "")) for i in ids]
@@ -225,8 +250,14 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  context_window: int = 6, context_window_ahead: int = 3,
                                  character_names: dict = None, ollama_num_ctx_override: int = None,
                                  reflect: bool = False, notes_cb=None, cost_cap_usd: float = None,
-                                 cap_cb=None, target_ids=None):
-    """cancel_check_cb: optional callable returning True if the run should
+                                 cap_cb=None, target_ids=None, detail_cb=None):
+    """detail_cb: optional callable (fraction, message) for a job that wants
+    finer progress than progress_cb: fires at the start and end of every
+    batch, after each Reflect pass starts, and while a retry waits. When
+    given it replaces progress_cb entirely, so a caller passes one or the
+    other. The fraction never decreases and never exceeds 1.0.
+
+    cancel_check_cb: optional callable returning True if the run should
     stop cooperatively between batches -- e.g. background_jobs.is_cancel_requested,
     so a background translation job can be stopped safely (rather than
     racing a destructive action like a full library reset against a
@@ -323,8 +354,18 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     target_lines = lines if force_retranslate else [ln for ln in lines if not ln.en.strip()]
     if target_ids is not None:
         target_lines = [ln for ln in target_lines if getattr(ln, "id", None) in target_ids]
+    # Already English: nothing to translate, so it's carried over as-is
+    # instead of spending a model call on it.
+    english = [ln for ln in target_lines if is_english_line(ln)]
+    for ln in english:
+        ln.en = ln.zh
+    target_lines = [ln for ln in target_lines if not is_english_line(ln)]
     if not target_lines:
-        if progress_cb:
+        if english and save_cb:
+            save_cb(lines)
+        if detail_cb:
+            detail_cb(1.0, "Nothing to translate")
+        elif progress_cb:
             progress_cb(1.0)
         return lines, []
 
@@ -344,10 +385,21 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             usage_cb(inp, out, cache_read, cache_write)
 
     n_batches = (len(target_lines) + batch_size - 1) // batch_size
+    last_frac = 0.0
+
+    def report(frac, message):
+        # Bisected retries replay a batch's passes; the bar must not go back.
+        nonlocal last_frac
+        last_frac = min(1.0, max(frac, last_frac))
+        if detail_cb:
+            detail_cb(last_frac, message)
+
     for bi, start in enumerate(range(0, len(target_lines), batch_size)):
         if cancel_check_cb and cancel_check_cb():
             break
         batch = target_lines[start:start + batch_size]
+        batch_label = f"Batch {bi + 1} of {n_batches}"
+        report(bi / n_batches, batch_label)
         first_pos = next(i for i, ln in enumerate(lines) if ln.idx == batch[0].idx)
         if context_window > 0:
             # Recomputed each batch (not just once outside the loop) since
@@ -370,6 +422,15 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             upcoming = lines[last_pos + 1:last_pos + 1 + context_window_ahead]
             context["upcoming_lines"] = [ln.zh for ln in upcoming
                                          if ln.zh.strip() and ln.idx not in batch_idxs]
+        def _on_pass(pass_no, name, bi=bi, batch_label=batch_label):
+            report((bi + (pass_no - 1) / len(REFLECT_PASSES)) / n_batches,
+                   f"{batch_label}, pass {pass_no} of {len(REFLECT_PASSES)} ({name})")
+
+        def _on_wait(delay, next_attempt, max_retries, batch_label=batch_label):
+            # Fixed phrase and numbers only: nothing from the error text.
+            report(last_frac, f"{batch_label} - Engine busy, waiting {delay:.0f} s to retry "
+                              f"(attempt {next_attempt} of {max_retries})")
+
         def _translate_chunk(chunk):
             """Runs one translate attempt for chunk (the whole batch, or
             one bisected half of it). Returns
@@ -380,10 +441,11 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             chunk_context["speaker_labels"] = [character_names.get(ln.speaker) for ln in chunk]
             chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
             chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
+            chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
             if reflect:
                 return call_with_backoff(
                     lambda: reflect_translate_batch(engine, [ln.zh for ln in chunk], chunk_context,
-                                                    usage_cb=record_usage))
+                                                    usage_cb=record_usage, pass_cb=_on_pass))
             translations = call_with_backoff(
                 lambda: engine.translate_batch([ln.zh for ln in chunk], chunk_context))
             if hasattr(engine, "last_usage"):
@@ -435,13 +497,34 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                         f"{len(chunk)} line(s) -- left untranslated rather than "
                                         f"risk assigning a translation to the wrong line"})
             else:
+                # request_translations_with_retry and the Reflect fallback pad
+                # ids missing from the reply with "", so a cut-off reply still
+                # matches in length; an empty result must not overwrite
+                # anything or look like a success.
+                empty = []
                 for ln, tr in zip(chunk, translations):
-                    ln.en = tr
+                    if (tr or "").strip():
+                        ln.en = tr
+                    else:
+                        empty.append(ln)
+                if empty:
+                    errors.append({"batch_index": bi, "lines": [ln.idx for ln in empty],
+                                   "error": f"{len(empty)} of {len(chunk)} lines got no "
+                                            f"translation (reply may have been cut off; "
+                                            f"try a smaller batch size)"})
 
-        _process_chunk(batch, allow_bisect=True)
+        wait_token = _backoff_wait_var.set(_on_wait if detail_cb else None)
+        try:
+            _process_chunk(batch, allow_bisect=True)
+        finally:
+            _backoff_wait_var.reset(wait_token)
         if save_cb:
             save_cb(lines)
-        if progress_cb:
+        if detail_cb:
+            # No "done" message for a batch cut short by a cancel.
+            if not (cancel_check_cb and cancel_check_cb()):
+                report((bi + 1) / n_batches, f"{batch_label} done")
+        elif progress_cb:
             progress_cb((bi + 1) / n_batches)
         if stop_run:
             break

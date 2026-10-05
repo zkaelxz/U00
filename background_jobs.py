@@ -325,7 +325,8 @@ def set_notify_on_completion(enabled: bool):
     db.set_app_setting("notify_on_completion", bool(enabled))
 
 
-def _notify_job_finished(description, status, job_id=None, owner_user_id=None):
+def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
+                         with_errors=False):
     """Best-effort only -- never raises. A missing `plyer` install, or no
     notification daemon at all (common on a minimal Linux desktop), must
     never take down the job runner that calls this right after finishing
@@ -340,7 +341,8 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None):
     try:
         from services import notification_service
         notification_service.notify_job_finished(description, status, job_id=job_id,
-                                                 owner_user_id=owner_user_id)
+                                                 owner_user_id=owner_user_id,
+                                                 with_errors=with_errors)
     except Exception:
         pass
     if not get_notify_on_completion():
@@ -349,7 +351,9 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None):
         from plyer import notification
         notification.notify(
             title="Baihe Subtitler",
-            message=(f"Finished: {description}" if status == "done" and description else
+            message=(f"Finished with errors: {description}" if status == "done" and with_errors
+                     and description else
+                     f"Finished: {description}" if status == "done" and description else
                      "Finished: background job" if status == "done" else
                      f"Failed: {description}" if description else "Failed: background job"),
             timeout=10)
@@ -469,10 +473,9 @@ def _gpu_slot_available_locked(job_id, description):
     running right now -- nothing else, in this process, another one
     (cross-process), or a completely different application, currently
     holds the GPU. background_jobs' own guard is plain in-process
-    module state, invisible to a separate OS process; `cli.py`'s
-    GPU-touching commands never went through it at all (confirmed: cli.py
-    never imports this module), so a CLI run and a live UI job could
-    previously both hold the GPU at once. db.gpu_lock's single-row table in
+    module state, invisible to a separate OS process; `cli.py` imports this module but
+    its own process's state is not the API server's, so a CLI run and a
+    live UI job could both hold the GPU at once. db.gpu_lock's single-row table in
     the shared library.db is the cross-process coordination point instead.
 
     Both of those locks only know about GPU-touching work Baihe
@@ -585,8 +588,11 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
         try:
             target(*args, **kwargs)
             _description = _owner = None
+            _with_errors = False
             with _lock:
                 if _still_running_locked(job_id):
+                    _result = _jobs[job_id].get("result")
+                    _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
                     _jobs[job_id]["status"] = "done"
                     _jobs[job_id]["progress"] = 1.0
                     _jobs[job_id]["finished_at"] = time.time()
@@ -594,7 +600,8 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
-            _notify_job_finished(_description, "done", job_id=job_id, owner_user_id=_owner)
+            _notify_job_finished(_description, "done", job_id=job_id, owner_user_id=_owner,
+                                 with_errors=_with_errors)
         except JobCancelled:
             with _lock:
                 if _still_running_locked(job_id):

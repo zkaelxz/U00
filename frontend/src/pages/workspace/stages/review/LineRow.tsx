@@ -65,6 +65,7 @@ export interface RowActions {
   setNote: (note: NoteDraft | null) => void
   saveNote: () => void
   openSheet: (id: number) => void
+  retranscribeFocused: () => void
   openStructure: (id: number, view: 'split' | 'merge') => void
   splitAtCursor: (id: number, field: 'zh' | 'en', utf16Offset: number) => void
   setAi: (id: number, mode: PanelMode | null) => void
@@ -103,6 +104,8 @@ interface Props {
   searchHit?: boolean
   // Just jumped to from a search result: briefly highlighted.
   jumped?: boolean
+  // The line menu asked to land on "Re-transcribe this line".
+  focusRetranscribe?: boolean
 }
 
 // "content_blocked" + note -> "Content blocked · gemini: SAFETY"
@@ -115,7 +118,7 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // One line: meta, source and translation. The active row (roving tabIndex)
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, sourceLanguage, active, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped }: Props) {
+function LineRowImpl({ dramaId, line, sourceLanguage, active, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const langChip = lineLangChip(line.lang, sourceLanguage)
 
@@ -394,6 +397,8 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, isPhone, hasMedia,
               actions.applyLine({ ...line, zh: applied.zh }, buildPatch(edit.base, draft) === null)
             }
             onRestored={(saved) => actions.applyLine(saved, buildPatch(edit.base, draft) === null)}
+            focusRetranscribe={focusRetranscribe}
+            onRetranscribeFocused={actions.retranscribeFocused}
           />
         </div>
       )}

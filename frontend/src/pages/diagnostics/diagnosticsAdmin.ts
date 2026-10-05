@@ -7,14 +7,14 @@ import type { BadgeTone } from '../../components/labels'
 import { PC_ONLY_FORBIDDEN, describeError, safeDetail } from '../../components/errorMessages'
 import { humanize } from '../../components/labels'
 import type {
-  DiagnosticsHfCacheEntry, DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsModelFolder, DiagnosticsPyannoteReadiness,
+  DiagnosticsHfCacheEntry, DiagnosticsModelCache, DiagnosticsModelFolder, DiagnosticsPyannoteReadiness,
   DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
 } from '../../types/diagnostics'
 import type { ExtensionEnabledResult, ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import type { LibraryDashboard } from '../../types/library'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
-import { describeGpu, formatSeconds, statusLabel } from '../diagnosticsFormat'
+import { describeGpu } from '../diagnosticsFormat'
 
 // Mirrors diagnostics.py INSTALLABLE_TIERS: only these get Install/Update.
 const INSTALLABLE_TIERS: readonly string[] = ['feature', 'engine']
@@ -231,19 +231,6 @@ export function modelCacheSummary(c: DiagnosticsModelCache): string {
   }
   return parts.join(' · ')
 }
-
-// ---- Job history ----
-
-/** "Translate · Done · 3m 05s · GPU". */
-export function historySummary(h: DiagnosticsJobHistoryItem): string {
-  const parts = [h.label || h.description || h.job_id]
-  if (h.status) parts.push(statusLabel(h.status))
-  if (h.duration_seconds != null) parts.push(formatSeconds(h.duration_seconds))
-  if (h.gpu_touching) parts.push('GPU')
-  return parts.join(' · ')
-}
-
-export const HISTORY_PAGE = 20
 
 // ---- Log and report ----
 

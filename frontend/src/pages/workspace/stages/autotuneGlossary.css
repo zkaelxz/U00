@@ -1,4 +1,4 @@
-/* Auto-tune + Glossary-from-novel panels (AutoTune.tsx, NovelGlossary.tsx). */
+/* Auto-tune + Glossary-from-novel panels (AutoTune.tsx, GlossaryExtractPanel.tsx). */
 .autotune, .novel-glossary { display: grid; gap: var(--space-3); min-width: 0; }
 .autotune > *, .novel-glossary > * { margin: 0; }
 .autotune-cards, .novel-glossary-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
@@ -32,4 +32,19 @@
     background: var(--surface); border-top: 1px solid var(--border);
     padding: var(--space-2) 0 calc(var(--space-2) + env(safe-area-inset-bottom));
   }
+}
+
+/* Suggest terms bar (top of the Glossary section) and the empty-state card. */
+.suggest-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.suggest-bar select { min-width: 9rem; }
+.glossary-start {
+  display: grid; gap: var(--space-2); padding: var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.glossary-start h4 { margin: 0; }
+.glossary-start p { margin: 0; }
+.glossary-start-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+@media (max-width: 640px) {
+  .suggest-bar > * { width: 100%; }
+  .glossary-start-actions > * { width: 100%; }
 }

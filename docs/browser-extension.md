@@ -20,9 +20,11 @@ It reaches pages the adapters can't (blob-protected chapters like manhuaku's, ti
 3. Copy the **token** shown there.
 4. In Chrome or Edge: `chrome://extensions` → **Developer mode** → **Load
    unpacked** → choose this project's `extension/` folder.
-5. Open the extension's **options** and paste the token. Leave the port at
-   8756: Baihe always serves the bridge there. It'll say *Connected* and
-   how many dramas it can see.
+5. Open the extension's **options** and paste the token. There is no port
+   setting: Baihe always serves the bridge on 8756, and the extension's only
+   host permission is `http://127.0.0.1:8756/*`. It'll say *Connected* and
+   how many dramas it can see. If the bridge switch is off the extension
+   says it couldn't reach Baihe and names the switch to turn on.
 
 ## Using it
 
@@ -63,7 +65,10 @@ A separate section of the popup, for prose rather than comic pages:
   the same table that page writes to.
 
 The extension has no engine picker or key of its own; it uses the engine
-set in Settings → Browser extension.
+set in Settings → Browser extension. Page OCR follows the same saved settings
+as Comic Scanlate (Tesseract path, OCR backend, the PaddleOCR-VL preference
+and the Hugging Face token), read by the app on every request; none of them
+reach the extension.
 
 ## Two things it checks for before capturing
 
@@ -206,7 +211,7 @@ The extension was also run for real, repeatably:
 python extension/verify_end_to_end.py
 ```
 
-It loads the extension unpacked into a real Chromium, points it at a real running endpoint, and drives a page holding a normal `<img>` and a `blob:`-backed one. It needs Playwright with a **full** Chromium build (the headless shell can't load extensions), skips cleanly without one, touches no real site and needs no API key. Run it after changing anything in `extension/` or `page_server.py`. It establishes:
+It loads the extension unpacked into a real Chromium, points it at a real running endpoint, and drives a page holding a normal `<img>` and a `blob:`-backed one. It needs Playwright with a **full** Chromium build (the headless shell can't load extensions), exits 77 (skipped, not passed) without one or when port 8756 is in use, touches no real site and needs no API key. Run it after changing anything in `extension/` or `page_server.py`. It establishes:
 
 - A `blob:`-backed page image is translated end to end and lands in the library.
 - Overlay boxes scale correctly and stay exact after a resize; click-to-see-original and the overlay toggle work.

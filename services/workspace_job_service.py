@@ -152,8 +152,9 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         cost_cap_usd=cost_cap_usd,
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes,
-        progress_cb=lambda frac: background_jobs.update_progress(
-            job_id, frac, translate_engines.progress_message_with_rate_status(engine, frac)),
+        detail_cb=lambda frac, message: background_jobs.update_progress(
+            job_id, frac, translate_engines.progress_message_with_rate_status(
+                engine, frac, base=message)),
         # Translation owns `en` and nothing else -- a flag job, a merge or
         # the user's own edits can run alongside without being overwritten.
         save_cb=_save,
@@ -312,7 +313,10 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
         background_jobs.update_progress(job_id, 1.0, "Splitting long merged lines...")
         try:
             segments = word_align.realign_oversized_segments(
-                segments, audio_path, language, chinese_script=chinese_script)
+                segments, audio_path, language, chinese_script=chinese_script,
+                progress_cb=lambda done, total: background_jobs.update_progress(
+                    job_id, 1.0, f"Splitting long merged lines: {done} of {total}"),
+                cancel_check=lambda: background_jobs.is_cancel_requested(job_id))
         except word_align.WordAlignError as exc:
             # A missing dependency here must never cost the transcription
             # itself (the expensive part, already done) -- proceed with
@@ -542,6 +546,9 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     errors = []
     try:
         for i, ln in enumerate(flagged):
+            # Per line, so a cancel lands within one re-transcribe/translate call;
+            # the finally below still saves the lines already fixed.
+            _raise_if_cancelled(job_id)
             if audio_path and os.path.exists(audio_path):
                 slice_path = os.path.join(os.path.dirname(audio_path), f"_fixflag_slice_{ln.idx}.wav")
                 try:
@@ -557,11 +564,17 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                 finally:
                     if os.path.exists(slice_path):
                         os.remove(slice_path)
-            if ln.zh.strip():
+            if ln.zh.strip() and translate_engines.is_english_line(ln):
+                ln.en = ln.zh
+                ln.flag, ln.flag_note = None, ""
+                fixed_count += 1
+            elif ln.zh.strip():
                 try:
                     translated = engine.translate_batch(
                         [ln.zh], {**base_context,
-                                  "speaker_labels": [character_names.get(ln.speaker)]})[0]
+                                  "speaker_labels": [character_names.get(ln.speaker)],
+                                  "line_languages": translate_engines.tagged_line_languages(
+                                      [ln], source_language)})[0]
                     if hasattr(engine, "last_usage"):
                         cost = translate_engines.estimate_cost_for_engine(
                             engine, engine.last_usage.get("input_tokens", 0),

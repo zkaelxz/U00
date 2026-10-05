@@ -173,9 +173,54 @@ def test_qwen_vad_mixed_retries_unknown_language_in_source_language(qwen):
 
 def test_qwen_vad_without_mixed_is_unchanged(qwen):
     model = qwen([])
-    out = ab.Qwen3ASRVadBackend().transcribe("x.wav", "ko", vad_fn=VAD)
+    out = ab.Qwen3ASRVadBackend().transcribe(
+        "x.wav", "ko", vad_fn=lambda a, sr: [(0, 2), (4, 6)])
     assert model.languages == ["Korean", "Korean"]
     assert all(set(s) == {"start", "end", "text"} for s in out)
+
+
+def test_qwen_language_names_map_to_app_codes_in_one_place():
+    assert ml.qwen_language_code("Korean") == "ko" and ml.qwen_language_code(" english ") == "en"
+    assert ml.qwen_language_code("Japanese") == "ja" and ml.qwen_language_code("Chinese") == "zh"
+    assert ml.qwen_language_code("Cantonese") is None and ml.qwen_language_code(None) is None
+    assert ml.QWEN_LANGUAGE_NAMES == {"zh": "Chinese", "ja": "Japanese", "ko": "Korean",
+                                      "en": "English"}
+
+
+def test_qwen_vad_auto_language_tags_every_line_with_the_detected_language(qwen):
+    model = qwen([(KO, "Korean"), (ZH, "Chinese")])
+    out = ab.Qwen3ASRVadBackend().transcribe("x.wav", None, vad_fn=VAD)
+    assert [s["lang"] for s in out] == ["ko", "zh"]
+    assert model.languages == [None, None]
+
+
+def test_qwen_vad_auto_language_retries_an_unsupported_language_in_the_common_one(qwen):
+    model = qwen([(KO, "Korean"), (ZH, "Cantonese"), (CYRILLIC, "Russian")])
+    out = ab.Qwen3ASRVadBackend().transcribe(
+        "x.wav", None, vad_fn=lambda a, sr: [(0, 2), (3, 4), (5, 6)])
+    # languages outside zh/ja/ko/en are retried in Korean, the only trusted language so far
+    assert model.languages == [None, None, "Korean", None, "Korean"]
+    assert [s["lang"] for s in out] == ["ko", "ko", "ko"]
+
+
+def test_qwen_vad_auto_language_flags_a_span_nothing_can_vouch_for(qwen):
+    model = qwen([(CYRILLIC, "Russian")])
+    out = ab.Qwen3ASRVadBackend().transcribe("x.wav", None, vad_fn=lambda a, sr: [(0, 2)])
+    assert model.languages == [None]
+    assert out[0]["text"] == CYRILLIC and "lang" not in out[0]
+    assert out[0]["flag"] == ml.LANGUAGE_UNCERTAIN_FLAG
+
+
+def test_qwen_vad_auto_language_can_hear_english(qwen):
+    qwen([("Hello everyone", "English")])
+    out = ab.Qwen3ASRVadBackend().transcribe("x.wav", None, vad_fn=lambda a, sr: [(0, 2)])
+    assert out[0]["lang"] == "en"
+
+
+def test_unknown_title_language_is_still_rejected(qwen):
+    qwen([])
+    with pytest.raises(ValueError):
+        ab.Qwen3ASRVadBackend().transcribe("x.wav", "xx", vad_fn=VAD)
 
 
 def test_option_defaults_off_and_validates(isolated_db):

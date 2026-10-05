@@ -11,11 +11,17 @@ export async function openSettingsGroups(page: Page) {
   await page.mouse.move(0, 0)
 }
 
-// The header cogwheel menu: Settings, Admin, Diagnostics, Assistant.
-const gearMenu = (page: Page): Locator => page.getByRole('group', { name: 'Settings and tools pages' })
-export const gearLink = (page: Page, name: string): Locator => gearMenu(page).getByRole('link', { name })
+// Every page link lives in the same registry-driven <nav aria-label="Main">: always in the rail from 1024px up, inside the
+// drawer below it (only while the drawer is open).
+export const navLink = (page: Page, name: string): Locator =>
+  page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name, exact: true })
 
-export async function openGear(page: Page) {
-  const summary = page.locator('summary[aria-label="Settings and tools"]')
-  if (!(await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) await summary.click()
+// Opens the drawer when there is a Menu button (below 1024px); a no-op beside the always-visible rail.
+export async function openMenu(page: Page) {
+  // The header (and with it the Menu button) only renders once the session has answered.
+  await page.locator('.app-header').waitFor()
+  const button = page.getByRole('button', { name: 'Menu', exact: true })
+  if ((await button.count()) === 0) return
+  if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click()
+  await page.getByRole('dialog', { name: 'Main menu' }).waitFor()
 }

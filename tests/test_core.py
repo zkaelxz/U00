@@ -212,8 +212,8 @@ class TestModelDownloadErrorHandling:
 
 
 class TestDefaultWhisperSize:
-    """Owner decision: large-v3-turbo is the default; its label says so and
-    still carries the Japanese/Korean caveat."""
+    """large-v3-turbo is the default and its label says so, without the old
+    claim that it is weaker on Japanese/Korean (the benchmarks don't show it)."""
 
     def test_default_whisper_size_is_large_v3_turbo(self):
         from core import DEFAULT_WHISPER_SIZE, WHISPER_MODELS
@@ -221,7 +221,7 @@ class TestDefaultWhisperSize:
         assert DEFAULT_WHISPER_SIZE in WHISPER_MODELS
         assert "default" in WHISPER_MODELS["large-v3-turbo"]
         assert "default" not in WHISPER_MODELS["medium"]
-        assert "weaker on Japanese/Korean" in WHISPER_MODELS["large-v3-turbo"]
+        assert "weaker" not in WHISPER_MODELS["large-v3-turbo"]
 
 
 class TestDnsDiagnosis:
@@ -1147,6 +1147,43 @@ class TestSplitLongSegments:
     def test_no_punctuation_left_alone(self):
         import core
         seg = self._seg("一二三四五六七八九十" * 10)
+        assert core.split_long_segments([seg]) == [seg]
+
+    def test_cjk_spaces_are_cut_points_when_no_punctuation(self):
+        import core
+        seg = self._seg(" ".join(["我們記得昨天早的時候呢"] * 6), 0.0, 26.0)
+        out = core.split_long_segments([seg], max_seconds=8)
+        assert len(out) > 1
+        self._check(seg, out)
+        assert all(p["end"] - p["start"] <= 8.0 + 1e-6 for p in out)
+
+    def test_space_fallback_respects_char_limit(self):
+        import core
+        seg = self._seg(" ".join(["一二三四五六七八九十"] * 7), 0.0, 6.0)
+        out = core.split_long_segments([seg], max_seconds=8, max_cjk_chars=40)
+        assert len(out) > 1
+        self._check(seg, out)
+        assert all(len(core._CJK_RE.findall(p["text"])) <= 40 for p in out)
+
+    def test_space_fallback_keeps_latin_tokens_whole(self):
+        import core
+        seg = self._seg("這是一個很長的句子呢 Dormi Q&A 絕不NG的表單 " * 4, 0.0, 30.0)
+        out = core.split_long_segments([seg], max_seconds=8)
+        assert len(out) > 1
+        self._check(seg, out)
+        for p in out:
+            assert not p["text"].startswith(("Q&A", "A ")) and not p["text"].endswith(("Dormi", "Q&A "[:3]))
+            assert "Dormi Q&A" in p["text"] or "Dormi" not in p["text"]
+
+    def test_punctuated_line_not_cut_at_spaces(self):
+        import core
+        seg = self._seg("一二三 四五六。七八九 十一二。", 0.0, 12.0)
+        out = core.split_long_segments([seg], max_seconds=8)
+        assert [p["text"] for p in out] == ["一二三 四五六。", "七八九 十一二。"]
+
+    def test_spaceless_unpunctuated_line_still_whole(self):
+        import core
+        seg = self._seg("一二三四五六七八九十" * 10, 0.0, 30.0)
         assert core.split_long_segments([seg]) == [seg]
 
     def test_short_line_untouched(self):

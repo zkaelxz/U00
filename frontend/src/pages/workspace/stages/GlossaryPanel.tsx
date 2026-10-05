@@ -16,10 +16,11 @@ import { buttonClass } from '../../../components/uiClasses'
 import type { GlossaryCatalogues, GlossaryTerm } from '../../../types/translateStage'
 import { splitLines } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
-import { useStage } from '../StageContext'
+import { useStage, useStageFocus } from '../StageContext'
 import { GlossaryImport } from './GlossaryImport'
 import { SeriesAssign } from './SeriesAssign'
-import { LinesGlossary, NovelGlossary } from './NovelGlossary'
+import { SuggestTerms, useSuggestSources } from './SuggestTerms'
+import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
 import { useGlossaryTermsVersion } from './useGlossaryRun'
 
 interface TermForm {
@@ -145,8 +146,9 @@ function InstructionsEditor({ scope, initial }: { scope: 'project' | 'series'; i
   )
 }
 
-export function GlossaryPanel() {
+export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
   const { dramaId, drama } = useStage()
+  const focusSignal = useStageFocus('glossary', 'translate-glossary', focusReady)
   const seriesId = drama.series_id ?? null
   const [terms, setTerms] = useState<GlossaryTerm[] | null>(null)
   const [catalogues, setCatalogues] = useState<GlossaryCatalogues | null>(null)
@@ -162,6 +164,12 @@ export function GlossaryPanel() {
   // Bumped when extracted proposals are added (From novel/lines, review).
   const termsVersion = useGlossaryTermsVersion()
   const [deleteFailure, setDeleteFailure] = useState<unknown>(null)
+  const sources = useSuggestSources()
+  // The viewer's source choice (null follows the default) and a pending
+  // "suggest" request from the empty-state card.
+  const [pick, setPick] = useState<GlossarySource | null>(null)
+  const [suggestRequested, setSuggestRequested] = useState(false)
+  const [importSignal, setImportSignal] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -237,18 +245,52 @@ export function GlossaryPanel() {
       .finally(() => setDeleting(false))
   }
 
+  // Empty glossary of a drama in a series: one card to start from. Without a
+  // series the Series section above is the first thing to do.
+  const showStart = !!terms && terms.length === 0 && seriesId != null
+  const startSource = pick ?? sources.defaultSource
+
   return (
     <Section
       storageKey="translate.glossary"
+      openSignal={focusSignal}
       title="Glossary"
       defaultOpen
       count={terms?.length}
       summary={seriesId == null ? 'not in a series' : terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined}
     >
-      <div role="region" aria-label="Glossary">
+      <div id="translate-glossary" role="region" aria-label="Glossary">
       <SeriesAssign />
+      <SuggestTerms
+        sources={sources}
+        hasTerms={!!terms && terms.length > 0}
+        startRequested={suggestRequested}
+        onStartHandled={() => setSuggestRequested(false)}
+        pick={pick}
+        onPick={setPick}
+      />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {terms && terms.length === 0 && seriesId != null && <p className="muted">No terms yet. They belong to the drama's series.</p>}
+      {showStart && !editing && (
+        <div className="glossary-start" role="group" aria-label="Start your glossary" data-testid="glossary-start">
+          <h4>Start your glossary</h4>
+          <p className="muted">Terms belong to the drama's series.</p>
+          <div className="glossary-start-actions">
+            <button
+              type="button"
+              className={buttonClass('primary')}
+              disabled={!!sources.blockers[startSource] || !sources.ready}
+              onClick={() => {
+                setPick(startSource)
+                setSuggestRequested(true)
+              }}
+            >
+              {startCardSuggestLabel(startSource)}
+            </button>
+            <button type="button" className={buttonClass('secondary')} onClick={() => setEditing(EMPTY)}>Add a term</button>
+            <button type="button" className={buttonClass('secondary')} onClick={() => setImportSignal((n) => n + 1)}>Import a file</button>
+          </div>
+        </div>
+      )}
       {terms && terms.length > 0 && (
         <div className="table-scroll"><table role="table" className="card-table glossary-table">
           <thead>
@@ -324,7 +366,7 @@ export function GlossaryPanel() {
           onSave={save}
           onCancel={() => setEditing(null)}
         />
-      ) : (
+      ) : !showStart && (
         <div className="actions">
           <button
             type="button"
@@ -339,9 +381,7 @@ export function GlossaryPanel() {
         </div>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
-      <GlossaryImport hasTerms={!!terms && terms.length > 0} onImported={() => setReloads((n) => n + 1)} />
-      <NovelGlossary />
-      <LinesGlossary />
+      <GlossaryImport openSignal={importSignal} hasTerms={!!terms && terms.length > 0} onImported={() => setReloads((n) => n + 1)} />
       {instructions && (
         <>
           <InstructionsEditor scope="project" initial={instructions.project} />

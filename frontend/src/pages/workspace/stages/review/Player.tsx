@@ -136,14 +136,15 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   useEffect(() => {
     const t = trackEl.current?.track
     if (!t || !src) return
-    t.mode = kind === 'video' ? 'showing' : 'hidden'
+    // Floating, the caption text under the video replaces the drawn cue.
+    t.mode = kind === 'video' && !floating ? 'showing' : 'hidden'
     const onCue = () => {
       const active = t.activeCues ? Array.from(t.activeCues) : []
       setCueFor({ src, text: active.map((c) => (c as VTTCue).getCueAsHTML?.().textContent ?? (c as VTTCue).text).join('\n') })
     }
     t.addEventListener('cuechange', onCue)
     return () => t.removeEventListener('cuechange', onCue)
-  }, [src, kind])
+  }, [src, kind, floating])
 
   const play = useCallback(() => {
     const el = media.current
@@ -255,18 +256,19 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
           }}
           className="review-video"
           playsInline
+          // The browser's own picture-in-picture is video only; the app's Pop out keeps the subtitles.
+          disablePictureInPicture
           // A click on the picture plays or pauses; the Play button above stays the keyboard control.
           onClick={failed ? undefined : togglePlay}
           {...common}
         >
           {track}
         </video>
-      ) : (
-        subs !== 'off' && (
-          <p className="review-caption" data-testid="player-caption">
-            {cue || '\u00a0'}
-          </p>
-        )
+      ) : null}
+      {(kind !== 'video' || floating) && subs !== 'off' && (
+        <p className="review-caption" data-testid="player-caption">
+          {cue || '\u00a0'}
+        </p>
       )}
       <div className="review-player-controls">
         <input

@@ -80,10 +80,21 @@ class NLLBEngine:
         return pipe
 
     def translate_batch(self, zh_lines, context: dict):
-        pipe = self._get_pipeline(context.get("source_language", "zh"),
-                                  context.get("target_language", "en"))
-        results = pipe(list(zh_lines))
-        return [r["translation_text"] for r in results]
+        title_language = context.get("source_language", "zh")
+        target_language = context.get("target_language", "en")
+        # NLLB bakes the source language into the pipeline, so lines spoken
+        # in another language are translated in their own group.
+        line_languages = context.get("line_languages")
+        if not line_languages or len(line_languages) != len(zh_lines):
+            line_languages = [None] * len(zh_lines)
+        out = [""] * len(zh_lines)
+        for lang in dict.fromkeys(line_languages):
+            positions = [i for i, ln_lang in enumerate(line_languages) if ln_lang == lang]
+            pipe = self._get_pipeline(lang or title_language, target_language)
+            results = pipe([zh_lines[i] for i in positions])
+            for i, r in zip(positions, results):
+                out[i] = r["translation_text"]
+        return out
 
 
 # Ollama's own default context window can be as small as 2-4k tokens,
@@ -233,7 +244,8 @@ class OllamaEngine:
             return resp["message"]["content"].strip()
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
-                                                line_ids=context.get("line_ids"), engine_name="ollama")
+                                                line_ids=context.get("line_ids"), engine_name="ollama",
+                                                line_languages=context.get("line_languages"))
 
 
 # {base_url: (checked_at, reachable)} -- Ollama is exempted from the

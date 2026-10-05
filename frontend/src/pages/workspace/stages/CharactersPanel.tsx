@@ -9,7 +9,7 @@ import { Section } from '../../../components/Section'
 import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
 import type { MergeResult, RememberResult, RenameResult, RenameUndo } from '../../../types/characters'
 import type { CharacterEntry, CloneEngines, VoiceBankEntry } from '../../../types/translateStage'
-import { useStage } from '../StageContext'
+import { useStage, useStageFocus } from '../StageContext'
 import { SeriesCast } from './SeriesCast'
 import { VoiceSuggestions } from './VoiceSuggestions'
 import {
@@ -24,19 +24,20 @@ import {
   unsetPronounsLabel,
   type CharacterForm,
 } from './characterForm'
-import { mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, undoIdSurvives, type MergeChoice, type MergeUndoHandle } from './mergeSpeakers'
+import { VOICE_CLIP_NOTE, leavesVoiceClip, mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, undoIdSurvives, type MergeChoice, type MergeUndoHandle } from './mergeSpeakers'
 import { readRenameUndo, renameProblem, saveRenameUndo, takenNames } from './renameSpeaker'
 import './characters.css'
 
 const COLUMNS = 7
 
-function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, onSaved, onRemembered, onRenamed, onMerged }: {
+function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip, onSaved, onRemembered, onRenamed, onMerged }: {
   entry: CharacterEntry
   engines: CloneEngines | null
   bank: VoiceBankEntry[]
   hasSeries: boolean
   taken: string[]
   mergeTargets: MergeChoice[]
+  leavesClip: (target: string) => boolean
   onSaved: (e: CharacterEntry) => void
   onRemembered: (r: RememberResult) => void
   onRenamed: (r: RenameResult) => void
@@ -216,7 +217,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, onSaved, on
                     </option>
                   ))}
                 </select>
-                {mergeInto && <p className="character-merge-confirm">{mergeSummary(entry, mergeInto)}</p>}
+                {mergeInto && <p className="character-merge-confirm">{mergeSummary(entry, mergeInto)}{leavesClip(mergeInto) && ` ${VOICE_CLIP_NOTE}`}</p>}
                 <button type="submit" disabled={busy || !mergeInto}>
                   {mergeInto ? `Merge ${entry.line_count} ${entry.line_count === 1 ? 'line' : 'lines'}` : 'Merge'}
                 </button>
@@ -281,8 +282,9 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, onSaved, on
   )
 }
 
-export function CharactersPanel() {
+export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
   const { dramaId, drama } = useStage()
+  const focusSignal = useStageFocus('characters', 'translate-characters', focusReady)
   const [entries, setEntries] = useState<CharacterEntry[] | null>(null)
   const [engines, setEngines] = useState<CloneEngines | null>(null)
   const [bank, setBank] = useState<VoiceBankEntry[]>([])
@@ -394,11 +396,12 @@ export function CharactersPanel() {
   return (
     <Section
       storageKey="translate.characters"
+      openSignal={focusSignal}
       title="Characters"
       count={entries?.length}
       summary={entries ? (entries.length ? 'names, pronouns and voices' : 'no speakers yet') : undefined}
     >
-      <div role="region" aria-label="Characters">
+      <div id="translate-characters" role="region" aria-label="Characters">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {entries && entries.length === 0 && <p className="muted">No speakers yet. They appear after transcription.</p>}
       {entries && entries.length > 0 && drama.series_id ? (
@@ -419,6 +422,7 @@ export function CharactersPanel() {
                 hasSeries={Boolean(drama.series_id)}
                 taken={takenNames(entries, e.speaker_label)}
                 mergeTargets={mergeChoices(entries, e)}
+                leavesClip={(t) => leavesVoiceClip(e, entries.find((x) => x.speaker_label === t))}
                 onSaved={(saved) => {
                   replace(saved)
                   setSuggestRefresh((n) => n + 1)

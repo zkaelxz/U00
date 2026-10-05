@@ -81,6 +81,28 @@ Manual steps that stay with you:
 - If you already upgraded your real environment, pin it back with the printed
   command, e.g. `pip install "pkg==<last good>"`. The script never touches it.
 
+### Bumping constraints and the installer lock
+
+Dependabot raises the `>=` floors in `requirements-*.txt` but never edits `constraints.txt` or
+`installer/wheels.lock.txt`. `scripts/check_constraints.py` (a step in `tests.yml`, so it gates every PR)
+fails when a pin in either file is older than a requirements floor, or a cap in `constraints.txt` leaves
+no version a floor allows. Its output lists each package to bump. By hand:
+
+1. Edit the `==` pin (or loosen the cap) in `constraints.txt` to a version the requirements allow.
+2. Regenerate the installer lock (`python installer/build_installer.py --update-lock`, see
+   `docs/windows-installer-design.md`) so `tests/test_constraints_lock_parity.py` still passes.
+3. Run `python scripts/check_constraints.py` and the full suite.
+
+The weekly `dependency-canary.yml` workflow installs the newest versions the requirements and the caps in
+`constraints.txt` allow (exact pins dropped) into a clean venv, runs the mocked suite and
+`smoke_pack.py versions`, and reports only as a failing run: it opens no PRs, pushes nothing and has no
+secrets. A failure means a new release broke something; reproduce with `scripts/dependency_canary.py <package>`.
+
+Scheduled and manually dispatched workflows (`dependency-canary.yml`, `dependency-audit.yml`) and Dependabot
+only run from the repository's default branch, which is still `main`. They take effect when the default
+branch is `baihe-subtitler`; until then the check in `tests.yml` (which runs on pull requests into
+`baihe-subtitler`) is the only part that works.
+
 ### Before and after an upgrade on your PC (smoke pack)
 
 The canary above runs mocked tests. It cannot tell whether transcription still

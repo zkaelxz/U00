@@ -114,9 +114,7 @@ def test_reads(client):
     p = _clean(client.get("/api/diagnostics/pyannote?check_access=true"))
     assert p["models"] == [{"model": "pyannote/speaker-diarization-3.1", "accessible": True}]
     assert p["ready"] is True
-    h = _clean(client.get("/api/diagnostics/job-history"))
-    assert [j["job_id"] for j in h] == ["emotion_999999", "custom_job"]
-    assert h[0]["duration_seconds"] == 2.5
+    assert client.get("/api/diagnostics/job-history").status_code == 404
     lg = _clean(client.get("/api/diagnostics/log?n=5&keyword=ERROR"))
     assert len(lg["lines"]) == 1 and lg["lines"][0].startswith("ERROR")
     assert len(_clean(client.get("/api/diagnostics/log"))["lines"]) == svc.LOG_TAIL_DEFAULT
@@ -200,7 +198,7 @@ def _h(s):
 
 
 READS = ("/api/diagnostics/setup-checks", "/api/diagnostics/model-cache",
-         "/api/diagnostics/pyannote", "/api/diagnostics/job-history",
+         "/api/diagnostics/pyannote",
          "/api/diagnostics/log", "/api/diagnostics/support-report",
          "/api/diagnostics/install-presets", "/api/diagnostics/gpu-torch")
 WRITES = (("/api/diagnostics/dependencies/edge_tts/install", {"confirm": True}),

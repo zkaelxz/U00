@@ -457,6 +457,69 @@ def _close_if_owner_gone(record: dict) -> bool:
         record.get("job_id"), record.get("owner_pid"), error=background_jobs.INTERRUPTED_MESSAGE)
 
 
+# One entry per background_jobs.DRAMA_JOB_PREFIXES prefix (a test fails when
+# the two drift apart). Ids with no entry, or not scoped to a drama, are "other".
+JOB_KIND_BY_PREFIX = {
+    "translate_": "translate", "bulk_translate_": "translate",
+    "novel_glossary_": "translate", "lines_glossary_": "translate",
+    "flag_": "review", "fixflag_": "review", "consistency_": "review",
+    "emotion_": "review", "notes_": "review", "bulk_consistency_": "review",
+    "bulk_emotion_": "review", "bulk_notes_": "review", "bulk_flag_": "review",
+    "transcribe_": "transcribe", "retranscribe_": "transcribe",
+    "autotune_": "transcribe", "sensevoice_": "transcribe",
+    "diarize_": "transcribe", "ocrchapter_": "transcribe",
+    "resegment_": "align", "resplit_": "align", "resegpreview_": "align",
+    "dub_": "dub", "narration_": "dub", "audiobook_": "dub", "voiceref_": "dub",
+    "burned_video_": "export", "softsub_video_": "export",
+    "dubbed_video_": "export", "burnpreview_": "export", "notion_export_": "export",
+    "sourceimport_": "import", "urlmedia_": "import", "lncrawl_": "import",
+    "extract_audio_": "import",
+    "scanlate_": "other",
+}
+
+
+def job_kind(job_id) -> str:
+    """The kind of a job id, from the same exact-prefix-plus-digits rule
+    ownership_service.drama_id_of_job uses; "other" when it has no drama."""
+    job_id = str(job_id or "")
+    for prefix, kind in JOB_KIND_BY_PREFIX.items():
+        if job_id.startswith(prefix) and ownership_service.drama_id_of_job(job_id) is not None:
+            return kind
+    return "other"
+
+
+# Where the UI shows a job that has no title, by exact id or id prefix. Only
+# a page name leaves the server (never the id's tail, a path or a URL). Ids
+# with no entry, and drama-scoped ids (page "title"), are decided in job_page.
+JOB_PAGE_BY_ID = {
+    "sources_search": "sources", "sources_url_preview": "sources", "sources_save": "sources",
+    "sources_url_preflight": "sources", "sources_url_identify": "sources",
+    "sources_chapter_check": "sources",
+    "discover_bulk_extract": "discover", "discover_navigation_help": "discover",
+    "library_backup": "settings", "library_db_backup": "settings",
+    "library_user_backup": "settings", "library_auto_backup": "settings",
+    "deno_install": "diagnostics", "upgrade_check": "diagnostics",
+}
+JOB_PAGE_BY_PREFIX = {
+    "sources_series_": "sources", "sources_signin_": "sources", "sources_tiertest_": "sources",
+    "live_": "live",
+}
+
+
+def job_page(job_id):
+    """The page a job belongs to: "title" for a drama-scoped id (same rule as
+    job_kind), else the page its id names, else None."""
+    job_id = str(job_id or "")
+    if ownership_service.drama_id_of_job(job_id) is not None:
+        return "title"
+    if job_id in JOB_PAGE_BY_ID:
+        return JOB_PAGE_BY_ID[job_id]
+    for prefix, page in JOB_PAGE_BY_PREFIX.items():
+        if job_id.startswith(prefix):
+            return page
+    return None
+
+
 def _visible(principal, record) -> bool:
     return ownership_service.can_see_job(principal, record.get("job_id"),
                                          record.get("owner_user_id"))
@@ -464,8 +527,13 @@ def _visible(principal, record) -> bool:
 
 def _for_caller(principal, record) -> dict:
     """_redact plus `owned_by_me` (ownership_service.owns_job), the only
-    word on who owns the job a response carries: never an owner id."""
+    word on who owns the job a response carries: never an owner id. Also
+    `drama_id`, `kind` and `page`; callers reach this only for a job they may see,
+    which for a drama job means they may see that drama."""
     out = _redact(record)
+    out["drama_id"] = ownership_service.drama_id_of_job(record.get("job_id"))
+    out["kind"] = job_kind(record.get("job_id"))
+    out["page"] = job_page(record.get("job_id"))
     out["owned_by_me"] = ownership_service.owns_job(principal, record.get("job_id"),
                                                     record.get("owner_user_id"))
     return out

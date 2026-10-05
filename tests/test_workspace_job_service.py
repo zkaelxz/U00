@@ -204,3 +204,32 @@ def test_bulk_series_passes_translate_toggles(isolated_db, monkeypatch):
     background_jobs.clear_job("bulk_toggles")
     assert calls[0]["include_genre_notes"] is False
     assert calls[0]["default_female_pronouns"] is True
+
+
+def test_fix_flagged_reads_each_lines_language(isolated_db, monkeypatch):
+    did = isolated_db.create_drama(title_en="D", media_type="audio_drama",
+                                   content_mode="audio_drama", status="translated",
+                                   source_language="ja")
+    isolated_db.save_lines(did, [
+        Line(idx=0, start=0, end=1, zh="안녕", en="x", flag="bad", flag_note="n", lang="ko"),
+        Line(idx=1, start=1, end=2, zh="hello", en="", flag="bad", flag_note="n", lang="en"),
+        Line(idx=2, start=2, end=3, zh="やあ", en="y", flag="bad", flag_note="n")])
+    _stub_style_sources(monkeypatch)
+    calls = []
+
+    class Engine:
+        name = "fake"
+
+        def translate_batch(self, zh, context):
+            calls.append((list(zh), context.get("line_languages")))
+            return ["T"]
+
+    import core
+    lines = core.lines_from_rows(isolated_db.load_lines(did))
+    background_jobs.clear_job("fix_lang")
+    wjs.run_fix_flagged_lines_job("fix_lang", did, lines, None, "small", False, "ja",
+                                  Engine(), "fake")
+    assert calls == [(["안녕"], ["ko"]), (["やあ"], None)]
+    rows = {r["zh"]: r for r in isolated_db.load_lines(did)}
+    assert rows["hello"]["en"] == "hello" and rows["hello"]["flag"] is None
+    background_jobs.clear_job("fix_lang")

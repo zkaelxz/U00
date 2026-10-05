@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { navLink, openMenu } from './settingsNav'
+
 // Library parity (inventory L02, L07, L15). Filters run against the real
 // seeded API (e2e/serve_seeded_api.py: three dramas); the Continue shelf and
 // the history clear are mocked so the shared library is left as it was.
@@ -99,12 +101,28 @@ test('Reading history on a remote device: no Clear button', async ({ page }) => 
   await expect(section.getByRole('button', { name: 'Clear reading history' })).toHaveCount(0)
 })
 
+test('Library header has only New drama; Saved manga and Library tools live in the rail or drawer', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 900 })
+  await page.goto('/')
+  const head = page.locator('.page-head')
+  await expect(head.getByRole('button', { name: 'New drama' })).toBeVisible()
+  await expect(head.getByRole('link', { name: 'Saved manga' })).toHaveCount(0)
+  await expect(head.getByRole('link', { name: 'Library tools' })).toHaveCount(0)
+  await openMenu(page)
+  await expect(navLink(page, 'Saved manga')).toBeVisible()
+  await expect(navLink(page, 'Library tools')).toBeVisible()
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(navLink(page, 'Saved manga')).toBeVisible()
+  await expect(navLink(page, 'Library tools')).toBeVisible()
+  await expect(head.getByRole('link', { name: 'Saved manga' })).toHaveCount(0)
+})
+
 test('Library keeps only a summary and links to Library tools', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Library tools' })).toHaveCount(0)
   await expect(page.locator('summary', { hasText: 'Backup & storage' })).toHaveCount(0)
-  await page.getByRole('link', { name: 'Library tools' }).click()
+  await page.getByRole('navigation').getByRole('link', { name: 'Library tools', exact: true }).first().click()
   await expect(page.getByRole('heading', { name: 'Library tools', level: 2 })).toBeVisible()
   await expect(tools(page).locator('summary', { hasText: 'Backup & storage' })).toBeVisible()
   await page.getByRole('link', { name: 'Back to Library' }).click()
