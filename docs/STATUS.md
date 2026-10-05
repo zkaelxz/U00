@@ -28,7 +28,7 @@ Merged 2026-10-03 and 2026-10-04 (#661-#675):
 - Live capture takes a GPU slot only when Use GPU is on (#667).
 - Disk usage view: see what takes space in the data folder, send items to a Trash folder, move backups (#657).
 - Library "Get started" card with a first-run translator choice (#673).
-- Source tab: the common transcribe path first, tuning folded, and the medium model as the CPU default (#672).
+- Source tab: the common transcribe path first, tuning folded, and, at the time, the medium model as the CPU default (#672; the CPU default is now large-v3-turbo, same as the GPU).
 - A nested `db.get_conn()` no longer closes the caller's connection (#675).
 - Idle job polls answer 200 with status idle instead of 404 (#666).
 - Also merged since #603 and not listed one by one: see `git log origin/baihe-subtitler` (for example the MangaK source #645, removal of the Mangaz source #648 and of the LibreTranslate engine #621, removal of the Diagnostics bug-bundle helpers #638).

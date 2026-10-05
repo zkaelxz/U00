@@ -89,8 +89,6 @@ _DEFAULT_TUNING = {
 }
 
 
-CPU_DEFAULT_WHISPER_SIZE = "medium"
-
 # Below this much audio a low figure says little (a short clip can be one line).
 COVERAGE_MIN_AUDIO_SECONDS = 30.0
 COVERAGE_WARN_FRACTION = 0.15
@@ -735,14 +733,11 @@ def _allowed_whisper_sizes() -> frozenset:
 
 
 def default_whisper_size() -> str:
-    """The model used when a drama has none saved: large-v3-turbo with the GPU
-    on, medium without it. On a CPU the large models are many times slower
-    than the clip and a 1.5-3 GB download; medium is the lighter choice that
-    is still usable for Chinese, Japanese and Korean. A model the user saved
-    is never replaced."""
-    if settings_service.get_use_gpu():
-        return _DEFAULT_TUNING["whisper_size"]
-    return CPU_DEFAULT_WHISPER_SIZE
+    """The model used when a drama has none saved. The same on CPU and GPU:
+    on CPU, turbo was faster than medium and no less accurate in the
+    benchmarks (docs/asr-experiments.md), at a similar download size. A model
+    the user saved is never replaced."""
+    return _DEFAULT_TUNING["whisper_size"]
 
 
 def stored_whisper_size(drama: dict) -> str:
