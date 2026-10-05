@@ -42,6 +42,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`RELEASE.md`** — building the Windows installer and the frontend release zip.
 - **`runbook.md`** — one-page maintainer steps: installer lock, tests, restore, certificate, benchmark.
 - **`remote-access-decision.md`** — the remote-access design as built, including the route table `tests/test_api_permissions.py` enforces.
+- **`engine-backends.md`** — the translation engine package, transcription and dubbing engines, the rules learned from bugs, and an adding-an-engine checklist.
 - **`asr-experiments.md`** — the off-by-default Qwen3-ASR batching and MOSS-Transcribe-Diarize options.
 - **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
 - **`design/`** and **`specs/`** — the UI refresh spec (with before/after screenshots) and earlier API/UX/Step 141 proposals; the specs were written against the removed Streamlit tabs.
