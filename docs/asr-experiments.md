@@ -430,7 +430,7 @@ change on Chinese or Japanese.
 **What is left.** Lower CER is better. The old backend was 1.5-1.8 points worse than plain; the new one is 0.2-0.6 points
 worse (Korean +0.22, Chinese +0.61, Japanese +0.33). So the change removed most of the gap but not all of it: plain Qwen on
 the whole file is still the best score in all three languages, and the new backend is the closest we have that also gives
-timestamps. Against the old backend the improvement is real in all three (95% interval excludes zero: Korean -1.63, Chinese
+timestamps. In relative terms the errors dropped by about a third in Korean (4.97% to 3.34%, -33%), a fifth in Chinese (4.85% to 3.78%, -22%) and a fifth in Japanese (6.68% to 5.42%, -19%). Against the old backend the improvement is real in all three (95% interval excludes zero: Korean -1.63, Chinese
 -1.07, Japanese -1.26 points). Against plain only Japanese is clearly worse; Korean and Chinese could be noise at 60
 utterances. Almost all of what is left comes from numbers: on utterances without digits the new backend ties plain (Chinese,
 Japanese) or is within 0.2 points (Korean). Whether digits or spelled-out numbers are better for subtitles is a style
