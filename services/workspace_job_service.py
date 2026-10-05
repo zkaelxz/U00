@@ -152,8 +152,9 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         cost_cap_usd=cost_cap_usd,
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes,
-        progress_cb=lambda frac: background_jobs.update_progress(
-            job_id, frac, translate_engines.progress_message_with_rate_status(engine, frac)),
+        detail_cb=lambda frac, message: background_jobs.update_progress(
+            job_id, frac, translate_engines.progress_message_with_rate_status(
+                engine, frac, base=message)),
         # Translation owns `en` and nothing else -- a flag job, a merge or
         # the user's own edits can run alongside without being overwritten.
         save_cb=_save,
