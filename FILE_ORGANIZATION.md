@@ -809,7 +809,7 @@ baihe-subtitler/
 │   │                              (fixed-id job polling via pollSourcesJob), discoverFormat.ts (pure,
 │   │                              unit-tested), discover.css
 │   ├── src/pages/workspace/stages/  also DiarizationDeviceNote (Transcribe > Speakers: GPU/CPU of the last
-│   │                              pyannote run, Step 101; API in src/api/asrOptions.ts), AutoTune (Transcribe > Advanced), GlossaryExtract (
+│   │                              pyannote run, Step 101; API in src/api/asrOptions.ts), AutoTune (Transcribe > Advanced), GlossaryExtractPanel (
 │   │                              the run, progress and review under the Suggest terms bar), SuggestTerms (the
 │   │                              bar's source picker, blockers and default source, shared with the empty-state card),
 │   │                              GlossaryProposals (editable proposal table/cards), GlossaryReview
