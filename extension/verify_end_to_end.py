@@ -69,6 +69,10 @@ CHROMIUM_CANDIDATES = [
 
 SITE_HOST = "reader.test"
 
+# Not 0: a run that could not check anything must not read as a pass. 77 is the
+# conventional "skipped" status of test runners (automake, meson).
+EXIT_SKIPPED = 77
+
 failures = []
 checks = []
 
@@ -108,12 +112,12 @@ def main():
         from playwright.sync_api import sync_playwright
     except ImportError:
         print("SKIP: playwright isn't installed (pip install playwright)")
-        return 0
+        return EXIT_SKIPPED
     chromium = find_chromium()
     if not chromium:
         print("SKIP: no full Chromium build found. The headless shell can't load "
               "extensions; set BAIHE_CHROMIUM to a real chrome binary.")
-        return 0
+        return EXIT_SKIPPED
 
     import db
     # Deliberately NOT under extension/: Chromium loads that whole folder
@@ -170,7 +174,7 @@ def main():
     except OSError:
         print(f"SKIP: port {page_server.DEFAULT_PORT} is in use (is Baihe's bridge running? "
               "turn it off in Settings first)")
-        return 0
+        return EXIT_SKIPPED
     finally:
         probe.close()
     token = page_server.load_or_create_token()
