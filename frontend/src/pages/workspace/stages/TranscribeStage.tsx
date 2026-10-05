@@ -671,7 +671,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             {toggle(
               'Separate vocals first',
               'separate_vocals_first',
-              'Removes background music before transcribing. Fast on a GPU; on the CPU it adds a long wait (often many times the clip length). The job shows its progress and whether it runs on GPU or CPU.',
+              'Removes background music before transcribing. Skip it unless the background is music alone: it hurt with noise and did nothing on clean audio. Fast on a GPU; on the CPU it adds a long wait (often many times the clip length).',
             )}
             {toggle('Realign long segments', 'realign_long_segments')}
             {toggle('Whisper fast mode', 'whisper_fast_mode')}
