@@ -16,6 +16,12 @@ describe('parseRoute', () => {
 
   it('parses settings and diagnostics', () => {
     expect(parseRoute('#/settings')).toEqual({ name: 'settings' })
+    expect(parseRoute('#/settings?section=developer-mode')).toEqual({ name: 'settings', section: 'developer-mode' })
+    expect(parseRoute('#/drama/3/translate?focus=glossary')).toEqual({ name: 'drama', id: 3, stage: 'translate', focus: 'glossary' })
+    expect(parseRoute('#/drama/3/translate?focus=nope')).toEqual({ name: 'drama', id: 3, stage: 'translate' })
+    expect(routeHref({ name: 'drama', id: 3, stage: 'translate', focus: 'characters' })).toBe('#/drama/3/translate?focus=characters')
+    expect(parseRoute('#/settings?section=nope')).toEqual({ name: 'settings' })
+    expect(routeHref({ name: 'settings', section: 'developer-mode' })).toBe('#/settings?section=developer-mode')
     expect(parseRoute('#/jobs')).toEqual({ name: 'jobs' })
     expect(parseRoute('#/jobs/extra')).toEqual({ name: 'library' })
     expect(parseRoute('#/diagnostics')).toEqual({ name: 'diagnostics' })

@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
-import { gearLink } from './settingsNav'
+import { navLink } from './settingsNav'
 
 // Admin > Users and Audit log (desktop). Every /api/admin call is
 // mocked; a catch-all fails the test on any other non-GET /api call, so no
@@ -259,7 +259,7 @@ test('hidden from a signed-in user without admin.users.read', async ({ page }) =
   })
   await page.goto('/#/admin')
   await expect(page.getByText('Only an admin can see this page.')).toBeVisible()
-  await expect(gearLink(page, 'Admin')).toHaveCount(0)
+  await expect(navLink(page, 'Admin')).toHaveCount(0)
   await expect(page.locator('summary', { hasText: /^Users/ })).toHaveCount(0)
   await expect(page.locator('summary', { hasText: /^Audit log/ })).toHaveCount(0)
   expect(admin).toEqual([])

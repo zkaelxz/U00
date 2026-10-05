@@ -5,24 +5,22 @@
  * fix as a patch (shown, never applied) and backlog notes (added only when
  * the user presses "Add to backlog"). Answers are shown as plain text.
  *
- * Reached by URL with the mode off, the page shows only the Developer Mode
- * switch; from another device, only a "PC only" line.
+ * Reached by URL with the mode off, the page shows only a link to the Developer
+ * Mode card in Settings; from another device, only a "PC only" line.
  */
 import { useCallback, useEffect, useState } from 'react'
 
-import { addBacklogItem, getAssistantSettings, listBacklog, saveAssistantSettings } from '../api/assistant'
+import { addBacklogItem, getAssistantSettings, listBacklog } from '../api/assistant'
 import { getGithubStatus } from '../api/assistantGithub'
 import { getPcMode, loadPcMode } from '../api/pcOnly'
 import { Card } from '../components/Card'
-import { Field } from '../components/Field'
-import { Toggle } from '../components/Toggle'
+import { routeHref } from '../router'
 import type { AssistantSettings, BacklogItem, BacklogKind, GithubStatus } from '../types/assistant'
 import { BacklogCard } from './assistant/BacklogCard'
 import { ChangelogCard } from './assistant/ChangelogCard'
 import { ChatCard } from './assistant/ChatCard'
 import { GithubCard } from './assistant/GithubCard'
-import { DEVELOPER_MODE_HELP, PC_ONLY_TEXT, assistantErrorText, isForbidden } from './assistant/assistantFormat'
-import { announceDeveloperMode } from './assistant/developerMode'
+import { PC_ONLY_TEXT, assistantErrorText, isForbidden } from './assistant/assistantFormat'
 import { ToolsCard } from './assistant/ToolsCard'
 import './assistant/assistant.css'
 
@@ -108,7 +106,7 @@ export default function AssistantPage() {
       </p>
     )
   } else if (!load.settings.developer_mode) {
-    body = <ModeOffCard onSettings={ready} />
+    body = <ModeOffMessage />
   } else {
     const settings = load.settings
     body = (
@@ -140,39 +138,10 @@ export default function AssistantPage() {
   )
 }
 
-function ModeOffCard({ onSettings }: { onSettings: (s: AssistantSettings) => void }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const turnOn = (next: boolean) => {
-    setBusy(true)
-    setError(null)
-    saveAssistantSettings({ developer_mode: next }).then(
-      (s) => {
-        setBusy(false)
-        announceDeveloperMode(s.developer_mode)
-        onSettings(s)
-      },
-      (e: unknown) => {
-        setBusy(false)
-        setError(assistantErrorText(e))
-      },
-    )
-  }
-
+function ModeOffMessage() {
   return (
-    <Card title="Developer Mode is off" aria-label="Developer Mode is off">
-      <p className="muted">Turn on Developer Mode to use the maintenance assistant.</p>
-      <div className="setting-list">
-        <Field label="Developer Mode" help={DEVELOPER_MODE_HELP}>
-          <Toggle checked={false} disabled={busy} onChange={turnOn} />
-        </Field>
-      </div>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-    </Card>
+    <p className="muted" role="status">
+      Developer Mode is off. <a href={routeHref({ name: 'settings', section: 'developer-mode' })}>Turn on in Settings</a>
+    </p>
   )
 }

@@ -234,6 +234,7 @@ baihe-subtitler/
 │   │                             updates only Baihe's own properties and "Baihe transcript" block in place
 │   │                             (page id in dramas.notion_page_id); fixed host, throttled, chunked, 429 back-off
 │   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
+│   ├── usage_recost_service.py   opt-in re-cost of old usage_log rows of a reviewed list of mis-costed models: preview, apply (old value kept), undo
 │   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
 │   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
 │   ├── diagnostics_gaps_service.py  M1 -- setup checks, model versions and cache,
@@ -654,7 +655,7 @@ baihe-subtitler/
 │       │                         deliver (POST; all local_only; Step 72); tests/test_assistant_github.py
 │       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{backlog_id}/delete)
 │       │                         (all local_only; Step 42); tests/test_maintenance_assistant.py
-│       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
+│       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|log|
 │       │                         support-report|install-presets|gpu-torch (GET) and gpu-torch/check,
 │       │                         package-updates/check (POST, on click), all admin.diagnostics;
 │       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library,
@@ -679,6 +680,7 @@ baihe-subtitler/
 │       │                         key-write gate; Step 44)
 │       ├── asr_options_routes.py /api/settings/asr-options (GET admin.settings, POST local_only;
 │       │                         Steps 103/104)
+│       ├── usage_recost_routes.py /api/settings/usage-recost (GET admin.settings; /apply, /undo POST local_only)
 │       ├── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
 │       │                         /dramas/{id}/send -- all local_only (Step 39)
 │       ├── notion_routes.py      /api/notion/config (GET/POST), /token, /token/clear, /test,
@@ -760,10 +762,11 @@ baihe-subtitler/
 │   │                              Downloads, Server addresses; persisted PC-side, PC only); API in
 │   │                              src/api/settings.ts. src/theme.ts: system/light/dark/sepia theme (localStorage,
 │   │                              <html data-theme>, applied in index.html and main.tsx; the header button is
-│   │                              components/ThemeMenu.tsx; the header cogwheel, components/GearMenu.tsx, opens Settings, Admin
-│   │                              (pages/Admin.tsx: Users, Audit log, Remote access) and Diagnostics; its items and the header's main nav
-│   │                              come from src/nav/navItems.ts, the one navigation list with permission and PC-only flags; from 1024px up the header nav and
-│   │                              cogwheel give way to the left rail, nav/SideNav.tsx + nav/sideNav.css, rendered from the same list). ApiKeysCard (Settings > API
+│   │                              components/ThemeMenu.tsx. All page links come from
+│   │                              src/nav/navItems.ts, the one navigation list with permission and PC-only flags, rendered by
+│   │                              nav/navLinks.tsx: from 1024px up as the left rail (nav/SideNav.tsx + nav/sideNav.css), below it as the
+│   │                              drawer behind the header's Menu button (nav/NavDrawer.tsx + nav/navDrawer.css). Admin
+│   │                              is pages/Admin.tsx: Users, Audit log, Remote access. ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
 │   │                              settings.css (the page's Card stack and status rows).
 │   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,

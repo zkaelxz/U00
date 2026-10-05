@@ -308,3 +308,38 @@ class TestJobKindAndDramaId:
         assert JobRecord(**data).model_dump(mode="json") == data
         legacy = JobRecord(job_id="x", status="done", updated_at=1.0)
         assert (legacy.drama_id, legacy.kind) == (None, "other")
+
+
+class TestJobPage:
+    @pytest.mark.parametrize("prefix", sorted(jobs_service.JOB_KIND_BY_PREFIX))
+    def test_every_drama_prefix_is_a_title_job(self, prefix):
+        assert jobs_service.job_page(f"{prefix}12") == "title"
+
+    @pytest.mark.parametrize("job_id, page", [
+        ("sources_search", "sources"), ("sources_series_nyaa", "sources"),
+        ("sources_url_preview", "sources"), ("sources_save", "sources"),
+        ("sources_signin_site", "sources"), ("sources_tiertest_site", "sources"),
+        ("sources_url_preflight", "sources"), ("sources_url_identify", "sources"),
+        ("sources_chapter_check", "sources"),
+        ("discover_bulk_extract", "discover"), ("discover_navigation_help", "discover"),
+        ("live_0123abcd", "live"),
+        ("library_backup", "settings"), ("library_db_backup", "settings"),
+        ("library_user_backup", "settings"), ("library_auto_backup", "settings"),
+        ("deno_install", "diagnostics"), ("upgrade_check", "diagnostics"),
+        ("benchmark_lab", None), ("bulk_series_translate", None),
+        ("library_export_zip", None), ("mystery_5", None), ("translate_x", None), ("", None),
+        (None, None),
+    ])
+    def test_ids(self, job_id, page):
+        assert jobs_service.job_page(job_id) == page
+
+    def test_record_and_schema_carry_page_only(self, isolated_db):
+        from api.schemas import JobRecord
+        db.save_job_record("sources_search", status="done")
+        db.save_job_record("translate_7", status="done")
+        by_id = {j["job_id"]: j for j in jobs_service.list_jobs()}
+        assert by_id["sources_search"]["page"] == "sources"
+        assert by_id["translate_7"]["page"] == "title"
+        data = JobRecord(**by_id["sources_search"]).model_dump(mode="json")
+        assert data["page"] == "sources" and JobRecord(**data).model_dump(mode="json") == data
+        assert JobRecord(job_id="x", status="done", updated_at=1.0).page is None
