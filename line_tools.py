@@ -12,6 +12,7 @@ single line, rather than whole-drama batch operations.
 import re
 import json
 import os
+from core import LANGUAGE_NAMES  # noqa: F401  (tests/test_shared_constants.py pins this to core's)
 from translate_engines import call_llm_json, language_name, matching_glossary_terms
 
 
