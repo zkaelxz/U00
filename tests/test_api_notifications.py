@@ -265,6 +265,8 @@ def test_message_has_kind_title_outcome_only(env):
     assert ns.build_message("Sources series (C:\\Users\\kae\\secret)", "done") == \
         "Finished: Sources series"
     assert ns.build_message(None, "error") == "Failed: Background job"
+    assert ns.build_message(f"Translation (drama #{did})", "done", with_errors=True).startswith(
+        "Finished with errors: Translation")
     assert ns.build_message("Translation (drama #99999)", "done") == "Finished: Translation"
     zh = db.create_drama(title_zh="月光花园")
     assert ns.build_message(f"Dub generation (drama #{zh})", "done") == \

@@ -481,8 +481,21 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                         f"{len(chunk)} line(s) -- left untranslated rather than "
                                         f"risk assigning a translation to the wrong line"})
             else:
+                # request_translations_with_retry and the Reflect fallback pad
+                # ids missing from the reply with "", so a cut-off reply still
+                # matches in length; an empty result must not overwrite
+                # anything or look like a success.
+                empty = []
                 for ln, tr in zip(chunk, translations):
-                    ln.en = tr
+                    if (tr or "").strip():
+                        ln.en = tr
+                    else:
+                        empty.append(ln)
+                if empty:
+                    errors.append({"batch_index": bi, "lines": [ln.idx for ln in empty],
+                                   "error": f"{len(empty)} of {len(chunk)} lines got no "
+                                            f"translation (reply may have been cut off; "
+                                            f"try a smaller batch size)"})
 
         wait_token = _backoff_wait_var.set(_on_wait if detail_cb else None)
         try:
