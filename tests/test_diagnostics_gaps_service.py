@@ -622,3 +622,86 @@ def test_pip_rechecks_other_process_jobs_under_the_hold(monkeypatch):
     with pytest.raises(svc.AdminActionJobsRunning):
         svc.install_dependency("edge_tts", confirm=True)
     assert background_jobs.exclusive_active() is False
+
+
+# --- qwen-asr: `sox` is an sdist-only dependency that fails to build in some environments ---
+
+SOX_FETCH = ["Collecting sox", "  Downloading sox-1.5.0.tar.gz (63 kB)"]
+# What pip printed in a real venv without setuptools and with --no-build-isolation.
+SOX_NO_SETUPTOOLS = SOX_FETCH + ["  Preparing metadata (pyproject.toml): started",
+                                 "ModuleNotFoundError: No module named 'setuptools'",
+                                 "ERROR: Exception:"]
+SOX_BUILT = SOX_FETCH + ["  Building wheel for sox (pyproject.toml): finished with status 'done'",
+                         "Successfully built sox"]
+
+
+def _scripted_pip(monkeypatch, outputs):
+    """stream_tree stand-in: each pip run takes the next (lines, returncode)."""
+    seen, runs = [], iter(outputs)
+
+    def fake(cmd, timeout, cwd=None, env=None):
+        seen.append(cmd)
+        lines, rc = next(runs)
+        for line in lines:
+            yield {"line": line}
+        yield {"returncode": rc, "timed_out": False}
+    monkeypatch.setattr(svc, "stream_tree", fake)
+    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines", lambda: [])
+    return seen
+
+
+def test_sox_watch_tells_a_sox_build_failure_from_other_failures():
+    def watch(lines):
+        w = diagnostics.SoxBuildWatch()
+        for line in lines:
+            w.feed(line)
+        return w.failed
+    assert watch(SOX_NO_SETUPTOOLS) is True
+    assert watch(SOX_BUILT + ["ERROR: Could not install torch"]) is False
+    assert watch(["Collecting torch", "ERROR: No matching distribution"]) is False
+
+
+def test_qwen_asr_fallback_deps_match_the_published_pins_minus_sox():
+    assert "sox" not in " ".join(diagnostics.QWEN_ASR_FALLBACK_DEPS)
+    assert {"transformers==4.57.6", "accelerate==1.12.0", "nagisa==0.2.11"} <= set(
+        diagnostics.QWEN_ASR_FALLBACK_DEPS)
+    assert diagnostics.KNOWN_EXACT_PINS["qwen-asr"]["transformers"] == "4.57.6"
+    assert diagnostics.qwen_asr_fallback_pip_args()[-1] == ["--no-deps", "qwen-asr"]
+
+
+def test_qwen_asr_install_is_plain_pip_when_it_works(monkeypatch):
+    _no_jobs(monkeypatch)
+    seen = _scripted_pip(monkeypatch, [(SOX_BUILT, 0)])
+    out = svc.install_dependency("qwen-asr", confirm=True)
+    assert out["ok"] is True and out["hint"] is None
+    assert [c[3:] for c in seen] == [["install", "--no-cache-dir", "--disable-pip-version-check",
+                                      "qwen-asr"]]
+
+
+def test_qwen_asr_sox_build_failure_falls_back_to_installing_without_sox(monkeypatch):
+    _no_jobs(monkeypatch)
+    seen = _scripted_pip(monkeypatch, [(SOX_NO_SETUPTOOLS, 1), (["Successfully installed x"], 0),
+                                       (["Successfully installed qwen-asr-0.0.6"], 0)])
+    out = svc.install_dependency("qwen-asr", confirm=True)
+    assert out["ok"] is True and out["package"] == "qwen-asr"
+    assert "without its `sox` dependency" in out["output_tail"][0]
+    assert len(seen) == 3
+    assert seen[1][-len(diagnostics.QWEN_ASR_FALLBACK_DEPS):] == list(
+        diagnostics.QWEN_ASR_FALLBACK_DEPS)
+    assert seen[2][-2:] == ["--no-deps", "qwen-asr"]
+    assert all("sox" not in " ".join(c[3:]) for c in seen[1:])
+
+
+def test_qwen_asr_fallback_failure_gives_the_plain_hint_without_leaking(monkeypatch):
+    _no_jobs(monkeypatch)
+    _scripted_pip(monkeypatch, [(SOX_NO_SETUPTOOLS, 1), ([DIRTY], 1)])
+    out = svc.install_dependency("qwen-asr", confirm=True)
+    assert out["ok"] is False and out["hint"] == diagnostics.SOX_BUILD_HINT
+    _assert_clean(out)
+
+
+def test_qwen_asr_other_failures_are_not_retried(monkeypatch):
+    _no_jobs(monkeypatch)
+    seen = _scripted_pip(monkeypatch, [(["Collecting torch", "ERROR: no matching distribution"], 1)])
+    out = svc.install_dependency("qwen-asr", confirm=True)
+    assert out["ok"] is False and out["hint"] is None and len(seen) == 1
