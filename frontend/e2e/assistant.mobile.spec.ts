@@ -62,12 +62,11 @@ test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', a
   expect(s.unmocked).toEqual([])
 })
 
-test('phone: mode off shows only the switch, with a 44 px hit area', async ({ page }) => {
+test('phone: mode off shows only the Settings link', async ({ page }) => {
   await mockAssistant(page)
   await page.goto('/#/assistant')
   await expect(navLink(page, 'Assistant')).toHaveCount(0)
-  const sw = page.getByRole('region', { name: 'Developer Mode is off' }).getByRole('switch', { name: 'Developer Mode' })
-  const hit = await sw.evaluate((el) => parseFloat(getComputedStyle(el, '::after').height) || el.getBoundingClientRect().height)
-  expect(hit).toBeGreaterThanOrEqual(44)
+  const link = page.getByRole('link', { name: 'Turn on in Settings' })
+  await expect(link).toBeVisible()
   await noSideways(page)
 })

@@ -95,6 +95,18 @@ function UserMenu({ user }: { user: AuthUser }) {
   )
 }
 
+// List and card pages use the wider column; forms and reading pages keep the 1200px cap.
+const WIDE_ROUTES: ReadonlySet<string> = new Set([
+  'library',
+  'library-tools',
+  'jobs',
+  'sources',
+  'discover',
+  'diagnostics',
+  'manga',
+  'manga-series',
+])
+
 export default function App() {
   const route = useRoute()
   const session = useSession()
@@ -170,7 +182,7 @@ export default function App() {
     <JobsProvider>
       <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
         {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={() => setRailCollapsed(!railCollapsed)} />}
-        <div className="app-main">
+        <div className="app-main" data-width={WIDE_ROUTES.has(route.name) ? 'wide' : undefined}>
           {wide ? (
             <header className="app-header">{headerEnd}</header>
           ) : (

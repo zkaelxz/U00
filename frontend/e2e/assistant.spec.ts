@@ -26,14 +26,19 @@ test('nav link is hidden with Developer Mode off and appears once it is turned o
   expect(s.unmocked).toEqual([])
 })
 
-test('reached by URL with the mode off: only the Developer Mode switch', async ({ page }) => {
+test('reached by URL with the mode off: a link that lands on the Developer Mode card in Settings', async ({ page }) => {
   const s = await mockAssistant(page)
   await page.goto('/#/assistant')
-  const off = page.getByRole('region', { name: 'Developer Mode is off' })
-  await expect(off).toBeVisible()
+  await expect(page.getByText('Developer Mode is off.')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Ask the assistant' })).toHaveCount(0)
-  await off.getByRole('switch', { name: 'Developer Mode' }).click()
-  await expect(page.getByRole('region', { name: 'Ask the assistant' })).toBeVisible()
+  await expect(page.getByRole('switch', { name: 'Developer Mode' })).toHaveCount(0)
+  await page.getByRole('link', { name: 'Turn on in Settings' }).click()
+  await expect(page).toHaveURL(/#\/settings\?section=developer-mode$/)
+  // The fold starts closed; the link opens it.
+  const toggle = page.getByRole('region', { name: 'Developer Mode' }).getByRole('switch', { name: 'Developer Mode' })
+  await expect(toggle).toBeInViewport()
+  await toggle.click()
+  await expect(toggle).toBeChecked()
   await openMenu(page)
   await expect(navLink(page, 'Assistant')).toBeVisible()
   expect(s.unmocked).toEqual([])
@@ -110,7 +115,7 @@ test('ask: busy state, plain-text answer, tools used, patch not applied, add sug
   expect(s.unmocked).toEqual([])
 })
 
-test('ask errors are plain text; a 409 falls back to the Developer Mode switch', async ({ page }) => {
+test('ask errors are plain text; a 409 falls back to the Turn on in Settings link', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true, askStatus: 503 })
   await page.goto('/#/assistant')
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
@@ -120,7 +125,7 @@ test('ask errors are plain text; a 409 falls back to the Developer Mode switch',
   s.developerMode = false
   await chat.getByRole('textbox', { name: 'Question' }).fill('Again')
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
-  await expect(page.getByRole('region', { name: 'Developer Mode is off' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Turn on in Settings' })).toBeVisible()
   expect(s.unmocked).toEqual([])
 })
 

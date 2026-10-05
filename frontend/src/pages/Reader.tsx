@@ -413,7 +413,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
               {vocab && vocab.count > 0 && (
                 <VocabSection dramaId={id} vocab={vocab} onChanged={() => setVocabTick((n) => n + 1)} />
               )}
-              {terms.length > 0 && <GlossarySection terms={terms} />}
+              {terms.length > 0 && <GlossarySection dramaId={id} terms={terms} />}
               <StorySection
                 dramaId={id}
                 page={page}

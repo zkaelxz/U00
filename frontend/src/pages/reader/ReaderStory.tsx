@@ -19,7 +19,7 @@ import type {
   ReaderWikiList,
 } from '../../types/reader'
 import type { TranslateEngine } from '../../types/translate'
-import { ActionError } from './ReaderAction'
+import { ActionError, EditInTranslate } from './ReaderAction'
 import { useAction } from './useReaderAction'
 import { ENGINE_PICKER_ID, EngineLine, EnginePicker } from './ReaderEngine'
 import { trimHistory } from './readerPrefsStore'
@@ -121,6 +121,7 @@ function RecapAndMap({ dramaId, page, chapterSize, boundary, engine, paid }: Omi
           ) : (
             <>
               <h4>Characters</h4>
+              <EditInTranslate dramaId={dramaId} focus="characters" />
               <ul>
                 {map.characters.map((c, i) => (
                   <li key={`${String(c.name)}-${i}`}>
