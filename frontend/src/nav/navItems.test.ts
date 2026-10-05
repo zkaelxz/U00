@@ -25,13 +25,14 @@ const personas: Record<string, NavContext> = {
     pcMode: 'remote',
     developerMode: false,
   },
+  // Only the PC listener can report admin.diagnostics; the household listener strips admin.* except admin.users.read.
   'member with admin.diagnostics': {
     session: meOf({ user: { ...owner, is_admin: false, is_local_owner: false }, permissions: [...MEMBER_PERMISSIONS, 'admin.diagnostics'] }),
-    pcMode: 'remote',
+    pcMode: 'local',
     developerMode: false,
   },
   'remote admin': {
-    session: meOf({ user: { ...owner, is_local_owner: false }, permissions: [...MEMBER_PERMISSIONS, 'admin.users.read', 'admin.diagnostics', 'admin.settings'] }),
+    session: meOf({ user: { ...owner, is_local_owner: false }, permissions: [...MEMBER_PERMISSIONS, 'admin.users.read'] }),
     pcMode: 'remote',
     developerMode: false,
   },
@@ -56,9 +57,9 @@ describe('nav registry shows what the header and gear showed before it existed',
     expect(labels('gear', personas['member with admin.diagnostics'])).toEqual(['Jobs', 'Settings', 'Diagnostics'])
   })
 
-  it('remote admin: Admin and Diagnostics, no Assistant', () => {
+  it('remote admin: Admin, no Diagnostics (the household listener never reports admin.diagnostics), no Assistant', () => {
     expect(labels('header', personas['remote admin'])).toEqual(HEADER)
-    expect(labels('gear', personas['remote admin'])).toEqual(['Jobs', 'Settings', 'Admin', 'Diagnostics'])
+    expect(labels('gear', personas['remote admin'])).toEqual(['Jobs', 'Settings', 'Admin'])
   })
 
   it('auth unavailable: renders as before sign-in existed, Admin included', () => {
@@ -128,7 +129,7 @@ describe('left rail', () => {
     expect(labelsOf).not.toContain('Admin')
   })
 
-  it('the PC without sign-in sees every page', () => {
+  it('a failed /me still renders every page, as before sign-in existed', () => {
     const ctx: NavContext = { session: { status: 'unavailable' }, pcMode: 'local', developerMode: false }
     expect(railLabels(ctx)).toEqual(expect.arrayContaining(['Admin', 'Diagnostics', 'Benchmark Lab', 'Jobs']))
   })
