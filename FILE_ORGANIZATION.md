@@ -234,7 +234,7 @@ baihe-subtitler/
 │   │                             updates only Baihe's own properties and "Baihe transcript" block in place
 │   │                             (page id in dramas.notion_page_id); fixed host, throttled, chunked, 429 back-off
 │   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
-│   ├── usage_recost_service.py   opt-in re-cost of old usage_log rows priced at a whole family's top rate: preview, apply (old value kept), undo
+│   ├── usage_recost_service.py   opt-in re-cost of old usage_log rows of a reviewed list of mis-costed models: preview, apply (old value kept), undo
 │   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
 │   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
 │   ├── diagnostics_gaps_service.py  M1 -- setup checks, model versions and cache,

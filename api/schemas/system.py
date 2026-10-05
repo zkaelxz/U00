@@ -970,9 +970,14 @@ class UsageRecostPreview(BaseModel):
 class UsageRecostApplyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
+    # Rows the user saw in the preview; a different count now means 409.
+    previewed: Optional[int] = Field(default=None, ge=0)
 
 
 class UsageRecostResult(BaseModel):
     """POST apply or undo: rows written and this month's logged spend after."""
     rows: int
     month_spend_usd: float
+    # Apply only: the previewed count the client sent and rows actually changed.
+    previewed: Optional[int] = None
+    changed: Optional[int] = None

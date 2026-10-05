@@ -24,14 +24,14 @@ describe('usage re-cost API', () => {
   it('reads the preview, then applies with confirm and undoes', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     expect(await getUsageRecost(fakeFetch(PREVIEW, calls))).toEqual(PREVIEW)
-    await applyUsageRecost(fakeFetch({ rows: 2, month_spend_usd: 18 }, calls))
+    await applyUsageRecost(2, fakeFetch({ rows: 2, month_spend_usd: 18 }, calls))
     await undoUsageRecost(fakeFetch({ rows: 2, month_spend_usd: 50 }, calls))
     expect(calls.map((c) => c.url)).toEqual([
       '/api/settings/usage-recost',
       '/api/settings/usage-recost/apply',
       '/api/settings/usage-recost/undo',
     ])
-    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ confirm: true })
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ confirm: true, previewed: 2 })
   })
 })
 

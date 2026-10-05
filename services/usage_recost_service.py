@@ -1,31 +1,40 @@
 """
 services/usage_recost_service.py -- opt-in re-cost of old usage_log rows.
 
-Before models missing from PRICING_PER_MILLION_TOKENS were priced at their own
-tier, estimate_cost priced them at the whole family's highest rate and
-db.log_usage stored that figure, so past months still sum too high. This
-recomputes those rows with the current estimate_cost.
+Some models were costed wrongly before they were priced correctly: the new
+Claude 5.x models were unpriced, so estimate_cost used the whole family's
+highest rate (Opus, $15/$75), and claude-opus-4-8 sat in the table at that
+same $15/$75 although its real rate is $5/$25. db.log_usage stored those
+figures, so past months still sum too high.
 
-- Candidates: a stored cost above zero, a model that is not a key of
-  PRICING_PER_MILLION_TOKENS, not re-costed already, and a recomputed cost
-  that is above zero and lower than the stored one. Priced models are never
-  touched; a cost is never raised (a stored 0 may be a free tier, which the
-  log does not record).
-- Approximate: cache-write tokens are not stored, so they are costed as plain
-  input.
-- Preview never writes. Apply needs confirm=True, copies each old cost into
-  estimated_cost_usd_before_recost in one transaction, and Undo restores it.
-  No library snapshot is taken; that saved column is the way back.
+- Selection is an explicit, reviewed list (RECOST_MODELS), not "every model
+  that is unpriced": a row of any other model is never read or written.
+  A candidate has a stored cost above zero and a recomputed cost that is above
+  zero and lower than the stored one. All four listed corrections only lower
+  a cost; raising one is out of scope (a stored 0 may be a free tier, which
+  the log does not record, and a cap must never be loosened by a re-cost).
+- Batch rows (operation `translate_bulk` or ending `_bulk`) were logged at
+  BATCH_PRICE_FACTOR of the list price, so they are recomputed with it too.
+- Cache-write tokens are not stored. A row's cost lies between "no cache
+  writes" and "every non-cache-read input token billed as a cache write";
+  the row is re-costed to the high end so a cap is never undercut, and a row
+  already at or below it is left alone.
+- Preview never writes. Apply needs confirm=True, keeps each row's first
+  original in estimated_cost_usd_before_recost (a later correction can
+  re-apply and Undo still returns the logged figure) and writes in one
+  transaction. No library snapshot is taken; that column is the way back.
 
 UI-free. Writes are PC-only (the router uses local_only()).
 """
-
 import contextlib
 import datetime
 
 import db
+import bulk_translate
 from engine_backends import pricing
-from services.service_errors import InvalidInputError
+from services.service_errors import ConflictError, InvalidInputError
+
+RECOST_MODELS = ("claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-opus-4-8")
 
 
 def _month_start() -> str:
@@ -33,12 +42,23 @@ def _month_start() -> str:
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
 
 
+def _high_cost(row: dict) -> float:
+    """Upper end of the row's possible cost: all input that was not read from
+    the cache is treated as cache-write, then the batch discount if it was one."""
+    inp = row["input_tokens"] or 0
+    cache_read = row["cache_read_tokens"] or 0
+    cost = pricing.estimate_cost(row["model"], inp, row["output_tokens"] or 0,
+                                 cache_read, max(0, inp - cache_read))
+    if (row["operation"] or "").endswith("_bulk"):
+        cost *= bulk_translate.BATCH_PRICE_FACTOR
+    return cost
+
+
 def _plan() -> list:
     """(row, recomputed cost) for every row a re-cost would change."""
     plan = []
-    for row in db.usage_recost_candidates(tuple(pricing.PRICING_PER_MILLION_TOKENS)):
-        new = pricing.estimate_cost(row["model"], row["input_tokens"] or 0,
-                                    row["output_tokens"] or 0, row["cache_read_tokens"] or 0)
+    for row in db.usage_recost_candidates(RECOST_MODELS):
+        new = _high_cost(row)
         if 0 < new < row["estimated_cost_usd"]:
             plan.append((row, new))
     return plan
@@ -79,12 +99,16 @@ def preview() -> dict:
     }
 
 
-def apply(confirm: bool) -> dict:
+def apply(confirm: bool, previewed: int = None) -> dict:
     if confirm is not True:
         raise InvalidInputError("Confirm the re-cost before it is applied.")
-    updates = [(row["id"], row["estimated_cost_usd"], new) for row, new in _plan()]
-    written = db.apply_usage_recost(updates) if updates else 0
-    return {"rows": written, "month_spend_usd": db.get_month_spend()}
+    plan = _plan()
+    if previewed is not None and previewed != len(plan):
+        raise ConflictError("The past costs changed since you checked them. Check again before applying.")
+    updates = [(row["id"], row["estimated_cost_usd"], new) for row, new in plan]
+    changed = db.apply_usage_recost(updates) if updates else 0
+    return {"rows": changed, "previewed": previewed, "changed": changed,
+            "month_spend_usd": db.get_month_spend()}
 
 
 def undo() -> dict:

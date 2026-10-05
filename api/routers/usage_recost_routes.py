@@ -25,9 +25,9 @@ def preview_recost():
 
 @router.post("/apply", dependencies=[local_only()], response_model=UsageRecostResult,
              summary="PC only: re-cost past usage rows (needs confirm=true; Undo restores them)",
-             responses={422: {"model": ErrorResponse}})
+             responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def apply_recost(body: UsageRecostApplyRequest):
-    return usage_recost_service.apply(body.confirm)
+    return usage_recost_service.apply(body.confirm, body.previewed)
 
 
 @router.post("/undo", dependencies=[local_only()], response_model=UsageRecostResult,

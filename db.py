@@ -4647,24 +4647,25 @@ def get_month_spend(now: datetime.datetime = None) -> float:
     return float(row["spent"])
 
 
-def usage_recost_candidates(priced_models) -> list:
-    """Usage rows that could be re-costed: a real stored cost, a model that
-    is not in `priced_models`, and not re-costed already."""
-    marks = ",".join("?" * len(priced_models))
+def usage_recost_candidates(models) -> list:
+    """Usage rows of exactly `models` with a real stored cost. Rows already
+    re-costed are included: a later price correction may lower them again,
+    and the apply step skips any whose figure already matches."""
+    marks = ",".join("?" * len(models))
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute(
-            "SELECT id, model, input_tokens, output_tokens, cache_read_tokens, "
+            "SELECT id, model, operation, input_tokens, output_tokens, cache_read_tokens, "
             "estimated_cost_usd, created_at FROM usage_log "
-            "WHERE estimated_cost_usd > 0 AND estimated_cost_usd_before_recost IS NULL "
-            f"AND model IS NOT NULL AND model != '' AND model NOT IN ({marks})",
-            tuple(priced_models)).fetchall()
+            f"WHERE estimated_cost_usd > 0 AND model IN ({marks})",
+            tuple(models)).fetchall()
     return [dict(r) for r in rows]
 
 
 def apply_usage_recost(updates) -> int:
-    """`updates` is [(row_id, expected_old_cost, new_cost), ...]. Each row
-    keeps its old cost in estimated_cost_usd_before_recost, and is skipped if
-    it changed or was re-costed since it was read. All in one transaction;
+    """`updates` is [(row_id, expected_old_cost, new_cost), ...]. A row's
+    first original is kept in estimated_cost_usd_before_recost (never
+    overwritten by a later re-cost, so Undo returns the logged figure), and
+    a row that changed since it was read is skipped. All in one transaction;
     returns how many rows were written."""
     written = 0
     conn = get_conn()
@@ -4673,9 +4674,10 @@ def apply_usage_recost(updates) -> int:
         conn.execute("BEGIN IMMEDIATE")
         for row_id, old, new in updates:
             written += conn.execute(
-                "UPDATE usage_log SET estimated_cost_usd_before_recost = estimated_cost_usd, "
-                "estimated_cost_usd = ? WHERE id = ? AND estimated_cost_usd = ? "
-                "AND estimated_cost_usd_before_recost IS NULL", (new, row_id, old)).rowcount
+                "UPDATE usage_log SET estimated_cost_usd_before_recost = "
+                "COALESCE(estimated_cost_usd_before_recost, estimated_cost_usd), "
+                "estimated_cost_usd = ? WHERE id = ? AND estimated_cost_usd = ?",
+                (new, row_id, old)).rowcount
         conn.commit()
     except Exception:
         conn.rollback()

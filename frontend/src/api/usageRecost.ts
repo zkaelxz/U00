@@ -26,6 +26,8 @@ export interface UsageRecostPreview {
 export interface UsageRecostResult {
   rows: number
   month_spend_usd: number
+  previewed?: number | null
+  changed?: number | null
 }
 
 const BASE = '/api/settings/usage-recost'
@@ -33,8 +35,9 @@ const BASE = '/api/settings/usage-recost'
 export const getUsageRecost = (f?: Fetch) => getJson<UsageRecostPreview>(BASE, f)
 
 // PC only: a 403 marks the tab remote.
-export const applyUsageRecost = (f?: Fetch) =>
-  postJson<UsageRecostResult>(`${BASE}/apply`, { confirm: true }, pcOnlyFetch(f))
+// `previewed` is the count the user saw; the server answers 409 if it differs now.
+export const applyUsageRecost = (previewed: number, f?: Fetch) =>
+  postJson<UsageRecostResult>(`${BASE}/apply`, { confirm: true, previewed }, pcOnlyFetch(f))
 
 export const undoUsageRecost = (f?: Fetch) => postJson<UsageRecostResult>(`${BASE}/undo`, {}, pcOnlyFetch(f))
 
@@ -43,6 +46,6 @@ export const usd = (n: number) => `$${n.toFixed(2)}`
 // The plain sentence above the table. "About": cache-write tokens are not
 // stored, so the new figure is an estimate.
 export function recostSummary(p: UsageRecostPreview): string {
-  if (p.rows === 0) return 'Nothing to change: no past usage was priced at a higher model’s rate.'
+  if (p.rows === 0) return 'Nothing to change: no past usage needs a lower price.'
   return `${p.rows} past ${p.rows === 1 ? 'entry was' : 'entries were'} priced too high. Total logged: ${usd(p.stored_usd)}; about ${usd(p.recomputed_usd)} when re-costed (${usd(p.difference_usd)} less). This month would go from ${usd(p.month_stored_usd)} to about ${usd(p.month_recomputed_usd)}.`
 }

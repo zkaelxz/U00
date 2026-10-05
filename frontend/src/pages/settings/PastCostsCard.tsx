@@ -69,7 +69,7 @@ function Controls() {
 
   const apply = () =>
     run(async () => {
-      const r = await applyUsageRecost()
+      const r = await applyUsageRecost(preview?.rows ?? 0)
       setPreview(null)
       setRecosted((n) => n + r.rows)
       setResult(`Re-costed ${r.rows} ${r.rows === 1 ? 'entry' : 'entries'}. This month now shows ${usd(r.month_spend_usd)}.`)
