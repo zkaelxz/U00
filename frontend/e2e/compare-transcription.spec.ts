@@ -62,7 +62,8 @@ test('runs with chosen settings, shows highlighted diffs, applies only what is c
   await expect(rows).toHaveCount(1)
 
   await box.getByRole('button', { name: 'Use all shown' }).click()
-  expect(seen.applies[1]).toEqual({ job_id: 'comparetx_3', items: [
+  // The click returns before the mocked request is recorded.
+  await expect.poll(() => seen.applies[1]).toEqual({ job_id: 'comparetx_3', items: [
     { line_id: 11, expected_base_zh: '魏婴来了', expected_candidate_zh: '魏婴来啦', use_english: false, expected_candidate_en: '' },
   ] })
 })
