@@ -717,6 +717,8 @@ baihe-subtitler/
 │   │                              reportDialogStore.ts (openReportDialog()), reportBundle.ts (pure: report,
 │   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
+│   ├── src/pages/workspace/       JobPill.tsx (sticky-strip pill for this title's queued/running jobs, popover with JobPanel and Cancel),
+│   │                              useDramaJobs.ts (3 s GET /api/jobs poll, finish flash), jobPillState.ts (pure: verbs, text, flash)
 │   ├── src/hooks/                 useJob (push, polling fallback), useEventStream (the tab's shared SSE stream,
 │   │                              src/api/eventStream.ts: reconnect with backoff, resync, poll fallback),
 │   │                              useMediaQuery, useShortcut (list keyboard shortcuts),
