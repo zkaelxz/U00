@@ -47,6 +47,8 @@ export interface NavItem {
   pcOnly: boolean
   /** Shown only while Developer Mode is on. */
   developerMode: boolean
+  /** A live count shown beside the label; the surface that renders the item supplies the number. */
+  badge: 'running-jobs' | null
   /** Null when the left rail does not list the item. */
   rail: RailSlot | null
 }
@@ -56,9 +58,9 @@ function item(
   target: Route,
   active: Route['name'][],
   surface: NavSurface,
-  over: Partial<Pick<NavItem, 'requires' | 'hideWithoutPermission' | 'pcOnly' | 'developerMode' | 'rail'>> = {},
+  over: Partial<Pick<NavItem, 'requires' | 'hideWithoutPermission' | 'pcOnly' | 'developerMode' | 'rail' | 'badge'>> = {},
 ): NavItem {
-  return { label, target, active, surface, requires: null, hideWithoutPermission: false, pcOnly: false, developerMode: false, rail: null, ...over }
+  return { label, target, active, surface, requires: null, hideWithoutPermission: false, pcOnly: false, developerMode: false, rail: null, badge: null, ...over }
 }
 
 // Order is the on-screen order within each surface, and within each rail group.
@@ -82,6 +84,12 @@ export const NAV_ITEMS: NavItem[] = [
   item('Sources', { name: 'sources' }, ['sources'], 'header', { requires: 'library.read', rail: { group: 'find', active: ['sources'] } }),
   item('Discover', { name: 'discover' }, ['discover'], 'header', { requires: 'library.read', rail: { group: 'find', active: ['discover'] } }),
   item('Live', { name: 'live' }, ['live'], 'header', { requires: 'library.read', rail: { group: 'tools', active: ['live'] } }),
+  // The header button is the glance; this is the page. Below 1024px it sits in the gear menu so the phone's 3 by 2 header grid keeps its shape.
+  item('Jobs', { name: 'jobs' }, ['jobs'], 'gear', {
+    requires: 'library.read',
+    badge: 'running-jobs',
+    rail: { group: 'tools', active: ['jobs'] },
+  }),
   // A member sees only Sharing and devices here, which needs library.read.
   item('Settings', { name: 'settings' }, ['settings'], 'gear', { requires: 'library.read', rail: { group: 'system', active: ['settings'] } }),
   item('Admin', { name: 'admin' }, ['admin'], 'gear', {

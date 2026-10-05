@@ -29,6 +29,7 @@ async function mock(page: Page, permissions: string[]) {
   await json('**/api/meta', { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false })
   await json('**/api/auth/me', me(permissions))
   await json('**/api/jobs', { items: [JOB, OWN_JOB], count: 2 })
+  await json('**/api/library/dramas', { items: [], count: 0 })
   await json('**/api/notifications', { items: [] })
   await json('**/api/sharing/share-by-default', { share_by_default: false })
   await json('**/api/sharing/items*', { items: [ITEM], total: 1 })
@@ -37,8 +38,8 @@ async function mock(page: Page, permissions: string[]) {
 
 test('remote admin: Cancel on their own job only, with a note', async ({ page }) => {
   await mock(page, ['library.read', 'jobs.cancel', 'admin.users.read'])
-  await page.goto('/#/diagnostics')
-  await expect(page.getByTestId('job-list')).toContainText('Translate Kae')
+  await page.goto('/#/jobs')
+  await expect(page.getByTestId('jobs-table')).toContainText('Translate Kae')
   await expect(page.getByRole('button', { name: /Cancel Translate Mine/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Cancel Translate Kae/ })).toHaveCount(0)
   await expect(page.getByTestId('remote-admin-jobs-note')).toBeVisible()
@@ -46,7 +47,7 @@ test('remote admin: Cancel on their own job only, with a note', async ({ page })
 
 test('PC admin still gets Cancel', async ({ page }) => {
   await mock(page, ['library.read', 'jobs.cancel', 'admin.library', 'admin.users.read'])
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/jobs')
   await expect(page.getByRole('button', { name: /Cancel Translate Kae/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Cancel Translate Mine/ })).toBeVisible()
   await expect(page.getByTestId('remote-admin-jobs-note')).toHaveCount(0)

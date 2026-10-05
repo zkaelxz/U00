@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  deleteModelFile, getDiagnostics, getJobHistory, getLog, getModelCache, getPyannote, getPorts, getSetupChecks,
+  deleteModelFile, getDiagnostics, getLog, getModelCache, getPyannote, getPorts, getSetupChecks,
   getSupportReport, installDependency, resetLibrary, upgradeDependency,
 } from './diagnostics'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
@@ -33,14 +33,12 @@ describe('diagnostics api', () => {
     const { mock, f } = reply(200, {})
     await getSetupChecks(f)
     await getModelCache(f)
-    await getJobHistory(f)
     await getSupportReport(f)
     await getPyannote(false, f)
     await getPyannote(true, f)
     expect(mock.mock.calls.map((c) => c[0])).toEqual([
       '/api/diagnostics/setup-checks',
       '/api/diagnostics/model-cache',
-      '/api/diagnostics/job-history',
       '/api/diagnostics/support-report',
       '/api/diagnostics/pyannote',
       '/api/diagnostics/pyannote?check_access=true',
