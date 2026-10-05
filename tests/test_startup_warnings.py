@@ -65,6 +65,8 @@ def test_qwen_nonascii_path(monkeypatch, system, path, qwen, warn):
 @pytest.mark.parametrize("pyannote,gpu,warn", [
     ("4.0.1", {"available": True, "vram_total_gb": 8.0}, True),
     ("4.0.1", {"available": True, "vram_total_gb": 12.0}, False),
+    ("4.0.1", {"available": True, "vram_total_gb": 11.76}, False),   # a 12 GB RTX 3080 Ti as PyTorch reports it
+    ("4.0.1", {"available": True, "vram_total_gb": 10.7}, True),    # an 11 GB card
     ("4.0.1", {"available": False, "message": "no gpu"}, False),
     ("3.3.2", {"available": True, "vram_total_gb": 8.0}, False),
     (None, {"available": True, "vram_total_gb": 8.0}, False)])
