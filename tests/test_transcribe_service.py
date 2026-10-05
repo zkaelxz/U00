@@ -1330,7 +1330,9 @@ def _process_gone(pid):
     try:
         with open(f"/proc/{pid}/stat") as f:
             return f.read().rsplit(")", 1)[1].split()[0] == "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
+        # A process that exits between the open and the read fails the read
+        # with ESRCH, not ENOENT; either way it is gone.
         return True
 
 
