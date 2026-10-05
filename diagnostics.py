@@ -1075,6 +1075,57 @@ def pip_cache_permission_hint(lines) -> str:
     return None
 
 
+# qwen-asr 0.0.6 declares exactly these runtime dependencies besides `sox`
+# (its pyproject.toml), and the app's Qwen3 paths run without `sox`: nothing
+# in qwen_asr, librosa (uses `soxr`) or transformers imports it, and it needs
+# no SoX program either. `sox` is the only dependency pip must build from
+# source (sdist only), so it is the one that breaks in environments with a
+# missing, old or unreachable setuptools. Kept here, in one place, for the
+# fallback install; bump together with requirements-optional.txt's qwen-asr.
+QWEN_ASR_FALLBACK_DEPS = (
+    "transformers==4.57.6", "accelerate==1.12.0", "nagisa==0.2.11", "soynlp==0.0.493",
+    "qwen-omni-utils", "librosa", "soundfile", "gradio", "flask", "pytz",
+)
+
+SOX_BUILD_HINT = (
+    "pip couldn't build the small `sox` helper that Qwen3-ASR lists as a dependency "
+    "(Baihe doesn't use it). Usually Python's build tools are too old or can't be "
+    "downloaded: update them with `python -m pip install --upgrade pip setuptools wheel`, "
+    "check your internet connection or proxy, then try again.")
+
+_SOX_SDIST_RE = re.compile(r"\bsox-\d[\w.]*\.tar\.gz", re.IGNORECASE)
+_SOX_BUILT_RE = re.compile(r"Successfully built sox\b|Building wheel for sox .*status 'done'",
+                           re.IGNORECASE)
+
+
+class SoxBuildWatch:
+    """Feed it pip's output lines; `failed` is True when pip fetched the `sox`
+    source package (the only reason it does) and never reported building it,
+    so a failed run that shows this is the sox build failure. Judged on pip's
+    own output because the failure text varies (a traceback, a missing
+    setuptools or distutils, or build dependencies that couldn't be
+    downloaded)."""
+
+    def __init__(self):
+        self._fetched = self._built = False
+
+    def feed(self, line: str):
+        line = line or ""
+        self._fetched = self._fetched or bool(_SOX_SDIST_RE.search(line))
+        self._built = self._built or bool(_SOX_BUILT_RE.search(line))
+
+    @property
+    def failed(self) -> bool:
+        return self._fetched and not self._built
+
+
+def qwen_asr_fallback_pip_args() -> list:
+    """pip args, in order, for installing qwen-asr without its `sox`
+    dependency: its other dependencies first, then qwen-asr itself with
+    --no-deps, so a failure part-way leaves no half-working qwen-asr."""
+    return [list(QWEN_ASR_FALLBACK_DEPS), ["--no-deps", "qwen-asr"]]
+
+
 def stream_pip_install(pip_args: list, python_executable: str = None):
     """Yields {"line": str} for each line of combined stdout/stderr as
     `<python> -m pip install <pip_args>` runs, then a final

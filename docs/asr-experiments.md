@@ -40,6 +40,36 @@ becomes a default is a later decision, made after the real comparison below.
   installed, Qwen3-ASR sends one line at a time whatever the saved batch size;
   the Settings card says which applies.
 
+### Installing qwen-asr (the `sox` dependency)
+
+Diagnostics' Install button runs `python -m pip install --no-cache-dir
+--disable-pip-version-check qwen-asr` with the app's own interpreter (plus a
+temporary constraints file pinning the installed torch family). qwen-asr 0.0.6
+depends on `sox`, a pure-Python package published only as a source archive, so
+pip has to build it with setuptools. That fails when build isolation is off or
+unavailable and the environment's setuptools is missing or too old, or when
+pip can't download its build tools. Baihe doesn't need `sox` (nothing in
+qwen-asr, librosa or transformers imports it, and no SoX program is used), so
+when the install fails building it the app installs qwen-asr with `--no-deps`
+and its other pinned dependencies instead (`diagnostics.QWEN_ASR_FALLBACK_DEPS`).
+If that also fails, the result carries a plain hint (`SOX_BUILD_HINT`).
+
+The Windows installer's hash-pinned `wheels/` cover `requirements-core.txt`
+only. qwen-asr and its dependencies are optional and deliberately outside that
+lock; they install from PyPI at click time.
+
+Manual check on Windows (the owner's PC):
+
+1. Start Baihe and open Diagnostics > Packages. If Qwen3-ASR is installed,
+   uninstall it first (`python -m pip uninstall qwen-asr sox`).
+2. Click Install on Qwen3-ASR and wait for it (several GB with PyTorch). Either
+   the plain install finishes, or the output starts with "Installing Qwen3-ASR
+   without its `sox` dependency" and then finishes; both are fine. A red result
+   should show the plain hint above.
+3. Run `python -c "import qwen_asr.inference.qwen3_asr"` in Baihe's Python, then
+   transcribe a short clip with Qwen3-ASR selected; the package row should show
+   installed.
+
 ### Remote-code check (lead security review, 2026-09-30)
 
 Checked what `trust_remote_code` and the package actually load:
