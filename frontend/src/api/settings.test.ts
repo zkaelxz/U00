@@ -11,6 +11,8 @@ import {
   updateGpuMaxParallel,
   updatePreferences,
   updateSetting,
+  resetMonthCounter,
+  undoMonthCounterReset,
 } from './settings'
 
 const overview = {
@@ -93,5 +95,20 @@ describe('settings api', () => {
     const [url2, init2] = (g as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(url2).toBe('/api/settings/endpoints/ollama_url/clear')
     expect(JSON.parse(init2.body)).toEqual({ confirm: true })
+  })
+})
+
+describe('month counter reset API', () => {
+  it('posts reset and undo with the PC-only header', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const status = { month_spend_usd: 5, month_spend_counted_usd: 0, month_spend_reset_at: '2026-10-05T10:00:00' }
+    const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init })
+      return new Response(JSON.stringify({ before: status, after: status }), { status: 200 })
+    }) as typeof fetch
+    await resetMonthCounter(f)
+    await undoMonthCounterReset(f)
+    expect(calls.map((c) => c.url)).toEqual(['/api/settings/month-counter/reset', '/api/settings/month-counter/undo'])
+    expect(calls.every((c) => c.init?.method === 'POST')).toBe(true)
   })
 })

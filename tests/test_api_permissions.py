@@ -553,8 +553,9 @@ class TestLocalOnly:
         assert c.delete("/api/dramas/999", headers={"Origin": "https://evil.example"}
                         ).status_code == 403
 
-    @pytest.mark.parametrize("path", ["/api/settings/usage-recost/apply", "/api/settings/usage-recost/undo"])
-    def test_usage_recost_writes_refused_to_an_admin_off_the_pc(self, isolated_db, path):
+    @pytest.mark.parametrize("path", ["/api/settings/usage-recost/apply", "/api/settings/usage-recost/undo",
+                                      "/api/settings/month-counter/reset", "/api/settings/month-counter/undo"])
+    def test_spend_writes_refused_to_an_admin_off_the_pc(self, isolated_db, path):
         _u, s = _user(admin=True)
         body = {"confirm": True}
         assert _remote(_app()).post(path, json=body, headers=_h(s)).status_code == 403

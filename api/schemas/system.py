@@ -13,6 +13,8 @@ __all__ = [
     "UsageRecostPreview",
     "UsageRecostApplyRequest",
     "UsageRecostResult",
+    "MonthSpendStatus",
+    "MonthCounterResetResult",
     "HealthResponse",
     "MetaResponse",
     "DependencyStatus",
@@ -336,7 +338,24 @@ class SettingsOverview(BaseModel):
     endpoints: Dict[str, Optional[str]]
     monthly_cap_env_usd: float = 0.0
     effective_monthly_cap_usd: float = 0.0
+    # Full month vs what the cap counts since an active reset (UTC ISO time).
+    month_spend_usd: float = 0.0
+    month_spend_counted_usd: float = 0.0
+    month_spend_reset_at: Optional[str] = None
     choices: SettingsChoices
+
+
+class MonthSpendStatus(BaseModel):
+    month_spend_usd: float
+    month_spend_counted_usd: float
+    month_spend_reset_at: Optional[str] = None
+
+
+class MonthCounterResetResult(BaseModel):
+    """POST reset or undo: month spend figures before and after. Numbers and
+    a timestamp only."""
+    before: MonthSpendStatus
+    after: MonthSpendStatus
 
 
 class SettingsUpdateRequest(BaseModel):
