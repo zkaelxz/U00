@@ -1,45 +1,69 @@
-// Pure helpers for the glossary extraction panels (From novel, From lines)
+// Pure helpers for the glossary extraction (Suggest terms bar)
 // and the review-before-translating step (unit-tested in
 // glossaryExtract.test.ts). Proposals, selections and edits are keyed by
 // term text, never by position.
 
 import type { NovelGlossaryProposal } from '../../../types/autotuneGlossary'
 import type { GlossaryProposalEdit, GlossaryProposalsApplyRequest } from '../../../types/glossaryHelpers'
-import { novelGlossaryApplyErrorText, novelGlossaryProgressText } from './autotuneGlossary'
+import { novelGlossaryApplyErrorText, novelGlossaryBlocker, novelGlossaryProgressText, type Blocker } from './autotuneGlossary'
 
 export type GlossarySource = 'novel' | 'lines'
 
 interface SourceText {
-  title: string
-  intro: (engine: string) => string
+  // Dropdown option and card wording; the UI calls the lines "transcript".
+  label: string
   testId: string
-  storageKey: string
 }
 
 export const SOURCE_TEXT: Record<GlossarySource, SourceText> = {
-  novel: {
-    title: 'From novel',
-    intro: (engine) =>
-      `Proposes names and terms from the attached novel using this drama's translation engine (${engine}). Nothing is added until you choose.`,
-    testId: 'novel-glossary',
-    storageKey: 'translate.glossary.novel',
-  },
-  lines: {
-    title: 'From lines',
-    intro: (engine) =>
-      `Proposes names and terms from this drama's source lines using its translation engine (${engine}), in one request. Nothing is added until you choose.`,
-    testId: 'lines-glossary',
-    storageKey: 'translate.glossary.lines',
-  },
+  novel: { label: 'Novel', testId: 'novel-glossary' },
+  lines: { label: 'Transcript', testId: 'lines-glossary' },
 }
 
-// The lines run is one LLM call, so it has no meaningful percentage.
+// The transcript run is one LLM call, so it has no meaningful percentage.
 function linesGlossaryProgressText(status: string): string {
-  return status === 'queued' ? 'Waiting to start…' : 'Scanning the lines…'
+  return status === 'queued' ? 'Waiting to start…' : 'Scanning the transcript…'
 }
 
 export const extractionProgressText = (source: GlossarySource, status: string, progress: number | null) =>
   source === 'novel' ? novelGlossaryProgressText(status, progress) : linesGlossaryProgressText(status)
+
+export const SUGGEST_HELP = 'Uses your translation engine. You review the suggestions before anything is added.'
+
+// What each source needs before it can run: null = ready. hasNovel/hasLines
+// are null while still being read, which counts as ready here so the choice
+// doesn't flicker; the button itself waits for the read.
+export function suggestBlockers(
+  dramaId: number,
+  seriesId: number | null,
+  hasNovel: boolean | null,
+  hasLines: boolean | null,
+): Record<GlossarySource, Blocker | null> {
+  const href = `#/drama/${dramaId}/source`
+  const novel = novelGlossaryBlocker(dramaId, seriesId, hasNovel !== false)
+  const lines =
+    novelGlossaryBlocker(dramaId, seriesId, true) ??
+    (hasLines === false ? { text: 'Still needed: transcript lines', link: 'transcribe it on Source', href } : null)
+  return { novel, lines }
+}
+
+// The source the bar starts on: the only one that can run; with both (or
+// neither) the title's own kind decides -- a novel or comic title reads its
+// novel, an audio or video title its transcript.
+export function defaultSuggestSource(
+  blockers: Record<GlossarySource, Blocker | null>,
+  preferNovel: boolean,
+): GlossarySource {
+  const novelOk = !blockers.novel
+  const linesOk = !blockers.lines
+  if (novelOk !== linesOk) return novelOk ? 'novel' : 'lines'
+  return preferNovel ? 'novel' : 'lines'
+}
+
+export const suggestButtonLabel = (more: boolean) => (more ? 'Suggest more terms' : 'Suggest terms')
+
+export const startCardSuggestLabel = (source: GlossarySource) =>
+  source === 'novel' ? 'Suggest terms from the novel' : 'Suggest terms from the transcript'
 
 // Review before translating uses the novel when one is attached, else the
 // source lines.

@@ -177,7 +177,7 @@ test('in a series, the term form checks required fields and shows a failed save'
       : r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'That term already exists.' } } }))
   await page.goto('/#/drama/1/translate')
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await glossary.getByRole('button', { name: 'Add term' }).click()
+  await glossary.getByRole('button', { name: 'Add a term' }).click()
   await glossary.getByRole('button', { name: 'Save term' }).click()
   await expect(glossary.getByRole('alert')).toContainText('required')
   await glossary.getByRole('textbox', { name: 'Original', exact: true }).fill('Wei')
