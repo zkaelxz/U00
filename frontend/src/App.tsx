@@ -31,6 +31,7 @@ import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
+import { useHiddenNav } from './nav/hiddenNav'
 import { NavDrawer } from './nav/NavDrawer'
 import { SideNav } from './nav/SideNav'
 import { useRailCollapsed } from './nav/useRailCollapsed'
@@ -112,6 +113,7 @@ export default function App() {
   const view = gateView(session)
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
+  const [hidden] = useHiddenNav(session)
   const wide = useMediaQuery('(min-width: 1024px)')
   const [railCollapsed, toggleRail] = useRailCollapsed()
 
@@ -126,7 +128,7 @@ export default function App() {
     return <LoginPage configured={session.status !== 'ready' || session.me.sign_in_configured} />
   }
   const user = menuUser(session)
-  const navContext = { session, pcMode, developerMode }
+  const navContext = { session, pcMode, developerMode, hidden }
 
   const headerEnd = (
     <div className="header-end">
