@@ -846,8 +846,9 @@ speaker set; differences of a few CER points between the best rows are within no
 (Korean, Chinese and Japanese above and in the brief), although the VAD has almost nothing to cut there.
 
 **Data and scorer.** The same first 60 test rows per language as the Korean, Chinese and Japanese public-benchmark
-sections (same parquet revision; the sha256 of my `ko_kr`, `cmn_hans_cn` and `ja_jp` files matched those sections' rows
-and 784.6 s of Japanese audio).
+sections (same parquet revision; the sha256 of my `ko_kr` and `cmn_hans_cn` files matched those sections'). The Japanese
+section records no file hash; mine (`ja_jp/test/0000.parquet`) is `e954b67e934b9a31d7a74a070a75225379660d50c8d1aacdb755852c57f23e6b`,
+784.6 s for the 60 rows, the same duration that section gives.
 CPU, bfloat16, qwen-asr 0.0.6, 1.7B. CER is a plain Levenshtein over characters, with this file's normalisation (Korean and
 Japanese: NFKC, lower-case, letters and digits only, reference `transcription` (the Japanese section uses `raw_transcription`); Chinese: the Chinese section's
 `raw_transcription` rules). My plain-Qwen numbers differ a little from the sections above (Korean 3.11 vs 3.34, Japanese 5.08 vs 5.38, Chinese
