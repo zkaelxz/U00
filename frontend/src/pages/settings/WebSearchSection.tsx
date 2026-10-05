@@ -103,18 +103,18 @@ function WebSearchControls() {
       {!cfg ? (
         !error && <p className="muted">Loading…</p>
       ) : (
-        <div className="setting-list">
+        <div className="settings-form">
           <Field
             label="SearXNG address"
             help="For example http://localhost:8888 or http://192.168.1.20:8888. Its settings.yml must list json under search.formats. Changing it works only on the Baihe PC with key writes on."
           >
             <input type="url" value={url} placeholder="http://localhost:8888" onChange={(e) => setUrl(e.target.value)} />
           </Field>
-          <div className="actions">
-            <button type="button" className={buttonClass('primary', 'sm')} disabled={!!busy || !dirty} onClick={save}>
+          <div className="settings-actions">
+            <button type="button" className={buttonClass('primary')} disabled={!!busy || !dirty} onClick={save}>
               Save
             </button>
-            <button type="button" className={buttonClass('secondary', 'sm')} disabled={!!busy || !cfg.base_url || dirty} onClick={test}>
+            <button type="button" className={buttonClass('secondary')} disabled={!!busy || !cfg.base_url || dirty} onClick={test}>
               {busy === 'test' ? 'Testing…' : 'Test'}
             </button>
           </div>

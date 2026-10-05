@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { ME } from './authMocks'
 import { mockDevices } from './deviceSessionsMocks'
+import { openSettingsGroups } from './settingsNav'
 
 // Settings > Signed-in devices (desktop). Every /api/auth/sessions call is
 // mocked; no real session is ever ended.
@@ -10,6 +11,7 @@ test('lists my devices, this one first, and signs one out after a confirm', asyn
   await context.addCookies([{ name: 'baihe_csrf', value: 'csrf-devices', url: baseURL! }])
   const s = await mockDevices(page)
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Signed-in devices' })
   await expect(card).toContainText('A device is signed out after 14 days without use, and 30 days after it signed in.')
   const rows = card.getByRole('list', { name: 'Signed-in devices' }).locator('li')
@@ -36,6 +38,7 @@ test('signs out every other device, then the button explains why it is off', asy
   await context.addCookies([{ name: 'baihe_csrf', value: 'csrf-devices', url: baseURL! }])
   const s = await mockDevices(page)
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Signed-in devices' })
   await card.getByRole('button', { name: 'Sign out all other devices' }).click()
   await card.getByRole('button', { name: 'Confirm sign out all other devices' }).click()
@@ -55,6 +58,7 @@ test('an admin away from the main PC can list devices but not sign them out', as
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Signed-in devices' })
   await expect(card.getByRole('list', { name: 'Signed-in devices' }).locator('li')).toHaveCount(3)
   const why = "An admin account's devices can only be signed out on the main PC."
@@ -71,6 +75,7 @@ test('a device already gone shows the server reason and reloads the list', async
   const s = await mockDevices(page)
   s.refuse = { id: 13, status: 404, code: 'not_found', message: "That device isn't signed in." }
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Signed-in devices' })
   const name = 'Edge on Windows (network 2001:db8:1::/48)'
   await card.getByRole('button', { name: `Sign out ${name}` }).click()
@@ -83,6 +88,7 @@ test('a device already gone shows the server reason and reloads the list', async
 test('hidden with sign-in off (the owner at the PC has no sessions)', async ({ page }) => {
   const s = await mockDevices(page, ME.authOff)
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   await expect(page.getByRole('heading', { name: 'Settings', level: 2 })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Sharing' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Signed-in devices' })).toHaveCount(0)

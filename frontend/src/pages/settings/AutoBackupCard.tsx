@@ -214,7 +214,7 @@ function AutoBackupControls() {
           </div>
 
           <form
-            className="folder-form"
+            className="settings-form"
             onSubmit={(e) => {
               e.preventDefault()
               saveFolder()
@@ -239,9 +239,11 @@ function AutoBackupControls() {
               />
             </Field>
             {folderDirty && (
-              <button type="submit" className={buttonClass('secondary')}>
-                Save folder
-              </button>
+              <div className="settings-actions">
+                <button type="submit" className={buttonClass('secondary')}>
+                  Save folder
+                </button>
+              </div>
             )}
           </form>
           {folderNote && (
