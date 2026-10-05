@@ -123,3 +123,20 @@ def cap_spans(spans, audio, sr: int, *, max_s: float = 15.0,
             start = cut
         out.append(Span(start, end))
     return out
+
+
+def context_windows(spans, duration_s: float, pad_s: float = 2.0) -> list:
+    """Each span widened by up to pad_s per side into the silence around it,
+    never into a neighbouring span or past [0, duration_s].
+
+    Qwen3-ASR transcribes a clip cut tight to the speech worse than the same
+    clip with its surrounding silence: it writes numbers as words instead of
+    digits (a 60-utterance FLEURS check in docs/asr-experiments.md). The
+    widened window is only what the model hears; a line keeps its span's times."""
+    spans = list(spans)
+    out = []
+    for n, (start, end) in enumerate(spans):
+        floor = spans[n - 1][1] if n else 0.0
+        ceiling = spans[n + 1][0] if n + 1 < len(spans) else duration_s
+        out.append(Span(max(floor, start - pad_s), min(ceiling, end + pad_s)))
+    return out
