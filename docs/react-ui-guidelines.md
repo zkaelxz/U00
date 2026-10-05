@@ -1,49 +1,6 @@
 # React UI guidelines: keep pages short
 
-<<<<<<< HEAD
 Rules for every new or reworked React page; section 2 is the house standard and code and agents cite the rules by number. Kit: `frontend/src/components/{Toggle,Button,Badge,Card,Section,Field}.tsx`, `components/labels.ts` and the design-kit block in `index.css`. Rules 4 and 8 and rules 16-22 come from `docs/design/ui-refresh-spec.md` §2.2 and §2.4.
-=======
-Status: design guidance plus a prioritised change list. Docs only; no code changed by this file.
-Note (2026-10-04): the Streamlit app and the `tabs/` files this refers to were deleted in #502, so those `tabs/` paths and line numbers no longer resolve; the text is kept as the record of the comparison.
-Implementation status (2026-09-29): every screen in section 3 is implemented (Library #285 and #302, Source #299, Translate #297/#300, Review #298, Dub #295, Export #296, Settings and Diagnostics #301, shared Section/Field #293). Remaining gaps are backend-blocked (e.g. a pending-batch list endpoint).
-Visual refresh (2026-09-29): rules 4 and 8 are revised and rules 16-22 added from `docs/design/ui-refresh-spec.md` §2.2 and §2.4 (Card vs Section, button hierarchy, ButtonLink, toggles, humanized labels, badges, disabled primaries). The kit they refer to is `frontend/src/components/{Toggle,Button,Badge,Card}.tsx`, `components/labels.ts` and the design-kit block in `index.css`.
-Written 2026-09-29 after the user reviewed the React app and said: "I want the UI and functionality
-to be more concise, like it was on Streamlit."
-
-Method: read `tabs/workspace_tab.py` (Source through Export sections), `tabs/library_tab.py`,
-`tabs/translate_tab.py`, `tabs/settings_tab.py`, `tabs/diagnostics_tab.py`, `app.py`, and every page and
-stage under `frontend/src/pages/**`. Anything marked **(inferred)** was not read directly in code (for
-example click counts, or how something looks at runtime).
-
-## 1. Why the React pages feel long (diagnosis)
-
-Read from the code, not guessed:
-
-- **One panel per API endpoint.** Library renders 7 summary panels (Stats, Recently active, Series, Cost by
-  drama, Reading history, Presets, Voice bank) before the list of dramas. Streamlit put one dashboard
-  expander (4 metrics and a caption or two) on top, and moved the rest into collapsed expanders
-  (Series, Cost breakdown, Reading history, Presets, Voice bank, Storage, Backup).
-- **Nothing is collapsed.** `grep '<details'` over `frontend/src` finds nothing. Streamlit's Workspace
-  alone uses roughly 45 `st.expander` / `st.popover` calls to hide options.
-- **All options are visible at once.** The React Translate stage shows 10+ fields (engine, model, style
-  preset, locale, style note, batch size, two context windows, cost cap, fallback list, force) as one
-  fieldset. Streamlit shows engine + model, style preset, and the primary button first; context and batch
-  sliders have defaults (context 6/3, batch 20, or 10/6/30 for novels).
-- **Long labels, inline paragraphs.** Examples: "Keep the original background music (BGM-preserving; real
-  audio has not been verified)", "Cost cap for this run in dollars (blank = none)", "Upload selected file
-  and transcribe". Streamlit put the explanation in `help=` tooltips.
-- **Several primary buttons per panel.** Transcribe has 3 buttons at equal weight; Streamlit has one
-  primary button ("Transcribe & Align") that is disabled with a one-line "Still needed: ..." message.
-- **No shortcuts, no remembered choices.** No `keydown` or `localStorage` anywhere in `frontend/src`.
-  Streamlit has Ctrl+S (Save edits), Alt+Up/Down (prev/next flagged line), Alt+Space (play/pause), and
-  remembers engine/model/style through Settings ("Defaults for new dramas").
-- **Literal status dumps.** Export "Readiness" is a 6-item list; Dub summary, Translate counts, Media
-  status are each a separate muted paragraph. Streamlit shows a project header/stepper and warns only when
-  something is wrong.
-- **Stage set differs.** Streamlit has 7 stage tabs (Source, Transcript, Diarize, Translate, Review, Dub,
-  Export) and opens on the drama's current stage. React has 5 (Transcript and Diarize live inside Source)
-  and always opens on `DEFAULT_STAGE`.
->>>>>>> origin/baihe-subtitler
 
 ## 2. Rules
 

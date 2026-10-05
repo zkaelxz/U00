@@ -274,7 +274,7 @@ baihe-subtitler/
 │   ├── assistant_roles_service.py  Step 60 -- the assistant's implement -> independent review roles: reviewer
 │   │                             prompt, verdict parsing, cross-provider check (off by default; same read-only tools)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
-│   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
+│   │                             db.job_records, Slice 7's mirror); also cancels, deletes and clears finished jobs
 │   ├── shutdown_service.py       Step 80b -- the API's clean stop: stops schedulers and new browsers,
 │   │                             cancels this process's jobs, stops page_server; the launcher's token-gated
 │   │                             POST /api/system/shutdown, a closed console window and Ctrl+C run it
@@ -857,7 +857,8 @@ baihe-subtitler/
 │   └── test_*.py                  one or more files per module above, named to match
 │
 └── library/                    ← YOUR DATA. Created automatically. Gitignored.
-    ├── library.db                everything: dramas, lines, glossaries, progress
+    ├── library.db                dramas, lines, glossaries, progress, jobs and users (sources.db beside it
+    │                             holds the Discover/Sources registry; other folders sit alongside)
     ├── cedict.txt                Chinese dictionary (downloaded once)
     └── dramas/<id>/              per-drama files
         ├── source.mp3|mp4        original media
@@ -880,7 +881,7 @@ baihe-subtitler/
 | `run_tests.py` | test runner wrapper |
 | `core.py` | timing, alignment, SRT formatting, line merging |
 | `db.py` | all database access (plain `sqlite3`, no ORM) |
-| `background_jobs.py` | in-memory background-job tracker (thread + dict) |
+| `background_jobs.py` | background-job tracker: thread and child-process jobs, in-memory dict as the authority, mirrored to `job_records` |
 | `applog.py` | a single rotating log file for the whole app |
 | `diagnostics.py` | environment self-check: which optional dependencies/models are available |
 | `check_setup.py` | `start.bat`/`start.ps1`'s "print anything missing in plain words" check |

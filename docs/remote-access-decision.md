@@ -25,7 +25,7 @@ Status: step 133 (users, sessions, permissions, static test) is built, see "Step
 - **Keys:** unchanged. Entered at the PC, resolved server-side, never sent to a device. Slice 24 stays off by default.
 - **Admin:** stays on a separate loopback listener (D5) that Caddy never routes to. Remote admin, if ever wanted, would need identity plus a second factor.
 - **Host:** stays on the always-on PC. A movable host was discussed and not chosen.
-- **Extension:** desktop Chrome and Edge only, for household members' computers. Each person creates a per-device API token in Baihe's settings (hash stored, shown once, revocable). The bridge moves from `page_server.py` (loopback, one shared token) into the API behind this auth. Never route port 8756.
+- **Extension:** desktop Chrome and Edge only, for household members' computers. Each person creates a per-device API token in Baihe's settings (hash stored, shown once, revocable). The plan is to move the bridge from `page_server.py` (loopback, one shared token) into the API behind this auth; not done yet: `extension.send` is defined but no route uses it, and the bridge is still `page_server.py` on 8756. Never route port 8756.
 - **Phones:** an installable PWA first. Capacitor is deferred. Mobile URL capture uses a share target (Android), an iOS Shortcut posting to the API, and pasting a URL into URL import. If a native wrapper is ever built, Google sign-in must open in the system browser.
 
 ## Repo work

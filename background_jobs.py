@@ -469,10 +469,9 @@ def _gpu_slot_available_locked(job_id, description):
     running right now -- nothing else, in this process, another one
     (cross-process), or a completely different application, currently
     holds the GPU. background_jobs' own guard is plain in-process
-    module state, invisible to a separate OS process; `cli.py`'s
-    GPU-touching commands never went through it at all (confirmed: cli.py
-    never imports this module), so a CLI run and a live UI job could
-    previously both hold the GPU at once. db.gpu_lock's single-row table in
+    module state, invisible to a separate OS process; `cli.py` imports this module but
+    its own process's state is not the API server's, so a CLI run and a
+    live UI job could both hold the GPU at once. db.gpu_lock's single-row table in
     the shared library.db is the cross-process coordination point instead.
 
     Both of those locks only know about GPU-touching work Baihe
