@@ -392,7 +392,7 @@
     return state.overlaysVisible;
   }
 
-  // -- text capture (Step 96) ------------------------------------------
+  // -- text capture ----------------------------------------------------
   //
   // The same philosophy as the image mode applies to text-heavy pages:
   // the browser has already rendered the page, so this reads what's on
