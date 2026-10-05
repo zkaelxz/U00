@@ -24,6 +24,7 @@ import { ExtensionSection } from './settings/ExtensionSection'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { NotionSection } from './settings/NotionSection'
+import { PastCostsCard } from './settings/PastCostsCard'
 import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
@@ -216,6 +217,7 @@ export default function SettingsPage() {
           <Fold id="defaults" signals={signals} summary="English variant, style note, monthly cap">
             <DefaultsCard {...prefProps} />
             <SpendingCard {...prefProps} />
+            <PastCostsCard />
           </Fold>
           <Fold id="alerts" signals={signals} summary="Notifications, automatic backups, app updates">
             <NotificationsSection />
