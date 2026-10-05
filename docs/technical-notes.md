@@ -318,3 +318,14 @@ Contract:
   call; NLLB groups a batch by language. Not yet covered: the bulk (batch API)
   path, the stronger-engine and single-line re-translate paths, and glossary
   terms per language.
+- Export: subtitle wrapping uses the caller's per-field caps
+  (`wrap_chars_en` / `wrap_chars_source`) and breaks each line by its own text
+  (`subtitle_formats._is_cjk`), so a mixed title needs no per-line language;
+  `LINE_CHAR_LIMITS` is only the re-split/resegment threshold. ASS styles do
+  not vary by script. The CLI exports through the same service.
+- Forced alignment: Re-split's "Align to audio" runs the aligner once per line
+  (`restructure_service._aligned_pieces`) in `Line.lang`, else the title's
+  language; an `en` line is not covered by the aligner and stays proportional.
+  `word_align.realign_long_segment` reads a segment's own `lang` and leaves an
+  English segment unsplit. Transcript alignment (app and `cli.py align`) runs
+  on pasted text with no per-line language yet, so it still uses the title's.
