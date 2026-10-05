@@ -16,7 +16,7 @@ import type {
 import { splitDependencies } from '../diagnosticsFormat'
 import {
   LOST_CONTACT_INSTALL, adminErrorText, busyLine, installBlockedReason, installConfirmLabel, installResultText,
-  installableEngines, isInstallable, useDetailsOpen, type AdminBusy,
+  isInstallable, useDetailsOpen, type AdminBusy,
 } from './diagnosticsAdmin'
 import { GpuTorchPanel } from './GpuTorchPanel'
 import { setupConfirmLabel, verifyText } from './gpuTorch'
@@ -33,7 +33,7 @@ import {
 } from './installPresets'
 
 type Kind = 'install' | 'upgrade'
-type Outcome =
+export type Outcome =
   // text: a task install's own summary line (otherwise installResultText).
   | { kind: Kind; name: string; ok: boolean; output: string[]; hint?: string | null; text?: string }
   | { kind: Kind; name: string; error: unknown }
@@ -43,7 +43,7 @@ type Outcome =
  * and upgrade are synchronous on the server (no progress, no cancel), so the
  * request stays open and every admin button on the page waits for it.
  */
-export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChanged, onOpenChange, onJobStarted }: {
+export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChanged, onOpenChange, onJobStarted, onShowEngines }: {
   overview: DiagnosticsOverview
   pc: PcMode
   jobsActive: boolean
@@ -54,6 +54,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   onOpenChange: (open: boolean) => void
   // "Test first" started a server job: refresh the jobs list.
   onJobStarted: () => void
+  // Opens Setup at its model engines, which hold their own Install buttons.
+  onShowEngines: () => void
 }) {
   const [openRef, open] = useDetailsOpen()
   const [outcome, setOutcome] = useState<Outcome | null>(null)
@@ -86,7 +88,6 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   const torchInstalled = !!overview.dependencies.torch?.installed
 
   const deps = splitDependencies(overview.dependencies)
-  const engines = installableEngines(overview.model_engine_versions, Object.keys(overview.dependencies))
   // Missing packages no task installs (a package that isn't on PyPI, one that ships with the app).
   const inTask = new Set((presets?.tasks ?? []).flatMap((t) => t.packages))
   // Transcription is the one missing thing a fresh install can't do without.
@@ -319,17 +320,11 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
             onConfirm={() => void runGpuSetup(v)}
           />
         )} />
-        {engines.length > 0 && (
-          <Section storageKey="diagnostics.engines" title="Model engines not installed" count={engines.length}>
-            <ul aria-label="Model engines not installed" className="pkg-list">
-              {engines.map((m) => (
-                <li key={m.name}>
-                  <PackageText name={m.name} text={m.help ?? ''} info={info(m.package as string)} torchInstalled={torchInstalled} />
-                  {!info(m.package as string)?.not_offered_reason && action('install', m.package as string)}
-                </li>
-              ))}
-            </ul>
-          </Section>
+        {overview.model_engine_versions.length > 0 && (
+          <p className="muted" data-testid="engines-moved">
+            Model engines (install, status and downloads) are in Setup.{' '}
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={onShowEngines}>Show model engines</button>
+          </p>
         )}
         {deps.installed.length > 0 && (
           <Section storageKey="diagnostics.installed" title="Installed packages" count={deps.installed.length}>
@@ -469,7 +464,7 @@ function TaskRow({ task, packages, action, torchInstalled, installOne }: {
   )
 }
 
-function OutcomeBlock({ outcome, onRecheck }: { outcome: Outcome; onRecheck: () => void }) {
+export function OutcomeBlock({ outcome, onRecheck }: { outcome: Outcome; onRecheck: () => void }) {
   if ('error' in outcome) {
     const text = adminErrorText(outcome.error, outcome.kind)
     return (

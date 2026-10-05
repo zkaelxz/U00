@@ -17,7 +17,7 @@ import { ModelHealthCard } from './diagnostics/ModelHealthCard'
 import { PackagesSection } from './diagnostics/PackagesSection'
 import { PortsSection } from './diagnostics/PortsSection'
 import { SetupSection } from './diagnostics/SetupSection'
-import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
+import { headerBadges, installableEngines, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
 import { isActive, jobsSummary, splitDependencies } from './diagnosticsFormat'
 
@@ -35,6 +35,17 @@ export default function DiagnosticsPage() {
   const [adminBusy, setAdminBusy] = useState<AdminBusy>(null)
   const [packagesOpen, setPackagesOpen] = useState(false)
   const [dangerOpen, setDangerOpen] = useState(false)
+  // Bumped by the "model engines are in Setup" links in Packages and Model health.
+  const [enginesSignal, setEnginesSignal] = useState(0)
+  const showEngines = useCallback(() => {
+    setEnginesSignal((n) => n + 1)
+    // After the fold has opened.
+    requestAnimationFrame(() => {
+      const h = document.getElementById('diag-model-engines')
+      h?.scrollIntoView({ block: 'start' })
+      h?.focus({ preventScroll: true })
+    })
+  }, [])
 
   const refreshSetup = useCallback(() => {
     const done = () => setChecking(false)
@@ -70,6 +81,9 @@ export default function DiagnosticsPage() {
 
   const setupProblems = setup ? setupRows(setup, overview?.gpu ?? null).filter((r) => r.problem).length : null
   const deps = overview ? splitDependencies(overview.dependencies) : null
+  const installable = new Set(overview
+    ? installableEngines(overview.model_engine_versions, Object.keys(overview.dependencies)).map((m) => m.name)
+    : [])
   // Running or failed jobs put the summary at the top as a banner; otherwise it sits with the other folds.
   const jobsUrgent = !!jobs && jobs.some((j) => isActive(j.status) || j.status === 'error')
   const badges = headerBadges(setupProblems, deps?.installed.length ?? null,
@@ -99,8 +113,14 @@ export default function DiagnosticsPage() {
           checks={setup}
           gpu={overview?.gpu ?? null}
           engines={overview?.model_engine_versions ?? []}
+          installable={installable}
           cache={cache}
           pc={pc}
+          jobsActive={active}
+          busy={adminBusy}
+          onBusy={setAdminBusy}
+          openSignal={enginesSignal}
+          onInstalled={refreshSetup}
           onCacheChanged={refreshCache}
           checking={checking}
           onRecheck={() => {
@@ -115,7 +135,7 @@ export default function DiagnosticsPage() {
         !error && <p className="muted">Loading…</p>
       )}
 
-      <ModelHealthCard pc={pc} />
+      <ModelHealthCard pc={pc} onShowEngines={showEngines} />
 
       <div className="diag-folds">
         {jobs && jobs.length > 0 && !jobsUrgent && <JobsSummary jobs={jobs} urgent={false} />}
@@ -129,6 +149,7 @@ export default function DiagnosticsPage() {
             onChanged={refreshSetup}
             onOpenChange={setPackagesOpen}
             onJobStarted={() => void refreshJobs()}
+            onShowEngines={showEngines}
           />
         )}
         <PortsSection pc={pc} />
