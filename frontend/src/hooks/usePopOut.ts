@@ -83,6 +83,7 @@ export function createPopOut(box: HTMLElement, initialRestore: () => void, onAct
       try {
         const w = await api.requestWindow({ width: 640, height: 520 })
         copyStyles(document, w.document)
+        w.document.documentElement.classList.add('review-popout')
         w.document.body.style.margin = '0'
         w.document.body.style.padding = '8px'
         w.document.body.appendChild(box)
