@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { PcMode } from '../../api/pcOnly'
-import { loadDeveloperMode, type DeveloperModeDeps } from './developerMode'
+import { announceDeveloperMode, loadDeveloperMode, type DeveloperModeDeps } from './developerMode'
 
 function deps(mode: PcMode, settings: () => Promise<{ developer_mode: boolean }>): DeveloperModeDeps & { getSettings: ReturnType<typeof vi.fn> } {
   return { waitForPcMode: () => Promise.resolve(), pcMode: () => mode, getSettings: vi.fn(settings) }
@@ -37,5 +37,19 @@ describe('loadDeveloperMode (Assistant nav link)', () => {
   it('is hidden when the PC check itself fails', async () => {
     const d = { ...deps('local', async () => ({ developer_mode: true })), waitForPcMode: () => Promise.reject(new Error('x')) }
     expect(await loadDeveloperMode(d)).toBe(false)
+  })
+})
+
+describe('announceDeveloperMode', () => {
+  it('tells the nav to ask the server again (Settings is now the only switch)', () => {
+    // The suite runs in node: a bare EventTarget stands in for window.
+    const target = new EventTarget()
+    vi.stubGlobal('window', target)
+    const seen = vi.fn()
+    target.addEventListener('baihe:developer-mode', seen)
+    announceDeveloperMode(true)
+    vi.unstubAllGlobals()
+    expect(seen).toHaveBeenCalledTimes(1)
+    expect((seen.mock.calls[0][0] as CustomEvent).detail).toEqual({ on: true })
   })
 })

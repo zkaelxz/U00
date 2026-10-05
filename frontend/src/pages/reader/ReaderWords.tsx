@@ -10,7 +10,7 @@ import { Section } from '../../components/Section'
 import type { ReaderVocabList } from '../../types/reader'
 import type { GlossaryTerm } from '../../types/translateStage'
 import type { TranslateEngine } from '../../types/translate'
-import { ActionError } from './ReaderAction'
+import { ActionError, EditInTranslate } from './ReaderAction'
 import { useAction } from './useReaderAction'
 import { EnginePicker } from './ReaderEngine'
 
@@ -154,9 +154,10 @@ export function VocabSection({ dramaId, vocab, onChanged }: {
   )
 }
 
-export function GlossarySection({ terms }: { terms: GlossaryTerm[] }) {
+export function GlossarySection({ dramaId, terms }: { dramaId: number; terms: GlossaryTerm[] }) {
   return (
     <Section title="Glossary" storageKey="reader.glossary" count={terms.length} summary="Series names and terms">
+      <EditInTranslate dramaId={dramaId} focus="glossary" />
       <ul className="reader-glossary">
         {terms.map((t) => (
           <li key={t.id}>

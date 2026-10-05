@@ -15,7 +15,7 @@ test('a cloud engine without consent is refused with a plain message, then allow
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
   await expect(chat.getByRole('alert').first()).toContainText("isn't allowed yet")
   // The page did not fall back to the Developer Mode switch (that 409 is different).
-  await expect(page.getByRole('region', { name: 'Developer Mode is off' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Turn on in Settings' })).toHaveCount(0)
   await chat.getByRole('switch', { name: 'Send code and logs to Claude' }).click()
   await expect(chat.getByRole('switch', { name: 'Send code and logs to Claude' })).toHaveAttribute('aria-checked', 'true')
   expect(s.calls.filter((c) => c.method === 'POST' && c.path === '/api/assistant/settings').map((c) => c.body)).toContainEqual({ cloud_consent: { claude: true } })
