@@ -1,6 +1,6 @@
 import { mediaKind } from '../detailsForm'
 import { useStage } from '../StageContext'
-import { GlossaryExtract } from './NovelGlossary'
+import { GlossaryExtract } from './GlossaryExtract'
 import {
   SOURCE_TEXT,
   defaultSuggestSource,
