@@ -654,7 +654,7 @@ baihe-subtitler/
 │       │                         deliver (POST; all local_only; Step 72); tests/test_assistant_github.py
 │       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{backlog_id}/delete)
 │       │                         (all local_only; Step 42); tests/test_maintenance_assistant.py
-│       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
+│       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|log|
 │       │                         support-report|install-presets|gpu-torch (GET) and gpu-torch/check,
 │       │                         package-updates/check (POST, on click), all admin.diagnostics;
 │       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library,
