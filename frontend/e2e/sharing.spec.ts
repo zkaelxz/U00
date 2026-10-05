@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { ME, type MeBody } from './authMocks'
+import { openSettingsGroups } from './settingsNav'
 
 // Settings > Sharing. /api/auth/me and /api/sharing/* are mocked with a small
 // stateful fixture; a catch-all aborts (and records) any other non-GET /api
@@ -76,6 +77,7 @@ async function mockSharing(page: Page, me: MeBody) {
 test('admin: share-new-items switch, every item with its owner, flips and a plain 409', async ({ page }) => {
   const { posts, unmocked } = await mockSharing(page, ADMIN_ME)
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Sharing' })
 
   const shareDefault = card.getByRole('switch', { name: 'New items I create are shared with the household' })
@@ -132,6 +134,7 @@ test('household member: only their own share-new-items switch, no item list, fit
     route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } }),
   )
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Sharing' })
   await expect(card.getByRole('switch', { name: 'New items I create are shared with the household' })).toHaveAttribute(
     'aria-checked',

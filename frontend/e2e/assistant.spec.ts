@@ -36,6 +36,7 @@ test('reached by URL with the mode off: a link that lands on the Developer Mode 
   await expect(page).toHaveURL(/#\/settings\?section=developer-mode$/)
   // The fold starts closed; the link opens it.
   const toggle = page.getByRole('region', { name: 'Developer Mode' }).getByRole('switch', { name: 'Developer Mode' })
+  await expect(page.locator('#settings-experimental > details')).toHaveJSProperty('open', true)
   await expect(toggle).toBeInViewport()
   await toggle.click()
   await expect(toggle).toBeChecked()
@@ -51,7 +52,7 @@ test('from another device: PC only, no nav link, no Settings card', async ({ pag
   await expect(navLink(page, 'Assistant')).toHaveCount(0)
   await page.goto('/#/settings')
   await openSettingsGroups(page)
-  await expect(page.getByRole('region', { name: 'Jobs' })).toBeVisible()
+  await expect(page.locator('#settings-jobs')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Developer Mode' })).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })

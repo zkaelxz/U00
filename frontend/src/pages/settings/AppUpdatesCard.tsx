@@ -99,11 +99,11 @@ function AppUpdatesControls() {
       {!status ? (
         !error && <p className="muted">Loading…</p>
       ) : (
-        <div className="setting-list">
+        <div className="settings-form">
           {!status.installed && <p className="muted">{SOURCE_CHECKOUT_NOTE}</p>}
           {status.custom_source && <p className="muted" data-testid="update-custom-source">{CUSTOM_SOURCE_NOTE}</p>}
           <p data-testid="update-check-line">{checkLine(status)}</p>
-          <div className="actions">
+          <div className="settings-actions">
             <button type="button" className={buttonClass('secondary')} disabled={busy || downloading}
               onClick={() => run(checkForUpdates)}>
               Check for updates
@@ -137,10 +137,12 @@ function AppUpdatesControls() {
               <p className="muted">{HASH_NOTE}</p>
             </>
           )}
-          <Field label="Check once a day" help={AUTO_CHECK_HELP}>
-            <Toggle checked={status.auto_check} disabled={busy}
-              onChange={(next) => run(() => setUpdateAutoCheck(next))} />
-          </Field>
+          <div className="setting-list">
+            <Field label="Check once a day" help={AUTO_CHECK_HELP}>
+              <Toggle checked={status.auto_check} disabled={busy}
+                onChange={(next) => run(() => setUpdateAutoCheck(next))} />
+            </Field>
+          </div>
         </div>
       )}
     </Card>

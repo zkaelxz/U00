@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test'
 
 import { expect, test } from './fixtures'
+import { openSettingsGroups } from './settingsNav'
 
 // Settings > Notifications and the header bell. Every notification
 // call is mocked and fulfilled; a catch-all aborts (and records) any other
@@ -81,6 +82,7 @@ async function mockNotifications(
 
 async function open(page: Page) {
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const section = page.getByRole('region', { name: 'Notifications' })
   await expect(section).toBeVisible()
   return section
@@ -156,6 +158,7 @@ test('away from the PC the section says PC only and makes no notification calls'
     return route.fulfill({ response: resp, json: { ...body, local: false } })
   })
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const section = page.getByRole('region', { name: 'Notifications' })
   await expect(section.locator('.card-meta')).toHaveText('PC only')
   await expect(section.getByText('Run this on the main PC.')).toBeVisible()

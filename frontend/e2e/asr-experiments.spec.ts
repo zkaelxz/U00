@@ -20,6 +20,7 @@ test('transcription experiments save, and MOSS appears as a backend only while o
   await batch.fill('4')
   await Promise.all([saved(), card.getByRole('button', { name: 'Save batch size' }).click()])
   await page.reload()
+  await openSettingsGroups(page)
   await expect(page.getByRole('region', { name: 'Transcription experiments' }).getByLabel('Qwen3-ASR batch size', { exact: true })).toHaveValue('4')
 
   const moss = page.getByRole('switch', { name: 'MOSS-Transcribe-Diarize (experimental)' })

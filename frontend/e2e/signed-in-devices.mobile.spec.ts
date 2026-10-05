@@ -1,12 +1,14 @@
 import { expect, test } from '@playwright/test'
 
 import { mockDevices } from './deviceSessionsMocks'
+import { openSettingsGroups } from './settingsNav'
 
 // Phone (390x844): the lost-phone flow keeps 44px targets and the page does not scroll sideways.
 
 test('signed-in devices fit a phone with 44px targets', async ({ page }) => {
   const s = await mockDevices(page)
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Signed-in devices' })
   const name = 'Chrome on Android (network 198.51.100.x)'
   const first = card.getByRole('button', { name: `Sign out ${name}` })
