@@ -140,3 +140,33 @@ def test_improve_uses_the_shared_style_context_with_emotion(monkeypatch):
     monkeypatch.setattr(line_tools, "improve_line", fake)
     svc.improve_line(did, ids[1])
     assert "angry" in seen["style"] and "shouting" in seen["style"]
+
+
+def test_line_tools_use_the_lines_own_language(monkeypatch):
+    did = db.create_drama(title_zh="D", source_language="ja")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="안녕", en="hi", lang="ko"),
+                        Line(idx=1, start=1, end=2, zh="やあ", en="yo"),
+                        Line(idx=2, start=2, end=3, zh="hello", en="hello", lang="en")])
+    ids = [r["id"] for r in db.load_lines(did)]
+    seen = []
+    monkeypatch.setattr(line_tools, "grammar_breakdown",
+                        lambda zh, engine, source_language="zh": seen.append(source_language)
+                        or [{"word": "w", "reading": "", "meaning": "m", "function": "f"}])
+    for lid in ids:
+        svc.grammar_for_line(did, lid)
+    assert seen == ["ko", "ja", "en"]
+
+
+def test_prompt_names_the_language_including_english():
+    class Engine:
+        supports_reference = True
+
+    prompts = []
+    orig = line_tools.call_llm_json
+    line_tools.call_llm_json = lambda eng, prompt, **k: prompts.append(prompt) or "[]"
+    try:
+        line_tools.grammar_breakdown("hello", Engine(), source_language="en")
+        line_tools.grammar_breakdown("你好", Engine())
+    finally:
+        line_tools.call_llm_json = orig
+    assert "English" in prompts[0] and "Chinese" in prompts[1]

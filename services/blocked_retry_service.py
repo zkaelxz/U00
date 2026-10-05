@@ -117,10 +117,22 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     _refuse_if_line_job_running(drama_id)
+    seen = {"zh": line.zh, "en": line.en, "flag": line.flag, "flag_note": line.flag_note}
+    if translate_engines.is_english_line(line):
+        # Already English: nothing for an engine to refuse or translate.
+        if not db.update_line_fields_if(drama_id, line.id,
+                                        {"en": line.zh, "flag": None, "flag_note": ""}, seen):
+            raise ConflictError("This line changed while retrying; nothing was written.")
+        return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,
+                "model": None, "retried": True, "blocked": False, "reason": None,
+                "line": _reload(drama_id, line.id)}
     engine = _build_engine(engine_name)
     used_model = getattr(engine, "model", None)
-    seen = {"zh": line.zh, "en": line.en, "flag": line.flag, "flag_note": line.flag_note}
-    context = {"source_language": drama.get("source_language") or "zh", "line_ids": [line.id]}
+    title_language = drama.get("source_language") or "zh"
+    context = {"source_language": title_language, "line_ids": [line.id]}
+    line_languages = translate_engines.tagged_line_languages([line], title_language)
+    if line_languages:
+        context["line_languages"] = line_languages
     try:
         results = engine.translate_batch([line.zh], context)
     except translate_engines.ContentModerationBlocked as blocked:
