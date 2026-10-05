@@ -163,3 +163,12 @@ class TestTextCaptureStaysWithinTheSameModel:
             source = _code(name).lower()
             for site in known_sites:
                 assert site not in source, f"{name} references {site}"
+
+
+class TestImageHashWorksOnPlainHttpPages:
+    def test_a_page_without_crypto_subtle_still_gets_a_key(self):
+        """crypto.subtle only exists on secure contexts; a plain-http reader
+        would otherwise fail every capture."""
+        code = _code("content.js")
+        assert "crypto.subtle" in code and "weakHash(buffer)" in code
+        assert code.index("weakHash(buffer)") < code.index("crypto.subtle.digest")
