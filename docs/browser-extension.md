@@ -211,7 +211,7 @@ The extension was also run for real, repeatably:
 python extension/verify_end_to_end.py
 ```
 
-It loads the extension unpacked into a real Chromium, points it at a real running endpoint, and drives a page holding a normal `<img>` and a `blob:`-backed one. It needs Playwright with a **full** Chromium build (the headless shell can't load extensions), skips cleanly without one, touches no real site and needs no API key. Run it after changing anything in `extension/` or `page_server.py`. It establishes:
+It loads the extension unpacked into a real Chromium, points it at a real running endpoint, and drives a page holding a normal `<img>` and a `blob:`-backed one. It needs Playwright with a **full** Chromium build (the headless shell can't load extensions), exits 77 (skipped, not passed) without one or when port 8756 is in use, touches no real site and needs no API key. Run it after changing anything in `extension/` or `page_server.py`. It establishes:
 
 - A `blob:`-backed page image is translated end to end and lands in the library.
 - Overlay boxes scale correctly and stay exact after a resize; click-to-see-original and the overlay toggle work.
