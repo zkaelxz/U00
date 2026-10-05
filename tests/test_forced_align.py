@@ -31,6 +31,106 @@ class TestLanguageSupport:
         assert fa.LANGUAGE_NAMES == {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
 
 
+class TestAlignerLanguages:
+    def test_aligner_adds_english_without_widening_language_names(self):
+        import forced_align as fa
+        assert fa.ALIGNER_LANGUAGE_NAMES == {**fa.LANGUAGE_NAMES, "en": "English"}
+        assert "en" not in fa.LANGUAGE_NAMES
+
+
+class TestAlignChunkEnglish:
+    def _stub(self, monkeypatch, fa):
+        monkeypatch.setattr(
+            fa, "_extract_audio_slice",
+            lambda audio_path, start, end, out_path: open(out_path, "wb").close(),
+        )
+
+    def test_word_boundaries_kept_and_units_map_to_lines(self, monkeypatch, tmp_path):
+        import forced_align as fa
+        self._stub(monkeypatch, fa)
+        lines = [Line(idx=0, start=10.0, end=12.0, zh="Hello  world"),
+                 Line(idx=1, start=12.0, end=14.0, zh="good bye")]
+        seen = {}
+
+        class FakeModel:
+            def align(self, audio, text, language):
+                seen.update(text=text, language=language)
+                return [[FakeUnit(w, i * 0.5, i * 0.5 + 0.5)
+                         for i, w in enumerate(text.split())]]
+
+        result = fa._align_chunk(FakeModel(), "/a.wav", lines, "English", str(tmp_path))
+        assert seen == {"text": "Hello world good bye", "language": "English"}
+        assert (min(result[0]), max(result[0])) == (10.0, 11.0)
+        assert (min(result[1]), max(result[1])) == (11.0, 12.0)
+
+    def test_punctuation_the_aligner_drops_does_not_shift_later_words(self, monkeypatch, tmp_path):
+        import forced_align as fa
+        self._stub(monkeypatch, fa)
+        lines = [Line(idx=0, start=0.0, end=2.0, zh="Well, hello!"),
+                 Line(idx=1, start=2.0, end=4.0, zh="It's me.")]
+
+        class FakeModel:
+            def align(self, audio, text, language):
+                words = ["Well", "hello", "It's", "me"]
+                return [[FakeUnit(w, i, i + 1.0) for i, w in enumerate(words)]]
+
+        result = fa._align_chunk(FakeModel(), "/a.wav", lines, "English", str(tmp_path))
+        assert (min(result[0]), max(result[0])) == (0.0, 2.0)
+        assert (min(result[1]), max(result[1])) == (2.0, 4.0)
+
+    def test_blank_lines_are_not_joined_with_extra_spaces(self, monkeypatch, tmp_path):
+        import forced_align as fa
+        self._stub(monkeypatch, fa)
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="one"),
+                 Line(idx=1, start=1.0, end=2.0, zh="  "),
+                 Line(idx=2, start=2.0, end=3.0, zh="two")]
+
+        class FakeModel:
+            def align(self, audio, text, language):
+                assert text == "one two"
+                return [[FakeUnit("one", 0, 1), FakeUnit("two", 2, 3)]]
+
+        result = fa._align_chunk(FakeModel(), "/a.wav", lines, "English", str(tmp_path))
+        assert set(result) == {0, 2}
+
+    def test_cjk_text_is_still_sent_without_spaces(self, monkeypatch, tmp_path):
+        import forced_align as fa
+        self._stub(monkeypatch, fa)
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="你 好"), Line(idx=1, start=1.0, end=2.0, zh="再见")]
+
+        class FakeModel:
+            def align(self, audio, text, language):
+                assert text == "你好再见"
+                return [[FakeUnit(c, i, i + 1.0) for i, c in enumerate(text)]]
+
+        assert set(fa._align_chunk(FakeModel(), "/a.wav", lines, "Japanese", str(tmp_path))) == {0, 1}
+
+
+class TestAlignWithQwen3English:
+    def test_english_and_chinese_lines_each_align_in_their_own_language(self, monkeypatch):
+        import forced_align as fa
+        monkeypatch.setattr(
+            fa, "_extract_audio_slice",
+            lambda audio_path, start, end, out_path: open(out_path, "wb").close(),
+        )
+        calls = []
+
+        class FakeModel:
+            def align(self, audio, text, language):
+                calls.append((text, language))
+                units = text.split() if language == "English" else list(text)
+                return [[FakeUnit(u, i, i + 1.0) for i, u in enumerate(units)]]
+
+        monkeypatch.setattr(fa, "load_qwen3_aligner", lambda use_gpu=False: FakeModel())
+        en = fa.align_with_qwen3("/a.wav", ["good morning"],
+                                 [{"start": 0.0, "end": 2.0, "text": "good morning"}], "en")
+        zh = fa.align_with_qwen3("/a.wav", ["你好"],
+                                 [{"start": 0.0, "end": 2.0, "text": "你好"}], "zh")
+        assert calls == [("good morning", "English"), ("你好", "Chinese")]
+        assert (en[0].start, en[0].end) == (0.0, 2.0)
+        assert (zh[0].start, zh[0].end) == (0.0, 2.0)
+
+
 class TestBucketIntoChunks:
     def test_short_lines_form_a_single_chunk(self):
         import forced_align as fa
@@ -230,7 +330,9 @@ class TestAlignWithQwen3:
         import forced_align as fa
         with pytest.raises(ValueError, match="doesn't cover language"):
             fa.align_with_qwen3("/fake.wav", ["hi"], [{"start": 0, "end": 1, "text": "hi"}],
-                                 language="en")
+                                 language="fr")
+        with pytest.raises(ValueError, match="doesn't cover language"):
+            fa.refine_segment_timing("/fake.wav", [[{"start": 0, "end": 1, "text": "hi"}]], "fr")
 
     def test_rejects_missing_whisper_segments(self):
         import forced_align as fa
