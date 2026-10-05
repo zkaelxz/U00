@@ -576,7 +576,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self.server is not _server:
             # A keep-alive connection accepted before stop_server() would
             # otherwise go on serving after the bridge was turned off.
-            raise EndpointError(503, "the extension bridge is turned off")
+            raise EndpointError(503, "the extension bridge is turned off: switch on 'Extension bridge' in Baihe's Settings > Browser extension")
         if not self._client_is_local():
             raise EndpointError(403, "this endpoint only answers requests from this computer")
         if not _token_matches(self.headers.get(TOKEN_HEADER, ""), load_or_create_token()):

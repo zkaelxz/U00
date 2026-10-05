@@ -647,6 +647,7 @@ class TestStoppingTheServer:
         status, body = self._health(conn, token)
         assert status == 503
         assert token not in body and "dramas" not in body
+        assert "Settings > Browser extension" in body
 
     def test_stop_does_not_wait_for_an_in_flight_request(self, token, monkeypatch):
         import http.client
