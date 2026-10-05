@@ -29,6 +29,7 @@ import {
   COPIED_MS, TOKEN_VISIBLE_MS, copyFallbackText, extensionEngineNote, extensionSummary, extensionToggleNote,
 } from '../diagnostics/diagnosticsAdmin'
 import '../diagnostics/diagnostics.css'
+import { TRANSLATION_ENGINE_LABEL } from '../../helpText'
 
 const SERVER = { pcOnly: true, serverText: true } as const
 const TITLE = 'Browser extension'
@@ -165,7 +166,7 @@ function EnginePicker() {
       {settings && (
         <>
           <div className="field-row">
-            <Field label="Translate pages with" help="Uses the key saved on this PC for that engine.">
+            <Field label={TRANSLATION_ENGINE_LABEL} help="Uses the key saved on this PC for that engine.">
               <select
                 value={settings.engine ?? ''}
                 disabled={saving}

@@ -9,6 +9,7 @@ import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { NarrationConfig } from '../../../types/dub'
 import './dub.css'
+import { AI_ENGINE_LABEL } from '../../../helpText'
 
 interface Props {
   dramaId: number
@@ -67,7 +68,7 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
       {!cfg.has_novel_source && <p className="muted">Attach the novel text on the Source stage first.</p>}
       <div className="dub-grid">
         <Field
-          label="Engine"
+          label={AI_ENGINE_LABEL}
           help={`Splits the novel into narration lines of up to ${cfg.max_chunk_chars} characters and tags who speaks each one.`}
         >
           <select value={engine} onChange={(e) => setEngine(e.target.value)}>

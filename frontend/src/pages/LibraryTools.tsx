@@ -27,6 +27,7 @@ import { useAdminJob } from './libraryAdmin/useAdminJob'
 import { RENAME_MAX, groupHistory, showFold, validateRename } from './libraryForm'
 import { costLabel, costMeta, countsLine, sharedLine, sharedSeries } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
+import { SERIES_HELP } from '../helpText'
 
 const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
 
@@ -200,7 +201,7 @@ export default function LibraryToolsPage() {
       <ErrorBanner error={stats.error} />
       <section className="tools-stack" aria-label="Library tools">
         <h3 className="tools-group-title">Organize</h3>
-        <ToolSection title="Series" defaultOpen count={shared?.length} summary="Dramas that share characters and glossary" error={series.error}>
+        <ToolSection title="Series" defaultOpen count={shared?.length} summary={SERIES_HELP} error={series.error}>
           <ul className="tool-list series-list">
             {shared?.map((x) => (
               <li key={x.id} className="series-item">

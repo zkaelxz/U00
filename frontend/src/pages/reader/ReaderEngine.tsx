@@ -2,6 +2,7 @@ import { engineShortName } from '../../api/translate'
 import { Field } from '../../components/Field'
 import { routeHref } from '../../router'
 import type { TranslateEngine } from '../../types/translate'
+import { AI_ENGINE_LABEL } from '../../helpText'
 
 // The AI engine picker shared by Words and Story tools. The server treats an
 // omitted engine as Claude (paid), so a request always names the chosen one.
@@ -18,7 +19,7 @@ export function EnginePicker({ engines, engine, onChange }: {
     )
   }
   return (
-    <Field label="AI engine" help="Free engines (like Ollama) run locally. Paid engines need an account that may use them.">
+    <Field label={AI_ENGINE_LABEL} help="Free engines (like Ollama) run locally. Paid engines need an account that may use them.">
       <select value={engine} onChange={(e) => onChange(e.target.value)}>
         {engines.map((e) => (
           <option key={e.name} value={e.name}>

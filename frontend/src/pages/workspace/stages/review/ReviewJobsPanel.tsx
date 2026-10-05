@@ -38,6 +38,7 @@ import {
   type FixForm,
   type GoToLine,
 } from './reviewResults'
+import { NO_KEY_ENGINES_HELP } from '../../../../helpText'
 
 const KINDS: { kind: BulkKind; label: string; what: string }[] = [
   { kind: 'consistency', label: 'Check consistency', what: 'Consistency check' },
@@ -245,7 +246,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
               defaultEngine={defaultEngine}
               engine={checks.engine}
               model={checks.model}
-              help="Which service runs these checks. The default is the drama's engine; engines marked (no key) cannot run, and translation-only engines cannot run these checks."
+              help={`Which service runs these checks. The default is the drama's engine. ${NO_KEY_ENGINES_HELP} Translation-only engines cannot run these checks.`}
               onChange={(n) => setChecks((c) => ({ ...c, ...n }))}
             />
             <div className="setting-list review-toggles">
@@ -277,7 +278,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
                 defaultEngine={defaultEngine}
                 engine={fix.engine}
                 model={fix.model}
-                help="Which service re-translates. The default comes from Settings; engines marked (no key) cannot run."
+                help={`Which service re-translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP}`}
                 onChange={(n) => setFix((f) => ({ ...f, ...n }))}
               />
               {/* Text, not type=number: a browser turns a value it cannot parse ("5$", "1,5", "-")

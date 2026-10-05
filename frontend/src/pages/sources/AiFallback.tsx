@@ -13,6 +13,7 @@ import { Toggle } from '../../components/Toggle'
 import type { AiEngines } from '../../types/sourcesExtraction'
 import { AI_HELP, type AiChoice, aiReason, effectiveEngine, engineLabel } from './extractionFormat'
 import './extraction.css'
+import { AI_ENGINE_LABEL } from '../../helpText'
 
 type Props = {
   value: AiChoice
@@ -33,7 +34,7 @@ export function AiFallback({ value, onChange, engines, error, disabled }: Props)
         </Field>
       </div>
       {value.on && engines && engines.engines.length > 0 && (
-        <Field label="AI engine">
+        <Field label={AI_ENGINE_LABEL}>
           <select
             value={current ?? ''}
             disabled={disabled}

@@ -36,6 +36,7 @@ import {
   uploadResultText,
   usableEngines,
 } from './scanlateLogic'
+import { AI_ENGINE_LABEL } from '../../helpText'
 
 interface Props {
   dramaId: number
@@ -232,7 +233,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, onChanged }: Props)
       )}
 
       <div className="scanlate-run-row">
-        <Field label="Engine" help="Keys stay on the PC; engines without a key are not listed.">
+        <Field label={AI_ENGINE_LABEL} help="Keys stay on the PC; engines without a key are not listed.">
           <select value={engine} onChange={(e) => setEngine(e.target.value)} disabled={!usable.length}>
             {usable.length === 0 && <option value="">No engine has a key</option>}
             {usable.map((e) => (

@@ -38,6 +38,7 @@ import {
 } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
 import { savePresetStart } from './workspace/translateForm'
+import { SERIES_HELP } from '../helpText'
 
 
 
@@ -198,7 +199,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
           <textarea rows={3} maxLength={MAX_SUMMARY_LEN} value={form.summary ?? ''} onChange={set('summary')} />
         </Field>
         <div className="field-row">
-          <Field label="Series" help="Dramas in one series share characters and glossary.">
+          <Field label="Series" help={SERIES_HELP}>
             <select value={extras.series} onChange={setExtra('series')}>
               <option value="">No series</option>
               {series.data?.items.map((x) => <option key={x.id} value={String(x.id)}>{x.name}</option>)}

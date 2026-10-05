@@ -38,6 +38,7 @@ import {
 } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 import './resegment.css'
+import { NO_KEY_ENGINES_HELP } from '../../../../helpText'
 
 interface Props {
   dramaId: number
@@ -224,7 +225,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
                   defaultEngine={defaultEngine}
                   engine={pick.engine}
                   model={pick.model}
-                  help="Which service suggests split points. The default is the drama's engine; engines marked (no key) cannot run. Translation-only engines can't do this and are not listed."
+                  help={`Which service suggests split points. The default is the drama's engine. ${NO_KEY_ENGINES_HELP} Translation-only engines can't do this and are not listed.`}
                   onChange={setPick}
                 />
               </div>

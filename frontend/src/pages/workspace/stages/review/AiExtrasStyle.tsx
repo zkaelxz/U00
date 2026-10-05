@@ -11,6 +11,7 @@ import { humanize } from '../../../../components/labels'
 import { usePcOnly } from '../../../../hooks/usePcOnly'
 import type { StyleState } from '../../../../types/reviewExtras'
 import { styleSummary } from './aiExtrasLogic'
+import { AI_ENGINE_LABEL } from '../../../../helpText'
 
 interface Props {
   dramaId: number
@@ -86,7 +87,7 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
       )}
       <Section title="Advanced" summary={`${engine ? humanize('engine', engine) : 'Default engine'} · ${model || 'default model'}`}>
         <div className="review-edit-row">
-          <Field label="Engine" help="Blank uses the project's translation engine. Needs an LLM engine.">
+          <Field label={AI_ENGINE_LABEL} help="Blank uses the project's translation engine. Needs an LLM engine.">
             <input value={engine} onChange={(e) => setEngine(e.target.value)} />
           </Field>
           <Field label="Model" help="Blank uses the engine's default model.">

@@ -64,7 +64,7 @@ test('no warning when Ollama is only picked in the form (not checked yet)', asyn
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
 
-  await run.getByLabel('Engine', { exact: true }).selectOption('ollama')
+  await run.getByLabel('AI engine', { exact: true }).selectOption('ollama')
   await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
   await expect(run.getByTestId('ollama-warning')).toHaveCount(0)
 })

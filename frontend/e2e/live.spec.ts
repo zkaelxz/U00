@@ -18,7 +18,7 @@ test('start, see lines arrive, stop', async ({ page }) => {
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   await live.getByLabel('Language', { exact: true }).selectOption('ja')
   // Only engines with a key are offered; the first is picked.
-  await expect(live.getByLabel('Engine', { exact: true }).locator('option')).toHaveText(['DeepSeek (paid)', 'Fake'])
+  await expect(live.getByLabel('AI engine', { exact: true }).locator('option')).toHaveText(['DeepSeek (paid)', 'Fake'])
 
   await live.getByText('Advanced').click()
   await live.getByLabel('Chunk', { exact: true }).fill('30')

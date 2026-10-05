@@ -39,7 +39,7 @@ test('applying a saved preset fills the form and starts nothing', async ({ page 
   await apply.click()
   await expect(page.getByRole('status').filter({ hasText: 'Applied preset "Wuxia preset"' })).toBeVisible()
   expect(bodies).toEqual([{ preset_id: 7 }])
-  await expect(page.getByLabel('Engine', { exact: true })).toHaveValue('claude')
+  await expect(page.getByLabel('AI engine', { exact: true })).toHaveValue('claude')
   await expect(page.getByLabel('Style', { exact: true })).toHaveValue('subtitle')
   await expect(page.getByLabel('English variant', { exact: true })).toHaveValue('en-GB')
   expect(runs).toBe(0)

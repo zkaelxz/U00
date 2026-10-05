@@ -437,7 +437,7 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
   await page.goto('/#/settings')
   await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
-  const picker = ext.getByRole('combobox', { name: 'Translate pages with' })
+  const picker = ext.getByRole('combobox', { name: 'Translation engine' })
   await expect(picker).toHaveValue('')
   await expect(ext.getByTestId('extension-engine-note')).toHaveText(
     'No engine: pages come back with their original text only.')

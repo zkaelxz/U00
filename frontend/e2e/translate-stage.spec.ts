@@ -39,7 +39,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
   await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
-  await expect(run.getByLabel('Engine', { exact: true })).toBeVisible()
+  await expect(run.getByLabel('AI engine', { exact: true })).toBeVisible()
   // Options live in a collapsed Advanced section with a summary of non-default values.
   await expect(run.getByText('Defaults', { exact: true })).toBeVisible()
   await expect(run.getByLabel('Batch size', { exact: true })).toBeHidden()
@@ -104,7 +104,7 @@ test('fallback engines: the rule is shown, only same-kind engines are offered, R
   await slot.selectOption(sameKind[0])
 
   // Switching the main engine to the other kind flags the chosen fallback.
-  await run.getByLabel('Engine', { exact: true }).selectOption(otherKind!)
+  await run.getByLabel('AI engine', { exact: true }).selectOption(otherKind!)
   await expect(group.getByRole('alert')).toHaveText(/must be the same kind as the main engine/)
   await expect(slot.locator('option:checked')).toContainText("can't be used here")
   await group.getByRole('button', { name: 'Remove' }).click()
@@ -112,7 +112,7 @@ test('fallback engines: the rule is shown, only same-kind engines are offered, R
 
   // Back on an AI engine, Reflect turns the picker off and says why.
   if (!kind(main)) {
-    await run.getByLabel('Engine', { exact: true }).selectOption('')
+    await run.getByLabel('AI engine', { exact: true }).selectOption('')
     await group.getByRole('button', { name: 'Add fallback engine' }).click()
     await run.getByRole('switch', { name: 'Reflect' }).click()
     await expect(group).toContainText('Off while Reflect is on; remove these to run.')
