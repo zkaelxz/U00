@@ -353,10 +353,10 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
                 cancelled = True
                 break
             except core_module.ModelDownloadError as exc:
-                failed_reason, detail = "model_download", jobs_service.redact_text(str(exc))
+                failed_reason, detail = "model_download", jobs_service.scrub_text(str(exc))
                 break
             except Exception as exc:
-                errors.append(jobs_service.redact_text(f"line {ln.idx + 1}: {exc}"))
+                errors.append(jobs_service.scrub_text(f"line {ln.idx + 1}: {exc}"))
                 continue
             finally:
                 if os.path.exists(slice_path):
@@ -417,7 +417,7 @@ def _translate_into(proposal, ln, engine, context, character_names, translation,
             **context, "speaker_labels": [character_names.get(ln.speaker)] * len(texts),
             "line_languages": translate_engines.tagged_line_languages([ln] * len(texts), language)})
     except Exception as exc:
-        errors.append(jobs_service.redact_text(f"line {ln.idx + 1} translation: {exc}"))
+        errors.append(jobs_service.scrub_text(f"line {ln.idx + 1} translation: {exc}"))
         return 0.0
     cost = 0.0
     if hasattr(engine, "last_usage"):
@@ -461,7 +461,7 @@ def get_compare_result(drama_id: int) -> dict:
             "asr_backend": result.get("asr_backend"), "whisper_size": result.get("whisper_size"),
             "translated": bool(result.get("translated")), "partial": bool(result.get("partial")),
             "cap_reached": result.get("cap_reached") is not None,
-            "errors": [jobs_service.redact_text(str(e)) for e in result.get("errors") or []]}
+            "errors": [jobs_service.scrub_text(str(e)) for e in result.get("errors") or []]}
 
 
 # Serialises applies so two at once can't both decide a fresh snapshot is needed.

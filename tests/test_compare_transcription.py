@@ -299,6 +299,16 @@ class TestTranslation:
         assert res["errors"] and SECRET not in str(res)
         assert all(p["candidate_en"] == "" for p in res["proposals"])
 
+    def test_translation_error_urls_are_scrubbed(self, monkeypatch, _env):
+        def boom(texts, ctx=None):
+            raise RuntimeError("failed calling https://internal.example/v1?x=1")
+        _env["engine"].translate_batch = boom
+        did, _ = _drama(2)
+        _run(did, translate=True, engine_name="claude")
+        res = svc.get_compare_result(did)
+        assert res["errors"] and "internal.example" not in str(res)
+        assert any("[URL]" in e for e in res["errors"])
+
     def test_estimate(self, monkeypatch):
         did, _ = _drama(3)
         monkeypatch.setattr(translate_engines, "estimate_translation_cost", lambda e, t: 0.1)
