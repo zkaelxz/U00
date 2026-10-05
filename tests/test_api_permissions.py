@@ -553,6 +553,17 @@ class TestLocalOnly:
         assert c.delete("/api/dramas/999", headers={"Origin": "https://evil.example"}
                         ).status_code == 403
 
+    @pytest.mark.parametrize("path", ["/api/settings/usage-recost/apply", "/api/settings/usage-recost/undo"])
+    def test_usage_recost_writes_refused_to_an_admin_off_the_pc(self, isolated_db, path):
+        _u, s = _user(admin=True)
+        body = {"confirm": True}
+        assert _remote(_app()).post(path, json=body, headers=_h(s)).status_code == 403
+        # A loopback peer reached through a proxy or household listener is not the PC either.
+        assert _local(_app()).post(path, json=body, headers=_h(s, **{"X-Forwarded-For": "192.168.1.5"})
+                                   ).status_code == 403
+        assert _local(_app()).post(path, json=body, headers=_h(s, Host="baihe.example.com")
+                                   ).status_code == 403
+
     def test_spoofed_forwarded_for_from_remote_peer(self, isolated_db):
         c = _remote(_app())
         r = c.delete("/api/dramas/999", headers={"X-Forwarded-For": "127.0.0.1",

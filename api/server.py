@@ -108,6 +108,7 @@ from api.routers import (
     translate_run_routes,
     translation_version_routes,
     update_routes,
+    usage_recost_routes,
     voice_bank_audio_routes,
     voice_clone_routes,
     web_search_routes,
@@ -286,6 +287,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(notification_routes.router)
     app.include_router(notification_center_routes.router)
     app.include_router(asr_options_routes.router)
+    app.include_router(usage_recost_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(scanlate_routes.router)
     app.include_router(engine_routing_routes.router)

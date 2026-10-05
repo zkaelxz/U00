@@ -1970,7 +1970,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
     "glossary_terms": ("category", "policy", "enforce_exact", "aliases", "banned_translations"),
     "series_characters": ("gender", "voice_fingerprint", "voice_fingerprint_samples"),
-    "usage_log": ("cache_read_tokens",),
+    "usage_log": ("cache_read_tokens", "estimated_cost_usd_before_recost"),
     "bubbles": ("font_category", "kind", "kind_confidence", "confidence", "language",
                 "orientation", "panel_id", "include_sfx"),
     "pages": ("rev", "context_summary", "run_notes"),

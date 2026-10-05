@@ -1235,6 +1235,11 @@ def _migrate_series_and_character_columns(conn):
         # The part of input_tokens served from a provider prompt
         # cache, so the dashboard can show how often caching actually hits.
         _safe_alter(conn, "ALTER TABLE usage_log ADD COLUMN cache_read_tokens INTEGER DEFAULT 0")
+    if "estimated_cost_usd_before_recost" not in usage_cols:
+        # The stored estimate a row had before the opt-in re-cost
+        # (services/usage_recost_service) replaced it; NULL means never
+        # re-costed. Undo copies it back.
+        _safe_alter(conn, "ALTER TABLE usage_log ADD COLUMN estimated_cost_usd_before_recost REAL")
     if "voice_fingerprint" not in sc_cols:
         # A running-average pyannote voice embedding (JSON list of
         # floats), built up from every drama where a speaker was confirmed
@@ -4640,6 +4645,57 @@ def get_month_spend(now: datetime.datetime = None) -> float:
             "SELECT COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM usage_log WHERE created_at >= ?",
             (month_start,)).fetchone()
     return float(row["spent"])
+
+
+def usage_recost_candidates(models) -> list:
+    """Usage rows of exactly `models` with a real stored cost. Rows already
+    re-costed are included: a later price correction may lower them again,
+    and the apply step skips any whose figure already matches."""
+    marks = ",".join("?" * len(models))
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT id, model, operation, input_tokens, output_tokens, cache_read_tokens, "
+            "estimated_cost_usd, created_at FROM usage_log "
+            f"WHERE estimated_cost_usd > 0 AND model IN ({marks})",
+            tuple(models)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def apply_usage_recost(updates) -> int:
+    """`updates` is [(row_id, expected_old_cost, new_cost), ...]. A row's
+    first original is kept in estimated_cost_usd_before_recost (never
+    overwritten by a later re-cost, so Undo returns the logged figure), and
+    a row that changed since it was read is skipped. All in one transaction;
+    returns how many rows were written."""
+    written = 0
+    conn = get_conn()
+    try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
+        conn.execute("BEGIN IMMEDIATE")
+        for row_id, old, new in updates:
+            written += conn.execute(
+                "UPDATE usage_log SET estimated_cost_usd_before_recost = "
+                "COALESCE(estimated_cost_usd_before_recost, estimated_cost_usd), "
+                "estimated_cost_usd = ? WHERE id = ? AND estimated_cost_usd = ?",
+                (new, row_id, old)).rowcount
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return written
+
+
+def undo_usage_recost() -> int:
+    """Puts every re-costed row's saved cost back; returns how many rows."""
+    with contextlib.closing(get_conn()) as conn:
+        n = conn.execute(
+            "UPDATE usage_log SET estimated_cost_usd = estimated_cost_usd_before_recost, "
+            "estimated_cost_usd_before_recost = NULL "
+            "WHERE estimated_cost_usd_before_recost IS NOT NULL").rowcount
+        conn.commit()
+    return n
 
 
 # How long a held gpu_lock row is trusted before it's treated as
