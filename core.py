@@ -653,6 +653,9 @@ SPLIT_MAX_CJK_CHARS = 40
 _SENTENCE_END_RE = re.compile(r"(?:[。！？!?…]+|\.+(?=\s|$))[\"'”’」』）)\]]*\s*")
 _CLAUSE_END_RE = re.compile(r"[,，、;；:：]+[\"'”’」』）)\]]*\s*")
 _CJK_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+# Only a space run touching CJK on at least one side is a phrase break; a space
+# between two Latin/digit tokens ("Q&A NG") stays inside its piece.
+_CJK_SPACE_RE = re.compile(r"(?<=[぀-ヿ㐀-鿿가-힯])\s+|\s+(?=[぀-ヿ㐀-鿿가-힯])")
 
 
 def _cut_after(text: str, pattern) -> list:
@@ -670,12 +673,13 @@ def _cut_after(text: str, pattern) -> list:
 def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
                         max_cjk_chars: int = SPLIT_MAX_CJK_CHARS) -> list:
     """Cuts over-long segments ({"start","end","text",...}) at sentence-ending
-    punctuation, then at commas, packing neighbouring sentences up to the limits.
+    punctuation, then at commas, then at spaces next to CJK text, packing
+    neighbouring pieces up to the limits.
 
     Whisper segments carry no word timing at this point, so each piece gets a
     share of the original span proportional to its character count: boundaries
     are estimates, but pieces stay contiguous, increasing and inside the span.
-    Text without punctuation, and short segments, are returned as they are.
+    Text with no usable cut, and short segments, are returned as they are.
     Other keys (speaker) are copied onto every piece."""
     out = []
     for seg in segments:
@@ -706,7 +710,9 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
         pieces = []
         for chunk in pack(_cut_after(text, _SENTENCE_END_RE)):
             # one sentence that is still too long: fall back to its commas
-            pieces.extend([chunk] if fits(chunk) else pack(_cut_after(chunk, _CLAUSE_END_RE)))
+            for sub in [chunk] if fits(chunk) else pack(_cut_after(chunk, _CLAUSE_END_RE)):
+                # Whisper often separates CJK phrases with plain spaces instead of commas
+                pieces.extend([sub] if fits(sub) else pack(_cut_after(sub, _CJK_SPACE_RE)))
         pieces = [p for p in pieces if p.strip()]
         if len(pieces) < 2:
             out.append(seg)
