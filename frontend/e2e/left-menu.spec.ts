@@ -139,6 +139,8 @@ test('a saved rail choice does not change the drawer below 1024px', async ({ pag
   await page.goto('/#/library')
   await page.getByRole('button', { name: 'Side menu' }).click()
   await page.setViewportSize({ width: 800, height: 800 })
+  // openMenu returns at once when there is no Menu button yet, so wait for the narrow layout first.
+  await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeVisible()
   await openMenu(page)
   await expect(navLink(page, 'Sources')).toBeVisible()
   await expect(navLink(page, 'Sources')).toHaveText(/Sources/)

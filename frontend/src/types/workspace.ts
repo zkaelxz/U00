@@ -282,3 +282,110 @@ export interface WorkflowProgress {
   exported: boolean
   stages: WorkflowStageState[]
 }
+
+// api/schemas/transcribe.py Compare* (Review: Compare transcription).
+export type CompareSelection =
+  | { kind: 'line_ids'; line_ids: number[] }
+  | { kind: 'range'; from_number: number; to_number: number }
+  | { kind: 'flagged' }
+  | { kind: 'speaker'; speaker: string }
+  | { kind: 'time'; start_seconds: number; end_seconds: number }
+
+export interface CompareBackendOption {
+  id: string
+  label: string
+  available: boolean
+  reason: string | null
+}
+
+export interface CompareOptions {
+  has_audio: boolean
+  no_audio_reason: string | null
+  max_lines: number
+  saved_whisper_size: string
+  saved_asr_backend: string
+  saved_alignment_method: string
+  whisper_sizes: string[]
+  backends: CompareBackendOption[]
+  translation_engine: string
+}
+
+export interface CompareTranslateFields {
+  translate?: boolean
+  retranslate_current?: boolean
+  engine?: string | null
+  model?: string | null
+  gemini_free_tier?: boolean | null
+  job_cost_cap_usd?: number | null
+}
+
+export interface CompareEstimateRequest extends CompareTranslateFields {
+  selection: CompareSelection
+}
+
+export interface CompareEstimate {
+  line_count: number
+  max_lines: number
+  translate: boolean
+  estimated_usd: number | null
+  free: boolean
+  cap_applies: boolean
+  effective_cap_usd: number | null
+  monthly_refusal: boolean
+  estimate_above_cap: boolean
+}
+
+export interface CompareRunRequest extends CompareTranslateFields {
+  selection: CompareSelection
+  whisper_size?: string | null
+  asr_backend?: string | null
+}
+
+export interface CompareRunResult {
+  job_id: string
+  drama_id: number
+  line_count: number
+}
+
+export interface CompareProposal {
+  line_id: number
+  number: number
+  start: number
+  end: number
+  base_zh: string
+  base_en: string
+  candidate_zh: string
+  current_en: string
+  candidate_en: string
+  translated: boolean
+}
+
+export interface CompareResult {
+  job_id: string
+  proposals: CompareProposal[]
+  line_count: number
+  asr_backend: string | null
+  whisper_size: string | null
+  translated: boolean
+  partial: boolean
+  cap_reached: boolean
+  errors: string[]
+}
+
+export interface CompareApplyItem {
+  line_id: number
+  expected_base_zh: string
+  expected_candidate_zh: string
+  use_english?: boolean
+  expected_candidate_en?: string
+}
+
+export interface CompareApplyRequest {
+  job_id: string
+  items: CompareApplyItem[]
+}
+
+export interface CompareApplyResult {
+  applied: number[]
+  skipped: number[]
+}
