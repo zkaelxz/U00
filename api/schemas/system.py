@@ -265,6 +265,12 @@ class JobRecord(BaseModel):
     # owner: every job). Server-computed from the caller's session; true
     # only where the caller may also cancel it.
     owned_by_me: bool = False
+    # The title a drama-scoped job runs on, and a fixed-vocabulary label for
+    # what it does (services/jobs_service.JOB_KIND_BY_PREFIX), so clients
+    # never parse job ids. Only set for jobs the caller may already see.
+    drama_id: Optional[int] = None
+    kind: Literal["transcribe", "translate", "align", "dub", "export", "review",
+                  "import", "other"] = "other"
 
 
 class JobListResponse(BaseModel):

@@ -264,3 +264,47 @@ class TestDeleteJobs:
             db.save_job_record(jid, status=st)
         assert jobs_service.clear_finished_jobs(confirm=True) == {"deleted_count": 3}
         assert {r["job_id"] for r in db.list_job_records()} == {"d", "e"}
+
+
+class TestJobKindAndDramaId:
+    def test_every_drama_prefix_has_a_kind(self):
+        import background_jobs
+        assert set(jobs_service.JOB_KIND_BY_PREFIX) == set(background_jobs.DRAMA_JOB_PREFIXES)
+
+    @pytest.mark.parametrize("prefix", sorted(jobs_service.JOB_KIND_BY_PREFIX))
+    def test_prefix_table(self, prefix):
+        expected = jobs_service.JOB_KIND_BY_PREFIX[prefix]
+        assert expected in ("transcribe", "translate", "align", "dub", "export",
+                            "review", "import", "other")
+        assert jobs_service.job_kind(f"{prefix}12") == expected
+
+    @pytest.mark.parametrize("job_id, kind", [
+        ("translate_5", "translate"), ("bulk_translate_5", "translate"),
+        ("retranscribe_5", "transcribe"), ("transcribe_5", "transcribe"),
+        ("fixflag_5", "review"), ("burned_video_5", "export"),
+        ("dubbed_video_5", "export"),
+        ("sourceimport_5", "import"), ("resplit_5", "align"),
+    ])
+    def test_known_ids(self, job_id, kind):
+        assert jobs_service.job_kind(job_id) == kind
+
+    @pytest.mark.parametrize("job_id", ["mystery_5", "translate_", "translate_x", "xtranslate_5",
+                                        "discover_bulk_extract", "", None])
+    def test_unknown_ids_are_other(self, job_id):
+        assert jobs_service.job_kind(job_id) == "other"
+
+    def test_record_carries_drama_id_and_kind(self, isolated_db):
+        db.save_job_record("translate_7", status="done")
+        db.save_job_record("mystery_7", status="done")
+        by_id = {j["job_id"]: j for j in jobs_service.list_jobs()}
+        assert (by_id["translate_7"]["drama_id"], by_id["translate_7"]["kind"]) == (7, "translate")
+        assert (by_id["mystery_7"]["drama_id"], by_id["mystery_7"]["kind"]) == (None, "other")
+
+    def test_schema_round_trip(self, isolated_db):
+        from api.schemas import JobRecord
+        db.save_job_record("dub_9", status="running")
+        data = JobRecord(**jobs_service.get_job("dub_9")).model_dump(mode="json")
+        assert (data["drama_id"], data["kind"]) == (9, "dub")
+        assert JobRecord(**data).model_dump(mode="json") == data
+        legacy = JobRecord(job_id="x", status="done", updated_at=1.0)
+        assert (legacy.drama_id, legacy.kind) == (None, "other")

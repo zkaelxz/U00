@@ -28,7 +28,15 @@ export interface JobRecord {
   // The caller started this job or owns its drama, judged by the server from
   // the session. Missing (an older server) counts as false.
   owned_by_me?: boolean
+  // The title a drama-scoped job runs on, else null. Missing (an older
+  // server) counts as null.
+  drama_id?: number | null
+  // What the job does; `other` for anything unclassified. Missing counts as other.
+  kind?: JobKind
 }
+
+export type JobKind =
+  | 'transcribe' | 'translate' | 'align' | 'dub' | 'export' | 'review' | 'import' | 'other'
 
 // A remote household admin may cancel only their own jobs; everyone else
 // gets Cancel as before (the server still refuses what they may not stop).
