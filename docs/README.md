@@ -45,6 +45,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`runbook.md`** — one-page maintainer steps: installer lock, tests, restore, certificate, benchmark.
 - **`api-and-services.md`** — how the FastAPI layer fits together: request flow, errors, route declarations, ownership, schemas, and an "adding an endpoint" checklist.
 - **`remote-access-decision.md`** — the remote-access design as built, including the route table `tests/test_api_permissions.py` enforces.
+- **`engine-backends.md`** — the translation engine package, transcription and dubbing engines, the rules learned from bugs, and an adding-an-engine checklist.
 - **`background-jobs.md`** — how background jobs run: thread and process jobs, the GPU guard, cancel, holds, the Jobs API and the CLI, with an add-a-job checklist.
 - **`asr-experiments.md`** — the off-by-default Qwen3-ASR batching and MOSS-Transcribe-Diarize options.
 - **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
