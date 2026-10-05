@@ -576,6 +576,10 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .setting-list .field-label-row { font-size: var(--text-md); color: var(--text); }
 .setting-list .field-label-row label { font-weight: var(--weight-medium); cursor: pointer; }
 .setting-list .field-control { flex: 0 0 auto; }
+.customize-menu { list-style: none; padding: 0; }
+.customize-menu-row { display: flex; align-items: center; gap: var(--space-3); min-height: 52px; padding: var(--space-2) var(--space-4); }
+.customize-menu-row + .customize-menu-row { border-top: 1px solid var(--border); }
+.customize-menu-row > :first-child { flex: 1 1 auto; font-weight: var(--weight-medium); }
 .setting-list .field-control > :first-child { flex: 0 0 auto; }
 
 /* Buttons: .btn + one of primary / secondary / ghost / danger; .btn-sm for dense rows.

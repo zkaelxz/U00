@@ -25,6 +25,7 @@ import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { NotionSection } from './settings/NotionSection'
 import { PastCostsCard } from './settings/PastCostsCard'
+import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
 import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
@@ -254,8 +255,9 @@ export default function SettingsPage() {
       )}
       {/* Outside the settings gate: every signed-in person has a share-new-items choice
           and manages their own devices. */}
-      <Fold id="sharing" signals={signals} summary="Share new items, signed-in devices">
+      <Fold id="sharing" signals={signals} summary="Share new items, signed-in devices, menu items">
         <SharingCard />
+        <CustomizeMenuCard />
         <DevicesCard />
       </Fold>
       {settings && prefProps && (

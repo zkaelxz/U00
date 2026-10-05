@@ -124,14 +124,41 @@ export interface NavContext {
   session: SessionState
   pcMode: PcMode
   developerMode: boolean
+  /** Ids (`navId`) this person chose to hide; locked items are never hidden whatever is listed. */
+  hidden?: readonly string[]
 }
 
-function isVisible(i: NavItem, ctx: NavContext): boolean {
+/** Stable id for hiding: the target route name, which no two items share. */
+export const navId = (i: NavItem): string => i.target.name
+
+/** Library and Settings stay so a person cannot hide the way back to their titles or to this choice. */
+const LOCKED_NAV_IDS: readonly string[] = ['library', 'settings']
+export const isNavLocked = (i: NavItem): boolean => LOCKED_NAV_IDS.includes(navId(i))
+
+function isHiddenByChoice(i: NavItem, ctx: NavContext): boolean {
+  return !isNavLocked(i) && (ctx.hidden ?? []).includes(navId(i))
+}
+
+function isAllowed(i: NavItem, ctx: NavContext): boolean {
   if (i.hideWithoutPermission && i.requires && !holds(ctx.session, i.requires)) return false
   // 'unknown' hides PC-only items: they wait for /api/meta rather than showing optimistically.
   if (i.pcOnly && ctx.pcMode !== 'local') return false
   if (i.developerMode && !ctx.developerMode) return false
   return true
+}
+
+function isVisible(i: NavItem, ctx: NavContext): boolean {
+  return isAllowed(i, ctx) && !isHiddenByChoice(i, ctx)
+}
+
+/** Every item this person may see before their own hiding, once each in registry order: the "Customize menu" list. */
+export function customizableNavItems(ctx: NavContext): NavItem[] {
+  return NAV_ITEMS.filter((i) => isAllowed(i, ctx))
+}
+
+/** Items the menu shows this person, hiding applied; the palette reads this too. */
+export function visibleNavItemsFor(ctx: NavContext): NavItem[] {
+  return customizableNavItems(ctx).filter((i) => !isHiddenByChoice(i, ctx))
 }
 
 export function visibleNavItems(surface: NavSurface, ctx: NavContext): NavItem[] {
