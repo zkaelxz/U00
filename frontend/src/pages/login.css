@@ -80,8 +80,6 @@ details.user-menu > summary::after { content: '▾'; color: var(--muted); }
   details.user-menu > summary { min-height: 44px; }
 }
 @media (max-width: 640px) {
-  /* Phones: title and user menu share the first row; the nav wraps below. */
-  .app-header nav { order: 3; }
   /* Basis 0: sits beside the title, takes the rest of the row, and the email truncates. */
   .header-end { flex: 1 1 0; justify-content: flex-end; }
   /* Icon buttons keep their 44px; only the user menu's email gives way. */

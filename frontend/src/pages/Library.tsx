@@ -309,8 +309,6 @@ export default function LibraryPage() {
           {stats.data && <p className="page-meta" data-testid="stats">{statsLine(stats.data)}</p>}
         </div>
         <div className="actions">
-          <ButtonLink variant="secondary" className="rail-duplicate" href="#/manga">Saved manga</ButtonLink>
-          <ButtonLink variant="secondary" className="rail-duplicate" href="#/library-tools">Library tools</ButtonLink>
           <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New drama</button>
         </div>
       </header>

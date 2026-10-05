@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { openMenu } from './settingsNav'
 import { mockAccess } from './sourcesAccessMocks'
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { SERIES_LINKS, mockSources, searchResult } from './sourcesMocks'
@@ -129,13 +130,14 @@ test('phone: a failing source shows its plain-language reason, raw type in the t
   expect(s.unmocked).toEqual([])
 })
 
-test('phone: every main nav link is inside the viewport at 360 and 390 px', async ({ page }) => {
+test('phone: every drawer link is inside the viewport at 360 and 390 px', async ({ page }) => {
   const s = await mockSources(page)
   for (const width of [360, 390]) {
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/#/sources')
+    await openMenu(page)
     const links = page.getByRole('navigation', { name: 'Main' }).getByRole('link')
-    await expect(links).toHaveCount(5)
+    await expect(links.first()).toBeVisible()
     for (const link of await links.all()) {
       const box = (await link.boundingBox())!
       expect(box.x, `${await link.textContent()} at ${width}`).toBeGreaterThanOrEqual(0)
@@ -143,6 +145,8 @@ test('phone: every main nav link is inside the viewport at 360 and 390 px', asyn
       expect(box.height).toBeGreaterThanOrEqual(44)
     }
     await noSideways(page)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Main menu' })).toBeHidden()
   }
   expect(s.unmocked).toEqual([])
 })

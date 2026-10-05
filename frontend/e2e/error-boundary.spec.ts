@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { gearLink, openGear } from './settingsNav'
+import { navLink, openMenu } from './settingsNav'
 
 // A page that crashes while rendering shows the error fallback instead of a
 // blank window, the header and nav stay usable, and leaving the route
@@ -34,8 +34,8 @@ test('a page render error shows the fallback, and navigating away recovers', asy
   await expect(fallback.locator('button').first()).toHaveText(/^(Copied|Copy failed)/)
 
   // Navigating resets the boundary: Settings renders normally.
-  await openGear(page)
-  await gearLink(page, 'Settings').click()
+  await openMenu(page)
+  await navLink(page, 'Settings').click()
   await expect(page).toHaveURL(/#\/settings$/)
   await expect(page.getByTestId('error-fallback')).toHaveCount(0)
 

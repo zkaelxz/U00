@@ -11,7 +11,6 @@ import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AdminPage from './pages/Admin'
 import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
-import { GearMenu } from './components/GearMenu'
 import { JobsMenu } from './components/JobsMenu'
 import { NotificationBell } from './components/NotificationBell'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
@@ -33,7 +32,8 @@ import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
-import { RAIL_COLLAPSED_KEY, visibleNavItems } from './nav/navItems'
+import { NavDrawer } from './nav/NavDrawer'
+import { RAIL_COLLAPSED_KEY } from './nav/navItems'
 import { SideNav } from './nav/SideNav'
 import { ReportProblemButton } from './report/ReportProblem'
 import { usePcOnly } from './hooks/usePcOnly'
@@ -129,13 +129,12 @@ export default function App() {
   const user = menuUser(session)
   const navContext = { session, pcMode, developerMode }
 
-  const headerEnd = (withGear: boolean) => (
+  const headerEnd = (
     <div className="header-end">
       <JobsMenu />
       <NotificationBell />
       <ReportProblemButton />
       <ThemeMenu />
-      {withGear && <GearMenu items={visibleNavItems('gear', navContext)} route={route} />}
       <ApiStatus />
       {user && <UserMenu user={user} />}
     </div>
@@ -185,20 +184,16 @@ export default function App() {
         {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={() => setRailCollapsed(!railCollapsed)} />}
         <div className="app-main" data-width={WIDE_ROUTES.has(route.name) ? 'wide' : undefined}>
           {wide ? (
-            <header className="app-header">{headerEnd(false)}</header>
+            <header className="app-header">{headerEnd}</header>
           ) : (
             <header className="app-header">
+              <NavDrawer route={route} context={navContext} />
               <h1>
-                Baihe<span className="title-rest"> Studio</span>
+                <a href={routeHref({ name: 'library' })}>
+                  Baihe<span className="title-rest"> Studio</span>
+                </a>
               </h1>
-              <nav aria-label="Main">
-                {visibleNavItems('header', navContext).map(({ label, target, active }) => (
-                  <a key={label} href={routeHref(target)} aria-current={active.includes(route.name) ? 'page' : undefined}>
-                    {label}
-                  </a>
-                ))}
-              </nav>
-              {headerEnd(true)}
+              {headerEnd}
             </header>
           )}
           {content}

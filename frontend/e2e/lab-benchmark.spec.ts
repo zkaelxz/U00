@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { gearLink, openGear } from './settingsNav'
+import { navLink, openMenu } from './settingsNav'
 
 // Benchmark Lab (#/benchmark) against the real API on the seeded e2e
 // library: import a golden set, add and delete a case, estimate and run the
@@ -34,8 +34,8 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await page.getByRole('main').or(page.locator('.app-main')).getByRole('link', { name: 'Benchmark Lab' }).click()
   await expect(page).toHaveURL(/#\/benchmark$/)
   await expect(page.getByRole('heading', { name: 'Benchmark Lab' })).toBeVisible()
-  await openGear(page)
-  await expect(gearLink(page, 'Benchmark Lab')).toHaveAttribute('aria-current', 'page')
+  await openMenu(page)
+  await expect(navLink(page, 'Benchmark Lab')).toHaveAttribute('aria-current', 'page')
 
   // Import a golden set from pasted TSV.
   const sets = page.getByRole('region', { name: 'Golden sets' })
