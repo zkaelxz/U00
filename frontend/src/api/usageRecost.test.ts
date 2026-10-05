@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { ApiError } from './client'
 import { applyUsageRecost, getUsageRecost, recostSummary, undoUsageRecost, usd, type UsageRecostPreview } from './usageRecost'
 
 function fakeFetch(body: unknown, calls: { url: string; init?: RequestInit }[] = []) {
@@ -18,20 +19,30 @@ const PREVIEW: UsageRecostPreview = {
   month_stored_usd: 50,
   month_recomputed_usd: 18,
   recosted_rows: 0,
+  fingerprint: 'abc123',
 }
 
 describe('usage re-cost API', () => {
   it('reads the preview, then applies with confirm and undoes', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     expect(await getUsageRecost(fakeFetch(PREVIEW, calls))).toEqual(PREVIEW)
-    await applyUsageRecost(2, fakeFetch({ rows: 2, month_spend_usd: 18 }, calls))
-    await undoUsageRecost(fakeFetch({ rows: 2, month_spend_usd: 50 }, calls))
+    await applyUsageRecost(PREVIEW, fakeFetch({ rows: 2, month_spend_usd: 18, recosted_rows: 2 }, calls))
+    await undoUsageRecost(fakeFetch({ rows: 2, month_spend_usd: 50, recosted_rows: 0 }, calls))
     expect(calls.map((c) => c.url)).toEqual([
       '/api/settings/usage-recost',
       '/api/settings/usage-recost/apply',
       '/api/settings/usage-recost/undo',
     ])
-    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ confirm: true, previewed: 2 })
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ confirm: true, previewed: 2, fingerprint: 'abc123' })
+  })
+})
+
+describe('usage re-cost conflict', () => {
+  it('surfaces a 409 from apply as an ApiError', async () => {
+    const conflict = (async () =>
+      new Response(JSON.stringify({ error: { code: 'conflict', message: 'Check again.' } }), { status: 409 })) as typeof fetch
+    await expect(applyUsageRecost(PREVIEW, conflict)).rejects.toMatchObject({ status: 409 })
+    await expect(applyUsageRecost(PREVIEW, conflict)).rejects.toBeInstanceOf(ApiError)
   })
 })
 
