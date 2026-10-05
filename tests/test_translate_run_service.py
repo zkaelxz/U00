@@ -243,3 +243,35 @@ def test_summary_engine_build_failure_is_logged_without_key(isolated_db, monkeyp
     monkeypatch.setattr(translate_engines, "get_engine", boom)
     assert trs.pick_summary_engine() == (None, None)
     assert len(seen) == 1 and "bad config" in seen[0] and "sk-ant-abcdef" not in seen[0]
+
+
+_OK = dict(locale="en-US", style_preset="audio_drama", context_window=6,
+           context_window_ahead=3, batch_size=20, job_cost_cap_usd=None, gemini_free_tier=False)
+
+
+@pytest.mark.parametrize("override,error,text", [
+    (dict(locale="xx"), InvalidInputError, "Unknown English variant."),
+    (dict(style_preset="nope"), InvalidInputError, "Unknown style preset."),
+    (dict(job_cost_cap_usd=-1), InvalidInputError, "can't be negative"),
+    (dict(context_window=-1), InvalidInputError, "out of range"),
+    (dict(context_window_ahead=-1), InvalidInputError, "out of range"),
+    (dict(batch_size=0), InvalidInputError, "out of range"),
+    (dict(batch_size=svc.MAX_BATCH_SIZE + 1), InvalidInputError, "Batch size can't be more"),
+    (dict(model="not-a-model"), InvalidInputError, "isn't offered"),
+])
+def test_validate_run_options_refuses_bad_values(override, error, text):
+    kwargs = {**_OK, **override}
+    model = kwargs.pop("model", None)
+    with pytest.raises(error, match=text):
+        svc.validate_run_options("claude", model, **kwargs)
+
+
+def test_validate_run_options_blocks_gemini_free_tier_models():
+    model = sorted(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS)[0]
+    with pytest.raises(UnsupportedOperationError, match="free tier"):
+        svc.validate_run_options("gemini", model, **{**_OK, "gemini_free_tier": True})
+    svc.validate_run_options("gemini", model, **_OK)
+
+
+def test_validate_run_options_accepts_the_defaults():
+    svc.validate_run_options("claude", None, **_OK)

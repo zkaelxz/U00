@@ -1094,6 +1094,9 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     # can't be built), at this job's own Ollama URL.
     summary_engine, summary_choice = translate_run_service.pick_summary_engine(
         ollama_base_url, allow_paid=allow_paid_summary)
+    # The Settings default the single-title form starts from, so a title
+    # translated in bulk matches one translated alone.
+    style_note = settings_service.get_preference("default_style_note") or ""
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
                "errors": {}, "partial": {}, "cancelled": False}
@@ -1178,8 +1181,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         # possibly cancel) that run below.
         started = background_jobs.start_job(
             per_job_id, run_translate_job,
-            per_job_id, did, lines, engine, drama, "", novel_reference, False, default_locale,
-            glossary_terms, style_guidelines, engine_choice, style_preset,
+            per_job_id, did, lines, engine, drama, style_note, novel_reference, False,
+            default_locale, glossary_terms, style_guidelines, engine_choice, style_preset,
             defaults["context_window"], settings_service.get_ollama_num_ctx_override() or None,
             cost_cap_usd=cost_cap,
             context_window_ahead=defaults["context_window_ahead"],

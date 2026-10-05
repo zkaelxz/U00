@@ -233,3 +233,13 @@ def test_fix_flagged_reads_each_lines_language(isolated_db, monkeypatch):
     rows = {r["zh"]: r for r in isolated_db.load_lines(did)}
     assert rows["hello"]["en"] == "hello" and rows["hello"]["flag"] is None
     background_jobs.clear_job("fix_lang")
+
+
+def test_bulk_passes_the_settings_default_style_note(isolated_db, monkeypatch):
+    from services import settings_service
+    real = settings_service.get_preference
+    monkeypatch.setattr(settings_service, "get_preference",
+                        lambda name: "Keep honorifics." if name == "default_style_note"
+                        else real(name))
+    seen, _ = _capture_bulk_start(isolated_db, monkeypatch, "claude", "audio_drama")
+    assert seen["args"][5] == "Keep honorifics."
