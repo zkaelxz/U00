@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../../hooks/useSession'
 import { offersCancel, type JobRecord } from '../../types/jobs'
 import { JobPanel } from './stages/JobPanel'
-import { pillText, type PillFlash } from './jobPill'
+import { pillText, type PillFlash } from './jobPillState'
 import { useDramaJobs } from './useDramaJobs'
 
 const FLASH_TEXT: Record<PillFlash, string> = { done: '✓ Done', failed: 'Failed' }

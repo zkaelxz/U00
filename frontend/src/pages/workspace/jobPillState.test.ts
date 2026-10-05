@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { JobRecord } from '../../types/jobs'
-import { activeJobsFor, finishedFlash, jobPercent, jobVerb, pillText } from './jobPill'
+import { activeJobsFor, finishedFlash, jobPercent, jobVerb, pillText } from './jobPillState'
 
 const job = (over: Partial<JobRecord>): JobRecord => ({
   job_id: 'j', status: 'running', progress: null, message: '', error: null, description: null,

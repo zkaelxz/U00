@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { listJobs } from '../../api/jobs'
 import type { JobRecord } from '../../types/jobs'
-import { FLASH_MS, JOB_POLL_MS, activeJobsFor, finishedFlash, type PillFlash } from './jobPill'
+import { FLASH_MS, JOB_POLL_MS, activeJobsFor, finishedFlash, type PillFlash } from './jobPillState'
 
 // A refusal or a server without the route hides the pill; any other failure keeps the last list.
 const HIDE_ON = [401, 403, 404]
