@@ -379,3 +379,63 @@ vs one), so neither overrules the other. Check on more drama material before cha
 GPU, a Simplified-forcing prompt for medium on its own, repeated runs for timing noise (RTF of large-v3 ranged
 1.06 to 1.51 across settings that should cost about the same, so treat times as rough), and the 60-to-12-minute
 shortfall in the brief (60 utterances are 10.5 min).
+
+## Qwen3 speech-detection backend: closing the accuracy gap, and automatic language (2026-10-05)
+
+**Why.** On single-sentence FLEURS utterances `Qwen3ASRVadBackend` scored worse than plain Qwen3-ASR on the whole file
+(Korean, Chinese and Japanese above and in the brief), although the VAD has almost nothing to cut there.
+
+**Data and scorer.** The same first 60 test rows as the Korean and Chinese sections (same parquet revision; sha256 of
+`ko_kr` and `cmn_hans_cn` files matched those recorded above). Japanese (`ja_jp/test/0000.parquet`, sha256
+`e954b67e934b9a31d7a74a070a75225379660d50c8d1aacdb755852c57f23e6b`, 784.6 s) has no section in this file, so its row ids
+are here: 1828, 1834, 1813, 1869, 1744, 1731, 1910, 1771, 1764, 2003, 1980, 1822, 1837, 1736, 1980, 1942, 1733, 1916, 1701,
+1848, 1775, 1893, 1908, 1972, 1911, 1664, 1827, 1672, 1861, 1843, 1924, 1958, 1749, 1997, 1825, 1801, 1739, 1977, 1989,
+1869, 1667, 1742, 1876, 1943, 1718, 1725, 1690, 1955, 1959, 1721, 1978, 1968, 1718, 1974, 1920, 1733, 1902, 1718, 1750, 1983.
+CPU, bfloat16, qwen-asr 0.0.6, 1.7B. CER is a plain Levenshtein over characters, with this file's normalisation (Korean and
+Japanese: NFKC, lower-case, letters and digits only, reference `transcription`; Chinese: the Chinese section's
+`raw_transcription` rules). My plain-Qwen numbers differ a little from the sections above (Korean 3.11 vs 3.34, Chinese
+3.16 vs 3.60) because of the scorer (no jiwer) and bfloat16 CPU nondeterminism; compare rows within this table only.
+
+**Stage-by-stage experiment.** Same utterances, same loaded model, forced language, one call per input, each step
+changing one thing from the whole-file call:
+
+| CER % | Korean | Chinese | Japanese |
+|---|---|---|---|
+| Plain: whole file, one call | 3.11 | 3.16 | 5.08 |
+| One span: first speech start to last speech end (+100 ms), ffmpeg slice | 4.00 | 4.64 | 6.55 |
+| Same, but slice taken from the full-precision waveform in memory (no 16-bit round trip) | 3.67 | 4.64 | 6.65 |
+| Backend before: VAD spans, `merge_close` 0.3 s, `cap_spans` 15 s | 4.97 | 4.85 | 6.68 |
+| Same, full-precision slices | 4.74 | 4.85 | 6.78 |
+| **Backend after** (this change) | **3.34** | **3.78** | **5.42** |
+| After, utterances without digits (plain / before) | 2.54 (2.75 / 3.10) | 1.94 (1.94 / 2.22) | 4.32 (4.32 / 5.18) |
+
+Not responsible: the hallucination filter and `split_long_segments` (output with and without them identical in all
+60 x 3 files), language forcing, batch size and dtype (plain and the backend call the same `load_qwen3_asr` model with
+the same forced language, one input per call). The 16-bit ffmpeg round trip costs 0.3 points on Korean only, whose FLEURS
+audio is quiet (median peak 0.046 of full scale); on Chinese and Japanese it is zero.
+
+**Root cause.** Cutting the clip tight to the detected speech removes the silence around it, and Qwen3-ASR then writes
+numbers as words ("천구백사십년") instead of digits, which the FLEURS references count as errors; on utterances
+without digits the gap is only 0.3 to 0.9 points. For Korean, splitting a sentence at an internal pause under about 1 s costs
+about 1 more point (3.67 to 4.74).
+
+**Fix** (`asr_backend.py`, `vad_segments.context_windows`): the model hears each span with up to 2 s of the surrounding
+silence (never into a neighbouring span; lines keep the span's times), and the non-language-detecting path joins spans
+separated by up to 1 s before the 15 s cap (0.3 s as before when detecting languages, so a quick change of speaker and language
+is not merged). Tuning on digit-containing utterances (hypotheses with digits, plain / one span / +0.5 s / +1 s / +2 s):
+Korean 13 / 11 / 9 / 12 / 12 of 15, Chinese 8 / 3 / 1 / 4 / 5 of 12, Japanese 23 / 17 / 20 / 22 / 23 of 24; 0.5 s of padding is
+not enough (Korean got worse), 2 s is the largest tried. A 1 s or 2 s merge gap gave the same Korean result (3.82) and no
+change on Chinese or Japanese.
+
+**What is left.** The gap shrank from 1.5-1.8 points to 0.3-0.6 but is not closed (Korean +0.23, Chinese +0.62, Japanese
++0.34 against plain); it is almost entirely digit utterances (Chinese: plain writes digits in 8 of 12 digit utterances, one span with 2 s of padding in 5) and the
+differences are inside the noise of 60 utterances (a few characters each). Whether digits or spelled-out numbers are better
+for subtitles is a style choice; FLEURS happens to reference digits. Audio that is not read speech (music, overlap, long
+files) was not tested, and padding adds up to 4 s of audio per span, so a run is a little slower on audio with long pauses.
+
+**Automatic language (`language=None`).** One 318 s file: 24 FLEURS test utterances (rows 60-65 of `ko_kr`, `ja_jp`,
+`cmn_hans_cn` and `en_us`, sha256 of `en_us` `6428a4d04d3aac29e16b45e039bb1470a8bd7aa334cf92f7984c9c520d1f234d`),
+interleaved ko, ja, en, zh with 2 s of silence between. `Qwen3ASRVadBackend().transcribe(path, None)` returned 31 segments
+and every one carried the right language (ko 8, ja 12, en 4, zh 7; 0 flagged). The Silero VAD found no speech in 3 of the 6
+English utterances, so they have no lines; that is a speech-detection miss, not a language error. One file, one run, 4
+languages: it shows the plumbing works, not a robust detection rate, and it is clean read speech with long silences.
