@@ -91,13 +91,15 @@ engine in the app: the key-free `FakeEngine` lives in `tests/fake_engine.py`
 
 ### Response size caps
 
-The OpenAI-compatible engines read provider replies through
-`engine_backends.shared.read_json_capped`, which streams the body through
-`services/capped_body.read_capped` (16 MB and a deadline) and raises
-`ProviderResponseTooLarge` with no URL or header in the message. The other
-engine modules still rely on `timeout=` and `resp.json()`. If you add an engine
-that fetches something of unknown size, use `read_json_capped` or `capped_body`
-rather than a new reader.
+Every `requests`-based provider call (OpenAI, Gemini, Ollama, the `llm_tasks`
+Gemini path, bulk batch polling, Groq transcription, `qa.py`) is made with
+`stream=True` and read through `engine_backends.shared.read_json_capped`. It
+streams the body through `services/capped_body.read_capped` (default 16 MB,
+`PROVIDER_RESPONSE_MAX_BYTES`, plus a total deadline) and raises
+`ProviderResponseTooLarge` with no URL or header in the message; a non-2xx
+status raises `requests.HTTPError` without reading the body. The Anthropic and
+OpenAI SDK clients are bounded by `SDK_REQUEST_TIMEOUT` only. A new engine that
+uses `requests` should call `read_json_capped` rather than `resp.json()`.
 
 ### Engine ids, lists and what the UI sees
 
@@ -169,7 +171,7 @@ rather than a new reader.
    enforces it for `translate_engines.py`, everything under `engine_backends/`,
    `services/`, `api/` and a list of other modules; a new HTTP-calling module
    outside those goes on that list. Bodies of unknown size are read with
-   `capped_body.read_capped` (see above).
+   `read_json_capped` (see above).
 4. **Patch the module that uses a name, not the front door.** A test patches
    `engine_backends.llm_tasks.call_llm_json`, `engine_backends.local._nllb_pipeline_cache`,
    and so on. Patching `translate_engines.X` only affects code that reads `X`
