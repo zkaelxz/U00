@@ -10,7 +10,7 @@ once with the title's source language.
 import re
 
 from core import (
-    LINE_LANGUAGES, WHISPER_ANTI_LOOP_KWARGS, filter_hallucinated_segments, is_gpu_error,
+    LANGUAGE_NAMES, LINE_LANGUAGES, WHISPER_ANTI_LOOP_KWARGS, filter_hallucinated_segments, is_gpu_error,
     load_whisper_model, tighten_to_words,
 )
 
@@ -37,8 +37,13 @@ _EXPECTED_SCRIPTS = {
 # to be in another language (or hallucinated Cyrillic and the like).
 _DISAGREE_SHARE = 0.5
 
-# Qwen3-ASR names the language it heard in English.
-_QWEN_NAME_TO_CODE = {"chinese": "zh", "japanese": "ja", "korean": "ko", "english": "en"}
+# Qwen3-ASR names the language it heard in English. The one place its names
+# and this app's codes are paired.
+QWEN_LANGUAGE_NAMES = {**LANGUAGE_NAMES, "en": "English"}
+_QWEN_NAME_TO_CODE = {name.lower(): code for code, name in QWEN_LANGUAGE_NAMES.items()}
+# What a run_span returns for a language it heard but the app doesn't allow
+# (Qwen3-ASR knows 30), so the span is retried instead of kept as it came.
+UNSUPPORTED_LANGUAGE = "unsupported"
 
 
 def text_matches_language(text: str, lang: str) -> bool:
@@ -59,23 +64,39 @@ def transcribe_spans(spans, source_language, run_span, retry_span, cancel_check=
     """Segments ({"start", "end", "text"}, plus "lang" and "flag"/"flag_note"
     where they apply) for the speech spans, in order.
 
-    run_span(span) -> (segments, detected language code or None) transcribes
-    with the detected language; retry_span(span, lang) -> segments transcribes
-    in a given one. "lang" is set only where the span's language is not
-    source_language, so a single-language title comes out as it always did.
-    A span whose text still disagrees after the retry keeps that text with no
-    lang and a language_uncertain flag. cancel_check() should raise to stop."""
+    run_span(span) -> (segments, detected language code, None, or
+    UNSUPPORTED_LANGUAGE) transcribes with the detected language;
+    retry_span(span, lang) -> segments transcribes in a given one. "lang" is
+    set only where the span's language is not source_language, so a
+    single-language title comes out as it always did.
+    source_language None means the language is not known up front: every line
+    gets its detected "lang", and a span that can't be trusted is retried in
+    the language most spans so far were (kept as it came, flagged, when no
+    span has been trusted yet). A span whose text still disagrees after the
+    retry keeps that text with no lang and a language_uncertain flag.
+    cancel_check() should raise to stop."""
     out = []
+    trusted = {}
+
+    def fallback():
+        return source_language or max(trusted, key=trusted.get, default=None)
+
     for n, span in enumerate(spans):
         if cancel_check:
             cancel_check()
         segments, detected = run_span(span)
-        lang = detected if detected in LINE_LANGUAGES else source_language
+        lang = detected if detected in LINE_LANGUAGES else fallback()
         uncertain = False
-        if not all(text_matches_language(s["text"], lang) for s in segments):
-            lang = source_language
-            segments = retry_span(span, source_language)
-            uncertain = not all(text_matches_language(s["text"], lang) for s in segments)
+        if segments and (detected == UNSUPPORTED_LANGUAGE or lang is None
+                         or not all(text_matches_language(s["text"], lang) for s in segments)):
+            lang = fallback()
+            if lang is None:
+                uncertain = True
+            else:
+                segments = retry_span(span, lang)
+                uncertain = not all(text_matches_language(s["text"], lang) for s in segments)
+        if segments and not uncertain:
+            trusted[lang] = trusted.get(lang, 0) + 1
         for seg in segments:
             seg = dict(seg)
             if uncertain:
@@ -166,5 +187,5 @@ def transcribe_mixed_whisper(audio_path, source_language, whisper_size, use_gpu=
 
 def qwen_language_code(name):
     """A LINE_LANGUAGES code for the language name Qwen3-ASR reports; None for
-    a missing or unknown name."""
+    a missing or unknown name (including one outside the app's languages)."""
     return _QWEN_NAME_TO_CODE.get(str(name or "").strip().lower())

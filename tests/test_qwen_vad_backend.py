@@ -75,8 +75,40 @@ def test_long_text_is_split_into_ordered_lines_inside_the_span(fakes):
 
 def test_repeated_phrase_loop_collapses_to_one_line_and_empty_text_is_skipped(fakes):
     fakes(["哈哈", "哈哈", "哈哈", "哈哈", "哈哈", ""])
-    out = run(vad([(i * 3.0, i * 3.0 + 2.0) for i in range(6)]))
+    out = run(vad([(i * 4.0, i * 4.0 + 2.0) for i in range(6)]))
     assert [s["text"] for s in out] == ["哈哈"]
+
+
+def test_a_short_pause_inside_a_sentence_does_not_split_it(fakes):
+    model = fakes(["你好吗我很好"])
+    out = run(vad([(1.0, 3.0), (3.8, 6.0)]))
+    assert model.calls == [1] and len(out) == 1
+    assert out[0]["start"] == pytest.approx(0.9) and out[0]["end"] == pytest.approx(6.1)
+
+
+def test_a_long_pause_still_starts_a_new_line(fakes):
+    model = fakes(["你好", "再见"])
+    out = run(vad([(1.0, 3.0), (6.0, 8.0)]))
+    assert model.calls == [1, 1] and [s["text"] for s in out] == ["你好", "再见"]
+
+
+def test_model_hears_the_silence_around_a_span_but_the_line_keeps_the_span_times(
+        fakes, monkeypatch):
+    fakes(["你好"])
+    cuts = []
+    monkeypatch.setattr(ab, "extract_audio_slice",
+                        lambda a, s, e, out: cuts.append((s, e)) or open(out, "wb").close())
+    out = run(vad([(10.0, 12.0)]))
+    assert cuts == [(pytest.approx(7.9), pytest.approx(14.1))]
+    assert out[0]["start"] == pytest.approx(9.9) and out[0]["end"] == pytest.approx(12.1)
+
+
+def test_context_windows_stay_inside_the_silence_between_spans():
+    from vad_segments import Span, context_windows
+    windows = context_windows([Span(1.0, 2.0), Span(3.0, 4.0), Span(20.0, 21.0)], 22.0, 2.0)
+    # never into a neighbour's speech (a window may share silence with its neighbour),
+    # never outside the file
+    assert windows == [Span(0.0, 3.0), Span(2.0, 6.0), Span(18.0, 22.0)]
 
 
 def test_no_speech_returns_nothing(fakes):
