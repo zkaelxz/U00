@@ -1,6 +1,9 @@
 import type { CompareSelection } from '../../../../types/workspace'
 
-export type SelectionMode = 'line' | 'range' | 'flagged' | 'speaker' | 'time'
+export type SelectionMode = 'selected' | 'line' | 'range' | 'flagged' | 'speaker' | 'time'
+
+// The server's cap on one run (CompareOptions.max_lines); the server still enforces it.
+export const COMPARE_MAX_LINES = 200
 
 export interface SelectionForm {
   mode: SelectionMode
@@ -19,9 +22,26 @@ export const EMPTY_SELECTION_FORM: SelectionForm = {
 const wholeNumber = (v: string) => (/^\d+$/.test(v.trim()) && Number(v) >= 1 ? Number(v) : null)
 const seconds = (v: string) => (v.trim() !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : null)
 
+// Why the selection bar's "Compare transcription…" can't run with `count` lines ticked, or null.
+export function compareSelectedProblem(count: number, maxLines = COMPARE_MAX_LINES): string | null {
+  if (count < 1) return 'Tick at least one line.'
+  return count > maxLines
+    ? `${count} lines ticked; Compare transcription takes up to ${maxLines} at a time. Untick some and run it in parts.`
+    : null
+}
+
 // The request's selection, or the plain-words reason the form can't be sent yet.
-export function buildSelection(f: SelectionForm): { selection: CompareSelection } | { problem: string } {
+// `selectedIds` are the lines ticked in Review, used by the 'selected' mode.
+export function buildSelection(
+  f: SelectionForm,
+  selectedIds: number[] = [],
+  maxLines = COMPARE_MAX_LINES,
+): { selection: CompareSelection } | { problem: string } {
   switch (f.mode) {
+    case 'selected': {
+      const problem = compareSelectedProblem(selectedIds.length, maxLines)
+      return problem === null ? { selection: { kind: 'line_ids', line_ids: selectedIds } } : { problem }
+    }
     case 'flagged':
       return { selection: { kind: 'flagged' } }
     case 'line': {

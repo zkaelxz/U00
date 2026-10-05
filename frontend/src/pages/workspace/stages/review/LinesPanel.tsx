@@ -80,6 +80,7 @@ interface Props {
   // A finding elsewhere in the stage asked to open a line; seq makes a repeat
   // click on the same line count again.
   // resolve gets null once the line is open, else a plain message.
+  onCompareSelected?: () => void
   goTo?: { target: LineTarget; seq: number; resolve: (message: string | null) => void } | null
 }
 
@@ -115,7 +116,7 @@ function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
 // edit mode, the "⋯" line sheet with structure edits, a sticky toolbar with the
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, onCompareSelected, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
@@ -989,6 +990,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     lineNumbers: selection.lineNumbers(selection.selectedIds),
     clear: selection.clear,
     notify: setStatus,
+    openCompare: onCompareSelected ?? (() => {}),
   }
   const allShownSelected = shown.length > 0 && shown.every((l) => selection.selectedSet.has(l.id))
   const loading = !searching && data === null && !error

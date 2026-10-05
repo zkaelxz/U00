@@ -4,12 +4,41 @@ import {
   EMPTY_SELECTION_FORM,
   buildSelection,
   capProblem,
+  compareSelectedProblem,
   compareOutcome,
   isSameText,
   textDiff,
 } from './compareTranscriptionLogic'
 
 const form = (over: Partial<typeof EMPTY_SELECTION_FORM>) => ({ ...EMPTY_SELECTION_FORM, ...over })
+
+describe('buildSelection from ticked lines', () => {
+  it('sends exactly the ticked ids', () => {
+    expect(buildSelection(form({ mode: 'selected' }), [4, 9, 12])).toEqual({
+      selection: { kind: 'line_ids', line_ids: [4, 9, 12] },
+    })
+  })
+  it('needs at least one tick and at most the cap', () => {
+    expect(buildSelection(form({ mode: 'selected' }), [])).toEqual({ problem: 'Tick at least one line.' })
+    const ids = Array.from({ length: 200 }, (_, i) => i + 1)
+    expect(buildSelection(form({ mode: 'selected' }), ids)).toHaveProperty('selection')
+    const over = buildSelection(form({ mode: 'selected' }), [...ids, 201])
+    expect(over).toEqual({ problem: expect.stringContaining('201 lines ticked') })
+    expect(over).toEqual({ problem: expect.stringContaining('up to 200') })
+  })
+  it('follows the server limit when it differs', () => {
+    expect(buildSelection(form({ mode: 'selected' }), [1, 2, 3], 2)).toHaveProperty('problem')
+  })
+  it('other modes ignore the ticks', () => {
+    expect(buildSelection(form({ mode: 'flagged' }), [1, 2])).toEqual({ selection: { kind: 'flagged' } })
+  })
+  it('the bar action is enabled for 1 to 200 ticks only', () => {
+    expect(compareSelectedProblem(0)).not.toBeNull()
+    expect(compareSelectedProblem(1)).toBeNull()
+    expect(compareSelectedProblem(200)).toBeNull()
+    expect(compareSelectedProblem(201)).toMatch(/201 lines ticked.*200/)
+  })
+})
 
 describe('buildSelection', () => {
   it('flagged needs nothing', () => {

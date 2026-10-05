@@ -365,8 +365,12 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   padding: var(--space-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
 }
 .review-selbar-count { font-weight: 600; }
+.review-selbar-note { flex-basis: 100%; margin: 0; }
 .review-selbar-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-@media (pointer: coarse), (max-width: 640px) { .review-line { --select-size: var(--touch); } }
+@media (pointer: coarse), (max-width: 640px) {
+  .review-line { --select-size: var(--touch); }
+  .review-selbar .btn { min-height: var(--touch); }
+}
 @media (max-width: 640px) {
   /* Clear of the fixed phone action bar. */
   .review-selbar { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
