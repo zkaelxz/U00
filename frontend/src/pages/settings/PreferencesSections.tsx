@@ -54,7 +54,6 @@ export function DefaultsCard(props: Props) {
       {...common}
       as="card"
       title="Translation style"
-      storageKey="settings.defaults"
       summary={`${humanize('locale', p.default_locale)}${p.default_style_note ? ' · style note' : ''}`}
       fromPrefs={(x) => ({
         default_locale: x.default_locale,
@@ -89,7 +88,6 @@ export function SpendingCard(props: Props) {
       {...common}
       as="card"
       title="Spending"
-      storageKey="settings.spending"
       summary={capSummary(p.monthly_cap_usd, settings.monthly_cap_env_usd)}
       fromPrefs={(x) => ({ monthly_cap_usd: x.monthly_cap_usd === null ? '' : String(x.monthly_cap_usd) })}
       toPatch={(d) => {
@@ -127,7 +125,6 @@ export function AdvancedCard(props: Props) {
       <PrefsSection
         {...common}
         title="OCR"
-        storageKey="settings.ocr"
         summary={OCR_LABELS[p.ocr_backend] ?? humanizeValue(p.ocr_backend)}
         fromPrefs={(x) => ({
           ocr_backend: x.ocr_backend,
@@ -159,7 +156,6 @@ export function AdvancedCard(props: Props) {
       <PrefsSection
         {...common}
         title="Offline and performance"
-        storageKey="settings.offline"
         summary={[
           p.whisper_model_path ? 'Whisper folder set' : 'Whisper downloads',
           p.ollama_num_ctx_override ? `num_ctx ${p.ollama_num_ctx_override}` : 'num_ctx auto',
@@ -189,7 +185,6 @@ export function AdvancedCard(props: Props) {
       <PrefsSection
         {...common}
         title="Downloads"
-        storageKey="settings.downloads"
         summary={`Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file)}`}
         fromPrefs={(x) => ({ cookies_browser: x.cookies_browser ?? '', cookies_file: x.cookies_file, lncrawl_cmd: x.lncrawl_cmd })}
         toPatch={(d) => {
@@ -244,7 +239,6 @@ type Draft = Record<string, string | boolean | number | null>
 type PrefsSectionProps = {
   as?: 'card' | 'section'
   title: string
-  storageKey: string
   summary: string
   prefs: SettingsPreferences
   remote: boolean
@@ -254,7 +248,7 @@ type PrefsSectionProps = {
   children: (d: Draft, set: (key: string, value: string | boolean) => void) => ReactNode
 }
 
-function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
+function PrefsSection({ as = 'section', title, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
   const [draft, setDraft] = useState<Draft>(() => fromPrefs(prefs))
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -263,7 +257,7 @@ function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remot
 
   if (remote) {
     return (
-      <Block as={as} title={title} summary={PC_ONLY_SUMMARY} storageKey={storageKey}>
+      <Block as={as} title={title} summary={PC_ONLY_SUMMARY}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Block>
     )
@@ -305,7 +299,7 @@ function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remot
   }
 
   return (
-    <Block as={as} title={title} summary={summary} storageKey={storageKey}>
+    <Block as={as} title={title} summary={summary}>
       <div style={grid}>
         <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
         {children(draft, set)}
@@ -328,7 +322,7 @@ function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remot
 }
 
 // A Card (always open; the summary is its meta line) or a Section fold.
-function Block({ as, title, summary, storageKey, children }: { as: 'card' | 'section'; title: string; summary: string; storageKey: string; children: ReactNode }) {
+function Block({ as, title, summary, children }: { as: 'card' | 'section'; title: string; summary: string; children: ReactNode }) {
   if (as === 'card')
     return (
       <Card title={title} meta={summary} aria-label={title}>
@@ -336,7 +330,7 @@ function Block({ as, title, summary, storageKey, children }: { as: 'card' | 'sec
       </Card>
     )
   return (
-    <Section title={title} summary={summary} storageKey={storageKey}>
+    <Section title={title} summary={summary}>
       {children}
     </Section>
   )
@@ -349,13 +343,13 @@ function EndpointsSection({ settings, remote, onSettings }: { settings: Settings
     // Away from the PC the addresses aren't sent, but whether each is set is (engine_keys).
     const configured = ENDPOINTS.filter((e) => settings.engine_keys[e.name]).length
     return (
-      <Section title={title} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`} storageKey="settings.endpoints">
+      <Section title={title} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )
   }
   return (
-    <Section title={title} summary={`${set} of ${ENDPOINTS.length} set`} storageKey="settings.endpoints">
+    <Section title={title} summary={`${set} of ${ENDPOINTS.length} set`}>
       <div style={grid}>
         <p className="settings-note">
           Addresses of local servers Baihe talks to. {SAVED_ON_PC_NOTE}

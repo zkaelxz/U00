@@ -668,6 +668,14 @@ class TestPerLineLanguage:
         te.translate_lines_with_engine(lines, engine, {}, save_cb=lambda ls: saved.append(1))
         assert engine.calls == [] and saved and lines[0].en == "hello"
 
+    def test_tagged_line_languages_only_marks_other_languages(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", lang="ja"),
+                 Line(idx=1, start=1, end=2, zh="b", lang="ko"),
+                 Line(idx=2, start=2, end=3, zh="c")]
+        assert te.tagged_line_languages(lines, "ja") == [None, "ko", None]
+        assert te.tagged_line_languages([lines[0], lines[2]], "ja") is None
+        assert te.tagged_source_texts(lines, "ja") == ["a", "(spoken in Korean) b", "c"]
+
     def test_numbered_lines_tag_the_spoken_language(self):
         result = te.build_numbered_lines([1, 2], ["a", "b"], languages=[None, "ko"])
         assert result == "1. a\n2. (spoken in Korean) b"

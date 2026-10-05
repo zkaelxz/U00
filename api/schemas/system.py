@@ -9,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, Stri
 from api.schemas.common import TranslateEngine
 
 __all__ = [
+    "UsageRecostModelRow",
+    "UsageRecostPreview",
+    "UsageRecostApplyRequest",
+    "UsageRecostResult",
     "HealthResponse",
     "MetaResponse",
     "DependencyStatus",
@@ -931,3 +935,46 @@ class PortEntry(BaseModel):
 class PortsOverview(BaseModel):
     """GET /api/diagnostics/ports (PC only)."""
     ports: List[PortEntry]
+
+
+class UsageRecostModelRow(BaseModel):
+    model: str
+    rows: int
+    stored_usd: float
+    recomputed_usd: float
+
+
+class UsageRecostPreview(BaseModel):
+    """GET /api/settings/usage-recost: what a re-cost would change. Numbers
+    only; nothing is written."""
+    rows: int
+    models: List[UsageRecostModelRow]
+    stored_usd: float
+    recomputed_usd: float
+    difference_usd: float
+    month_stored_usd: float
+    month_recomputed_usd: float
+    # Rows a re-cost already replaced, which Undo can put back.
+    recosted_rows: int
+    # Digest of the exact (row, new cost) set; apply refuses a different set
+    # even when it has the same number of rows.
+    fingerprint: str
+
+
+class UsageRecostApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    # What the user saw in the preview; a different count or set now means 409.
+    previewed: int = Field(ge=0)
+    fingerprint: str = Field(min_length=1, max_length=64)
+
+
+class UsageRecostResult(BaseModel):
+    """POST apply or undo: rows written and this month's logged spend after."""
+    rows: int
+    month_spend_usd: float
+    # Rows holding a replaced cost after this call, so a client need not accumulate.
+    recosted_rows: int
+    # Apply only: the previewed count the client sent and rows actually changed.
+    previewed: Optional[int] = None
+    changed: Optional[int] = None

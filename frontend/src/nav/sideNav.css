@@ -14,6 +14,7 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-2);
+  overflow-x: hidden;
   overflow-y: auto;
   border-right: 1px solid var(--border);
   background: var(--surface);
@@ -22,11 +23,14 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 .rail-brand a { display: flex; align-items: center; gap: var(--space-2); min-height: 32px; padding: 0 var(--space-2); color: var(--text); text-decoration: none; border-radius: var(--radius-sm); }
 .rail-brand-mark { display: none; width: 18px; text-align: center; font-weight: 700; }
 .app-rail nav { display: grid; gap: var(--space-3); flex: 1 1 auto; align-content: start; }
-.rail-group { display: grid; gap: 2px; }
-.rail-heading { margin: var(--space-2) 0 0; padding: 0 var(--space-2); font-size: var(--text-xs); font-weight: 600; text-transform: none; color: var(--muted); }
-.rail-entry { display: grid; gap: 2px; }
+:is(.app-rail, .nav-drawer) .rail-group { display: grid; gap: 2px; }
+:is(.app-rail, .nav-drawer) .rail-heading { margin: var(--space-2) 0 0; padding: 0 var(--space-2); font-size: var(--text-xs); font-weight: 600; text-transform: none; color: var(--muted); }
+:is(.app-rail, .nav-drawer) .rail-entry { display: grid; gap: 2px; min-width: 0; }
+/* A long title must shorten with an ellipsis, not widen the rail into a sideways scroll. */
+.app-rail nav, .app-rail .rail-group, .app-rail nav a { min-width: 0; }
 
 .app-rail nav a,
+.nav-drawer nav a,
 .rail-toggle {
   display: flex;
   align-items: center;
@@ -43,16 +47,18 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
   cursor: pointer;
 }
 .app-rail nav a:hover,
+.nav-drawer nav a:hover,
 .rail-toggle:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.app-rail nav a[aria-current='page'] {
+.app-rail nav a[aria-current='page'],
+.nav-drawer nav a[aria-current='page'] {
   color: var(--text);
   font-weight: 600;
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
-.app-rail svg { flex: none; }
+:is(.app-rail, .nav-drawer) svg { flex: none; }
 .rail-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The open title sits one step in under Library; no stage rows, the strip in the page stays the only stage navigation. */
-.app-rail nav a.rail-title { margin-left: var(--space-4); min-height: 32px; font-size: var(--text-sm); }
+:is(.app-rail, .nav-drawer) nav a.rail-title { margin-left: var(--space-4); min-height: 32px; font-size: var(--text-sm); }
 .rail-title-mark { flex: none; width: 18px; text-align: center; }
 .rail-toggle { width: 100%; }
 
@@ -66,5 +72,7 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 @media (pointer: coarse) {
   .app-rail nav a, .rail-toggle, .rail-brand a { min-height: 44px; }
 }
-.app-rail .rail-badge { margin-left: auto; }
+/* Drawer rows are 44px wherever it opens, touch or not (it only exists below 1024px). */
+.nav-drawer nav a, .nav-drawer nav a.rail-title { min-height: 44px; }
+:is(.app-rail, .nav-drawer) .rail-badge { margin-left: auto; }
 .app-rail[data-collapsed='true'] .rail-badge { display: none; }

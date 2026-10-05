@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { ANSWER, mockAssistant } from './assistantMocks'
-import { gearLink, openGear, openSettingsGroups } from './settingsNav'
+import { navLink, openMenu, openSettingsGroups } from './settingsNav'
 
 // Desktop: the Maintenance assistant. Every /api/assistant call is mocked.
 
@@ -11,17 +11,17 @@ test('nav link is hidden with Developer Mode off and appears once it is turned o
   const s = await mockAssistant(page)
   await page.goto('/#/settings')
   await openSettingsGroups(page)
-  await openGear(page)
-  await expect(gearLink(page, 'Settings')).toBeVisible()
+  await openMenu(page)
+  await expect(navLink(page, 'Settings')).toBeVisible()
   const toggle = page.getByRole('region', { name: 'Developer Mode' }).getByRole('switch', { name: 'Developer Mode' })
   await expect(toggle).not.toBeChecked()
-  await expect(gearLink(page, 'Assistant')).toHaveCount(0)
+  await expect(navLink(page, 'Assistant')).toHaveCount(0)
   await toggle.click()
   await expect(toggle).toBeChecked()
-  await openGear(page) // clicking the switch closed the menu
-  await expect(gearLink(page, 'Assistant')).toBeVisible()
+  await openMenu(page) // clicking the switch closed the menu
+  await expect(navLink(page, 'Assistant')).toBeVisible()
   expect(s.calls.find((c) => c.method === 'POST')?.body).toEqual({ developer_mode: true })
-  await gearLink(page, 'Assistant').click()
+  await navLink(page, 'Assistant').click()
   await expect(page.getByRole('heading', { name: 'Maintenance assistant' })).toBeVisible()
   expect(s.unmocked).toEqual([])
 })
@@ -36,11 +36,12 @@ test('reached by URL with the mode off: a link that lands on the Developer Mode 
   await expect(page).toHaveURL(/#\/settings\?section=developer-mode$/)
   // The fold starts closed; the link opens it.
   const toggle = page.getByRole('region', { name: 'Developer Mode' }).getByRole('switch', { name: 'Developer Mode' })
+  await expect(page.locator('#settings-experimental > details')).toHaveJSProperty('open', true)
   await expect(toggle).toBeInViewport()
   await toggle.click()
   await expect(toggle).toBeChecked()
-  await openGear(page)
-  await expect(gearLink(page, 'Assistant')).toBeVisible()
+  await openMenu(page)
+  await expect(navLink(page, 'Assistant')).toBeVisible()
   expect(s.unmocked).toEqual([])
 })
 
@@ -48,10 +49,10 @@ test('from another device: PC only, no nav link, no Settings card', async ({ pag
   const s = await mockAssistant(page, { local: false, developerMode: true })
   await page.goto('/#/assistant')
   await expect(page.getByText('The maintenance assistant is available on the PC only.')).toBeVisible()
-  await expect(gearLink(page, 'Assistant')).toHaveCount(0)
+  await expect(navLink(page, 'Assistant')).toHaveCount(0)
   await page.goto('/#/settings')
   await openSettingsGroups(page)
-  await expect(page.getByRole('region', { name: 'Jobs' })).toBeVisible()
+  await expect(page.locator('#settings-jobs')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Developer Mode' })).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })
@@ -61,8 +62,8 @@ test('ask: busy state, plain-text answer, tools used, patch not applied, add sug
   let release!: () => void
   const s = await mockAssistant(page, { developerMode: true, askGate: new Promise<void>((r) => (release = r)) })
   await page.goto('/#/assistant')
-  await openGear(page)
-  await expect(gearLink(page, 'Assistant')).toBeVisible()
+  await openMenu(page)
+  await expect(navLink(page, 'Assistant')).toBeVisible()
   await expect(page.getByTestId('read-only-note')).toHaveText('Read-only: this assistant has no tool that changes files, git or settings.')
 
   const chat = page.getByRole('region', { name: 'Ask the assistant' })

@@ -1,25 +1,35 @@
 import type { Locator, Page } from '@playwright/test'
 
-// Settings folds most groups (Integrations, Alerts, Advanced and so on); a spec for a card in one of those opens them all first.
+// Every Settings group starts closed on each visit; a spec for a card in one of them opens them all first.
 export async function openSettingsGroups(page: Page) {
-  // The groups only render once Settings has loaded (and only for an admin).
-  await page.locator('.settings-fold > details.section > summary').first().waitFor({ state: 'attached', timeout: 4000 }).catch(() => {})
+  // Sharing renders at once; the rest wait for the settings call, and Jobs is the first of them.
+  await page.locator('#settings-jobs').waitFor({ state: 'attached', timeout: 4000 }).catch(() => {})
   for (const summary of await page.locator('.settings-fold > details.section > summary').all()) {
-    if (!(await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) await summary.click()
+    if (!(await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) {
+      await summary.click()
+      // Section applies the toggle in React state; a click made before it lands can be undone by the re-render.
+      await summary.evaluate((el) => new Promise<void>((done) => {
+        const d = el.parentElement as HTMLDetailsElement
+        const check = () => (d.open ? done() : requestAnimationFrame(check))
+        check()
+      }))
+    }
   }
   // The opened section can land a field's help icon under the pointer, which opens its tooltip.
   await page.mouse.move(0, 0)
 }
 
-// Settings, Admin, Diagnostics and Assistant: a left-rail link from 1024px up, the header cogwheel menu below it.
-const gearMenu = (page: Page): Locator => page.getByRole('group', { name: 'Settings and tools pages' })
-const railNav = (page: Page): Locator => page.getByRole('navigation', { name: 'Main' })
-export const gearLink = (page: Page, name: string): Locator =>
-  railNav(page).getByRole('link', { name, exact: true }).or(gearMenu(page).getByRole('link', { name, exact: true }))
+// Every page link lives in the same registry-driven <nav aria-label="Main">: always in the rail from 1024px up, inside the
+// drawer below it (only while the drawer is open).
+export const navLink = (page: Page, name: string): Locator =>
+  page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name, exact: true })
 
-export async function openGear(page: Page) {
-  const summary = page.locator('summary[aria-label="Settings and tools"]')
-  // No cogwheel on a wide screen: the links are always in the rail.
-  if ((await summary.count()) === 0) return
-  if (!(await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) await summary.click()
+// Opens the drawer when there is a Menu button (below 1024px); a no-op beside the always-visible rail.
+export async function openMenu(page: Page) {
+  // The header (and with it the Menu button) only renders once the session has answered.
+  await page.locator('.app-header').waitFor()
+  const button = page.getByRole('button', { name: 'Menu', exact: true })
+  if ((await button.count()) === 0) return
+  if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click()
+  await page.getByRole('dialog', { name: 'Main menu' }).waitFor()
 }

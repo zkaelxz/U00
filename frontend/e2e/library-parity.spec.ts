@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { navLink, openMenu } from './settingsNav'
+
 // Library parity (inventory L02, L07, L15). Filters run against the real
 // seeded API (e2e/serve_seeded_api.py: three dramas); the Continue shelf and
 // the history clear are mocked so the shared library is left as it was.
@@ -99,16 +101,20 @@ test('Reading history on a remote device: no Clear button', async ({ page }) => 
   await expect(section.getByRole('button', { name: 'Clear reading history' })).toHaveCount(0)
 })
 
-test('Library header buttons show only below 1024px, where the left rail is absent', async ({ page }) => {
+test('Library header has only New drama; Saved manga and Library tools live in the rail or drawer', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 900 })
   await page.goto('/')
   const head = page.locator('.page-head')
-  await expect(head.getByRole('link', { name: 'Saved manga' })).toBeVisible()
-  await expect(head.getByRole('link', { name: 'Library tools' })).toBeVisible()
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await expect(head.getByRole('link', { name: 'Saved manga' })).toBeHidden()
-  await expect(head.getByRole('link', { name: 'Library tools' })).toBeHidden()
   await expect(head.getByRole('button', { name: 'New drama' })).toBeVisible()
+  await expect(head.getByRole('link', { name: 'Saved manga' })).toHaveCount(0)
+  await expect(head.getByRole('link', { name: 'Library tools' })).toHaveCount(0)
+  await openMenu(page)
+  await expect(navLink(page, 'Saved manga')).toBeVisible()
+  await expect(navLink(page, 'Library tools')).toBeVisible()
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(navLink(page, 'Saved manga')).toBeVisible()
+  await expect(navLink(page, 'Library tools')).toBeVisible()
+  await expect(head.getByRole('link', { name: 'Saved manga' })).toHaveCount(0)
 })
 
 test('Library keeps only a summary and links to Library tools', async ({ page }) => {

@@ -2,7 +2,6 @@
 import { isActive, isFinished } from '../diagnosticsFormat'
 import { jobFailed, type JobKind, type JobRecord } from '../../types/jobs'
 
-export const JOB_POLL_MS = 3000
 export const FLASH_MS = 5000
 
 const VERBS: Record<JobKind, string> = {

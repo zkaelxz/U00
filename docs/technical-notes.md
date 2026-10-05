@@ -315,9 +315,16 @@ Contract:
   a `(spoken in Korean)` tag in the numbered prompt text and in all three Reflect
   passes (`context["line_languages"]`, `None` for a single-language batch, so
   those prompts are unchanged); `en` lines are copied to `en` without a model
-  call; NLLB groups a batch by language. Not yet covered: the bulk (batch API)
-  path, the stronger-engine and single-line re-translate paths, and glossary
-  terms per language.
+  call; NLLB groups a batch by language.
+- The other paths read it through the same helpers in `engine_backends/shared.py`
+  (`tagged_line_languages`, `tagged_source_texts`, `is_english_line`):
+  bulk translate tags each request's numbered lines and copies `en` lines at
+  submission (bulk Reflect tags all three stages); the DeepSeek off-peak run and
+  `cli.py translate` go through the shared translate loop; `try_line` (stronger
+  engine), `retry_blocked_line` and the fix-flagged job tag the single line's
+  context and answer an `en` line without a call; the line AI tools
+  (`line_ai_service`) pass the line's own language to their prompts. Not yet
+  covered: glossary terms per language.
 - Export: subtitle wrapping uses the caller's per-field caps
   (`wrap_chars_en` / `wrap_chars_source`) and breaks each line by its own text
   (`subtitle_formats._is_cjk`), so a mixed title needs no per-line language;
