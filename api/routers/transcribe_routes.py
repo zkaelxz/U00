@@ -22,13 +22,16 @@ job started.
 from typing import Optional
 
 from fastapi import APIRouter, Path, Request
-from api.auth import is_local_request, require_paid_engines, require_permission
+from api.auth import (is_local_request, require_engines_allowed, require_paid_engines,
+                      require_permission)
 from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
-                         AutotuneStatus, ErrorResponse, RetranscribeApplyRequest,
+                         AutotuneStatus, CompareApplyRequest, CompareApplyResult,
+                         CompareEstimate, CompareEstimateRequest, CompareOptions,
+                         CompareResult, CompareRunRequest, CompareRunResult, ErrorResponse, RetranscribeApplyRequest,
                          RetranscribeApplyResult, RetranscribeLineRequest,
                          RetranscribeLineResult, RetranscribeResult, TranscribeConfig, TranscribeConfigUpdate,
                          TranscribeRunRequest, TranscribeRunResult)
-from services import transcribe_service
+from services import compare_transcription_service, transcribe_service
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
@@ -141,3 +144,62 @@ def post_apply_retranscribe_line(payload: RetranscribeApplyRequest, drama_id: in
             responses={404: {"model": ErrorResponse}})
 def get_retranscribe_line(drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     return transcribe_service.get_retranscribe_result(drama_id, line_id)
+
+
+# --- Compare transcription (Review): proposals for a set of lines -------------
+# Local models only for the hearing; the optional translation uses the
+# title's engine, so it needs the same paid-engine permission as other jobs.
+
+_COMPARE_ERRORS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                   409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+                   503: {"model": ErrorResponse}}
+
+
+@router.get("/dramas/{drama_id}/compare-transcription/options",
+            dependencies=[require_permission("library.read")], response_model=CompareOptions,
+            summary="Compare transcription: saved settings and which backends can run",
+            responses={404: {"model": ErrorResponse}})
+def get_compare_options(drama_id: int = Path(ge=1)):
+    return compare_transcription_service.get_options(drama_id)
+
+
+@router.post("/dramas/{drama_id}/compare-transcription/estimate",
+             dependencies=[require_permission("library.read")], response_model=CompareEstimate,
+             summary="Compare transcription: line count and advisory translation cost",
+             responses=_COMPARE_ERRORS)
+def post_compare_estimate(payload: CompareEstimateRequest, drama_id: int = Path(ge=1)):
+    return compare_transcription_service.estimate_compare(
+        drama_id, payload.selection.model_dump(exclude_none=True), payload.translate,
+        payload.retranslate_current, payload.engine, payload.model, payload.gemini_free_tier,
+        payload.job_cost_cap_usd)
+
+
+@router.post("/dramas/{drama_id}/compare-transcription/run",
+             dependencies=[require_permission("jobs.start")], response_model=CompareRunResult,
+             summary="Start the compare-transcription job for the selected lines",
+             responses=_COMPARE_ERRORS)
+def post_compare_run(payload: CompareRunRequest, request: Request, drama_id: int = Path(ge=1)):
+    if payload.translate:
+        require_engines_allowed(request, payload.engine)
+    return compare_transcription_service.start_compare(
+        drama_id, payload.selection.model_dump(exclude_none=True), payload.whisper_size,
+        payload.asr_backend, payload.translate, payload.retranslate_current, payload.engine,
+        payload.model, payload.gemini_free_tier, payload.job_cost_cap_usd,
+        payload.initial_prompt, payload.extra_names)
+
+
+@router.get("/dramas/{drama_id}/compare-transcription/result",
+            dependencies=[require_permission("lines.read")], response_model=CompareResult,
+            summary="The finished comparison's proposals (raw line text)",
+            responses={404: {"model": ErrorResponse}})
+def get_compare_result(drama_id: int = Path(ge=1)):
+    return compare_transcription_service.get_compare_result(drama_id)
+
+
+@router.post("/dramas/{drama_id}/compare-transcription/apply",
+             dependencies=[require_permission("lines.edit")], response_model=CompareApplyResult,
+             summary="Use chosen proposals (compare-and-set per line, history snapshot first)",
+             responses=_COMPARE_ERRORS)
+def post_compare_apply(payload: CompareApplyRequest, drama_id: int = Path(ge=1)):
+    return compare_transcription_service.apply_compare(
+        drama_id, payload.job_id, [i.model_dump() for i in payload.items])
