@@ -212,8 +212,8 @@ class TestModelDownloadErrorHandling:
 
 
 class TestDefaultWhisperSize:
-    """Owner decision: large-v3-turbo is the default; its label says so and
-    still carries the Japanese/Korean caveat."""
+    """large-v3-turbo is the default and its label says so, without the old
+    claim that it is weaker on Japanese/Korean (the benchmarks don't show it)."""
 
     def test_default_whisper_size_is_large_v3_turbo(self):
         from core import DEFAULT_WHISPER_SIZE, WHISPER_MODELS
@@ -221,7 +221,7 @@ class TestDefaultWhisperSize:
         assert DEFAULT_WHISPER_SIZE in WHISPER_MODELS
         assert "default" in WHISPER_MODELS["large-v3-turbo"]
         assert "default" not in WHISPER_MODELS["medium"]
-        assert "weaker on Japanese/Korean" in WHISPER_MODELS["large-v3-turbo"]
+        assert "weaker" not in WHISPER_MODELS["large-v3-turbo"]
 
 
 class TestDnsDiagnosis:

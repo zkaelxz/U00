@@ -115,10 +115,15 @@ export function runProblemFromError(err: unknown): RunFieldProblem | null {
   return null
 }
 
-// large-v3-turbo is weaker on ja/ko.
+// What our benchmarks showed for turbo vs large-v3 (docs/asr-experiments.md):
+// Korean slightly favoured large-v3, Chinese was mixed, Japanese was a tie.
 export function whisperModelWarning(size: string, language: string): string {
-  if (size === 'large-v3-turbo' && (language === 'ja' || language === 'ko')) {
-    return 'large-v3-turbo is reported noticeably weaker on Japanese and Korean -- large-v3 (or medium) is the safer choice for this drama.'
+  if (size !== 'large-v3-turbo') return ''
+  if (language === 'ko') {
+    return 'On Korean speech in our tests, large-v3 made about half a point fewer character errors than turbo, and was about twice as slow.'
+  }
+  if (language === 'zh') {
+    return 'On Chinese our tests disagree: large-v3 was more accurate on clean speech, turbo on one drama clip.'
   }
   return ''
 }

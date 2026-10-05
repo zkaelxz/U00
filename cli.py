@@ -1069,8 +1069,7 @@ def main():
     p_align.add_argument("--id", type=int, default=None)
     p_align.add_argument("--whisper-size", default=None, choices=list(WHISPER_MODELS),
                          help="Defaults to the drama's own saved choice (Workspace's own "
-                              f"'3. Recognition accuracy'), or '{DEFAULT_WHISPER_SIZE}' (medium with "
-                              "the GPU off) if it has none.")
+                              f"'3. Recognition accuracy'), or '{DEFAULT_WHISPER_SIZE}' if it has none.")
     p_align.add_argument("--fast", action="store_true",
                          help="Batched decoding (~4x faster on a GPU, more VRAM)")
     p_align.add_argument("--transcript", default=None, metavar="FILE",

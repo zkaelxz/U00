@@ -172,20 +172,22 @@ test('switching dramas does not leak stage state', async ({ page }) => {
   await expect(page.getByTestId('job-panel')).toHaveCount(0)
 })
 
-test('source options offer turbo with a ja/ko hint, the Taiwan script label and a GPU note', async ({ page }) => {
+test('source options offer turbo with a Korean/Chinese note, the Taiwan script label and a GPU note', async ({ page }) => {
   await page.goto('/#/drama/1/source')
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   const size = page.getByLabel('Whisper model', { exact: true })
   await expect(size.locator('option[value="large-v3-turbo"]')).toHaveCount(1)
-  await expect(size.locator('option[value="large-v3-turbo"]')).toHaveText('large-v3-turbo (default, weaker on Japanese/Korean)')
+  await expect(size.locator('option[value="large-v3-turbo"]')).toHaveText('large-v3-turbo (default)')
   // The Edit details panel has its own "Source language" select; scope to Transcribe.
   const language = page.getByRole('region', { name: 'Transcribe' }).getByLabel('Source language', { exact: true })
-  await language.selectOption('ja')
   await size.selectOption('large-v3-turbo')
-  await expect(page.getByRole('note').filter({ hasText: 'weaker' })).toContainText('weaker on Japanese and Korean')
+  await language.selectOption('ko')
+  await expect(page.getByRole('note').filter({ hasText: 'half a point' })).toContainText('about twice as slow')
+  await language.selectOption('ja')
+  await expect(page.getByRole('note').filter({ hasText: 'our tests' })).toHaveCount(0)
   await language.selectOption('zh')
-  await expect(page.getByRole('note').filter({ hasText: 'weaker' })).toHaveCount(0)
+  await expect(page.getByRole('note').filter({ hasText: 'tests disagree' })).toHaveCount(1)
   await expect(page.getByLabel('Chinese script', { exact: true }).locator('option', { hasText: 'Traditional (Taiwan, Hong Kong)' })).toHaveCount(1)
   await expect(page.getByTestId('gpu-note')).toContainText(/GPU: (on|off) - change in Settings/)
 })

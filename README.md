@@ -227,7 +227,7 @@ One upload of the original-language novel (Workspace > Source > Raw novel) feeds
 Whisper often mishears proper nouns in Chinese without it showing. In order of value:
 1. **A real transcript.**
 2. **Prime it with names.** The series glossary feeds Whisper's `initial_prompt` automatically (only about the last 224 tokens influence decoding, so the glossary's nouns go first, then a bounded excerpt of raw novel prose; `.txt`, `.md` or `.epub`).
-3. **`large-v3` instead of `medium`**: better on names and homophones, ~3GB and slower, practical with a GPU. On CPU the default is `medium`.
+3. **`large-v3` instead of `medium`**: slightly more accurate on Korean and clean Chinese in our tests, about twice as slow and ~3GB. The default (`large-v3-turbo`) is the same on CPU and GPU; see "Which Whisper model to pick" in `docs/asr-experiments.md`.
 4. **Wider beam search** (8-10): costs time only.
 
 Other Transcribe options (Workspace > Transcribe):

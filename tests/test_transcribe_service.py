@@ -90,8 +90,8 @@ class TestGetTranscribeConfig:
             "audio_available": False,
             "alignment_method": "whisper_diff",
             "asr_backend_choice": "whisper",
-            "whisper_size": transcribe_service.CPU_DEFAULT_WHISPER_SIZE,
-            "whisper_model_cached": core_module.is_whisper_model_cached(transcribe_service.CPU_DEFAULT_WHISPER_SIZE),
+            "whisper_size": core_module.DEFAULT_WHISPER_SIZE,
+            "whisper_model_cached": core_module.is_whisper_model_cached(core_module.DEFAULT_WHISPER_SIZE),
             "measured_speed": None,
             "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
@@ -1428,7 +1428,7 @@ class TestTranscribeProcessJob:
         assert [r["zh"] for r in isolated_db.load_lines(did)] == ["hi", "there"]
         assert isolated_db.get_drama(did)["status"] == "aligned"
         assert os.path.exists(os.path.join(ddir, "raw_transcript.json"))
-        assert messages[0][1].startswith("Loading Whisper model medium")
+        assert messages[0][1].startswith(f"Loading Whisper model {core_module.DEFAULT_WHISPER_SIZE}")
         assert background_jobs.stage_ticker.NOTE in messages[0][1]
         assert any(f == pytest.approx(0.5 * transcribe_service.RUNNING_MAX)
                    and m.startswith("Transcribing... 50%") for f, m in messages)
@@ -1750,7 +1750,7 @@ class TestTranscribeSpeedCalibration:
 
     def test_config_reports_stage_medians_and_diarize_speed(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        model = transcribe_service.CPU_DEFAULT_WHISPER_SIZE
+        model = core_module.DEFAULT_WHISPER_SIZE
         transcribe_service.record_transcribe_speed(model, False, 600, 300, stage_seconds={"load": 12})
         for work in (300, 300, 300):
             transcribe_service.record_diarize_speed(False, 600, work)
@@ -1786,7 +1786,7 @@ class TestTranscribeSpeedCalibration:
     def test_config_reports_the_speed_for_the_stored_model_and_device(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         # An unsaved drama's model follows the GPU setting, so each device has its own default.
-        transcribe_service.record_transcribe_speed(transcribe_service.CPU_DEFAULT_WHISPER_SIZE, False, 600, 300)
+        transcribe_service.record_transcribe_speed(core_module.DEFAULT_WHISPER_SIZE, False, 600, 300)
         assert transcribe_service.get_transcribe_config(did)["measured_speed"] == 2.0
         assert transcribe_service.get_transcribe_config(did)["measured_speed_runs"] == 1
         transcribe_service.record_transcribe_speed(core_module.DEFAULT_WHISPER_SIZE, True, 3000, 100)

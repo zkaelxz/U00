@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
+import core
 from core import Line
 
 
@@ -798,7 +799,7 @@ class TestTranscribeConfigEndpoints:
         assert body == {
             "drama_id": did, "transcript_mode": "have_transcript", "has_audio_pipeline": True,
             "audio_available": False, "alignment_method": "whisper_diff",
-            "asr_backend_choice": "whisper", "whisper_size": transcribe_service.CPU_DEFAULT_WHISPER_SIZE,
+            "asr_backend_choice": "whisper", "whisper_size": core.DEFAULT_WHISPER_SIZE,
             "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None, "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": body["whisper_installed"],

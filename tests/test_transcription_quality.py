@@ -66,9 +66,9 @@ class TestWhisperSettings:
         assert entry == "batched"
         assert kwargs["no_repeat_ngram_size"] == 3 and kwargs["vad_filter"] is True
 
-    def test_large_v3_turbo_is_offered_but_flagged_for_japanese_and_korean(self):
+    def test_large_v3_turbo_is_offered_without_a_japanese_korean_weakness_claim(self):
         assert "large-v3-turbo" in core.WHISPER_MODELS
-        assert "weaker on Japanese/Korean" in core.WHISPER_MODELS["large-v3-turbo"]
+        assert "weaker" not in core.WHISPER_MODELS["large-v3-turbo"]
 
 
 class _Unit:

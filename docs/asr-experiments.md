@@ -4,6 +4,35 @@ Both are **off by default** and switched on in React **Settings > Transcription
 experiments** (PC only). Nothing here changes a default. Whether either one
 becomes a default is a later decision, made after the real comparison below.
 
+## Which Whisper model to pick
+
+The default is `large-v3-turbo` on both CPU and GPU. In our tests it was about twice as fast as
+large-v3 and close to it in accuracy; `medium` was never ahead of it. All figures come from the
+sections below; the speech is clean read speech (FLEURS, 60 utterances) or one 3-minute clip, so
+gaps under about a point are noise.
+
+| Language | Clean speech (CER %, lower is better) | Drama clip (character recall %, higher is better) |
+|---|---|---|
+| Korean | large-v3 4.08, turbo 4.60, medium 4.93 | not measured |
+| Japanese | not recorded in this file | large-v3 69.1, turbo 67.6, medium 58.5 |
+| Chinese | large-v3 5.71, medium 6.84, turbo 7.15 | turbo 86.8, medium 83.2, large-v3 77.7 |
+
+CPU speed (real-time factor, lower is faster): turbo about 0.4-0.7, medium 0.5-0.9, large-v3 0.9-1.5.
+Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB.
+
+- **Korean:** large-v3 was 0.52 points better than turbo (95% interval -0.98 to -0.11) and about
+  twice as slow. Turbo and medium could not be told apart.
+- **Japanese:** on the one clip turbo was within 1.5 points of large-v3 and medium was about 9 points
+  behind. There is no evidence here that turbo is weaker on Japanese.
+- **Chinese:** the evidence is mixed. On clean speech large-v3 beat turbo by 0.6-2.4 points; on the one
+  drama clip turbo was ahead of large-v3 by 9 points of recall. Medium also wrote Traditional characters
+  far more often than turbo (11 of 60 utterances vs 3).
+- **CPU fallback:** with the GPU off the app now also uses turbo. It was faster than medium and equal or
+  better in every test, at a similar download size, so medium no longer has a reason to be the fallback.
+  A model saved on a drama is never replaced.
+- **Mixed languages:** detecting the language per speech span (the Mixed languages option) was the best mode
+  for all three sizes.
+
 ## What was built
 
 | | Step 103: Qwen3-ASR batching | Step 104: MOSS-Transcribe-Diarize |
