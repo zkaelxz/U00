@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { cancelJob } from '../../../../api/jobs'
 import {
@@ -28,11 +28,17 @@ export function RetranscribeLine({
   lineId,
   onChanged,
   reloadsEditor = false,
+  focusOnReady = false,
+  onFocused,
 }: {
   dramaId: number
   lineId: number
   onChanged?: (applied: RetranscribeApplyResult) => void
   reloadsEditor?: boolean
+  // Set by the line menu's "Re-transcribe…": bring the button into view. It
+  // only focuses; starting the GPU job still takes a button press.
+  focusOnReady?: boolean
+  onFocused?: () => void
 }) {
   const [available, setAvailable] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -42,6 +48,15 @@ export function RetranscribeLine({
   const [jobId, setJobId, runKey] = useJobRun()
   const [proposal, setProposal] = useState<RetranscribeResult | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
+  const startRef = useRef<HTMLButtonElement>(null)
+
+  // The button only exists once the config fetch says audio is available.
+  useEffect(() => {
+    if (!focusOnReady || !available) return
+    startRef.current?.scrollIntoView({ block: 'center' })
+    startRef.current?.focus()
+    onFocused?.()
+  }, [focusOnReady, available, onFocused])
 
   useEffect(() => {
     let cancelled = false
@@ -110,7 +125,7 @@ export function RetranscribeLine({
   return (
     <div className="review-origin" data-testid="retranscribe-line">
       <div className="review-actions">
-        <button type="button" onClick={start} disabled={busy || applying}>
+        <button ref={startRef} type="button" onClick={start} disabled={busy || applying}>
           {busy ? 'Re-transcribing…' : 'Re-transcribe this line'}
         </button>
         {active && job && (
