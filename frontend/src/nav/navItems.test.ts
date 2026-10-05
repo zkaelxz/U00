@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest'
 import type { AuthMe } from '../api/auth'
 import type { SessionState } from '../hooks/useSession'
 import type { Route } from '../router'
+import { readSavedRailChoice } from './useRailCollapsed'
 import { PREF_KEY_PREFIX, readPref, writePref } from '../hooks/usePersistedState'
-import { NAV_ITEMS, RAIL_COLLAPSED_KEY, visibleNavItems, visibleRailGroups, type NavContext } from './navItems'
+import { NAV_ITEMS, RAIL_COLLAPSED_KEY, resolveRailCollapsed, visibleNavItems, visibleRailGroups, type NavContext } from './navItems'
 
 const owner = { id: 1, email: 'o@example.com', display_name: 'Owner', is_admin: true, is_local_owner: true }
 const meOf = (over: Partial<AuthMe>): SessionState => ({
@@ -164,5 +165,24 @@ describe('rail collapse', () => {
     const s = store()
     s.setItem(PREF_KEY_PREFIX + RAIL_COLLAPSED_KEY, '"yes"')
     expect(readPref(s, RAIL_COLLAPSED_KEY, false)).toBe(false)
+  })
+
+  it('tells a never-made choice from a saved one', () => {
+    const s = store()
+    expect(readSavedRailChoice(s)).toBeNull()
+    writePref(s, RAIL_COLLAPSED_KEY, false)
+    expect(readSavedRailChoice(s)).toBe(false)
+    writePref(s, RAIL_COLLAPSED_KEY, true)
+    expect(readSavedRailChoice(s)).toBe(true)
+    expect(readSavedRailChoice(null)).toBeNull()
+  })
+
+  it.each<[string, boolean | null, boolean, boolean]>([
+    ['no saved value, narrower than 1280', null, false, true],
+    ['no saved value, 1280 or wider', null, true, false],
+    ['saved expanded wins when narrow', false, false, false],
+    ['saved collapsed wins when wide', true, true, true],
+  ])('default: %s', (_name, saved, wideEnough, collapsed) => {
+    expect(resolveRailCollapsed(saved, wideEnough)).toBe(collapsed)
   })
 })

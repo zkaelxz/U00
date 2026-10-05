@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import type { AuthUser } from './api/auth'
 import { api } from './api/client'
 import { useMediaQuery } from './hooks/useMediaQuery'
-import { usePersistedState } from './hooks/usePersistedState'
 import { useDetailsMenu } from './hooks/useDetailsMenu'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
@@ -31,8 +30,9 @@ import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
-import { RAIL_COLLAPSED_KEY, visibleNavItems } from './nav/navItems'
+import { visibleNavItems } from './nav/navItems'
 import { SideNav } from './nav/SideNav'
+import { useRailCollapsed } from './nav/useRailCollapsed'
 import { ReportProblemButton } from './report/ReportProblem'
 import { usePcOnly } from './hooks/usePcOnly'
 import { routeHref, useRoute } from './router'
@@ -100,7 +100,7 @@ export default function App() {
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
   const wide = useMediaQuery('(min-width: 1024px)')
-  const [railCollapsed, setRailCollapsed] = usePersistedState(RAIL_COLLAPSED_KEY, false)
+  const [railCollapsed, toggleRail] = useRailCollapsed()
 
   if (view === 'connecting') {
     return (
@@ -166,7 +166,7 @@ export default function App() {
   // One tree at every width, so crossing 1024px keeps the open page (and a playing video) mounted.
   return (
     <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
-      {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={() => setRailCollapsed(!railCollapsed)} />}
+      {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={toggleRail} />}
       <div className="app-main">
         {wide ? (
           <header className="app-header">{headerEnd(false)}</header>
