@@ -5,7 +5,7 @@ import type { PcMode } from '../../hooks/usePcOnly'
 import type { SessionState } from '../../hooks/useSession'
 import type { AdminUser, AuditEvent } from '../../types/adminUsers'
 
-function holds(s: SessionState, permission: string): boolean {
+export function holds(s: SessionState, permission: string): boolean {
   if (s.status === 'loading') return false
   if (s.status === 'unavailable') return true
   return s.me.permissions.includes(permission)

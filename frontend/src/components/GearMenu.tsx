@@ -4,12 +4,11 @@
  * are used rarely, so they sit in one menu instead of five more links.
  */
 import { useDetailsMenu } from '../hooks/useDetailsMenu'
+import type { NavItem } from '../nav/navItems'
 import { routeHref, type Route } from '../router'
 import './gearMenu.css'
 
-export type GearItem = { label: string; target: Route; active: Route['name'][] }
-
-export function GearMenu({ items, route }: { items: GearItem[]; route: Route }) {
+export function GearMenu({ items, route }: { items: NavItem[]; route: Route }) {
   const ref = useDetailsMenu()
   const here = items.some((i) => i.active.includes(route.name))
   return (
