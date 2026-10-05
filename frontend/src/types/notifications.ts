@@ -1,4 +1,4 @@
-// Step 44: Discord / ntfy job notifications (api/routers/notification_routes.py).
+// Discord / ntfy job notifications (api/routers/notification_routes.py).
 // The API only ever returns booleans and outcome words, never a saved URL.
 export type NotificationChannel = 'discord' | 'ntfy'
 

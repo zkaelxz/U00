@@ -14,8 +14,8 @@ have no ownership check; a term of another series reads as NotFoundError.
 aliases / banned_translations are lists of strings in this API and are
 stored pipe-separated (db convention), so a "|" inside one is rejected.
 
-Glossary from the attached novel ("Build a glossary from this novel",
-Step 7b): start_novel_glossary_run is a background job
+Glossary from the attached novel ("Build a glossary from this novel"):
+start_novel_glossary_run is a background job
 calling `tguide.extract_glossary_from_novel` on the drama's own saved
 novel files (raw_novel_context.txt as the original, the
 novel_reference_filename translation as the paired English rendering).
@@ -331,7 +331,7 @@ def glossary_csv(drama_id: int) -> str:
 
 
 def bulk_delete_glossary_terms(drama_id: int, term_ids: list, confirm: bool = False) -> dict:
-    """"Delete N selected term(s)" (confirm=true, Step 71):
+    """"Delete N selected term(s)" (confirm=true):
     deletes each named term by id (never by position). Ids that are not in
     this drama's series glossary are reported in "not_found" and nothing
     else happens to them. Returns {"deleted", "not_found"} id lists."""
@@ -396,7 +396,7 @@ def get_catalogues() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Glossary from the attached novel (Step 7b)
+# Glossary from the attached novel
 # ---------------------------------------------------------------------------
 
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"
@@ -450,7 +450,7 @@ def _normalize_proposals(proposals, known_terms) -> list:
 
 
 def _novel_glossary_cache(engine, engine_name, fresh=False):
-    """Step 41 item 1: each passage's reply is cached on (prompt, engine and
+    """Each passage's reply is cached on (prompt, engine and
     model, max_tokens), so re-running an interrupted extraction only pays
     for the passages it never finished. fresh: skip the cached replies (new
     ones still replace them)."""
@@ -607,7 +607,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     start_lines_glossary_run), DependencyUnavailableError (no key),
     ConflictError (already running).
 
-    fresh (Step 41): ignore replies cached by an earlier run over the same
+    fresh: ignore replies cached by an earlier run over the same
     text and engine and ask the model again (the new replies replace them)."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=True)

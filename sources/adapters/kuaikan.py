@@ -1,6 +1,5 @@
 """
-sources/adapters/kuaikan.py -- 快看漫画 Kuaikan Manhua (zh manhua),
-roadmap Step 23i.
+sources/adapters/kuaikan.py -- 快看漫画 Kuaikan Manhua (zh manhua).
 
 **No Keiyoushi/Mihon extension exists for this site** (its old one was
 removed as broken, confirmed via that repo's own issue #507) -- unlike

@@ -1,10 +1,10 @@
 /*
- * Benchmark Lab (#/benchmark, Roadmap Step 38): golden sets, persistent
+ * Benchmark Lab (#/benchmark): golden sets, persistent
  * per-run results and the Model Arena. Reached from Diagnostics (its nav
  * item stays active here). Reads work anywhere the viewer may see
  * Diagnostics; importing, adding and deleting cases and starting a run are
  * PC only (the server enforces; the page hides them in remote mode). The
- * Model re-evaluation card (Step 40b) runs production against candidate
+ * Model re-evaluation card runs production against candidate
  * models through the same benchmark_lab job.
  */
 import { useCallback, useEffect, useState } from 'react'

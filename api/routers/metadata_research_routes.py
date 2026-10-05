@@ -1,6 +1,6 @@
 """
 api/routers/metadata_research_routes.py -- "Research online" for a drama's
-metadata (roadmap Step 37). See services/metadata_research_service.py: a
+metadata. See services/metadata_research_service.py: a
 lookup returns per-field values with cited sources and writes nothing; apply
 writes only the fields the user chose to replace.
 

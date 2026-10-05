@@ -1,5 +1,5 @@
 """
-debug_view.py -- Step 58's "What happened here?" per-line and per-job
+debug_view.py -- the "What happened here?" per-line and per-job
 debugging view.
 
 This is a PRESENTATION layer over data the app already records (line
@@ -20,7 +20,7 @@ import translate_engines
 CONTEXT_WINDOW_NOTE = (
     "The actual preceding/upcoming lines shown to the model when this line was "
     "translated aren't recorded -- that context is built fresh per batch and "
-    "discarded once translated (needs Step 41's reproducibility metadata). Shown "
+    "discarded once translated, so it would need reproducibility metadata that isn't kept yet. Shown "
     "instead: this line's CURRENT neighbors, which may differ from what was "
     "actually in the prompt at translation time.")
 
@@ -28,10 +28,10 @@ GLOSSARY_MATCH_NOTE = (
     "Best-effort: glossary terms whose source text (or a recorded alias) appears "
     "in this line. Every translation prompt sends the whole glossary, not a "
     "per-line filtered subset, and Baihe doesn't yet record which entries the "
-    "model actually used for a specific line (needs Step 41).")
+    "model actually used for a specific line, which would need that same reproducibility metadata.")
 
 PER_STAGE_TIMING_NOTE = (
-    "Per-stage timing (Step 41 item 5) is recorded for jobs run since it was "
+    "Per-stage timing is recorded for jobs run since it was "
     "added; a job that marks no stages shows one \"Whole job\" row. Spend is the "
     "estimate logged while each stage ran.")
 

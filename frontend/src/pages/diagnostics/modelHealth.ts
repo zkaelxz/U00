@@ -1,5 +1,5 @@
 /*
- * Pure helpers for the Model health card (ModelHealthCard.tsx, Step 40):
+ * Pure helpers for the Model health card (ModelHealthCard.tsx):
  * status labels and tones, which rows need attention and in what order, the
  * "Compare in Benchmark Lab" link, the last-check line and plain error text.
  * No React here (modelHealth.test.ts).

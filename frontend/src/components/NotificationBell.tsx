@@ -1,5 +1,5 @@
 /*
- * The header bell (Step 44): recent finished/failed jobs and new-chapter
+ * The header bell: recent finished/failed jobs and new-chapter
  * finds from GET /api/notifications (library.read, so household users away
  * from the PC see it too). The list lives in the server's memory and is
  * lost when the app restarts.

@@ -28,6 +28,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   feature (Step 34/34b/96): what it does, what was verified against a
   real site.
 - **`react-ui-guidelines.md`** — concise-UI rules for the React app.
+- **`frontend-design-system.md`** — map of how the React frontend is built: layout, routing, tokens and themes, shared components, phone rules, testing and an add-a-screen checklist.
 - **`engineering-standards.md`** — shared principles: precedence, scope,
   review policy, verification, git/safety.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
@@ -40,8 +41,11 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   and how they were fixed, kept separate from the main `README.md` so
   that stays focused on using the app.
 - **`RELEASE.md`** — building the Windows installer and the frontend release zip.
+- **`database.md`** — the database layer: `db.py` and `sources.db`, migrations and the guard test, a table map, the rules learned from bugs, backups, and what sits on disk beside the database.
 - **`runbook.md`** — one-page maintainer steps: installer lock, tests, restore, certificate, benchmark.
+- **`api-and-services.md`** — how the FastAPI layer fits together: request flow, errors, route declarations, ownership, schemas, and an "adding an endpoint" checklist.
 - **`remote-access-decision.md`** — the remote-access design as built, including the route table `tests/test_api_permissions.py` enforces.
+- **`background-jobs.md`** — how background jobs run: thread and process jobs, the GPU guard, cancel, holds, the Jobs API and the CLI, with an add-a-job checklist.
 - **`asr-experiments.md`** — the off-by-default Qwen3-ASR batching and MOSS-Transcribe-Diarize options.
 - **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
 - **`design/`** and **`specs/`** — the UI refresh spec (with before/after screenshots) and earlier API/UX/Step 141 proposals; the specs were written against the removed Streamlit tabs.

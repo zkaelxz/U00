@@ -1,6 +1,5 @@
 """
-api/routers/diagnostics_routes.py -- read-only Diagnostics endpoint
-(Migration Slice 5).
+api/routers/diagnostics_routes.py -- read-only Diagnostics endpoint.
 
 The full overview `services.diagnostics_service` builds, and the last
 remote-access health check (`services.remote_health_service`; the check

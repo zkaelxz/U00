@@ -96,7 +96,7 @@ __all__ = [
 ]
 
 
-# --- Review read-only line views (Migration Slice 47) -----------------------
+# --- Review read-only line views -----------------------
 # Names are prefixed `ReviewLines` on purpose. Identity is always the permanent
 # line `id`; `idx` is display-only.
 class ReviewLinesLine(BaseModel):
@@ -218,7 +218,7 @@ class ReviewLinesOriginalText(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Review read-only records (Migration Slice 48) -- see
+# Review read-only records -- see
 # services/review_records_service.py. Every model is prefixed
 # ReviewRecords to stay clear of the sibling ReviewLines* models.
 # ---------------------------------------------------------------------------
@@ -348,7 +348,7 @@ class ReviewRecordsTmSuggestion(BaseModel):
     entry_id: int
 
 
-# --- Migration Slice 43: per-line edit writes (services/lines_service.py) ---
+# --- Per-line edit writes (services/lines_service.py) ---
 class LinesPatchRequest(BaseModel):
     """Partial line edit: only fields the client sets are applied. `expected`
     maps field -> the old value the client saw (409 if the line differs)."""
@@ -428,7 +428,7 @@ class LinesNoteDeleteResult(BaseModel):
 
 
 class ReviewJobStart(BaseModel):
-    """Start a Review-stage AI job (Migration Slice 44). No keys/URLs."""
+    """Start a Review-stage AI job. No keys/URLs."""
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
@@ -460,7 +460,7 @@ class ReviewJobStarted(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Migration Slice 45: restructure lines + version-history restore
+# Restructure lines + version-history restore
 # ---------------------------------------------------------------------------
 class _RestructureBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -572,7 +572,7 @@ class RestoreVersionResult(BaseModel):
 
 
 class LineExplainRequest(BaseModel):
-    """Per-line AI helper request (Migration Slice 50). No keys/URLs."""
+    """Per-line AI helper request. No keys/URLs."""
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)

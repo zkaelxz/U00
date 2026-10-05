@@ -74,7 +74,7 @@ def load_pipeline(hf_token: str):
 
 
 def validate_speaker_hints(num_speakers=None, min_speakers=None, max_speakers=None):
-    """Step 105: checks the speaker-count hints and returns the cleaned
+    """Checks the speaker-count hints and returns the cleaned
     (num_speakers, min_speakers, max_speakers), each None when unset.
     0/None means "not set" for all three (0 is the existing "auto-detect"
     value for the exact count). An exact count and a range are mutually
@@ -96,7 +96,7 @@ def validate_speaker_hints(num_speakers=None, min_speakers=None, max_speakers=No
 
 
 def select_device(use_gpu: bool = False) -> str:
-    """Step 101: "cuda" when use_gpu is on and torch sees a CUDA device,
+    """Returns "cuda" when use_gpu is on and torch sees a CUDA device,
     else "cpu". Never raises -- a torch without CUDA support means CPU."""
     if not use_gpu:
         return "cpu"
@@ -108,7 +108,7 @@ def select_device(use_gpu: bool = False) -> str:
 
 
 def _place_pipeline(pipeline, use_gpu: bool) -> str:
-    """Step 101: moves the loaded pyannote pipeline onto the GPU when
+    """Moves the loaded pyannote pipeline onto the GPU when
     use_gpu is on and CUDA is available. pyannote's own docs require an
     explicit pipeline.to(torch.device("cuda")); without it the pipeline
     stays on CPU even inside a job tagged gpu_touching. Returns the device
@@ -203,8 +203,8 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     extract_speaker_embeddings() below. Both extra flags default off, so
     every existing call keeps its exact current return shape.
 
-    use_gpu (Step 101): place the pipeline on CUDA when available.
-    min_speakers/max_speakers (Step 105): a speaker-count range passed to
+    use_gpu: place the pipeline on CUDA when available.
+    min_speakers/max_speakers: a speaker-count range passed to
     pyannote's own min_speakers/max_speakers; mutually exclusive with
     num_speakers (validate_speaker_hints). run_info: an optional dict this
     fills with {"device": "cuda"|"cpu"}, the device actually used, plus
@@ -285,7 +285,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
 
 
 def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *rest):
-    """Step 4d: entry point for running diarize() in its own OS process,
+    """Entry point for running diarize() in its own OS process,
     via background_jobs.start_process_job() -- pyannote's pipeline(...)
     call is one opaque call with no cooperative-cancellation checkpoint
     of its own (unlike every other job type in this app, which checks
@@ -302,8 +302,8 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
     Called as (audio_path, hf_token, num_speakers, result_queue) -- the
     original shape, still accepted -- or as
     (audio_path, hf_token, num_speakers, options, result_queue), where
-    options is a plain dict with any of use_gpu/min_speakers/max_speakers
-    (Steps 101/105). The result also carries "device", the device the
+    options is a plain dict with any of use_gpu/min_speakers/max_speakers.
+    The result also carries "device", the device the
     pipeline actually ran on.
     """
     result_queue = rest[-1]
@@ -330,7 +330,7 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
 
 
 def extract_speaker_embeddings(result, annotation) -> dict:
-    """Step 8: {speaker_label: [float, ...]} one voice fingerprint per
+    """{speaker_label: [float, ...]} one voice fingerprint per
     detected speaker, from pyannote.audio 4.x's DiarizeOutput.speaker_embeddings
     -- {} on pyannote 3.x (no such attribute there) or if extraction fails
     for any reason, since this is a bonus signal for voice-match
@@ -390,7 +390,7 @@ def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
     re-merged (or voice clips extracted) later without re-running it.
     Replaced on each detection run; it's the current result, not history.
 
-    embeddings: Step 8's optional {speaker_label: [float, ...]} voice
+    embeddings: optional {speaker_label: [float, ...]} voice
     fingerprints (extract_speaker_embeddings()), saved alongside the
     turns -- {} (not None) when there's nothing to save, so load_embeddings
     always gets a dict back, never needing a None check of its own."""
@@ -432,7 +432,7 @@ def load_last_speaker_count(drama_dir: str):
 
 def load_last_run_info(drama_dir: str) -> dict:
     """{"min_speakers", "max_speakers", "device"} from the last detection
-    run (Steps 101/105), each None if unset, no run yet, or an older file."""
+    run, each None if unset, no run yet, or an older file."""
     data = _read_turns_file(drama_dir)
     return {k: data.get(k) for k in ("min_speakers", "max_speakers", "device")}
 
@@ -440,7 +440,7 @@ def load_last_run_info(drama_dir: str) -> dict:
 def load_embeddings(drama_dir: str) -> dict:
     """The stored {speaker_label: [float, ...]} voice fingerprints from
     the last detection run, or {} if there are none (no run yet, an
-    older save from before Step 8, or pyannote 3.x with nothing to save)."""
+    older save from before embeddings were stored, or pyannote 3.x with nothing to save)."""
     return _read_turns_file(drama_dir).get("embeddings") or {}
 
 
