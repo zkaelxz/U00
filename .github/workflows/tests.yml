@@ -50,6 +50,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
 
+      # Dependabot edits the requirements floors but not constraints.txt or the
+      # installer lock; this fails the PR when they stop agreeing.
+      - name: Check requirements, constraints and installer lock agree
+        run: python scripts/check_constraints.py
+
       - name: Run tests
         run: python run_tests.py -n auto
 

@@ -41,7 +41,7 @@ baihe-subtitler/
 │
 ├── .github/
 │   ├── pull_request_template.md
-│   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check),
+│   └── workflows/                tests.yml (core-only suite), dependency-canary.yml (weekly unpinned install), windows-bootstrap.yml (launcher check),
 │                                 windows-installer.yml (on demand / installer-v* tags: builds the
 │                                 Setup .exe and smoke-tests a silent install + uninstall)
 │
@@ -75,6 +75,8 @@ baihe-subtitler/
 │                                 checked by tests/test_caddyfile_template.py)
 ├── scripts/
 │   ├── build_release.py          packages the built React app as a release zip (baihe-frontend-<version>.zip)
+│   ├── check_constraints.py      fails when requirements, constraints.txt and installer/wheels.lock.txt disagree
+│   │                             (run by tests.yml; docs/testing-and-ci.md)
 │   ├── dependency_canary.py      tests one package upgrade in a throwaway venv against the offline suite;
 │   │                             --write-pin caps constraints.txt on FAIL (docs/testing-and-ci.md)
 │   ├── smoke_pack.py             run on your PC (GPU, real models): checks the transcription pipeline on your own clip
