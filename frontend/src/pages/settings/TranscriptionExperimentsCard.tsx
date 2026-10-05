@@ -89,7 +89,7 @@ function Controls() {
   return (
     <Card title={TITLE} meta={meta} aria-label={TITLE}>
       {error ? <ErrorBanner error={error} /> : null}
-      <div className="setting-list">
+      <div className="settings-form">
         <Field
           label="Qwen3-ASR batch size"
           help="Lines sent to Qwen3-ASR at once when a drama uses the Qwen3 ASR backend. 1 sends one at a time (the tested way). Higher can be faster on a GPU but is not yet checked against real audio; compare the text before relying on it."
@@ -108,7 +108,7 @@ function Controls() {
         <p className="muted" data-testid="qwen-batching-note">
           {batchingNote(opts)}
         </p>
-        <div className="actions">
+        <div className="settings-actions">
           <button
             type="button"
             className={buttonClass('secondary')}
@@ -118,39 +118,41 @@ function Controls() {
             Save batch size
           </button>
         </div>
-        <Field
-          label="Refine line timing with the forced aligner"
-          help="For the Qwen3 ASR with speech detection backend: after transcribing, Qwen3-ForcedAligner tightens each line's start and end inside its speech span. Slower. Lines whose timing had to be estimated are flagged. Off uses the speech spans as they are."
-        >
-          <Toggle
-            checked={opts.qwen_vad_refine_timing}
-            disabled={saving}
-            onChange={(next) => save({ qwen_vad_refine_timing: next })}
-            aria-label="Refine line timing with the forced aligner"
-          />
-        </Field>
-        <Field
-          label="Mixed languages"
-          help="For a video where people speak more than one language (say Korean, Chinese and Japanese). The language is detected for each stretch of speech, and a line whose language differs from the title's is marked in Review. Runs with the Whisper and Qwen3 ASR with speech detection backends. Slower: one language detection per stretch of speech. With the speech detection backend, refining line timing is skipped. Off transcribes everything in the title's language."
-        >
-          <Toggle
-            checked={opts.mixed_languages}
-            disabled={saving}
-            onChange={(next) => save({ mixed_languages: next })}
-            aria-label="Mixed languages"
-          />
-        </Field>
-        <Field
-          label="MOSS-Transcribe-Diarize (experimental)"
-          help="Adds MOSS as an ASR backend choice in a drama's Transcribe > Advanced. It transcribes and labels speakers in one pass. Not yet compared with Whisper and pyannote on audio dramas. It runs model code downloaded from Hugging Face (a pinned version) inside this app, and once on, anyone allowed to edit lines and start jobs can use it."
-        >
-          <Toggle
-            checked={opts.moss_experimental}
-            disabled={saving}
-            onChange={(next) => save({ moss_experimental: next })}
-            aria-label="MOSS-Transcribe-Diarize (experimental)"
-          />
-        </Field>
+        <div className="setting-list">
+          <Field
+            label="Refine line timing with the forced aligner"
+            help="For the Qwen3 ASR with speech detection backend: after transcribing, Qwen3-ForcedAligner tightens each line's start and end inside its speech span. Slower. Lines whose timing had to be estimated are flagged. Off uses the speech spans as they are."
+          >
+            <Toggle
+              checked={opts.qwen_vad_refine_timing}
+              disabled={saving}
+              onChange={(next) => save({ qwen_vad_refine_timing: next })}
+              aria-label="Refine line timing with the forced aligner"
+            />
+          </Field>
+          <Field
+            label="Mixed languages"
+            help="For a video where people speak more than one language (say Korean, Chinese and Japanese). The language is detected for each stretch of speech, and a line whose language differs from the title's is marked in Review. Runs with the Whisper and Qwen3 ASR with speech detection backends. Slower: one language detection per stretch of speech. With the speech detection backend, refining line timing is skipped. Off transcribes everything in the title's language."
+          >
+            <Toggle
+              checked={opts.mixed_languages}
+              disabled={saving}
+              onChange={(next) => save({ mixed_languages: next })}
+              aria-label="Mixed languages"
+            />
+          </Field>
+          <Field
+            label="MOSS-Transcribe-Diarize (experimental)"
+            help="Adds MOSS as an ASR backend choice in a drama's Transcribe > Advanced. It transcribes and labels speakers in one pass. Not yet compared with Whisper and pyannote on audio dramas. It runs model code downloaded from Hugging Face (a pinned version) inside this app, and once on, anyone allowed to edit lines and start jobs can use it."
+          >
+            <Toggle
+              checked={opts.moss_experimental}
+              disabled={saving}
+              onChange={(next) => save({ moss_experimental: next })}
+              aria-label="MOSS-Transcribe-Diarize (experimental)"
+            />
+          </Field>
+        </div>
         <p className="muted" data-testid="moss-installed">
           <Badge tone={opts.moss_installed ? 'ok' : 'neutral'}>{opts.moss_installed ? 'Installed' : 'Not installed'}</Badge>{' '}
           {opts.moss_installed

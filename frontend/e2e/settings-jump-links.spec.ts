@@ -21,14 +21,29 @@ test('jump links open a folded settings section and scroll to it', async ({ page
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
-test('an opened or closed settings group is remembered after a reload', async ({ page }) => {
+test('an opened settings group stays open on the page but starts closed on the next visit', async ({ page }) => {
   await page.goto('/#/settings')
-  const summary = page.locator('#settings-advanced details.section > summary').first()
-  await summary.click()
-  // Section saves its state in the toggle handler, after the open attribute changes.
-  await expect
-    .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.settings.advanced')))
-    .toBe('1')
+  const group = page.locator('#settings-advanced details.section').first()
+  await group.locator('summary').first().click()
+  await expect(group).toHaveAttribute('open', '')
+  // Neither the open nor the closed state is remembered.
+  expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('baihe.section.settings.')))).toEqual([])
   await page.reload()
-  await expect(page.locator('#settings-advanced details.section').first()).toHaveAttribute('open', '')
+  await expect(page.locator('#settings-advanced details.section').first()).not.toHaveAttribute('open', '')
+})
+
+test('every jump link reaches its group, including the three Jobs sections', async ({ page }) => {
+  await page.goto('/#/settings')
+  const nav = page.getByRole('navigation', { name: 'Jump to a settings section' })
+  const ids = ['jobs', 'engines', 'defaults', 'alerts', 'sharing', 'integrations', 'advanced', 'experimental']
+  const links = nav.getByRole('button')
+  await expect(links).toHaveCount(ids.length)
+  for (const [i, id] of ids.entries()) {
+    await links.nth(i).click()
+    await expect(page.locator(`#settings-${id} > details.section`)).toHaveAttribute('open', '')
+    await expect(page.locator(`#settings-${id}`)).toBeInViewport()
+  }
+  const jobs = page.locator('#settings-jobs')
+  for (const title of ['Performance', 'Notifications', 'Spending'])
+    await expect(jobs.getByRole('heading', { name: title })).toBeVisible()
 })

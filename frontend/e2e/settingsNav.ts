@@ -1,11 +1,19 @@
 import type { Locator, Page } from '@playwright/test'
 
-// Settings folds most groups (Integrations, Alerts, Advanced and so on); a spec for a card in one of those opens them all first.
+// Every Settings group starts closed on each visit; a spec for a card in one of them opens them all first.
 export async function openSettingsGroups(page: Page) {
-  // The groups only render once Settings has loaded (and only for an admin).
-  await page.locator('.settings-fold > details.section > summary').first().waitFor({ state: 'attached', timeout: 4000 }).catch(() => {})
+  // Sharing renders at once; the rest wait for the settings call, and Jobs is the first of them.
+  await page.locator('#settings-jobs').waitFor({ state: 'attached', timeout: 4000 }).catch(() => {})
   for (const summary of await page.locator('.settings-fold > details.section > summary').all()) {
-    if (!(await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) await summary.click()
+    if (!(await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) {
+      await summary.click()
+      // Section applies the toggle in React state; a click made before it lands can be undone by the re-render.
+      await summary.evaluate((el) => new Promise<void>((done) => {
+        const d = el.parentElement as HTMLDetailsElement
+        const check = () => (d.open ? done() : requestAnimationFrame(check))
+        check()
+      }))
+    }
   }
   // The opened section can land a field's help icon under the pointer, which opens its tooltip.
   await page.mouse.move(0, 0)
