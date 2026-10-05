@@ -17,6 +17,14 @@ export type NavSurface = 'header' | 'gear' | 'none'
 /** usePersistedState key for the rail's collapsed state. */
 export const RAIL_COLLAPSED_KEY = 'nav.collapsed'
 
+/** Viewport width from which the rail starts expanded when the viewer never chose. */
+export const RAIL_EXPANDED_MIN_WIDTH = 1280
+
+/** A saved choice wins at every width; with none, narrow viewports start collapsed so pages keep their width. */
+export function resolveRailCollapsed(saved: boolean | null, wideEnoughToExpand: boolean): boolean {
+  return saved ?? !wideEnoughToExpand
+}
+
 export type RailGroup = 'library' | 'find' | 'tools' | 'system'
 
 /** Rail groups in on-screen order; the first has no heading because the Library item itself heads it. */
@@ -88,7 +96,7 @@ export const NAV_ITEMS: NavItem[] = [
   item('Jobs', { name: 'jobs' }, ['jobs'], 'gear', {
     requires: 'library.read',
     badge: 'running-jobs',
-    rail: { group: 'tools', active: ['jobs'] },
+    rail: { group: 'system', active: ['jobs'] },
   }),
   // A member sees only Sharing and devices here, which needs library.read.
   item('Settings', { name: 'settings' }, ['settings'], 'gear', { requires: 'library.read', rail: { group: 'system', active: ['settings'] } }),
@@ -100,10 +108,12 @@ export const NAV_ITEMS: NavItem[] = [
   // The gear folds Benchmark Lab into Diagnostics' highlight; the rail has a row for each.
   item('Diagnostics', { name: 'diagnostics' }, ['diagnostics', 'benchmark'], 'gear', {
     requires: 'admin.diagnostics',
+    hideWithoutPermission: true,
     rail: { group: 'system', active: ['diagnostics'] },
   }),
   item('Benchmark Lab', { name: 'benchmark' }, ['benchmark'], 'none', {
     requires: 'admin.diagnostics',
+    hideWithoutPermission: true,
     rail: { group: 'system', active: ['benchmark'] },
   }),
   // The Assistant's routes are local_only(); the page also waits for Developer Mode.

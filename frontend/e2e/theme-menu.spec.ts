@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSettingsGroups } from './settingsNav'
 
 // The header theme button: Match this device / Light / Dark / Sepia / OLED black. The
 // choice is per browser (localStorage), so nothing is sent to the API.
@@ -102,6 +103,7 @@ test('the menu is keyboard operable and closes with Escape', async ({ page }) =>
 
 test('Settings has no theme select; the header button is the only control', async ({ page }) => {
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   await expect(page.getByRole('region', { name: 'Translation style', exact: true })).toBeVisible()
   await expect(page.getByLabel('Theme', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toHaveCount(0)
