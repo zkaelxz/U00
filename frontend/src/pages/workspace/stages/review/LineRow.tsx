@@ -79,6 +79,8 @@ export interface RowActions {
   reload: () => void
   // A search hit: leave the search and open the line on its page (R05).
   showOnPage: (id: number) => void
+  // A tick-box click; `range` (Shift) extends from the last ticked line.
+  select: (id: number, range: boolean) => void
 }
 
 interface Props {
@@ -87,6 +89,7 @@ interface Props {
   // The drama's source_language: what a line with no lang of its own is spoken in.
   sourceLanguage: string | null
   active: boolean
+  selected: boolean
   isPhone: boolean
   hasMedia: boolean
   jobRunning: boolean
@@ -118,7 +121,7 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // One line: meta, source and translation. The active row (roving tabIndex)
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, sourceLanguage, active, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
+function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const langChip = lineLangChip(line.lang, sourceLanguage)
 
@@ -145,7 +148,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, isPhone, hasMedia,
     actions.activate(line.id)
   }
 
-  const className = ['review-line', active && 'is-active', draft && 'is-editing', jumped && 'is-jumped'].filter(Boolean).join(' ')
+  const className = ['review-line', active && 'is-active', draft && 'is-editing', jumped && 'is-jumped', selected && 'is-selected'].filter(Boolean).join(' ')
 
   return (
     <li
@@ -157,6 +160,18 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, isPhone, hasMedia,
       tabIndex={active ? 0 : -1}
       onClick={onRowClick}
     >
+      <label className="review-select">
+        <input
+          type="checkbox"
+          checked={selected}
+          aria-checked={selected}
+          aria-label={`Select line #${lineNumber(line.idx)}`}
+          tabIndex={active ? 0 : -1}
+          // onClick, not onChange: only a click event carries shiftKey.
+          onClick={(e) => actions.select(line.id, e.shiftKey)}
+          onChange={() => {}}
+        />
+      </label>
       <div className="review-line-meta">
         <span className="review-idx">#{lineNumber(line.idx)}</span>
         <span className="review-time">
