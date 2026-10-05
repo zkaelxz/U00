@@ -21,11 +21,13 @@ export interface UsageRecostPreview {
   month_stored_usd: number
   month_recomputed_usd: number
   recosted_rows: number
+  fingerprint: string
 }
 
 export interface UsageRecostResult {
   rows: number
   month_spend_usd: number
+  recosted_rows: number
   previewed?: number | null
   changed?: number | null
 }
@@ -35,9 +37,13 @@ const BASE = '/api/settings/usage-recost'
 export const getUsageRecost = (f?: Fetch) => getJson<UsageRecostPreview>(BASE, f)
 
 // PC only: a 403 marks the tab remote.
-// `previewed` is the count the user saw; the server answers 409 if it differs now.
-export const applyUsageRecost = (previewed: number, f?: Fetch) =>
-  postJson<UsageRecostResult>(`${BASE}/apply`, { confirm: true, previewed }, pcOnlyFetch(f))
+// The count and fingerprint the user saw; the server answers 409 if the set differs now.
+export const applyUsageRecost = (preview: Pick<UsageRecostPreview, 'rows' | 'fingerprint'>, f?: Fetch) =>
+  postJson<UsageRecostResult>(
+    `${BASE}/apply`,
+    { confirm: true, previewed: preview.rows, fingerprint: preview.fingerprint },
+    pcOnlyFetch(f),
+  )
 
 export const undoUsageRecost = (f?: Fetch) => postJson<UsageRecostResult>(`${BASE}/undo`, {}, pcOnlyFetch(f))
 

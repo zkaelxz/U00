@@ -2,10 +2,13 @@
 services/usage_recost_service.py -- opt-in re-cost of old usage_log rows.
 
 Some models were costed wrongly before they were priced correctly: the new
-Claude 5.x models were unpriced, so estimate_cost used the whole family's
-highest rate (Opus, $15/$75), and claude-opus-4-8 sat in the table at that
-same $15/$75 although its real rate is $5/$25. db.log_usage stored those
-figures, so past months still sum too high.
+Claude 5.x models were unpriced, so estimate_cost fell back to a rate that was
+too high, and claude-opus-4-8 sat in the table at $15/$75 although its real
+rate is $5/$25. Rows logged before the same-tier fallback in
+engine_backends/pricing.py landed were costed at the family maximum (Opus,
+$15/$75); rows logged after it at the tier ceiling (Sonnet $3/$15). Both are
+above the real rate. db.log_usage stored those figures, so past months still
+sum too high.
 
 - Selection is an explicit, reviewed list (RECOST_MODELS), not "every model
   that is unpriced": a row of any other model is never read or written.
@@ -28,6 +31,7 @@ UI-free. Writes are PC-only (the router uses local_only()).
 """
 import contextlib
 import datetime
+import hashlib
 
 import db
 import bulk_translate
@@ -70,6 +74,12 @@ def _recosted_rows() -> int:
                             "WHERE estimated_cost_usd_before_recost IS NOT NULL").fetchone()[0]
 
 
+def _fingerprint(plan: list) -> str:
+    # Row ids and recomputed costs, so a different set with the same count differs.
+    pairs = sorted((row["id"], round(new, 6)) for row, new in plan)
+    return hashlib.sha256(repr(pairs).encode()).hexdigest()[:16]
+
+
 def preview() -> dict:
     plan = _plan()
     month = _month_start()
@@ -96,20 +106,22 @@ def preview() -> dict:
         "month_stored_usd": month_total,
         "month_recomputed_usd": month_total - month_stored + month_new,
         "recosted_rows": _recosted_rows(),
+        "fingerprint": _fingerprint(plan),
     }
 
 
-def apply(confirm: bool, previewed: int = None) -> dict:
+def apply(confirm: bool, previewed: int, fingerprint: str) -> dict:
     if confirm is not True:
         raise InvalidInputError("Confirm the re-cost before it is applied.")
     plan = _plan()
-    if previewed is not None and previewed != len(plan):
+    if previewed != len(plan) or fingerprint != _fingerprint(plan):
         raise ConflictError("The past costs changed since you checked them. Check again before applying.")
     updates = [(row["id"], row["estimated_cost_usd"], new) for row, new in plan]
     changed = db.apply_usage_recost(updates) if updates else 0
     return {"rows": changed, "previewed": previewed, "changed": changed,
-            "month_spend_usd": db.get_month_spend()}
+            "month_spend_usd": db.get_month_spend(), "recosted_rows": _recosted_rows()}
 
 
 def undo() -> dict:
-    return {"rows": db.undo_usage_recost(), "month_spend_usd": db.get_month_spend()}
+    rows = db.undo_usage_recost()
+    return {"rows": rows, "month_spend_usd": db.get_month_spend(), "recosted_rows": _recosted_rows()}
