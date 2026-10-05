@@ -3,6 +3,7 @@ routes under /api/transcribe/dramas/{id}/compare-transcription. ffmpeg, ASR
 and the translation engine are faked: no audio model, no network."""
 
 import os
+import subprocess
 import time
 
 import pytest
@@ -206,6 +207,50 @@ class TestRun:
         with pytest.raises(ConflictError):
             svc.start_compare(did, ALL)
 
+    def test_refused_while_another_job_changes_lines(self):
+        did, _ = _drama(2)
+        with background_jobs._lock:
+            background_jobs._jobs[f"resegment_{did}"] = {
+                "status": "queued", "progress": 0.0, "message": "", "result": None,
+                "error": None, "started_at": time.time(), "finished_at": None,
+                "cancel_requested": False}
+        with pytest.raises(ConflictError, match="Another job is changing"):
+            svc.start_compare(did, ALL)
+        assert background_jobs.get_status(svc.compare_job_id(did)) is None
+
+    def test_slice_and_hearing_errors_never_show_paths(self, _env, monkeypatch):
+        secret_dir = "/home/someone/private/library/drama_42"
+        real_slice = core.extract_audio_slice
+
+        def failing_slice(audio_path, start, end, out_path, timeout=None):
+            if start == 0.0:
+                raise subprocess.CalledProcessError(
+                    1, ["ffmpeg", "-i", f"{secret_dir}/audio.wav", f"{secret_dir}/out.wav"])
+            return real_slice(audio_path, start, end, out_path, timeout=timeout)
+        real_hear = core.transcribe_for_timing
+
+        def failing_hear(path, *a, **k):
+            if len(_env["transcribe"]) == 0:
+                _env["transcribe"].append({})
+                raise RuntimeError(f"Invalid data found when processing input: '{secret_dir}/x.wav'")
+            return real_hear(path, *a, **k)
+        monkeypatch.setattr(core, "extract_audio_slice", failing_slice)
+        monkeypatch.setattr(core, "transcribe_for_timing", failing_hear)
+        did, _ = _drama(3)
+        client = TestClient(create_app(ApiSettings()))
+        started = client.post(f"/api/transcribe/dramas/{did}/compare-transcription/run",
+                              json={"selection": ALL})
+        assert started.status_code == 200, started.text
+        _wait(started.json())
+        res = client.get(f"/api/transcribe/dramas/{did}/compare-transcription/result")
+        assert res.status_code == 200, res.text
+        errors = res.json()["errors"]
+        assert len(errors) == 2 and "couldn't cut this line's audio" in errors[0]
+        assert "private" not in res.text and "/home/" not in res.text
+        jobs = client.get("/api/jobs")
+        assert jobs.status_code == 200
+        assert "private" not in jobs.text and "/home/" not in jobs.text
+
 
 class TestTranslation:
     def test_translates_candidate_and_missing_current_only(self, _env, monkeypatch):
@@ -323,6 +368,33 @@ class TestApply:
         other, _ = _drama(1)
         with pytest.raises(NotFoundError):
             svc.get_compare_result(other)
+
+    def test_all_skipped_apply_takes_no_snapshot(self):
+        did, ids = _drama(2)
+        out = _run(did)
+        p = svc.get_compare_result(did)["proposals"]
+        db.update_line_fields_if(did, ids[0], {"zh": "我改的"}, {})
+        db.update_line_fields_if(did, ids[1], {"zh": "也改了"}, {})
+        res = svc.apply_compare(did, out["job_id"], [_item(x) for x in p])
+        assert res == {"applied": [], "skipped": [ids[0], ids[1]]}
+        assert db.list_line_history(did) == []
+
+    def test_one_click_per_row_keeps_older_undo_points(self):
+        did, ids = _drama(10)
+        for n in range(3):
+            db.save_line_history_snapshot(did, db.load_line_objects(did), f"older {n}")
+        out = _run(did, selection={"kind": "range", "from_number": 1, "to_number": 10})
+        proposals = svc.get_compare_result(did)["proposals"]
+        for p in proposals:
+            assert svc.apply_compare(did, out["job_id"], [_item(p)])["applied"] == [p["line_id"]]
+        labels = [h["label"] for h in db.list_line_history(did)]
+        assert labels == ["before compare-transcription apply", "older 2", "older 1", "older 0"]
+        # Another snapshot in between means the next apply takes its own.
+        db.save_line_history_snapshot(did, db.load_line_objects(did), "someone else")
+        db.update_line_fields_if(did, ids[0], {"zh": proposals[0]["base_zh"]}, {})
+        svc.apply_compare(did, out["job_id"], [_item(proposals[0])])
+        assert [h["label"] for h in db.list_line_history(did)][:2] == [
+            "before compare-transcription apply", "someone else"]
 
 
 class TestApi:

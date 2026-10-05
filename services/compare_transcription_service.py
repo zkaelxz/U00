@@ -12,17 +12,17 @@ against what the preview was built from, after a history snapshot.
 """
 import os
 import subprocess
+import threading
 
 import asr_backend
 import background_jobs
 import core as core_module
 import db
 import translate_engines
-from services import (settings_service, transcribe_service,
+from services import (jobs_service, settings_service, transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       NotFoundError, UnsupportedOperationError)
-from translate_engines import redact_secrets
 
 MAX_LINES = 200
 _MAX_TEXT_CHARS = 2000
@@ -235,7 +235,9 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
     audio pipeline / stored audio, or when the monthly cap is spent;
     InvalidInputError for a bad selection (including over MAX_LINES) or
     setting; DependencyUnavailableError for a backend or engine that isn't
-    installed/configured; ConflictError while a compare run is active."""
+    installed/configured; ConflictError while a compare run is active, or
+    while a full transcription, fix-flagged, a re-segment or a narration run
+    is running or queued for this drama."""
     drama = _drama_or_404(drama_id)
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
@@ -246,6 +248,11 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
     size, backend = _validate_candidate(drama, whisper_size, asr_backend_choice)
     prompt = transcribe_service._resolve_initial_prompt(drama_id, initial_prompt or "",
                                                         extra_names or "")
+    for prefix in transcribe_service._RETRANSCRIBE_BLOCKING_PREFIXES:
+        other = background_jobs.get_status(f"{prefix}{drama_id}")
+        if other and other.get("status") in ("running", "queued"):
+            raise ConflictError("Another job is changing this drama's lines. "
+                                "Try again when it finishes.")
     job_id = compare_job_id(drama_id)
     if background_jobs.is_running(job_id):
         raise ConflictError("A transcription comparison is already running for this title.")
@@ -329,8 +336,16 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
                 job_id, n / max(len(lines), 1), f"Line {n + 1} of {len(lines)}")
             slice_path = os.path.join(os.path.dirname(audio_path), f"_comparetx_slice_{ln.id}.wav")
             try:
-                core_module.extract_audio_slice(audio_path, float(ln.start), float(ln.end),
-                                                slice_path, timeout=_SLICE_TIMEOUT_S)
+                try:
+                    core_module.extract_audio_slice(audio_path, float(ln.start), float(ln.end),
+                                                    slice_path, timeout=_SLICE_TIMEOUT_S)
+                except subprocess.TimeoutExpired:
+                    errors.append(f"line {ln.idx + 1}: cutting the audio took too long")
+                    continue
+                except (subprocess.CalledProcessError, OSError):
+                    # str() of these carries the ffmpeg command line, i.e. absolute paths.
+                    errors.append(f"line {ln.idx + 1}: couldn't cut this line's audio")
+                    continue
                 heard = _hear(slice_path, cfg,
                               lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
                               lambda: _cancel_check(job_id))
@@ -338,13 +353,10 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
                 cancelled = True
                 break
             except core_module.ModelDownloadError as exc:
-                failed_reason, detail = "model_download", redact_secrets(str(exc))
+                failed_reason, detail = "model_download", jobs_service.redact_text(str(exc))
                 break
-            except subprocess.TimeoutExpired:
-                errors.append(f"line {ln.idx + 1}: cutting the audio took too long")
-                continue
             except Exception as exc:
-                errors.append(redact_secrets(f"line {ln.idx + 1}: {exc}"))
+                errors.append(jobs_service.redact_text(f"line {ln.idx + 1}: {exc}"))
                 continue
             finally:
                 if os.path.exists(slice_path):
@@ -405,7 +417,7 @@ def _translate_into(proposal, ln, engine, context, character_names, translation,
             **context, "speaker_labels": [character_names.get(ln.speaker)] * len(texts),
             "line_languages": translate_engines.tagged_line_languages([ln] * len(texts), language)})
     except Exception as exc:
-        errors.append(redact_secrets(f"line {ln.idx + 1} translation: {exc}"))
+        errors.append(jobs_service.redact_text(f"line {ln.idx + 1} translation: {exc}"))
         return 0.0
     cost = 0.0
     if hasattr(engine, "last_usage"):
@@ -426,13 +438,17 @@ def _translate_into(proposal, ln, engine, context, character_names, translation,
     return cost
 
 
-def _finished_result(drama_id: int) -> dict:
+def _finished_job(drama_id: int) -> dict:
     _drama_or_404(drama_id)
     job = background_jobs.get_status(compare_job_id(drama_id)) or {}
     result = job.get("result") if job.get("status") == "done" else None
     if not isinstance(result, dict) or not isinstance(result.get("proposals"), list):
         raise NotFoundError("No finished transcription comparison for this title.")
-    return result
+    return job
+
+
+def _finished_result(drama_id: int) -> dict:
+    return _finished_job(drama_id)["result"]
 
 
 def get_compare_result(drama_id: int) -> dict:
@@ -445,7 +461,43 @@ def get_compare_result(drama_id: int) -> dict:
             "asr_backend": result.get("asr_backend"), "whisper_size": result.get("whisper_size"),
             "translated": bool(result.get("translated")), "partial": bool(result.get("partial")),
             "cap_reached": result.get("cap_reached") is not None,
-            "errors": [redact_secrets(str(e)) for e in result.get("errors") or []]}
+            "errors": [jobs_service.redact_text(str(e)) for e in result.get("errors") or []]}
+
+
+# Serialises applies so two at once can't both decide a fresh snapshot is needed.
+_apply_lock = threading.Lock()
+# drama_id -> (run finished_at, history id) of the snapshot that run's first
+# apply took. The per-row "Use this" sends one item per apply, and the DB keeps
+# only the last 10 snapshots, so a snapshot per click would evict every older
+# undo point.
+_run_snapshots = {}
+
+
+def _still_matches(ln, expected: dict) -> bool:
+    """Python mirror of db.update_lines_fields_if_many's compare-and-set."""
+    if ln is None:
+        return False
+    for col, val in expected.items():
+        if col in ("start", "end"):
+            if abs(float(getattr(ln, col)) - float(val)) >= 1e-6:
+                return False
+        elif (getattr(ln, col) or "") != val:
+            return False
+    return True
+
+
+def _snapshot_once_per_run(drama_id: int, run_token, lines):
+    """Takes the 'before' snapshot, unless this run already took one and no
+    other snapshot has been taken since (undo to it still restores the state
+    before this run's first apply)."""
+    taken = _run_snapshots.get(drama_id)
+    if taken and taken[0] == run_token:
+        latest = db.list_line_history(drama_id)
+        if latest and latest[0]["id"] == taken[1]:
+            return
+    history_id = db.save_line_history_snapshot(drama_id, lines,
+                                               "before compare-transcription apply")
+    _run_snapshots[drama_id] = (run_token, history_id)
 
 
 def apply_compare(drama_id: int, job_id, items) -> dict:
@@ -456,7 +508,9 @@ def apply_compare(drama_id: int, job_id, items) -> dict:
     transaction), so a line edited since is skipped and reported, never
     overwritten. Writes `zh`, plus `en` only for use_english items whose
     proposal has an English. A history snapshot ('before compare-transcription
-    apply') is taken first. Returns {applied: [line_id], skipped: [line_id]}.
+    apply') is taken first when at least one item still matches, unless this
+    run's earlier apply already took the latest snapshot. Returns {applied:
+    [line_id], skipped: [line_id]}.
 
     InvalidInputError for malformed items or another drama's job id;
     NotFoundError with no finished run; ConflictError when an item isn't a
@@ -465,7 +519,8 @@ def apply_compare(drama_id: int, job_id, items) -> dict:
         raise InvalidInputError("job_id is not this title's transcription comparison.")
     if not isinstance(items, list) or not items or len(items) > _MAX_APPLY_ITEMS:
         raise InvalidInputError(f"Choose between 1 and {_MAX_APPLY_ITEMS} lines to use.")
-    result = _finished_result(drama_id)
+    job = _finished_job(drama_id)
+    result = job["result"]
     by_id = {p["line_id"]: p for p in result["proposals"]}
     writes, seen = [], set()
     for item in items:
@@ -484,8 +539,12 @@ def apply_compare(drama_id: int, job_id, items) -> dict:
             values["en"] = p["candidate_en"]
             expected["en"] = p["base_en"]
         writes.append((p["line_id"], values, expected))
-    db.save_line_history_snapshot(drama_id, db.load_line_objects(drama_id),
-                                  "before compare-transcription apply")
-    skipped = db.update_lines_fields_if_many(drama_id, writes)
+    with _apply_lock:
+        lines = db.load_line_objects(drama_id)
+        current = {ln.id: ln for ln in lines}
+        if not any(_still_matches(current.get(lid), expected) for lid, _v, expected in writes):
+            return {"applied": [], "skipped": [lid for lid, _v, _e in writes]}
+        _snapshot_once_per_run(drama_id, job.get("finished_at"), lines)
+        skipped = db.update_lines_fields_if_many(drama_id, writes)
     return {"applied": [lid for lid, _v, _e in writes if lid not in set(skipped)],
             "skipped": list(skipped)}
