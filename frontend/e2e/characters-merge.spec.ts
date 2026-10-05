@@ -22,10 +22,10 @@ const entry = (label: string, over: object = {}) => ({
   sample_lines: [], ...over,
 })
 
-async function mockAll(page: Page) {
+async function mockAll(page: Page, startEntries?: () => ReturnType<typeof entry>[]) {
   const unmocked: string[] = []
   const posts: { path: string; body: Record<string, unknown> }[] = []
-  const start = () => [entry('SPEAKER_01', { line_count: 4 }), entry('SPEAKER_03', { line_count: 3 })]
+  const start = startEntries ?? (() => [entry('SPEAKER_01', { line_count: 4 }), entry('SPEAKER_03', { line_count: 3 })])
   let entries = start()
   const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
   const undo = { undo_id: 'u'.repeat(32), expires_in: 900 }
@@ -86,6 +86,24 @@ test('merge with a confirm step, then undo', async ({ page }) => {
   await expect(page.getByLabel('Name for SPEAKER_03')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Undo merge' })).toHaveCount(0)
   expect(m.unmocked).toEqual([])
+})
+
+const NOTE = 'Its voice sample stays on disk. You can remove it later in Library tools > Disk usage.'
+
+test('confirm text mentions the leftover clip only when the target does not take it', async ({ page }) => {
+  await mockAll(page, () => [entry('SPEAKER_01', { line_count: 4, has_ref_audio: true }),
+    entry('SPEAKER_03', { line_count: 3, has_ref_audio: true })])
+  await openCharacters(page)
+  await startMerge(page)
+  await expect(page.locator('.character-merge-confirm')).toContainText(NOTE)
+})
+
+test('no clip note when the target takes the clip or the source has none', async ({ page }) => {
+  await mockAll(page, () => [entry('SPEAKER_01', { line_count: 4 }), entry('SPEAKER_03', { line_count: 3, has_ref_audio: true })])
+  await openCharacters(page)
+  await startMerge(page)
+  await expect(page.locator('.character-merge-confirm')).toContainText('3 lines from SPEAKER_03 will move to SPEAKER_01')
+  await expect(page.locator('.character-merge-confirm')).not.toContainText('voice sample')
 })
 
 test('editing the target clears the undo', async ({ page }) => {
