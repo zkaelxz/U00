@@ -30,6 +30,7 @@
   --shadow-1: none;
   --shadow-pop: 0 2px 8px color-mix(in srgb, #000 16%, transparent);
   --content-max: 1200px;
+  --content-max-wide: 1800px;
   --radius: 8px;
   --radius-sm: 6px;
   --space-1: 4px;
@@ -200,6 +201,11 @@ body {
   line-height: var(--leading);
   overflow-wrap: anywhere;
 }
+
+/* Beyond the rail layout body is already narrower than 1200px, so only the rail column needs a wide cap.
+   Pages that cap themselves (Jobs, Sources, Discover, Diagnostics) are released so the column width applies. */
+.has-rail > .app-main[data-width='wide'] { max-width: var(--content-max-wide); }
+.app-main[data-width='wide'] :is(.jobs-page, .sources-page, .discover-page, .page-narrow) { max-width: none; }
 
 /* ---- header + top nav ---- */
 .app-header {
