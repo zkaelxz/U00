@@ -34,7 +34,7 @@ import {
 import { GetStarted } from './libraryParity/GetStarted'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
-  autofillHref, countsLine, usageLine,
+  autofillHref, usageLine,
 } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
 import { savePresetStart } from './workspace/translateForm'
@@ -43,21 +43,6 @@ import { savePresetStart } from './workspace/translateForm'
 
 const statsLine = (s: LibraryDashboard) =>
   `${countDramas(s.total_dramas)} · ${s.translated_lines} of ${s.total_lines} lines translated · $${s.usage.estimated_cost_usd.toFixed(2)} spent · ${usageLine(s.usage)}`
-
-// Parity L01: the Library's counts by status and by type, one muted line each.
-function StatsBreakdown({ stats }: { stats: LibraryDashboard }) {
-  const rows = [
-    ['By status', countsLine(stats.by_status, 'status')],
-    ['By type', countsLine(stats.by_media_type, 'mediaType')],
-  ].filter(([, text]) => text)
-  if (!rows.length) return null
-  return (
-    <p className="page-meta stats-breakdown" data-testid="stats-breakdown">
-      {rows.map(([label, text]) => <span key={label}>{label}: {text}</span>)}
-    </p>
-  )
-}
-
 
 // "Continue": reading and workspace activity, one Resume tap each. Rendered
 // only when there is something to resume.
@@ -322,11 +307,10 @@ export default function LibraryPage() {
           <h2 className="page-title">Library</h2>
           <ErrorBanner error={stats.error} />
           {stats.data && <p className="page-meta" data-testid="stats">{statsLine(stats.data)}</p>}
-          {stats.data && <StatsBreakdown stats={stats.data} />}
         </div>
         <div className="actions">
-          <ButtonLink variant="secondary" href="#/manga">Saved manga</ButtonLink>
-          <ButtonLink variant="secondary" href="#/library-tools">Library tools</ButtonLink>
+          <ButtonLink variant="secondary" className="rail-duplicate" href="#/manga">Saved manga</ButtonLink>
+          <ButtonLink variant="secondary" className="rail-duplicate" href="#/library-tools">Library tools</ButtonLink>
           <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New drama</button>
         </div>
       </header>

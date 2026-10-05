@@ -199,6 +199,7 @@ export default function LibraryToolsPage() {
       </header>
       <ErrorBanner error={stats.error} />
       <section className="tools-stack" aria-label="Library tools">
+        <h3 className="tools-group-title">Organize</h3>
         <ToolSection title="Series" defaultOpen count={shared?.length} summary="Dramas that share characters and glossary" error={series.error}>
           <ul className="tool-list series-list">
             {shared?.map((x) => (
@@ -227,6 +228,31 @@ export default function LibraryToolsPage() {
             ))}
           </ul>
         </ToolSection>
+        <ToolSection title="Presets" count={presets.data?.items.length} error={presets.error}>
+          <DeletableList
+            pc={pc}
+            help="Dramas that used it keep their settings."
+            items={presets.data?.items.map((p) => ({
+              id: p.id, name: p.name, meta: p.translation_engine ? engineLabel(p.translation_engine) : null,
+            }))}
+            remove={deletePreset}
+            rename={renamePreset}
+            onDeleted={onChanged}
+          />
+        </ToolSection>
+        <ToolSection title="Voice bank" count={voices.data?.items.length} error={voices.error}>
+          <DeletableList
+            pc={pc}
+            help="Characters that used it keep their own copy."
+            items={voices.data?.items.map((v) => ({ id: v.id, name: v.name, meta: v.language ? languageLabel(v.language) : null }))}
+            remove={deleteVoiceBankEntry}
+            rename={renameVoiceBankEntry}
+            onDeleted={onChanged}
+            extra={(id, name) => voices.data?.items.find((v) => v.id === id)?.clip_available
+              ? <VoiceBankPlayButton entryId={id} name={name} /> : null}
+          />
+        </ToolSection>
+        <h3 className="tools-group-title">Activity</h3>
         <ToolSection
           title="Cost by drama"
           count={costs.data?.items.length}
@@ -267,30 +293,7 @@ export default function LibraryToolsPage() {
           </ul>
           <ClearHistory pc={pc} onCleared={onChanged} />
         </ToolSection>
-        <ToolSection title="Presets" count={presets.data?.items.length} error={presets.error}>
-          <DeletableList
-            pc={pc}
-            help="Dramas that used it keep their settings."
-            items={presets.data?.items.map((p) => ({
-              id: p.id, name: p.name, meta: p.translation_engine ? engineLabel(p.translation_engine) : null,
-            }))}
-            remove={deletePreset}
-            rename={renamePreset}
-            onDeleted={onChanged}
-          />
-        </ToolSection>
-        <ToolSection title="Voice bank" count={voices.data?.items.length} error={voices.error}>
-          <DeletableList
-            pc={pc}
-            help="Characters that used it keep their own copy."
-            items={voices.data?.items.map((v) => ({ id: v.id, name: v.name, meta: v.language ? languageLabel(v.language) : null }))}
-            remove={deleteVoiceBankEntry}
-            rename={renameVoiceBankEntry}
-            onDeleted={onChanged}
-            extra={(id, name) => voices.data?.items.find((v) => v.id === id)?.clip_available
-              ? <VoiceBankPlayButton entryId={id} name={name} /> : null}
-          />
-        </ToolSection>
+        <h3 className="tools-group-title">Data</h3>
         <AdminSection pc={pc} exportable={exportableCount(stats.data?.by_status)} exporter={exporter} />
         <DiskUsageSection pc={pc} />
       </section>
