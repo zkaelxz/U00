@@ -83,7 +83,7 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
         type="button"
         className="palette-btn"
         aria-haspopup="dialog"
-        aria-label="Search"
+        aria-label="Quick search"
         title={`Search pages (${SHORTCUT_LABEL})`}
         onClick={show}
       >
@@ -95,7 +95,7 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
       <dialog
         ref={dialog}
         className="palette"
-        aria-label="Search"
+        aria-label="Quick search"
         onCancel={(e) => {
           e.preventDefault()
           close()

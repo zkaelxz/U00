@@ -2,8 +2,8 @@ import { expect, type Page } from '@playwright/test'
 
 import { hideDiscoverFromSettings } from './customizeMenu'
 
-export const searchButton = (page: Page) => page.getByRole('button', { name: 'Search', exact: true })
-export const palette = (page: Page) => page.getByRole('dialog', { name: 'Search' })
+export const searchButton = (page: Page) => page.getByRole('button', { name: 'Quick search', exact: true })
+export const palette = (page: Page) => page.getByRole('dialog', { name: 'Quick search' })
 export const paletteInput = (page: Page) => palette(page).getByRole('combobox')
 
 // Typing, Enter and the hidden-item rule, shared by the desktop and phone specs; `open` is how each project opens the palette.
