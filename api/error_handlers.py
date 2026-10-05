@@ -13,7 +13,8 @@ so the React client (and later the browser extension) can branch on
 |------|-------------------------|---------------------------------------------|
 | 422  | validation_error        | FastAPI request validation, `InvalidInputError` |
 | 401  | unauthenticated         | `UnauthenticatedError` (auth on, no session) |
-| 403  | forbidden               | `ForbiddenError` (missing permission/CSRF)  |
+| 403  | forbidden               | `ForbiddenError` (missing permission)       |
+| 403  | csrf_failed             | `CsrfFailedError` (missing CSRF token)      |
 | 429  | rate_limited            | `RateLimitedError`                          |
 | 404  | not_found               | `NotFoundError`, unknown route              |
 | 400  | unsupported_operation   | `UnsupportedOperationError`                 |

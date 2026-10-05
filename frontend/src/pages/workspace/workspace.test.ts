@@ -102,11 +102,12 @@ describe('config validation', () => {
 })
 
 describe('whisper model warning', () => {
-  it('warns only for large-v3-turbo on Japanese/Korean', () => {
-    expect(whisperModelWarning('large-v3-turbo', 'ja')).toMatch(/weaker on Japanese and Korean/)
-    expect(whisperModelWarning('large-v3-turbo', 'ko')).not.toBe('')
-    expect(whisperModelWarning('large-v3-turbo', 'zh')).toBe('')
-    expect(whisperModelWarning('large-v3', 'ja')).toBe('')
+  it('notes the measured Korean and Chinese gaps for turbo, and nothing for Japanese', () => {
+    expect(whisperModelWarning('large-v3-turbo', 'ko')).toMatch(/half a point fewer .* twice as slow/)
+    expect(whisperModelWarning('large-v3-turbo', 'zh')).toMatch(/tests disagree/)
+    expect(whisperModelWarning('large-v3-turbo', 'ja')).toBe('')
+    expect(whisperModelWarning('large-v3', 'ko')).toBe('')
+    expect(whisperModelWarning('medium', 'ko')).toBe('')
   })
 })
 

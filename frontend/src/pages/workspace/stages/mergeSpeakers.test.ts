@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CharacterEntry } from '../../../types/translateStage'
 import { ApiError } from '../../../api/client'
-import { mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, undoIdSurvives } from './mergeSpeakers'
+import { VOICE_CLIP_NOTE, leavesVoiceClip, mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, undoIdSurvives } from './mergeSpeakers'
 
 const e = (label: string, over: Partial<CharacterEntry> = {}) =>
   ({ speaker_label: label, character_name: '', line_count: 2, series_character_id: null, ...over }) as CharacterEntry
@@ -27,6 +27,26 @@ describe('mergeSummary', () => {
   it('says how many lines move', () => {
     expect(mergeSummary(e('B', { line_count: 12 }), 'A')).toMatch(/^12 lines from B will move to A/)
     expect(mergeSummary(e('B', { line_count: 1 }), 'A')).toMatch(/^1 line from B/)
+  })
+})
+
+describe('leavesVoiceClip', () => {
+  const src = e('B', { has_ref_audio: true })
+  const tgt = (over: Partial<CharacterEntry> = {}) => e('A', { has_ref_audio: false, voice_design: '', ...over })
+
+  it('is false when the target takes the clip', () => {
+    expect(leavesVoiceClip(src, tgt())).toBe(false)
+  })
+  it('is true when the target has its own clip or a designed voice', () => {
+    expect(leavesVoiceClip(src, tgt({ has_ref_audio: true }))).toBe(true)
+    expect(leavesVoiceClip(src, tgt({ voice_design: 'warm, low' }))).toBe(true)
+  })
+  it('is false when the source has no clip or the target is unknown', () => {
+    expect(leavesVoiceClip(e('B', { has_ref_audio: false }), tgt({ has_ref_audio: true }))).toBe(false)
+    expect(leavesVoiceClip(src, undefined)).toBe(false)
+  })
+  it('has the plain wording', () => {
+    expect(VOICE_CLIP_NOTE).toBe('Its voice sample stays on disk. You can remove it later in Library tools > Disk usage.')
   })
 })
 

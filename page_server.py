@@ -380,7 +380,10 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 tesseract_cmd=config.get("tesseract_cmd") or None,
                 prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
                 page_id=(page or {}).get("id"))
-            notes.extend([list(n) for n in (detect_notes or [])])
+            # Detector/OCR notes can quote a Hugging Face download error;
+            # the saved HF token now reaches that call, so redact them.
+            notes.extend([[n[0], translate_engines.redact_secrets(str(n[1]))]
+                          for n in (detect_notes or [])])
 
             engine = _build_engine(config)
             if bubbles and engine is not None:
@@ -573,7 +576,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self.server is not _server:
             # A keep-alive connection accepted before stop_server() would
             # otherwise go on serving after the bridge was turned off.
-            raise EndpointError(503, "the extension bridge is turned off")
+            raise EndpointError(503, "the extension bridge is turned off: switch on 'Extension bridge' in Baihe's Settings > Browser extension")
         if not self._client_is_local():
             raise EndpointError(403, "this endpoint only answers requests from this computer")
         if not _token_matches(self.headers.get(TOKEN_HEADER, ""), load_or_create_token()):

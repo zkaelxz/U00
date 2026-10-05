@@ -277,15 +277,15 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
 _whisper_model_cache = {}
 
 # Speech-recognition models offered in the Workspace picker (faster-whisper
-# names). large-v3-turbo is the default (owner decision): near large-v3
-# accuracy at a fraction of the time and memory. It is reported weaker than
-# large-v3 on Japanese and Korean, so the label and the Transcribe stage's
-# warning keep saying so and large-v3 stays one pick away.
+# names). large-v3-turbo is the default: in our benchmarks (docs/asr-experiments.md)
+# it matched large-v3 on Japanese, trailed it by about half a point on Korean and
+# by more on clean Chinese, and ran about twice as fast. medium was never ahead
+# of it. The labels and the Transcribe stage's note say only what was measured.
 WHISPER_MODELS = {
     "small": "small -- fastest, least accurate",
-    "medium": "medium -- balanced, lighter on CPU",
-    "large-v3": "large-v3 -- most accurate, slower, ~3GB",
-    "large-v3-turbo": "large-v3-turbo -- default; much faster, near large-v3 on Chinese, weaker on Japanese/Korean",
+    "medium": "medium -- no faster or more accurate than turbo in our tests",
+    "large-v3": "large-v3 -- slightly more accurate on Korean and clean Chinese, about 2x slower, ~3GB",
+    "large-v3-turbo": "large-v3-turbo -- default; close to large-v3 in our tests, about 2x faster",
 }
 DEFAULT_WHISPER_SIZE = "large-v3-turbo"
 # Auto-tune's default candidate min_silence_duration_ms values -- spans the
