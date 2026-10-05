@@ -1,0 +1,44 @@
+/* Ctrl+K quick search (nav/CommandPalette.tsx) */
+button.palette-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: var(--text-sm); color: var(--muted); }
+button.palette-btn:hover:not(:disabled) { color: var(--text); }
+button.palette-btn kbd { font: inherit; font-size: var(--text-xs, 0.75rem); padding: 0 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+
+dialog.palette {
+  padding: 0;
+  margin: 12vh auto auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  width: min(34rem, calc(100vw - 2 * var(--space-4)));
+  max-height: 70dvh;
+  overflow: hidden;
+}
+dialog.palette[open] { display: flex; flex-direction: column; }
+dialog.palette::backdrop { background: color-mix(in srgb, black 45%, transparent); }
+.palette-body { display: flex; flex-direction: column; min-height: 0; padding: var(--space-3); gap: var(--space-2); }
+.palette-head { display: flex; align-items: center; gap: var(--space-2); }
+input.palette-input { flex: 1 1 auto; min-width: 0; }
+button.palette-close { display: none; min-width: 44px; min-height: 44px; padding: 0; font-size: var(--text-xl); line-height: 1; background: none; border-color: transparent; }
+.palette-list { display: grid; gap: 2px; overflow-y: auto; min-height: 0; }
+a.palette-option { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text); text-decoration: none; }
+a.palette-option[aria-selected='true'] { background: var(--surface); border-color: var(--accent); }
+.palette-hint { font-size: var(--text-sm); color: var(--muted); }
+.palette-empty { margin: 0; padding: var(--space-3); color: var(--muted); overflow-wrap: anywhere; }
+.palette-body > p.visually-hidden { margin: 0; }
+
+@media (pointer: coarse), (max-width: 640px) {
+  button.palette-btn { min-width: 44px; min-height: 44px; justify-content: center; padding-inline: 0; }
+  button.palette-btn kbd { display: none; }
+  a.palette-option { min-height: 48px; align-items: center; }
+  button.palette-close { display: inline-flex; align-items: center; justify-content: center; }
+}
+/* A full-width sheet from the top, so the on-screen keyboard leaves the results visible. */
+@media (max-width: 640px) {
+  dialog.palette { width: 100vw; max-width: 100vw; margin: 0; border-radius: 0 0 var(--radius) var(--radius); border-top: none; max-height: 70dvh; }
+  .palette-body { padding-top: calc(var(--space-3) + env(safe-area-inset-top, 0px)); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  dialog.palette[open], dialog.palette[open]::backdrop { animation: palette-in var(--dur-3) var(--ease); }
+  @keyframes palette-in { from { opacity: 0; } }
+}
