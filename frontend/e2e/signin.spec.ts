@@ -105,6 +105,9 @@ test('a 401 from any call swaps in the Login page', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
+test.describe('below 1024px', () => {
+  test.use({ viewport: { width: 1000, height: 800 } })
+
 test('signed in: the cogwheel sits in the header\'s right-hand group, not in the Main nav, and its menu stays on screen', async ({ page }) => {
   await mockAuth(page, ME.signedIn)
   await page.goto('/#/library')
@@ -120,4 +123,5 @@ test('signed in: the cogwheel sits in the header\'s right-hand group, not in the
   expect(box.x).toBeGreaterThanOrEqual(0)
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width)
   await maybeScreenshot(page, 'desktop-gear-open')
+})
 })

@@ -1,10 +1,10 @@
 /* The left rail (nav/SideNav.tsx), shown from 1024px up; narrower screens keep the header nav. */
-.app-shell { display: grid; grid-template-columns: 15rem minmax(0, 1fr); align-items: start; min-height: 100vh; }
-.app-shell:has(> .app-rail[data-collapsed='true']) { grid-template-columns: 3.5rem minmax(0, 1fr); }
+.app-shell.has-rail { display: grid; grid-template-columns: 15rem minmax(0, 1fr); align-items: start; min-height: 100vh; }
+.app-shell.has-rail:has(> .app-rail[data-collapsed='true']) { grid-template-columns: 3.5rem minmax(0, 1fr); }
 /* The page column keeps the 1200px cap that body had; body's own cap and padding move here so the rail can sit outside it. */
-.app-main { min-width: 0; width: 100%; max-width: var(--content-max); margin-inline: auto; padding: var(--space-4); }
-body:has(> #root > .app-shell) { max-width: none; padding: 0; }
-.app-main > .app-header { justify-content: flex-end; }
+.has-rail > .app-main { min-width: 0; width: 100%; max-width: var(--content-max); margin-inline: auto; padding: var(--space-4); }
+body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
+.has-rail > .app-main > .app-header { justify-content: flex-end; }
 
 .app-rail {
   position: sticky;

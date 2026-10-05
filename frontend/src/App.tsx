@@ -163,38 +163,30 @@ export default function App() {
     </>
   )
 
-  if (wide) {
-    return (
-      <div className="app-shell">
-        <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={() => setRailCollapsed(!railCollapsed)} />
-        <div className="app-main">
-          <header className="app-header">{headerEnd(false)}</header>
-          {content}
-        </div>
-      </div>
-    )
-  }
-
+  // One tree at every width, so crossing 1024px keeps the open page (and a playing video) mounted.
   return (
-    <>
-      <header className="app-header">
-        <h1>
-          Baihe<span className="title-rest"> Studio</span>
-        </h1>
-        <nav aria-label="Main">
-          {visibleNavItems('header', navContext).map(({ label, target, active }) => (
-            <a
-              key={label}
-              href={routeHref(target)}
-              aria-current={active.includes(route.name) ? 'page' : undefined}
-            >
-              {label}
-            </a>
-          ))}
-        </nav>
-        {headerEnd(true)}
-      </header>
-      {content}
-    </>
+    <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
+      {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={() => setRailCollapsed(!railCollapsed)} />}
+      <div className="app-main">
+        {wide ? (
+          <header className="app-header">{headerEnd(false)}</header>
+        ) : (
+          <header className="app-header">
+            <h1>
+              Baihe<span className="title-rest"> Studio</span>
+            </h1>
+            <nav aria-label="Main">
+              {visibleNavItems('header', navContext).map(({ label, target, active }) => (
+                <a key={label} href={routeHref(target)} aria-current={active.includes(route.name) ? 'page' : undefined}>
+                  {label}
+                </a>
+              ))}
+            </nav>
+            {headerEnd(true)}
+          </header>
+        )}
+        {content}
+      </div>
+    </div>
   )
 }
