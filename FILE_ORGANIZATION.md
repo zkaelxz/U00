@@ -757,7 +757,8 @@ baihe-subtitler/
 │   │                              <html data-theme>, applied in index.html and main.tsx; the header button is
 │   │                              components/ThemeMenu.tsx; the header cogwheel, components/GearMenu.tsx, opens Settings, Admin
 │   │                              (pages/Admin.tsx: Users, Audit log, Remote access) and Diagnostics; its items and the header's main nav
-│   │                              come from src/nav/navItems.ts, the one navigation list with permission and PC-only flags). ApiKeysCard (Settings > API
+│   │                              come from src/nav/navItems.ts, the one navigation list with permission and PC-only flags; from 1024px up the header nav and
+│   │                              cogwheel give way to the left rail, nav/SideNav.tsx + nav/sideNav.css, rendered from the same list). ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
 │   │                              settings.css (the page's Card stack and status rows).
 │   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,

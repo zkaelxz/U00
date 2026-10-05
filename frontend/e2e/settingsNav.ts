@@ -11,11 +11,15 @@ export async function openSettingsGroups(page: Page) {
   await page.mouse.move(0, 0)
 }
 
-// The header cogwheel menu: Settings, Admin, Diagnostics, Assistant.
+// Settings, Admin, Diagnostics and Assistant: a left-rail link from 1024px up, the header cogwheel menu below it.
 const gearMenu = (page: Page): Locator => page.getByRole('group', { name: 'Settings and tools pages' })
-export const gearLink = (page: Page, name: string): Locator => gearMenu(page).getByRole('link', { name })
+const railNav = (page: Page): Locator => page.getByRole('navigation', { name: 'Main' })
+export const gearLink = (page: Page, name: string): Locator =>
+  railNav(page).getByRole('link', { name, exact: true }).or(gearMenu(page).getByRole('link', { name, exact: true }))
 
 export async function openGear(page: Page) {
   const summary = page.locator('summary[aria-label="Settings and tools"]')
+  // No cogwheel on a wide screen: the links are always in the rail.
+  if ((await summary.count()) === 0) return
   if (!(await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) await summary.click()
 }

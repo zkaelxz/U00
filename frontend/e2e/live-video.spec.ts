@@ -132,7 +132,7 @@ test('toggling Show video off removes the iframe, and the choice is remembered',
 test('leaving the page removes the iframe', async ({ page }) => {
   await startRunning(page)
   await expect(page.locator('iframe')).toHaveCount(1)
-  await page.getByRole('link', { name: 'Library' }).click()
+  await page.getByRole('link', { name: 'Library', exact: true }).click()
   await expect(page).toHaveURL(/#\/library/)
   await expect(page.locator('iframe')).toHaveCount(0)
 })

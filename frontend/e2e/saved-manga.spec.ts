@@ -12,8 +12,8 @@ const label = (page: Page) => page.getByTestId('comic-page-label')
 test('lists saved series, reads a chapter, continues where it left off', async ({ page }) => {
   const s = await mockManga(page)
   await page.goto('/#/manga')
-  // Saved manga sits under Library in the nav.
-  await expect(page.getByRole('link', { name: 'Library', exact: true })).toHaveAttribute('aria-current', 'page')
+  // The left rail has its own Saved manga item; Library is no longer current here.
+  await expect(page.getByRole('link', { name: 'Saved manga', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { name: 'Saved manga' })).toBeVisible()
   const list = page.getByRole('list', { name: 'Saved series' })
   await expect(list).toContainText('MangaK · 2 chapters · last saved 2 min ago')
