@@ -320,3 +320,35 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 @media (max-width: 640px) {
   .review-ai-panel, .review-ai-actions, .review-actions, .review-tools, .review-tm, .review-flagnav { gap: var(--space-3); }
 }
+
+/* ---- line selection ---- */
+.review-selectall { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); font-size: var(--text-sm); }
+/* The box sits in the row's left padding (not the meta flow), so showing or hiding it never moves text. */
+.review-line { --select-size: 32px; }
+.review-select {
+  position: absolute; top: 0; left: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  width: var(--select-size); height: var(--select-size); margin: 0; cursor: pointer;
+}
+.review-select input { width: 18px; height: 18px; margin: 0; cursor: pointer; }
+.review-line { position: relative; padding-left: calc(var(--space-3) + 20px); }
+.review-line.is-selected { background: var(--accent-soft); }
+.review-line.is-selected.is-active { background: var(--row-active); }
+@media (hover: hover) and (pointer: fine) {
+  .review-lines:not(.has-selection) .review-select:not(:hover):not(:focus-within) { opacity: 0; }
+  .review-lines:not(.has-selection) .review-line:hover .review-select,
+  .review-lines:not(.has-selection) .review-line.is-active .review-select { opacity: 1; }
+}
+.review-selbar {
+  position: sticky; bottom: 0; z-index: var(--z-sticky, 3);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding: var(--space-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.review-selbar-count { font-weight: 600; }
+.review-selbar-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+@media (pointer: coarse), (max-width: 640px) { .review-line { --select-size: var(--touch); } }
+@media (max-width: 640px) {
+  .review-line { padding-left: calc(var(--space-2) + 24px); }
+  /* Clear of the fixed phone action bar. */
+  .review-selbar { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+}
