@@ -88,8 +88,12 @@ button.review-play { min-width: 44px; padding-inline: 10px; }
 .review-player-dock:empty { display: none; }
 /* The panel's stable wrapper (moved between the strip and the dock) adds no box. */
 .review-player-slot, .review-player-host { display: contents; }
-/* In the pop-out window the video takes the room the window gives it. */
-body > .review-player-host .review-video { max-height: 60vh; }
+/* In the pop-out window the player fills whatever size the window is given: the
+   page's content-width cap and the inline video's height cap do not apply there. */
+html.review-popout body { max-width: none; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; }
+html.review-popout .review-player-host { display: flex; flex: 1 1 auto; min-height: 0; }
+html.review-popout .review-player-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; }
+html.review-popout .review-video { flex: 1 1 auto; min-height: 0; max-height: none; width: 100%; object-fit: contain; }
 .review-player-dock .review-player-panel { padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
 .review-player-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; font-size: var(--text-sm); min-width: 0; }
 .review-jump { display: inline-flex; gap: var(--space-1); min-width: 0; }
