@@ -379,6 +379,21 @@ class TestUnpricedModelCost:
         assert translate_engines.estimate_cost("claude-brand-new", 1_000_000, 0) == 15.0
         assert translate_engines.estimate_cost("unrelated-model", 1000, 1000) == 0.0
 
+    @pytest.mark.parametrize("model,rates", [
+        ("claude-sonnet-5-5", (3.0, 15.0)),
+        ("claude-opus-9", (15.0, 75.0)),
+        ("claude-haiku-9", (1.0, 5.0)),
+        ("claude-brand-new", (15.0, 75.0)),
+        ("gemini-3.2-flash-lite", (0.30, 2.50)),
+        ("gemini-4-flash", (0.75, 3.75)),
+        ("gemini-4-pro", (2.0, 12.0)),
+        ("gemini-brand-new", (2.0, 12.0)),
+    ])
+    def test_unpriced_model_uses_highest_rate_of_its_tier(self, model, rates):
+        assert model not in translate_engines.PRICING_PER_MILLION_TOKENS
+        assert translate_engines.estimate_cost(model, 1_000_000, 0) == pytest.approx(rates[0])
+        assert translate_engines.estimate_cost(model, 0, 1_000_000) == pytest.approx(rates[1])
+
 
 class _StubDeepSeek:
     name = "deepseek"
