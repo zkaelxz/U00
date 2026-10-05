@@ -49,7 +49,7 @@ test('a page render error shows the fallback, and navigating away recovers', asy
       },
     }),
   )
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Library' }).click()
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Library', exact: true }).click()
   await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.getByTestId('error-fallback')).toHaveCount(0)
 })

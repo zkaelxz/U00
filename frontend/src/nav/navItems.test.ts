@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { AuthMe } from '../api/auth'
 import type { SessionState } from '../hooks/useSession'
-import { NAV_ITEMS, visibleNavItems, type NavContext } from './navItems'
+import type { Route } from '../router'
+import { PREF_KEY_PREFIX, readPref, writePref } from '../hooks/usePersistedState'
+import { NAV_ITEMS, RAIL_COLLAPSED_KEY, visibleNavItems, visibleRailGroups, type NavContext } from './navItems'
 
 const owner = { id: 1, email: 'o@example.com', display_name: 'Owner', is_admin: true, is_local_owner: true }
 const meOf = (over: Partial<AuthMe>): SessionState => ({
@@ -32,7 +34,7 @@ const personas: Record<string, NavContext> = {
 
 const labels = (surface: 'header' | 'gear', ctx: NavContext) => visibleNavItems(surface, ctx).map((i) => i.label)
 
-const HEADER = ['Library', 'Quick translate', 'Sources', 'Discover', 'Live']
+const HEADER = ['Library', 'Translate text', 'Sources', 'Discover', 'Live']
 
 describe('nav registry shows what the header and gear showed before it existed', () => {
   it('owner at the PC', () => {
@@ -86,5 +88,81 @@ describe('registry data', () => {
     expect(by['Benchmark Lab'].requires).toBe('admin.diagnostics')
     expect(by['Diagnostics'].hideWithoutPermission).toBe(false)
     expect(by['Benchmark Lab'].surface).toBe('none')
+  })
+})
+
+const railLabels = (ctx: NavContext) => visibleRailGroups(ctx).flatMap((g) => g.items.map((r) => r.item.label))
+const railCurrent = (ctx: NavContext, route: Route) =>
+  visibleRailGroups(ctx).flatMap((g) => g.items).filter((r) => r.active.includes(route.name)).map((r) => r.item.label)
+
+describe('left rail', () => {
+  const owner = personas['owner at the PC']
+
+  it('owner sees every page, grouped, with Benchmark Lab under Diagnostics', () => {
+    expect(visibleRailGroups(owner).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
+      [null, ['Library', 'Saved manga', 'Library tools']],
+      ['Find and add', ['Sources', 'Discover']],
+      ['Tools', ['Translate text', 'Live']],
+      ['System', ['Settings', 'Admin', 'Diagnostics', 'Benchmark Lab']],
+    ])
+  })
+
+  it('household member: no Admin; Diagnostics and Benchmark Lab stay as the gear shows them today', () => {
+    const labelsOf = railLabels(personas['household member'])
+    expect(labelsOf).not.toContain('Admin')
+    expect(labelsOf).toContain('Diagnostics')
+    expect(labelsOf).not.toContain('Assistant')
+  })
+
+  it('Assistant appears only on the PC in Developer Mode', () => {
+    expect(railLabels({ ...owner, developerMode: true })).toContain('Assistant')
+    expect(railLabels({ ...owner, pcMode: 'remote', developerMode: true })).not.toContain('Assistant')
+    expect(railLabels({ ...owner, pcMode: 'unknown', developerMode: true })).not.toContain('Assistant')
+  })
+
+  it('lists every registered page with a rail slot, so none is reachable only by deep link', () => {
+    const ctx: NavContext = { ...owner, developerMode: true }
+    const targets = visibleRailGroups(ctx).flatMap((g) => g.items.map((r) => r.item.target.name))
+    expect(targets).toEqual(
+      expect.arrayContaining(['library', 'library-tools', 'manga', 'sources', 'discover', 'translate', 'live', 'settings', 'admin', 'diagnostics', 'benchmark', 'assistant']),
+    )
+  })
+
+  it.each<[string, Route, string[]]>([
+    ['library', { name: 'library' }, ['Library']],
+    ['title workspace', { name: 'drama', id: 3, stage: 'review' }, ['Library']],
+    ['reader', { name: 'read', id: 3, page: null }, ['Library']],
+    ['comic', { name: 'comic', id: 3, page: 2 }, ['Library']],
+    ['saved manga', { name: 'manga' }, ['Saved manga']],
+    ['manga series', { name: 'manga-series', source: 's', series: 'x' }, ['Saved manga']],
+    ['manga chapter', { name: 'manga-read', source: 's', series: 'x', chapter: '1', page: null }, ['Saved manga']],
+    ['library tools', { name: 'library-tools' }, ['Library tools']],
+    ['diagnostics', { name: 'diagnostics' }, ['Diagnostics']],
+    ['benchmark', { name: 'benchmark' }, ['Benchmark Lab']],
+    ['translate', { name: 'translate' }, ['Translate text']],
+  ])('%s marks exactly one rail item current', (_name, route, expected) => {
+    expect(railCurrent({ ...owner, developerMode: true }, route)).toEqual(expected)
+  })
+})
+
+describe('rail collapse', () => {
+  const store = () => {
+    const m = new Map<string, string>()
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) }
+  }
+
+  it('starts expanded and remembers a collapse', () => {
+    const s = store()
+    expect(readPref(s, RAIL_COLLAPSED_KEY, false)).toBe(false)
+    expect(writePref(s, RAIL_COLLAPSED_KEY, true)).toBe(true)
+    expect(readPref(s, RAIL_COLLAPSED_KEY, false)).toBe(true)
+    expect(s.getItem(PREF_KEY_PREFIX + RAIL_COLLAPSED_KEY)).toBe('true')
+  })
+
+  it('stays expanded when storage is unavailable or holds something else', () => {
+    expect(readPref(null, RAIL_COLLAPSED_KEY, false)).toBe(false)
+    const s = store()
+    s.setItem(PREF_KEY_PREFIX + RAIL_COLLAPSED_KEY, '"yes"')
+    expect(readPref(s, RAIL_COLLAPSED_KEY, false)).toBe(false)
   })
 })

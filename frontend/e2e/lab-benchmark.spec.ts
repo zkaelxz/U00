@@ -29,13 +29,13 @@ async function runOnce(page: Page, label: string, promptVersion: string) {
 test('Benchmark Lab: import a set, run the offline engine twice, compare in the Arena', async ({ page }) => {
   const setName = `e2e-${Date.now()}`
 
-  // Reached from Diagnostics; its nav item stays active.
+  // Reached from Diagnostics; on the wide rail it has its own item, which becomes current .
   await page.goto('/#/diagnostics')
-  await page.getByRole('link', { name: 'Benchmark Lab' }).click()
+  await page.getByRole('main').or(page.locator('.app-main')).getByRole('link', { name: 'Benchmark Lab' }).click()
   await expect(page).toHaveURL(/#\/benchmark$/)
   await expect(page.getByRole('heading', { name: 'Benchmark Lab' })).toBeVisible()
   await openGear(page)
-  await expect(gearLink(page, 'Diagnostics')).toHaveAttribute('aria-current', 'page')
+  await expect(gearLink(page, 'Benchmark Lab')).toHaveAttribute('aria-current', 'page')
 
   // Import a golden set from pasted TSV.
   const sets = page.getByRole('region', { name: 'Golden sets' })
