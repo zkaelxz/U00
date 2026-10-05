@@ -34,6 +34,18 @@ __all__ = [
     "RetranscribeApplyRequest",
     "RetranscribeApplyResult",
     "RetranscribeResult",
+    "CompareSelection",
+    "CompareBackendOption",
+    "CompareOptions",
+    "CompareEstimateRequest",
+    "CompareEstimate",
+    "CompareRunRequest",
+    "CompareRunResult",
+    "CompareProposal",
+    "CompareResult",
+    "CompareApplyItem",
+    "CompareApplyRequest",
+    "CompareApplyResult",
 ]
 
 
@@ -320,3 +332,123 @@ class RetranscribeResult(BaseModel):
     status: str
     proposed_zh: str
     base_zh: str
+
+
+# --- Compare transcription (Review) -----------------------------------------
+class CompareSelection(BaseModel):
+    """Which lines to compare; the fields each kind reads are named in its
+    comment. The server caps a run at CompareOptions.max_lines."""
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(..., pattern="^(line_ids|range|flagged|speaker|time)$")
+    line_ids: Optional[List[StrictInt]] = Field(None, max_length=1000)  # line_ids
+    from_number: Optional[StrictInt] = Field(None, ge=1)  # range: "from #N"
+    to_number: Optional[StrictInt] = Field(None, ge=1)  # range: "to #M"
+    speaker: Optional[str] = Field(None, max_length=200)  # speaker
+    start_seconds: Optional[float] = Field(None, ge=0)  # time
+    end_seconds: Optional[float] = Field(None, ge=0)  # time
+
+
+class CompareBackendOption(BaseModel):
+    id: str
+    label: str
+    available: bool
+    reason: Optional[str] = None
+
+
+class CompareOptions(BaseModel):
+    has_audio: bool
+    no_audio_reason: Optional[str] = None
+    max_lines: int
+    saved_whisper_size: str
+    saved_asr_backend: str
+    saved_alignment_method: str
+    whisper_sizes: List[str]
+    backends: List[CompareBackendOption]
+    translation_engine: str
+
+
+class _CompareTranslateFields(BaseModel):
+    translate: StrictBool = False
+    retranslate_current: StrictBool = False
+    engine: Optional[str] = Field(None, max_length=50)
+    model: Optional[str] = Field(None, max_length=100)
+    gemini_free_tier: Optional[StrictBool] = None
+    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+
+
+class CompareEstimateRequest(_CompareTranslateFields):
+    model_config = ConfigDict(extra="forbid")
+    selection: CompareSelection
+
+
+class CompareEstimate(BaseModel):
+    line_count: int
+    max_lines: int
+    translate: bool
+    estimated_usd: Optional[float] = None
+    free: bool
+    cap_applies: bool
+    effective_cap_usd: Optional[float] = None
+    monthly_refusal: bool
+    estimate_above_cap: bool
+
+
+class CompareRunRequest(_CompareTranslateFields):
+    """whisper_size / asr_backend default to the title's saved values."""
+    model_config = ConfigDict(extra="forbid")
+    selection: CompareSelection
+    whisper_size: Optional[str] = Field(None, max_length=50)
+    asr_backend: Optional[str] = Field(None, max_length=50)
+    initial_prompt: str = Field("", max_length=1000)
+    extra_names: str = Field("", max_length=1000)
+
+
+class CompareRunResult(BaseModel):
+    job_id: str
+    drama_id: int
+    line_count: int
+
+
+class CompareProposal(BaseModel):
+    line_id: int
+    number: int
+    start: float
+    end: float
+    base_zh: str
+    base_en: str
+    candidate_zh: str
+    current_en: str
+    candidate_en: str
+    translated: bool
+
+
+class CompareResult(BaseModel):
+    job_id: str
+    proposals: List[CompareProposal]
+    line_count: int
+    asr_backend: Optional[str] = None
+    whisper_size: Optional[str] = None
+    translated: bool
+    partial: bool
+    cap_reached: bool
+    errors: List[str]
+
+
+class CompareApplyItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_id: StrictInt = Field(..., ge=1)
+    expected_base_zh: str = Field(..., max_length=20000)
+    expected_candidate_zh: str = Field(..., min_length=1, max_length=2000)
+    use_english: StrictBool = False
+    expected_candidate_en: str = Field("", max_length=2000)
+
+
+class CompareApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    job_id: str = Field(..., min_length=1, max_length=100)
+    items: List[CompareApplyItem] = Field(..., min_length=1, max_length=200)
+
+
+class CompareApplyResult(BaseModel):
+    applied: List[int]
+    skipped: List[int]

@@ -1,4 +1,12 @@
 import type {
+  CompareApplyRequest,
+  CompareApplyResult,
+  CompareEstimate,
+  CompareEstimateRequest,
+  CompareOptions,
+  CompareResult,
+  CompareRunRequest,
+  CompareRunResult,
   DiarizationConfig,
   JobStarted,
   LncrawlImportRequest,
@@ -152,6 +160,23 @@ export const getRetranscribeResult = (id: number, lineId: number, f?: Fetch) =>
 // expected_zh and the run is the one shown (409 otherwise).
 export const applyRetranscribeLine = (id: number, lineId: number, req: RetranscribeApplyRequest, f?: Fetch) =>
   postJson<RetranscribeApplyResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe/apply`, req, f)
+
+// Review > Compare transcription: re-hear chosen lines with other settings,
+// proposals only (GET result), written per line by apply.
+const compareBase = (id: number) => `/api/transcribe/dramas/${id}/compare-transcription`
+
+export const getCompareOptions = (id: number, f?: Fetch) => getJson<CompareOptions>(`${compareBase(id)}/options`, f)
+
+export const estimateCompare = (id: number, req: CompareEstimateRequest, f?: Fetch) =>
+  postJson<CompareEstimate>(`${compareBase(id)}/estimate`, req, f)
+
+export const startCompare = (id: number, req: CompareRunRequest, f?: Fetch) =>
+  postJson<CompareRunResult>(`${compareBase(id)}/run`, req, f)
+
+export const getCompareResult = (id: number, f?: Fetch) => getJson<CompareResult>(`${compareBase(id)}/result`, f)
+
+export const applyCompare = (id: number, req: CompareApplyRequest, f?: Fetch) =>
+  postJson<CompareApplyResult>(`${compareBase(id)}/apply`, req, f)
 
 // P16/P17: the drama's current stage and per-stage state for the stage bar.
 export const getWorkflowProgress = (id: number, f?: Fetch) =>
