@@ -53,6 +53,7 @@ EXPECTED_TOP_LEVEL_FILES = [
 # name -> (import name, feature it powers, required vs optional)
 OPTIONAL_DEPENDENCIES = {
     "faster_whisper": ("faster_whisper", "audio alignment/timing", "feature"),
+    "ctranslate2": ("ctranslate2", "Whisper GPU detection (installed with faster-whisper)", "feature"),
     "cv2": ("cv2", "Scanlate bubble detection/inpainting", "feature"),
     "anthropic": ("anthropic", "Claude translation engine", "engine"),
     "openai": ("openai", "DeepSeek translation engine", "engine"),
