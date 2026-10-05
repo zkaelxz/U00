@@ -208,7 +208,8 @@ class GeminiEngine:
             return candidates[0]["content"]["parts"][0]["text"].strip()
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
-                                                line_ids=context.get("line_ids"), engine_name="gemini")
+                                                line_ids=context.get("line_ids"), engine_name="gemini",
+                                                line_languages=context.get("line_languages"))
 
 
 # Free-tier limits, confirmed against ai.google.dev/gemini-api/docs/rate-limits

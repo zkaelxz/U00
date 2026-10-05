@@ -74,7 +74,8 @@ class DeepSeekEngine:
             return (message.content or "").strip()
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
-                                                line_ids=context.get("line_ids"), engine_name="deepseek")
+                                                line_ids=context.get("line_ids"), engine_name="deepseek",
+                                                line_languages=context.get("line_languages"))
 
 
 # ---------------------------------------------------------------------------
@@ -158,4 +159,5 @@ class OpenAIEngine:
             ])
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
-                                                line_ids=context.get("line_ids"), engine_name="openai")
+                                                line_ids=context.get("line_ids"), engine_name="openai",
+                                                line_languages=context.get("line_languages"))

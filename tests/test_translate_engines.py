@@ -517,7 +517,8 @@ class ContextCapturingEngine:
         self.calls.append({"zh_lines": list(zh_lines),
                             "recent_context": list(context.get("recent_context") or []),
                             "upcoming_lines": list(context.get("upcoming_lines") or []),
-                            "speaker_labels": list(context.get("speaker_labels") or [])})
+                            "speaker_labels": list(context.get("speaker_labels") or []),
+                            "line_languages": context.get("line_languages")})
         return [f"EN:{z}" for z in zh_lines]
 
 
@@ -632,6 +633,83 @@ class TestSpeakerNamesReachTheBatch:
         te.translate_lines_with_engine(lines, engine, {}, batch_size=10,
                                         character_names={"SPEAKER_00": "Xiaoling"})
         assert engine.calls[0]["speaker_labels"] == [None]
+
+
+class TestPerLineLanguage:
+    def test_only_lines_in_another_language_are_tagged(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", lang=None),
+                 Line(idx=1, start=1, end=2, zh="b", lang="ko"),
+                 Line(idx=2, start=2, end=3, zh="c", lang="ja")]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {"source_language": "ja"}, batch_size=10)
+        assert engine.calls[0]["line_languages"] == [None, "ko", None]
+
+    def test_single_language_title_sends_no_language_context(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a")]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=10)
+        assert engine.calls[0]["line_languages"] is None
+
+    def test_english_lines_are_copied_not_sent_to_the_engine(self):
+        lines = [Line(idx=0, start=0, end=1, zh="hello", lang="en"),
+                 Line(idx=1, start=1, end=2, zh="你好")]
+        engine = ContextCapturingEngine()
+        saved = []
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=10,
+                                       save_cb=lambda ls: saved.append([ln.en for ln in ls]))
+        assert engine.calls[0]["zh_lines"] == ["你好"]
+        assert lines[0].en == "hello" and lines[1].en == "EN:你好"
+        assert saved[-1] == ["hello", "EN:你好"]
+
+    def test_all_english_titles_still_save_the_copies(self):
+        lines = [Line(idx=0, start=0, end=1, zh="hello", lang="en")]
+        engine = ContextCapturingEngine()
+        saved = []
+        te.translate_lines_with_engine(lines, engine, {}, save_cb=lambda ls: saved.append(1))
+        assert engine.calls == [] and saved and lines[0].en == "hello"
+
+    def test_numbered_lines_tag_the_spoken_language(self):
+        result = te.build_numbered_lines([1, 2], ["a", "b"], languages=[None, "ko"])
+        assert result == "1. a\n2. (spoken in Korean) b"
+
+    def test_request_retry_prompt_carries_the_tag(self):
+        seen = []
+        te.request_translations_with_retry(
+            ["a", "b"], None, lambda text: seen.append(text) or '{"1": "x", "2": "y"}',
+            line_languages=[None, "ja"])
+        assert "2. (spoken in Japanese) b" in seen[0] and "1. a" in seen[0]
+
+    def test_reflect_prompts_carry_the_tag(self):
+        prompts = []
+
+        class Reflect:
+            supports_reference = True
+            name = "r"
+
+            def complete(self, *a, **k):
+                raise AssertionError
+
+        import engine_backends.translate_pipeline as tp
+        orig = tp.call_llm_json
+        tp.call_llm_json = lambda eng, prompt, **k: prompts.append(prompt) or '{"1": "x"}'
+        try:
+            te.reflect_translate_batch(Reflect(), ["a"], {"line_languages": ["ko"], "drama_meta": {}})
+        finally:
+            tp.call_llm_json = orig
+        assert "(spoken in Korean) a" in prompts[0]
+
+    def test_nllb_translates_each_language_with_its_own_pipeline(self):
+        eng = te.NLLBEngine()
+        used = []
+
+        def fake_pipeline(src, tgt="en"):
+            return lambda texts: [{"translation_text": f"{src}:{t}"} for t in texts]
+
+        eng._get_pipeline = lambda src, tgt="en": (used.append(src), fake_pipeline(src, tgt))[1]
+        out = eng.translate_batch(["a", "b", "c"], {"source_language": "ja",
+                                                    "line_languages": [None, "ko", None]})
+        assert out == ["ja:a", "ko:b", "ja:c"]
+        assert sorted(used) == ["ja", "ko"]
 
 
 class TestBuildNumberedLines:

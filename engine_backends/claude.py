@@ -51,4 +51,5 @@ class ClaudeEngine:
             return "".join(b.text for b in resp.content if b.type == "text").strip()
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
-                                                line_ids=context.get("line_ids"), engine_name="claude")
+                                                line_ids=context.get("line_ids"), engine_name="claude",
+                                                line_languages=context.get("line_languages"))
