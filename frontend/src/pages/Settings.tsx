@@ -111,8 +111,25 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!jumpTo) return
     const el = document.getElementById(`settings-${jumpTo.id}`)
-    el?.scrollIntoView({ block: 'start' })
-    el?.querySelector('summary')?.focus({ preventScroll: true })
+    if (!el) return
+    el.scrollIntoView({ block: 'start' })
+    el.querySelector('summary')?.focus({ preventScroll: true })
+    // Cards above the target finish loading after the jump and push it out of
+    // view, so keep it aligned until the page stops growing or the person scrolls.
+    const page = el.closest('.settings-page')
+    if (!page || typeof ResizeObserver === 'undefined') return
+    const realign = () => el.scrollIntoView({ block: 'start' })
+    const observer = new ResizeObserver(realign)
+    observer.observe(page)
+    const stop = () => observer.disconnect()
+    const timer = window.setTimeout(stop, 1500)
+    const inputEvents = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const
+    inputEvents.forEach((name) => window.addEventListener(name, stop, { once: true, passive: true }))
+    return () => {
+      stop()
+      window.clearTimeout(timer)
+      inputEvents.forEach((name) => window.removeEventListener(name, stop))
+    }
   }, [jumpTo])
 
   useEffect(() => {
