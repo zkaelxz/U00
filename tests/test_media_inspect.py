@@ -164,9 +164,9 @@ class TestRealFfprobe:
     def test_real_video_fixture_reports_accurate_duration_resolution_fps(self, tmp_path):
         out = str(tmp_path / "fixture.mp4")
         subprocess.run(
-            ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25", "-t", "2",
-             "-pix_fmt", "yuv420p", "-f", "lavfi", "-i", "sine=frequency=1000:duration=2",
-             "-shortest", out],
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25",
+             "-f", "lavfi", "-i", "sine=frequency=1000:duration=2",
+             "-t", "2", "-pix_fmt", "yuv420p", "-shortest", out],
             check=True, capture_output=True,
         )
         analysis = mi.probe_media(out, filename="fixture.mp4")
