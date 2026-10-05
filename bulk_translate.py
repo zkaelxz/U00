@@ -261,6 +261,21 @@ def _target_lines(lines, force_retranslate: bool):
     return targets
 
 
+def _title_language(drama_id: int) -> str:
+    return (db.get_drama(drama_id) or {}).get("source_language") or "zh"
+
+
+def _copy_english_lines(drama_id: int, targets: list) -> list:
+    """Copies already-English targets across (no model call) and returns
+    the rest, the same split the live translate loop makes."""
+    english = [ln for ln in targets if translate_engines.is_english_line(ln)]
+    if english:
+        for ln in english:
+            ln.en = ln.zh
+        db.save_lines(drama_id, english, fields=("en",))
+    return [ln for ln in targets if not translate_engines.is_english_line(ln)]
+
+
 def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_size: int = 20,
                         force_retranslate: bool = False, context_window: int = 6,
                         context_window_ahead: int = 3, character_names: dict = None):
@@ -270,7 +285,10 @@ def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_siz
     translations that already exist at submission -- a line translated in
     an earlier batch of this same submission doesn't have one yet."""
     character_names = character_names or {}
-    targets = _target_lines(lines, force_retranslate)
+    # English lines are not sent; submit_bulk_translation copies them across.
+    targets = [ln for ln in _target_lines(lines, force_retranslate)
+               if not translate_engines.is_english_line(ln)]
+    title_language = context.get("source_language", "zh")
     pos_by_id = {ln.id: i for i, ln in enumerate(lines)}
     requests_, line_rows = [], []
     for bi, start in enumerate(range(0, len(targets), batch_size)):
@@ -289,7 +307,9 @@ def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_siz
         ctx["batch_source_lines"] = [ln.zh for ln in batch]
         ctx["speaker_labels"] = speaker_labels
         ids = [ln.id for ln in batch]
-        numbered = translate_engines.build_numbered_lines(ids, [ln.zh for ln in batch], speaker_labels)
+        numbered = translate_engines.build_numbered_lines(
+            ids, [ln.zh for ln in batch], speaker_labels,
+            translate_engines.tagged_line_languages(batch, title_language))
         key = request_key(drama_id, bi)
         requests_.append(provider.build_request(key, ctx, numbered))
         line_rows.extend((ln.id, key, zh_hash(ln.zh), ln.en or "") for ln in batch)
@@ -306,6 +326,7 @@ def submit_bulk_translation(drama_id: int, lines, engine, engine_choice: str, co
     provider = provider or make_provider(engine_choice, engine)
     if provider is None:
         raise ValueError(f"{engine_choice} has no batch API -- use the off-peak schedule instead.")
+    _copy_english_lines(drama_id, _target_lines(lines, build_kwargs.get("force_retranslate", False)))
     requests_, line_rows = build_bulk_requests(drama_id, lines, provider, context, **build_kwargs)
     if not requests_:
         raise ValueError("Nothing to translate -- every line already has a translation.")
@@ -588,17 +609,19 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
     provider = provider or make_provider(engine_choice, engine)
     if provider is None:
         raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
-    targets = _target_lines(lines, force_retranslate)
+    targets = _copy_english_lines(drama_id, _target_lines(lines, force_retranslate))
     if not targets:
         raise ValueError("Nothing to translate -- every line already has a translation.")
     instructions = _reflect_instructions(translate_args)
     pipeline_id = f"reflect_{drama_id}_{uuid.uuid4().hex[:12]}"
+    title_language = _title_language(drama_id)
     batches = []
     for start in range(0, len(targets), batch_size):
         batch = targets[start:start + batch_size]
         ids = [ln.id for ln in batch]
         prompt = translate_engines.build_reflect_faithful_prompt(
-            instructions, "", ids, {ln.id: ln.zh for ln in batch})
+            instructions, "", ids,
+            dict(zip(ids, translate_engines.tagged_source_texts(batch, title_language))))
         batches.append(([(ln.id, ln.zh) for ln in batch], prompt))
     en_at_submit_by_id = {ln.id: ln.en or "" for ln in targets}
     return submit_reflect_stage(drama_id, "faithful", provider, batches, engine_choice,
@@ -787,14 +810,17 @@ def _advance_to_reflection_stage(job: dict, ids: list, draft_by_id: dict, en_at_
         return
     instructions = _reflect_instructions(job.get("translate_args"))
     cur_by_id = {ln.id: ln for ln in db.load_line_objects(job["drama_id"])}
+    title_language = _title_language(job["drama_id"])
     batches = []
     for start in range(0, len(ids), batch_size):
         chunk = [lid for lid in ids[start:start + batch_size] if lid in cur_by_id]
         if not chunk:
             continue
         zh_by_id = {lid: cur_by_id[lid].zh for lid in chunk}
+        tagged_by_id = dict(zip(chunk, translate_engines.tagged_source_texts(
+            [cur_by_id[lid] for lid in chunk], title_language)))
         prompt = translate_engines.build_reflect_reflection_prompt(
-            instructions, "", chunk, zh_by_id, {lid: draft_by_id[lid] for lid in chunk})
+            instructions, "", chunk, tagged_by_id, {lid: draft_by_id[lid] for lid in chunk})
         batches.append(([(lid, zh_by_id[lid]) for lid in chunk], prompt))
     if not batches:
         return
@@ -889,14 +915,17 @@ def _advance_to_expressive_stage(job: dict, ids: list, draft_by_id: dict, critiq
         return
     instructions = _reflect_instructions(job.get("translate_args"))
     cur_by_id = {ln.id: ln for ln in db.load_line_objects(job["drama_id"])}
+    title_language = _title_language(job["drama_id"])
     batches = []
     for start in range(0, len(ids), batch_size):
         chunk = [lid for lid in ids[start:start + batch_size] if lid in cur_by_id]
         if not chunk:
             continue
         zh_by_id = {lid: cur_by_id[lid].zh for lid in chunk}
+        tagged_by_id = dict(zip(chunk, translate_engines.tagged_source_texts(
+            [cur_by_id[lid] for lid in chunk], title_language)))
         prompt = translate_engines.build_reflect_expressive_prompt(
-            instructions, "", chunk, zh_by_id, {lid: draft_by_id.get(lid, "") for lid in chunk},
+            instructions, "", chunk, tagged_by_id, {lid: draft_by_id.get(lid, "") for lid in chunk},
             {lid: critique_by_id.get(lid) for lid in chunk})
         batches.append(([(lid, zh_by_id[lid]) for lid in chunk], prompt))
     if not batches:

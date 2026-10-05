@@ -236,3 +236,35 @@ class TestRoutes:
         r = client.post(f"/api/stronger-engine/dramas/{did}/lines/{ids[1]}/try",
                         json={"engine": "claude"})
         assert r.status_code == 422
+
+
+class TestSpokenLanguage:
+    @pytest.fixture
+    def engine(self, monkeypatch):
+        fake = FakeEngine()
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: fake)
+        monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: "sk-test-123")
+        return fake
+
+    def _set_lang(self, did, line_id, lang):
+        db.save_lines(did, [ln for ln in db.load_line_objects(did) if ln.id == line_id
+                            and setattr(ln, "lang", lang) is None], fields=("lang",))
+
+    def test_other_language_line_is_tagged(self, drama, engine):
+        did, ids, _ = drama
+        db.update_drama(did, source_language="ja")
+        self._set_lang(did, ids[1], "ko")
+        svc.try_line(did, ids[1], "claude")
+        assert engine.contexts[0][1]["line_languages"] == ["ko"]
+
+    def test_single_language_title_has_no_language_context(self, drama, engine):
+        did, ids, _ = drama
+        svc.try_line(did, ids[1], "claude")
+        assert engine.contexts[0][1]["line_languages"] is None
+
+    def test_english_line_is_returned_as_is_with_no_call(self, drama, engine):
+        did, ids, _ = drama
+        self._set_lang(did, ids[1], "en")
+        out = svc.try_line(did, ids[1], "claude")
+        assert out["text"] == "林婉笑了" and out["cost_usd"] == 0.0
+        assert engine.contexts == []

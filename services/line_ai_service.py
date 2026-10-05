@@ -117,6 +117,11 @@ def _prepare(drama_id: int, line_id: int, engine_name, model, gemini_free_tier,
     return drama, line, engine, engine_name
 
 
+def _line_language(drama: dict, line) -> str:
+    """The language this line is spoken in: its own, else the title's."""
+    return line.lang or drama.get("source_language") or "zh"
+
+
 def run(fn):
     try:
         return fn()
@@ -143,7 +148,7 @@ def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: st
         drama_id, drama, [line], preset)
     suggestion = run(lambda: line_tools.improve_line(
         line.zh, line.en, engine, issue=issue,
-        source_language=drama.get("source_language") or "zh",
+        source_language=_line_language(drama, line),
         style_guidelines=guidelines))
     return {"line_id": line.id, "current_en": line.en, "suggestion": suggestion,
             "changed": suggestion != line.en, "engine": name,
@@ -159,7 +164,7 @@ def explain_line(drama_id: int, line_id: int, engine_name: str = None, model: st
     series_id = drama.get("series_id")
     glossary = db.list_glossary_terms(series_id) if series_id else None
     text = run(lambda: line_tools.explain_translation(
-        line.zh, line.en, engine, source_language=drama.get("source_language") or "zh",
+        line.zh, line.en, engine, source_language=_line_language(drama, line),
         glossary_terms=glossary))
     text = (text or "").strip() if isinstance(text, str) else ""
     if not text:
@@ -198,7 +203,7 @@ def alternatives_for_line(drama_id: int, line_id: int, engine_name: str = None,
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
                                          gemini_free_tier, check_cap=True)
     rows = run(lambda: line_tools.alternative_translations(
-        line.zh, line.en, engine, source_language=drama.get("source_language") or "zh"))
+        line.zh, line.en, engine, source_language=_line_language(drama, line)))
     alts = _clean_rows(rows, ("translation", "approach", "tradeoff"),
                        MAX_ALTERNATIVES)
     if not alts:
@@ -215,7 +220,7 @@ def grammar_for_line(drama_id: int, line_id: int, engine_name: str = None,
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
                                          gemini_free_tier, need_en=False, check_cap=True)
     rows = run(lambda: line_tools.grammar_breakdown(
-        line.zh, engine, source_language=drama.get("source_language") or "zh"))
+        line.zh, engine, source_language=_line_language(drama, line)))
     parts = _clean_rows(rows, ("word", "reading", "meaning", "function"),
                         MAX_GRAMMAR_PARTS)
     if not parts:

@@ -564,11 +564,17 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                 finally:
                     if os.path.exists(slice_path):
                         os.remove(slice_path)
-            if ln.zh.strip():
+            if ln.zh.strip() and translate_engines.is_english_line(ln):
+                ln.en = ln.zh
+                ln.flag, ln.flag_note = None, ""
+                fixed_count += 1
+            elif ln.zh.strip():
                 try:
                     translated = engine.translate_batch(
                         [ln.zh], {**base_context,
-                                  "speaker_labels": [character_names.get(ln.speaker)]})[0]
+                                  "speaker_labels": [character_names.get(ln.speaker)],
+                                  "line_languages": translate_engines.tagged_line_languages(
+                                      [ln], source_language)})[0]
                     if hasattr(engine, "last_usage"):
                         cost = translate_engines.estimate_cost_for_engine(
                             engine, engine.last_usage.get("input_tokens", 0),

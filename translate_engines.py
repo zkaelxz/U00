@@ -62,6 +62,8 @@ from engine_backends.shared import (  # noqa: F401
     claude_usage,
     extract_first_json_value,
     gemini_usage,
+    is_english_line,
+    language_name,
     parse_id_keyed_json,
     parse_json_array,
     read_json_capped,
@@ -70,6 +72,8 @@ from engine_backends.shared import (  # noqa: F401
     request_translations_with_retry,
     safe_url,
     strip_url_queries,
+    tagged_line_languages,
+    tagged_source_texts,
 )
 from engine_backends.prompts import (  # noqa: F401
     NOVEL_REFERENCE_BUDGET_CHARS,
