@@ -1,7 +1,7 @@
 // Pure filter, sort and link logic for the Jobs page (pages/Jobs.tsx).
 import type { Route } from '../../router'
 import { isActive, isFinished } from '../diagnosticsFormat'
-import type { JobKind, JobRecord } from '../../types/jobs'
+import type { JobKind, JobPage, JobRecord } from '../../types/jobs'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
 
 export type StatusFilter = 'active' | 'failed' | 'finished' | 'all'
@@ -152,9 +152,17 @@ export interface JobLinks {
   stage: { label: string; route: Route } | null
 }
 
-/** Where a job's title and stage live. Without a drama id (jobs not tied to a title) there is nowhere to link. */
-export function jobLinks(j: Pick<JobRecord, 'drama_id' | 'kind'>): JobLinks {
-  if (j.drama_id == null) return { title: null, stage: null }
+const PAGE_LINKS: Partial<Record<JobPage, { label: string; route: Route }>> = {
+  sources: { label: 'Sources', route: { name: 'sources' } },
+  discover: { label: 'Discover', route: { name: 'discover' } },
+  live: { label: 'Live', route: { name: 'live' } },
+  settings: { label: 'Settings', route: { name: 'settings' } },
+  diagnostics: { label: 'Diagnostics', route: { name: 'diagnostics' } },
+}
+
+/** Where a job's title and stage live. A job with no title links to the page the server says it belongs to, if any. */
+export function jobLinks(j: Pick<JobRecord, 'drama_id' | 'kind' | 'page'>): JobLinks {
+  if (j.drama_id == null) return { title: null, stage: j.page ? PAGE_LINKS[j.page] ?? null : null }
   const stage = j.kind ? STAGE_BY_KIND[j.kind] : undefined
   return {
     title: { name: 'drama', id: j.drama_id, stage: null },

@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net'
 
 import { expect, test } from './fixtures'
 import { mockJobsApi, pageJobs } from './jobsMenuMocks'
-import { openGear } from './settingsNav'
+import { openMenu } from './settingsNav'
 
 // The Jobs page (#/jobs) with /api/jobs mocked: table, filters, states,
 // Cancel, PC-only Delete, row details and the remote-admin persona.
@@ -43,6 +43,21 @@ test('running jobs first, with title and stage links, a progress bar and live du
   await expect(exportRow).toContainText('Disk full')
   // A job tied to no title has nothing to link.
   await expect(page.getByTestId('job-row-lncrawl_9').getByRole('link')).toHaveCount(0)
+})
+
+test('a title-less job links its Stage cell to the page the server names', async ({ page }) => {
+  const t = Math.floor(Date.now() / 1000)
+  const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, drama_id: null, kind: 'other', status: 'done', outcome: 'ok', started_at: t - 60, finished_at: t - 50 }
+  await mockJobsApi(page, [
+    { ...base, job_id: 'sources_search', description: 'Search sources', page: 'sources' },
+    { ...base, job_id: 'deno_install', description: 'Install Deno', page: 'diagnostics' },
+    { ...base, job_id: 'benchmark_lab', description: 'Benchmark', page: null },
+  ], true)
+  await page.goto('/#/jobs')
+  await chip(page, 'All').click()
+  await expect(page.getByTestId('job-row-sources_search').getByRole('link', { name: 'Sources', exact: true })).toHaveAttribute('href', '#/sources')
+  await expect(page.getByTestId('job-row-deno_install').getByRole('link', { name: 'Diagnostics', exact: true })).toHaveAttribute('href', '#/diagnostics')
+  await expect(page.getByTestId('job-row-benchmark_lab').getByRole('link')).toHaveCount(0)
 })
 
 test('status chips show counts and filters combine, then are remembered', async ({ page }) => {
@@ -294,15 +309,12 @@ test('PC owner gets Cancel on every job', async ({ page }) => {
 test('the menu has Jobs with a running count, and it opens the page', async ({ page }) => {
   await mockJobsApi(page, pageJobs(), true)
   await page.goto('/#/library')
-  await openGear(page)
-  // The count badge is part of the link's name, so match by prefix: the rail at 1024px and up, the cogwheel menu below.
-  const link = page
-    .getByRole('navigation', { name: 'Main' })
-    .getByRole('link', { name: /^Jobs/ })
-    .or(page.getByRole('group', { name: 'Settings and tools pages' }).getByRole('link', { name: /^Jobs/ }))
-  await expect(page.getByTestId(/^(gear|rail)-jobs-count$/)).toHaveText('2')
+  await openMenu(page)
+  // The count badge is part of the link's name, so match by prefix: the rail at 1024px and up, the drawer below.
+  const link = page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /^Jobs/ })
+  await expect(page.getByTestId('rail-jobs-count')).toHaveText('2')
   await link.click()
   await expect(page).toHaveURL(/#\/jobs$/)
-  await openGear(page)
+  await openMenu(page)
   await expect(link).toHaveAttribute('aria-current', 'page')
 })

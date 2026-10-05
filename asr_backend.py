@@ -57,6 +57,13 @@ from forced_align import LANGUAGE_NAMES
 # safer than guessing at an undocumented cap and failing the whole run.
 SEGMENT_DURATION_WARNING_SECONDS = 300.0
 
+# Speech-detection backend: how much silence around a span the model also
+# hears, and how long a pause may be before a sentence is cut there. Both are
+# set from the FLEURS comparison in docs/asr-experiments.md.
+CONTEXT_PAD_S = 2.0
+MERGE_GAP_S = 1.0
+MERGE_GAP_MIXED_S = 0.3
+
 # Loaded models stay cached across calls; core.release_gpu_models() clears
 # this dict by name (it never imports this module), so keep the name.
 _asr_model_cache = {}
@@ -287,10 +294,15 @@ class Qwen3ASRVadBackend:
         mixed_languages: each span is transcribed with Qwen3-ASR's own
         language detection (one span per call, no batching) and a line's
         "lang" is set where it differs from `language` (mixed_language.py).
-        refine_timing is ignored then: the aligner takes one language per run."""
+        language=None is the same detection with no title language to compare
+        with: every line gets its detected "lang" (zh, ja, ko or en; a
+        span heard as anything else is retried in the language most spans
+        had). refine_timing is ignored then: the aligner takes one language per run."""
         import vad_segments
         from core import filter_hallucinated_segments, split_long_segments
-        if language not in LANGUAGE_NAMES:
+        if language is None:
+            mixed_languages = True
+        elif language not in LANGUAGE_NAMES:
             raise ValueError(
                 f"Qwen3-ASR doesn't cover language={language!r} in this project's usage "
                 f"(supported: {sorted(LANGUAGE_NAMES)}) -- use WhisperBackend instead."
@@ -299,15 +311,21 @@ class Qwen3ASRVadBackend:
         # which are tuned for Whisper's own VAD.
         audio = load_audio_16k(audio_path)
         sr = 16000
+        # A short pause inside a sentence is not a place to cut: Qwen3-ASR does
+        # worse on the halves. Language detection keeps the finer spans so a
+        # quick change of speaker and language is not merged into one.
         spans = vad_segments.cap_spans(
-            vad_segments.merge_close(vad_segments.speech_spans(audio, sr, vad_fn=vad_fn)),
+            vad_segments.merge_close(
+                vad_segments.speech_spans(audio, sr, vad_fn=vad_fn),
+                gap_s=MERGE_GAP_MIXED_S if mixed_languages else MERGE_GAP_S),
             audio, sr)
+        windows = vad_segments.context_windows(spans, len(audio) / sr, CONTEXT_PAD_S)
         del audio
         if not spans:
             return []
         if cancel_check:
             cancel_check()
-        span_segments = [{"start": s.start_s, "end": s.end_s, "text": ""} for s in spans]
+        span_segments = [{"start": w.start_s, "end": w.end_s, "text": ""} for w in windows]
         refine_timing = refine_timing and not mixed_languages
         scale = 0.9 if refine_timing else 1.0
 
@@ -318,12 +336,15 @@ class Qwen3ASRVadBackend:
                 progress_cb(frac * scale)
 
         if mixed_languages:
-            transcribed = self._transcribe_mixed(audio_path, language, spans, use_gpu,
+            transcribed = self._transcribe_mixed(audio_path, language, spans, windows, use_gpu,
                                                  _progress, cancel_check)
         else:
             transcribed = Qwen3ASRBackend(model_size=self.model_size).transcribe(
                 audio_path, language, span_segments, use_gpu=use_gpu, batch_size=batch_size,
                 progress_cb=_progress)
+            # The model heard the padded windows; a line is timed by its span.
+            transcribed = [{**seg, "start": span.start_s, "end": span.end_s}
+                           for seg, span in zip(transcribed, spans)]
 
         # Filter after splitting: a loop shows up as identical consecutive pieces.
         pieces = []
@@ -345,15 +366,17 @@ class Qwen3ASRVadBackend:
             return lines
         return [p for group in groups.values() for p in group]
 
-    def _transcribe_mixed(self, audio_path, language, spans, use_gpu, progress_cb, cancel_check):
+    def _transcribe_mixed(self, audio_path, language, spans, windows, use_gpu, progress_cb,
+                          cancel_check):
         """Up to one segment per span (none when it has no text), with
         "lang"/"flag" set per mixed_language.transcribe_spans."""
         import mixed_language
         model = load_qwen3_asr(use_gpu=use_gpu, model_size=self.model_size)
         with tempfile.TemporaryDirectory(prefix="baihe_qwen3_asr_") as tmp_dir:
             def transcribe(span, language_name):
+                window = windows[spans.index(span)]
                 path = os.path.join(tmp_dir, "span.wav")
-                extract_audio_slice(audio_path, span.start_s, span.end_s, path)
+                extract_audio_slice(audio_path, window.start_s, window.end_s, path)
                 try:
                     results = model.transcribe(audio=path, language=language_name)
                 finally:
@@ -367,11 +390,14 @@ class Qwen3ASRVadBackend:
             def run_span(span):
                 # language=None: Qwen3-ASR detects this span's language itself.
                 segments, name = transcribe(span, None)
-                return segments, mixed_language.qwen_language_code(name)
+                code = mixed_language.qwen_language_code(name)
+                if code is None and name:
+                    code = mixed_language.UNSUPPORTED_LANGUAGE
+                return segments, code
 
             return mixed_language.transcribe_spans(
                 spans, language, run_span,
-                lambda span, lang: transcribe(span, LANGUAGE_NAMES[lang])[0],
+                lambda span, lang: transcribe(span, mixed_language.QWEN_LANGUAGE_NAMES[lang])[0],
                 cancel_check=cancel_check, progress_cb=progress_cb)
 
 

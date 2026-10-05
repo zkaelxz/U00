@@ -28,7 +28,7 @@ name the cache scan lists. The benchmark and the App Assistant are not
 exposed.
 """
 
-from typing import List, Literal
+from typing import Literal
 
 from fastapi import APIRouter, Path, Query
 
@@ -38,7 +38,7 @@ from api.schemas import (DiagnosticsAdminConfirm,
                          DiagnosticsGpuTorchSetupResult, DiagnosticsGpuTorchStatus,
                          DiagnosticsInstallPresets, DiagnosticsInstallResult,
                          DiagnosticsPackageUpdates, DiagnosticsUpgradeRequest,
-                         DiagnosticsJobHistoryItem, DiagnosticsLogTail, DiagnosticsModelCache,
+                         DiagnosticsLogTail, DiagnosticsModelCache,
                          DiagnosticsPyannoteReadiness, DiagnosticsResetRequest,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
                          DiagnosticsSupportReport, ErrorResponse)
@@ -71,13 +71,6 @@ def get_model_cache():
             summary="pyannote installed / HF token set / (check_access=true) gated models open")
 def get_pyannote(check_access: bool = Query(False)):
     return svc.get_pyannote_readiness(check_access=check_access)
-
-
-@router.get("/job-history", dependencies=[require_permission("admin.diagnostics")],
-            response_model=List[DiagnosticsJobHistoryItem],
-            summary="Finished jobs in this process, newest first, redacted")
-def get_job_history():
-    return svc.get_job_history()
 
 
 @router.get("/log", dependencies=[require_permission("admin.diagnostics")],

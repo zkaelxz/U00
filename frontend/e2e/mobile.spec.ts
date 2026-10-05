@@ -35,7 +35,7 @@ async function visiblePrimaries(page: Page) {
 
 async function checkScreen(page: Page, extra: string[] = []) {
   await expectNoHorizontalOverflow(page)
-  await expectTall(page, '.app-header nav a')
+  await expectTall(page, '.app-header .menu-btn')
   for (const sel of extra) await expectTall(page, sel)
   if ((await visiblePrimaries(page)) > 0) await expectTall(page, 'button.primary, .btn-primary')
 }

@@ -108,20 +108,20 @@ test('a 401 from any call swaps in the Login page', async ({ page }) => {
 test.describe('below 1024px', () => {
   test.use({ viewport: { width: 1000, height: 800 } })
 
-test('signed in: the cogwheel sits in the header\'s right-hand group, not in the Main nav, and its menu stays on screen', async ({ page }) => {
+test('signed in: the Menu button replaces the cogwheel and its drawer stays on screen', async ({ page }) => {
   await mockAuth(page, ME.signedIn)
   await page.goto('/#/library')
-  const gear = page.locator('summary[aria-label="Settings and tools"]')
-  await expect(gear).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Main' }).locator('.gear-menu')).toHaveCount(0)
-  await expect(page.locator('.app-header .header-end .gear-menu')).toHaveCount(1)
+  await expect(page.locator('summary[aria-label="Settings and tools"]')).toHaveCount(0)
+  const menu = page.getByRole('button', { name: 'Menu', exact: true })
+  await expect(menu).toBeVisible()
+  await expect(page.locator('.app-header .header-end .gear-menu')).toHaveCount(0)
   await maybeScreenshot(page, 'desktop-header')
-  await gear.click()
-  const panel = page.locator('.gear-menu-panel')
-  await expect(panel).toBeVisible()
-  const box = (await panel.boundingBox())!
+  await menu.click()
+  const drawer = page.getByRole('dialog', { name: 'Main menu' })
+  await expect(drawer).toBeVisible()
+  const box = (await drawer.boundingBox())!
   expect(box.x).toBeGreaterThanOrEqual(0)
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width)
-  await maybeScreenshot(page, 'desktop-gear-open')
+  await maybeScreenshot(page, 'desktop-menu-open')
 })
 })

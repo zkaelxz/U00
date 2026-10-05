@@ -6,6 +6,7 @@ import json
 import re
 import time
 
+from core import LANGUAGE_NAMES
 from services import capped_body
 
 
@@ -274,7 +275,44 @@ def parse_json_array(text: str, fallback_count: int):
     return lines[:fallback_count] if lines else [""] * fallback_count
 
 
-def build_numbered_lines(ids: list, zh_lines: list, speaker_names: list = None) -> str:
+def language_name(lang, default: str = None) -> str:
+    """Display name of a line language code; LANGUAGE_NAMES has no English
+    because a title's own language never is."""
+    return LANGUAGE_NAMES.get(lang, "English" if lang == "en" else default or lang)
+
+
+def spoken_language_tag(lang) -> str:
+    """The prompt prefix for a line spoken in a language other than the
+    title's ("" for a line in the title's language, which is untagged so
+    a single-language title's prompt is unchanged)."""
+    if not lang:
+        return ""
+    return f"(spoken in {language_name(lang)}) "
+
+
+def tagged_line_languages(lines, title_language: str):
+    """context["line_languages"] for these lines: each line's lang where it
+    differs from the title's, None elsewhere; None overall when no line
+    differs so a single-language title sends the prompt it always did."""
+    langs = [getattr(ln, "lang", None) for ln in lines]
+    langs = [lang if lang and lang != title_language else None for lang in langs]
+    return langs if any(langs) else None
+
+
+def tagged_source_texts(lines, title_language: str) -> list:
+    """Each line's source text as the model should read it: prefixed with
+    the spoken-language tag where that differs from the title's."""
+    langs = tagged_line_languages(lines, title_language) or [None] * len(lines)
+    return [spoken_language_tag(lang) + ln.zh for lang, ln in zip(langs, lines)]
+
+
+def is_english_line(line) -> bool:
+    """Already English, so translating it would only spend a model call."""
+    return getattr(line, "lang", None) == "en"
+
+
+def build_numbered_lines(ids: list, zh_lines: list, speaker_names: list = None,
+                         languages: list = None) -> str:
     """
     Builds the numbered-line block shown to the model, e.g.:
         1. [Xiaoling] 你好
@@ -284,12 +322,15 @@ def build_numbered_lines(ids: list, zh_lines: list, speaker_names: list = None) 
     speaker (narration, an unlabeled line) is left unprefixed rather
     than showing a placeholder like "[Unknown]", which would just be
     noise the model has to ignore.
+    languages (parallel, None entries allowed) tags only lines spoken in a
+    language other than the title's, e.g. "3. (spoken in Korean) 안녕".
     """
     out = []
     for idx, (i, zh) in enumerate(zip(ids, zh_lines)):
         name = speaker_names[idx] if speaker_names else None
         prefix = f"[{name}] " if name else ""
-        out.append(f"{i}. {prefix}{zh}")
+        tag = spoken_language_tag(languages[idx]) if languages else ""
+        out.append(f"{i}. {prefix}{tag}{zh}")
     return "\n".join(out)
 
 
@@ -383,7 +424,7 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
 
 
 def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
-                                     line_ids=None, engine_name: str = None):
+                                     line_ids=None, engine_name: str = None, line_languages=None):
     """
     The shared id-keyed request/parse/retry-missing logic behind every
     LLM translation engine's own translate_batch (Claude/DeepSeek/
@@ -419,7 +460,9 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
     def build_batch_text(batch_ids):
         batch_lines = [zh_lines[pos[i]] for i in batch_ids]
         batch_names = ([speaker_names[pos[i]] for i in batch_ids] if speaker_names else None)
-        return build_numbered_lines(batch_ids, batch_lines, batch_names)
+        batch_langs = ([line_languages[pos[i]] for i in batch_ids]
+                       if line_languages and len(line_languages) == len(zh_lines) else None)
+        return build_numbered_lines(batch_ids, batch_lines, batch_names, batch_langs)
 
     result_map = _id_keyed_batch_request(ids, build_batch_text, call_model_fn, max_retries,
                                          engine_name=engine_name)
