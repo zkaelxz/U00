@@ -16,7 +16,9 @@ import db
 from api.api_config import ApiSettings
 from api.server import create_app
 from engine_backends import pricing
-from services import settings_service
+from services import benchmark_lab_service, line_ai_service, metadata_research_service
+from services import settings_service, translate_run_service, usage_recost_service
+from services.service_errors import UnsupportedOperationError
 
 NOW = datetime.datetime(2026, 10, 15, 12, 0, 0)
 
@@ -63,6 +65,28 @@ def test_a_reset_from_an_earlier_month_is_ignored(spent):
     sept = datetime.datetime(2026, 9, 28)
     assert db.get_month_spend(sept, since_reset=False) == 60.0
     assert db.get_month_spend(sept) == 10.0
+
+
+def test_a_future_dated_reset_is_ignored(spent):
+    # PC clock ahead when Reset was pressed, then corrected.
+    _set_reset(datetime.datetime(2026, 10, 20))
+    assert db.get_month_spend_reset_at(NOW) is None
+    assert db.get_month_spend(NOW) == 10.0
+
+
+@pytest.mark.parametrize("garbage", ["not a date", "", "2026-13-40", "9999"])
+def test_a_garbage_reset_is_ignored(spent, garbage):
+    db.set_app_setting(db.MONTHLY_SPEND_RESET_KEY, garbage)
+    assert db.get_month_spend_reset_at(NOW) is None
+    assert db.get_month_spend(NOW) == 10.0
+
+
+def test_a_reset_earlier_this_month_is_honoured_up_to_now(spent):
+    _set_reset(NOW)
+    assert db.get_month_spend_reset_at(NOW) == NOW.isoformat()
+    _set_reset(datetime.datetime(2026, 10, 5))
+    assert db.get_month_spend_reset_at(NOW) == "2026-10-05T00:00:00"
+    assert db.get_month_spend(NOW) == 6.0
 
 
 def test_reset_and_undo_keep_every_row(isolated_db):
@@ -145,3 +169,35 @@ def test_routes_refused_from_another_device(isolated_db):
     for path in ("reset", "undo"):
         assert c.post(f"/api/settings/month-counter/{path}", json={}).status_code in (401, 403)
     assert db.get_app_setting(db.MONTHLY_SPEND_RESET_KEY) is None
+
+
+def test_line_tool_cap_check_refuses_then_allows_after_reset(isolated_db, monkeypatch):
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
+    db.log_usage(None, "claude", "m", "translate", 1, 1, 6.0)
+    with pytest.raises(UnsupportedOperationError):
+        line_ai_service.refuse_if_over_monthly_cap("claude", False)
+    settings_service.reset_month_counter()
+    line_ai_service.refuse_if_over_monthly_cap("claude", False)
+
+
+def test_recost_preview_reports_the_full_month_during_a_reset(isolated_db):
+    db.log_usage(None, "claude", "m", "translate", 1, 1, 3.0)
+    settings_service.reset_month_counter()
+    assert usage_recost_service.preview()["month_stored_usd"] == pytest.approx(3.0)
+
+
+@pytest.mark.parametrize("cap, shown", [(0.0, 4.0), (10.0, 1.0)])
+def test_spend_shown_with_no_cap_is_the_real_month(isolated_db, monkeypatch, cap, shown):
+    # "Spent this month: $X (no monthly cap)" is the real spend; "$X of $cap"
+    # is what the cap counts since the reset.
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: cap)
+    db.log_usage(None, "claude", "m", "translate", 1, 1, 3.0)
+    settings_service.reset_month_counter()
+    db.log_usage(None, "claude", "m", "translate", 1, 1, 1.0)
+    assert metadata_research_service.budget_status()["month_spend_usd"] == pytest.approx(shown)
+    benchmark_lab_service.create_case("c", "你好", "Hello")
+    est = benchmark_lab_service.estimate("translation", [{"engine": "fake"}])
+    assert est["month_spend_usd"] == pytest.approx(shown)
+    monkeypatch.setattr(translate_run_service, "ollama_reachable", lambda: False)
+    config = translate_run_service.get_translate_config(db.create_drama(title_zh="D"))
+    assert config["month_spend"] == pytest.approx(shown)

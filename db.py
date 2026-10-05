@@ -4641,13 +4641,22 @@ MONTHLY_SPEND_RESET_KEY = "monthly_spend_reset_at"
 def get_month_spend_reset_at(now: datetime.datetime = None):
     """The saved reset time (UTC ISO) while it applies to this month, else None.
     A reset from an earlier month is ignored so the new month starts at its
-    own first day without anyone having to undo it."""
+    own first day without anyone having to undo it. A marker that is not a
+    datetime or lies after `now` (clock was ahead when Reset was pressed, or a
+    restored library.db) is ignored too: honouring it would count ~nothing and
+    silently switch the monthly cap off."""
     now = now or datetime.datetime.utcnow()
     saved = get_app_setting(MONTHLY_SPEND_RESET_KEY)
     if not isinstance(saved, str):
         return None
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-    return saved if saved >= month_start else None
+    try:
+        when = datetime.datetime.fromisoformat(saved)
+    except ValueError:
+        return None
+    if when.tzinfo is not None:
+        when = when.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return when.isoformat() if month_start <= when <= now else None
 
 
 def get_month_spend(now: datetime.datetime = None, since_reset: bool = True) -> float:
