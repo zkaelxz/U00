@@ -22,7 +22,7 @@ import { activeCount, badgeText, elapsedText, jobsButtonLabel, menuJobs } from '
 import { buttonClass } from './uiClasses'
 import './jobsMenu.css'
 
-// A job name opens its stage, or its title when the kind has no stage, or the Jobs page for jobs tied to no title.
+// A job name opens its stage, or its title when the kind has no stage, or the page the server says a title-less job belongs to, or else the Jobs page.
 const jobTarget = (j: JobRecord): Route => {
   const links = jobLinks(j)
   return links.stage?.route ?? links.title ?? { name: 'jobs' }

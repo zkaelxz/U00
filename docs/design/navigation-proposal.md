@@ -205,7 +205,7 @@ The brand "Baihe Studio" becomes a link to Library.
 |---|---|
 | Job | `description`, falling back to a readable name; one-line message under it. |
 | Title | Title name as a link to its workspace, resolved from the job's drama id and the cached library list. Blank for jobs not tied to a title (see below). |
-| Stage | "Source", "Translate", "Review", "Dub" or "Export" as a link to that stage; for non-title jobs, the page it belongs to (Sources, Discover, Live). |
+| Stage | "Source", "Translate", "Review", "Dub" or "Export" as a link to that stage; for non-title jobs, the page named by the server's `page` field (Sources, Discover, Live, Settings, Diagnostics), blank when it names none. |
 | Status | `Badge` (existing `statusTone`) plus the outcome text (`jobOutcomeText`); `stale` and `stalled` shown as words. |
 | Progress | A thin bar with the percent as text for running jobs; blank otherwise. |
 | Started | Relative time in a `<time>` element, with the full date and time shown as visible text on expand (not only in `title=`, per guideline 21). |
@@ -237,7 +237,8 @@ The brand "Baihe Studio" becomes a link to Library.
 
 **API additions needed (small; one existing route, no new route):**
 1. `drama_id: int | null` on `JobRecord`: set by `jobs_service` for jobs whose id matches a `DRAMA_JOB_PREFIXES` entry. Satisfies the "which title" link and the popover links. Integers only, so no redaction concern.
-2. `kind: string | null` on `JobRecord`: a short stable key (`transcribe`, `translate`, `review`, `dub`, `export`, `sources`, `other`) from the same prefix table. The client maps `kind` to a stage and label; the server owns the mapping.
+2. `kind: string | null` on `JobRecord`: a short stable key (`transcribe`, `translate`, `align`, `dub`, `export`, `review`, `import`, `other`) from the same prefix table. The client maps `kind` to a stage and label; the server owns the mapping.
+   `page: string | null` (`title`, `sources`, `discover`, `live`, `settings`, `diagnostics`) says which page a job belongs to, from the same job ids (`jobs_service.job_page`), so a job with no title still links somewhere. A page name only, never an id, path or URL.
 3. Optional, only if the list grows (risk R3): `GET /api/jobs?status=&drama_id=&limit=&before=`. Defaults keep today's behaviour. Same `library.read` permission; the route table row does not change, but add a pytest for visibility with the new filters.
 
 Items 1 and 2 touch `api/schemas/system.py`, `services/jobs_service.py` and `frontend/src/types/jobs.ts`. They add no route, so `tests/test_api_permissions.py` is unaffected, and they need no `db.py` change because both fields are derived, not stored.

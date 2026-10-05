@@ -488,6 +488,38 @@ def job_kind(job_id) -> str:
     return "other"
 
 
+# Where the UI shows a job that has no title, by exact id or id prefix. Only
+# a page name leaves the server (never the id's tail, a path or a URL). Ids
+# with no entry, and drama-scoped ids (page "title"), are decided in job_page.
+JOB_PAGE_BY_ID = {
+    "sources_search": "sources", "sources_url_preview": "sources", "sources_save": "sources",
+    "sources_url_preflight": "sources", "sources_url_identify": "sources",
+    "sources_chapter_check": "sources",
+    "discover_bulk_extract": "discover", "discover_navigation_help": "discover",
+    "library_backup": "settings", "library_db_backup": "settings",
+    "library_user_backup": "settings", "library_auto_backup": "settings",
+    "deno_install": "diagnostics", "upgrade_check": "diagnostics",
+}
+JOB_PAGE_BY_PREFIX = {
+    "sources_series_": "sources", "sources_signin_": "sources", "sources_tiertest_": "sources",
+    "live_": "live",
+}
+
+
+def job_page(job_id):
+    """The page a job belongs to: "title" for a drama-scoped id (same rule as
+    job_kind), else the page its id names, else None."""
+    job_id = str(job_id or "")
+    if ownership_service.drama_id_of_job(job_id) is not None:
+        return "title"
+    if job_id in JOB_PAGE_BY_ID:
+        return JOB_PAGE_BY_ID[job_id]
+    for prefix, page in JOB_PAGE_BY_PREFIX.items():
+        if job_id.startswith(prefix):
+            return page
+    return None
+
+
 def _visible(principal, record) -> bool:
     return ownership_service.can_see_job(principal, record.get("job_id"),
                                          record.get("owner_user_id"))
@@ -496,11 +528,12 @@ def _visible(principal, record) -> bool:
 def _for_caller(principal, record) -> dict:
     """_redact plus `owned_by_me` (ownership_service.owns_job), the only
     word on who owns the job a response carries: never an owner id. Also
-    `drama_id` and `kind`; callers reach this only for a job they may see,
+    `drama_id`, `kind` and `page`; callers reach this only for a job they may see,
     which for a drama job means they may see that drama."""
     out = _redact(record)
     out["drama_id"] = ownership_service.drama_id_of_job(record.get("job_id"))
     out["kind"] = job_kind(record.get("job_id"))
+    out["page"] = job_page(record.get("job_id"))
     out["owned_by_me"] = ownership_service.owns_job(principal, record.get("job_id"),
                                                     record.get("owner_user_id"))
     return out

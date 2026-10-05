@@ -48,15 +48,17 @@ test('the button hides when the viewer may not list jobs', async ({ page }) => {
   await expect(page.getByRole('button', { name: /^Jobs/ })).toHaveCount(0)
 })
 
-test('a job name in the panel links to its stage, or to the Jobs page when it has no title', async ({ page }) => {
+test('a job name in the panel links to its stage, its page, or the Jobs page when neither is known', async ({ page }) => {
   await mockJobs(page, [
     { job_id: 'translate_3', status: 'running', progress: null, message: '', error: null, description: 'Translate Signal', gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1, owned_by_me: true, drama_id: 3, kind: 'translate' },
-    { job_id: 'lncrawl_9', status: 'running', progress: null, message: '', error: null, description: 'Import novel', gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1, owned_by_me: true, drama_id: null, kind: 'other' },
+    { job_id: 'lncrawl_9', status: 'running', progress: null, message: '', error: null, description: 'Import novel', gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1, owned_by_me: true, drama_id: null, kind: 'other', page: null },
+    { job_id: 'sources_search', status: 'running', progress: null, message: '', error: null, description: 'Search sources', gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1, owned_by_me: true, drama_id: null, kind: 'other', page: 'sources' },
   ])
   await page.goto('/#/library')
-  await page.getByRole('button', { name: 'Jobs (2 jobs running)' }).click()
+  await page.getByRole('button', { name: 'Jobs (3 jobs running)' }).click()
   const panel = page.getByRole('region', { name: 'Jobs' })
   await expect(panel.getByRole('link', { name: 'Translate Signal' })).toHaveAttribute('href', '#/drama/3/translate')
+  await expect(panel.getByRole('link', { name: 'Search sources' })).toHaveAttribute('href', '#/sources')
   await expect(panel.getByRole('link', { name: 'Import novel' })).toHaveAttribute('href', '#/jobs')
   await panel.getByRole('link', { name: 'Translate Signal' }).click()
   await expect(page).toHaveURL(/#\/drama\/3\/translate$/)

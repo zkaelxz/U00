@@ -33,7 +33,12 @@ export interface JobRecord {
   drama_id?: number | null
   // What the job does; `other` for anything unclassified. Missing counts as other.
   kind?: JobKind
+  // The page the job belongs to, decided by the server from the job id; how a
+  // job with no title can still link somewhere. Missing counts as null.
+  page?: JobPage | null
 }
+
+export type JobPage = 'title' | 'sources' | 'discover' | 'live' | 'settings' | 'diagnostics'
 
 export type JobKind =
   | 'transcribe' | 'translate' | 'align' | 'dub' | 'export' | 'review' | 'import' | 'other'
