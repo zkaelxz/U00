@@ -28,6 +28,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   feature (Step 34/34b/96): what it does, what was verified against a
   real site.
 - **`react-ui-guidelines.md`** — concise-UI rules for the React app.
+- **`frontend-design-system.md`** — map of how the React frontend is built: layout, routing, tokens and themes, shared components, phone rules, testing and an add-a-screen checklist.
 - **`engineering-standards.md`** — shared principles: precedence, scope,
   review policy, verification, git/safety.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
