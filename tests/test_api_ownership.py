@@ -858,6 +858,20 @@ class TestJobs:
         off = _local(_app("off")).get("/api/jobs").json()["items"]
         assert {j["job_id"] for j in off} >= set(jobs.values())
 
+    def test_drama_id_and_kind_only_where_visible(self, world, jobs):
+        client = _client(_app())
+        member = {j["job_id"]: j for j in client.get("/api/jobs", headers=world["b"]).json()["items"]}
+        assert set(member) == {jobs["shared"], jobs["b_fixed"]}
+        assert (member[jobs["shared"]]["drama_id"], member[jobs["shared"]]["kind"]) == (
+            world["shared"], "translate")
+        assert (member[jobs["b_fixed"]]["drama_id"], member[jobs["b_fixed"]]["kind"]) == (None, "other")
+        # The private title's id appears nowhere in the member's responses.
+        assert f'"drama_id":{world["private"]}' not in client.get(
+            "/api/jobs", headers=world["b"]).text.replace(" ", "")
+        assert client.get(f"/api/jobs/{jobs['priv']}", headers=world["b"]).status_code == 404
+        owner = client.get(f"/api/jobs/{jobs['priv']}", headers=world["a"]).json()
+        assert (owner["drama_id"], owner["kind"]) == (world["private"], "translate")
+
     def test_owned_by_me_agrees_with_cancel(self, world, jobs):
         # owned_by_me: the caller started the job or owns its drama. Where it
         # is true, cancel is allowed; where false, it is someone else's job
