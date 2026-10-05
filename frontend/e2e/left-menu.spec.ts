@@ -55,6 +55,16 @@ test('Library stays current on a title, the reader and a comic, and the title sh
   await expect(page.getByTestId('rail-title')).toHaveCount(0)
 })
 
+test('a very long title is cut off in the rail instead of scrolling it sideways', async ({ page }) => {
+  await page.goto('/#/drama/2/review')
+  const row = page.getByTestId('rail-title')
+  await expect(row).toBeVisible()
+  await row.locator('.rail-label').evaluate((el) => { el.textContent = '[Valentine\u2019s Day Q&A] '.repeat(8) })
+  const rail = page.locator('.app-rail')
+  const overflow = await rail.evaluate((el) => el.scrollWidth - el.clientWidth)
+  expect(overflow).toBeLessThanOrEqual(0)
+})
+
 test('manga routes mark Saved manga current, not Library', async ({ page }) => {
   for (const hash of ['#/manga', '#/manga/mangadex/one-piece', '#/manga/mangadex/one-piece/ch1']) {
     await page.goto(`/${hash}`)
