@@ -28,7 +28,7 @@ import { RENAME_MAX, groupHistory, showFold, validateRename } from './libraryFor
 import { costLabel, costMeta, countsLine, sharedLine, sharedSeries } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
 import { SERIES_HELP } from '../helpText'
-import { Breadcrumbs } from '../nav/Breadcrumbs'
+import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
 
 const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()

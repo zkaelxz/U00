@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { Breadcrumbs } from '../nav/Breadcrumbs'
+import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
 import { api } from '../api/client'
 import { comicApi, comicImageUrl, type ImageProblem } from '../api/comic'
