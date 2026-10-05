@@ -691,6 +691,35 @@ class TestRunTranscribeAndApplyJob:
         assert "elapsed" in seen[0] and "no progress is available" in seen[0]
         _clear(job_id)
 
+    def test_realign_reports_progress_and_cancel_ends_the_job_cancelled(
+            self, isolated_db, monkeypatch):
+        import word_align
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 20.0, "text": "hi"}])
+        seen = []
+
+        def fake_realign(segments, *a, progress_cb=None, cancel_check=None, **k):
+            progress_cb(1, 3)
+            seen.append((background_jobs.get_status(job_id)["progress"],
+                         background_jobs.get_status(job_id)["message"]))
+            background_jobs.request_cancel(job_id)
+            assert cancel_check()
+            return segments
+        monkeypatch.setattr(word_align, "realign_oversized_segments", fake_realign)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", True, False, False, None, None, None)
+
+        progress, message = seen[0]
+        assert message == "Splitting long merged lines: 1 of 3"
+        assert transcribe_service.REALIGN_START * transcribe_service.RUNNING_MAX < progress < transcribe_service.RUNNING_MAX
+        assert background_jobs.get_status(job_id)["result"] == {"failed_reason": "cancelled"}
+        _clear(job_id)
+
     def test_realign_error_is_reported_but_lines_still_saved(self, isolated_db, monkeypatch):
         import word_align
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
