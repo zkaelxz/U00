@@ -194,7 +194,7 @@ def canonical_dist(name: str) -> str:
 # Packages in PULLS_TORCH also pull PyTorch when it isn't installed yet,
 # which is not counted here (torch is its own row).
 APPROX_DOWNLOAD_MB = {
-    "faster-whisper": 80, "opencv-python": 45, "anthropic": 2, "openai": 2,
+    "faster-whisper": 80, "ctranslate2": 40, "opencv-python": 45, "anthropic": 2, "openai": 2,
     "requests": 1, "beautifulsoup4": 1, "pyannote-audio": 20, "soundfile": 2,
     "edge-tts": 1, "pydub": 1, "f5-tts": 60, "omnivoice": 60, "chatterbox-tts": 60,
     "hume-tada": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "manga-ocr": 20,
@@ -295,7 +295,7 @@ def install_downgrade_warning(name: str):
 INSTALL_TASKS = [
     {"id": "transcribe", "group": "Audio", "label": "Transcribe speech (Whisper)",
      "help": "Turn a drama's audio into timed lines.",
-     "packages": ["faster_whisper", "soundfile", "numpy"]},
+     "packages": ["faster_whisper", "ctranslate2", "soundfile", "numpy"]},
     {"id": "music_removal", "group": "Audio", "label": "Remove background music",
      "help": "Clean the audio before transcribing so dialogue is easier to hear.",
      "packages": ["demucs", "audio-separator", "torch", "soundfile", "numpy"],
