@@ -61,6 +61,14 @@ from core import (
 MAX_CHUNK_SECONDS = 60.0
 HARD_CAP_SECONDS = 300.0
 
+# LANGUAGE_NAMES stays zh/ja/ko because asr_backend gates Qwen3-ASR on it; the
+# aligner also takes English (it is in qwen_asr's supported-language list).
+ALIGNER_LANGUAGE_NAMES = {**LANGUAGE_NAMES, "en": "English"}
+
+# Space-delimited languages: the aligner returns whole words, so word breaks
+# must survive into the text it is given (CJK is sent as one run of characters).
+_WORD_UNIT_LANGUAGES = {"English"}
+
 # Loaded models stay cached across calls; core.release_gpu_models() clears
 # this dict by name (it never imports this module), so keep the name.
 _aligner_model_cache = {}
@@ -196,13 +204,21 @@ def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_di
     Indices of lines that had any unit's timing changed by the repair are
     added to repaired_lines (a set) when one is given.
     """
+    word_units = language_name in _WORD_UNIT_LANGUAGES
     chars, line_of_char = [], []
     for ln in chunk_lines:
-        for ch in re.sub(r"\s+", "", ln.zh):
+        if word_units:
+            if chars and ln.zh.strip():
+                chars.append(" ")
+                line_of_char.append(None)
+            text = " ".join(ln.zh.split())
+        else:
+            text = re.sub(r"\s+", "", ln.zh)
+        for ch in text:
             chars.append(ch)
             line_of_char.append(ln.idx)
     concatenated = "".join(chars)
-    if not concatenated:
+    if not concatenated.strip():
         return {}
 
     chunk_start, chunk_end = chunk_lines[0].start, chunk_lines[-1].end
@@ -224,11 +240,19 @@ def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_di
     pos = 0
     for unit, (unit_start, unit_end), orig in zip(units, spans, raw):
         unit_len = max(len(unit.text), 1)
+        if word_units:
+            # The aligner drops punctuation from its words ("world!" -> "world"),
+            # so find each word forward from the last one instead of counting.
+            found = concatenated.find(unit.text, pos) if unit.text else -1
+            if found >= 0:
+                pos = found
         for offset in range(unit_len):
             char_pos = pos + offset
             if char_pos >= len(line_of_char):
                 break
             li = line_of_char[char_pos]
+            if li is None:
+                continue
             per_line_times.setdefault(li, []).extend(
                 [chunk_start + unit_start, chunk_start + unit_end]
             )
@@ -268,10 +292,10 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
     docstring for why this still needs whisper_segments (as a coarse
     first pass, not as the source of the final timestamps).
     """
-    if language not in LANGUAGE_NAMES:
+    if language not in ALIGNER_LANGUAGE_NAMES:
         raise ValueError(
             f"Qwen3-ForcedAligner doesn't cover language={language!r} in this project's "
-            f"usage (supported: {sorted(LANGUAGE_NAMES)}) -- use "
+            f"usage (supported: {sorted(ALIGNER_LANGUAGE_NAMES)}) -- use "
             f"core.align_transcript_to_timing() instead."
         )
     if not whisper_segments:
@@ -284,7 +308,7 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
     coarse_lines = align_transcript_to_timing(user_lines, whisper_segments)
     chunks = _bucket_into_chunks(coarse_lines)
     model = load_qwen3_aligner(use_gpu=use_gpu)
-    language_name = LANGUAGE_NAMES[language]
+    language_name = ALIGNER_LANGUAGE_NAMES[language]
 
     per_line_times, repaired = {}, set()
     with tempfile.TemporaryDirectory(prefix="baihe_forced_align_") as tmp_dir:
@@ -320,12 +344,12 @@ def refine_segment_timing(audio_path: str, groups, language: str, use_gpu: bool 
     times and is flagged timing_uncertain (as are repaired ones), the same
     repair rules as align_with_qwen3. Times stay inside their span and never
     overlap. cancel_check() runs before each span and should raise to stop."""
-    if language not in LANGUAGE_NAMES:
+    if language not in ALIGNER_LANGUAGE_NAMES:
         raise ValueError(
             f"Qwen3-ForcedAligner doesn't cover language={language!r} in this project's "
-            f"usage (supported: {sorted(LANGUAGE_NAMES)}).")
+            f"usage (supported: {sorted(ALIGNER_LANGUAGE_NAMES)}).")
     model = load_qwen3_aligner(use_gpu=use_gpu)
-    language_name = LANGUAGE_NAMES[language]
+    language_name = ALIGNER_LANGUAGE_NAMES[language]
     out = []
     with tempfile.TemporaryDirectory(prefix="baihe_forced_align_") as tmp_dir:
         for n, group in enumerate(groups):

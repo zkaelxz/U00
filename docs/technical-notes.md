@@ -332,7 +332,9 @@ Contract:
   not vary by script. The CLI exports through the same service.
 - Forced alignment: Re-split's "Align to audio" runs the aligner once per line
   (`restructure_service._aligned_pieces`) in `Line.lang`, else the title's
-  language; an `en` line is not covered by the aligner and stays proportional.
+  language, and an `en` line is aligned as English (`forced_align.ALIGNER_LANGUAGE_NAMES`;
+  words are kept space-separated for the aligner). English alignment quality on real audio
+  has not been checked yet.
   `word_align.realign_long_segment` reads a segment's own `lang` and leaves an
   English segment unsplit. Transcript alignment (app and `cli.py align`) runs
   on pasted text with no per-line language yet, so it still uses the title's.
