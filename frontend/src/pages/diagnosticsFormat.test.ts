@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
 import {
-  upsertJob, isFinished, jobsSummary, orderJobs, visibleJobs,
-  describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobDetail, jobStatusLine, splitDependencies,
+  upsertJob, isFinished, jobsSummary, orderJobs,
+  describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobDetail, splitDependencies,
 } from './diagnosticsFormat'
 
 const job = (o: Partial<JobRecord>): JobRecord => ({
@@ -32,11 +32,9 @@ describe('diagnosticsFormat', () => {
     expect(formatDuration(job({}), 100 + 185)).toBe('3m 05s')
     expect(formatDuration(job({}), 100 + 3720)).toBe('1h 02m')
   })
-  it('formats plain seconds and a job card line', () => {
+  it('formats plain seconds', () => {
     expect(formatSeconds(-3)).toBe('0s')
     expect(formatSeconds(65.7)).toBe('1m 05s')
-    expect(jobStatusLine(job({ status: 'running', progress: 0.4 }), 100 + 185)).toBe('Running 40% · 3m 05s')
-    expect(jobStatusLine(job({ status: 'error', progress: 0.4, finished_at: 110 }), 999)).toBe('Failed · 10s')
   })
   it('shows progress text only while a job runs, and the error when it failed', () => {
     expect(jobDetail(job({ status: 'running', message: 'Transcribing... 40%' }))).toBe('Transcribing... 40%')
@@ -68,13 +66,6 @@ describe('upsertJob', () => {
   it('orders active jobs first, keeping the order within each group', () => {
     const jobs = [job({ job_id: 'a' }), job({ job_id: 'b', status: 'running' }), job({ job_id: 'c', status: 'error' }), job({ job_id: 'd', status: 'queued' })]
     expect(orderJobs(jobs).map((j) => j.job_id)).toEqual(['b', 'd', 'a', 'c'])
-  })
-  it('limits the list but never hides an active job', () => {
-    const jobs = orderJobs([...Array.from({ length: 12 }, (_, i) => job({ job_id: `f${i}` })), job({ job_id: 'r', status: 'running' })])
-    expect(visibleJobs(jobs, 10)).toHaveLength(10)
-    expect(visibleJobs(jobs, 10)[0].job_id).toBe('r')
-    expect(visibleJobs(jobs, 99)).toHaveLength(13)
-    expect(visibleJobs([job({ status: 'running' }), job({ status: 'queued' })], 1)).toHaveLength(2)
   })
   it('summarises counts', () => {
     expect(jobsSummary([job({}), job({ status: 'cancelled' })])).toBe('None running')

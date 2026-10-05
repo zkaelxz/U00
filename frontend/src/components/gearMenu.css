@@ -53,3 +53,4 @@ details.gear-menu > summary[aria-current='page'] {
   details.gear-menu > summary { min-height: 44px; min-width: 44px; padding-inline: 0; }
   .gear-menu-panel a { min-height: 44px; }
 }
+.gear-menu-panel a .gear-badge { margin-left: auto; padding-left: var(--space-3); }

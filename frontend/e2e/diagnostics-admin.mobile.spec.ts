@@ -33,7 +33,7 @@ async function guard(page: Page): Promise<string[]> {
   return unmocked
 }
 
-test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', async ({ page }) => {
+test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll', async ({ page }) => {
   const unmocked = await guard(page)
   // No task groups here, so a missing package is installed one by one from "Not installed".
   await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: { tasks: [], packages: {} } }))
@@ -50,15 +50,10 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
     r.fulfill({ json: { package: 'yt-dlp', ok: false, output_tail: [`ERROR: ${long}`] } }))
 
   await page.goto('/#/diagnostics')
-  // Jobs as cards, Cancel on its own line.
-  const card = page.locator('ul.job-cards > li').first()
-  await expect(card).toContainText('Running 40% · 3m')
-  const cancel = card.getByRole('button', { name: 'Cancel' })
-  expect((await hitHeight(cancel))).toBeGreaterThanOrEqual(44)
-  // A failed job's card: readable name, Delete on its own 44px line, no sideways scroll.
-  const failed = page.locator('ul.job-cards > li').nth(1)
-  expect((await failed.locator('strong').boundingBox())!.width).toBeGreaterThan(150)
-  expect((await hitHeight(failed.getByRole('button', { name: /^Delete/ })))).toBeGreaterThanOrEqual(44)
+  // The jobs summary is a banner with a 44px link to the Jobs page.
+  const banner = page.getByTestId('jobs-summary')
+  await expect(banner).toContainText('1 running, 1 failed')
+  expect((await hitHeight(banner.getByRole('link', { name: 'Open Jobs' })))).toBeGreaterThanOrEqual(44)
 
   await page.locator('summary', { hasText: /^Log/ }).click()
   await expect(page.getByLabel('Log lines')).toContainText('INFO fine')
@@ -137,41 +132,6 @@ test('Diagnostics at 360px: Setup card, Packages with GPU PyTorch fit', async ({
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
       .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
-  expect(small).toEqual([])
-  await noSideways(page)
-  expect(unmocked).toEqual([])
-})
-
-test('Job history time by stage fits a phone and its summaries are 44px', async ({ page }) => {
-  const unmocked = await guard(page)
-  await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 0, items: [] } }))
-  await page.route('**/api/diagnostics/job-history', (r) => r.fulfill({ json: [{
-    job_id: 'a', label: 'Translating Signal episode 12 with the long description', status: 'done', description: null,
-    message: '', error: null, gpu_touching: true, started_at: 1, finished_at: 2, duration_seconds: 4000,
-  }] }))
-  await page.route('**/api/jobs/a/stages', (r) => r.fulfill({ json: { job_id: 'a', runs: [{
-    run_started_at: 100, running: false, total_seconds: 4000, cost_usd: 1.25, stages: [
-      { stage: 'Preparing', started_at: 100, duration_seconds: 3.4, cost_usd: 0 },
-      { stage: 'Translating batches with the reviewer pass and glossary checks', started_at: 104,
-        duration_seconds: 3725, cost_usd: 1.2 },
-      { stage: 'Saving', started_at: 3829, duration_seconds: 271.6, cost_usd: 0.05 },
-    ] }] } }))
-  await page.goto('/#/diagnostics')
-  await page.locator('summary', { hasText: /^Job history/ }).click()
-  const history = page.getByRole('list', { name: 'Job history' })
-  await history.locator('summary', { hasText: 'Translating Signal' }).click()
-  const rows = history.getByRole('list', { name: 'Time by stage' }).locator('li')
-  await expect(rows).toHaveCount(3)
-  await expect(rows.nth(1)).toContainText('1 h 02 min · $1.20')
-  await expect(history).toContainText('Total 1 h 06 min · estimated $1.25')
-  // Each stage's time stays inside the row.
-  for (let i = 0; i < 3; i++) {
-    const row = (await rows.nth(i).boundingBox())!
-    const nums = (await rows.nth(i).locator('.stage-times-nums').boundingBox())!
-    expect(nums.x + nums.width).toBeLessThanOrEqual(row.x + row.width + 1)
-  }
-  const small = await history.locator('summary').evaluateAll((els) =>
-    els.map((e) => window.hitHeight(e)).filter((h) => h < 44))
   expect(small).toEqual([])
   await noSideways(page)
   expect(unmocked).toEqual([])

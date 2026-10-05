@@ -5,7 +5,7 @@ import type { DiagnosticsSetupChecks, GpuStatus, ModelEngineVersion } from '../.
 import {
   LOST_CONTACT_INSTALL, adminErrorText, busyLine, copyFallbackText,
   extensionEngineNote, extensionSummary, extensionToggleNote,
-  headerBadges, historySummary, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
+  headerBadges, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
   isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, reconcileModels, resetBlockedReason,
   setupRows, setupSummary,
 } from './diagnosticsAdmin'
@@ -205,13 +205,6 @@ describe('other sections', () => {
       model_files: [{ folder: 'torch', name: 'htdemucs.th', size_bytes: 1 }],
       model_files_total_bytes: 84_000_000,
     })).toBe('84.0 MB · 1 model file')
-  })
-
-  it('summarises a history entry', () => {
-    expect(historySummary({
-      job_id: 'j', label: 'Translate', status: 'done', description: null, message: '', error: null,
-      gpu_touching: true, started_at: 1, finished_at: 186, duration_seconds: 185,
-    })).toBe('Translate · Done · 3m 05s · GPU')
   })
 
   it('log and copy copy', () => {

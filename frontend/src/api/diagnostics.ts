@@ -7,7 +7,6 @@ import type {
   DiagnosticsGpuTorchStatus,
   DiagnosticsInstallPresets,
   DiagnosticsInstallResult,
-  DiagnosticsJobHistoryItem,
   DiagnosticsLogTail,
   DiagnosticsModelCache,
   DiagnosticsModelFolder,
@@ -51,7 +50,6 @@ export const getModelCache = (f?: Fetch) => getJson<DiagnosticsModelCache>(`${BA
 export const getPyannote = (checkAccess = false, f?: Fetch) =>
   getJson<DiagnosticsPyannoteReadiness>(`${BASE}/pyannote${checkAccess ? '?check_access=true' : ''}`, f)
 
-export const getJobHistory = (f?: Fetch) => getJson<DiagnosticsJobHistoryItem[]>(`${BASE}/job-history`, f)
 
 export function getLog(n: number, keyword = '', f?: Fetch) {
   const lines = Math.max(0, Math.min(LOG_MAX_LINES, Math.round(n)))

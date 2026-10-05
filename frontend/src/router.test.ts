@@ -16,6 +16,8 @@ describe('parseRoute', () => {
 
   it('parses settings and diagnostics', () => {
     expect(parseRoute('#/settings')).toEqual({ name: 'settings' })
+    expect(parseRoute('#/jobs')).toEqual({ name: 'jobs' })
+    expect(parseRoute('#/jobs/extra')).toEqual({ name: 'library' })
     expect(parseRoute('#/diagnostics')).toEqual({ name: 'diagnostics' })
     expect(parseRoute('#/benchmark')).toEqual({ name: 'benchmark' })
     expect(parseRoute('#/benchmark/extra')).toEqual({ name: 'library' })
@@ -95,7 +97,7 @@ describe('parseRoute', () => {
   })
 
   it('round-trips through routeHref', () => {
-    for (const r of [{ name: 'library' }, { name: 'settings' }, { name: 'diagnostics' }, { name: 'benchmark' }, { name: 'sources' }, { name: 'discover' }, { name: 'assistant' }, { name: 'drama', id: 4, stage: 'export' }, { name: 'drama', id: 4, stage: null }] as const) {
+    for (const r of [{ name: 'library' }, { name: 'jobs' }, { name: 'settings' }, { name: 'diagnostics' }, { name: 'benchmark' }, { name: 'sources' }, { name: 'discover' }, { name: 'assistant' }, { name: 'drama', id: 4, stage: 'export' }, { name: 'drama', id: 4, stage: null }] as const) {
       expect(parseRoute(routeHref(r))).toEqual(r)
     }
   })

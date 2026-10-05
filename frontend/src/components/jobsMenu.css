@@ -57,3 +57,7 @@ button.jobs-menu-btn[aria-expanded='true'] { color: var(--text); }
   .jobs-menu { position: static; }
   .jobs-panel, .jobs-panel.align-start { left: 0; right: 0; top: auto; width: auto; margin-top: var(--space-1); max-height: 70vh; }
 }
+.jobs-item-name a { color: inherit; }
+@media (pointer: coarse), (max-width: 640px) {
+  .jobs-item-name a { display: inline-flex; align-items: center; min-height: 44px; }
+}

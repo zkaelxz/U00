@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 
 // A job genuinely running in the seeded API process, against the real API
-// (no page.route mocks): Diagnostics' Cancel ends it and the list shows it
+// (no page.route mocks): the Jobs page's Cancel ends it and the list shows it
 // cancelled, and the Library refuses to delete its drama with a 409.
 //
 // The job comes from the e2e launcher's test-only hook (POST
@@ -46,7 +46,7 @@ async function cleanUp(request: APIRequestContext, jobId: string | null, dramaId
 }
 
 const jobRow = (page: Page, description: string) =>
-  page.getByTestId('job-list').locator('tr', { hasText: description })
+  page.getByTestId('jobs-table').locator('tr', { hasText: description })
 
 test.describe('a running job (real API)', () => {
   let jobId: string | null = null
@@ -58,13 +58,13 @@ test.describe('a running job (real API)', () => {
     dramaId = null
   })
 
-  test('Diagnostics: Cancel stops the running job and the list shows it cancelled, also after a reload', async ({ page, request }) => {
+  test('Jobs page: Cancel stops the running job and the list shows it cancelled, also after a reload', async ({ page, request }) => {
     dramaId = await createDrama(request, 'Running Job E2E Diagnostics')
     jobId = `notes_${dramaId}`
     const description = `E2E held job ${dramaId}`
     await holdJob(request, jobId, description)
 
-    await page.goto('/#/diagnostics')
+    await page.goto('/#/jobs')
     const row = jobRow(page, description)
     await expect(row).toContainText('Running')
 
@@ -76,12 +76,8 @@ test.describe('a running job (real API)', () => {
     // the flag, stops, and its record turns "cancelled".
     await expect.poll(() => jobStatus(request, jobId as string)).toBe('cancelled')
 
-    // Nothing is running now, so the list folds into the collapsed Jobs
-    // section; after a reload the page reads the record fresh.
+    // After a reload the page reads the record fresh; nothing is active, so every job shows.
     await page.reload()
-    const fold = page.locator('details.section', { has: page.locator('summary', { hasText: 'None running' }) })
-    await expect(fold).toBeVisible()
-    if (!(await fold.evaluate((d) => (d as HTMLDetailsElement).open))) await fold.locator('summary').click()
     const after = jobRow(page, description)
     await expect(after).toContainText('Cancelled')
     await expect(after.getByRole('button', { name: `Cancel ${description}` })).toHaveCount(0)

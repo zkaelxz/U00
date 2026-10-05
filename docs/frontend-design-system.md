@@ -21,7 +21,7 @@ Everything below was checked against the code on `baihe-subtitler`. Names are fi
 | `components/labels.ts`, `uiClasses.ts` | Humanized labels and badge tones; the `buttonClass` / `badgeClass` helpers. |
 | `api/` | The HTTP layer (section 6). `client.ts` is the only file that calls `fetch`. One `<area>.ts` per API area, with `api/types.ts` for the core types. |
 | `types/` | One `<area>.ts` of hand-written interfaces per API area (section 7). |
-| `hooks/` | Reusable hooks: `useLoad`, `useJob`, `useReattachJob`, `useEventStream`, `useSession`, `usePcOnly`, `usePersistedState`, `useMediaQuery`, `useShortcut`, `useDetailsMenu`, `usePopOut`. |
+| `hooks/` | Reusable hooks: `useLoad`, `useJob`, `useReattachJob`, `useEventStream`, `useJobs`, `useSession`, `usePcOnly`, `usePersistedState`, `useMediaQuery`, `useShortcut`, `useDetailsMenu`, `usePopOut`. |
 | `report/` | "Report a problem": capture of recent errors, the dialog, the support report. |
 | `theme.ts`, `index.css` | Theme preference and the global CSS (tokens and the design-kit classes). |
 
@@ -43,7 +43,7 @@ Routes are location hashes, parsed by `parseRoute` in `router.ts`. Anything unkn
 | `#/read/<id>[?page=n]`, `#/comic/<id>[?page=n]` | Reader and comic reader |
 | `#/manga`, `#/manga/<source>/<series>[/<chapter>]` | Saved manga |
 | `#/translate`, `#/sources`, `#/discover`, `#/live`, `#/library-tools` | Top-level pages |
-| `#/settings`, `#/admin`, `#/diagnostics`, `#/assistant`, `#/benchmark[?compare=]` | Behind the cogwheel (`GearMenu`) |
+| `#/jobs`, `#/settings`, `#/admin`, `#/diagnostics`, `#/assistant`, `#/benchmark[?compare=]` | Behind the cogwheel (`GearMenu`) |
 
 Nav links are plain `<a href={routeHref(...)}>`. The header's `NAV` list in `App.tsx` also names which route names keep a link marked `aria-current="page"`.
 

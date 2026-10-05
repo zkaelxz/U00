@@ -66,3 +66,5 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 @media (pointer: coarse) {
   .app-rail nav a, .rail-toggle, .rail-brand a { min-height: 44px; }
 }
+.app-rail .rail-badge { margin-left: auto; }
+.app-rail[data-collapsed='true'] .rail-badge { display: none; }

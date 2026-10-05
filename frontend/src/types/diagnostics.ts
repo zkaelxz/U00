@@ -92,19 +92,6 @@ export interface DiagnosticsPyannoteReadiness {
   ready: boolean
 }
 
-export interface DiagnosticsJobHistoryItem {
-  job_id: string
-  label: string
-  status: string | null
-  description: string | null
-  message: string
-  error: string | null
-  gpu_touching: boolean
-  started_at: number | null
-  finished_at: number | null
-  duration_seconds: number | null
-}
-
 export interface DiagnosticsLogTail {
   lines: string[]
 }

@@ -117,20 +117,7 @@
   font-size: var(--text-sm);
 }
 
-/* Jobs as cards (phone). */
-.job-cards { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
-.job-cards > li { padding: var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); display: grid; gap: var(--space-1); }
-.job-cards p { margin: 0; }
-.job-cards > li, .job-cards strong { min-width: 0; overflow-wrap: anywhere; }
-/* A long failure message wraps inside its own cell and is cut to a few lines. */
-.job-detail { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-/* Table cells ignore min-width, so the name column gets a width and the time never wraps. */
-[data-testid='job-list'] td.job-name { width: 14rem; overflow-wrap: break-word; }
-[data-testid='job-list'] td:nth-child(2) { max-width: 24rem; }
-[data-testid='job-list'] td:nth-child(3) { white-space: nowrap; }
-.job-cards .job-cancel { display: flex; justify-content: flex-end; }
-
-/* Job history > "Time by stage": name and time on one line, a share bar under it. */
+/* Jobs page > "Time by stage": name and time on one line, a share bar under it. */
 .stage-times { margin-top: var(--space-2); min-width: 0; }
 .stage-times-title { margin: 0 0 var(--space-1); font-size: var(--text-sm); font-weight: 600; }
 .stage-times ul { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
@@ -145,7 +132,7 @@
   background: var(--border); overflow: hidden;
 }
 .stage-times-bar > span { display: block; height: 100%; min-width: 2px; background: var(--info); border-radius: inherit; }
-.diag-history .stage-times-total { margin-top: var(--space-2); font-size: var(--text-sm); font-weight: 600; font-variant-numeric: tabular-nums; }
+.stage-times-total { margin-top: var(--space-2); font-size: var(--text-sm); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* Danger zone: last, set apart from everything above. */
 .danger-zone { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 2px solid var(--bad); }
@@ -211,3 +198,5 @@
 @media (max-width: 640px) {
   .diag-stack { gap: var(--space-3); }
 }
+.diag-jobs-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.diag-jobs-summary > p { margin: 0; }

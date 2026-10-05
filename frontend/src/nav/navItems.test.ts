@@ -39,27 +39,27 @@ const HEADER = ['Library', 'Translate text', 'Sources', 'Discover', 'Live']
 describe('nav registry shows what the header and gear showed before it existed', () => {
   it('owner at the PC', () => {
     expect(labels('header', personas['owner at the PC'])).toEqual(HEADER)
-    expect(labels('gear', personas['owner at the PC'])).toEqual(['Settings', 'Admin', 'Diagnostics'])
+    expect(labels('gear', personas['owner at the PC'])).toEqual(['Jobs', 'Settings', 'Admin', 'Diagnostics'])
   })
 
   it('household member: no Admin; Diagnostics still listed (its page refuses)', () => {
     expect(labels('header', personas['household member'])).toEqual(HEADER)
-    expect(labels('gear', personas['household member'])).toEqual(['Settings', 'Diagnostics'])
+    expect(labels('gear', personas['household member'])).toEqual(['Jobs', 'Settings', 'Diagnostics'])
   })
 
   it('remote admin: Admin and Diagnostics, no Assistant', () => {
     expect(labels('header', personas['remote admin'])).toEqual(HEADER)
-    expect(labels('gear', personas['remote admin'])).toEqual(['Settings', 'Admin', 'Diagnostics'])
+    expect(labels('gear', personas['remote admin'])).toEqual(['Jobs', 'Settings', 'Admin', 'Diagnostics'])
   })
 
   it('auth unavailable: renders as before sign-in existed, Admin included', () => {
     const ctx: NavContext = { session: { status: 'unavailable' }, pcMode: 'local', developerMode: false }
-    expect(labels('gear', ctx)).toEqual(['Settings', 'Admin', 'Diagnostics'])
+    expect(labels('gear', ctx)).toEqual(['Jobs', 'Settings', 'Admin', 'Diagnostics'])
   })
 
   it('session still loading: no Admin', () => {
     const ctx: NavContext = { session: { status: 'loading' }, pcMode: 'unknown', developerMode: false }
-    expect(labels('gear', ctx)).toEqual(['Settings', 'Diagnostics'])
+    expect(labels('gear', ctx)).toEqual(['Jobs', 'Settings', 'Diagnostics'])
   })
 })
 
@@ -67,7 +67,7 @@ describe('Assistant', () => {
   const base = personas['owner at the PC']
 
   it('needs Developer Mode on the PC', () => {
-    expect(labels('gear', { ...base, developerMode: true })).toEqual(['Settings', 'Admin', 'Diagnostics', 'Assistant'])
+    expect(labels('gear', { ...base, developerMode: true })).toEqual(['Jobs', 'Settings', 'Admin', 'Diagnostics', 'Assistant'])
   })
 
   it('waits for /api/meta: hidden while the PC check is unknown or remote', () => {
@@ -102,7 +102,7 @@ describe('left rail', () => {
     expect(visibleRailGroups(owner).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Saved manga', 'Library tools']],
       ['Find and add', ['Sources', 'Discover']],
-      ['Tools', ['Translate text', 'Live']],
+      ['Tools', ['Translate text', 'Live', 'Jobs']],
       ['System', ['Settings', 'Admin', 'Diagnostics', 'Benchmark Lab']],
     ])
   })
