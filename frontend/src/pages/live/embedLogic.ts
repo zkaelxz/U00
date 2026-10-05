@@ -116,6 +116,58 @@ export function planDelay(info: PlayerInfo | null, delay: number, waitedS: numbe
   return { kind: 'seek', to: Math.max(0, Math.floor(d - wanted)) }
 }
 
+export const NO_DELAY_NOTE = "This stream can't be delayed, so the picture runs ahead of the lines."
+export const WAITING_NOTE = 'Waiting for the player…'
+/** How far (s) the measured delay may sit from the wanted one and still count as reached. */
+export const SETTLE_TOLERANCE_S = 3
+
+/**
+ * How far behind the live edge the player really is: the end of the seekable
+ * window minus where it is playing, or null until it has reported both. Reads
+ * the player, not the slider, so a seek it ignored shows.
+ */
+export function measuredDelay(info: PlayerInfo | null): number | null {
+  const d = info?.duration
+  const t = info?.currentTime
+  if (d === undefined || t === undefined || d <= 1) return null
+  return Math.max(0, Math.round(d - t))
+}
+
+/** The most the player can rewind (the seekable window), or null before it reports one. */
+function rewindLimit(info: PlayerInfo | null): number | null {
+  const d = info?.duration
+  return d === undefined || d <= 1 ? null : Math.floor(d)
+}
+
+/** The delay a seek can reach: the wanted one, or the whole buffer when that is shorter. */
+function reachableDelay(info: PlayerInfo | null, delay: number): number {
+  const wanted = Math.max(0, Math.min(DELAY_RANGE[1], delay))
+  const limit = rewindLimit(info)
+  return limit === null ? wanted : Math.min(wanted, limit)
+}
+
+/** True once the measured delay is within tolerance of what a seek for `delay` can reach. */
+export function delayReached(info: PlayerInfo | null, delay: number): boolean {
+  const m = measuredDelay(info)
+  return m !== null && Math.abs(m - reachableDelay(info, delay)) <= SETTLE_TOLERANCE_S
+}
+
+/**
+ * The line under the video. `moving` is true between sending a seek and the
+ * player confirming it, so the note answers the slider before the report.
+ */
+export function delayNote(info: PlayerInfo | null, delay: number, opts: { unsupported: boolean; moving: boolean }): string {
+  if (opts.unsupported) return NO_DELAY_NOTE
+  const m = measuredDelay(info)
+  if (m === null) return WAITING_NOTE
+  if (opts.moving) return `Moving to about ${reachableDelay(info, delay)} s behind live…`
+  const limit = rewindLimit(info)
+  const clamped = limit !== null && Math.max(0, Math.min(DELAY_RANGE[1], delay)) > limit
+  return clamped
+    ? `Playing about ${m} s behind live (this stream allows at most ${limit} s).`
+    : `Playing about ${m} s behind live.`
+}
+
 /** The postMessage payloads for the YouTube player. */
 export const ytListenMessage = () => JSON.stringify({ event: 'listening', id: 1, channel: 'widget' })
 export const ytSeekMessage = (to: number) => JSON.stringify({ event: 'command', func: 'seekTo', args: [to, true] })

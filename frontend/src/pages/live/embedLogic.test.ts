@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { DVR_WAIT_S, canDelay, embedSrc, parseStreamUrl, parseYouTubeInfo, planDelay } from './embedLogic'
+import {
+  DVR_WAIT_S, NO_DELAY_NOTE, WAITING_NOTE, canDelay, delayNote, delayReached, embedSrc, measuredDelay, parseStreamUrl, parseYouTubeInfo, planDelay,
+} from './embedLogic'
 
 const ID = 'dQw4w9WgXcQ'
 
@@ -95,5 +97,61 @@ describe('planDelay', () => {
     expect(planDelay({ duration: 0 }, 15, DVR_WAIT_S - 1)).toEqual({ kind: 'wait' })
     expect(planDelay({ duration: 0 }, 15, DVR_WAIT_S)).toEqual({ kind: 'unsupported' })
     expect(planDelay({}, 15, 99)).toEqual({ kind: 'unsupported' })
+  })
+})
+
+// Fabricated player reports, as parseYouTubeInfo reads them off the wire.
+const report = (info: object) => parseYouTubeInfo(JSON.stringify({ event: 'infoDelivery', info }))
+
+describe('measuredDelay', () => {
+  it('is the window end minus the playhead, rounded', () => {
+    expect(measuredDelay(report({ duration: 300, currentTime: 285 }))).toBe(15)
+    expect(measuredDelay(report({ duration: 300.4, currentTime: 285 }))).toBe(15)
+    expect(measuredDelay(report({ duration: 300.6, currentTime: 285 }))).toBe(16)
+  })
+  it('is null until both numbers are known, and never negative', () => {
+    expect(measuredDelay(null)).toBeNull()
+    expect(measuredDelay(report({ duration: 300 }))).toBeNull()
+    expect(measuredDelay(report({ currentTime: 3 }))).toBeNull()
+    expect(measuredDelay(report({ duration: 0, currentTime: 0 }))).toBeNull()
+    expect(measuredDelay(report({ duration: 300, currentTime: 301 }))).toBe(0)
+  })
+})
+
+describe('delayReached', () => {
+  it('is true within the tolerance of the wanted delay', () => {
+    expect(delayReached(report({ duration: 300, currentTime: 285 }), 15)).toBe(true)
+    expect(delayReached(report({ duration: 300, currentTime: 283 }), 15)).toBe(true)
+    expect(delayReached(report({ duration: 300, currentTime: 290 }), 15)).toBe(false)
+    expect(delayReached(null, 15)).toBe(false)
+  })
+  it('counts a seek clamped to the window start as reached', () => {
+    expect(delayReached(report({ duration: 45, currentTime: 0 }), 90)).toBe(true)
+  })
+})
+
+describe('delayNote', () => {
+  const flags = { unsupported: false, moving: false }
+  it('waits for the player before it says anything about delay', () => {
+    expect(delayNote(null, 15, flags)).toBe(WAITING_NOTE)
+    expect(WAITING_NOTE).toBe('Waiting for the player…')
+    expect(delayNote(report({ duration: 300 }), 15, flags)).toBe(WAITING_NOTE)
+  })
+  it('reports the measured delay, not the slider', () => {
+    expect(delayNote(report({ duration: 300, currentTime: 285 }), 15, flags)).toBe('Playing about 15 s behind live.')
+    // The slider says 60 but the player has not moved: say what it is doing.
+    expect(delayNote(report({ duration: 300, currentTime: 290 }), 60, flags)).toBe('Playing about 10 s behind live.')
+  })
+  it('says the stream clamped the seek', () => {
+    expect(delayNote(report({ duration: 45.5, currentTime: 0 }), 90, flags))
+      .toBe('Playing about 46 s behind live (this stream allows at most 45 s).')
+    expect(delayNote(report({ duration: 45, currentTime: 0 }), 45, flags)).toBe('Playing about 45 s behind live.')
+  })
+  it('answers the slider at once while a seek is in flight', () => {
+    expect(delayNote(report({ duration: 300, currentTime: 285 }), 30, { unsupported: false, moving: true })).toBe('Moving to about 30 s behind live…')
+    expect(delayNote(report({ duration: 45, currentTime: 45 }), 90, { unsupported: false, moving: true })).toBe('Moving to about 45 s behind live…')
+  })
+  it('says a stream with no rewind buffer cannot be delayed', () => {
+    expect(delayNote(report({ duration: 0 }), 15, { unsupported: true, moving: false })).toBe(NO_DELAY_NOTE)
   })
 })
