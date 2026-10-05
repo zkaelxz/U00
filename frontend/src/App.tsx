@@ -8,7 +8,7 @@ import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AdminPage from './pages/Admin'
 import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
-import { GearMenu, type GearItem } from './components/GearMenu'
+import { GearMenu } from './components/GearMenu'
 import { JobsMenu } from './components/JobsMenu'
 import { NotificationBell } from './components/NotificationBell'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
@@ -29,10 +29,10 @@ import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
-import { canViewUsers } from './pages/diagnostics/adminUsers'
+import { visibleNavItems } from './nav/navItems'
 import { ReportProblemButton } from './report/ReportProblem'
+import { usePcOnly } from './hooks/usePcOnly'
 import { routeHref, useRoute } from './router'
-import type { Route } from './router'
 
 // Shown only when the server can't be reached; the version lives in
 // Diagnostics and in problem reports, where it is useful.
@@ -90,31 +90,12 @@ function UserMenu({ user }: { user: AuthUser }) {
   )
 }
 
-// [label, target, route names that count as being on this page]
-const NAV: [string, Route, Route['name'][]][] = [
-  ['Library', { name: 'library' }, ['library', 'library-tools', 'drama', 'read', 'comic', 'manga', 'manga-series', 'manga-read']],
-  ['Quick translate', { name: 'translate' }, ['translate']],
-  ['Sources', { name: 'sources' }, ['sources']],
-  ['Discover', { name: 'discover' }, ['discover']],
-  ['Live', { name: 'live' }, ['live']],
-]
-
-// Behind the cogwheel: rarely used pages. Admin is for admins, the Assistant
-// for Developer Mode (Settings; PC only).
-function gearItems(admin: boolean, developerMode: boolean): GearItem[] {
-  return [
-    { label: 'Settings', target: { name: 'settings' }, active: ['settings'] },
-    ...(admin ? [{ label: 'Admin', target: { name: 'admin' } as Route, active: ['admin'] as Route['name'][] }] : []),
-    { label: 'Diagnostics', target: { name: 'diagnostics' }, active: ['diagnostics', 'benchmark'] },
-    ...(developerMode ? [{ label: 'Assistant', target: { name: 'assistant' } as Route, active: ['assistant'] as Route['name'][] }] : []),
-  ]
-}
-
 export default function App() {
   const route = useRoute()
   const session = useSession()
   const view = gateView(session)
   const developerMode = useDeveloperMode(view === 'app')
+  const pcMode = usePcOnly()
 
   if (view === 'connecting') {
     return (
@@ -127,6 +108,7 @@ export default function App() {
     return <LoginPage configured={session.status !== 'ready' || session.me.sign_in_configured} />
   }
   const user = menuUser(session)
+  const navContext = { session, pcMode, developerMode }
 
   return (
     <>
@@ -135,7 +117,7 @@ export default function App() {
           Baihe<span className="title-rest"> Studio</span>
         </h1>
         <nav aria-label="Main">
-          {NAV.map(([label, target, active]) => (
+          {visibleNavItems('header', navContext).map(({ label, target, active }) => (
             <a
               key={label}
               href={routeHref(target)}
@@ -150,7 +132,7 @@ export default function App() {
           <NotificationBell />
           <ReportProblemButton />
           <ThemeMenu />
-          <GearMenu items={gearItems(canViewUsers(session), developerMode)} route={route} />
+          <GearMenu items={visibleNavItems('gear', navContext)} route={route} />
           <ApiStatus />
           {user && <UserMenu user={user} />}
         </div>
