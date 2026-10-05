@@ -4,13 +4,16 @@
  * are used rarely, so they sit in one menu instead of five more links.
  */
 import { useDetailsMenu } from '../hooks/useDetailsMenu'
+import { useJobs } from '../hooks/useJobs'
+import type { NavItem } from '../nav/navItems'
 import { routeHref, type Route } from '../router'
+import { Badge } from './Badge'
+import { activeCount, badgeText } from './jobsMenuState'
 import './gearMenu.css'
 
-export type GearItem = { label: string; target: Route; active: Route['name'][] }
-
-export function GearMenu({ items, route }: { items: GearItem[]; route: Route }) {
+export function GearMenu({ items, route }: { items: NavItem[]; route: Route }) {
   const ref = useDetailsMenu()
+  const running = activeCount(useJobs().jobs ?? [])
   const here = items.some((i) => i.active.includes(route.name))
   return (
     <details className="gear-menu" ref={ref}>
@@ -31,6 +34,11 @@ export function GearMenu({ items, route }: { items: GearItem[]; route: Route }) 
             }}
           >
             {i.label}
+            {i.badge === 'running-jobs' && running > 0 && (
+              <span className="gear-badge" data-testid="gear-jobs-count">
+                <Badge tone="accent">{badgeText(running)}</Badge>
+              </span>
+            )}
           </a>
         ))}
       </div>

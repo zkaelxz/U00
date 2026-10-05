@@ -10,6 +10,7 @@ import { isComicType } from '../comic/comicLogic'
 import type { WorkflowProgress } from '../../types/workspace'
 import { STAGE_COMPONENTS } from './stageRegistry'
 import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, nextAction, stageStates, startStage } from './stages'
+import { JobPill } from './JobPill'
 import { StageContext, type StageContextValue } from './StageContext'
 import { useDrama } from './useDrama'
 import './workspace.css'
@@ -100,6 +101,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
             </span>
           )}
         </div>
+        <JobPill dramaId={id} onFinished={refetch} />
         {drama && (
           <ButtonLink
             href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id, page: null })}

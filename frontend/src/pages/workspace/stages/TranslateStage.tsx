@@ -524,7 +524,7 @@ function RunPanel({
               <textarea rows={2} value={f.style_note} onChange={(e) => set('style_note', e.target.value)} />
             </Field>
           </div>
-          <Field label="Batch size" unit="lines" help="Lines sent per request, 1 to 200.">
+          <Field label="Batch size" unit="lines" help="Lines sent per request, 1 to 60.">
             <input type="number" value={f.batch_size} onChange={(e) => set('batch_size', e.target.value)} />
           </Field>
           <Field label="Context before" unit="lines" help="Earlier lines sent as context, 0 to 100.">

@@ -279,6 +279,12 @@ Each has a recommendation. D1-D12 stand in for the eight approved decisions that
 | D11 | Should Library tools' Series, Cost and Backup move into the menu groups or stay one page. | Stay one page, linked from the menu. Splitting it is a separate decision after the menu proves out. |
 | D12 | Keyboard shortcut: Ctrl/Cmd+K only, or also `/`. | Ctrl/Cmd+K only. `/` is already Review's search shortcut and the review spec reserves single letters for the list. |
 
+### Owner answers (2026-10-05)
+
+- D1-D12: go with the recommendations as written.
+- D13 (added): each signed-in person chooses which menu items to hide for themselves ("Customize menu": a switch per item). Hiding is only tidiness, not access control: a hidden page is still reachable by its address, and what a person may do stays with the existing permissions. Library and Settings cannot be hidden. Hidden items are also left out of Ctrl+K. Stored per signed-in person in the existing per-person settings (no schema change); the PC owner has one setting of their own. Built as a step after the drawer (N3), before the palette (N6), so the palette reads the same list.
+- Audit decisions (docs/design audit, section d): the Catalogue is not used, so it is hidden behind Advanced and removal is planned later; Scanlate becomes its own destination, separate from a title's stages (design confirmed in the comic and novel stages PR); the other six as recommended (merge Sources and Discover into "Find and add", one "Data and backups" area, model switching moves to Settings, "title" instead of "drama", per-page engine pickers use the global routing default with a picker only under Advanced, Benchmark Lab and Assistant only with Developer Mode).
+
 ## 6. Risks
 
 - **R1 Active-link ambiguity.** Library is "active" on eight route names today; a rail makes that more visible. Mitigation: per-route active mapping in the registry, tested (N2).

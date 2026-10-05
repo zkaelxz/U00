@@ -26,6 +26,41 @@
 .workspace-header .ws-lines { font-size: var(--text-sm); }
 .workspace-header .ws-read { margin-left: auto; }
 
+/* Job pill: what is running on this title, on every stage. 32px on desktop, 44px on touch and phones. */
+.job-pill-wrap { position: relative; flex: 0 0 auto; }
+.job-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 32px; padding: 0 var(--space-3);
+  border: 1px solid var(--accent); border-radius: 999px;
+  background: var(--surface); color: var(--accent-text);
+  font: inherit; font-size: var(--text-sm); font-weight: var(--weight-bold);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.workspace-header > .job-pill { flex: 0 0 auto; }
+span.job-pill[data-state='done'] { border-color: var(--ok); color: var(--ok); }
+span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad); }
+.job-pill-panel {
+  position: absolute; z-index: 10; left: 0; top: calc(100% + var(--space-1));
+  width: min(24rem, calc(100vw - 2 * var(--space-4))); max-height: min(70vh, 32rem); overflow-y: auto;
+  display: grid; gap: var(--space-2); padding: var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--surface-2); box-shadow: var(--shadow-pop);
+}
+.job-pill-title, .job-pill-note { margin: 0; }
+.job-pill-title { font-weight: var(--weight-bold); }
+.job-pill-note { font-size: var(--text-sm); }
+.job-pill-panel .job-panel { margin: 0; }
+.job-pill-panel .job-panel button { min-height: 32px; }
+@media (pointer: coarse), (max-width: 640px) {
+  .job-pill { min-height: 44px; }
+  .job-pill-panel .job-panel button { min-height: 44px; }
+}
+@media (max-width: 900px) {
+  /* The strip, not the pill, is the anchor so the panel never runs off the right edge. */
+  .job-pill-wrap { position: static; }
+  .job-pill-panel { left: var(--space-2); right: var(--space-2); width: auto; }
+}
+
 /* Stepper: one tab per stage with a state marker; counts where they exist. */
 .stage-tabs { display: flex; gap: var(--space-1); margin: var(--space-3) 0; border-bottom: 1px solid var(--border); }
 .stage-tabs a {
@@ -72,6 +107,7 @@
   .workspace-header .ws-lines,
   .workspace-header .ws-read { display: none; }
   .workspace-header h2 { flex: 1 1 auto; font-size: var(--text-lg); }
+  .job-pill { padding-inline: var(--space-2); }
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }
 
   /* Phone stepper: a 5-column grid, marker above the label, no sideways scroll; counts hidden. */

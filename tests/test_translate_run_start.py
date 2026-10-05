@@ -188,3 +188,26 @@ def test_api_passes_prompt_toggles_and_validates_them(isolated_db, monkeypatch):
     _wait(r.json()["job_id"])
     assert seen[-1]["default_female_pronouns"] is False
     assert seen[-1]["include_genre_notes"] is True
+
+
+def test_batch_size_over_the_cap_is_refused_with_a_clear_message(isolated_db):
+    did = _seed([("你好", "")])
+    with pytest.raises(InvalidInputError, match="can't be more than 60"):
+        svc.start_translate_run(did, engine_name="fake", batch_size=200)
+    assert svc.start_translate_run(did, engine_name="fake", batch_size=60)["job_id"]
+
+
+def test_empty_engine_reply_finishes_with_errors(isolated_db, monkeypatch):
+    class Empty:
+        model = "fake-model"
+
+        def translate_batch(self, zh_lines, context):
+            return [""] * len(zh_lines)
+
+    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: Empty())
+    did = _seed([("你好", ""), ("再见", "")])
+    job = _wait(svc.start_translate_run(did, engine_name="fake")["job_id"])
+    assert job["status"] == "done"
+    assert len(job["result"]["errors"]) == 1
+    assert [r["en"] or "" for r in db.load_lines(did)] == ["", ""]
+    assert db.get_drama(did)["last_translate_errors"]

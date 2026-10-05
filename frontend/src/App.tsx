@@ -2,13 +2,16 @@ import { useEffect, useState } from 'react'
 
 import type { AuthUser } from './api/auth'
 import { api } from './api/client'
+import { useMediaQuery } from './hooks/useMediaQuery'
+import { usePersistedState } from './hooks/usePersistedState'
 import { useDetailsMenu } from './hooks/useDetailsMenu'
+import { JobsProvider } from './hooks/JobsProvider'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AdminPage from './pages/Admin'
 import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
-import { GearMenu, type GearItem } from './components/GearMenu'
+import { GearMenu } from './components/GearMenu'
 import { JobsMenu } from './components/JobsMenu'
 import { NotificationBell } from './components/NotificationBell'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
@@ -17,6 +20,7 @@ import ComicPage from './pages/Comic'
 import BenchmarkPage from './pages/Benchmark'
 import DiagnosticsPage from './pages/Diagnostics'
 import DiscoverPage from './pages/Discover'
+import JobsPage from './pages/Jobs'
 import LibraryPage from './pages/Library'
 import LibraryToolsPage from './pages/LibraryTools'
 import LivePage from './pages/Live'
@@ -29,10 +33,11 @@ import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
-import { canViewUsers } from './pages/diagnostics/adminUsers'
+import { RAIL_COLLAPSED_KEY, visibleNavItems } from './nav/navItems'
+import { SideNav } from './nav/SideNav'
 import { ReportProblemButton } from './report/ReportProblem'
+import { usePcOnly } from './hooks/usePcOnly'
 import { routeHref, useRoute } from './router'
-import type { Route } from './router'
 
 // Shown only when the server can't be reached; the version lives in
 // Diagnostics and in problem reports, where it is useful.
@@ -90,31 +95,14 @@ function UserMenu({ user }: { user: AuthUser }) {
   )
 }
 
-// [label, target, route names that count as being on this page]
-const NAV: [string, Route, Route['name'][]][] = [
-  ['Library', { name: 'library' }, ['library', 'library-tools', 'drama', 'read', 'comic', 'manga', 'manga-series', 'manga-read']],
-  ['Quick translate', { name: 'translate' }, ['translate']],
-  ['Sources', { name: 'sources' }, ['sources']],
-  ['Discover', { name: 'discover' }, ['discover']],
-  ['Live', { name: 'live' }, ['live']],
-]
-
-// Behind the cogwheel: rarely used pages. Admin is for admins, the Assistant
-// for Developer Mode (Settings; PC only).
-function gearItems(admin: boolean, developerMode: boolean): GearItem[] {
-  return [
-    { label: 'Settings', target: { name: 'settings' }, active: ['settings'] },
-    ...(admin ? [{ label: 'Admin', target: { name: 'admin' } as Route, active: ['admin'] as Route['name'][] }] : []),
-    { label: 'Diagnostics', target: { name: 'diagnostics' }, active: ['diagnostics', 'benchmark'] },
-    ...(developerMode ? [{ label: 'Assistant', target: { name: 'assistant' } as Route, active: ['assistant'] as Route['name'][] }] : []),
-  ]
-}
-
 export default function App() {
   const route = useRoute()
   const session = useSession()
   const view = gateView(session)
   const developerMode = useDeveloperMode(view === 'app')
+  const pcMode = usePcOnly()
+  const wide = useMediaQuery('(min-width: 1024px)')
+  const [railCollapsed, setRailCollapsed] = usePersistedState(RAIL_COLLAPSED_KEY, false)
 
   if (view === 'connecting') {
     return (
@@ -127,36 +115,24 @@ export default function App() {
     return <LoginPage configured={session.status !== 'ready' || session.me.sign_in_configured} />
   }
   const user = menuUser(session)
+  const navContext = { session, pcMode, developerMode }
 
-  return (
+  const headerEnd = (withGear: boolean) => (
+    <div className="header-end">
+      <JobsMenu />
+      <NotificationBell />
+      <ReportProblemButton />
+      <ThemeMenu />
+      {withGear && <GearMenu items={visibleNavItems('gear', navContext)} route={route} />}
+      <ApiStatus />
+      {user && <UserMenu user={user} />}
+    </div>
+  )
+
+  // Header and nav stay outside the boundary so a crashed page can still be left.
+  const content = (
     <>
-      <header className="app-header">
-        <h1>
-          Baihe<span className="title-rest"> Studio</span>
-        </h1>
-        <nav aria-label="Main">
-          {NAV.map(([label, target, active]) => (
-            <a
-              key={label}
-              href={routeHref(target)}
-              aria-current={active.includes(route.name) ? 'page' : undefined}
-            >
-              {label}
-            </a>
-          ))}
-        </nav>
-        <div className="header-end">
-          <JobsMenu />
-          <NotificationBell />
-          <ReportProblemButton />
-          <ThemeMenu />
-          <GearMenu items={gearItems(canViewUsers(session), developerMode)} route={route} />
-          <ApiStatus />
-          {user && <UserMenu user={user} />}
-        </div>
-      </header>
       <RemoteHealthBanner />
-      {/* Header and nav stay outside the boundary so a crashed page can still be left. */}
       <RouteErrorBoundary>
         {route.name === 'library' && <LibraryPage />}
         {route.name === 'library-tools' && <LibraryToolsPage />}
@@ -176,6 +152,7 @@ export default function App() {
             page={route.page}
           />
         )}
+        {route.name === 'jobs' && <JobsPage />}
         {route.name === 'settings' && <SettingsPage />}
         {route.name === 'admin' && <AdminPage />}
         {route.name === 'translate' && <TranslatePage />}
@@ -187,5 +164,34 @@ export default function App() {
         {route.name === 'benchmark' && <BenchmarkPage compare={route.compare} />}
       </RouteErrorBoundary>
     </>
+  )
+
+  // One tree at every width, so crossing 1024px keeps the open page (and a playing video) mounted.
+  return (
+    <JobsProvider>
+      <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
+        {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={() => setRailCollapsed(!railCollapsed)} />}
+        <div className="app-main">
+          {wide ? (
+            <header className="app-header">{headerEnd(false)}</header>
+          ) : (
+            <header className="app-header">
+              <h1>
+                Baihe<span className="title-rest"> Studio</span>
+              </h1>
+              <nav aria-label="Main">
+                {visibleNavItems('header', navContext).map(({ label, target, active }) => (
+                  <a key={label} href={routeHref(target)} aria-current={active.includes(route.name) ? 'page' : undefined}>
+                    {label}
+                  </a>
+                ))}
+              </nav>
+              {headerEnd(true)}
+            </header>
+          )}
+          {content}
+        </div>
+      </div>
+    </JobsProvider>
   )
 }

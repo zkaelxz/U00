@@ -21,6 +21,10 @@ interface Props {
   // Transcribe only: the run's expected seconds from this PC's recorded speed,
   // shown as the ETA until the live readings settle.
   expectedSeconds?: number | null
+  // False hides Cancel (a remote admin may stop only their own jobs); default true.
+  canCancel?: boolean
+  // Runs after a Cancel request succeeds, so a caller can refresh its job list.
+  onCancelled?: () => void
 }
 
 // Elapsed time and the ETA for a running job; null until the job exists.
@@ -64,7 +68,7 @@ function useLiveProgress(job: JobRecord | null, enabled: boolean, expectedSecond
   return { elapsed: Math.max(0, now - started), left }
 }
 
-export function JobPanel({ job, pollError, note, liveEta = false, expectedSeconds }: Props) {
+export function JobPanel({ job, pollError, note, liveEta = false, expectedSeconds, canCancel = true, onCancelled }: Props) {
   const { elapsed, left } = useLiveProgress(job, liveEta, expectedSeconds)
   const [cancelError, setCancelError] = useState<unknown>(null)
   const active = job !== null && !TERMINAL_STATUSES.includes(job.status)
@@ -113,10 +117,13 @@ export function JobPanel({ job, pollError, note, liveEta = false, expectedSecond
               {outcomeText}
             </p>
           )}
-          {active && (
+          {active && canCancel && (
             <button
               type="button"
-              onClick={() => cancelJob(job.job_id).then(() => setCancelError(null), setCancelError)}
+              onClick={() => cancelJob(job.job_id).then(() => {
+                setCancelError(null)
+                onCancelled?.()
+              }, setCancelError)}
             >
               Cancel job
             </button>

@@ -423,6 +423,9 @@ def check_js_runtime():
 YTDLP_STALE_DAYS = 90
 DENO_MIN_VERSION = (2, 3)
 PYANNOTE_MIN_VRAM_GB = 12
+# PyTorch reports a card's usable memory, a little under its label (a 12 GB
+# RTX 3080 Ti shows about 11.7-11.9), so the warning compares with a margin.
+PYANNOTE_VRAM_MARGIN_GB = 0.5
 
 
 def _ints(text: str, n: int):
@@ -477,7 +480,7 @@ def _warn_low_vram_pyannote():
         return None
     gpu = get_gpu_status()
     total = gpu.get("vram_total_gb") if gpu.get("available") else None
-    if total is not None and total < PYANNOTE_MIN_VRAM_GB:
+    if total is not None and total < PYANNOTE_MIN_VRAM_GB - PYANNOTE_VRAM_MARGIN_GB:
         return ("This GPU has less than 12 GB of memory, so speaker detection may run out "
                 "and switch to the CPU, which is slower. No action needed unless it fails.")
     return None
