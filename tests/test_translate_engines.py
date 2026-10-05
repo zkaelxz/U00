@@ -2998,3 +2998,46 @@ def test_failed_flag_batches_are_logged_not_silently_clean(monkeypatch):
     lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(4)]
     te.flag_uncertain_lines(lines, FakeFlaggingEngine(), batch_size=2)
     assert seen == ["flag check failed for 2 of 2 batches; their lines were not checked"]
+
+
+class _EmptyReplyEngine:
+    """translate_batch pads missing ids with "", as request_translations_with_retry does."""
+    model = "fake-model"
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+
+    def translate_batch(self, zh_lines, context):
+        return self.replies.pop(0)
+
+
+class TestEmptyTranslationsAreErrors:
+    def _lines(self, en=""):
+        return [Line(idx=i, start=0, end=1, zh=f"l{i}", en=en) for i in range(3)]
+
+    def test_all_empty_reply_records_error_and_writes_nothing(self):
+        lines = self._lines(en="old")
+        engine = _EmptyReplyEngine([["", "  ", ""]])
+        _, errors = te.translate_lines_with_engine(
+            lines, engine, {}, batch_size=3, force_retranslate=True)
+        assert len(errors) == 1
+        assert errors[0]["lines"] == [0, 1, 2]
+        assert "3 of 3 lines got no translation" in errors[0]["error"]
+        assert "smaller batch size" in errors[0]["error"]
+        assert [l.en for l in lines] == ["old"] * 3
+
+    def test_partial_reply_keeps_good_lines(self):
+        lines = self._lines()
+        engine = _EmptyReplyEngine([["One.", "", "Three."]])
+        _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=3)
+        assert [l.en for l in lines] == ["One.", "", "Three."]
+        assert errors[0]["lines"] == [1]
+        assert "1 of 3 lines" in errors[0]["error"]
+
+    def test_reflect_truncated_reply_records_error(self):
+        lines = self._lines()
+        engine = _ScriptedReflectEngine(['{"1": "Dra', '{"1": "Cri', '{"1": "Fin'])
+        _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=3, reflect=True)
+        assert len(errors) == 1
+        assert "got no translation" in errors[0]["error"]
+        assert all(l.en == "" for l in lines)

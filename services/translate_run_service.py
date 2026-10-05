@@ -77,6 +77,11 @@ def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool = False) -> N
         raise UnsupportedOperationError(refusal)
 
 
+# Claude replies are capped at 4000 output tokens; past this the JSON reply risks
+# being cut off and the batch coming back empty.
+MAX_BATCH_SIZE = 60
+
+
 def _parse_errors(raw) -> Optional[list]:
     if not raw:
         return None
@@ -368,6 +373,9 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     batch_size = defaults["batch_size"] if batch_size is None else batch_size
     if min(context_window, context_window_ahead) < 0 or batch_size < 1:
         raise InvalidInputError("Context window and batch size are out of range.")
+    if batch_size > MAX_BATCH_SIZE:
+        raise InvalidInputError(f"Batch size can't be more than {MAX_BATCH_SIZE}: a larger "
+                                f"batch's reply can be cut off by the engine's output limit.")
     if fallback_chain and (reflect or bulk):
         raise InvalidInputError("A fallback chain only applies to a normal translation run.")
     if own_lines_only and line_ids is None:

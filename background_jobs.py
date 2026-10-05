@@ -325,7 +325,8 @@ def set_notify_on_completion(enabled: bool):
     db.set_app_setting("notify_on_completion", bool(enabled))
 
 
-def _notify_job_finished(description, status, job_id=None, owner_user_id=None):
+def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
+                         with_errors=False):
     """Best-effort only -- never raises. A missing `plyer` install, or no
     notification daemon at all (common on a minimal Linux desktop), must
     never take down the job runner that calls this right after finishing
@@ -340,7 +341,8 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None):
     try:
         from services import notification_service
         notification_service.notify_job_finished(description, status, job_id=job_id,
-                                                 owner_user_id=owner_user_id)
+                                                 owner_user_id=owner_user_id,
+                                                 with_errors=with_errors)
     except Exception:
         pass
     if not get_notify_on_completion():
@@ -349,7 +351,9 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None):
         from plyer import notification
         notification.notify(
             title="Baihe Subtitler",
-            message=(f"Finished: {description}" if status == "done" and description else
+            message=(f"Finished with errors: {description}" if status == "done" and with_errors
+                     and description else
+                     f"Finished: {description}" if status == "done" and description else
                      "Finished: background job" if status == "done" else
                      f"Failed: {description}" if description else "Failed: background job"),
             timeout=10)
@@ -584,8 +588,11 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
         try:
             target(*args, **kwargs)
             _description = _owner = None
+            _with_errors = False
             with _lock:
                 if _still_running_locked(job_id):
+                    _result = _jobs[job_id].get("result")
+                    _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
                     _jobs[job_id]["status"] = "done"
                     _jobs[job_id]["progress"] = 1.0
                     _jobs[job_id]["finished_at"] = time.time()
@@ -593,7 +600,8 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
-            _notify_job_finished(_description, "done", job_id=job_id, owner_user_id=_owner)
+            _notify_job_finished(_description, "done", job_id=job_id, owner_user_id=_owner,
+                                 with_errors=_with_errors)
         except JobCancelled:
             with _lock:
                 if _still_running_locked(job_id):
