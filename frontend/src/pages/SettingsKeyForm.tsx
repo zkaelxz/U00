@@ -3,6 +3,7 @@ import { clearEngineKey, setEngineKey } from '../api/settings'
 import { Field } from '../components/Field'
 import { buttonClass } from '../components/uiClasses'
 import type { EngineKeyResult } from '../types/settings'
+import { balanceLinkFor } from './settings/providerBalanceLinks'
 import { SAVED_ON_PC_NOTE } from './settings/preferences'
 import { initialKeyForm, keyFormReducer } from './settingsKeys'
 
@@ -18,6 +19,7 @@ type Props = {
 // only set/missing; the stored key is never read back.
 export function SettingsKeyForm({ engine, label, configured, onResult }: Props) {
   const [s, dispatch] = useReducer(keyFormReducer, initialKeyForm)
+  const balanceUrl = balanceLinkFor(engine)
 
   async function send(call: () => Promise<EngineKeyResult>, notice: (r: EngineKeyResult) => string) {
     dispatch({ type: 'send' })
@@ -101,6 +103,11 @@ export function SettingsKeyForm({ engine, label, configured, onResult }: Props) 
               Clear key
             </button>
           </>
+        )}
+        {balanceUrl && (
+          <a className="button-link" href={balanceUrl} target="_blank" rel="noopener noreferrer">
+            Check {label} balance
+          </a>
         )}
       </div>
       {s.notice && (
