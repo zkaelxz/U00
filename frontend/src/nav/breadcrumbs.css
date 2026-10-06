@@ -1,0 +1,16 @@
+.crumbs { min-width: 0; font-size: var(--text-sm); }
+.crumbs ol { display: flex; align-items: center; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.crumb { display: flex; align-items: center; min-width: 0; }
+.crumb + .crumb::before { content: '/'; padding-inline: var(--space-2); color: var(--muted, inherit); flex: 0 0 auto; }
+/* min-height keeps a 44px target on touch; the ellipsis lives here so long titles never widen the page. */
+.crumb a, .crumb span {
+  display: inline-flex; align-items: center; min-height: 44px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Only the title (the middle or last crumb) may shrink; "Library" keeps its width. */
+.crumb:first-child { flex: 0 0 auto; }
+.crumb:not(:first-child) { flex: 0 1 auto; }
+.crumb-current span { font-weight: 600; }
+@media (pointer: fine) and (min-width: 641px) {
+  .crumb a, .crumb span { min-height: 32px; }
+}

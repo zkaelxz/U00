@@ -149,3 +149,6 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 @media (max-width: 640px) {
   .workspace-header .btn.ws-back::after { content: none; }
 }
+
+/* The dense back button below reaches 6px above its box for touch; the gap keeps that area off the crumb links. */
+.workspace > .crumbs { margin-bottom: var(--space-2); }
