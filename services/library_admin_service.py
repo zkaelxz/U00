@@ -949,6 +949,11 @@ def _library_size() -> int:
     return total
 
 
+# A restore holds the whole zip in memory (bytes, then BytesIO), so it is
+# capped below the general upload limit, which can be set to 1 TB.
+RESTORE_MAX_UPLOAD_BYTES = 2 * 1024 ** 3
+
+
 def _restore_total_cap(upload_size: int) -> int:
     return max(_RESTORE_EXPANSION_FACTOR * upload_size, 2 * _library_size(),
                _RESTORE_MIN_TOTAL_BYTES)

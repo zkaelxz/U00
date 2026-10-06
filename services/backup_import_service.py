@@ -86,6 +86,7 @@ FILE_COLUMNS = {t: set(cols) for t, cols in abs_.IMPORT_FILE_COLUMNS.items()}
 def _save_upload(stream, dest: str):
     """Streams the upload to `dest`, refused past the upload limit."""
     limit = media_upload_service.max_upload_bytes()
+    media_upload_service._check_disk_room(os.path.dirname(dest) or ".", stream)
     total = 0
     with open(dest, "wb") as out:
         while True:

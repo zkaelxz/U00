@@ -301,7 +301,7 @@ export function AdvancedCard(props: Props) {
               help={
                 settings.upload_max_mb_from_env
                   ? `Set by the environment (BAIHE_MAX_UPLOAD_MB), so it is ${settings.effective_upload_max_mb.toLocaleString('en-US')} MB and can't be changed here. Remove the variable to use a saved limit.`
-                  : `The largest audio or video file, backup or restore you can upload to this PC. From 100 to 1,048,576 MB; blank uses ${DEFAULT_UPLOAD_MB.toLocaleString('en-US')} MB. The drive also needs room for the file. Other devices can't upload.`
+                  : `The largest audio or video file or backup you can upload to this PC. From 100 to 1,048,576 MB; blank uses ${DEFAULT_UPLOAD_MB.toLocaleString('en-US')} MB. The drive also needs room for the file. Other devices can't upload.`
               }
             >
               <input

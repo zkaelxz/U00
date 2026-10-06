@@ -69,7 +69,10 @@ def _env_limit_mb():
         mb = float(os.environ.get("BAIHE_MAX_UPLOAD_MB", ""))
     except ValueError:
         return None
-    return mb if math.isfinite(mb) and mb > 0 else None
+    if not (math.isfinite(mb) and mb > 0):
+        return None
+    # 1e303 is finite, but int(mb * _MB) would overflow to inf.
+    return min(mb, settings_service.MAX_UPLOAD_MB)
 
 
 def upload_limit_from_env() -> bool:
@@ -99,8 +102,16 @@ def _check_disk_room(folder, fileobj):
         here = fileobj.tell()
         size = fileobj.seek(0, os.SEEK_END) - here
         fileobj.seek(here)
-        free = shutil.disk_usage(folder).free
     except (AttributeError, OSError, ValueError):
+        return
+    check_room_for(folder, size)
+
+
+def check_room_for(folder, size):
+    """Same refusal for a size known up front (a Content-Length)."""
+    try:
+        free = shutil.disk_usage(folder).free
+    except OSError:
         return
     if free < size + _DISK_MARGIN_BYTES:
         raise InvalidInputError(_NO_DISK_ROOM)

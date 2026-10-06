@@ -144,16 +144,22 @@ def get_artifact(kind: LibraryArtifactKind = Path()):
         "Content-Length": str(size), "X-Content-Type-Options": "nosniff"})
 
 
+def _restore_too_large(limit: int) -> str:
+    return (f"A restore can load at most {limit // (1024 * 1024)} MB. For a larger library "
+            f"copy the backup folder back by hand.")
+
+
 def _read_capped(upload: UploadFile) -> bytes:
-    """The upload as one bytes object, refused (422) past the upload limit.
-    One read of limit+1 bytes, so the peak is the upload itself, not a copy."""
-    limit = media_upload_service.max_upload_bytes()
+    """The upload as one bytes object, refused (422) past the upload limit
+    or the smaller restore cap. One read of limit+1 bytes, so the peak is
+    the upload itself, not a copy."""
+    limit = min(media_upload_service.max_upload_bytes(), las.RESTORE_MAX_UPLOAD_BYTES)
     size = getattr(upload, "size", None)
     if size is not None and size > limit:
-        raise InvalidInputError(media_upload_service.too_large_message(limit))
+        raise InvalidInputError(_restore_too_large(limit))
     data = upload.file.read(limit + 1)
     if len(data) > limit:
-        raise InvalidInputError(media_upload_service.too_large_message(limit))
+        raise InvalidInputError(_restore_too_large(limit))
     return data
 
 

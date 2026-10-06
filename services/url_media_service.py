@@ -63,6 +63,7 @@ _NO_YTDLP = "Downloading from a URL needs yt-dlp, which isn't installed on this 
 _FAILED = ("Couldn't download from that link. It may be private, region-locked or not "
            "supported, or yt-dlp may need an update.")
 _REJECTED = "That link is a live stream, a playlist or longer than 6 hours, so it was not downloaded."
+_NO_ROOM = "There is not enough free disk space for this download."
 _TOO_LARGE = "The download is larger than the upload limit, so it was stopped."
 _DISK_NEARLY_FULL = "The drive is almost full, so the download was stopped."
 MIN_FREE_BYTES = 2 * 1024 ** 3
@@ -225,6 +226,11 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
             length = str(resp.headers.get("Content-Length") or "").strip()
             if length.isdigit() and int(length) > limit:
                 raise RuntimeError(_TOO_LARGE)
+            if length.isdigit():
+                try:
+                    media_upload_service.check_room_for(tmp, int(length))
+                except InvalidInputError:
+                    raise RuntimeError(_NO_ROOM) from None
 
             def check():
                 if background_jobs.is_cancel_requested(job_id):
