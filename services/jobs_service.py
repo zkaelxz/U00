@@ -60,13 +60,13 @@ RESULT_ALLOWED_KEYS = (
 _MAX_STR = 500
 _MAX_LIST = 20
 _MAX_JSON = 8000
-_URL_PATTERN = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+URL_PATTERN = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 
 
 def scrub_text(text: str) -> str:
     # URLs first: a fetched URL can carry a token or a private host that the
     # path and key redaction wouldn't recognise.
-    return redact_text(_URL_PATTERN.sub("[URL]", text or ""))
+    return redact_text(URL_PATTERN.sub("[URL]", text or ""))
 
 
 def _safe_scalar(value):

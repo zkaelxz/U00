@@ -20,21 +20,28 @@ import re
 import socket
 import threading
 import time
+import weakref
 from urllib.parse import urljoin, urlsplit
 
 import requests
 import urllib3
+from requests.adapters import HTTPAdapter
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 
 CONNECT_TIMEOUT = 10.0
 READ_TIMEOUT = 20.0
 # No new segment (HLS), or ffmpeg taking no bytes, for this long ends the
-# capture; a live playlist that keeps failing to refresh ends the same way.
+# capture; a live playlist that keeps failing to refresh, or one playlist,
+# key or segment request still unfinished after it, ends the same way.
 STALL_TIMEOUT = 60.0
 CHUNK_BYTES = 65_536
 # The fetcher is at most this many chunks ahead of ffmpeg (backpressure
 # instead of buffering a stream that ffmpeg can't keep up with).
 QUEUE_CHUNKS = 32
 MAX_PLAYLIST_BYTES = 1_000_000
+# A live window holds a few dozen entries; this bounds the work one
+# hostile playlist can cause on every refresh.
+MAX_PLAYLIST_ENTRIES = 2000
 MAX_SEGMENT_BYTES = 64_000_000
 MAX_REDIRECTS = 5
 # Where a live playlist starts playing from, as ffmpeg's HLS demuxer does.
@@ -94,12 +101,16 @@ def parse_playlist(text: str, base_url: str) -> dict:
     if not lines or not lines[0].startswith("#EXTM3U"):
         raise StreamFetchError(FAILED)
     variants, audio, segments = [], {}, []
-    first_seq, target, endlist = 0, 6.0, False
+    first_seq, target, endlist, entries = 0, 6.0, False, 0
     key = init = variant = None
     for line in lines[1:]:
         tag, _, value = line.partition(":")
         if not line:
             continue
+        if tag == "#EXT-X-MEDIA" or not line.startswith("#"):
+            entries += 1
+            if entries > MAX_PLAYLIST_ENTRIES:
+                raise StreamFetchError(TOO_LARGE)
         if tag == "#EXT-X-STREAM-INF":
             variant = _attrs(value)
         elif tag == "#EXT-X-MEDIA":
@@ -175,14 +186,62 @@ def _decrypt(data: bytes, key: bytes, iv: bytes) -> bytes:
         raise _FetchFailed(FAILED) from None
 
 
-def _response_socket(response):
-    """The socket a streamed response reads from. http.client keeps it
-    only on the response's file object (the connection drops its own
-    reference once the response is underway), so this reaches into
-    CPython's http.client/socket internals; None if they ever change,
-    and a blocked read then ends at READ_TIMEOUT instead."""
-    fp = getattr(getattr(response.raw, "_fp", None), "fp", None)
-    return getattr(getattr(fp, "raw", None), "_sock", None)
+def _tracking_pool(pool_cls, track, release):
+    base = pool_cls.ConnectionCls
+
+    class Connection(base):
+        _handshake_handle = None
+
+        def _new_conn(self):
+            sock = super()._new_conn()
+            # TLS moves the descriptor into a new socket object and empties
+            # this one, so a duplicate keeps the connection reachable by
+            # halt() through the proxy's CONNECT answer and the handshake.
+            self._handshake_handle = sock.dup()
+            track(self._handshake_handle)
+            return sock
+
+        def connect(self):
+            try:
+                super().connect()
+            finally:
+                if self._handshake_handle is not None:
+                    release(self._handshake_handle)
+                    self._handshake_handle = None
+            track(self.sock)
+
+    return type(pool_cls.__name__, (pool_cls,), {"ConnectionCls": Connection})
+
+
+class _TrackingAdapter(HTTPAdapter):
+    """Hands every socket its connections open to track (and a temporary
+    one to release once done with it), so halt() can wake a request at
+    any stage: the TLS handshake, waiting for response headers (no
+    response object exists yet) or reading the body."""
+
+    def __init__(self, track, release):
+        self._pool_classes = {
+            "http": _tracking_pool(HTTPConnectionPool, track, release),
+            "https": _tracking_pool(HTTPSConnectionPool, track, release)}
+        super().__init__()
+
+    def init_poolmanager(self, *args, **kwargs):
+        super().init_poolmanager(*args, **kwargs)
+        self.poolmanager.pool_classes_by_scheme = self._pool_classes
+
+    def proxy_manager_for(self, proxy, **proxy_kwargs):
+        manager = super().proxy_manager_for(proxy, **proxy_kwargs)
+        manager.pool_classes_by_scheme = self._pool_classes
+        return manager
+
+
+def _shutdown(sock):
+    # The plain socket.socket method: SSLSocket.shutdown also drops its
+    # TLS state, which the thread reading from it may be using.
+    try:
+        socket.socket.shutdown(sock, socket.SHUT_RDWR)
+    except (OSError, TypeError):
+        pass
 
 
 class StreamPump:
@@ -205,9 +264,12 @@ class StreamPump:
         self._stop = threading.Event()
         self._fetch_done = threading.Event()
         self._lock = threading.Lock()
-        self._response = None
+        self._sockets = weakref.WeakSet()
         self._threads = []
         self._session = requests.Session()
+        adapter = _TrackingAdapter(self._track, self._release)
+        self._session.mount("http://", adapter)
+        self._session.mount("https://", adapter)
         self._session.trust_env = False
         self._session.verify = TLS_VERIFY
         self._session.proxies = {"http": proxy, "https": proxy} if proxy else {}
@@ -220,18 +282,26 @@ class StreamPump:
         return self
 
     def halt(self):
-        """Ask both threads to stop without waiting. A fetch blocked
-        reading is woken by shutting its socket down; a write blocked on a
-        full pipe ends when ffmpeg exits."""
+        """Ask both threads to stop without waiting. A blocked fetch is
+        woken by shutting its sockets down; a write blocked on a full pipe
+        ends when ffmpeg exits."""
         self._stop.set()
         with self._lock:
-            response = self._response
-        sock = _response_socket(response) if response is not None else None
-        if sock is not None:
-            try:
-                socket.socket.shutdown(sock, socket.SHUT_RDWR)
-            except (OSError, TypeError):
-                pass
+            for sock in list(self._sockets):
+                _shutdown(sock)
+
+    # Shutdowns and _release's close share the lock, so halt() never shuts
+    # down a handshake handle's descriptor number after its close freed it.
+    def _track(self, sock):
+        with self._lock:
+            self._sockets.add(sock)
+            if self._stop.is_set():  # opened after halt() went through the set
+                _shutdown(sock)
+
+    def _release(self, sock):
+        with self._lock:
+            self._sockets.discard(sock)
+            sock.close()
 
     def join(self, timeout: float = READ_TIMEOUT + 5):
         for thread in self._threads:
@@ -332,16 +402,8 @@ class StreamPump:
             if response.headers.get("Content-Encoding", "identity").lower() != "identity":
                 response.close()
                 raise _FetchFailed(FAILED)
-            with self._lock:
-                self._response = response
             return response
         raise StreamFetchError(UNREACHABLE)
-
-    def _release(self, response):
-        with self._lock:
-            if self._response is response:
-                self._response = None
-        response.close()
 
     def _chunks(self, response):
         """Whatever has arrived, up to CHUNK_BYTES at a time (read1), so a
@@ -357,8 +419,15 @@ class StreamPump:
             self._check_stop()
             raise _FetchFailed(STALLED) from None
 
+    def _check_deadline(self, deadline: float):
+        # Read timeouts alone let a server trickle one byte per READ_TIMEOUT
+        # forever; this ends it at most READ_TIMEOUT past the deadline.
+        if time.monotonic() > deadline:
+            raise StreamFetchError(STALLED)
+
     def _read(self, url: str, limit: int) -> tuple:
-        """(body, final url) of one bounded GET."""
+        """(body, final url) of one GET bounded in size and in time."""
+        deadline = time.monotonic() + self._stall_timeout
         response = self._open(url)
         try:
             body = bytearray()
@@ -366,11 +435,13 @@ class StreamPump:
                 body += chunk
                 if len(body) > limit:
                     raise StreamFetchError(TOO_LARGE)
+                self._check_deadline(deadline)
             return bytes(body), response.url
         finally:
-            self._release(response)
+            response.close()
 
     def _fetch(self, url: str):
+        deadline = time.monotonic() + self._stall_timeout
         response = self._open(url)
         try:
             chunks = self._chunks(response)
@@ -387,9 +458,10 @@ class StreamPump:
                 body += chunk
                 if len(body) > MAX_PLAYLIST_BYTES:
                     raise StreamFetchError(TOO_LARGE)
+                self._check_deadline(deadline)
             final_url = response.url
         finally:
-            self._release(response)
+            response.close()
         self._hls(bytes(body).decode("utf-8", "replace"), final_url)
 
     def _playlist(self, url: str) -> tuple:
