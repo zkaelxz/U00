@@ -79,6 +79,8 @@ for (const size of sizes) {
     await page.setViewportSize(size)
     for (const url of [...routes, '/#/drama/3/translate']) {
       await load(page, url)
+      // The glossary's instruction editors arrive after networkidle; measure with them present, not sometimes without.
+      if (url.endsWith('/translate')) await expect(page.getByLabel('Series instructions')).toBeVisible()
       // Open the folds so their dense buttons are measured too.
       await page.evaluate(() => document.querySelectorAll('details.section').forEach((d) => ((d as HTMLDetailsElement).open = true)))
       const res = await page.evaluate(() => {
@@ -100,6 +102,8 @@ for (const size of sizes) {
           if (hit.b - hit.t < 43.5) out.push(`${label}: hit height ${hit.b - hit.t}`)
           for (const o of all) {
             if (o === el || el.contains(o) || o.contains(el)) continue
+            // The sticky strip is meant to sit over scrolled content, so a control scrolled under it isn't an overlap.
+            if (!!el.closest('.ws-strip') !== !!o.closest('.ws-strip')) continue
             const q = o.getBoundingClientRect()
             const sameSm = o.classList.contains('btn-sm')
             const area = sameSm ? { l: q.left - 4, r: q.right + 4, t: q.top - 6, b: q.bottom + 6 } : { l: q.left, r: q.right, t: q.top, b: q.bottom }
