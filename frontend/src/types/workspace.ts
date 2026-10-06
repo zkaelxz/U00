@@ -8,6 +8,9 @@ export interface MediaStatus {
   has_audio: boolean
   has_source_video: boolean
   upload_max_mb: number
+  // Superseded originals and failed uploads kept in the title's folder (numbers only).
+  kept_media_files: number
+  kept_media_bytes: number
 }
 
 export interface MediaUploadResult {
@@ -46,6 +49,8 @@ export interface TranscribeConfig {
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
+  // Seconds of silence inside a segment that make Whisper skip it; 0 = off.
+  hallucination_silence_sec: number
   separate_vocals_first: boolean
   separation_backend: string
   realign_long_segments: boolean
@@ -339,6 +344,8 @@ export interface CompareRunRequest extends CompareTranslateFields {
   selection: CompareSelection
   whisper_size?: string | null
   asr_backend?: string | null
+  initial_prompt?: string
+  extra_names?: string
 }
 
 export interface CompareRunResult {

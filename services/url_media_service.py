@@ -27,9 +27,12 @@ the same rule as safe_fetch), streamed under the same byte, wall-clock and
 cancel caps; its audio is converted with ffmpeg. Audio only: the extracted
 WAV becomes `source.wav`. Video: the
 audio is extracted with ffmpeg inside the temp folder first, then the
-video becomes `source<ext>` and the audio `audio.wav`. The one DB write is
-field-scoped: audio_filename, [source_video_filename], source_url and,
-only when both titles are empty (re-read just before writing), title_zh.
+video becomes `source<ext>` and the audio `audio.wav`. Files go in place
+through media_upload_service.install_media, as an upload does: never over
+an existing file (`-2`... while the old one is there), one field-scoped DB
+write as the commit point (audio_filename, [source_video_filename],
+source_url and, only when both titles are empty (re-read just before
+writing), title_zh), then the replaced files move to kept_media/.
 Audio-only leaves an older source_video_filename as is.
 
 Errors are fixed strings: never the URL, a path or yt-dlp's raw text.
@@ -39,6 +42,7 @@ import importlib.util
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -62,6 +66,8 @@ _ONE_AT_A_TIME = "Another URL download is running. Wait for it to finish or canc
 _NO_YTDLP = "Downloading from a URL needs yt-dlp, which isn't installed on this PC."
 _FAILED = ("Couldn't download from that link. It may be private, region-locked or not "
            "supported, or yt-dlp may need an update.")
+_SAVE_FAILED = ("Downloaded, but couldn't save the file into this title's folder. The title's "
+               "audio and video are unchanged.")
 _REJECTED = "That link is a live stream, a playlist or longer than 6 hours, so it was not downloaded."
 _TOO_LARGE = "The download is larger than the upload limit, so it was stopped."
 _DISK_NEARLY_FULL = "The drive is almost full, so the download was stopped."
@@ -346,7 +352,6 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
 
 
 def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
-    ddir = db.drama_dir(drama_id)
     tmp = storage.new_workdir(job_id)
     try:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
@@ -357,28 +362,28 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
             path, title = _download(job_id, url, tmp, audio_only)
         ext = os.path.splitext(path)[1].lower()
         if audio_only and not direct_ext:
-            os.replace(path, os.path.join(ddir, "source.wav"))
-            fields = {"audio_filename": "source.wav"}
+            new_files = {"audio_filename": (path, "source", ".wav")}
         elif direct_ext and (audio_only or ext in media_upload_service.AUDIO_EXTENSIONS):
             background_jobs.update_progress(job_id, 0.88, "Converting the audio...")
             wav = os.path.join(tmp, "converted.wav")
             _extract_audio(job_id, path, wav, tmp)
-            os.replace(wav, os.path.join(ddir, "source.wav"))
-            fields = {"audio_filename": "source.wav"}
+            new_files = {"audio_filename": (wav, "source", ".wav")}
         else:
             if ext not in media_upload_service.VIDEO_EXTENSIONS:
                 raise RuntimeError(_FAILED)
             background_jobs.update_progress(job_id, 0.88, "Extracting audio from the video...")
             wav = os.path.join(tmp, "audio.wav")
             _extract_audio(job_id, path, wav, tmp)
-            os.replace(path, os.path.join(ddir, f"source{ext}"))
-            os.replace(wav, os.path.join(ddir, "audio.wav"))
-            fields = {"audio_filename": "audio.wav", "source_video_filename": f"source{ext}"}
-        fields["source_url"] = url
+            new_files = {"source_video_filename": (path, "source", ext),
+                         "audio_filename": (wav, "audio", ".wav")}
+        fields = {"source_url": url}
         drama = db.get_drama(drama_id) or {}  # re-read just before writing
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
-        db.update_drama(drama_id, **fields)
+        try:
+            media_upload_service.install_media(drama_id, new_files, **fields)
+        except (OSError, sqlite3.Error):
+            raise RuntimeError(_SAVE_FAILED) from None
         background_jobs.set_result(job_id, {"kind": "url_media", "audio_only": bool(audio_only),
                                             "title_filled": "title_zh" in fields})
         background_jobs.update_progress(job_id, 1.0, "Downloaded.")

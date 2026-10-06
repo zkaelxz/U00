@@ -129,6 +129,14 @@ class TestHttpCallsHaveTimeouts:
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 
+    def test_live_fetch(self):
+        # The live stream fetcher's GETs run on a background thread for the
+        # whole session; its stall handling relies on the read timeout.
+        path = os.path.join(PROJECT_ROOT, "live_fetch.py")
+        assert _find_requests_calls_missing_timeout(path, session_verbs=True) == []
+        assert "session.get(" in open(path, encoding="utf-8").read(), \
+            "the timeout check no longer sees the fetcher's GET"
+
     def test_installer_service_helper(self):
         # installer/service.py's loopback health check goes through an
         # opener's .open(), which the name-based check above doesn't match,

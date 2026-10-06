@@ -87,7 +87,7 @@ test('glossary proposals are cards with 44px checkboxes and one primary', async 
     route.fulfill({ json: { drama_id: 1, has_novel_text: true, char_count: 900, chapters: 3, ocr_running: false } }),
   )
   const prop = (term: string, en: string, already = false) => ({
-    term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name in chapters 1-3', already_in_glossary: already,
+    term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name in chapters 1-3', already_in_glossary: already, occurrences: 3, alternatives: [], confidence: 'high',
   })
   await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
     route.fulfill({
@@ -125,7 +125,7 @@ test('with 30 proposals the apply row stays in reach at the bottom', async ({ pa
   )
   const proposals = Array.from({ length: 30 }, (_, i) => ({
     term: `术语${i + 1}`, suggested_translation: `Term ${i + 1}`, category: 'term', policy: 'translate',
-    reason: 'Appears in several chapters', already_in_glossary: i % 7 === 0,
+    reason: 'Appears in several chapters', already_in_glossary: i % 7 === 0, occurrences: 3, alternatives: [], confidence: 'high',
   }))
   await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
     route.fulfill({ json: { job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', proposals } }),
@@ -170,4 +170,42 @@ test('PC-only delete buttons are 44px and on their own line', async ({ page }) =
   await expectTall(page.getByRole('button', { name: 'Remove audio/video', exact: true }))
   await expectNoHorizontalOverflow(page)
   await shot(page, 'source-remove-media-phone')
+})
+
+test('proposal cards show confidence, offer Ignore and Select all High at 44px', async ({ page }) => {
+  await page.route('**/api/library/dramas/1', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
+  })
+  await page.route('**/api/novel/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_novel_text: true, char_count: 900, chapters: 3, ocr_running: false } }),
+  )
+  await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/glossary/dramas/1/dismissals', (route) =>
+    route.fulfill({ json: route.request().method() === 'GET' ? { dismissals: [{ term: '路人', created_at: null }] } : { changed: 1 } }),
+  )
+  await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
+    route.fulfill({
+      json: {
+        job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', run_id: 'run-1',
+        proposals: [
+          { term: '魏婴', suggested_translation: 'Wei Ying', category: null, policy: null, reason: '', already_in_glossary: false, occurrences: 12, alternatives: [], confidence: 'high' },
+          { term: '云深', suggested_translation: 'Cloud', category: null, policy: null, reason: '', already_in_glossary: false, occurrences: 2, alternatives: ['Deep Clouds'], confidence: 'low' },
+        ],
+      },
+    }),
+  )
+  await page.goto('/#/drama/1/translate')
+  await openSection(page, 'Glossary')
+  await suggestFrom(page, 'Novel')
+  const cards = page.getByTestId('novel-glossary-proposals').locator('li')
+  await expect(cards).toHaveCount(2)
+  await expect(cards.nth(0)).toContainText('Seen 12×')
+  await expect(cards.nth(1)).toContainText('Seen 2× · also: Deep Clouds')
+  await expectTall(page.getByRole('button', { name: /^Ignore (魏婴|云深)$/ }))
+  await expectTall(page.getByRole('button', { name: 'Select all High (1)' }))
+  await expectTall(page.getByRole('button', { name: 'Ignored (1)' }))
+  await expectNoHorizontalOverflow(page)
+  await shot(page, 'glossary-proposals-confidence-phone')
+  await darkShot(page, 'glossary-proposals-confidence-phone-dark')
 })

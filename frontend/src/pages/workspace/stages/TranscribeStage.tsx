@@ -44,7 +44,7 @@ import { AutoTune } from './AutoTune'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
 import { TranscriptModePicker } from './SourceModes'
-import { mediaFileInputId } from './stageBlockers'
+import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
 import { diarizeEstimate, measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import './source.css'
@@ -69,6 +69,7 @@ const OPTION_LABELS: Record<string, string> = {
   tesseract: 'Tesseract',
   paddle: 'PaddleOCR',
 }
+const REPLACE_NEEDED = 'a tick in "Replace the current audio/video"'
 const optionLabel = (o: string) => OPTION_LABELS[o] ?? humanizeValue(o)
 
 // advancedSummary names changed backends by their raw value; show their labels.
@@ -91,6 +92,12 @@ interface Props {
   media: MediaStatus | null
   // A pre-checked file chosen in the media picker, or null.
   file: File | null
+  // The picker's "Replace the current audio/video" box, sent with an upload of `file`.
+  confirmReplace: boolean
+  // The drama has audio/video and that box is not ticked yet.
+  replaceUnconfirmed: boolean
+  // The server refused the upload until replacing is confirmed.
+  onReplaceRefused: () => void
   busy: boolean
   // expectedSeconds: this PC's recorded speed applied to this media, when there is one.
   onJobStarted: (jobId: string, expectedSeconds?: number | null) => void
@@ -105,6 +112,7 @@ type ConfigForm = {
   beam_size: string
   min_silence_ms: string
   vad_threshold: string
+  hallucination_silence_sec: string
   hardsub_interval_sec: string
   separate_vocals_first: boolean
   realign_long_segments: boolean
@@ -121,6 +129,7 @@ const formFromConfig = (c: TranscribeConfig): ConfigForm => ({
   beam_size: String(c.beam_size),
   min_silence_ms: String(c.min_silence_ms),
   vad_threshold: String(c.vad_threshold),
+  hallucination_silence_sec: String(c.hallucination_silence_sec),
   hardsub_interval_sec: String(c.hardsub_interval_sec),
   separate_vocals_first: c.separate_vocals_first,
   realign_long_segments: c.realign_long_segments,
@@ -133,10 +142,13 @@ const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
   beam_size: Number(f.beam_size),
   min_silence_ms: Number(f.min_silence_ms),
   vad_threshold: Number(f.vad_threshold),
+  hallucination_silence_sec: Number(f.hallucination_silence_sec),
   hardsub_interval_sec: Number(f.hardsub_interval_sec),
 })
 
-export default function TranscribeStage({ mediaSlot, media, file, busy, onJobStarted }: Props) {
+export default function TranscribeStage({
+  mediaSlot, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, onJobStarted,
+}: Props) {
   const { dramaId, drama } = useStage()
   const mossEnabled = useMossExperimental()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
@@ -250,6 +262,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   }
   // A refused run or save: name the option when the server's sentence does, else show the banner.
   const fail = (e: unknown) => {
+    if (needsReplaceConfirm(e)) onReplaceRefused()
     const p = runProblemFromError(e)
     if (p) {
       setError(null)
@@ -285,7 +298,9 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     ? ''
     : !file && !hasMedia && !haveTranscript
       ? 'an audio or video file'
-      : haveTranscript && !transcriptText.trim()
+      : file && replaceUnconfirmed
+        ? REPLACE_NEEDED
+        : haveTranscript && !transcriptText.trim()
         ? 'the transcript text'
         : ''
 
@@ -361,7 +376,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           realignLong: cf.realign_long_segments,
         })
       : null
-    const start = () => (file ? uploadAndTranscribe(dramaId, file, req) : startTranscribe(dramaId, req))
+    const start = () => (file ? uploadAndTranscribe(dramaId, file, req, confirmReplace) : startTranscribe(dramaId, req))
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
     const changed = (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== current[k])
@@ -417,7 +432,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         </select>
       </Field>
     )
-  const num = (label: string, key: 'beam_size' | 'min_silence_ms' | 'vad_threshold' | 'hardsub_interval_sec', step: number, help: string, unit?: string) =>
+  const num = (label: string, key: 'beam_size' | 'min_silence_ms' | 'vad_threshold' | 'hallucination_silence_sec' | 'hardsub_interval_sec', step: number, help: string, unit?: string) =>
     cf && (
       <Field label={label} help={help} unit={unit}>
         <input type="number" step={step} value={cf[key]} onChange={(e) => setC(key, e.target.value)} />
@@ -432,6 +447,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   // Rule 22: the reason's fix focuses the missing field.
   const fixNeeded = () => {
     if (needed === 'the transcript text') return transcriptRef.current?.focus()
+    if (needed === REPLACE_NEEDED) return document.getElementById(replaceBoxId(dramaId))?.focus()
     const input = document.getElementById(mediaFileInputId(dramaId))
     if (input) {
       input.scrollIntoView({ block: 'center' })
@@ -542,7 +558,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         <div className="source-needed" id="transcribe-needed" role="note">
           <span>Still needed: {needed}.</span>
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={fixNeeded}>
-            {needed === 'the transcript text' ? 'Paste transcript' : 'Choose a file'}
+            {needed === 'the transcript text' ? 'Paste transcript' : needed === REPLACE_NEEDED ? 'Show the box' : 'Choose a file'}
           </button>
         </div>
       )}
@@ -633,6 +649,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
             {num('Min silence', 'min_silence_ms', 50, '300-3000. Silence that splits lines; longer gives fewer, longer lines. Auto-tune below can pick it.', 'ms')}
             {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
+            {num('Hallucination guard', 'hallucination_silence_sec', 0.5, 'Experimental. 0 (off) or 0.5-10. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Whisper only: ignored by Qwen3-ASR, and by Fast mode.', 's')}
             {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
             {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'],
               haveTranscript
