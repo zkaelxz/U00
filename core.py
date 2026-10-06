@@ -9,6 +9,7 @@ import re
 import difflib
 import tempfile
 from dataclasses import dataclass, field, replace
+from typing import Optional
 
 
 # The source languages the app handles, and the full names LLM and aligner
@@ -708,11 +709,87 @@ _CJK_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
 _CJK_SPACE_RE = re.compile(r"(?<=[぀-ヿ㐀-鿿가-힯])\s+|\s+(?=[぀-ヿ㐀-鿿가-힯])")
 
 
-def _cut_after(text: str, pattern) -> list:
-    """Cuts text after every match of pattern; the pieces concatenate back to text."""
+# Pieces under either floor are folded into a neighbour when SplitRules is in use:
+# a sub-second or two-word subtitle flashes by too fast to read.
+MIN_PIECE_SECONDS = 0.8
+MIN_PIECE_CJK_CHARS = 4
+MIN_PIECE_WORDS = 2
+
+# Words whose trailing "." is not a sentence end.
+_ABBREVIATIONS = frozenset((
+    "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "mt", "vs", "etc", "inc", "ltd", "co",
+    "gen", "col", "lt", "sgt", "capt", "rev", "hon", "fig", "vol", "pp", "approx", "dept"))
+_NUMBERED_BEFORE_DIGIT = frozenset(("no", "nos", "fig", "vol", "ch", "p", "pp"))
+_QUOTE_PAIRS = (("「", "」"), ("『", "』"), ("“", "”"))
+
+
+@dataclass(frozen=True)
+class SplitRules:
+    """Per-line limits for the re-split sensitivity presets. None leaves that
+    limit off. max_chars counts CJK characters, or all non-edge characters in
+    text with none (English). per_sentence cuts at every sentence end instead of
+    packing sentences up to the limits."""
+    max_seconds: Optional[float] = SPLIT_MAX_SECONDS
+    max_chars: Optional[int] = None
+    per_sentence: bool = False
+    # False keeps the fixed-limit rule that only CJK characters count, so a
+    # duration cap alone never starts cutting English lines by length.
+    count_latin: bool = True
+
+    def measure(self, text: str) -> int:
+        cjk = len(_CJK_RE.findall(text))
+        return cjk or (len(text.strip()) if self.count_latin else 0)
+
+
+_QUOTE_CHARS = ('"',) + tuple(c for pair in _QUOTE_PAIRS for c in pair)
+# Abbreviations, initials and list numbers are far shorter than this; a bound
+# keeps the backward scan linear on a line with no whitespace.
+_WORD_LOOKBACK = 64
+
+
+def _sentence_keep():
+    """A `keep` callback for _cut_after that tracks open quotes incrementally.
+    Matches arrive in order, so each call counts only the text since the last
+    one; rescanning the head per match is quadratic on a long line."""
+    seen = 0
+    counts = dict.fromkeys(_QUOTE_CHARS, 0)
+
+    def keep(text: str, m) -> bool:
+        nonlocal seen
+        chunk = text[seen:m.end()]
+        seen = m.end()
+        for ch in _QUOTE_CHARS:
+            counts[ch] += chunk.count(ch)
+        inside = (counts['"'] % 2 == 1
+                  or any(counts[o] > counts[c] for o, c in _QUOTE_PAIRS))
+        return not inside and _real_sentence_end(text, m)
+    return keep
+
+
+def _real_sentence_end(text: str, m) -> bool:
+    """False for an English "." that only looks like a sentence end: after an
+    abbreviation, initial or list number, or before a lowercase continuation.
+    Quote state is the caller's (_sentence_keep)."""
+    if not m.group().startswith("."):
+        return True
+    word = re.search(r"(\S+)$", text[max(0, m.start() - _WORD_LOOKBACK):m.start()])
+    word = word.group(1).strip("\"'“‘([").lower() if word else ""
+    if word.rstrip(".") in _ABBREVIATIONS or word.isdigit() or re.fullmatch(r"(?:[a-z]\.)+[a-z]", word):
+        return False
+    if len(word) == 1 and word != "i":
+        return False
+    after = text[m.end():m.end() + 1]
+    if after.islower():
+        return False
+    return not (after.isdigit() and word in _NUMBERED_BEFORE_DIGIT)
+
+
+def _cut_after(text: str, pattern, keep=None) -> list:
+    """Cuts text after every match of pattern (that `keep` accepts, if given);
+    the pieces concatenate back to text."""
     pieces, last = [], 0
     for m in pattern.finditer(text):
-        if m.end() > last:
+        if m.end() > last and (keep is None or keep(text, m)):
             pieces.append(text[last:m.end()])
             last = m.end()
     if last < len(text):
@@ -720,8 +797,18 @@ def _cut_after(text: str, pattern) -> list:
     return pieces
 
 
+def exceeds_limits(seg, rules: SplitRules) -> bool:
+    """Whether a segment is longer than `rules` allow."""
+    text = seg.get("text") or ""
+    dur = seg["end"] - seg["start"]
+    return (bool(text.strip()) and dur > 0
+            and ((rules.max_seconds is not None and dur > rules.max_seconds)
+                 or (rules.max_chars is not None and rules.measure(text) > rules.max_chars)))
+
+
 def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
-                        max_cjk_chars: int = SPLIT_MAX_CJK_CHARS) -> list:
+                        max_cjk_chars: int = SPLIT_MAX_CJK_CHARS, *,
+                        rules: Optional[SplitRules] = None) -> list:
     """Cuts over-long segments ({"start","end","text",...}) at sentence-ending
     punctuation, then at commas, then at spaces next to CJK text, packing
     neighbouring pieces up to the limits.
@@ -730,21 +817,32 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
     share of the original span proportional to its character count: boundaries
     are estimates, but pieces stay contiguous, increasing and inside the span.
     Text with no usable cut, and short segments, are returned as they are.
-    Other keys (speaker) are copied onto every piece."""
+    Other keys (speaker) are copied onto every piece.
+
+    `rules` (the re-split presets) replaces the two limits and also skips cuts
+    inside quotes or after abbreviations, and folds pieces under the
+    MIN_PIECE_* floors into a neighbour; without it behaviour is unchanged."""
     out = []
     for seg in segments:
         text = seg.get("text") or ""
         dur = seg["end"] - seg["start"]
         total = len("".join(text.split()))
-        if total == 0 or dur <= 0 or (
-                dur <= max_seconds and len(_CJK_RE.findall(text)) <= max_cjk_chars):
+        if rules:
+            limit_s, limit_c, count = rules.max_seconds, rules.max_chars, rules.measure
+        else:
+            limit_s, limit_c = max_seconds, max_cjk_chars
+            count = lambda t: len(_CJK_RE.findall(t))  # noqa: E731
+        over = ((limit_s is not None and dur > limit_s)
+                or (limit_c is not None and count(text) > limit_c))
+        wants_cut = over or bool(rules and rules.per_sentence)
+        if total == 0 or dur <= 0 or not wants_cut:
             out.append(seg)
             continue
 
         def fits(piece):
             n = len("".join(piece.split()))
-            return (dur * n / total <= max_seconds
-                    and len(_CJK_RE.findall(piece)) <= max_cjk_chars)
+            return ((limit_s is None or dur * n / total <= limit_s)
+                    and (limit_c is None or count(piece) <= limit_c))
 
         def pack(units):
             chunks, cur = [], ""
@@ -757,13 +855,16 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
                 chunks.append(cur)
             return chunks
 
+        sentences = _cut_after(text, _SENTENCE_END_RE, _sentence_keep() if rules else None)
         pieces = []
-        for chunk in pack(_cut_after(text, _SENTENCE_END_RE)):
+        for chunk in sentences if rules and rules.per_sentence else pack(sentences):
             # one sentence that is still too long: fall back to its commas
             for sub in [chunk] if fits(chunk) else pack(_cut_after(chunk, _CLAUSE_END_RE)):
                 # Whisper often separates CJK phrases with plain spaces instead of commas
                 pieces.extend([sub] if fits(sub) else pack(_cut_after(sub, _CJK_SPACE_RE)))
         pieces = [p for p in pieces if p.strip()]
+        if rules:
+            pieces = _fold_small(pieces, dur, total)
         if len(pieces) < 2:
             out.append(seg)
             continue
@@ -774,6 +875,33 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
             end = seg["end"] if i == len(pieces) - 1 else seg["start"] + dur * done / total
             out.append({**seg, "start": start, "end": end, "text": p.strip()})
     return out
+
+
+def _fold_small(pieces: list, dur: float, total: int) -> list:
+    """Merges each piece under the MIN_PIECE_* floors into its previous
+    neighbour (the next one for the first piece), so no stub survives. A merged
+    piece may pass the max limits; that beats an unreadable flash."""
+    def small(p):
+        cjk = len(_CJK_RE.findall(p))
+        short = cjk < MIN_PIECE_CJK_CHARS if cjk else len(p.split()) < MIN_PIECE_WORDS
+        return short or dur * len("".join(p.split())) / total < MIN_PIECE_SECONDS
+
+    # One forward pass: a piece that is not small stays so once a neighbour is
+    # appended, so only the incoming piece ever needs checking. Parts are joined
+    # at the end to keep a run of stubs linear.
+    out, carry = [], ""
+    for p in pieces:
+        p = carry + p
+        carry = ""
+        if not small(p):
+            out.append([p])
+        elif out:
+            out[-1].append(p)
+        else:
+            carry = p
+    if carry:
+        out.append([carry])
+    return ["".join(parts) for parts in out]
 
 
 def tighten_to_words(start: float, end: float, words) -> tuple:

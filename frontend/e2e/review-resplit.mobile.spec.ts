@@ -11,11 +11,15 @@ test('re-split controls fit a phone', async ({ page }) => {
   await mockResplit(page, () => ({ json: SUMMARY }))
   const group = await openResplit(page)
   const buttons = group.getByRole('button')
-  for (const name of ['Re-split long lines', 'Re-assign speakers from saved detection']) {
+  for (const name of ['Re-split long lines', 'Preview split', 'Re-assign speakers from saved detection']) {
     const box = await group.getByRole('button', { name }).boundingBox()
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
   }
   await expect(buttons.first()).toBeVisible()
+  for (const label of ['Split sensitivity', 'Also split by duration']) {
+    const box = await group.getByRole('combobox', { name: label }).boundingBox()
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+  }
   await group.getByRole('button', { name: 'Re-split long lines' }).tap()
   await expect(group.getByTestId('resplit-summary')).toHaveText('Split 31 lines into 118; speakers re-assigned.')
   const { scroll, client } = await page.evaluate(() => ({
