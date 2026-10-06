@@ -34,7 +34,7 @@ jobs:
   # isolated_db fixture gives each worker its own library). By 2026-09-30
   # the parallel run took 10-15 min and one was cancelled at 94% at the old
   # 15 minute limit; 25 minutes gives headroom without letting a hung job
-  # run indefinitely.
+  # run indefinitely. The parallel run now takes about 14 minutes.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -58,14 +58,13 @@ jobs:
       - name: Run tests
         run: python run_tests.py -n auto
 
-  # The React frontend: typecheck + production build, unit tests, lint, and
-  # the end-to-end check (a real browser -> built React -> real FastAPI on a
-  # seeded throwaway library, see frontend/e2e/).
+  # The React frontend: typecheck + production build, unit tests and lint.
+  # The browser (Playwright) tests run in the separate four-shard `e2e` job
+  # below, so this job no longer waits on them.
   #
-  # Duration: the Playwright e2e step grew with the suite and now takes about
-  # 8-9 minutes on a runner, so the job sat at the old 10 minute limit and
-  # was cancelled on slow runs. 20 minutes leaves headroom while still
-  # ending a hung browser/e2e step.
+  # Duration: this job used to include the single-process Playwright run
+  # (8-9 minutes), which is why its limit is 20 minutes; the limit is
+  # now only headroom against a hung install or build.
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 20

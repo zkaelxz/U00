@@ -1,6 +1,6 @@
 # Status
 
-What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (at 611e69e, after #742) and the open PR list on 2026-10-05.
+What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (at 175d617, after #818) and the open PR list on 2026-10-05.
 Each session replaces its own entry here when it finishes. Git and the PR list win over this file.
 
 ## Where the app is
@@ -47,9 +47,33 @@ Merged 2026-10-04 and 2026-10-05 (#676-#742):
 - Housekeeping: Streamlit-only code removed (#686, #709); commenting standards in CLAUDE.md (#708) and the comment cleanups (#714, #723, #724, #733); roadmap ids removed from user-visible text (#739); verified-dead code removed (#716); Dependabot and a weekly audit are in the repo but only run once `baihe-subtitler` is the default branch (#720); smoke pack (#693, #718); the roadmap's pending manual checks are triaged in `docs/manual-check-triage.md` (#729).
 - Plan only, not built: a main server with an optional second-machine GPU worker, `docs/specs/gpu-worker-plan.md` (#741).
 
+Merged 2026-10-05 (#743-#818; the numbers between that this clone's history doesn't show are not listed):
+- Navigation (design and status in `docs/design/navigation-proposal.md`):
+  - One nav registry feeds the header, the rail and the drawer (#769); a left menu on wide screens (N2, #774); a left drawer below 1024 px replaces the header nav grid and gear menu (N3, #797).
+  - The rail starts collapsed below 1280 px when no choice is saved (#787); a long title in the rail is cut off with an ellipsis (#811).
+  - Diagnostics and Benchmark Lab show only with `admin.diagnostics`, and Jobs sits under System (#795).
+  - Customize menu: each person can hide menu items for themselves; hidden items are also left out of Ctrl+K (#813).
+  - Ctrl+K quick search for menu pages and the open title's stages (#814). Titles and lines are not searched yet.
+  - Library header duplicates of the rail are dropped and Library tools folds regrouped (#794); list and card pages use an 1800 px column on desktop (#793).
+- Jobs:
+  - A Jobs page at `#/jobs` sharing one jobs list with the header popover and Diagnostics (#776); `drama_id` and `kind` on the job record (#770); a server-decided `page` field for title-less jobs, and `/api/diagnostics/job-history` is retired (#791).
+  - Settings regrouped, with the Jobs section split in three (#801); a short "Confirm delete" label so arming a row doesn't reflow the table (#809).
+  - Translation jobs report batch, Reflect and retry-wait progress (#780); fix-flagged and the long-line split honour Cancel (#782, #784).
+- Cost: opt-in re-cost of past usage costs for mis-costed Claude models (#789), hardened with a required preview check and a fingerprint (#800); the monthly spend counter resets without raising the cap (#803); Sonnet 5.5, Opus 5.5 and Fable 5.1 added to pricing and unpriced models costed at their tier's highest rate (#790, #783).
+- Review:
+  - Tick boxes to select lines (#807); "Compare transcription" from the tick-box selection (#810, #818); Re-transcribe… in the line menu (#785).
+  - The pop-out window is bigger and shows subtitle text (#777); its video fills the window (#806).
+- Spoken language per line: Translate reads each line's own spoken language (#792), including bulk, retry and line-tool paths (#799); alignment and realignment use each line's language and export wrapping is pinned language-agnostic (#798); the Qwen3 aligner aligns English lines (#816).
+- Transcription: Qwen3 speech detection detects the language automatically and closes most of the short-utterance accuracy gap (#766); long unpunctuated CJK lines split at spaces between phrases (#786); a 12 GB card no longer trips the low-memory speaker detection warning (#772).
+- Benchmarks: a public benchmark on noisy and music-backed audio is in `docs/asr-experiments.md` (#812). Demucs helped only when the background is music alone, hurt with noise and did nothing on clean audio; the README and the Transcribe stage help now say so.
+- CI: the browser tests run in four parallel shards (#802).
+- Smaller: sticky workspace job pill (#773), live video fullscreen and a Larger video toggle (#775), balance links by the provider keys (#778), a Glossary Suggest terms bar (#779), one "AI engine" label (#804), Diagnostics lists each model engine once (#805), the Assistant off-state links to Settings (#796), Settings jump targets stay in view (#808), empty translations count as batch errors with batches capped at 60 (#781).
+- Checked at 175d617: `npx vitest run` 1782 tests passed in 190 files, `npx tsc --noEmit` clean, `pytest --co` collects 10672 tests.
+
 ## In flight and queued
 Open (lead session merges once CI is green):
-- Open drafts at the time of writing: the roadmap-only drafts #640 and #660. Follow-up sessions are running for: the browser extension check and fixes, the navigation proposal (left menu, Ctrl+K, Jobs table), five docs pages (database, background jobs, engine backends, API and services, frontend), a `docs/specs/` sweep, the dependency canary and constraints check, Qwen speech-detection auto language, Whisper labels from the benchmarks, the `qwen-asr` install check, a note in the merge confirm, a CLI command to set a line's language, and a portable ffprobe test fixture. Public benchmarks for mixed languages and for noisy audio are still being measured.
+- Open drafts at the time of writing: the roadmap-only drafts #640 and #660, and #819 (a breadcrumb inside titles, the reader, comic and nested pages). Referrer-aware Back and copy link (N8), palette titles and lines (N7) and folding the nav decisions into the guidelines (N9) are not built.
+- Follow-up sessions listed here earlier (the browser extension check, five docs pages, a `docs/specs/` sweep, the dependency canary and constraints check, Whisper labels from the benchmarks, the `qwen-asr` install check, a note in the merge confirm, a CLI command to set a line's language, a portable ffprobe test fixture) were not re-checked against the code at 175d617; check `git log` before relying on them. The navigation proposal, Qwen3 automatic language and the noisy-audio benchmark are merged (above). No public mixed-language benchmark appears in `docs/asr-experiments.md` (only the one clip comparison).
 - #589 is parked unmerged (see Live capture and SSRF below).
 - WP5 is merged except the owner's real-PC checks and network steps: forward router port 443, a domain/DDNS name, the firewall rule `enable-remote` prints, and the Google client values plus `BAIHE_PUBLIC_URL` in `.env`.
 - Step 141 build (after its spec).
