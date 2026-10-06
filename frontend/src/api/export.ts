@@ -3,12 +3,15 @@ import type {
   AssExportRequest,
   AssStyleOptions,
   AutoQcFlagResult,
+  ClearReadingSpeedFlagsResult,
   DubbedVideoRequest,
   ExportReadiness,
   FlagActionResult,
   MarkExportedResult,
   MediaExportStarted,
   MediaKind,
+  ReadingSpeedMode,
+  ReadingSpeedModeResult,
   SoftsubVideoRequest,
   SubtitleOptions,
 } from '../types/export'
@@ -54,6 +57,13 @@ export const flagOverlaps = (id: number, f?: Fetch) =>
   postJson<FlagActionResult>(`${dramaPath(id)}/flag-overlaps`, undefined, f)
 export const flagDenseLines = (id: number, f?: Fetch) =>
   postJson<FlagActionResult>(`${dramaPath(id)}/flag-dense-lines`, undefined, f)
+export const getReadingSpeedMode = (id: number, f?: Fetch) =>
+  getJson<ReadingSpeedModeResult>(`${dramaPath(id)}/reading-speed`, f)
+export const setReadingSpeedMode = (id: number, mode: ReadingSpeedMode, f?: Fetch) =>
+  postJson<ReadingSpeedModeResult>(`${dramaPath(id)}/reading-speed`, { mode }, f)
+export const clearReadingSpeedFlags = (id: number, recheck: boolean, f?: Fetch) =>
+  postJson<ClearReadingSpeedFlagsResult>(
+    `${dramaPath(id)}/clear-reading-speed-flags${recheck ? '?recheck=true' : ''}`, undefined, f)
 export const flagAutoQc = (id: number, f?: Fetch) =>
   postJson<AutoQcFlagResult>(`${dramaPath(id)}/flag-auto-qc`, undefined, f)
 export const startAudiobook = (id: number, f?: Fetch) =>

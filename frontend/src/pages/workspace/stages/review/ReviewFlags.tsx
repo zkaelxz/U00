@@ -1,10 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { flagAutoQc, flagDenseLines, flagOverlaps } from '../../../../api/export'
+import {
+  clearReadingSpeedFlags, flagAutoQc, flagDenseLines, flagOverlaps, getReadingSpeedMode, setReadingSpeedMode,
+} from '../../../../api/export'
+import type { ReadingSpeedMode } from '../../../../types/export'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
 import { Section } from '../../../../components/Section'
 import { useStage } from '../../StageContext'
+import { clearMessage, MODE_HELP, MODE_OPTIONS } from './readingSpeed'
 
 interface Action {
   id: string
@@ -46,6 +50,49 @@ export function ReviewFlags({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, string>>({})
   const [error, setError] = useState<unknown>(null)
+  const [mode, setMode] = useState<ReadingSpeedMode | null>(null)
+  const [confirming, setConfirming] = useState<'clear' | 'recheck' | null>(null)
+  const [clearResult, setClearResult] = useState<string | null>(null)
+
+  useEffect(() => {
+    let live = true
+    getReadingSpeedMode(dramaId).then((r) => live && setMode(r.mode), (e: unknown) => live && setError(e))
+    return () => {
+      live = false
+    }
+  }, [dramaId])
+
+  const changeMode = (next: ReadingSpeedMode) => {
+    setBusy('mode')
+    setReadingSpeedMode(dramaId, next).then(
+      (r) => {
+        setError(null)
+        setMode(r.mode)
+        setBusy(null)
+      },
+      (e: unknown) => {
+        setError(e)
+        setBusy(null)
+      },
+    )
+  }
+
+  const clearFlags = (recheck: boolean) => {
+    setConfirming(null)
+    setBusy('clear')
+    clearReadingSpeedFlags(dramaId, recheck).then(
+      (r) => {
+        setError(null)
+        setClearResult(clearMessage(r, recheck))
+        setBusy(null)
+        onDone()
+      },
+      (e: unknown) => {
+        setError(e)
+        setBusy(null)
+      },
+    )
+  }
 
   const run = (a: Action) => {
     setBusy(a.id)
@@ -64,7 +111,7 @@ export function ReviewFlags({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <Section storageKey="review.flags" title="Flag lines for review" summary="Overlaps, auto-QC, dense lines">
+    <Section storageKey="review.flags" title="Flag lines for review" summary="Overlaps, auto-QC, dense lines, reading speed">
       <div className="review-flags" aria-label="Flag lines">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {ACTIONS.map((a) => (
@@ -74,6 +121,38 @@ export function ReviewFlags({ onDone }: { onDone: () => void }) {
           {results[a.id] && <span role="status" data-testid={`flag-result-${a.id}`}>{results[a.id]}</span>}
         </div>
       ))}
+      <div className="review-flag-row">
+        <label>
+          Reading speed check{' '}
+          <select value={mode ?? 'normal'} disabled={mode === null || busy !== null}
+                  onChange={(e) => changeMode(e.target.value as ReadingSpeedMode)}>
+            {MODE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+        <span className="muted">{MODE_HELP}</span>
+      </div>
+      <div className="review-flag-row">
+        {confirming === null ? (
+          <>
+            <button type="button" className={buttonClass('secondary')} disabled={busy !== null}
+                    onClick={() => setConfirming('clear')}>Clear reading-speed flags</button>
+            <button type="button" className={buttonClass('secondary')} disabled={busy !== null}
+                    onClick={() => setConfirming('recheck')}>Re-check with the current setting</button>
+            <span className="muted">Removes only the reading-speed flag from every line; other flags, notes and text stay. Saves a history snapshot first.</span>
+          </>
+        ) : (
+          <>
+            <span role="alert">
+              {confirming === 'clear'
+                ? 'Clear every reading-speed flag on this title?'
+                : 'Clear every reading-speed flag, then flag lines again with the current setting?'}
+            </span>
+            <button type="button" className={buttonClass('primary')} onClick={() => clearFlags(confirming === 'recheck')}>Confirm</button>
+            <button type="button" className={buttonClass('ghost')} onClick={() => setConfirming(null)}>Cancel</button>
+          </>
+        )}
+        {clearResult && <span role="status" data-testid="flag-result-clear">{clearResult}</span>}
+      </div>
       </div>
     </Section>
   )

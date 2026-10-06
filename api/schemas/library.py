@@ -19,6 +19,9 @@ __all__ = [
     "DramaListResponse",
     "ExportReadiness",
     "FlagActionResult",
+    "ReadingSpeedMode",
+    "ReadingSpeedModeUpdate",
+    "ClearReadingSpeedFlagsResult",
     "AutoQcFlagResult",
     "AssStyleOverrides",
     "AssExportRequest",
@@ -175,6 +178,22 @@ class FlagActionResult(BaseModel):
     """A flagging action's result: 0 is not an
     error, just nothing new to flag."""
     flagged_count: int
+
+
+class ReadingSpeedMode(BaseModel):
+    mode: Literal["normal", "relaxed", "off"]
+
+
+class ReadingSpeedModeUpdate(BaseModel):
+    mode: Literal["normal", "relaxed", "off"]
+
+
+class ClearReadingSpeedFlagsResult(BaseModel):
+    """flagged_count is the re-check's count (0 unless recheck was asked
+    for); history_id is None when no line carried the flag."""
+    cleared_count: int
+    flagged_count: int
+    history_id: Optional[int] = None
 
 
 class AutoQcFlagResult(BaseModel):

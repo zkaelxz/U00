@@ -572,10 +572,39 @@ class TestExportFlaggingEndpoints:
 
     def test_flag_dense_lines(self, client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="", en="word " * 60)])
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="", en="word " * 60)])
         resp = client.post(f"/api/export/dramas/{did}/flag-dense-lines")
         assert resp.status_code == 200
         assert resp.json() == {"flagged_count": 1}
+
+    def test_reading_speed_mode_round_trip(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        assert client.get(f"/api/export/dramas/{did}/reading-speed").json() == {"mode": "normal"}
+        resp = client.post(f"/api/export/dramas/{did}/reading-speed", json={"mode": "off"})
+        assert resp.status_code == 200 and resp.json() == {"mode": "off"}
+        assert client.get(f"/api/export/dramas/{did}/reading-speed").json() == {"mode": "off"}
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="", en="word " * 60)])
+        assert client.post(f"/api/export/dramas/{did}/flag-dense-lines").json() == {"flagged_count": 0}
+
+    def test_reading_speed_mode_rejects_unknown_values_and_drama(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        assert client.post(f"/api/export/dramas/{did}/reading-speed",
+                           json={"mode": "strict"}).status_code == 422
+        assert client.post("/api/export/dramas/999999/reading-speed",
+                           json={"mode": "off"}).status_code == 404
+        assert client.get("/api/export/dramas/999999/reading-speed").status_code == 404
+
+    def test_clear_reading_speed_flags(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=5.0, zh="", en="word " * 12, flag="reading_speed", flag_note="x"),
+            Line(idx=1, start=5.0, end=9.0, zh="", en="Hi", flag="timing_overlap", flag_note="y")])
+        resp = client.post(f"/api/export/dramas/{did}/clear-reading-speed-flags?recheck=true")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert (body["cleared_count"], body["flagged_count"]) == (1, 1)
+        assert isolated_db.load_lines(did)[1]["flag"] == "timing_overlap"
+        assert client.post("/api/export/dramas/999999/clear-reading-speed-flags").status_code == 404
 
     def test_flag_dense_lines_unknown_drama_is_404(self, client, isolated_db):
         resp = client.post("/api/export/dramas/999999/flag-dense-lines")

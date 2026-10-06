@@ -705,7 +705,8 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
 
     if counts["applied"]:
         import subtitle_formats
-        changed_flag = subtitle_formats.flag_dense_lines(current) > 0 or changed_flag
+        mode = subtitle_formats.reading_speed_mode_of(db.get_drama(job["drama_id"]))
+        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
     if counts["applied"] or changed_flag:
         db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
     if counts["applied"]:
@@ -1023,7 +1024,8 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
 
     if counts["applied"]:
         import subtitle_formats
-        changed_flag = subtitle_formats.flag_dense_lines(current) > 0 or changed_flag
+        mode = subtitle_formats.reading_speed_mode_of(db.get_drama(job["drama_id"]))
+        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
     if counts["applied"] or changed_flag:
         db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
     if counts["applied"]:
@@ -1674,7 +1676,8 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # on some lines, and that has to reach the database too, or it
     # only ever exists on this run's in-memory copies.
     import subtitle_formats
-    subtitle_formats.flag_dense_lines(lines)
+    subtitle_formats.flag_dense_lines(
+        lines, mode=subtitle_formats.reading_speed_mode_of(db.get_drama(drama_id)))
     if landed is None:
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     else:

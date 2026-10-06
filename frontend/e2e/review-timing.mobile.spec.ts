@@ -28,7 +28,7 @@ db.save_lines(3, [Line(idx=0, start=0.0, end=1.5, zh='你好', en='Hello')])
 
 test('phone: the speed select is a 44px control and changes the speed', async ({ page }) => {
   await page.goto('/#/drama/3/review')
-  const speed = page.getByLabel('Speed')
+  const speed = page.getByLabel(/^Speed/)
   await expect(speed).toBeVisible()
   expect(await hitHeight(speed)).toBeGreaterThanOrEqual(44)
   await speed.selectOption('0.75')

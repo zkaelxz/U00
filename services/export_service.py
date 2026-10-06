@@ -23,6 +23,7 @@ import auto_qc
 import core as core_module
 import db
 import subtitle_formats
+from services import restructure_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                       NotFoundError, UnsupportedOperationError)
 
@@ -227,7 +228,7 @@ def get_export_readiness(drama_id: int) -> dict:
     names = auto_qc.build_name_list(
         glossary_terms, db.list_series_characters(series_id) if series_id else [])
     qc_issues = auto_qc.find_issues(lines, names, auto_qc.build_banned_terms(glossary_terms))
-    dense = subtitle_formats.dense_lines(lines)
+    dense = subtitle_formats.dense_lines(lines, mode=subtitle_formats.reading_speed_mode_of(drama))
 
     return {
         "drama_id": drama_id,
@@ -316,17 +317,69 @@ def flag_overlapping_lines(drama_id: int) -> dict:
 
 def flag_dense_lines(drama_id: int) -> dict:
     """Flags every line too dense to read in its on-screen time
-    (subtitle_formats.flag_dense_lines). A line already flagged for some other reason is left alone.
+    (subtitle_formats.flag_dense_lines) at the title's reading-speed mode.
+    A line already flagged for some other reason is left alone.
     Raises NotFoundError for an unknown drama id. Returns
     {"flagged_count": int}."""
-    _, lines = _load_drama_and_lines(drama_id)
+    drama, lines = _load_drama_and_lines(drama_id)
 
-    newly_flagged = subtitle_formats.flag_dense_lines(lines)
+    newly_flagged = subtitle_formats.flag_dense_lines(
+        lines, mode=subtitle_formats.reading_speed_mode_of(drama))
     if newly_flagged:
         # flag/flag_note only: a concurrent edit to a line's text, timing or
         # speaker must survive this write.
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     return {"flagged_count": newly_flagged}
+
+
+def get_reading_speed_mode(drama_id: int) -> dict:
+    """{"mode": ...} for the title. Raises NotFoundError for an unknown drama id."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    return {"mode": subtitle_formats.reading_speed_mode_of(drama)}
+
+
+def set_reading_speed_mode(drama_id: int, mode: str) -> dict:
+    """Saves the title's reading-speed check strictness. Existing flags are
+    left as they are: flag_dense_lines never replaces a flag, so a stricter
+    or looser mode only applies to lines flagged from now on (see
+    clear_reading_speed_flags to re-check)."""
+    if mode not in subtitle_formats.READING_SPEED_MODES:
+        raise InvalidInputError(
+            "mode must be one of " + ", ".join(subtitle_formats.READING_SPEED_MODES) + ".")
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    db.update_drama(drama_id, reading_speed_mode=mode)
+    return {"mode": mode}
+
+
+READING_SPEED_CLEAR_LABEL = "before clearing reading-speed flags"
+
+
+def clear_reading_speed_flags(drama_id: int, recheck: bool = False) -> dict:
+    """Clears the flag and its note on every line whose flag is exactly
+    reading_speed, after a "before clearing reading-speed flags" snapshot
+    (undo from the line history). Other flags, notes and text are untouched.
+    recheck=True then flags again at the title's current mode, so a changed
+    setting takes effect on lines that were flagged before. Raises
+    NotFoundError for an unknown drama id, ConflictError while a job runs.
+    Returns {"cleared_count", "flagged_count", "history_id"}; history_id is
+    None when there was nothing to clear."""
+    with restructure_service.exclusive_write(drama_id):
+        drama, lines = _load_drama_and_lines(drama_id)
+        targets = [ln for ln in lines if ln.flag == subtitle_formats.READING_SPEED_FLAG]
+        history_id = None
+        if targets:
+            history_id = db.save_line_history_snapshot(drama_id, lines, READING_SPEED_CLEAR_LABEL)
+            for ln in targets:
+                ln.flag = None
+                ln.flag_note = ""
+        reflagged = (subtitle_formats.flag_dense_lines(
+            lines, mode=subtitle_formats.reading_speed_mode_of(drama)) if recheck else 0)
+        if targets or reflagged:
+            db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
+    return {"cleared_count": len(targets), "flagged_count": reflagged, "history_id": history_id}
 
 
 def run_auto_qc_flagging(drama_id: int) -> dict:
