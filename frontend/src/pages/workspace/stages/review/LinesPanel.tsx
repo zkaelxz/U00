@@ -67,6 +67,7 @@ import {
   type UndoKind,
 } from './reviewLogic'
 import { UndoNotice } from './UndoNotice'
+import { retireUndoOffer, useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
 import { ShortcutSheet } from './ShortcutSheet'
@@ -173,7 +174,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [status, setStatus] = useState<string | null>(null)
   // The last structural edit, while it can still be undone.
   // `at` is the edited line's position before the edit, where focus goes after an undo.
-  const [undo, setUndo] = useState<{ handle: UndoHandle; message: string; kind: UndoKind; at: number } | null>(null)
+  const [undo, setUndo] = useUndoOffer<{ handle: UndoHandle; message: string; kind: UndoKind; at: number }>('lines', dramaId)
   useEffect(() => setUndo(null), [dramaId])
   const [keysOpen, setKeysOpen] = useState(false)
   // Row density is a per-viewer choice, remembered in localStorage.
@@ -315,8 +316,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const ctl = useMemo(() => {
     const find = (id: number | null) => st.current.shown.find((l) => l.id === id) ?? null
     const replaceLine = (saved: ReviewLine) => {
-      // A saved edit changes what the undo would overwrite.
-      setUndo(null)
+      // A saved edit changes what any undo would overwrite.
+      retireUndoOffer()
       setData((d) => (d ? { ...d, lines: d.lines.map((l) => (l.id === saved.id ? saved : l)) } : d))
       setFound((f) => (f ? f.map((l) => (l.id === saved.id ? saved : l)) : f))
       st.current.shown = st.current.shown.map((l) => (l.id === saved.id ? saved : l))
@@ -542,7 +543,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           if (now) setEditNow({ ...now, note: null })
           setIssue(null)
           // A note on a line the undo would remove makes the server refuse it.
-          setUndo(null)
+          retireUndoOffer()
           setStatus('Note saved.')
           st.current.onChanged()
         }, (e) => failLine(cur.lineId, e))
@@ -748,7 +749,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           if (pos !== -1) setPage(pageForPosition(pos))
         }
       }
-      setUndo(handle && undoable ? { handle, message, ...undoable } : null)
+      if (handle && undoable) setUndo({ handle, message, ...undoable })
+      else retireUndoOffer()
       setStatus(handle ? null : message + (undoable ? RECORDS_UNDO : ''))
       onChanged()
     } catch (e) {
