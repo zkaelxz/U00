@@ -13,6 +13,7 @@ import { attachNotice, epubRange } from '../preambleForm'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { LncrawlPanel } from './LncrawlPanel'
+import { epubSizeProblem } from './novelFile'
 import { useNovelFilesVersion } from './novelFileEvents'
 import './preamble.css'
 
@@ -21,13 +22,17 @@ interface Props {
   onOcrStarted?: (jobId: string) => void
   // Bumped by the parent when a job finishes, so the status line reloads.
   reloadKey?: number
+  // The drama's media kind: comics lead with image OCR.
+  kind?: 'audio' | 'novel' | 'comic'
+  // Open by default when this is the first workflow for the drama's media type.
+  primary?: boolean
 }
 
 // OCR backend ids ("manga_ocr") as readable names; the option value stays raw.
 const OCR_LABELS: Record<string, string> = { manga_ocr: 'Manga OCR', paddle: 'PaddleOCR', tesseract: 'Tesseract' }
 const ocrLabel = (b: string) => OCR_LABELS[b] ?? humanizeValue(b)
 
-export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props) {
+export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = 'audio', primary = false }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [status, setStatus] = useState<NovelStatus | null>(null)
   const [mode, setMode] = useState<NovelMode>('replace')
@@ -84,84 +89,16 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
   }
 
   const range = epubRange(fromChapter, toChapter)
+  const epubProblem = epub ? epubSizeProblem(epub) : null
   const base = status?.has_novel_text
     ? `${status.char_count.toLocaleString()} chars · ${status.chapters} chapters`
     : 'none attached'
   const summary = busy || status?.ocr_running ? `${base} · OCR running` : base
 
-  return (
-    <section className="panel" aria-label="Novel text">
-      <Section storageKey="source.novel" title="Novel text" summary={summary}>
-        <p className="muted" data-testid="novel-status">
-          {status?.has_novel_text
-            ? `Attached: ${status.char_count.toLocaleString()} characters, ${status.chapters} chapters.`
-            : 'No novel text attached.'}
-        </p>
-        {(status?.has_novel_text || hasRaw) && (
-          <p className="muted">
-            <a href={`#/drama/${dramaId}/translate`}>Build a glossary from this novel (Translate → Glossary) →</a>
-          </p>
-        )}
-        <Field label="Mode" help="Replace overwrites any attached novel text; Append adds to it.">
-          <select value={mode} onChange={(e) => setMode(e.target.value as NovelMode)}>
-            <option value="replace">Replace existing</option>
-            <option value="append">Append</option>
-          </select>
-        </Field>
-        <Field label="Paste text" help="Paste the novel text, then attach it to this drama.">
-          <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
-        </Field>
-        <button
-          type="button"
-          disabled={!text.trim()}
-          onClick={() =>
-            attachNovelText(dramaId, text, mode).then((r) => {
-              setText('')
-              attached(r)
-            }, fail)
-          }
-        >
-          Attach text
-        </button>
-        <Field label="EPUB file" help="Or attach an .epub file instead of pasting.">
-          <input type="file" accept=".epub" onChange={(e) => setEpub(e.target.files?.[0] ?? null)} />
-        </Field>
-        <div className="epub-range">
-          <Field label="From chapter" help="Blank: the first.">
-            <input type="number" inputMode="numeric" min={1} value={fromChapter} onChange={(e) => setFromChapter(e.target.value)} />
-          </Field>
-          <Field label="To chapter" help="Blank: the last.">
-            <input type="number" inputMode="numeric" min={1} value={toChapter} onChange={(e) => setToChapter(e.target.value)} />
-          </Field>
-        </div>
-        {'problem' in range && <p className="error" role="alert">{range.problem}</p>}
-        <button
-          type="button"
-          disabled={!epub || 'problem' in range}
-          onClick={() =>
-            epub && !('problem' in range) &&
-            attachNovelEpub(dramaId, epub, mode, undefined, range).then(attached, fail)
-          }
-        >
-          Attach EPUB
-        </button>
-        {hasRaw && (
-          <div>
-            <button type="button" onClick={() => attachNovelFromSources(dramaId, mode).then(attached, fail)}>
-              Use chapters imported in Sources
-            </button>
-            <p className="muted">The original-language chapters saved for this drama (from Sources or Transcribe), using the Mode above.</p>
-          </div>
-        )}
-        <LncrawlPanel
-          mode={mode}
-          onImported={() => {
-            setError(null)
-            setReloads((n) => n + 1)
-            refetchDrama()
-          }}
-        />
-        <Section storageKey="source.novel.ocr" title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrLabel(ocrBackend)}` : ocrLabel(ocrBackend)}>
+  const comic = kind === 'comic'
+
+  const ocrSection = (
+    <Section storageKey="source.novel.ocr" defaultOpen={comic} title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrLabel(ocrBackend)}` : ocrLabel(ocrBackend)}>
           <Field label="Page images" help="PNG or JPG pages in reading order (up to 200). The text is read in the background and added using the Mode above.">
             <input
               type="file"
@@ -200,7 +137,90 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
           >
             Extract text from images
           </button>
-        </Section>
+    </Section>
+  )
+
+  return (
+    <section className="panel" aria-label="Novel text">
+      <Section storageKey="source.novel" defaultOpen={primary} title="Novel text" summary={summary}>
+        <h4 className="source-subhead">Raw source novel (original language, used as reference)</h4>
+        <p className="muted" data-testid="raw-status">
+          {hasRaw
+            ? 'Saved. It only primes the Whisper prompt and glossary extraction; it is not translated.'
+            : 'None saved. Add one under Transcribe if you want the Whisper prompt to use its names.'}
+        </p>
+        <h4 className="source-subhead">Text used for translation</h4>
+        {comic && ocrSection}
+        <p className="muted" data-testid="novel-status">
+          {status?.has_novel_text
+            ? `Attached: ${status.char_count.toLocaleString()} characters, ${status.chapters} chapters.`
+            : 'No novel text attached.'}
+        </p>
+        {(status?.has_novel_text || hasRaw) && (
+          <p className="muted">
+            <a href={`#/drama/${dramaId}/translate`}>Build the glossary from this novel in Translate →</a>
+          </p>
+        )}
+        <Field label="Mode" help="Replace overwrites any attached novel text; Append adds to it.">
+          <select value={mode} onChange={(e) => setMode(e.target.value as NovelMode)}>
+            <option value="replace">Replace existing</option>
+            <option value="append">Append</option>
+          </select>
+        </Field>
+        <Field label="Paste text" help="Paste the novel text, then attach it to this drama.">
+          <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
+        </Field>
+        <button
+          type="button"
+          disabled={!text.trim()}
+          onClick={() =>
+            attachNovelText(dramaId, text, mode).then((r) => {
+              setText('')
+              attached(r)
+            }, fail)
+          }
+        >
+          Attach text
+        </button>
+        <Field label="EPUB file" help="Or attach an .epub file instead of pasting." error={epubProblem}>
+          <input type="file" accept=".epub" onChange={(e) => setEpub(e.target.files?.[0] ?? null)} />
+        </Field>
+        <div className="epub-range">
+          <Field label="From chapter" help="Blank: the first.">
+            <input type="number" inputMode="numeric" min={1} value={fromChapter} onChange={(e) => setFromChapter(e.target.value)} />
+          </Field>
+          <Field label="To chapter" help="Blank: the last.">
+            <input type="number" inputMode="numeric" min={1} value={toChapter} onChange={(e) => setToChapter(e.target.value)} />
+          </Field>
+        </div>
+        {'problem' in range && <p className="error" role="alert">{range.problem}</p>}
+        <button
+          type="button"
+          disabled={!epub || !!epubProblem || 'problem' in range}
+          onClick={() =>
+            epub && !epubProblem && !('problem' in range) &&
+            attachNovelEpub(dramaId, epub, mode, undefined, range).then(attached, fail)
+          }
+        >
+          Attach EPUB
+        </button>
+        {hasRaw && (
+          <div>
+            <button type="button" onClick={() => attachNovelFromSources(dramaId, mode).then(attached, fail)}>
+              Copy saved raw chapters into the translation text
+            </button>
+            <p className="muted">Copies the original-language chapters saved for this drama (from Sources, or the raw source novel above) into the text used for translation, using the Mode above.</p>
+          </div>
+        )}
+        <LncrawlPanel
+          mode={mode}
+          onImported={() => {
+            setError(null)
+            setReloads((n) => n + 1)
+            refetchDrama()
+          }}
+        />
+        {!comic && ocrSection}
         {notice && <p role="status">{notice}</p>}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
       </Section>

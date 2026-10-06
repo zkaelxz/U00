@@ -1,6 +1,6 @@
 """
-api/routers/sources_catalog_routes.py -- the Sources registry and status
-(Migration Slice 56). Prefix /api/sources. Deliberately a different file
+api/routers/sources_catalog_routes.py -- the Sources registry and status.
+Prefix /api/sources. Deliberately a different file
 name from source_routes.py, which is the Workspace Source stage
 (/api/source/dramas/{id}/config).
 
@@ -18,7 +18,8 @@ from api.schemas import (ErrorResponse, SourceAttempt, SourceCacheClearRequest,
                          SourceProfileDomain, SourceProfileRollbackRequest,
                          SourceProfileVersion, SourcesSettings, SourcesSettingsUpdate,
                          SourcesJobStarted, SourceSummary, SourceToggle,
-                         SourceTrackedDramaRequest, SourceTrackRequest, TrackedSeries)
+                         SourceTrackedDramaRequest, SourceTrackedSaveRequest, SourceTrackRequest,
+                         TrackedSeries)
 from services import sources_registry_service as svc
 from services import sources_tracking_service as tracking
 
@@ -65,6 +66,8 @@ def get_source(name: str = _NAME):
 _ERR = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
 
 
+# PC-only like every settings write: pacing, retries and concurrency decide
+# how often this PC requests from each site (docs/remote-access-decision.md).
 @router.post("/settings", dependencies=[local_only()], response_model=SourcesSettings,
              summary="Update whitelisted source settings (no proxy URL; pacing floor enforced)",
              responses=_ERR)
@@ -91,6 +94,15 @@ def post_tracked(payload: SourceTrackRequest, request: Request):
 def post_tracked_drama(payload: SourceTrackedDramaRequest, request: Request):
     return tracking.set_tracked_drama(payload.source, payload.series_id, payload.drama_id,
                                       principal=request.state.principal)
+
+
+@router.post("/tracked/save-cbz", dependencies=[require_permission("sources.import")],
+             response_model=List[TrackedSeries],
+             summary="Whether a tracked comic series' new chapters are saved as CBZ files",
+             responses=_ERR)
+def post_tracked_save(payload: SourceTrackedSaveRequest, request: Request):
+    return tracking.set_tracked_save(payload.source, payload.series_id, payload.save_cbz,
+                                     principal=request.state.principal)
 
 
 @router.post("/check-now", dependencies=[require_permission("sources.import")], response_model=SourcesJobStarted,

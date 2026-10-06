@@ -1,5 +1,5 @@
 """
-api/routers/notification_routes.py -- Step 44: Discord / ntfy job
+api/routers/notification_routes.py -- Discord / ntfy job
 notifications. Thin: see services/notification_service.py.
 
 - `GET /api/settings/notifications` (`admin.settings`): configured booleans
@@ -25,7 +25,7 @@ from fastapi import APIRouter, Request
 
 from api.auth import local_only, require_permission
 from api.notification_schemas import NotificationCategoriesRequest, NotificationSettingsStatus
-from api.routers.settings_routes import _read_body, _require_confirm, _require_local_admin
+from api.routers.settings_routes import read_body, require_confirm, require_local_admin
 from api.schemas import (ErrorResponse, NotificationChannelClearRequest,
                          NotificationChannelResult, NotificationChannelSetRequest,
                          NotificationTestResult)
@@ -63,9 +63,9 @@ def send_test():
                      "disabled by default)",
              responses={422: {"model": ErrorResponse}})
 async def set_channel(channel: str, request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, NotificationChannelSetRequest)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, NotificationChannelSetRequest)
+    require_confirm(body.confirm)
     return svc.set_channel(channel, body.value)
 
 
@@ -74,7 +74,7 @@ async def set_channel(channel: str, request: Request):
              summary="PC only: remove a Discord webhook or ntfy topic URL from .env",
              responses={422: {"model": ErrorResponse}})
 async def clear_channel(channel: str, request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, NotificationChannelClearRequest)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, NotificationChannelClearRequest)
+    require_confirm(body.confirm)
     return svc.clear_channel(channel)

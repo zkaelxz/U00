@@ -115,6 +115,7 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUse
         {names.length > 0 && (
           <Section
             title="Search in"
+            defaultOpen
             storageKey="sources.searchIn"
             summary={searchInSummary(selected.length, names.length)}
           >

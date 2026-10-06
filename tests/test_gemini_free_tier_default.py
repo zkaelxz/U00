@@ -101,7 +101,7 @@ def test_review_jobs_default_to_setting(_env, start):
 
 
 def test_fix_flagged_default_setting_and_cap(_env, monkeypatch):
-    monkeypatch.setattr(translate_run_service, "_monthly_cap", lambda: 7.0)
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 7.0)
     monkeypatch.setattr(db, "get_month_spend", lambda *a, **kw: 0.0)
     did = _seed(flag="uncertain")
     review_jobs_service.start_fix_flagged(did, engine_name="gemini")
@@ -139,7 +139,7 @@ def test_line_ai_defaults_to_setting(_env, monkeypatch):
     lid = db.load_lines(did)[0]["id"]
     with pytest.raises(UnsupportedOperationError):
         line_ai_service.explain_line(did, lid, "gemini", PRO)
-    monkeypatch.setattr(line_ai_service, "_run", lambda fn: "x")
+    monkeypatch.setattr(line_ai_service, "run", lambda fn: "x")
     line_ai_service.explain_line(did, lid, "gemini")
     line_ai_service.improve_line(did, lid, "gemini", gemini_free_tier=False)
     assert [kw["free_tier"] for kw in _env] == [True, False]

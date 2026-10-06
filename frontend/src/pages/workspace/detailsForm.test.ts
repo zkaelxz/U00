@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DramaDetail } from '../../api/types'
-import type { SourceConfig } from '../../types/workspace'
 import {
   buildDetailsPayload,
   formFromDrama,
   isEmptyPayload,
+  mediaKind,
   mediaTypeOptions,
-  modeUpdate,
   NEW_SERIES,
   reseedForm,
   newSeriesProblem,
@@ -149,15 +148,6 @@ describe('serverFieldErrors', () => {
   })
 })
 
-describe('modeUpdate', () => {
-  const c = { content_mode: 'audio_drama', transcript_mode: 'whisper' } as SourceConfig
-  it('sends only changed modes', () => {
-    expect(modeUpdate(c, 'audio_drama', 'whisper')).toEqual({})
-    expect(modeUpdate(c, 'streamer_vod', 'whisper')).toEqual({ content_mode: 'streamer_vod' })
-    expect(modeUpdate(c, 'audio_drama', 'have_transcript')).toEqual({ transcript_mode: 'have_transcript' })
-  })
-})
-
 describe('P11/X09 series choice', () => {
   const init = formFromDrama(drama)
   it('"+ New series…" sends new_series_name (trimmed), never series_id', () => {
@@ -197,5 +187,16 @@ describe('reseedForm (the drama changed under unsaved edits)', () => {
     expect(reseedForm(pending, init, init)).toMatchObject({ series_id: NEW_SERIES, new_series_name: 'Saga' })
     const saved = reseedForm(pending, pending, { ...init, series_id: '41' })
     expect(saved).toMatchObject({ series_id: '41', new_series_name: '' })
+  })
+})
+
+describe('mediaKind', () => {
+  it('groups media types into audio, novel and comic', () => {
+    expect(mediaKind('novel')).toBe('novel')
+    expect(mediaKind('manhwa')).toBe('comic')
+    expect(mediaKind('manga')).toBe('comic')
+    expect(mediaKind('anime')).toBe('audio')
+    expect(mediaKind('')).toBe('audio')
+    expect(mediaKind(null)).toBe('audio')
   })
 })

@@ -3,12 +3,11 @@ import { useEffect, useState } from 'react'
 import { getPyannote } from '../../api/diagnostics'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
-import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import type { DiagnosticsPyannoteReadiness } from '../../types/diagnostics'
 import { hfModelUrl, pyannoteSummary } from './diagnosticsAdmin'
 
-/** "Speaker detection": pyannote installed, token set, and (on request) gated models open. */
+/** Setup > "Speaker detection": pyannote installed, token set, and (on request) gated models open. */
 export function PyannoteSection() {
   const [data, setData] = useState<DiagnosticsPyannoteReadiness | null>(null)
   const [checked, setChecked] = useState(false)
@@ -36,14 +35,16 @@ export function PyannoteSection() {
   }
 
   return (
-    <Section title="Speaker detection" storageKey="diagnostics.pyannote" summary={data ? pyannoteSummary(data) : undefined}>
+    <div className="diag-stack" role="group" aria-label="Speaker detection">
+      <h4>Speaker detection</h4>
+      {data && <p className="muted" data-testid="pyannote-summary">{pyannoteSummary(data)}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {!data ? (
         !error && <p className="muted">Loading…</p>
       ) : (
         <div className="diag-stack">
           <ul className="diag-rows">
-            <li>pyannote: {data.pyannote_installed ? 'installed' : 'not installed'}</li>
+            <li>Pyannote: {data.pyannote_installed ? 'installed' : 'not installed'}</li>
             <li>Hugging Face token: {data.hf_token_configured ? 'set' : 'not set'}</li>
           </ul>
           <Field label="Gated models" help="Asks Hugging Face using the saved token. Nothing else on this page goes online.">
@@ -77,6 +78,6 @@ export function PyannoteSection() {
           )}
         </div>
       )}
-    </Section>
+    </div>
   )
 }

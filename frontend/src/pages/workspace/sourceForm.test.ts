@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { advancedSummary, checkOcrImages, ocrBackendOptions, sourceJobIds, type AdvancedValues } from './sourceForm'
+import { ApiError } from '../../api/client'
+import {
+  advancedSummary,
+  checkOcrImages,
+  ocrBackendOptions,
+  runOptionProblem,
+  runProblemFromError,
+  sourceJobIds,
+  type AdvancedValues,
+} from './sourceForm'
 
 const base: AdvancedValues = {
   beam_size: '5', min_silence_ms: '300', vad_threshold: '0.5', hardsub_interval_sec: '1',
@@ -36,5 +45,33 @@ describe('chapter OCR helpers', () => {
   })
   it('reattaches to a URL download', () => {
     expect(sourceJobIds(3)).toContain('urlmedia_3')
+  })
+})
+
+describe('runOptionProblem', () => {
+  it('flags forced alignment on a Whisper-only drama', () => {
+    expect(runOptionProblem('whisper', 'qwen3_forced_align', 'whisper', false)?.field).toBe('alignment_method')
+    expect(runOptionProblem('have_transcript', 'qwen3_forced_align', 'whisper', false)).toBeNull()
+  })
+  it('flags MOSS while it is off, not while it is on', () => {
+    expect(runOptionProblem('whisper', 'whisper_diff', 'moss_td', false)?.field).toBe('asr_backend_choice')
+    expect(runOptionProblem('whisper', 'whisper_diff', 'moss_td', true)).toBeNull()
+    expect(runOptionProblem('whisper', 'whisper_diff', 'whisper', false)).toBeNull()
+  })
+})
+
+describe('runProblemFromError', () => {
+  const err = (code: string, message: string) => new ApiError(422, { code, message })
+  it('maps the server sentence to the field it names', () => {
+    const msg = "Qwen3 forced alignment needs a transcript to align, but this drama is in Whisper-text-only mode."
+    expect(runProblemFromError(err('validation_error', msg))).toEqual({ field: 'alignment_method', message: msg })
+    expect(runProblemFromError(err('validation_error', 'Use either an exact speaker count or a min/max range, not both.'))?.field).toBe('speakers')
+    expect(runProblemFromError(err('invalid_input', 'MOSS-Transcribe-Diarize is experimental and turned off.'))?.field).toBe('asr_backend_choice')
+  })
+  it('ignores other codes, unknown sentences and path-like text', () => {
+    expect(runProblemFromError(err('conflict', 'forced alignment'))).toBeNull()
+    expect(runProblemFromError(err('validation_error', 'Invalid transcribe options.'))).toBeNull()
+    expect(runProblemFromError(err('validation_error', 'forced alignment failed at /home/me/x'))).toBeNull()
+    expect(runProblemFromError(null)).toBeNull()
   })
 })

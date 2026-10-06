@@ -1,15 +1,12 @@
 // Diagnostics: the read-only overview plus the API batch 1 gaps
 // (api/routers/diagnostics_gaps_routes.py). Install, upgrade, reset and the
-// model-cache and bug-bundle deletes are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403 marks the tab remote).
+// model-cache deletes are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403 marks the tab remote).
 import type {
-  BugBundleDeleteResult,
-  DiagnosticsBugBundle,
   DiagnosticsCacheDeleteResult,
   DiagnosticsGpuTorchSetupResult,
   DiagnosticsGpuTorchStatus,
   DiagnosticsInstallPresets,
   DiagnosticsInstallResult,
-  DiagnosticsJobHistoryItem,
   DiagnosticsLogTail,
   DiagnosticsModelCache,
   DiagnosticsModelFolder,
@@ -19,6 +16,7 @@ import type {
   DiagnosticsResetResult,
   DiagnosticsSetupChecks,
   DiagnosticsSupportReport,
+  PortsOverview,
   RemoteHealth,
   RemoteIpCheckStatus,
   RemoteIpCheckTestResult,
@@ -33,7 +31,7 @@ const BASE = '/api/diagnostics'
 // The word the server checks for a library reset (diagnostics_gaps_service.RESET_CONFIRM_TEXT).
 export const RESET_WORD = 'RESET'
 // Server caps (diagnostics_gaps_routes.get_log).
-export const LOG_MAX_LINES = 200
+const LOG_MAX_LINES = 200
 export const LOG_KEYWORD_MAX = 100
 
 export const getDiagnostics = (f?: Fetch) => getJson<DiagnosticsOverview>(BASE, f)
@@ -43,13 +41,15 @@ export const getSetupChecks = (f?: Fetch) => getJson<DiagnosticsSetupChecks>(`${
 // Packages grouped by task, approx. sizes, PyPI links and install caveats.
 export const getInstallPresets = (f?: Fetch) => getJson<DiagnosticsInstallPresets>(`${BASE}/install-presets`, f)
 
+// PC only (local_only on the server): a remote tab gets a 403.
+export const getPorts = (f?: Fetch) => getJson<PortsOverview>(`${BASE}/ports`, f)
+
 export const getModelCache = (f?: Fetch) => getJson<DiagnosticsModelCache>(`${BASE}/model-cache`, f)
 
 // checkAccess: the server asks Hugging Face with its saved token (booleans back only).
 export const getPyannote = (checkAccess = false, f?: Fetch) =>
   getJson<DiagnosticsPyannoteReadiness>(`${BASE}/pyannote${checkAccess ? '?check_access=true' : ''}`, f)
 
-export const getJobHistory = (f?: Fetch) => getJson<DiagnosticsJobHistoryItem[]>(`${BASE}/job-history`, f)
 
 export function getLog(n: number, keyword = '', f?: Fetch) {
   const lines = Math.max(0, Math.min(LOG_MAX_LINES, Math.round(n)))
@@ -109,12 +109,6 @@ export const deleteModelFile = (folder: DiagnosticsModelFolder, name: string, f?
     `${BASE}/model-cache/files/${encodeURIComponent(folder)}/${encodeURIComponent(name)}/delete`,
     { confirm: true }, pcOnlyFetch(f),
   )
-
-// Saved bug-reproduction bundles (a line's "What happened here?" snapshot).
-export const getBugBundles = (f?: Fetch) => getJson<DiagnosticsBugBundle[]>(`${BASE}/bug-bundles`, f)
-
-export const deleteBugBundle = (id: number, f?: Fetch) =>
-  postJson<BugBundleDeleteResult>(`${BASE}/bug-bundles/${id}/delete`, { confirm: true }, pcOnlyFetch(f))
 
 // The last scheduled remote-access check; reading it starts no check.
 export const getRemoteHealth = (f?: Fetch) => getJson<RemoteHealth>(`${BASE}/remote-health`, f)

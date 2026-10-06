@@ -1,20 +1,13 @@
 """
-services/library_service.py -- read-only Library queries, shared by the
-Streamlit Library tab and the FastAPI `/api/library` routes.
-
-This is the first piece of the React + FastAPI migration's service layer
-(see `docs/archive/migration-react-fastapi.md`). Before it existed, the Library
-tab's "All dramas" list did part of its filtering in `db.list_dramas`
-(SQL) and the rest inline in the widget code (the Quick-filter pill and
-the Custom-tags multiselect), so any second UI would have had to copy
-that logic and hope it stayed in sync. Now both UIs call
-`list_library_dramas` and get the same answer for the same filters.
+services/library_service.py -- read-only Library queries for the
+`/api/library` routes. Every caller of `list_library_dramas` gets the same
+answer for the same filters; no filtering lives in a UI.
 
 Deliberately thin: it composes existing `db.py` functions and keeps
 their semantics exactly -- the Quick filter is case-insensitive (via
 `db.has_custom_tag`, so a hand-typed "favorite" still counts), the
 Custom-tags filter is an exact match on each comma-separated tag, and
-every tag picked must be present. No Streamlit import, no HTTP types:
+every tag picked must be present. No HTTP types:
 it takes plain values and returns plain dicts, so `cli.py` could call it
 too.
 """
@@ -76,7 +69,7 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
                         media_type: str = "", quick_filter: str = None, custom_tags=(),
                         principal=None):
     """Every drama matching all the given filters, newest first -- the
-    Library tab's "All dramas" list.
+    Library page's "All dramas" list.
 
     Empty-string filters mean "any" (same as `db.list_dramas`).
     `quick_filter` must be one of `db.ORGANIZATIONAL_TAGS` or None;
@@ -130,7 +123,7 @@ def get_library_drama(drama_id: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Migration E0: the Library tab's remaining read views plus preset /
+# Migration E0: the Library pages' remaining read views plus preset /
 # voice-bank rename. Plain dicts; no file paths or clip filenames leave here.
 # ---------------------------------------------------------------------------
 
@@ -238,8 +231,7 @@ def list_continue_reading(limit: int = 8, principal=None) -> list:
 
 def get_filter_options(principal=None) -> dict:
     """The choices behind the "All dramas" filters that come from the data
-    (the Streamlit tab's Studio/Author/Voice actor selects and Custom tags
-    multiselect), each sorted and de-duplicated, taken only from dramas the
+    (Studio, Author, Voice actor and Custom tags), each sorted and de-duplicated, taken only from dramas the
     principal may see (so a private drama's credits and tags don't show)."""
     dramas = db.list_dramas(visible_to=ownership_service.visible_to_filter(principal))
 

@@ -11,7 +11,7 @@ export const TRACKED = [
   { source: 'beta', series_id: 'b0', title: 'Heaven Book 1', url: 'https://beta.example/b', drama_id: null, last_checked: null, last_check_error: null },
 ]
 
-export interface AccessMockState {
+interface AccessMockState {
   check: 'none' | 'running' | 'done'
   signin: 'none' | 'running' | 'done'
   tier: 'none' | 'running' | 'done'
@@ -22,7 +22,7 @@ export interface AccessMockState {
 
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
-const notFound = (route: Route) => json(route, { error: { code: 'not_found', message: 'No such Sources job.' } }, 404)
+const idle = (route: Route) => json(route, { job_id: '', status: 'idle', progress: 0, message: '', result: null })
 
 export async function mockAccess(page: Page, s: MockState, over: Partial<AccessMockState> = {}): Promise<AccessMockState> {
   const m: AccessMockState = {
@@ -51,7 +51,7 @@ export async function mockAccess(page: Page, s: MockState, over: Partial<AccessM
   })
   await page.route(/\/api\/sources\/jobs\/sources_chapter_check\/result$/, (route) => {
     record(route)
-    if (m.check === 'none') return notFound(route)
+    if (m.check === 'none') return idle(route)
     if (m.check === 'running') {
       m.check = 'done'
       return json(route, { job_id: 'sources_chapter_check', status: 'running', progress: 0.5, message: 'Checking Heaven Book 1 (1/1)', result: null })
@@ -76,7 +76,7 @@ export async function mockAccess(page: Page, s: MockState, over: Partial<AccessM
   })
   await page.route(/\/api\/sources\/jobs\/sources_signin_beta\/result$/, (route) => {
     record(route)
-    if (m.signin === 'none') return notFound(route)
+    if (m.signin === 'none') return idle(route)
     if (m.signin === 'running') {
       m.signin = 'done'
       return json(route, { job_id: 'sources_signin_beta', status: 'running', progress: 0.1, message: 'Waiting', result: null })
@@ -99,7 +99,7 @@ export async function mockAccess(page: Page, s: MockState, over: Partial<AccessM
   })
   await page.route(/\/api\/sources\/jobs\/sources_tiertest_beta\/result$/, (route) => {
     record(route)
-    if (m.tier === 'none') return notFound(route)
+    if (m.tier === 'none') return idle(route)
     if (m.tier === 'running') {
       m.tier = 'done'
       return json(route, { job_id: 'sources_tiertest_beta', status: 'running', progress: 0.1, message: 'Testing...', result: null })
@@ -122,4 +122,13 @@ export async function mockAccess(page: Page, s: MockState, over: Partial<AccessM
     })
   })
   return m
+}
+
+// The proxy sits in a Section that is closed by default; open it only if closed.
+export async function openProxy(page: Page) {
+  const details = page.locator('details.section:has(> summary > .section-title:text-is("Proxy"))')
+  if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) {
+    await details.locator('summary').click()
+  }
+  return details
 }

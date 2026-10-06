@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
+import { openFoldFor } from './reviewFolds'
 
 import { clearReviewResults } from './reviewResultsSeed'
 
@@ -65,6 +66,7 @@ const section = (page: Page, title: string) =>
   page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: new RegExp(`^${title}$`) }) })
 
 async function openSection(page: Page, title: string) {
+  await openFoldFor(page, title)
   const s = section(page, title)
   if ((await s.getAttribute('open')) === null) await s.locator(':scope > summary').click()
   return s
@@ -150,6 +152,9 @@ test('translation memory: dismiss one on its line, use another', async ({ page }
     route.fulfill({ json: [tm(0, 'Remembered zero', 11), tm(2, 'Remembered two', 12)] }))
   await page.route('**/api/lines/dramas/3/lines/*/accept-tm', (route) => {
     expect(route.request().postDataJSON()).toEqual({ entry_id: 12, expected_en: 'Line 2' })
+    // Save it for real: the panel reloads its lines after a save, and a reload
+    // that still read the old text would race the assertion below.
+    python(`db.update_line_fields_if(3, ${ids[2]}, {'en': 'Remembered two'}, {'en': 'Line 2'})`)
     return route.fulfill({ json: {
       id: ids[2], idx: 2, start: 4, end: 5.5, zh: '句子2', en: 'Remembered two', speaker: null,
       speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null,
@@ -165,7 +170,9 @@ test('translation memory: dismiss one on its line, use another', async ({ page }
   await expect(records.getByTestId('tm-list')).not.toContainText('Remembered zero')
   await expect(records.getByTestId('tm-list')).toContainText('Remembered two')
 
+  const reloaded = page.waitForResponse((r) => r.request().method() === 'GET' && /\/api\/review\/dramas\/3\/lines\?/.test(r.url()))
   await row(page, 2).getByTestId('line-tm').getByRole('button', { name: 'Use' }).click()
+  await reloaded
   await expect(row(page, 2).getByTestId('line-en')).toHaveText('Remembered two')
 
   // Dismissed stays dismissed after a reload of the page (same tab session).
@@ -216,7 +223,7 @@ test('shorten overlong lines asks first, then reports what changed', async ({ pa
     } })
   })
   await open(page)
-  const cov = await openSection(page, 'Coverage and pacing')
+  const cov = await openSection(page, 'Shorten overlong')
   const box = cov.getByTestId('shorten-overlong')
   await box.getByRole('button', { name: /Shorten overlong lines/ }).click()
   expect(calls).toBe(0)

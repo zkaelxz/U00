@@ -1,6 +1,6 @@
 """
 services/maintenance_assistant_service.py -- the in-app AI maintenance
-assistant, read-only v1 (roadmap Step 42). UI-free; the API
+assistant, read-only v1. UI-free; the API
 (api/routers/assistant_routes.py, every route PC-only) and the React
 Assistant page call it.
 
@@ -19,12 +19,10 @@ touches the library exists in this module. A tool name the model invents
 runs. The backlog (roadmap item 7) is written only by the user through
 its own routes; the assistant can only *suggest* items.
 
-Reused from the Streamlit-era App Assistant (Step 18b, app_help.py):
-qa._dispatch_chat for the multi-engine Claude/OpenAI-shaped/Gemini/Ollama
-chat call, and its "answer from what you can see, say so honestly
-otherwise" discipline. Not reused: app_help's grounding, which parses
-tabs/*_tab.py (Streamlit, being deleted); the assistant searches the
-real code (frontend/src included) with search_code instead.
+qa._dispatch_chat makes the multi-engine Claude/OpenAI-shaped/Gemini/Ollama
+chat call. The assistant answers from what it can see and says so honestly
+otherwise; it searches the real code (frontend/src included) with
+search_code.
 
 Safety rails on every tool: paths are repo-relative, resolved and kept
 inside the repo, and never reach the library folder, .git internals,
@@ -96,7 +94,7 @@ _DENIED_DIRS = frozenset({
     ".ruff_cache",
 })
 # Dot-directories that are ordinary project content.
-_ALLOWED_DOT_DIRS = frozenset({".claude", ".github", ".streamlit"})
+_ALLOWED_DOT_DIRS = frozenset({".claude", ".github"})
 # On top of translate_engines.redact_secrets: GitHub tokens and PEM keys.
 _EXTRA_SECRET_PATTERNS = [
     re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"),
@@ -162,24 +160,13 @@ def _get(key: str, default=None):
         return default
 
 
-# Engines that run on this PC: code and logs never leave it. Ollama only
-# counts while its endpoint is loopback (_ollama_is_local).
-LOCAL_ENGINES = frozenset({"ollama", "test_offline"})
 DEFAULT_ENGINE = "ollama"
-# Never offered or accepted as the review role's engine: it can't read
-# code, so its "verdict" would be noise shown as an independent review.
-_NOT_REVIEWERS = frozenset({"test_offline"})
 
 
 def _is_local_engine(name: str) -> bool:
-    if name == "ollama":
-        return _ollama_is_local()
-    return name in LOCAL_ENGINES
-
-
-def _review_engine_choices(choices=None) -> list:
-    return [c for c in (choices if choices is not None else _llm_engine_choices())
-            if c not in _NOT_REVIEWERS]
+    """Only Ollama runs on this PC, and only while its endpoint is loopback
+    (_ollama_is_local): code and logs never leave it."""
+    return name == "ollama" and _ollama_is_local()
 
 
 def _cloud_consent() -> dict:
@@ -296,7 +283,6 @@ def get_settings() -> dict:
     review_engine = _get("review_engine")
     review_model = _get("review_model")
     choices = _llm_engine_choices()
-    review_choices = _review_engine_choices(choices)
     local = {c for c in choices if _is_local_engine(c)}
     return {
         # The escalation ladder: the saved order (None = the default) and
@@ -308,10 +294,9 @@ def get_settings() -> dict:
         "engine": engine if engine in choices else None,
         "model": model if isinstance(model, str) and model else None,
         "engine_choices": choices,
-        # Step 60: implement -> independent review, off by default.
+        # Implement -> independent review, off by default.
         "roles_enabled": _get("roles_enabled", False) is True,
-        "review_engine": review_engine if review_engine in review_choices else None,
-        "review_engine_choices": review_choices,
+        "review_engine": review_engine if review_engine in choices else None,
         "review_model": review_model if isinstance(review_model, str) and review_model else None,
         "default_engine": DEFAULT_ENGINE,
         "local_engines": sorted(local),
@@ -324,7 +309,7 @@ def get_settings() -> dict:
 def _check_engine_name(name, field="engine"):
     if name is None:
         return None
-    choices = _review_engine_choices() if field == "review_engine" else _llm_engine_choices()
+    choices = _llm_engine_choices()
     if not isinstance(name, str) or name not in choices:
         raise InvalidInputError(f"{field} must be one of the chat-capable engines.")
     return name
@@ -361,7 +346,7 @@ def set_settings(updates: dict) -> dict:
             for eng, allowed in value.items():
                 _check_engine_name(eng, "cloud_consent engine")
                 # Ollama can be on another machine, so it may need consent too.
-                if (eng in LOCAL_ENGINES and eng != "ollama") or not isinstance(allowed, bool):
+                if not isinstance(allowed, bool):
                     raise InvalidInputError("cloud_consent is for cloud engines, as true/false.")
                 merged[eng] = allowed
             cleaned[key] = {k: v for k, v in merged.items() if v is True}
@@ -844,7 +829,7 @@ _PATCH_FILE_RE = re.compile(r"^\+\+\+ (?:b/)?(\S+)", re.MULTILINE)
 
 
 def tools_prompt() -> str:
-    """How to call the read-only tools; shared by every role (Step 60)."""
+    """How to call the read-only tools; shared by every role."""
     tool_lines = "\n".join(f"- {name}: {desc} Example args: {example}"
                            for name, (_fn, desc, example) in READ_ONLY_TOOLS.items())
     return (
@@ -974,7 +959,7 @@ def build_engine(engine_name=None, model=None):
     model = _check_model(model) or (settings["model"] if engine_name == saved_engine else None)
     from services import line_ai_service, settings_service
     require_cloud_consent(engine_name)
-    engine = reader_service._llm_engine(engine_name, model)
+    engine = reader_service.llm_engine(engine_name, model)
     line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get_gemini_free_tier())
     return engine, engine_name, model
 
@@ -982,7 +967,7 @@ def build_engine(engine_name=None, model=None):
 def _chat(system_prompt: str, messages: list, engine) -> str:
     import qa
     try:
-        return qa._dispatch_chat(system_prompt, messages, engine,
+        return qa.dispatch_chat(system_prompt, messages, engine,
                                  max_tokens=MAX_OUTPUT_TOKENS) or ""
     except ServiceError:
         raise
@@ -1051,7 +1036,7 @@ def run_diagnosis(question: str, history: list, engine, chat=None, system_prompt
     """The tool loop. `chat(system_prompt, messages, engine) -> str` is
     injectable for tests. Returns the final answer text and the tool
     calls made (id, name, args, ok, summary). `system_prompt` sets the
-    role (Step 60's reviewer); the tool table is the same read-only one
+    role (the reviewer); the tool table is the same read-only one
     for every role."""
     chat = chat or _chat
     system_prompt = system_prompt or _system_prompt()
@@ -1225,7 +1210,7 @@ def developer_report(chat_history=None, question: str = "", evidence: str = "") 
 
 
 # ---------------------------------------------------------------------------
-# Step 60: independent cross-provider review of a proposed fix
+# Independent cross-provider review of a proposed fix
 # ---------------------------------------------------------------------------
 
 def build_review_engine():
@@ -1240,7 +1225,7 @@ def build_review_engine():
                             "implementing engine in the assistant's settings.")
     model = settings["review_model"]
     require_cloud_consent(name)  # the reviewer reads the same code and logs
-    engine = reader_service._llm_engine(name, model)
+    engine = reader_service.llm_engine(name, model)
     line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get_gemini_free_tier())
     return engine, name, model
 

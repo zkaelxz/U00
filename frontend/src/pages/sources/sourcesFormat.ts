@@ -21,8 +21,9 @@ import type {
   TierTestResult,
 } from '../../types/sources'
 
-// Remote viewers may not search sources until step 133 (docs/remote-access-
-// decision.md: S-3..S-6 stay off non-local clients). Pending a user decision.
+// While false, other devices cannot search sources from the UI (search stays
+// PC only). The server's permissions (docs/remote-access-decision.md) still
+// decide what a request may do; this is the owner's call on the UI side.
 export const SEARCH_REMOTE_ALLOWED = false
 
 export const RESULTS_PAGE = 30
@@ -174,7 +175,7 @@ export function seriesExtra(info: SeriesInfo | null): string {
   return [...(info.authors ?? []), ...(info.genres ?? [])].filter(Boolean).join(' · ')
 }
 
-export type ChapterGroup = { group: string; chapters: SeriesChapter[] }
+type ChapterGroup = { group: string; chapters: SeriesChapter[] }
 
 /** Chapters by `group`, groups in first-seen order. */
 export function groupChapters(chapters: SeriesChapter[]): ChapterGroup[] {
@@ -335,7 +336,7 @@ export function pausedFor(retryAfter: number | null | undefined): string | null 
 
 // ---------------------------------------------------------------- settings
 
-export const CACHE_LABELS: Record<string, string> = {
+const CACHE_LABELS: Record<string, string> = {
   none: 'Keep nothing',
   temporary: 'Temporary',
   keep_originals: 'Keep originals',
@@ -347,7 +348,7 @@ export const cacheLabel = (mode: string) => CACHE_LABELS[mode] ?? humanizeValue(
 
 const fmtNum = (n: number) => String(Number.isInteger(n) ? n : Number(n.toFixed(2)))
 
-export function gapText(s: Pick<SourcesSettings, 'pace_min_delay' | 'pace_max_delay'>): string {
+function gapText(s: Pick<SourcesSettings, 'pace_min_delay' | 'pace_max_delay'>): string {
   return `${fmtNum(s.pace_min_delay)}–${fmtNum(s.pace_max_delay)} s gap`
 }
 
@@ -426,7 +427,7 @@ export const CACHE_MAX_FIELD: NumField = {
   help: '0 = no limit. Oldest-used pages go first.',
 }
 
-export const NUM_FIELDS: NumField[] = [...PACING_ROWS.flat(), CHECK_FIELD, CACHE_MAX_FIELD]
+const NUM_FIELDS: NumField[] = [...PACING_ROWS.flat(), CHECK_FIELD, CACHE_MAX_FIELD]
 
 export const BOOL_FIELDS: { key: BoolKey; label: string; help?: string }[] = [
   { key: 'auto_queue_new_chapters', label: 'Auto-import new chapters', help: 'Off: new chapters are announced, not downloaded.' },
@@ -498,6 +499,7 @@ export function checkSummary(r: CheckResult): string {
   const parts = [`Checked ${r.checked} series`]
   parts.push(r.new ? `${r.new} new chapter${r.new === 1 ? '' : 's'}` : 'no new chapters')
   if (r.queued.length) parts.push(`importing into ${r.queued.length} drama${r.queued.length === 1 ? '' : 's'}`)
+  if (r.saved?.length) parts.push(`saved ${r.saved.length} series as CBZ`)
   const failed = Object.keys(r.errors).length
   if (failed) parts.push(`${failed} failed`)
   return parts.join(' · ') + '.'

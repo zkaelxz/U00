@@ -1,6 +1,6 @@
 """
 services/metadata_research_service.py -- "Research online" for a drama's
-metadata (roadmap Step 37): Gemini with Google Search grounding, returning
+metadata: Gemini with Google Search grounding, returning
 per-field values with their own cited sources, for the user to review before
 anything is written.
 
@@ -24,7 +24,7 @@ searches, which also needs a paid (non-free-tier) key and room under the
 monthly cap. Values are matched to fields by name, never by list position.
 Cited source URLs are kept only when they are http(s).
 
-No Streamlit or FastAPI import: plain dicts in, plain dicts out.
+No FastAPI import: plain dicts in, plain dicts out.
 """
 import datetime
 import hashlib
@@ -38,8 +38,8 @@ from urllib.parse import urlsplit
 
 import db
 import translate_engines
-from services import drama_service, library_service, settings_service
-from services.metadata_service import SUGGEST_FIELDS, _require_drama
+from services import capped_body, drama_service, library_service, settings_service
+from services.metadata_service import SUGGEST_FIELDS, require_drama
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
@@ -76,6 +76,7 @@ EST_OUTPUT_TOKENS = {"quick": 800, "deep": 2000, "verify": 1000}
 MAX_RELATED = 10
 MAX_SOURCES = 20
 REQUEST_TIMEOUT = 60
+MAX_RESPONSE_BYTES = 4_000_000
 BUDGET_SETTING = "grounded_search_usage"
 _RESEARCH_ID = re.compile(r"^[0-9a-f]{64}$")
 _SELF_CONFIDENCE = {"high": 0.9, "medium": 0.6, "low": 0.3}
@@ -136,7 +137,9 @@ def budget_status() -> dict:
             "free_lookup_min": MAX_QUERIES_PER_LOOKUP,
             "free_tier_key": settings_service.get_gemini_free_tier(),
             "key_configured": bool(settings_service.resolve_key("gemini")),
-            "monthly_cap_usd": cap, "month_spend_usd": round(db.get_month_spend(), 4),
+            "monthly_cap_usd": cap,
+            # Counted since any reset under a cap; the real spend with none.
+            "month_spend_usd": round(db.get_month_spend(since_reset=cap > 0), 4),
             "models": list(MODELS), "modes": list(MODES),
             "estimates_usd": {m: {mo: round(estimate_cost(m, mo, False), 4) for mo in MODELS}
                               for m in MODES}}
@@ -191,9 +194,15 @@ def _call_gemini(api_key: str, model: str, prompt: str) -> dict:
     resp = requests.post(url, headers={"x-goog-api-key": api_key},
                          json={"contents": [{"parts": [{"text": prompt}]}],
                                "tools": [{"google_search": {}}]},
-                         timeout=REQUEST_TIMEOUT)
-    resp.raise_for_status()
-    return resp.json()
+                         timeout=REQUEST_TIMEOUT, stream=True)
+    try:
+        resp.raise_for_status()
+    except Exception:
+        resp.close()
+        raise
+    return json.loads(capped_body.read_capped(
+        resp, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT * 3,
+        lambda: ValueError("the Gemini response was too large")))
 
 
 def _safe_url(url) -> Optional[str]:
@@ -381,7 +390,7 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     bad mode/model or no title 422; free allowance used up without
     allow_paid, a paid search on a free-tier key, or the monthly cap 409;
     no key / API failure 503 (fixed text)."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     if mode not in MODES:
         raise InvalidInputError("Unknown research mode.", details={"allowed": list(MODES)})
     model = model or DEFAULT_MODEL
@@ -460,7 +469,7 @@ def apply_research(drama_id: int, research_id: str, choices: dict, seen: Optiona
     replaced. "confirm" records the sources for a value that already matches.
     Returns
     {"drama_id", "replaced", "saved_alternates", "kept", "drama"}."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     if not isinstance(research_id, str) or not _RESEARCH_ID.match(research_id):
         raise InvalidInputError("research_id is not valid.")
     if not isinstance(choices, dict) or not choices:
@@ -518,5 +527,5 @@ def apply_research(drama_id: int, research_id: str, choices: dict, seen: Optiona
 
 
 def list_provenance(drama_id: int) -> dict:
-    _require_drama(drama_id)
+    require_drama(drama_id)
     return {"drama_id": drama_id, "fields": db.list_field_provenance(drama_id)}

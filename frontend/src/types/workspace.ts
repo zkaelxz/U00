@@ -1,4 +1,5 @@
-// Mirrors api/schemas.py for the Workspace Source/Transcribe stage:
+// Mirrors api/schemas/library.py (Media*), transcribe.py (Transcribe*, Diarization*) and
+// reader.py (Novel*) for the Workspace Source/Transcribe stage:
 // MediaStatus, MediaUploadResult, UploadAndTranscribeResult, TranscribeConfig(Update),
 // TranscribeRunRequest/Result, DiarizationRunResult, NovelAttach*, NovelStatus.
 
@@ -13,7 +14,7 @@ export interface MediaUploadResult {
   name: string
   size: number
   kind: string
-  // Set for a video: the background audio-extraction job (B-09).
+  // Set for a video: the background audio-extraction job.
   job_id?: string | null
 }
 
@@ -31,6 +32,17 @@ export interface TranscribeConfig {
   asr_backend_choice: string
   whisper_size: string
   whisper_model_cached: boolean
+  // Audio seconds per second of work on the last finished run of this model and device; null if none yet.
+  measured_speed: number | null
+  // How many recent runs that speed is the median of.
+  measured_speed_runs?: number
+  // Median seconds per stage (separate, load, decode_vad, transcribe, align) over those runs.
+  measured_stage_seconds?: Record<string, number>
+  // Audio seconds per second of speaker detection on this device; null until enough runs.
+  measured_diarize_speed?: number | null
+  measured_diarize_runs?: number
+  // False when faster-whisper isn't installed (transcription can't run).
+  whisper_installed: boolean
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
@@ -55,6 +67,12 @@ export type TranscribeConfigUpdate = Partial<
     | 'has_audio_pipeline'
     | 'audio_available'
     | 'whisper_model_cached'
+    | 'measured_speed'
+    | 'measured_speed_runs'
+    | 'measured_stage_seconds'
+    | 'measured_diarize_speed'
+    | 'measured_diarize_runs'
+    | 'whisper_installed'
     | 'has_video_source'
   >
 >
@@ -65,7 +83,7 @@ export interface TranscribeRunRequest {
   transcript_text?: string | null
   run_diarize?: boolean
   expected_speakers?: number | null
-  // Step 105: a speaker-count range for "Detect speakers after transcribing".
+  // A speaker-count range for "Detect speakers after transcribing".
   min_speakers?: number | null
   max_speakers?: number | null
   initial_prompt?: string
@@ -73,7 +91,7 @@ export interface TranscribeRunRequest {
   tesseract_cmd?: string | null
 }
 
-// GET /api/diarization/dramas/{id}/config (api/schemas.py DiarizationConfig).
+// GET /api/diarization/dramas/{id}/config (api/schemas/transcribe.py DiarizationConfig).
 export interface DiarizationConfig {
   drama_id: number
   hf_token_configured: boolean
@@ -83,6 +101,13 @@ export interface DiarizationConfig {
   last_device: string | null
   audio_available: boolean
   manual_speaker_count?: number // lines whose speaker was corrected by hand (D06)
+  speaker_summary?: SpeakerTimeSummary | null // null: no saved detection
+}
+
+export interface SpeakerTimeSummary {
+  speakers: { label: string; seconds: number; percent: number; turns: number }[]
+  total_speech_seconds: number
+  uncovered_seconds: number | null
 }
 
 export interface JobStarted {
@@ -126,7 +151,7 @@ export interface KnownPlatform {
 
 export type NovelMode = 'replace' | 'append'
 
-// Step 115b: mirrors api/schemas.py LncrawlStatus / LncrawlImportRequest.
+// Mirrors api/schemas/sources.py LncrawlStatus / LncrawlImportRequest.
 export interface LncrawlStatus {
   installed: boolean
   path_configured: boolean
@@ -149,7 +174,7 @@ export interface NovelStatus {
   ocr_running: boolean
 }
 
-// Mirrors api/schemas.py MediaAnalysis / AutofillRequest / AutofillSuggestion (Slice 37).
+// Mirrors api/schemas/library.py MediaAnalysis / AutofillRequest / AutofillSuggestion.
 export interface MediaAnalysis {
   drama_id: number
   duration_seconds: number
@@ -184,7 +209,7 @@ export interface AutofillSuggestion {
   found: boolean
 }
 
-// api/schemas.py SourceConfig / SourceConfigUpdate (Source-stage config).
+// api/schemas/transcribe.py SourceConfig / SourceConfigUpdate (Source-stage config).
 export interface SourceConfig {
   drama_id: number
   source_language: string
@@ -202,7 +227,7 @@ export type SourceConfigUpdate = Partial<
   Pick<SourceConfig, 'source_language' | 'chinese_script' | 'content_mode' | 'transcript_mode'>
 >
 
-// api/schemas.py RetranscribeLineRequest / RetranscribeLineResult (parity audit B1, R23).
+// api/schemas/transcribe.py RetranscribeLineRequest / RetranscribeLineResult.
 export interface RetranscribeLineRequest {
   initial_prompt?: string
   extra_names?: string
@@ -214,7 +239,7 @@ export interface RetranscribeLineResult {
   line_id: number
 }
 
-// api/schemas.py RetranscribeResult: the finished proposal, raw (GET .../retranscribe).
+// api/schemas/transcribe.py RetranscribeResult: the finished proposal, raw (GET .../retranscribe).
 export interface RetranscribeResult {
   job_id: string
   line_id: number
@@ -223,7 +248,7 @@ export interface RetranscribeResult {
   base_zh: string
 }
 
-// api/schemas.py RetranscribeApplyRequest / RetranscribeApplyResult: "Use this"
+// api/schemas/transcribe.py RetranscribeApplyRequest / RetranscribeApplyResult: "Use this"
 // for exactly the proposal shown (expected_zh = base_zh, expected_proposed = proposed_zh).
 export interface RetranscribeApplyRequest {
   job_id: string
@@ -237,8 +262,8 @@ export interface RetranscribeApplyResult {
   zh: string
 }
 
-// GET /api/workflow/dramas/{id}/progress (api/schemas.py WorkflowProgress).
-export type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
+// GET /api/workflow/dramas/{id}/progress (api/schemas/library.py WorkflowProgress).
+type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
 
 export interface WorkflowStageState {
   key: string
@@ -256,4 +281,111 @@ export interface WorkflowProgress {
   has_dub_track: boolean
   exported: boolean
   stages: WorkflowStageState[]
+}
+
+// api/schemas/transcribe.py Compare* (Review: Compare transcription).
+export type CompareSelection =
+  | { kind: 'line_ids'; line_ids: number[] }
+  | { kind: 'range'; from_number: number; to_number: number }
+  | { kind: 'flagged' }
+  | { kind: 'speaker'; speaker: string }
+  | { kind: 'time'; start_seconds: number; end_seconds: number }
+
+export interface CompareBackendOption {
+  id: string
+  label: string
+  available: boolean
+  reason: string | null
+}
+
+export interface CompareOptions {
+  has_audio: boolean
+  no_audio_reason: string | null
+  max_lines: number
+  saved_whisper_size: string
+  saved_asr_backend: string
+  saved_alignment_method: string
+  whisper_sizes: string[]
+  backends: CompareBackendOption[]
+  translation_engine: string
+}
+
+export interface CompareTranslateFields {
+  translate?: boolean
+  retranslate_current?: boolean
+  engine?: string | null
+  model?: string | null
+  gemini_free_tier?: boolean | null
+  job_cost_cap_usd?: number | null
+}
+
+export interface CompareEstimateRequest extends CompareTranslateFields {
+  selection: CompareSelection
+}
+
+export interface CompareEstimate {
+  line_count: number
+  max_lines: number
+  translate: boolean
+  estimated_usd: number | null
+  free: boolean
+  cap_applies: boolean
+  effective_cap_usd: number | null
+  monthly_refusal: boolean
+  estimate_above_cap: boolean
+}
+
+export interface CompareRunRequest extends CompareTranslateFields {
+  selection: CompareSelection
+  whisper_size?: string | null
+  asr_backend?: string | null
+}
+
+export interface CompareRunResult {
+  job_id: string
+  drama_id: number
+  line_count: number
+}
+
+export interface CompareProposal {
+  line_id: number
+  number: number
+  start: number
+  end: number
+  base_zh: string
+  base_en: string
+  candidate_zh: string
+  current_en: string
+  candidate_en: string
+  translated: boolean
+}
+
+export interface CompareResult {
+  job_id: string
+  proposals: CompareProposal[]
+  line_count: number
+  asr_backend: string | null
+  whisper_size: string | null
+  translated: boolean
+  partial: boolean
+  cap_reached: boolean
+  errors: string[]
+}
+
+export interface CompareApplyItem {
+  line_id: number
+  expected_base_zh: string
+  expected_candidate_zh: string
+  use_english?: boolean
+  expected_candidate_en?: string
+}
+
+export interface CompareApplyRequest {
+  job_id: string
+  items: CompareApplyItem[]
+}
+
+export interface CompareApplyResult {
+  applied: number[]
+  skipped: number[]
 }

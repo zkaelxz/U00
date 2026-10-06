@@ -22,7 +22,8 @@ async function shot(page: Page, name: string) {
 }
 
 async function openSection(page: Page, title: string) {
-  await page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }).first().click()
+  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
 const entry = (over: object = {}) => ({

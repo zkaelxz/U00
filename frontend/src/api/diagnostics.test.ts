@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  deleteModelFile, getDiagnostics, getJobHistory, getLog, getModelCache, getPyannote, getSetupChecks,
+  deleteModelFile, getDiagnostics, getLog, getModelCache, getPyannote, getPorts, getSetupChecks,
   getSupportReport, installDependency, resetLibrary, upgradeDependency,
 } from './diagnostics'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
@@ -23,18 +23,22 @@ describe('diagnostics api', () => {
     expect(out.dependencies).toEqual({})
   })
 
+  it('GETs /api/diagnostics/ports', async () => {
+    const { mock, f } = reply(200, { ports: [] })
+    expect((await getPorts(f)).ports).toEqual([])
+    expect(mock.mock.calls[0][0]).toBe('/api/diagnostics/ports')
+  })
+
   it('reads the admin sections from their own paths', async () => {
     const { mock, f } = reply(200, {})
     await getSetupChecks(f)
     await getModelCache(f)
-    await getJobHistory(f)
     await getSupportReport(f)
     await getPyannote(false, f)
     await getPyannote(true, f)
     expect(mock.mock.calls.map((c) => c[0])).toEqual([
       '/api/diagnostics/setup-checks',
       '/api/diagnostics/model-cache',
-      '/api/diagnostics/job-history',
       '/api/diagnostics/support-report',
       '/api/diagnostics/pyannote',
       '/api/diagnostics/pyannote?check_access=true',

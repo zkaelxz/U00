@@ -152,7 +152,7 @@ class TestPronounce:
                 record.update(text=text, voice=voice)
             with open(out_path, "wb") as f:
                 f.write(b"ID3fake-mp3")
-        monkeypatch.setattr(dub, "_edge_tts_synthesize", fake)
+        monkeypatch.setattr(dub, "edge_tts_synthesize", fake)
 
     @pytest.fixture(autouse=True)
     def _edge_tts_importable(self, monkeypatch):
@@ -177,7 +177,7 @@ class TestPronounce:
 
         async def never(*a):
             raise AssertionError("must not call edge-tts")
-        monkeypatch.setattr(dub, "_edge_tts_synthesize", never)
+        monkeypatch.setattr(dub, "edge_tts_synthesize", never)
         r = client.post(_ai(did, ids[0], "pronounce"), headers=LOCAL)
         assert r.status_code == 400
 
@@ -187,7 +187,7 @@ class TestPronounce:
 
         async def slow(text, voice, out_path):
             await asyncio.sleep(5)
-        monkeypatch.setattr(dub, "_edge_tts_synthesize", slow)
+        monkeypatch.setattr(dub, "edge_tts_synthesize", slow)
         r = client.post(_ai(did, ids[0], "pronounce"), headers=LOCAL)
         assert r.status_code == 500 and "too long" in r.json()["error"]["message"]
 
@@ -202,12 +202,12 @@ class TestPronounce:
 
         async def blocked(*a):
             raise dub.EdgeTTSBlockedError("403")
-        monkeypatch.setattr(dub, "_edge_tts_synthesize", blocked)
+        monkeypatch.setattr(dub, "edge_tts_synthesize", blocked)
         assert client.post(_ai(did, ids[0], "pronounce"), headers=LOCAL).status_code == 503
 
         async def leak(*a):
             raise RuntimeError(f"boom {SECRET}")
-        monkeypatch.setattr(dub, "_edge_tts_synthesize", leak)
+        monkeypatch.setattr(dub, "edge_tts_synthesize", leak)
         r = client.post(_ai(did, ids[0], "pronounce"), headers=LOCAL)
         assert r.status_code == 500 and SECRET not in r.text
 
@@ -247,7 +247,7 @@ class TestShorten:
                 usage_cb(10, 5)
             # reordered on purpose: matched by id, never by position
             return json.dumps({"2": "Short two.", "1": "Short one."})
-        monkeypatch.setattr(translate_engines, "call_llm_json", fake_llm)
+        monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json", fake_llm)
         r = client.post(_shorten(did), json={"confirm": True, "engine": "ollama"})
         assert r.status_code == 200, r.text
         body = r.json()
@@ -425,7 +425,7 @@ class TestMonthlyCap:
     @pytest.fixture(autouse=True)
     def _cap_used_up(self, monkeypatch):
         from services import translate_run_service
-        monkeypatch.setattr(translate_run_service, "_monthly_cap", lambda: 5.0)
+        monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
         monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.5)
         monkeypatch.setattr(line_tools, "alternative_translations",
                             lambda *a, **k: [{"translation": "x"}])

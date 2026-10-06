@@ -1,4 +1,7 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type Page } from '@playwright/test'
+
+import { expect, test } from './fixtures'
+import { openTranscribeOptions } from './sourceHelpers'
 
 // Novel reference (Translate) and raw novel (Transcribe, on the Source page):
 // the novel-files endpoints are mocked with an in-memory store, and every
@@ -54,7 +57,7 @@ test('Translate: upload, replace and remove the English novel reference', async 
   const { uploads } = await mockNovelFiles(page)
   await page.goto('/#/drama/1/translate')
   const panel = page.getByRole('region', { name: 'Novel reference (English translation)' })
-  await expect(panel.getByText('none saved', { exact: true })).toBeVisible()
+  await expect(panel.getByText('None saved', { exact: true })).toBeVisible()
   await panel.locator('.section-title').click()
   await expect(page.getByTestId('novel-file-status-reference')).toHaveText('Nothing saved yet.')
 
@@ -91,7 +94,7 @@ test('Transcribe: uploading the raw novel refreshes the automatic prompt', async
     return route.fulfill({ response: resp, json: uploaded ? { ...json, auto_initial_prompt: '云隐宗、沈清疑' } : json })
   })
   await page.goto('/#/drama/1/source')
-  const panel = page.getByRole('region', { name: 'Raw novel (original language)' })
+  const panel = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })
   await panel.locator('.section-title').click()
   await panel.getByLabel('Raw novel file', { exact: true }).setInputFiles({
     name: 'raw.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('PK'),
@@ -101,6 +104,7 @@ test('Transcribe: uploading the raw novel refreshes the automatic prompt', async
   await expect(page.getByTestId('novel-file-status-raw')).toContainText('Saved:')
   expect(uploads.map((u) => u.kind)).toEqual(['raw-novel'])
   const transcribe = page.getByRole('region', { name: 'Transcribe' })
+  await openTranscribeOptions(page)
   await transcribe.locator('.section-title', { hasText: 'Advanced' }).click()
   await expect(page.getByTestId('auto-prompt')).toContainText('云隐宗、沈清疑')
 })
@@ -156,10 +160,10 @@ test('raw novel saved in Transcribe shows the glossary link in Novel text', asyn
   await mockNovelFiles(page)
   await page.goto('/#/drama/1/source')
   await page.locator('.section-title', { hasText: /^Novel text$/ }).click()
-  const link = page.getByRole('link', { name: 'Build a glossary from this novel (Translate → Glossary) →' })
+  const link = page.getByRole('link', { name: 'Build the glossary from this novel in Translate →' })
   await expect(page.getByTestId('novel-status')).toBeVisible()
   await expect(link).toHaveCount(0)
-  const panel = page.getByRole('region', { name: 'Raw novel (original language)' })
+  const panel = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })
   await panel.locator('.section-title').click()
   await panel.getByRole('radio', { name: 'Paste text' }).check()
   await panel.getByLabel('Raw novel text', { exact: true }).fill('云隐宗')

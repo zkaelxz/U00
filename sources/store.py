@@ -13,13 +13,14 @@ import json
 import os
 import re
 import sqlite3
+import threading
 import time
 
 import db
 from translate_engines import redact_for_storage, safe_url
 
-# Step 23 item 3's concrete starting defaults, plus item 4's cache mode
-# and item 5's chapter-check schedule. All user-editable in Settings.
+# Concrete starting defaults, plus the cache mode
+# and the chapter-check schedule. All user-editable in Settings.
 DEFAULT_SETTINGS = {
     # Seconds between requests to one source, picked fresh at random in
     # this range for every request. Raised from 1-3s after a real live
@@ -54,18 +55,17 @@ DEFAULT_SETTINGS = {
     "demo_source_enabled": False,
     "disabled_sources": [],
     "adult_sources": [],            # sources the person opted in to adult-flagged works for
-    "extraction_diagnostics": False,  # Step 23g: always show Review Extraction + diagnostics
-    # Step 98: an HTTP(S) proxy URL (e.g. "http://127.0.0.1:8080") every
+    "extraction_diagnostics": False,  # Always show Review Extraction + diagnostics
+    # An HTTP(S) proxy URL (e.g. "http://127.0.0.1:8080") every
     # source adapter's requests go through. Empty (the default) means no
     # proxy -- direct connections, unchanged from before this setting
     # existed. HTTP(S) only, not SOCKS -- that needs the optional PySocks
     # package, which this app doesn't currently install.
     "http_proxy_url": "",
-    # Step 34: whether the browser extension's localhost endpoint runs.
+    # Whether the browser extension's localhost endpoint runs.
     # Off by default -- it opens a port, so it's opt-in, never something
-    # a fresh install starts on its own. Lives here because this is the
-    # app's only persisted settings store and the flag has to survive a
-    # restart (the sidebar's own settings are session-only by design);
+    # a fresh install starts on its own. Persisted here because the flag
+    # has to survive a restart (api/background.py reads it at startup);
     # it is not a secret, and the endpoint's token is deliberately NOT
     # stored here -- see page_server.token_path().
     "page_server_enabled": False,
@@ -84,8 +84,9 @@ BROWSER_PROFILES_DIRNAME = "profiles"
 
 
 def browser_profiles_root() -> str:
-    """Step 23k's persistent browser profiles (sign-in state). Left out of
-    library backups -- see tabs/library_tab.py."""
+    """Persistent browser profiles (sign-in state). A library restore keeps
+    the current ones rather than taking them from the upload
+    (services/workspace_job_service.restore_kept_names)."""
     return os.path.join(db.LIBRARY_DIR, BROWSER_PROFILES_DIRNAME)
 
 
@@ -96,7 +97,7 @@ def browser_profile_dir(key: str) -> str:
     return os.path.join(browser_profiles_root(), safe)
 
 
-_SCHEMA = """
+SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -193,6 +194,13 @@ CREATE TABLE IF NOT EXISTS import_retry (
     text_offset INTEGER,
     PRIMARY KEY (source, series_id, drama_id, chapter_id)
 );
+CREATE TABLE IF NOT EXISTS domain_proposals (
+    source TEXT NOT NULL,
+    host TEXT NOT NULL,
+    found_at REAL NOT NULL,
+    dismissed INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (source, host)
+);
 CREATE TABLE IF NOT EXISTS extraction_cache (
     kind TEXT NOT NULL,
     content_hash TEXT NOT NULL,
@@ -204,22 +212,115 @@ CREATE TABLE IF NOT EXISTS extraction_cache (
 """
 
 
-def connect() -> sqlite3.Connection:
-    path = db_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30)
+BUSY_TIMEOUT_SECONDS = 10
+
+BUSY_MESSAGE = "The sources database is busy, try again."
+
+
+class SourcesDatabaseBusy(sqlite3.OperationalError):
+    """sources.db stayed locked past the busy timeout. The message is fixed
+    text, safe to show as is (the raw sqlite error is not)."""
+
+    def __init__(self):
+        super().__init__(BUSY_MESSAGE)
+
+
+def _is_busy(exc) -> bool:
+    text = str(exc).lower()
+    return "locked" in text or "busy" in text
+
+
+class _Connection(sqlite3.Connection):
+    """Turns a lock timeout from any statement into SourcesDatabaseBusy, so
+    the dozens of `with connect() as conn:` callers need no handling."""
+
+    def _guard(self, name, *args):
+        try:
+            return getattr(super(), name)(*args)
+        except SourcesDatabaseBusy:
+            raise
+        except sqlite3.OperationalError as e:
+            if _is_busy(e):
+                raise SourcesDatabaseBusy() from None
+            raise
+
+    def execute(self, *args):
+        return self._guard("execute", *args)
+
+    def executemany(self, *args):
+        return self._guard("executemany", *args)
+
+    def executescript(self, *args):
+        return self._guard("executescript", *args)
+
+    def commit(self):
+        return self._guard("commit")
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            return super().__exit__(exc_type, exc, tb)
+        except sqlite3.OperationalError as e:
+            if _is_busy(e):
+                raise SourcesDatabaseBusy() from None
+            raise
+
+
+def log_dropped(what: str) -> None:
+    """Notes a best-effort write that was dropped because sources.db stayed
+    locked. Never raises."""
+    try:
+        import applog
+        applog.get_logger().warning("Dropped %s: %s", what, BUSY_MESSAGE)
+    except Exception:
+        pass
+
+
+# Database files whose schema and migrations have already run in this
+# process. A file deleted since (a moved library, a test's temp dir) is
+# initialised again.
+_initialised = set()
+_init_lock = threading.Lock()
+
+
+def _open(path: str) -> sqlite3.Connection:
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_SECONDS, factory=_Connection)
     conn.row_factory = sqlite3.Row
-    # Every statement is CREATE ... IF NOT EXISTS, so this is cheap and
-    # needs no "already initialized?" bookkeeping that could go stale when
-    # the library folder moves.
-    conn.executescript(_SCHEMA)
-    _add_missing_columns(conn)
+    return conn
+
+
+def _initialise(path: str) -> None:
+    with _init_lock:
+        if path in _initialised and os.path.exists(path):
+            return
+        conn = _open(path)
+        try:
+            # WAL is stored in the file, so it is set here once rather than
+            # per connection: readers then never wait on the writer.
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.executescript(SCHEMA)
+            _add_missing_columns(conn)
+        finally:
+            conn.close()
+        _initialised.add(path)
+
+
+def connect() -> sqlite3.Connection:
+    path = os.path.abspath(db_path())
+    if path not in _initialised or not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _initialise(path)
+    conn = _open(path)
+    # synchronous is per connection (journal_mode is not).
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
 # Columns added after a table first shipped: CREATE TABLE IF NOT EXISTS
 # leaves an older sources.db without them.
 _ADDED_COLUMNS = (("tracked_series", "linked_by_user_id", "INTEGER"),
+                  ("tracked_series", "save_cbz", "INTEGER NOT NULL DEFAULT 0"),
+                  ("tracked_series", "save_pending", "TEXT NOT NULL DEFAULT '[]'"),
                   ("import_retry", "text_offset", "INTEGER"))
 
 
@@ -330,7 +431,7 @@ def recent_attempts(source: str = None, limit: int = 50) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Tracked series, known chapters, notifications (Step 23 item 5)
+# Tracked series, known chapters, notifications
 # ---------------------------------------------------------------------------
 
 # The link owner follows the drama link: it changes only when drama_id does,
@@ -385,7 +486,7 @@ MANIFEST_STATUSES = RETRY_STATUSES + ("partial", "needs_ai")
 
 
 def record_import_retry(source: str, series_id: str, drama_id: int, pending, done_ids=()):
-    """Step 107's failed-chapter manifest for one (series, drama). `pending`
+    """The failed-chapter manifest for one (series, drama). `pending`
     is (chapter_id, title, status, error) per chapter that failed or was not
     attempted (status in MANIFEST_STATUSES; title and error already redacted by
     the caller); `done_ids` are chapters this import imported or skipped,
@@ -457,6 +558,38 @@ def set_tracked_drama(source: str, series_id: str, drama_id,
         return cur.rowcount > 0
 
 
+def set_tracked_save(source: str, series_id: str, on: bool) -> bool:
+    """Whether the chapter check saves a tracked series' new chapters as
+    CBZ files. Turning it off drops the chapters waiting for a retry.
+    Touches nothing else; False if not tracked."""
+    with connect() as conn:
+        cur = conn.execute("UPDATE tracked_series SET save_cbz=?, save_pending=CASE WHEN ? THEN "
+                           "save_pending ELSE '[]' END WHERE source=? AND series_id=?",
+                           (1 if on else 0, 1 if on else 0, source, series_id))
+        return cur.rowcount > 0
+
+
+MAX_SAVE_PENDING = 500
+
+
+def save_pending_ids(row: dict) -> list:
+    """Chapter ids a tracked series' auto-save still owes (a save that
+    failed or was cut short), from a list_tracked_series() row."""
+    try:
+        ids = json.loads(row.get("save_pending") or "[]")
+    except ValueError:
+        return []
+    return [str(i) for i in ids if isinstance(i, (str, int))] if isinstance(ids, list) else []
+
+
+def set_save_pending(source: str, series_id: str, chapter_ids) -> None:
+    """The chapters the next check retries saving (newest kept when capped)."""
+    ids = list(dict.fromkeys(str(c) for c in chapter_ids))[-MAX_SAVE_PENDING:]
+    with connect() as conn:
+        conn.execute("UPDATE tracked_series SET save_pending=? WHERE source=? AND series_id=?",
+                     (json.dumps(ids), source, series_id))
+
+
 def untrack_series(source: str, series_id: str):
     with connect() as conn:
         conn.execute("DELETE FROM tracked_series WHERE source=? AND series_id=?", (source, series_id))
@@ -467,7 +600,7 @@ def untrack_series(source: str, series_id: str):
 
 def poll_validators(source: str, series_id: str, max_age: float = None) -> dict:
     """The ETag / Last-Modified the last chapter-list poll of this series
-    got for its one URL (Step 106), as conditional_poll() kwargs; {} if
+    got for its one URL, as conditional_poll() kwargs; {} if
     none, or if they were saved more than `max_age` seconds ago (a 304
     doesn't refresh them, so the list is fetched in full now and then)."""
     with connect() as conn:
@@ -513,7 +646,7 @@ def record_new_chapters(source: str, series_id: str, chapters) -> list:
     """Records chapters as known and adds one notification for each chapter
     that was not known yet. Returns the chapters actually recorded.
 
-    Idempotent, including across processes (the API and Streamlit can both
+    Idempotent, including across processes (two processes can both
     run a check): the known_chapters primary key decides, and each
     notification is inserted in the same write transaction as the
     known_chapters row it depends on, so a chapter two checks find at once
@@ -599,7 +732,7 @@ def dismiss_notification(notification_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Generic-import image memory (Step 23 item 8's cross-chapter duplicate filter)
+# Generic-import image memory (cross-chapter duplicate filter)
 # ---------------------------------------------------------------------------
 
 def remember_images(domain: str, chapter_url: str, hashes):
@@ -623,7 +756,7 @@ def hashes_seen_elsewhere(domain: str, chapter_url: str, hashes) -> set:
 
 
 # ---------------------------------------------------------------------------
-# Extraction-result cache (Step 23g item 6) -- keyed by a hash of what the
+# Extraction-result cache -- keyed by a hash of what the
 # model read, so an unchanged page never costs a second LLM call. Separate
 # from the raw-content cache (cache_index), which is about not re-fetching.
 # ---------------------------------------------------------------------------
@@ -647,3 +780,79 @@ def delete_extraction(kind: str, content_hash: str):
     with connect() as conn:
         conn.execute("DELETE FROM extraction_cache WHERE kind=? AND content_hash=?",
                      (kind, content_hash))
+
+
+# ---------------------------------------------------------------------------
+# Domain lists (sources/domains.py). The list and the last domain that
+# worked are settings, one pair of keys per source; a host found by
+# a redirect is only a proposal until the owner confirms it.
+# ---------------------------------------------------------------------------
+
+def _domains_key(source: str) -> str:
+    return f"source_domains.{source}"
+
+
+def _last_good_key(source: str) -> str:
+    return f"source_domain_last_good.{source}"
+
+
+def domain_list(source: str):
+    """The owner's saved domain list (https origins), or None when the
+    adapter's own `base_urls` apply."""
+    value = get_setting(_domains_key(source))
+    return [str(v) for v in value] if isinstance(value, list) and value else None
+
+
+def set_domain_list(source: str, origins):
+    set_setting(_domains_key(source), list(origins) if origins else None)
+
+
+def last_good_domain(source: str):
+    value = get_setting(_last_good_key(source))
+    return str(value) if value else None
+
+
+def set_last_good_domain(source: str, origin):
+    set_setting(_last_good_key(source), origin or None)
+
+
+MAX_PENDING_PROPOSALS = 5
+
+
+def propose_domain(source: str, host: str, now: float = None) -> bool:
+    """Records a pending proposal (`host` is host[:port]). False when the
+    host was already proposed, was dismissed before (a dismissed host is not
+    proposed again), or the source already has MAX_PENDING_PROPOSALS
+    waiting."""
+    # One statement: the count and the insert run under the same write lock.
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO domain_proposals(source, host, found_at) SELECT ?, ?, ? "
+            "WHERE (SELECT COUNT(*) FROM domain_proposals WHERE source=? AND dismissed=0) < ?",
+            (source, host, time.time() if now is None else now, source, MAX_PENDING_PROPOSALS))
+    return cur.rowcount > 0
+
+
+def domain_proposals(source: str = None) -> list:
+    """Pending (not dismissed) proposals, newest first."""
+    sql = "SELECT source, host, found_at FROM domain_proposals WHERE dismissed=0"
+    args = ()
+    if source is not None:
+        sql += " AND source=?"
+        args = (source,)
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(sql + " ORDER BY found_at DESC", args)]
+
+
+def dismiss_domain_proposal(source: str, host: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute("UPDATE domain_proposals SET dismissed=1 "
+                           "WHERE source=? AND host=? AND dismissed=0", (source, host))
+    return cur.rowcount > 0
+
+
+def delete_domain_proposal(source: str, host: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM domain_proposals WHERE source=? AND host=? AND dismissed=0",
+                           (source, host))
+    return cur.rowcount > 0

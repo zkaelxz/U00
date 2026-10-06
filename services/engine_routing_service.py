@@ -1,5 +1,5 @@
 """
-services/engine_routing_service.py -- Step 36: capability-based AI task
+services/engine_routing_service.py -- capability-based AI task
 routing ("which engine does what").
 
 A task asks for a capability (`resolve_capability("translation.cheap")`)
@@ -17,7 +17,7 @@ dramas" preference and `summary.episode` IS the episode-summary engine
 preference. The others are stored in db.app_settings under
 "capability.<id>".
 
-Also here (Step 36 item 6): the per-engine status for Settings
+Also here: the per-engine status for Settings
 (not configured / untested / working / failed) and the "Test" action, which
 makes one short real call through diagnostics.check_engine_reachable with
 the key resolved on the PC. Keys are never accepted or returned; a failure
@@ -43,14 +43,12 @@ _DEFAULT_ENGINE = "default_engine"  # sentinel: Settings' default engine
 # reads and writes instead of its own app setting; "default": the engine used
 # while unset (_DEFAULT_ENGINE = Settings' default engine); "choices": an
 # extra allow-list (or a function returning one) on top of "requires";
-# "exclude": engines never offered; "unset_label": the capability is OFF
-# while unset (its unset option is labelled with this, and only an explicit
+# "unset_label": the capability is OFF while unset (its unset option is labelled with this, and only an explicit
 # choice counts as set, even one equal to the default).
 CAPABILITIES = {
     "translation.cheap": {
         "label": "Everyday translation",
-        "help": ("Translates a drama that has no engine of its own. The same setting as "
-                 "\"Default engine for new dramas\"."),
+        "help": "Used for each new drama, and for a drama that has no engine of its own.",
         "requires": translate_engines.CAP_TRANSLATE,
         "pref": "default_engine",
         "choices": settings_service.engine_preference_choices,
@@ -62,13 +60,12 @@ CAPABILITIES = {
                  "you choose it."),
         "requires": translate_engines.CAP_TRANSLATE,
         "default": _DEFAULT_ENGINE,
-        "exclude": ("test_offline",),  # fake output is never "stronger"
-        "unset_label": "Off (no suggestions)",  # Step 99 offers nothing while unset
+        "unset_label": "Off (no suggestions)",  # no suggestions are offered while unset
     },
     "llm.instructions": {
         "label": "Line helpers for translation-only engines",
         "help": ("Improve, Why this?, Alternatives and Grammar use the drama's own engine. "
-                 "For a drama translated with DeepL, Google, NLLB or LibreTranslate (which "
+                 "For a drama translated with NLLB (which "
                  "can't follow instructions), they use this engine instead."),
         "requires": translate_engines.CAP_INSTRUCTIONS,
         "default": _DEFAULT_ENGINE,
@@ -97,7 +94,7 @@ TEST_TIMEOUT_S = 45
 _testing = set()
 _testing_lock = threading.Lock()
 # Engines whose Test isn't offered: NLLB downloads a large model on first use.
-_NO_TEST = {"nllb": "NLLB downloads a large model on first use; check it in Diagnostics."}
+_NO_TEST = {"nllb": "NLLB downloads a large model on first use, so it has no Test here. Diagnostics only checks that its software is installed."}
 
 
 def _definition(capability: str) -> dict:
@@ -113,7 +110,7 @@ def engine_choices(capability: str) -> list:
     if d.get("choices"):
         allowed = d["choices"]()
         names = [n for n in names if n in allowed]
-    return [n for n in names if n not in d.get("exclude", ())]
+    return names
 
 
 def _stored(capability: str):
@@ -202,7 +199,7 @@ def engine_status(engine: str, key_status: dict = None) -> dict:
     "working" or "failed" (the last Test). Booleans and short redacted text
     only; never the key or a URL."""
     if engine not in translate_engines.ENGINES:
-        raise NotFoundError("Unknown engine.")
+        raise NotFoundError(translate_engines.unknown_engine_message(engine))
     keys = key_status if key_status is not None else settings_service.key_status()
     needs_key = _needs_key(engine)
     configured = bool(keys.get(engine)) if needs_key else True
@@ -228,12 +225,12 @@ def get_routing() -> dict:
 
 
 def test_engine(engine: str, model: str = None) -> dict:
-    """Step 36 item 6: one short real translate call with the key saved on
+    """One short real translate call with the key saved on
     this PC. Spends a tiny amount of quota on a paid engine, so it runs only
     from an explicit button. Records the outcome for the status badge and
     returns the engine's refreshed status."""
     if engine not in translate_engines.ENGINES:
-        raise NotFoundError("Unknown engine.")
+        raise NotFoundError(translate_engines.unknown_engine_message(engine))
     api_key = translate_service.resolve_api_key(engine)
     if api_key is None and _needs_key(engine):
         raise DependencyUnavailableError(f"No {engine} key is configured. Add one first.")

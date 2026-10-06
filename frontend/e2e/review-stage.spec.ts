@@ -2,6 +2,12 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
+import { openFoldFor } from './reviewFolds'
+import { installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // The seeded API has dramas but no lines, so before every test this spec
 // writes three lines for drama 3 straight into the throwaway library the test
@@ -195,7 +201,6 @@ test('a draft pushed out of view by a reload gets a banner; Discard lets you mov
 
   // A finished job reloads the list and the edited line leaves the Flagged view.
   reloaded = true
-  await page.locator('summary', { hasText: 'AI review' }).click()
   await page.getByRole('button', { name: 'Flag lines for a second look' }).click()
   done = true
   const banner = page.getByTestId('hidden-edit')
@@ -300,11 +305,10 @@ test('a finished review job refetches the lines', async ({ page }) => {
   })
   await open(page)
   const before = lineFetches
-  await page.locator('summary', { hasText: 'AI review' }).click()
   await page.getByRole('button', { name: 'Flag lines for a second look' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   done = true
-  await expect(page.getByTestId('job-status')).toContainText('done')
+  await expect(page.getByTestId('job-status')).toContainText('Done')
   await expect.poll(() => lineFetches).toBeGreaterThan(before)
 })
 
@@ -502,14 +506,15 @@ test('re-segment previews, then needs the typed word', async ({ page }) => {
   })
   await page.route('**/api/jobs/rj', (route) => route.fulfill({ json: job('done') }))
   await open(page)
-  await page.locator('summary', { hasText: 'Structure' }).click()
+  await openFoldFor(page, 'Structure')
+  await page.locator('summary', { hasText: /^Structure/ }).click()
   await page.getByRole('button', { name: 'Preview re-segmentation' }).click()
   await expect(page.getByTestId('resegment-preview')).toContainText('3 → 4 lines; 1 change; 0 translated, 1 flagged, 0 notes would be split')
   const run = page.getByRole('button', { name: 'Re-segment lines' })
   await expect(run).toBeDisabled()
   await page.getByLabel('Type resegment to confirm').fill('resegment')
   await run.click()
-  await expect(page.getByTestId('job-status')).toContainText('done')
+  await expect(page.getByTestId('job-status')).toContainText('Done')
   expect(started).toEqual({ expected_line_ids: [1, 2, 3], confirm: true, use_llm: false })
 })
 
@@ -523,6 +528,7 @@ test('restore a line-history snapshot with the typed word', async ({ page }) => 
   })
   await open(page)
   const ids = await rows(page).evaluateAll((els) => els.map((e) => Number(e.getAttribute('data-line-id'))))
+  await openFoldFor(page, 'Records')
   await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }).click()
   await page.getByTestId('history-list').getByRole('button', { name: 'Restore…' }).click()
   await page.getByLabel('Type restore to confirm').fill('restore')
@@ -531,7 +537,7 @@ test('restore a line-history snapshot with the typed word', async ({ page }) => 
   expect(body).toEqual({ expected_line_ids: ids })
 })
 
-// ---- player (Slice 52 Range endpoint) ----
+// ---- player (Range endpoint) ----
 
 test('without media there are no play controls', async ({ page }) => {
   await open(page)
@@ -785,14 +791,14 @@ test.describe('phone', () => {
       .evaluateAll((els) =>
         els
           .filter((e) => (e as HTMLElement).offsetParent !== null)
-          .map((e) => ({ h: e.getBoundingClientRect().height, t: (e.textContent || e.getAttribute('aria-label') || '').trim() }))
+          .map((e) => ({ h: window.hitHeight(e), t: (e.textContent || e.getAttribute('aria-label') || '').trim() }))
           .filter(({ h }) => h < 44),
       )
     expect(small).toEqual([])
     // The Loop switch draws a 24px track; its ::after hit area (index.css) makes the target 44px+.
     const loopHit = await page.getByRole('switch', { name: 'Loop line' }).evaluate((e) => {
       const after = getComputedStyle(e, '::after')
-      return e.getBoundingClientRect().height - parseFloat(after.top) - parseFloat(after.bottom)
+      return window.hitHeight(e) - parseFloat(after.top) - parseFloat(after.bottom)
     })
     expect(loopHit).toBeGreaterThanOrEqual(44)
     await page.screenshot({ path: 'test-results/review-player-phone.png' })
@@ -809,7 +815,7 @@ test.describe('phone', () => {
     const small = await page.locator('.stage-review button:not(.link, .review-en, .field-help-btn, .toggle), .stage-review .review-chip').evaluateAll((els) =>
       els
         .filter((e) => (e as HTMLElement).offsetParent !== null)
-        .map((e) => ({ h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width, t: (e.textContent ?? '').trim() }))
+        .map((e) => ({ h: window.hitHeight(e), w: e.getBoundingClientRect().width, t: (e.textContent ?? '').trim() }))
         .filter(({ h, w }) => h < 44 || w < 44),
     )
     expect(small).toEqual([])
@@ -829,7 +835,7 @@ test.describe('phone', () => {
     await rows(page).nth(2).getByRole('button', { name: 'More actions for line 3' }).tap()
     const sheet = page.getByRole('dialog', { name: 'Line #3' })
     await expect(sheet).toBeVisible()
-    const heights = await sheet.locator('.sheet-menu button').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))
+    const heights = await sheet.locator('.sheet-menu button').evaluateAll((els) => els.map((e) => window.hitHeight(e)))
     for (const h of heights) expect(h).toBeGreaterThanOrEqual(48)
     await sheet.getByRole('button', { name: 'Close' }).tap()
     await expect(sheet).toHaveCount(0)
@@ -840,7 +846,6 @@ test('a pending bulk review batch does not lock the checks on a revisit', async 
   await page.route('**/api/jobs/bulk_flag_3', (route) =>
     route.fulfill({ json: { ...job('running'), job_id: 'bulk_flag_3', updated_at: Date.now() / 1000 } }))
   await open(page)
-  await page.locator('summary', { hasText: 'AI review' }).click()
   await expect(page.getByRole('button', { name: 'Flag lines for a second look' })).toBeEnabled()
   await expect(page.getByTestId('job-status')).toHaveCount(0)
 })
@@ -849,8 +854,38 @@ test('a review check left running is shown again, with the checks off', async ({
   await page.route('**/api/jobs/flag_3', (route) =>
     route.fulfill({ json: { ...job('running'), job_id: 'flag_3', updated_at: Date.now() / 1000 } }))
   await open(page)
-  await page.locator('summary', { hasText: 'AI review' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   await expect(page.getByRole('button', { name: 'Flag lines for a second look' })).toBeDisabled()
   await expect(page.getByText('A review job is running.')).toBeVisible()
+})
+
+test('Compact rows is remembered for the next visit', async ({ page }) => {
+  await open(page)
+  const more = page.getByRole('button', { name: 'More', exact: true })
+  if (await more.isVisible()) await more.click()
+  await page.getByRole('button', { name: 'Compact rows' }).click()
+  await expect(page.locator('.review-lines.is-compact')).toHaveCount(1)
+  await page.reload()
+  await expect(rows(page)).toHaveCount(3)
+  await expect(page.locator('.review-lines.is-compact')).toHaveCount(1)
+})
+
+test('flag lines for review runs only on click and reports each result', async ({ page }) => {
+  const posts: string[] = []
+  await page.route('**/api/export/dramas/3/flag-*', (route) => {
+    const name = route.request().url().split('/').pop() ?? ''
+    posts.push(name)
+    return route.fulfill({
+      json: name === 'flag-auto-qc' ? { flagged: 1, cleared: 0, already_flagged: 0, checked: 3 } : { flagged_count: 0 },
+    })
+  })
+  await open(page)
+  expect(posts).toEqual([])
+  const flags = page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: /^Flag lines for review$/ }) })
+  await flags.locator(':scope > summary').click()
+  await flags.getByRole('button', { name: 'Flag overlapping lines' }).click()
+  await expect(flags.getByTestId('flag-result-overlaps')).toHaveText('Flagged 0 lines.')
+  await flags.getByRole('button', { name: 'Run auto-QC and flag' }).click()
+  await expect(flags.getByTestId('flag-result-qc')).toContainText('Checked 3 lines: flagged 1')
+  expect(posts).toEqual(['flag-overlaps', 'flag-auto-qc'])
 })

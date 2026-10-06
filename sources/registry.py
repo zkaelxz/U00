@@ -1,6 +1,6 @@
 """
 sources/registry.py -- which adapters exist, which are switched on, and
-the top-level multi-source search (Step 23 item 6).
+the top-level multi-source search.
 """
 
 import re
@@ -12,6 +12,12 @@ from . import ladder, store
 from .models import NotSupportedError, SourceError
 
 _ADAPTERS = {}
+
+# Sources that used to be offered. Imported dramas, tracked series and
+# sources.db rows may still name them; they have no adapter any more, so
+# anything that would run one says SOURCE_REMOVED instead.
+REMOVED_SOURCES = frozenset({"mangaz"})
+SOURCE_REMOVED = "This source was removed."
 
 
 def register(cls):
@@ -55,6 +61,8 @@ def set_enabled(name: str, enabled: bool):
 def get_adapter(name: str, **client_kwargs):
     cls = adapter_classes().get(name)
     if cls is None:
+        if name in REMOVED_SOURCES:
+            raise KeyError(SOURCE_REMOVED)
         raise KeyError(f"No source adapter named {name!r}.")
     return cls(**client_kwargs)
 
@@ -115,7 +123,7 @@ def multi_search(query: str, adapters=None, max_workers: int = 4,
     failing source only costs that source's results.
 
     `limit_per_source` caps how many of one adapter's own results are
-    kept (Step 85: an unbounded search against a source with a huge
+    kept (an unbounded search against a source with a huge
     catalog could otherwise return hundreds of results with no way to
     trim them -- 20 per source is already generous for picking the
     right series by title)."""

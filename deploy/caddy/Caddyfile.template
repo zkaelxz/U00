@@ -9,8 +9,8 @@
 # Caddy must be a build that includes the rate_limit module
 # (github.com/mholt/caddy-ratelimit); a plain build refuses to load this file.
 #
-# Caddy proxies only to the household listener. Never point it at 8600 (the
-# PC's own admin listener) or 8756 (the extension bridge).
+# Caddy proxies only to the household listener. Never point it at the PC's
+# own admin listener (the API port, 8600 by default) or 8756 (the extension bridge).
 #
 # Baihe enforces every refusal below itself (the household listener refuses
 # PC-only routes and never grants an admin write permission); the blocks here
@@ -34,6 +34,13 @@
 			request>headers>X-Csrf-Token delete
 			request>headers>Referer delete
 		}
+	}
+
+	# Certificates are requested over TCP 443 only (the TLS-ALPN check). The
+	# HTTP check would need outside port 80, which can belong to other
+	# equipment on the network; without it Caddy never depends on port 80.
+	cert_issuer acme {
+		disable_http_challenge
 	}
 
 	servers {
@@ -103,9 +110,11 @@
 		path /api/settings /api/settings/* /api/sources/settings /api/sources/settings/*
 		path /api/diagnostics /api/diagnostics/* /api/library/admin/*
 		path /api/assistant/* /api/backups/* /api/benchmark/* /api/models/*
-		path /api/extension/* /api/jellyfin/* /api/notion/*
+		path /api/data-usage /api/data-usage/*
+		path /api/extension/* /api/jellyfin/* /api/notion/* /api/source-domains /api/source-domains/*
 		path /api/web-search/config /api/web-search/test /api/novel/lncrawl
 		path /api/sources/url/identify-media/resource /api/library/history/clear
+		path /api/saved-comics/folder /api/saved-comics/folder/*
 		path /api/docs /api/docs/* /api/openapi.json /docs/*
 		# Household members may send a bug report from their own device.
 		not {
@@ -140,6 +149,7 @@
 		path /api/characters/series/*/characters/*/delete
 		path /api/characters/dramas/*/reference-clip /api/characters/dramas/*/reference-clip/remove
 		path /api/scanlate/dramas/*/pages
+		path /api/jobs/clear-finished /api/jobs/*/delete
 	}
 	@pc_only_delete {
 		method DELETE

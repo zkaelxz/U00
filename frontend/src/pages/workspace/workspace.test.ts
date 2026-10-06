@@ -11,7 +11,7 @@ import {
   validateConfig,
   whisperModelWarning,
 } from './sourceForm'
-import { STAGE_IDS, isStageId, parseStage, stageCount, stageStates, startStage } from './stages'
+import { STAGE_IDS, isStageId, nextAction, parseStage, stageCount, stageStates, startStage } from './stages'
 import { pickForId } from './useDrama'
 
 describe('stage parsing', () => {
@@ -102,11 +102,12 @@ describe('config validation', () => {
 })
 
 describe('whisper model warning', () => {
-  it('warns only for large-v3-turbo on Japanese/Korean', () => {
-    expect(whisperModelWarning('large-v3-turbo', 'ja')).toMatch(/weaker on Japanese and Korean/)
-    expect(whisperModelWarning('large-v3-turbo', 'ko')).not.toBe('')
-    expect(whisperModelWarning('large-v3-turbo', 'zh')).toBe('')
-    expect(whisperModelWarning('large-v3', 'ja')).toBe('')
+  it('notes the measured Korean and Chinese gaps for turbo, and nothing for Japanese', () => {
+    expect(whisperModelWarning('large-v3-turbo', 'ko')).toMatch(/half a point fewer .* twice as slow/)
+    expect(whisperModelWarning('large-v3-turbo', 'zh')).toMatch(/tests disagree/)
+    expect(whisperModelWarning('large-v3-turbo', 'ja')).toBe('')
+    expect(whisperModelWarning('large-v3', 'ko')).toBe('')
+    expect(whisperModelWarning('medium', 'ko')).toBe('')
   })
 })
 
@@ -151,5 +152,30 @@ describe('stepper counts (§3.3)', () => {
     expect(stageCount('translate', null)).toBeNull()
     expect(stageCount('translate', { ...p, line_count: 0 })).toBeNull()
     expect(stageCount('review', { ...p, flagged_count: 0 })).toBeNull()
+  })
+})
+
+describe('next action', () => {
+  const prog = (states: Record<string, string>, untranslated = 0, flagged = 0) => ({
+    untranslated_count: untranslated,
+    flagged_count: flagged,
+    stages: Object.entries(states).map(([key, state]) => ({ key, state })),
+  })
+  it('names the translate step with the untranslated count', () => {
+    expect(nextAction('source', prog({ source: 'done', translate: 'current' }, 32))).toEqual({ stage: 'translate', label: 'Translate 32 lines' })
+    expect(nextAction('source', prog({ source: 'done', translate: 'current' }, 1))?.label).toBe('Translate 1 line')
+  })
+  it('names the review step with the flagged count, or just Review', () => {
+    expect(nextAction('translate', prog({ translate: 'done', review: 'current' }, 0, 12))?.label).toBe('Review 12 flagged')
+    expect(nextAction('translate', prog({ translate: 'done', review: 'current' }))?.label).toBe('Review')
+  })
+  it('skips a blocked stage and stops after the last one', () => {
+    expect(nextAction('review', prog({ review: 'done', dub: 'blocked', export: 'pending' }))).toEqual({ stage: 'export', label: 'Export' })
+    expect(nextAction('export', prog({ export: 'done' }))).toBeNull()
+  })
+  it('shows nothing until the open stage is done or progress is known', () => {
+    expect(nextAction('source', prog({ source: 'current', translate: 'pending' }, 5))).toBeNull()
+    expect(nextAction('source', null)).toBeNull()
+    expect(nextAction(null, prog({ source: 'done' }))).toBeNull()
   })
 })

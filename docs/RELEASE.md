@@ -19,8 +19,7 @@ behaviour: `docs/windows-installer-design.md`.
 # Frontend release zip (source checkouts)
 
 End users run the app without Node.js. The React frontend is built once, on
-a developer's PC, and published as a zip on a GitHub release. GitHub Actions
-minutes are exhausted, so CI does not build it.
+a developer's PC, and published as a zip on a GitHub release. CI does not build it.
 
 ## Build it (developer PC, needs Node.js 22)
 
@@ -61,5 +60,5 @@ at `/` (`api/static_frontend.py`). To update, delete `frontend\dist` and
 extract the newer zip.
 
 Developers can skip the zip. `start.bat --build-frontend` (or
-`.\start.ps1 -BuildFrontend`) builds `frontend\dist` with npm if it's
-missing.
+`.\start.ps1 -BuildFrontend`) rebuilds `frontend\dist` with npm every
+time, so run it after pulling frontend changes.

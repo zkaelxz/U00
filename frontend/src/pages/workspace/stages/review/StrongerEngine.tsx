@@ -20,7 +20,7 @@ interface Props {
   onUse: (text: string) => Promise<boolean>
 }
 
-// Step 99: on a hard line, offer the stronger engine picked in Settings for
+// On a hard line, offer the stronger engine picked in Settings for
 // this one line. Suggest only: nothing runs without a click, the try writes
 // nothing, and the result is applied only by "Use this".
 export function StrongerEngine({ dramaId, line, offer, active, onUse }: Props) {
@@ -97,7 +97,7 @@ export function StrongerEngine({ dramaId, line, offer, active, onUse }: Props) {
           <div className="review-ai-compare">
             <div>
               <span className="muted">Current</span>
-              <div className="review-ai-text">{line.en || <span className="muted">(not translated)</span>}</div>
+              <div className="review-ai-text">{line.en || <span className="muted">Not translated</span>}</div>
             </div>
             <div>
               <span className="muted">With {offer.engineLabel}</span>

@@ -8,6 +8,7 @@ import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { buttonClass } from '../../../components/uiClasses'
 import { MEDIA_TYPES } from '../../libraryForm'
+import { usePersistedState, writePref } from '../../../hooks/usePersistedState'
 import { writeSectionOpen } from '../../../components/sectionStorage'
 import { wantsAutofill, withoutAutofill } from '../../libraryParity/libraryParity'
 import type { KnownPlatform, MediaAnalysis } from '../../../types/workspace'
@@ -23,6 +24,7 @@ import {
   type SuggestionRow,
 } from '../metadataForm'
 import { useStage } from '../StageContext'
+import { ResearchPanel } from './ResearchPanel'
 import './preamble.css'
 
 // "Known official platforms" (inventory P04): where a listing page usually
@@ -55,7 +57,7 @@ function KnownPlatforms() {
   )
 }
 
-export function AutofillPanel() {
+function AutofillBody({ arrived }: { arrived: boolean }) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [url, setUrl] = useState('')
   const [text, setText] = useState('')
@@ -65,19 +67,6 @@ export function AutofillPanel() {
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const urlInput = useRef<HTMLInputElement>(null)
-  // Parity P03: arriving from Library "Create and auto-fill" (?autofill=1)
-  // opens this panel before its Section reads its remembered state.
-  const [arrived] = useState(() => {
-    const want = wantsAutofill(window.location.hash)
-    if (want) {
-      try {
-        writeSectionOpen(window.localStorage, 'source.autofill', true)
-      } catch {
-        // storage unavailable: defaultOpen still opens the panel
-      }
-    }
-    return want
-  })
   useEffect(() => {
     if (!arrived) return
     window.history.replaceState(null, '', withoutAutofill(window.location.hash))
@@ -129,8 +118,6 @@ export function AutofillPanel() {
     })
 
   return (
-    <section className="panel" aria-label="Auto-fill metadata">
-      <Section storageKey="source.autofill" defaultOpen={arrived} title="Auto-fill metadata" summary="from a listing page or pasted text">
         <div className="source-panel">
           <Field label="Listing URL" help="A public http(s) page. Nothing is saved until you accept the suggestions.">
             <input ref={urlInput} type="url" value={url} onChange={(e) => setUrl(e.target.value)} />
@@ -179,12 +166,10 @@ export function AutofillPanel() {
           {notice && <p role="status">{notice}</p>}
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </div>
-      </Section>
-    </section>
   )
 }
 
-export function AnalyzePanel({ hasMedia }: { hasMedia: boolean }) {
+function AnalyzeBody({ hasMedia, onNeedMedia }: { hasMedia: boolean; onNeedMedia?: () => void }) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [result, setResult] = useState<MediaAnalysis | null>(null)
   const [busy, setBusy] = useState(false)
@@ -227,18 +212,24 @@ export function AnalyzePanel({ hasMedia }: { hasMedia: boolean }) {
   }
 
   return (
-    <section className="panel" aria-label="Analyze media">
-      <Section
-        storageKey="source.analyze"
-        title="Analyze media"
-        summary={result ? analysisSummary(result) : hasMedia ? 'not analyzed' : 'upload a file first'}
-      >
         <div className="source-panel">
-          <div>
-            <button type="button" disabled={!hasMedia || busy} onClick={run}>
-              Analyze media
-            </button>
-          </div>
+          {result && <p className="muted">{analysisSummary(result)}</p>}
+          {hasMedia ? (
+            <div>
+              <button type="button" disabled={busy} onClick={run}>
+                Analyze media
+              </button>
+            </div>
+          ) : (
+            <p className="muted source-needed">
+              <span>Still needed: an audio or video file.</span>
+              {onNeedMedia && (
+                <button type="button" className={buttonClass('ghost', 'sm')} onClick={onNeedMedia}>
+                  Choose a file
+                </button>
+              )}
+            </p>
+          )}
           {result && (
             <dl className="source-analysis" data-testid="analysis">
               {analysisDetails(result).map(([k, v]) => (
@@ -274,6 +265,60 @@ export function AnalyzePanel({ hasMedia }: { hasMedia: boolean }) {
           )}
           {notice && <p role="status">{notice}</p>}
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        </div>
+  )
+}
+
+type FillMode = 'page' | 'research' | 'audio'
+const FILL_MODES: [FillMode, string][] = [
+  ['page', 'From a page or text'],
+  ['research', 'Research online'],
+  ['audio', 'From the audio'],
+]
+
+/**
+ * One "suggest, then apply" fold for the three ways to fill in details: a
+ * listing page or pasted text, Gemini research, or analyzing the attached
+ * media. Every mode stays mounted so a pending suggestion survives switching.
+ */
+export function FillInPanel({ hasMedia, onNeedMedia }: { hasMedia: boolean; onNeedMedia?: () => void }) {
+  // Arriving from Library "Create and auto-fill" (?autofill=1) opens this fold
+  // on the page mode before the Section and the mode read their remembered state.
+  const [arrived] = useState(() => {
+    const want = wantsAutofill(window.location.hash)
+    if (want) {
+      try {
+        writeSectionOpen(window.localStorage, 'source.fillin', true)
+        writePref(window.localStorage, 'source.fillin.mode', 'page')
+      } catch {
+        // storage unavailable: defaultOpen still opens the fold
+      }
+    }
+    return want
+  })
+  const [mode, setMode] = usePersistedState<FillMode>('source.fillin.mode', 'page')
+  const { dramaId } = useStage()
+  return (
+    <section className="panel" aria-label="Fill in details">
+      <Section storageKey="source.fillin" defaultOpen={arrived} title="Fill in details" summary="From a page, online research or the audio">
+        <div className="source-panel">
+          <div className="segmented fill-in-modes" role="radiogroup" aria-label="Fill in from">
+            {FILL_MODES.map(([m, label]) => (
+              <label key={m} className={m === mode ? 'segmented-on' : undefined}>
+                <input type="radio" name={`fill-in-${dramaId}`} checked={m === mode} onChange={() => setMode(m)} />
+                {label}
+              </label>
+            ))}
+          </div>
+          <div hidden={mode !== 'page'}>
+            <AutofillBody arrived={arrived} />
+          </div>
+          <div hidden={mode !== 'research'}>
+            <ResearchPanel />
+          </div>
+          <div hidden={mode !== 'audio'}>
+            <AnalyzeBody hasMedia={hasMedia} onNeedMedia={onNeedMedia} />
+          </div>
         </div>
       </Section>
     </section>

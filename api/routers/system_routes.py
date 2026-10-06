@@ -5,7 +5,7 @@ api/routers/system_routes.py -- liveness and API metadata.
 answers "is the server up" and nothing else; a client should use a real
 endpoint's own error to learn anything more specific.
 
-`POST /api/system/shutdown` (Step 80b) is the installed launcher's clean
+`POST /api/system/shutdown` is the installed launcher's clean
 stop: PC-only, and it exists only when the launcher started the server
 with a one-time token (services/shutdown_service.py); otherwise it is a 404.
 """
@@ -13,7 +13,7 @@ with a one-time token (services/shutdown_service.py); otherwise it is a 404.
 from typing import Optional
 
 from fastapi import APIRouter, Header, Request
-from api.auth import _auth_enabled, is_local_request, local_only, public_route
+from api.auth import is_auth_enabled, is_local_request, local_only, public_route
 from api.schemas import API_VERSION, HealthResponse, MetaResponse, ShutdownResponse
 from services import shutdown_service
 from services.service_errors import ForbiddenError, NotFoundError
@@ -31,7 +31,7 @@ def meta(request: Request):
     # `local` mirrors local_only(): true exactly when a PC-only route would
     # let this request through. It only drives which controls the UI shows;
     # the PC-only routes still enforce it themselves.
-    local = not _auth_enabled(request.app) or is_local_request(request)
+    local = not is_auth_enabled(request.app) or is_local_request(request)
     settings = request.app.state.settings
     # Public, so the household listener doesn't tell other devices its mode.
     environment = "" if getattr(settings, "is_household", True) else settings.environment

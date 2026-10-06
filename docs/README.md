@@ -27,30 +27,36 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`browser-extension.md`** — the Translate-the-page-you're-reading
   feature (Step 34/34b/96): what it does, what was verified against a
   real site.
-- **`migration-frontend-plan.md`** — the React frontend slice plan.
-- **`react-ui-guidelines.md`** — concise-UI rules for the React app and a per-screen change list.
+- **`react-ui-guidelines.md`** — concise-UI rules for the React app.
+- **`frontend-design-system.md`** — map of how the React frontend is built: layout, routing, tokens and themes, shared components, phone rules, testing and an add-a-screen checklist.
 - **`engineering-standards.md`** — shared principles: precedence, scope,
   review policy, verification, git/safety.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
   CI-minutes notes.
 - **`household-access.md`** — step-by-step guide to reach Baihe from
   household devices through Caddy (`deploy/caddy/Caddyfile.template`).
-- **`media-server-metadata-design.md`** — Step 116: how Baihe's title
-  metadata could reach or come from Jellyfin/Plex (NFO sidecars, pulling
-  Jellyfin's metadata, a provider endpoint); design only, nothing built.
 - **`windows-installer-design.md`** — the Windows installer/uninstaller:
   Step 80's design, as built in Step 80b (`installer/`).
 - **`technical-notes.md`** — an engineering changelog of real bugs found
   and how they were fixed, kept separate from the main `README.md` so
   that stays focused on using the app.
-- **`migration-screenshots/`** — before/after screenshots referenced by
-  `archive/migration-review.md`.
+- **`RELEASE.md`** — building the Windows installer and the frontend release zip.
+- **`database.md`** — the database layer: `db.py` and `sources.db`, migrations and the guard test, a table map, the rules learned from bugs, backups, and what sits on disk beside the database.
+- **`runbook.md`** — one-page maintainer steps: installer lock, tests, restore, certificate, benchmark.
+- **`api-and-services.md`** — how the FastAPI layer fits together: request flow, errors, route declarations, ownership, schemas, and an "adding an endpoint" checklist.
+- **`remote-access-decision.md`** — the remote-access design as built, including the route table `tests/test_api_permissions.py` enforces.
+- **`engine-backends.md`** — the translation engine package, transcription and dubbing engines, the rules learned from bugs, and an adding-an-engine checklist.
+- **`background-jobs.md`** — how background jobs run: thread and process jobs, the GPU guard, cancel, holds, the Jobs API and the CLI, with an add-a-job checklist.
+- **`asr-experiments.md`** — the off-by-default Qwen3-ASR batching and MOSS-Transcribe-Diarize options.
+- **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
+- **`design/`** and **`specs/`** — the UI refresh spec (with before/after screenshots) and earlier API/UX/Step 141 proposals; the specs were written against the removed Streamlit tabs.
 - **`STATUS.md`** — current state, in-flight work and what's next.
 - **`archive/`** — historical records kept for reference, not sources of
   truth: the migration review, handoff and React/FastAPI phase log, the
   old roadmap master tracker, the Streamlit test triage, the superseded
   remote-access and browser-extension handoffs, the installer research
-  notes and the Step 19 click-through audit.
+  notes, the Step 19 click-through audit, and the unbuilt Jellyfin/Plex metadata
+  design.
 
 ## `docs/secondary-review-notes.md` — not present here
 

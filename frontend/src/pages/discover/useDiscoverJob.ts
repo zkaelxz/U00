@@ -4,10 +4,10 @@
  *   const job = useDiscoverJob(getBulkExtractResult)
  *   job.start(() => startBulkExtract(urls, label, engine))
  *
- * Uses the Sources polling loop (pollSourcesJob: 1.5 s, retries, a 404 on
- * the first look means "never ran"). On mount it looks once, so a result
- * from earlier in this API process shows again. A start answered 429 means
- * the same job is already running (the id is fixed), so it attaches to it.
+ * Uses the Sources polling loop (pollSourcesJob: 1.5 s, retries, an "idle"
+ * answer on the first look means "never ran"). On mount it looks once, so a
+ * result from earlier in this API process shows again. A start answered 429
+ * means the same job is already running (the id is fixed), so it attaches to it.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -16,7 +16,7 @@ import type { DiscoverJobStarted } from '../../types/discover'
 import type { SourcesJobResult } from '../../types/sources'
 import { pollSourcesJob } from '../sources/useSourcesJob'
 
-export type DiscoverJobStatus = 'idle' | 'running' | 'done' | 'error'
+type DiscoverJobStatus = 'idle' | 'running' | 'done' | 'error'
 
 interface State<R> {
   status: DiscoverJobStatus
@@ -98,5 +98,3 @@ export function useDiscoverJob<R>(jobId: string, fetchResult: () => Promise<Sour
     reset: () => setState(IDLE),
   }
 }
-
-export type DiscoverJob<R> = ReturnType<typeof useDiscoverJob<R>>

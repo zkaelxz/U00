@@ -1,8 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
+import { navLink, openMenu } from './settingsNav'
 
 // Benchmark Lab (#/benchmark) against the real API on the seeded e2e
 // library: import a golden set, add and delete a case, estimate and run the
-// free "Offline test" engine twice (it never calls out and costs nothing:
+// fake engine twice (it never calls out and costs nothing:
 // output is "[TEST] <source>"), then compare the two runs in the Arena.
 // Set BENCH_SHOTS_DIR=<dir> to also save a desktop screenshot.
 // Named lab-* on purpose: a run leaves a finished "benchmark_lab" job on the
@@ -28,16 +29,16 @@ async function runOnce(page: Page, label: string, promptVersion: string) {
 test('Benchmark Lab: import a set, run the offline engine twice, compare in the Arena', async ({ page }) => {
   const setName = `e2e-${Date.now()}`
 
-  // Reached from Diagnostics; its nav item stays active.
+  // Reached from Diagnostics; on the wide rail it has its own item, which becomes current .
   await page.goto('/#/diagnostics')
-  await page.getByRole('link', { name: 'Benchmark Lab' }).click()
+  await page.getByRole('main').or(page.locator('.app-main')).getByRole('link', { name: 'Benchmark Lab' }).click()
   await expect(page).toHaveURL(/#\/benchmark$/)
   await expect(page.getByRole('heading', { name: 'Benchmark Lab' })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Diagnostics' })).toHaveAttribute('aria-current', 'page')
+  await openMenu(page)
+  await expect(navLink(page, 'Benchmark Lab')).toHaveAttribute('aria-current', 'page')
 
   // Import a golden set from pasted TSV.
   const sets = page.getByRole('region', { name: 'Golden sets' })
-  await sets.locator('summary', { hasText: 'Import golden set' }).click()
   await sets.getByLabel('Set name', { exact: true }).first().fill(setName)
   await sets.getByLabel('Format', { exact: true }).selectOption('tsv')
   await sets.getByLabel('Cases', { exact: true }).fill('你好\tHello\n谢谢\tThank you\n再见\tGoodbye')
@@ -71,17 +72,17 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await card.getByLabel('Stage', { exact: true }).selectOption('translation')
   await card.getByLabel('Tier', { exact: true }).selectOption('public')
   await card.getByLabel('Golden set', { exact: true }).selectOption(setName)
-  await card.getByLabel('Engine 1', { exact: true }).selectOption('test_offline')
+  await card.getByLabel('Engine 1', { exact: true }).selectOption('fake')
   await expect(card).toContainText('3 cases selected')
 
   // Two engines make it an Arena run; the estimate lists each one.
   await card.getByRole('button', { name: 'Add engine' }).click()
-  await card.getByLabel('Engine 2', { exact: true }).selectOption('libretranslate')
+  await card.getByLabel('Engine 2', { exact: true }).selectOption('nllb')
   await card.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(card.getByTestId('bench-estimate').locator('li')).toHaveCount(2)
   await expect(card.getByRole('button', { name: 'Start arena (2 engines)' })).toBeEnabled()
   // Not started: back to one engine (the estimate no longer matches).
-  await card.getByRole('button', { name: /^Remove LibreTranslate/ }).click()
+  await card.getByRole('button', { name: /^Remove NLLB/ }).click()
   await expect(card.getByTestId('bench-estimate')).toHaveCount(0)
 
   await runOnce(page, 'e2e A', 'v1')
@@ -101,8 +102,8 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await expect(arena.getByRole('list', { name: 'Cases' }).locator(':scope > li')).toHaveCount(3)
   const first = arena.getByRole('list', { name: 'Cases' }).locator(':scope > li', { hasText: '你好' })
   await expect(first).toContainText('Hello')
-  await expect(first.getByLabel('Output of Offline test').first()).toContainText('[TEST] 你好')
-  await expect(first.getByLabel('Output of Offline test').first()).toContainText(/Pass|Fail/)
+  await expect(first.getByLabel('Output of Fake').first()).toContainText('[TEST] 你好')
+  await expect(first.getByLabel('Output of Fake').first()).toContainText(/Pass|Fail/)
 
   // One run's own results.
   await runs.getByRole('button', { name: /^Results of run/ }).first().click()

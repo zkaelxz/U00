@@ -17,9 +17,14 @@
 ; Boot service (the "service" task, on by default): Setup asks for
 ; administrator permission once, after the files are copied, and
 ; {app}\service\helper\lib\installer\service.py creates the BaiheStudio
-; service (python -m api on 127.0.0.1:8600 and nothing else, started with
-; Windows). An update stops it first, and uninstalling removes it. Unticking
-; the task (or /MERGETASKS="!service") keeps the Start-menu launcher only.
+; service (python -m api on 127.0.0.1 and nothing else, started with
+; Windows), on the default port or the user's BAIHE_API_PORT if set (a
+; fresh install only: an update keeps the service's stored port). Once the
+; service exists, the launcher uses the service's stored port, and the
+; Start-menu item "Baihe Studio service" changes it (service.py set-port).
+; An update stops it first,
+; and uninstalling removes it. Unticking the task (or /MERGETASKS="!service")
+; keeps the Start-menu launcher only.
 ;
 ; Silent install (CI, power users):
 ;   BaiheStudio-Setup-<v>.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="..." /DATADIR="..."
@@ -102,6 +107,9 @@ Source: "{#PayloadDir}\wheels\*"; DestDir: "{tmp}\wheels"; Flags: ignoreversion 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: "-s ""{app}\app\installer\launcher.py"""; WorkingDir: "{app}\app"; IconFilename: "{app}\app\assets\app_icon.ico"; Comment: "Start Baihe Studio and open it in its own window"
 Name: "{group}\Stop {#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: "-s ""{app}\app\installer\launcher.py"" --stop"; WorkingDir: "{app}\app"; IconFilename: "{app}\app\assets\app_icon.ico"; Comment: "Stop Baihe Studio's server"
+; The service menu (installer/service_menu.ps1) asks for administrator
+; rights, so the shortcut runs the admin-only folder's copy, never {app}'s.
+Name: "{group}\{#AppName} service"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{commonpf64}\Baihe Studio Services\helper\lib\installer\service_menu.ps1"""; WorkingDir: "{sys}"; IconFilename: "{app}\app\assets\app_icon.ico"; Comment: "Baihe Studio's background service: status, ports, remote access, logs"; Tasks: service
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: "-s ""{app}\app\installer\launcher.py"""; WorkingDir: "{app}\app"; IconFilename: "{app}\app\assets\app_icon.ico"; Tasks: desktopicon
 
 [Run]
@@ -480,6 +488,32 @@ begin
   end;
 end;
 
+// The port the owner chose for Baihe Studio: the user's BAIHE_API_PORT. '' when
+// it isn't set (the default port). service.py uses it only on a fresh install:
+// an update keeps the service's stored port and ignores it. Once the service
+// exists the launcher follows that stored port, which the "Baihe Studio
+// service" menu (service.py set-port) changes. Only digits are passed on the
+// elevated command line; anything else is passed as a word service.py
+// refuses on a fresh install (and ignores on an update).
+function ApiPortArg(): String;
+var
+  Port: String;
+  I: Integer;
+  Digits: Boolean;
+begin
+  Result := '';
+  Port := Trim(GetEnv('BAIHE_API_PORT'));
+  if Port = '' then
+    Exit;
+  Digits := Length(Port) <= 5;
+  for I := 1 to Length(Port) do
+    if (Port[I] < '0') or (Port[I] > '9') then
+      Digits := False;
+  if not Digits then
+    Port := 'not-a-number';
+  Result := ' --port ' + Port;
+end;
+
 // With the "service" task: create or refresh the service and start it.
 // Without it: remove a service an earlier install made. The app still
 // works either way, from the Start menu.
@@ -489,7 +523,8 @@ begin
   begin
     WizardForm.StatusLabel.Caption := 'Setting up Baihe Studio''s background service...';
     ServiceFailed := not RunServiceHelper(ExpandConstant('{app}\service'),
-      '--install-root "' + ExpandConstant('{app}') + '" --data-dir "' + DataDir() + '" install');
+      '--install-root "' + ExpandConstant('{app}') + '" --data-dir "' + DataDir() + '" install' +
+      ApiPortArg());
   end
   else if ServiceOrAdminDirPresent() then
     ServiceFailed := not RunServiceHelper(AdminDir(), 'uninstall');
@@ -815,7 +850,11 @@ begin
       // Only these named items, never the folder's other contents: the
       // folder may be one the user picked and shares with other files.
       if DeleteLibrary then
+      begin
         DeleteTree(UninstDataDir + '\library', 'your library (projects, backups, logs, caches, browser profiles)', Removed, Left);
+        // Items cleared from the library wait here until deleted from Trash.
+        DeleteTree(UninstDataDir + '\baihe_trash', 'items you moved to Trash', Removed, Left);
+      end;
       if DeleteSettings and FileExists(UninstDataDir + '\.env') then
         if DeleteFile(UninstDataDir + '\.env') then
           AddLine(Removed, 'your settings and API keys (.env)');

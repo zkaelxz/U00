@@ -1,4 +1,5 @@
 import type {
+  EngineList,
   TranslateDirection,
   TranslateEngine,
   TranslateHistoryEntry,
@@ -26,6 +27,12 @@ export function languagePair(
     : { source_language: 'en', target_language: other }
 }
 
+/** What a model picker shows for `model`: its server label when it has one (a model
+ *  offered from the provider's list), else the id. */
+export function modelOptionLabel(engine: { model_labels?: Record<string, string> } | null | undefined, model: string): string {
+  return engine?.model_labels?.[model] ?? model
+}
+
 // Engines that can run now (key configured). The Translate page lists these
 // first and marks the rest "(no key)"; the server answers 503 for those.
 export function usableEngines(engines: TranslateEngine[]): TranslateEngine[] {
@@ -36,12 +43,9 @@ const ENGINE_DISPLAY_NAMES: Record<string, string> = {
   claude: 'Claude',
   deepseek: 'DeepSeek',
   gemini: 'Gemini',
-  deepl: 'DeepL',
-  google: 'Google Translate',
-  test_offline: 'Offline test',
+  openai: 'OpenAI',
   ollama: 'Ollama (local)',
   nllb: 'NLLB (offline)',
-  libretranslate: 'LibreTranslate',
 }
 
 // The API's `label` is a long description, not a name, so the picker shows
@@ -61,15 +65,21 @@ export function engineSummary(label: string): string {
   return sentence.length > 140 ? `${sentence.slice(0, 137)}…` : sentence
 }
 
+// TranslateRequest.text max_length in api/schemas/translate.py (the API answers 422 past it).
+export const MAX_TRANSLATE_TEXT_CHARS = 2_000_000
+
 export function validateTranslateInput(text: string, engine: string): string | null {
   if (!text.trim()) return 'Enter some text to translate.'
+  if (text.length > MAX_TRANSLATE_TEXT_CHARS) {
+    return `The text is too long: the limit is ${MAX_TRANSLATE_TEXT_CHARS.toLocaleString('en-US')} characters.`
+  }
   if (!engine) return 'Pick an engine.'
   return null
 }
 
 export const translateApi = {
-  engines: (f?: Fetch) =>
-    getJson<{ items: TranslateEngine[] }>('/api/translate/engines', f).then((r) => r.items),
+  engineList: (f?: Fetch) => getJson<EngineList>('/api/translate/engines', f),
+  engines: (f?: Fetch) => translateApi.engineList(f).then((r) => r.items),
   history: (limit = 50, f?: Fetch) =>
     getJson<{ items: TranslateHistoryEntry[] }>(`/api/translate/history?limit=${limit}`, f).then(
       (r) => r.items,

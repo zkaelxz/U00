@@ -372,16 +372,16 @@ class TestPerHostPacing:
         from sources import generic_import
         reset_pacing_state()
         clock = FakeClock()
-        urls = ["https://www.mangaz.com/book/detail/1", "https://www.mangaz.com/book/detail/2"]
+        urls = ["https://www.manhuagui.com/comic/1/", "https://www.manhuagui.com/comic/2/"]
         t = ScriptedTransport({u: html("x") for u in urls}, clock)
         # No adapter client has run since the reset: the interval must come
         # from the importer's own client.
-        c = generic_import._client(url=urls[0])
-        assert c.source == "mangaz"
+        c = generic_import.http_client(url=urls[0])
+        assert c.source == "manhuagui"
         c.transport, c.sleep, c.clock, c.rng = t, clock.sleep, clock.clock, FixedRng(0.0)
         for u in urls:
             c.get(u)
-        assert t.calls[1]["t"] - t.calls[0]["t"] == pytest.approx(120.0)
+        assert t.calls[1]["t"] - t.calls[0]["t"] == pytest.approx(10.0)
 
 
 class _SpyLock:
@@ -995,6 +995,8 @@ class TestRealCaseMatrix:
         r = self._static_only("bilibili_manga", {u: html(page)}, u)
         assert FailureReason.EMPTY_SPA_SHELL in r.reasons
         assert FailureReason.JAVASCRIPT_REQUIRED in r.reasons
+        line = r.summary_lines()[0]
+        assert "needs JavaScript" in line and "browser tier has not been tested" in line
 
     def test_newtoki_shaped_geo_restriction(self, isolated_db):
         u = "https://newtoki.invalid/webtoon/1"

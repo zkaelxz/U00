@@ -203,7 +203,7 @@ def test_proxies_only_to_the_household_port():
 
 def test_no_admin_or_bridge_port_and_no_literal_port_anywhere():
     text = _strip_comments(TEMPLATE.read_text(encoding="utf-8"))
-    for port in ("8600", "8601", "8610", "8756", "8501"):
+    for port in ("8600", "8601", "8610", "8756"):
         assert port not in text
     assert not re.search(r":\d", text), "ports come from placeholders only"
 
@@ -352,6 +352,12 @@ def test_unclean_path_matcher_passes_every_route(routes):
 
 def test_caddy_admin_api_off():
     assert ["admin", "off"] in [c["tokens"] for c in _global()["children"]]
+
+
+def test_certificates_never_depend_on_outside_port_80():
+    """The certificate check runs over 443 only: the HTTP check is disabled."""
+    (issuer,) = [c for c in _global()["children"] if c["tokens"][:2] == ["cert_issuer", "acme"]]
+    assert ["disable_http_challenge"] in [c["tokens"] for c in issuer["children"]]
 
 
 def test_site_top_level_directives_pinned():

@@ -1,30 +1,15 @@
-"""UI-free workflow/pipeline-progress helpers (Streamlit retirement M0a).
-
-`compute_workspace_stage_index` moved here unchanged from
-tabs/workspace_tab.py (the Step 19 invariant) so it no longer depends on
-the Streamlit tab; the tab imports it back. Never imports streamlit/fastapi.
+"""UI-free workflow/pipeline-progress helpers (the UI-free invariant).
+Never imports fastapi.
 """
 import os
-
-
-def stage_statuses_from_index(stages, current_index):
-    """Convenience for the common linear case: everything before
-    current_index is done, current_index is current, everything after is
-    not started. current_index of None means nothing has started yet."""
-    if current_index is None:
-        return ["not_started"] * len(stages)
-    return [
-        "done" if i < current_index else "current" if i == current_index else "not_started"
-        for i in range(len(stages))
-    ]
 
 
 def compute_workspace_stage_index(drama, lines, ddir):
     """Maps a drama's real pipeline progress onto the 7 stage-tab indices
     the header's stepper uses (Source=0, Transcript=1, Diarize=2,
     Translate=3, Review=4, Dub=5, Export=6). The pipeline is linear, so one
-    index is enough -- render_stepper_from_index() reads everything before
-    it as done, it as current, everything after as not started.
+    index is enough -- a stepper reads everything before it as done, it as
+    current, everything after as not started.
 
     Review and Dub have no reliable automatic "done" signal of their own
     (review is manual QC with no completion flag; dubbing is optional), so
@@ -38,7 +23,7 @@ def compute_workspace_stage_index(drama, lines, ddir):
     saved novel text) hasn't finished Source either, so that case checks
     for real source content before advancing past it.
 
-    Export/dub are checked before Diarize/Translate (Step 45): a drama
+    Export/dub are checked before Diarize/Translate: a drama
     that's genuinely marked exported or has a dub track has clearly moved
     well past those earlier stages, regardless of whether an earlier
     stage's own signal (e.g. a line's `speaker` field) ever got

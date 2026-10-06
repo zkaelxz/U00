@@ -1,10 +1,10 @@
 """
 api/routers/glossary_routes.py -- series glossary terms, project/series
-instructions and the read-only option catalogues (Migration Slice 46).
+instructions and the read-only option catalogues.
 
 Terms belong to the drama's series (see services/glossary_service.py).
-Deleting a term needs an explicit confirm=true, mirroring the Translate
-tab's confirm checkbox and Slice 17's clear-history route.
+Deleting a term needs an explicit confirm=true, like the
+clear-history route.
 
 Route batch 2C adds glossary-from-novel: start (engines.paid-gated on the
 drama's engine), status with the proposals, and apply by term text.
@@ -26,7 +26,7 @@ export as CSV, and bulk delete by id.
 from typing import List
 
 from fastapi import APIRouter, Path, Query, Request, Response
-from api.auth import _auth_enabled, is_local_request, require_engines_allowed, require_permission
+from api.auth import is_auth_enabled, is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
                          GlossaryCatalogues, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
@@ -79,7 +79,7 @@ def post_import_glossary(payload: GlossaryImportRequest, request: Request,
                          drama_id: int = Path(ge=1)):
     # Overwriting is the LAN exception in docs/remote-access-decision.md; with
     # no LAN zone yet (only PC vs not-PC) it stays at the PC.
-    if payload.overwrite_existing and _auth_enabled(request.app) and not is_local_request(request):
+    if payload.overwrite_existing and is_auth_enabled(request.app) and not is_local_request(request):
         raise ForbiddenError("Replacing existing glossary terms is only allowed at the PC.")
     if payload.overwrite_existing and not payload.confirm:
         raise InvalidInputError("Overwriting existing terms needs confirm=true.")
@@ -131,7 +131,7 @@ def post_series_instructions(payload: GlossaryInstructionsUpdate, drama_id: int 
                         503: {"model": ErrorResponse}})
 def post_start_novel_glossary(request: Request, drama_id: int = Path(ge=1),
                               fresh: bool = Query(False, description=(
-                                  "Ignore replies cached by an earlier run (Step 41)"))):
+                                  "Ignore replies cached by an earlier run"))):
     engine_name = glossary_service.novel_glossary_engine(drama_id)
     require_engines_allowed(request, engine_name)
     # Pass the checked name: the service refuses (409) if the stored engine

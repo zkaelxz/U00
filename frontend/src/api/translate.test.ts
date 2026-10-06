@@ -5,8 +5,10 @@ import {
   engineShortName,
   engineSummary,
   languagePair,
+  modelOptionLabel,
   translateApi,
   usableEngines,
+  MAX_TRANSLATE_TEXT_CHARS,
   validateTranslateInput,
 } from './translate'
 
@@ -52,6 +54,8 @@ describe('translate logic', () => {
     expect(validateTranslateInput('  ', 'x')).toMatch(/text/)
     expect(validateTranslateInput('hi', '')).toMatch(/engine/)
     expect(validateTranslateInput('hi', 'x')).toBeNull()
+    expect(validateTranslateInput('a'.repeat(MAX_TRANSLATE_TEXT_CHARS), 'x')).toBeNull()
+    expect(validateTranslateInput('a'.repeat(MAX_TRANSLATE_TEXT_CHARS + 1), 'x')).toMatch(/2,000,000 characters/)
   })
 })
 
@@ -65,7 +69,7 @@ describe('translate api', () => {
   it('posts and returns the translated text', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     const out = await translateApi.translate(
-      { text: 'hi', engine: 'test_offline', source_language: 'en', target_language: 'zh' },
+      { text: 'hi', engine: 'ollama', source_language: 'en', target_language: 'zh' },
       fakeFetch(200, { translated_text: 'yo' }, calls),
     )
     expect(out).toBe('yo')
@@ -86,5 +90,16 @@ describe('translate api', () => {
       .catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(503)
+  })
+})
+
+describe('modelOptionLabel', () => {
+  const engine = { model_labels: { 'claude-new': 'claude-new -- newly listed (cost estimated at highest Claude rate)' } }
+  it('uses the server label for an offered extra model', () => {
+    expect(modelOptionLabel(engine, 'claude-new')).toContain('newly listed')
+  })
+  it('falls back to the id', () => {
+    expect(modelOptionLabel(engine, 'claude-sonnet-5')).toBe('claude-sonnet-5')
+    expect(modelOptionLabel(undefined, 'x')).toBe('x')
   })
 })

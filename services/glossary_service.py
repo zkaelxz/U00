@@ -1,8 +1,8 @@
 """
 services/glossary_service.py -- series glossary, project/series
 instructions, and the read-only option catalogues for the Translate
-stage's config (`tabs/workspace_tab.py`, Translate config's "Project
-instructions" box and "Series glossary & term handling" expander).
+stage's config ("Project instructions" and "Series glossary & term
+handling").
 
 Glossary terms belong to a SERIES (`drama.series_id`), never a drama: a
 drama with no series reads as an empty glossary and refuses term writes
@@ -14,12 +14,12 @@ have no ownership check; a term of another series reads as NotFoundError.
 aliases / banned_translations are lists of strings in this API and are
 stored pipe-separated (db convention), so a "|" inside one is rejected.
 
-Glossary from the attached novel (the tab's "📕 Build a glossary from this
-novel" expander, Step 7b): start_novel_glossary_run is a background job
+Glossary from the attached novel ("Build a glossary from this novel"):
+start_novel_glossary_run is a background job
 calling `tguide.extract_glossary_from_novel` on the drama's own saved
 novel files (raw_novel_context.txt as the original, the
-novel_reference_filename translation as the paired English rendering --
-the same source/pairing rule as the tab). The engine and key are resolved
+novel_reference_filename translation as the paired English rendering).
+The engine and key are resolved
 server-side from the drama's translation_engine; the key is never
 returned or stored in a job result. The job only PROPOSES terms (keyed by
 term); apply_novel_glossary adds the ones the caller names, by term text
@@ -27,8 +27,8 @@ term); apply_novel_glossary adds the ones the caller names, by term text
 series glossary (possibly user-edited) is skipped unless
 overwrite_existing=True is passed explicitly. See PAID_ENGINE_FUNCTIONS.
 
-Glossary from the drama's own source lines (the tab's "Auto-extract terms
-from the source text", parity X10): start_lines_glossary_run is the same
+Glossary from the drama's own source lines ("Auto-extract terms from the
+source text", parity X10): start_lines_glossary_run is the same
 kind of background job calling `tguide.extract_terms_llm` on the saved
 lines' source text, with its own job id, status and apply. Both applies
 take optional per-term overrides (translation/category/policy the user
@@ -57,7 +57,7 @@ Deliberately NOT here:
   - Presets CRUD (`db.save_preset` etc.), series/drama creation,
     characters (services/characters_service.py).
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 import csv
 import os
@@ -70,7 +70,7 @@ import db
 import translate_engines
 import translation_guide as tguide
 from services import job_checkpoint_service
-from translate_engines import WORKFLOW_TIERS
+from translate_engines import WORKFLOW_TIERS, effective_tier
 from services.service_errors import (
     ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError,
     UnsupportedOperationError,
@@ -175,8 +175,7 @@ def upsert_glossary_term(drama_id: int, term_fields: dict) -> dict:
     """Create or update a term in the drama's series glossary.
 
     With an "id" the term is updated in place (its original text may be
-    corrected, like the tab's edit form); without one it is keyed on
-    (series, term_original) exactly like the tab's add form. Omitted
+    corrected); without one it is keyed on (series, term_original). Omitted
     optional fields keep their stored value on update -- including when no
     "id" is given but a term with that original text already exists in the
     series (it is then an update of that term, not a reset to defaults);
@@ -256,9 +255,9 @@ def _csv_unescape(value):
 
 def import_glossary_text(drama_id: int, text: str, filename: str = "",
                          overwrite_existing: bool = False) -> dict:
-    """The Translate tab's "Import glossary file": `text` is the file's
-    contents (CSV, TSV or JSON; `filename` only hints the format, as the
-    tab passed the upload's name), parsed by tguide.parse_glossary_file.
+    """"Import glossary file": `text` is the file's
+    contents (CSV, TSV or JSON; `filename`, the upload's name, only hints
+    the format), parsed by tguide.parse_glossary_file.
     Nothing is written to disk. A term already in the series glossary is
     left untouched and reported in "skipped_existing" unless
     overwrite_existing is True (then its translation, notes, category,
@@ -322,7 +321,7 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
 
 
 def glossary_csv(drama_id: int) -> str:
-    """The tab's "Export glossary as CSV" (tguide.glossary_to_csv): the
+    """"Export glossary as CSV" (tguide.glossary_to_csv): the
     series glossary as CSV text; just the header row when there is none.
     A cell that a spreadsheet would run as a formula is prefixed with '."""
     drama = _drama(drama_id)
@@ -332,7 +331,7 @@ def glossary_csv(drama_id: int) -> str:
 
 
 def bulk_delete_glossary_terms(drama_id: int, term_ids: list, confirm: bool = False) -> dict:
-    """The tab's "Delete N selected term(s)" (confirm checkbox, Step 71):
+    """"Delete N selected term(s)" (confirm=true):
     deletes each named term by id (never by position). Ids that are not in
     this drama's series glossary are reported in "not_found" and nothing
     else happens to them. Returns {"deleted", "not_found"} id lists."""
@@ -391,12 +390,13 @@ def get_catalogues() -> dict:
                             "translation_engine": v["translation_engine"],
                             "engine_model": v["engine_model"],
                             "reflect": bool(v["reflect"]), "auto_qc": bool(v["auto_qc"])}
-                           for k, v in WORKFLOW_TIERS.items()],
+                           for k in WORKFLOW_TIERS
+                           for v in [effective_tier(k)]],
     }
 
 
 # ---------------------------------------------------------------------------
-# Glossary from the attached novel (Step 7b)
+# Glossary from the attached novel
 # ---------------------------------------------------------------------------
 
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"
@@ -428,10 +428,6 @@ def novel_glossary_engine(drama_id: int) -> str:
     return _drama(drama_id).get("translation_engine") or _default_engine()
 
 
-def spends_on_paid_engine(engine_name: Optional[str]) -> bool:
-    return (engine_name or _default_engine()) not in translate_engines.FREE_ENGINES
-
-
 def _normalize_proposals(proposals, known_terms) -> list:
     """Allowlisted proposal dicts keyed by term text (a repeated term keeps
     the last one); already_in_glossary is the snapshot at extraction time."""
@@ -454,7 +450,7 @@ def _normalize_proposals(proposals, known_terms) -> list:
 
 
 def _novel_glossary_cache(engine, engine_name, fresh=False):
-    """Step 41 item 1: each passage's reply is cached on (prompt, engine and
+    """Each passage's reply is cached on (prompt, engine and
     model, max_tokens), so re-running an interrupted extraction only pays
     for the passages it never finished. fresh: skip the cached replies (new
     ones still replace them)."""
@@ -594,7 +590,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     """Starts proposing glossary terms from this drama's saved novel text.
     Uses the saved original-language novel (raw_novel_context.txt) as the
     source and the saved novel translation as the paired rendering when
-    both exist; either alone is used as the source (the tab's rule).
+    both exist; either alone is used as the source.
     Paid-engine spend: yes, unless the engine is in FREE_ENGINES.
 
     engine_name: the engine a caller already authorized (the API route's
@@ -611,7 +607,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     start_lines_glossary_run), DependencyUnavailableError (no key),
     ConflictError (already running).
 
-    fresh (Step 41): ignore replies cached by an earlier run over the same
+    fresh: ignore replies cached by an earlier run over the same
     text and engine and ask the model again (the new replies replace them)."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=True)
@@ -645,7 +641,8 @@ def _extraction_status(drama_id: int, job_id: str) -> dict:
     _drama(drama_id)
     job = background_jobs.get_status(job_id)
     if not job:
-        raise NotFoundError("No glossary extraction for this drama in this app session.")
+        return {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
+                "result": None, "run_id": None}
     status = job.get("status")
     result = None
     if status == "done":
@@ -663,9 +660,9 @@ def get_novel_glossary_status(drama_id: int) -> dict:
     glossary-from-novel job; result is {"proposals": [...]} only when done
     (else None). run_id names this run (None if unknown); pass it back to
     the apply. The message (or a failed job's error) is redacted; no key
-    is ever in a job result. NotFoundError when the drama doesn't exist or
-    no such job is resident in this process (results live only in
-    background_jobs memory)."""
+    is ever in a job result. NotFoundError when the drama doesn't exist. No
+    such job resident in this process (results live only in background_jobs
+    memory) is the normal first answer: status "idle", job_id ""."""
     return _extraction_status(drama_id, novel_glossary_job_id(drama_id))
 
 

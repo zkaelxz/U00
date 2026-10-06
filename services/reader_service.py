@@ -1,25 +1,18 @@
 """
-services/reader_service.py -- Migration Slice 4: the Reader's page HTML,
-shared by the FastAPI `/api/reader` route and (in a later slice) the
-Streamlit Reader tab.
+services/reader_service.py -- the Reader's page HTML and the rest of the
+Reader's logic, for the `/api/reader` routes.
 
-Scope decision, confirmed by the user (2026-09-28), the real blocker
-that held this slice back: the Streamlit Reader tab's own page-load path
-does two things an HTTP GET must never silently inherit -- a **paid LLM
-call** (`dictionary.build_word_definitions`, run from a button click) and
-a **DB write as a side effect of loading a page** (`db.save_vocab_lookup`
-for every word looked up). `get_reader_page_html` below does neither: it
-only serves whatever's already in `vocab_lookups` (populated by that
-existing Streamlit button, or by a future explicit "look up definitions"
-action added to this same service) -- never a live dictionary call, never
-a write. A fresh/paid lookup stays a separate, explicit action, not a
-side effect of viewing a page.
+Loading a page must never make a **paid LLM call** or a **DB write**
+(confirmed by the user, 2026-09-28). `get_reader_page_html` only serves
+whatever's already in `vocab_lookups` (populated by the explicit
+lookup_page_definitions action) -- never a live dictionary call, never a
+write. A fresh/paid lookup stays a separate, explicit action, not a side
+effect of viewing a page.
 
-No Streamlit import, no HTTP types: takes plain values, returns an HTML
+No HTTP types: takes plain values, returns an HTML
 string, so `cli.py` or a script could call it too.
 
-M4 (Streamlit retirement): every other piece of logic the Reader tab
-renders now also lives here -- caption tracks, media availability,
+Also here: caption tracks, media availability,
 reading progress, notes, click-to-define lookups
 (an explicit action, never part of get_reader_page), the rich-Anki
 queue, vocab CSV/.apkg export, story tools, the universe wiki and Q&A.
@@ -39,9 +32,8 @@ Reader data is per library, not per profile (retirement plan section
 10): progress and notes use db's default profile (profile_id=None).
 
 Spoiler boundary: every `up_to_line_idx=None` below means NO spoiler
-limit (the whole drama). The Streamlit tab defaults spoiler-free on,
-scoped to the current page's last line; a route or React caller that
-wants spoiler-free must pass that boundary explicitly.
+limit (the whole drama); a route or React caller that wants spoiler-free
+must pass that boundary explicitly.
 
 Permission contract for routes (user decision, 2026-09-29):
   - reads (page, overview, notes, vocab list, wiki list,
@@ -80,8 +72,7 @@ DEFAULT_CHAPTER_SIZE = 40
 def _cached_definitions(drama_id: int, source_language: str) -> dict:
     """{word: {"reading": ..., "definitions": [...]}} from whatever's
     already been looked up and saved for this drama -- never a live call.
-    Matches `source_language` the same way the Streamlit tab's own lookup
-    does (one language per drama), so a stale entry from a drama whose
+    Matches `source_language` (one language per drama), so a stale entry from a drama whose
     source language changed doesn't leak in."""
     out = {}
     for row in db.list_vocab_lookups(drama_id=drama_id):
@@ -209,7 +200,7 @@ def _scope(lines: list, up_to_line_idx) -> tuple:
     """(scoped_lines, limit_idx): the spoiler boundary. None means NO
     spoiler limit -- the whole drama; callers wanting spoiler-free must
     pass the boundary; otherwise it's clamped into the
-    drama's own index range, same as the tab's `spoiler_idx`."""
+    drama's own index range."""
     _check_line_idx(up_to_line_idx)
     last = lines[-1].idx if lines else -1
     if up_to_line_idx is None:
@@ -232,9 +223,9 @@ def _safe_filename(stem: str, ext: str, fallback: str = "vocab") -> str:
     return f"{cleaned[:120]}.{ext}"
 
 
-def _llm_engine(engine_name=None, model=None):
+def llm_engine(engine_name=None, model=None):
     """A reference-capable LLM engine with its key resolved server-side.
-    The Reader tab always used Claude; that stays the default."""
+    Claude is the default."""
     engine_name = engine_name or "claude"
     if model is not None and (not isinstance(model, str) or not model
                               or len(model) > MAX_MODEL_CHARS
@@ -242,7 +233,7 @@ def _llm_engine(engine_name=None, model=None):
         raise InvalidInputError(
             f"model must be at most {MAX_MODEL_CHARS} characters with no spaces or control characters.")
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't do this.")
@@ -292,9 +283,8 @@ def caption_tracks(lines):
     get a track -- an all-blank English track would just be an empty menu
     entry -- and Bilingual only when both sides have something to pair.
 
-    WebVTT rather than SRT: Streamlit sniffs SRT from the first 33 bytes
-    and rejects it outright when that cut lands mid-way through a CJK
-    character, which a short first cue of Chinese text easily does."""
+    WebVTT rather than SRT: a browser's <track> element only plays
+    WebVTT."""
     tracks = {}
     if any(ln.zh.strip() for ln in lines):
         tracks["Source"] = subtitle_formats.lines_to_vtt(lines, "zh")
@@ -335,8 +325,8 @@ def _confined_file(base: str, name, allowed: tuple):
 
 def _media_paths(drama_id: int, drama: dict) -> dict:
     """{kind: (media_type, absolute path)} for files that pass
-    _confined_file, video preferred over audio for the original as the
-    tab does. Server-internal."""
+    _confined_file, video preferred over audio for the original.
+    Server-internal."""
     base = os.path.realpath(db.drama_dir(drama_id))
     out = {}
     for field, media_type, allowed in (("source_video_filename", "video", VIDEO_EXTENSIONS),
@@ -385,10 +375,10 @@ def media_file_path(drama_id: int, kind: str) -> tuple:
 # ---------------------------------------------------------------------------
 
 def get_reading_overview(drama_id: int) -> dict:
-    """The tab's Length / Progress / Lines metrics plus the resume point:
+    """The Length / Progress / Lines metrics plus the resume point:
     {drama_id, length_display, line_count, percent_complete, last_page,
     last_line_idx}. Timed media use the real duration, text a reading-time
-    estimate, as the tab does."""
+    estimate."""
     drama = _require_drama(drama_id)
     lines = _lines(drama_id)
     est = (story_context.estimate_listening_time(lines)
@@ -444,7 +434,7 @@ def _define_words_llm(words: list, context_lines: list, engine, source_language:
     list-position zip (a short or reordered reply would otherwise put a
     definition on the wrong word). A word whose id doesn't come back is
     just left undefined."""
-    lang_name = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang_name = core_module.LANGUAGE_NAMES.get(source_language, "Chinese")
     context = "\n".join(context_lines[:50])
     out = {}
     unique = list(dict.fromkeys(words))
@@ -463,7 +453,7 @@ def _define_words_llm(words: list, context_lines: list, engine, source_language:
         if not text:
             continue
         stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-        data = translate_engines._extract_first_json_value(stripped)
+        data = translate_engines.extract_first_json_value(stripped)
         if not isinstance(data, dict):
             continue
         for i, w in enumerate(batch, 1):
@@ -479,7 +469,7 @@ def _define_words_llm(words: list, context_lines: list, engine, source_language:
 
 def lookup_page_definitions(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
                             use_llm: bool = False, engine_name: str = None, model: str = None) -> dict:
-    """The tab's "Load / refresh this page" button as an explicit action:
+    """"Load / refresh this page" as an explicit action:
     segments the page, defines every word (CC-CEDICT locally for Chinese;
     the LLM fallback only when use_llm, since that is a paid call), and
     saves each definition to the drama's vocab list (insert-if-absent,
@@ -493,7 +483,7 @@ def lookup_page_definitions(drama_id: int, page: int, chapter_size: int = DEFAUL
     page_lines = lines[(page - 1) * chapter_size: page * chapter_size]
     lang = drama.get("source_language") or "zh"
     script = drama.get("chinese_script") or "simplified"
-    engine = _llm_engine(engine_name, model) if use_llm else None
+    engine = llm_engine(engine_name, model) if use_llm else None
 
     def work():
         try:
@@ -623,7 +613,7 @@ def who_is_character(drama_id: int, name: str, up_to_line_idx: int = None,
     drama = _require_drama(drama_id)
     name = _text_arg(name, "name", MAX_LOOKUP_TEXT_CHARS)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     answer = _run_engine(lambda: story_context.who_is_character(name, scoped, drama, engine))
     return {"drama_id": drama_id, "answer": answer}
 
@@ -633,7 +623,7 @@ def explain_reference(drama_id: int, phrase: str, up_to_line_idx: int = None,
     drama = _require_drama(drama_id)
     phrase = _text_arg(phrase, "phrase", MAX_LOOKUP_TEXT_CHARS)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     answer = _run_engine(lambda: story_context.explain_reference(
         phrase, scoped, engine, source_language=drama.get("source_language") or "zh"))
     return {"drama_id": drama_id, "answer": answer}
@@ -642,7 +632,7 @@ def explain_reference(drama_id: int, phrase: str, up_to_line_idx: int = None,
 def recap(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
           engine_name: str = None, model: str = None) -> dict:
     """Summary of what came before `page` (the first page's lines when on
-    page 1), as the tab's "Recap what I've read so far". Bounded to the
+    page 1) ("Recap what I've read so far"). Bounded to the
     last MAX_RECAP_LINES lines before the page and MAX_RECAP_CHARS of
     their English text (oldest dropped first); `truncated` says so."""
     _require_drama(drama_id)
@@ -657,7 +647,7 @@ def recap(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
         total -= len(section[start].en or "")
         start += 1
     section = section[start:]
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     summary = _run_engine(lambda: story_context.summarize_section(
         section, engine, section_label=f"up to page {page}"))
     return {"drama_id": drama_id, "summary": summary, "truncated": len(section) < full}
@@ -669,7 +659,7 @@ def relationship_map(drama_id: int, up_to_line_idx: int = None,
     mermaid} -- characters/relationships are keyed by name, not position."""
     _require_drama(drama_id)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     rel = _run_engine(lambda: story_context.build_relationship_map(scoped, engine)) or {}
     has_chars = bool(rel.get("characters"))
     return {"drama_id": drama_id, "characters": rel.get("characters") or [],
@@ -717,7 +707,7 @@ def update_wiki(drama_id: int, up_to_line_idx: int = None,
     todo = [ln for ln in scoped if ln.idx >= (from_line_idx or 0) and (ln.en or ln.zh)]
     batch = todo[:MAX_WIKI_CHUNKS_PER_CALL * WIKI_CHUNK_LINES]
     remaining = len(todo) - len(batch)
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     if not batch:
         return {"drama_id": drama_id, "updated": 0, "remaining": 0, "next_line_idx": None}
     batch_limit = batch[-1].idx if remaining else limit
@@ -745,7 +735,7 @@ def clear_wiki(drama_id: int, confirm: bool = False) -> dict:
 
 def export_wiki_markdown(drama_id: int, up_to_line_idx: int = None, entry_type: str = None) -> dict:
     """{filename, media_type, content} -- the shown entries as Markdown,
-    with the tab's spoiler note when a boundary is set."""
+    with a spoiler note when a boundary is set."""
     drama = _require_drama(drama_id)
     shown = list_wiki(drama_id, up_to_line_idx, entry_type)["entries"]
     note = f"Built from lines 1–{up_to_line_idx + 1}." if up_to_line_idx is not None else ""
@@ -762,7 +752,7 @@ def ask_about_drama(drama_id: int, question: str, chat_history: list = None,
                     engine_name: str = None, model: str = None) -> dict:
     """One grounded Q&A turn. Stateless: the client keeps the history and
     sends it back ([{role: user|assistant, content}]). Grounded in the
-    whole drama's lines, as the tab's Q&A is (not spoiler-scoped)."""
+    whole drama's lines (not spoiler-scoped)."""
     import qa
     drama = _require_drama(drama_id)
     question = _text_arg(question, "question", MAX_QUESTION_CHARS)
@@ -778,7 +768,7 @@ def ask_about_drama(drama_id: int, question: str, chat_history: list = None,
         raise InvalidInputError(f"chat_history is longer than {MAX_CHAT_TOTAL_CHARS} characters in total.")
     history = [{"role": m["role"], "content": m["content"]} for m in history]
     lines = _require_lines(drama_id)
-    engine = _llm_engine(engine_name, model)
+    engine = llm_engine(engine_name, model)
     answer = _run_engine(lambda: qa.ask_about_drama(question, lines, drama, engine,
                                                     chat_history=history))
     return {"drama_id": drama_id, "answer": answer}

@@ -11,6 +11,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { Breadcrumbs } from '../nav/BreadcrumbNav'
+import { routeCrumbs } from '../nav/breadcrumbs'
 import { api } from '../api/client'
 import { comicApi, comicImageUrl, type ImageProblem } from '../api/comic'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -25,6 +27,7 @@ import { ScanlatePanel } from './comic/ScanlatePanel'
 import {
   clampPage,
   comicHref,
+  hashIsComic,
   defaultPrefs,
   keyAction,
   loadComicPrefs,
@@ -54,6 +57,7 @@ function browserStorage() {
 // In-viewer moves replace the history entry, so Back leaves the comic
 // instead of stepping back through every page.
 function replacePage(id: number, page: number) {
+  if (!hashIsComic(window.location.hash, id)) return
   window.location.replace(comicHref(id, page))
 }
 
@@ -316,7 +320,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   }
 
   const libraryHref = '#/library'
-  const workspaceHref = `#/drama/${id}/source`
   const empty = data !== null && count === 0
   const currentPage = current !== null ? pages[current - 1] : undefined
   const z = zoom.zoom
@@ -431,11 +434,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         </header>
       ) : (
         <div className="comic-top comic-head">
-          <nav aria-label="Breadcrumb" className="reader-crumbs comic-crumbs">
-            <a href={libraryHref}>Library</a>
-            <span aria-hidden="true"> / </span>
-            <a href={workspaceHref}>{title ?? 'Loading…'}</a>
-          </nav>
+          <Breadcrumbs crumbs={routeCrumbs({ name: 'comic', id, page: null }, { title })} />
           {current !== null && count > 0 ? (
             <ComicPager page={current} count={count} rtl={rtl} onGo={go} />
           ) : (

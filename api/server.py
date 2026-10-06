@@ -1,12 +1,9 @@
 """
 api/server.py -- the FastAPI application: Baihe's HTTP API.
 
-Stage one of the React + FastAPI migration (see
-`docs/archive/migration-react-fastapi.md`). This runs *alongside* the Streamlit
-app, not instead of it: both import the same modules and read the same
-`library/` folder, and neither calls the other over HTTP. Streamlit
-still owns every feature; this API exposes only what has been moved
-into `services/` so far.
+It serves the React app and the JSON routes over the `services/` layer, and
+reads the same `library/` folder as `cli.py` (the two never call each other
+over HTTP). See `docs/archive/migration-react-fastapi.md` for the history.
 
 Run it with `python -m api` (reads `BAIHE_API_*`, see
 `api/api_config.py`). With `BAIHE_API_AUTH=off` (the default) every
@@ -23,7 +20,7 @@ every reply (`api.auth.HouseholdGate`).
 """
 
 # Must run before any other app import -- same rule, and same reason, as
-# app.py and cli.py (see portable.py's docstring).
+# cli.py (see portable.py's docstring).
 import portable
 portable.activate_portable_mode()
 
@@ -53,6 +50,7 @@ from api.routers import (
     comic_routes,
     delete_routes,
     diagnostics_gaps_routes,
+    disk_usage_routes,
     diagnostics_installs_routes,
     diagnostics_routes,
     diarization_routes,
@@ -87,6 +85,7 @@ from api.routers import (
     novel_routes,
     reader_routes,
     restructure_routes,
+    saved_comics_routes,
     scanlate_routes,
     review_extras_routes,
     review_jobs_routes,
@@ -95,6 +94,7 @@ from api.routers import (
     series_people_routes,
     settings_routes,
     sharing_routes,
+    source_domains_routes,
     source_routes,
     sources_catalog_routes,
     sources_extraction_routes,
@@ -108,6 +108,7 @@ from api.routers import (
     translate_run_routes,
     translation_version_routes,
     update_routes,
+    usage_recost_routes,
     voice_bank_audio_routes,
     voice_clone_routes,
     web_search_routes,
@@ -120,12 +121,12 @@ from services import auth_service
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Starts the background pieces Streamlit used to start (chapter-check
+    """Starts the background pieces (chapter-check
     scheduler, extension endpoint when enabled, the GPU-queue re-check),
     only when `settings.background_services` is on -- never in tests.
     Idempotent. The GPU-queue re-check is stopped at shutdown, any
     running lightnovel-crawler import is cancelled and its program killed,
-    and job records left running by a dead process are closed (B-04), as
+    and job records left running by a dead process are closed, as
     are stale sign-in sessions (expired, idle or of a deactivated user).
     The household listener's app does none of this, at start or stop: it
     shares the process with the admin listener, whose lifespan owns it."""
@@ -183,8 +184,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app = FastAPI(
         title="Baihe Studio API",
         version=API_VERSION,
-        description="HTTP API for Baihe Studio. Runs alongside the Streamlit app and "
-                    "shares its library. Authentication is off by default (local use); "
+        description="HTTP API for Baihe Studio. Shares its library with the "
+                    "CLI. Authentication is off by default (local use); "
                     "set BAIHE_API_AUTH=on to enforce sessions and permissions.",
         # With auth on, the interactive docs/schema would publish every route
         # to anyone who can reach the port, so they are not served.
@@ -266,23 +267,27 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(discover_routes.router)
     app.include_router(web_search_routes.router)
     app.include_router(sources_catalog_routes.router)
+    app.include_router(source_domains_routes.router)
     app.include_router(workflow_routes.router)
     app.include_router(live_routes.router)
     app.include_router(discover_lookup_routes.router)
     app.include_router(sources_search_routes.router)
     app.include_router(sources_import_routes.router)
+    app.include_router(saved_comics_routes.router)
     app.include_router(sources_extraction_routes.router)
     app.include_router(sources_local_routes.router)
     app.include_router(diagnostics_gaps_routes.router)
     app.include_router(extension_routes.router)
     app.include_router(library_admin_routes.router)
     app.include_router(backup_routes.router)
+    app.include_router(disk_usage_routes.router)
     app.include_router(delete_routes.router)
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)
     app.include_router(notification_routes.router)
     app.include_router(notification_center_routes.router)
     app.include_router(asr_options_routes.router)
+    app.include_router(usage_recost_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(scanlate_routes.router)
     app.include_router(engine_routing_routes.router)

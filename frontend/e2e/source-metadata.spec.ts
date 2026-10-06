@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { openFillIn } from './source-groups'
 
-// Auto-fill and Analyze media: the Slice 37 endpoints are mocked (no LLM,
+// Auto-fill and Analyze media: the metadata endpoints are mocked (no LLM,
 // no ffprobe); the drama read and its refetch hit the real seeded API.
 
 test('auto-fill suggests, never pre-ticks a field that would overwrite, applies only the ticked ones', async ({ page }) => {
@@ -15,7 +16,7 @@ test('auto-fill suggests, never pre-ticks a field that would overwrite, applies 
     await route.continue()
   })
   await page.goto('/#/drama/1/source')
-  await page.locator('.section-title', { hasText: 'Auto-fill metadata' }).click()
+  await openFillIn(page, 'From a page or text')
   await page.getByRole('textbox', { name: 'Listing URL' }).fill('https://example.com/page')
   await page.getByRole('button', { name: 'Auto-fill', exact: true }).click()
 
@@ -35,7 +36,7 @@ test('ignore drops the suggestions without writing', async ({ page }) => {
   )
   await page.route('**/autofill/apply', (route) => { writes += 1; return route.abort() })
   await page.goto('/#/drama/1/source')
-  await page.locator('.section-title', { hasText: 'Auto-fill metadata' }).click()
+  await openFillIn(page, 'From a page or text')
   await page.getByRole('textbox', { name: 'Or paste page text' }).fill('some listing text')
   await page.getByRole('button', { name: 'Auto-fill', exact: true }).click()
   await page.getByRole('button', { name: 'Ignore' }).click()
@@ -53,10 +54,9 @@ test('analyze media shows a summary line and details', async ({ page }) => {
     }),
   )
   await page.goto('/#/drama/1/source')
-  await page.locator('.section-title', { hasText: 'Analyze media' }).click()
+  await openFillIn(page, 'From the audio')
   await page.getByRole('button', { name: 'Analyze media' }).click()
   await expect(page.getByTestId('analysis')).toContainText('44100 Hz')
-  await page.locator('.section-title', { hasText: 'Analyze media' }).click() // collapse
   await expect(page.getByText('1:02:05 · audio only')).toBeVisible()
 })
 
@@ -85,7 +85,7 @@ test('analyze media shows resolution, subtitle tracks, the suggested steps, and 
     }),
   )
   await page.goto('/#/drama/1/source')
-  await page.locator('.section-title', { hasText: 'Analyze media' }).click()
+  await openFillIn(page, 'From the audio')
   await page.getByRole('button', { name: 'Analyze media' }).click()
   const details = page.getByTestId('analysis')
   await expect(details).toContainText('1920×1080')

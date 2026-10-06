@@ -39,7 +39,7 @@ export const OCR_LABELS: Record<string, string> = {
   paddle_vl_manga: 'PaddleOCR-VL (manga)',
 }
 
-export const RUN_STATUS_LABELS: Record<string, string> = {
+const RUN_STATUS_LABELS: Record<string, string> = {
   queued: 'Queued',
   running: 'Running',
   done: 'Done',
@@ -232,7 +232,7 @@ export function enginesMissingKey(sel: RunSelection, engines: BenchmarkEngineOpt
   return engines.filter((e) => picked.has(e.name) && !e.key_configured)
 }
 
-export interface StartState {
+interface StartState {
   ok: boolean
   // Plain-English reasons Start is disabled, first one is the most useful.
   reasons: string[]
@@ -278,7 +278,7 @@ export function casesInSelection(sets: BenchmarkSet[], stage: string, tier: stri
 
 // ---- runs and the Arena ----
 
-export interface ArenaGroup {
+interface ArenaGroup {
   group: string
   runIds: number[]
   label: string
@@ -331,7 +331,7 @@ export function compareProblem(selected: number[], runs: BenchmarkRun[], max = 4
   return null
 }
 
-// ---- "Compare in Benchmark Lab" links (Model health on Diagnostics, Step 40) ----
+// ---- "Compare in Benchmark Lab" links (Model health on Diagnostics) ----
 
 /**
  * The raw `compare` query value: "engine:model,engine:model". Each engine and

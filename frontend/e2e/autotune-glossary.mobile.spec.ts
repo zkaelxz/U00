@@ -1,4 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { suggestFrom } from './suggestTerms'
+import { openFoldFor } from './reviewFolds'
+import { openTranscribeOptions } from './sourceHelpers'
 
 // Phone project (390x844, touch): the auto-tune results, glossary-from-novel
 // proposals and PC-only delete buttons fit the width, use cards instead of
@@ -38,7 +41,10 @@ async function expectTall(loc: Locator) {
 }
 
 async function openSection(page: Page, title: string) {
-  await page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }).first().click()
+  await openFoldFor(page, title)
+  if (['Advanced', 'Speakers', 'Auto-tune min silence'].includes(title)) await openTranscribeOptions(page)
+  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
 test('auto-tune results are cards with 44px Use buttons', async ({ page }) => {
@@ -77,6 +83,9 @@ test('glossary proposals are cards with 44px checkboxes and one primary', async 
     await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
   })
   await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/novel/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_novel_text: true, char_count: 900, chapters: 3, ocr_running: false } }),
+  )
   const prop = (term: string, en: string, already = false) => ({
     term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name in chapters 1-3', already_in_glossary: already,
   })
@@ -90,7 +99,7 @@ test('glossary proposals are cards with 44px checkboxes and one primary', async 
   )
   await page.goto('/#/drama/1/translate')
   await openSection(page, 'Glossary')
-  await openSection(page, 'From novel')
+  await suggestFrom(page, 'Novel')
   const box = page.getByTestId('novel-glossary')
   await expect(box.locator('ul.novel-glossary-cards > li')).toHaveCount(4)
   await expectTall(box.locator('ul.novel-glossary-cards label'))
@@ -111,6 +120,9 @@ test('with 30 proposals the apply row stays in reach at the bottom', async ({ pa
     await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
   })
   await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/novel/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_novel_text: true, char_count: 900, chapters: 3, ocr_running: false } }),
+  )
   const proposals = Array.from({ length: 30 }, (_, i) => ({
     term: `术语${i + 1}`, suggested_translation: `Term ${i + 1}`, category: 'term', policy: 'translate',
     reason: 'Appears in several chapters', already_in_glossary: i % 7 === 0,
@@ -120,7 +132,7 @@ test('with 30 proposals the apply row stays in reach at the bottom', async ({ pa
   )
   await page.goto('/#/drama/1/translate')
   await openSection(page, 'Glossary')
-  await openSection(page, 'From novel')
+  await suggestFrom(page, 'Novel')
   const box = page.getByTestId('novel-glossary')
   await expect(box.locator('ul.novel-glossary-cards > li')).toHaveCount(30)
   await box.locator('ul.novel-glossary-cards > li').nth(10).scrollIntoViewIfNeeded()

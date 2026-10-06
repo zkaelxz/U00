@@ -1,21 +1,22 @@
 """
-services/jobs_service.py -- Migration Slice 8: a read-only view of every
+services/jobs_service.py -- a read-only view of every
 job this app knows about, cross-process, shared by the FastAPI
 `/api/jobs` routes.
 
-Reads `db.job_records` (Migration Slice 7's records-only mirror of
+Reads `db.job_records` (the records-only mirror of
 `background_jobs.py`'s own in-memory state) rather than
-`background_jobs` itself -- the whole point of this slice is answering
+`background_jobs` itself -- the whole point of this service is answering
 "what jobs exist" from a process (the API host) that never started any
 of them, which `background_jobs`'s own in-memory `_jobs` dict can't do.
-Slice 22 adds cancel_job: it flags the job_records row, which the
+cancel_job flags the job_records row, which the
 owning process's throttled check in background_jobs picks up.
 
-No Streamlit import, no HTTP types: takes plain values, returns plain
+No HTTP types: takes plain values, returns plain
 dicts, so `cli.py` or a script could call it too.
 """
 
 import json
+import os
 import re
 import time
 from typing import Optional
@@ -24,7 +25,7 @@ import db
 from services import ownership_service
 import diagnostics
 import background_jobs
-from services.service_errors import ConflictError, NotFoundError
+from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
 # A queued/running record whose owner has not heartbeated this long (see
@@ -40,22 +41,32 @@ STALE_JOB_SECONDS = background_jobs.STALE_JOB_SECONDS
 RESULT_ALLOWED_KEYS = (
     "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
     "fixed_count", "total_flagged", "existing_line_count", "line_count",
-    "gpu_fallback", "device", "word_align_error", "forced_align_error",
+    "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
+    "coverage_warning",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
     # Sources chapter import (S-4): int counts only, never text.
     "imported_count", "skipped_count", "failed_count",
-    # lightnovel-crawler import (Step 115b): the EPUB's reading-order count.
+    # lightnovel-crawler import: the EPUB's reading-order count.
     "epub_chapters",
     # Own-lines re-translate: line ids whose review flag wasn't saved because
     # the line's text, timing or flag changed while the job ran.
     "flags_needing_recheck",
+    # Re-split long lines: counts, the timing mode and a one-line note.
+    "split_lines", "lines_before", "aligned_lines", "cleared_translations",
+    "speakers_reassigned", "timing", "note",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
 _MAX_JSON = 8000
 _URL_PATTERN = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+
+
+def scrub_text(text: str) -> str:
+    # URLs first: a fetched URL can carry a token or a private host that the
+    # path and key redaction wouldn't recognise.
+    return redact_text(_URL_PATTERN.sub("[URL]", text or ""))
 
 
 def _safe_scalar(value):
@@ -66,11 +77,11 @@ def _safe_scalar(value):
     if isinstance(value, float):
         return value if value == value and abs(value) != float("inf") else None
     if isinstance(value, str):
-        return _redact_text(_URL_PATTERN.sub("[URL]", value))[:_MAX_STR]
+        return scrub_text(value)[:_MAX_STR]
     return None
 
 
-def _redact_text(text: str) -> str:
+def redact_text(text: str) -> str:
     """redact_for_support, but never raising: getpass.getuser() inside it
     can fail in some containers, so fall back to secret + path redaction."""
     try:
@@ -78,7 +89,7 @@ def _redact_text(text: str) -> str:
     except Exception:
         import translate_engines
         text = translate_engines.redact_secrets(text or "")
-        return diagnostics._PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
+        return diagnostics.PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
 
 
 def _error_item_text(item) -> str:
@@ -280,7 +291,8 @@ def derive_outcome(status, error, result):
     if status == "error":
         return "failed", (error or "The job failed.")
     if status == "cancelled":
-        return "cancelled", "The job was cancelled."
+        # An error on a cancelled record says why (INTERRUPTED_MESSAGE).
+        return "cancelled", (error or "The job was cancelled.")
     if status != "done":
         return None, None
     result = result if isinstance(result, dict) else {}
@@ -333,10 +345,13 @@ def derive_outcome(status, error, result):
         parts.append(f"{len(errors)} problem(s), first: {errors[0]}")
     if result.get("partial"):
         parts.append("Only part of the work finished.")
-    # Transcribe warnings (Streamlit warned on these): the job worked, but
-    # not the way the user asked, so it is reported as partial, not ok.
+    # Transcribe warnings: the job worked, but not the way the user asked,
+    # so it is reported as partial, not ok.
     warned = False
-    if result.get("gpu_fallback"):
+    if result.get("device_notice"):
+        parts.append(str(result["device_notice"]))
+        warned = True
+    elif result.get("gpu_fallback"):
         parts.append(f"Ran on CPU because the GPU wasn't available ({result['gpu_fallback']}).")
         warned = True
     if result.get("word_align_error"):
@@ -346,6 +361,9 @@ def derive_outcome(status, error, result):
     if result.get("forced_align_error"):
         parts.append("Qwen3 forced alignment failed; timings use the fallback alignment "
                      f"({result['forced_align_error']}).")
+        warned = True
+    if result.get("coverage_warning"):
+        parts.append(str(result["coverage_warning"]))
         warned = True
     if result.get("flags_needing_recheck"):
         parts.append("Some lines changed while the job ran, so their review flags "
@@ -379,6 +397,10 @@ def _with_live_progress(record: dict) -> dict:
         out["progress"] = progress
     if live.get("message"):
         out["message"] = live.get("message")
+    if background_jobs.job_may_be_stalled(live):
+        out["stalled"] = True
+        out["message"] = ((out.get("message") or "").rstrip()
+                          + " No update for a while: this job may be stalled.")
     return out
 
 
@@ -388,20 +410,22 @@ def _redact(record: dict) -> dict:
     record = _with_live_progress(record)
     out = dict(record)
     raw = out.pop("result_json", None)
+    out.pop("owner_pid", None)
     try:
         stored = json.loads(raw) if raw else None
     except ValueError:
         stored = None
     # Re-projected on read too, so an older row can never leak a dropped key.
     out["result"] = project_result(stored)
-    out["message"] = _redact_text(record.get("message") or "")
-    out["error"] = _redact_text(record.get("error") or "") or None
+    out["message"] = scrub_text(record.get("message") or "")
+    out["error"] = scrub_text(record.get("error") or "") or None
     out["gpu_touching"] = bool(record.get("gpu_touching"))
     outcome, message = derive_outcome(out.get("status"), out["error"], out["result"])
     out["outcome"] = outcome
-    out["outcome_message"] = (_redact_text(message)[:_MAX_STR]
+    out["outcome_message"] = (scrub_text(message)[:_MAX_STR]
                               if message else None)
     out["stale"] = is_stale(record)
+    out["stalled"] = bool(record.get("stalled"))
     return out
 
 
@@ -414,8 +438,92 @@ def is_stale(record: dict, now: Optional[float] = None) -> bool:
         return False
     if background_jobs.get_status(record.get("job_id")) is not None:
         return False
+    if _owner_gone(record):
+        return True
     updated = record.get("updated_at") or 0
     return (time.time() if now is None else now) - updated > STALE_JOB_SECONDS
+
+
+def _owner_gone(record: dict) -> bool:
+    """True when the row names an owner process that no longer runs it: an
+    exited pid, or this process's own pid with no such job live here (an
+    earlier run of the server had the same pid). Rows written before
+    owner_pid existed fall back to the heartbeat cutoff. Callers have
+    already checked the job isn't live in this process."""
+    pid = record.get("owner_pid")
+    if pid is None:
+        return False
+    if pid == os.getpid():
+        return True
+    return not background_jobs.owner_process_alive(pid)
+
+
+def _close_if_owner_gone(record: dict) -> bool:
+    return _owner_gone(record) and db.close_orphaned_job_record(
+        record.get("job_id"), record.get("owner_pid"), error=background_jobs.INTERRUPTED_MESSAGE)
+
+
+# One entry per background_jobs.DRAMA_JOB_PREFIXES prefix (a test fails when
+# the two drift apart). Ids with no entry, or not scoped to a drama, are "other".
+JOB_KIND_BY_PREFIX = {
+    "translate_": "translate", "bulk_translate_": "translate",
+    "novel_glossary_": "translate", "lines_glossary_": "translate",
+    "flag_": "review", "fixflag_": "review", "consistency_": "review",
+    "emotion_": "review", "notes_": "review", "bulk_consistency_": "review",
+    "bulk_emotion_": "review", "bulk_notes_": "review", "bulk_flag_": "review",
+    "transcribe_": "transcribe", "retranscribe_": "transcribe",
+    "autotune_": "transcribe", "sensevoice_": "transcribe", "comparetx_": "transcribe",
+    "diarize_": "transcribe", "ocrchapter_": "transcribe",
+    "resegment_": "align", "resplit_": "align", "resegpreview_": "align",
+    "dub_": "dub", "narration_": "dub", "audiobook_": "dub", "voiceref_": "dub",
+    "burned_video_": "export", "softsub_video_": "export",
+    "dubbed_video_": "export", "burnpreview_": "export", "notion_export_": "export",
+    "sourceimport_": "import", "urlmedia_": "import", "lncrawl_": "import",
+    "extract_audio_": "import",
+    "scanlate_": "other",
+}
+
+
+def job_kind(job_id) -> str:
+    """The kind of a job id, from the same exact-prefix-plus-digits rule
+    ownership_service.drama_id_of_job uses; "other" when it has no drama."""
+    job_id = str(job_id or "")
+    for prefix, kind in JOB_KIND_BY_PREFIX.items():
+        if job_id.startswith(prefix) and ownership_service.drama_id_of_job(job_id) is not None:
+            return kind
+    return "other"
+
+
+# Where the UI shows a job that has no title, by exact id or id prefix. Only
+# a page name leaves the server (never the id's tail, a path or a URL). Ids
+# with no entry, and drama-scoped ids (page "title"), are decided in job_page.
+JOB_PAGE_BY_ID = {
+    "sources_search": "sources", "sources_url_preview": "sources", "sources_save": "sources",
+    "sources_url_preflight": "sources", "sources_url_identify": "sources",
+    "sources_chapter_check": "sources",
+    "discover_bulk_extract": "discover", "discover_navigation_help": "discover",
+    "library_backup": "settings", "library_db_backup": "settings",
+    "library_user_backup": "settings", "library_auto_backup": "settings",
+    "deno_install": "diagnostics", "upgrade_check": "diagnostics",
+}
+JOB_PAGE_BY_PREFIX = {
+    "sources_series_": "sources", "sources_signin_": "sources", "sources_tiertest_": "sources",
+    "live_": "live",
+}
+
+
+def job_page(job_id):
+    """The page a job belongs to: "title" for a drama-scoped id (same rule as
+    job_kind), else the page its id names, else None."""
+    job_id = str(job_id or "")
+    if ownership_service.drama_id_of_job(job_id) is not None:
+        return "title"
+    if job_id in JOB_PAGE_BY_ID:
+        return JOB_PAGE_BY_ID[job_id]
+    for prefix, page in JOB_PAGE_BY_PREFIX.items():
+        if job_id.startswith(prefix):
+            return page
+    return None
 
 
 def _visible(principal, record) -> bool:
@@ -425,27 +533,38 @@ def _visible(principal, record) -> bool:
 
 def _for_caller(principal, record) -> dict:
     """_redact plus `owned_by_me` (ownership_service.owns_job), the only
-    word on who owns the job a response carries: never an owner id."""
+    word on who owns the job a response carries: never an owner id. Also
+    `drama_id`, `kind` and `page`; callers reach this only for a job they may see,
+    which for a drama job means they may see that drama."""
     out = _redact(record)
+    out["drama_id"] = ownership_service.drama_id_of_job(record.get("job_id"))
+    out["kind"] = job_kind(record.get("job_id"))
+    out["page"] = job_page(record.get("job_id"))
     out["owned_by_me"] = ownership_service.owns_job(principal, record.get("job_id"),
                                                     record.get("owner_user_id"))
     return out
 
 
 def sweep_stale_job_records() -> int:
-    """Closes (as cancelled) every queued/running job_records row whose
-    owner has not heartbeated for STALE_JOB_SECONDS and that is not live in
-    this process -- left behind by a crashed or killed process. Each close
-    is one conditional UPDATE (db.close_stale_job_record), so a live
-    owner's heartbeat or "done" always wins. Returns how many it closed."""
+    """Closes (as cancelled, with INTERRUPTED_MESSAGE) every queued/running
+    job_records row that is not live in this process and whose owner
+    process has exited (owner_pid) or has not heartbeated for
+    STALE_JOB_SECONDS -- left behind by a crashed, killed or restarted
+    process. Each close is one conditional UPDATE, so a live owner's
+    heartbeat, "done" or new run always wins. Also marks this process's own
+    running jobs whose worker thread is gone
+    (background_jobs.reconcile_dead_workers). Returns how many it closed."""
+    background_jobs.reconcile_dead_workers()
     cutoff = time.time() - STALE_JOB_SECONDS
     closed = 0
     for rec in db.list_job_records():
         job_id = rec.get("job_id")
-        if (rec.get("status") in ("queued", "running")
-                and (rec.get("updated_at") or 0) < cutoff
-                and background_jobs.get_status(job_id) is None
-                and db.close_stale_job_record(job_id, cutoff)):
+        if rec.get("status") not in ("queued", "running") or background_jobs.get_status(job_id):
+            continue
+        if _close_if_owner_gone(rec) or (
+                (rec.get("updated_at") or 0) < cutoff
+                and db.close_stale_job_record(job_id, cutoff,
+                                              error=background_jobs.INTERRUPTED_MESSAGE)):
             closed += 1
     return closed
 
@@ -471,7 +590,7 @@ def get_job(job_id: str, principal=None) -> dict:
 
 
 def get_job_stages(job_id: str, principal=None) -> dict:
-    """Step 41 item 5: the job's per-stage timing and spend for its latest
+    """The job's per-stage timing and spend for its latest
     runs (services/job_timing_service). Same visibility as get_job."""
     record = db.get_job_record(job_id)
     if record is None or not _visible(principal, record):
@@ -505,10 +624,55 @@ def cancel_job(job_id: str, principal=None) -> dict:
         raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
     background_jobs.request_cancel(job_id)
     db.request_job_record_cancel(job_id)
-    if (background_jobs.get_status(job_id) is None
-            and db.close_stale_job_record(job_id, time.time() - STALE_JOB_SECONDS)):
-        # No heartbeat for STALE_JOB_SECONDS: the owner process is gone and
-        # nobody will read the flag. The close is conditional on the row
-        # still being stale, so a live owner's heartbeat or "done" wins.
+    live = background_jobs.get_status(job_id)
+    if live is None and (_close_if_owner_gone(record) or db.close_stale_job_record(
+            job_id, time.time() - STALE_JOB_SECONDS, error=background_jobs.INTERRUPTED_MESSAGE)):
+        # The owner process has exited, or sent no heartbeat for
+        # STALE_JOB_SECONDS: nobody will read the flag. Each close is
+        # conditional, so a live owner's heartbeat, "done" or new run wins.
         return {"job_id": job_id, "cancel_requested": True, "status": "cancelled"}
-    return {"job_id": job_id, "cancel_requested": True, "status": record["status"]}
+    # A queued job here ends at once (request_cancel); a running one says
+    # "Cancelling..." until its worker stops.
+    status = live["status"] if live else record["status"]
+    return {"job_id": job_id, "cancel_requested": True, "status": status}
+
+
+# job_records / background_jobs status names of a job that has ended.
+_FINISHED_STATUSES = ("done", "error", "cancelled")
+
+
+def _is_finished(record: Optional[dict]) -> bool:
+    """True only when neither the mirror row nor this process's live state
+    says queued/running: a row another process still marks active is never
+    deletable, and a missing live entry says nothing about that process."""
+    live = background_jobs.get_status((record or {}).get("job_id"))
+    return ((record or {}).get("status") in _FINISHED_STATUSES
+            and (live is None or live.get("status") in _FINISHED_STATUSES))
+
+
+def delete_job(job_id: str, confirm: bool = False, principal=None) -> dict:
+    """Permanently removes a finished job's record (in-memory and
+    job_records). PC-owner action; a job `principal` may not see is a 404.
+    Unknown id -> NotFoundError; queued/running -> ConflictError (409)."""
+    if confirm is not True:
+        raise InvalidInputError("Deleting a job needs confirm=true.")
+    record = db.get_job_record(job_id)
+    if record is None or not _visible(principal, record):
+        raise NotFoundError(f"No job with id {job_id!r}.")
+    if not _is_finished(record):
+        raise ConflictError(f"Job {job_id!r} is still {record.get('status')}; cancel it first.")
+    background_jobs.clear_job(job_id)
+    return {"job_id": job_id, "deleted": True}
+
+
+def clear_finished_jobs(confirm: bool = False) -> dict:
+    """Permanently removes every finished job's record, leaving queued and
+    running jobs (including ones another process owns) untouched."""
+    if confirm is not True:
+        raise InvalidInputError("Deleting job history needs confirm=true.")
+    deleted = 0
+    for rec in db.list_job_records():
+        if _is_finished(rec):
+            background_jobs.clear_job(rec["job_id"])
+            deleted += 1
+    return {"deleted_count": deleted}

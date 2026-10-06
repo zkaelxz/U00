@@ -5,10 +5,10 @@ import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
 import type { AssStyleOptions, ExportReadiness } from '../../../types/export'
+import { routeHref } from '../../../router'
 import { buildAssRequest, emptyAssForm, loadAssForm, saveAssForm, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportAss } from './ExportAss'
-import { ExportFlags } from './ExportFlags'
 import { ExportJellyfin } from './ExportJellyfin'
 import { ExportNotion } from './ExportNotion'
 import { ExportEpub, ExportMediaJobs, MarkExported } from './ExportMedia'
@@ -42,7 +42,6 @@ export default function ExportStage() {
   const { dramaId, drama } = useStage()
   const [readiness, setReadiness] = useState<ExportReadiness | null>(null)
   const [readinessError, setReadinessError] = useState<unknown>(null)
-  const [reloads, setReloads] = useState(0)
   const [options, setOptions] = useState<AssStyleOptions | null>(null)
   const [optionsError, setOptionsError] = useState<unknown>(null)
   const [form, setFormState] = useState<AssForm>(() => ({
@@ -70,7 +69,7 @@ export default function ExportStage() {
     return () => {
       cancelled = true
     }
-  }, [dramaId, reloads])
+  }, [dramaId])
 
   useEffect(() => {
     let cancelled = false
@@ -101,20 +100,20 @@ export default function ExportStage() {
       <section className="panel" aria-label="Export">
         <h3>Export</h3>
         <ErrorBanner error={readinessError} />
+        {!r && !readinessError && <div className="skeleton-block export-readiness-skeleton" aria-hidden="true" />}
         {r && (
           <>
             <p className="export-line pill-row" data-testid="readiness">
               <Badge>{plural(r.total_lines, 'line')}</Badge>{' '}
               <Badge tone={r.total_lines === 0 ? 'neutral' : r.fully_translated ? 'ok' : 'warn'}>{r.en_filled} translated</Badge>
             </p>
-            {(untranslated || review.length > 0 || r.test_mode_output) && (
+            {(untranslated || review.length > 0) && (
               <ul className="export-warnings" data-testid="readiness-warnings">
                 {untranslated && <li className="muted">Some lines are not translated yet, so English exports will have gaps.</li>}
                 {review.length > 0 && (
-                  <li className="muted">{review.join(', ')}. You can flag them under More export.</li>
-                )}
-                {r.test_mode_output && (
-                  <li className="error" role="alert">The translations look like test-mode output, not real translations.</li>
+                  <li className="muted">
+                    {review.join(', ')}. <a href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks</a> to flag them.
+                  </li>
                 )}
               </ul>
             )}
@@ -131,9 +130,7 @@ export default function ExportStage() {
         <MarkExported />
       </section>
       {fmt === 'ass' && assStyle}
-      <Section title="More export" summary="flags, EPUB, audiobook, video">
-        <ExportFlags onDone={() => setReloads((n) => n + 1)} />
-        {drama.content_mode === 'novel_narration' && <ExportEpub />}
+      <Section storageKey="export.media" title="Video and audio" summary="Burned-in video, audiobook">
         {/* The burned-in video uses the ASS style too; with ASS chosen it sits above instead. */}
         {fmt !== 'ass' && assStyle}
         <ExportMediaJobs
@@ -142,6 +139,11 @@ export default function ExportStage() {
           }
         />
       </Section>
+      {drama.content_mode === 'novel_narration' && (
+        <Section storageKey="export.epub" title="EPUB" summary="Novel narration">
+          <ExportEpub />
+        </Section>
+      )}
       {/* keyed by the text choice, so a video list found for one language is not reused for another */}
       <ExportJellyfin key={form.field} field={form.field} />
       <ExportNotion field={form.field} />

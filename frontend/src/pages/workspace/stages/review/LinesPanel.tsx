@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { ApiError } from '../../../../api/client'
 import type { MediaKind } from '../../../../api/media'
+import { getTranscribeConfig } from '../../../../api/workspace'
 import { addLine, deleteLine, listAllLines, mergeLines, splitLine } from '../../../../api/restructure'
 import {
   acceptTm as acceptTmSuggestion,
@@ -12,12 +13,14 @@ import {
   listTmSuggestions,
   patchLine,
   searchLines,
+  setLinesLanguage,
 } from '../../../../api/review'
 import { ButtonLink } from '../../../../components/Button'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { readSectionOpen, writeSectionOpen } from '../../../../components/sectionStorage'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
+import { usePersistedState } from '../../../../hooks/usePersistedState'
 import { useShortcut } from '../../../../hooks/useShortcut'
 import { routeHref } from '../../../../router'
 import type { RestructureResult } from '../../../../types/restructure'
@@ -25,8 +28,11 @@ import type { LineFilter, ReviewLine, ReviewLinesPage, TmSuggestion } from '../.
 import type { NewLine } from './AddLineForm'
 import { FindReplacePanel } from './FindReplacePanel'
 import { LineActionsSheet, type SheetState, type SheetView } from './LineActionsSheet'
+import { useLineSelectionContext } from './LineSelectionContext'
+import { SelectionBar } from './SelectionBar'
 import { LineRow, type EditState, type NoteDraft, type RowActions, type RowIssue } from './LineRow'
 import { Player, type PlayerHandle } from './Player'
+import { canRetranscribe } from './retranscribeLogic'
 import {
   adjacentRun,
   buildPatch,
@@ -36,6 +42,7 @@ import {
   emptyMessage,
   initialActiveId,
   isDirty,
+  languageSetText,
   lineRange,
   flaggedStep,
   nextFlaggedId,
@@ -46,6 +53,7 @@ import {
   stepFrom,
   structureErrorText,
   suggestionPatch,
+  type LanguageScope,
   type LineDraft,
   type PanelMode,
 } from './reviewLogic'
@@ -63,6 +71,8 @@ interface Props {
   onChanged: () => void
   jobRunning: boolean
   mediaKind: MediaKind | null
+  // The drama's source_language: the spoken language of a line with no lang of its own.
+  sourceLanguage: string | null
   // The drama's whole line count, whenever the "all" view reports it.
   onLineCount?: (n: number) => void
   // The drama's flagged-line count, whenever a page reports it.
@@ -70,6 +80,7 @@ interface Props {
   // A finding elsewhere in the stage asked to open a line; seq makes a repeat
   // click on the same line count again.
   // resolve gets null once the line is open, else a plain message.
+  onCompareSelected?: () => void
   goTo?: { target: LineTarget; seq: number; resolve: (message: string | null) => void } | null
 }
 
@@ -105,10 +116,11 @@ function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
 // edit mode, the "⋯" line sheet with structure edits, a sticky toolbar with the
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, onLineCount, onFlaggedCount, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, onCompareSelected, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
+  const selection = useLineSelectionContext()
   const [filter, setFilter] = useState<LineFilter>('all')
   const [page, setPage] = useState(1)
   const [input, setInput] = useState('')
@@ -129,8 +141,23 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const busyRef = useRef(false)
   const [structError, setStructError] = useState<unknown>(null)
   const [sheetNote, setSheetNote] = useState<string | null>(null)
+  const [canRetranscribeLine, setCanRetranscribeLine] = useState(false)
+  const [retranscribeFocusId, setRetranscribeFocusId] = useState<number | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    setCanRetranscribeLine(false)
+    getTranscribeConfig(dramaId).then(
+      (cfg) => !cancelled && setCanRetranscribeLine(canRetranscribe(cfg)),
+      () => {},
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId])
   const [status, setStatus] = useState<string | null>(null)
   const [keysOpen, setKeysOpen] = useState(false)
+  // Row density is a per-viewer choice, remembered in localStorage.
+  const [compact, setCompact] = usePersistedState('review.compact', false)
   const [replaceOpen, setReplaceOpen] = useState(() => readSectionOpen(browserStorage(), 'review.findreplace', false))
 
   const player = useRef<PlayerHandle>(null)
@@ -142,14 +169,23 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const listRef = useRef<HTMLUListElement>(null)
   const pending = useRef<Pending | null>(null)
   const loadedOnce = useRef(false)
-  const focusActive = useRef(false)
+  // The line a keyboard move asked to focus; only a render that has made it the
+  // active line may spend the request (a late effect from an earlier render must not).
+  const focusActive = useRef<number | null>(null)
   const scrollActive = useRef(false)
   const sectionRef = useRef<HTMLElement>(null)
   // The line just opened from a search result, highlighted for a moment (R05).
   const [jumpedId, setJumpedId] = useState<number | null>(null)
+  const selectRef = useRef(selection.tick)
+  useEffect(() => {
+    selectRef.current = selection.tick
+  })
   const showOnPageRef = useRef<(id: number) => Promise<void>>(async () => {})
 
   const shown = useMemo(() => found ?? data?.lines ?? [], [found, data])
+  // Ranges and "#12, #14-#18" resolve against what is on screen now.
+  const { setVisible } = selection
+  useEffect(() => setVisible(shown.map((l) => ({ id: l.id, number: lineNumber(l.idx) }))), [shown, setVisible])
   const pages = data ? pageCount(data.total) : 1
   const searching = term !== ''
   // Merge and add need the true neighbour, which only the All view shows.
@@ -184,7 +220,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       const target = p ? pick(lines, p.target) : undefined
       if (target) {
         setActiveId(target.id)
-        focusActive.current = true
+        focusActive.current = target.id
         if (p?.edit) setEdit({ lineId: target.id, base: target, draft: draftFromLine(target), details: false, note: null })
       } else {
         const first = !loadedOnce.current
@@ -226,11 +262,12 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // first load only scrolls. Rows keep clear of the sticky toolbar through
   // scroll-margin-top, which follows the toolbar's measured height.
   useEffect(() => {
-    if ((!focusActive.current && !scrollActive.current) || activeId === null) return
+    if ((focusActive.current === null && !scrollActive.current) || activeId === null) return
+    if (focusActive.current !== null && focusActive.current !== activeId) return
     const el = listRef.current?.querySelector<HTMLElement>(`[data-line-id="${activeId}"]`)
     if (!el) return
-    if (focusActive.current) el.focus({ preventScroll: true })
-    focusActive.current = false
+    if (focusActive.current !== null) el.focus({ preventScroll: true })
+    focusActive.current = null
     scrollActive.current = false
     el.scrollIntoView?.({ block: 'nearest' })
   })
@@ -330,7 +367,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     }
 
     const focusTo = (id: number) => {
-      focusActive.current = true
+      focusActive.current = id
       setActiveId(id)
     }
 
@@ -447,6 +484,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
 
     const actions: RowActions = {
       activate: (id) => void activate(id),
+      retranscribeFocused: () => setRetranscribeFocusId(null),
       openEdit: (id, details) => void openEdit(id, details),
       setDraft: (patch: Partial<LineDraft>) => {
         const cur = st.current.edit
@@ -540,6 +578,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         st.current.onChanged()
       },
       playLine: (line) => player.current?.playLine(line),
+      select: (id, range) => selectRef.current(id, range),
       acceptTm: (id, entryId, expectedEn) => {
         acceptTmSuggestion(dramaId, id, entryId, expectedEn).then((saved) => {
           // A clean edit of this line now has a stale base: close it.
@@ -639,6 +678,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       setSheet(null)
       setEdit(null)
       setAi(null)
+      // Line numbers shift and ids may vanish, so the ticks no longer mean what they did.
+      selection.clear()
       if (id !== null) {
         pending.current = { target: id }
         if (!searching && filter === 'all') {
@@ -703,6 +744,28 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         return { id, message: `Deleted #${lineNumber(line.idx)}.${UNDO}` }
       },
     )
+  }
+  // Writes only `lang`, so unlike the structure edits it needs no line-list check.
+  const doSetLanguage = async (lang: string, scope: LanguageScope) => {
+    const line = sheetLine
+    if (!line || busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    setStructError(null)
+    setSheetNote(null)
+    try {
+      const target = scope === 'speaker' && line.speaker ? { speaker: line.speaker } : { line_ids: [line.id] }
+      const r = await setLinesLanguage(dramaId, { lang: lang || null, ...target })
+      setSheet(null)
+      pending.current = { target: line.id }
+      setStatus(languageSetText(r.updated, lang, sourceLanguage))
+      onChanged()
+    } catch (e) {
+      setStructError(e)
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
   }
   const closeSheetThen = (fn: () => void) => {
     setSheet(null)
@@ -799,7 +862,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       cancelled = true
     }
   }, [dramaId, shownIds, reloads])
-  // Step 99: lines to offer the stronger engine for (no engine call).
+  // Lines to offer the stronger engine for (no engine call).
   const strongerByLine = useStrongerOffers(dramaId, reloads)
   const tmByLine = useMemo(() => {
     const m = new Map<number, TmSuggestion>()
@@ -809,6 +872,12 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
 
   // ---- shortcuts ----
   const active = activeId !== null ? shown.find((l) => l.id === activeId) ?? null : null
+  const toggleFocusedRow = (target: HTMLElement) => {
+    const id = target.matches?.('.review-line') ? Number(target.getAttribute('data-line-id')) : NaN
+    if (Number.isNaN(id)) return false
+    selection.toggle(id)
+    return true
+  }
   useShortcut((combo, { inText, event }) => {
     if (sheet || keysOpen) return false
     if (combo === 'alt+ ') {
@@ -866,10 +935,17 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       case 'd':
         actions.toggleDetails(active.id)
         return true
-      case ' ':
-        if (!mediaKind || !onRow) return false
-        player.current?.toggleLine(active)
-        return true
+      case ' ': {
+        if (!onRow) return false
+        // With media, Space on a row keeps playing the line (Shift+Space ticks it).
+        if (mediaKind) {
+          player.current?.toggleLine(active)
+          return true
+        }
+        return toggleFocusedRow(target)
+      }
+      case 'shift+ ':
+        return toggleFocusedRow(target)
       case 'l':
         if (!mediaKind) return false
         player.current?.toggleLoop()
@@ -894,8 +970,12 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         actions.setAi(active.id, 'explain')
         return true
       case 'escape':
-        if (!ai) return false
-        setAi(null)
+        if (ai) {
+          setAi(null)
+          return true
+        }
+        if (edit || selection.count === 0) return false
+        selection.clear()
         return true
     }
     return false
@@ -904,6 +984,15 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const counts = data
     ? { all: allTotal, flagged: data.flagged_count, untranslated: data.untranslated_count }
     : null
+  const selectionCtx = {
+    dramaId,
+    selectedIds: selection.selectedIds,
+    lineNumbers: selection.lineNumbers(selection.selectedIds),
+    clear: selection.clear,
+    notify: setStatus,
+    openCompare: onCompareSelected ?? (() => {}),
+  }
+  const allShownSelected = shown.length > 0 && shown.every((l) => selection.selectedSet.has(l.id))
   const loading = !searching && data === null && !error
   const showPager = !searching && !!data && pages > 1
   const editingActive = edit !== null && edit.lineId === activeId
@@ -932,6 +1021,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           replaceOpen={replaceOpen}
           onToggleReplace={toggleReplace}
           onKeys={() => setKeysOpen(true)}
+          compact={compact}
+          onCompact={setCompact}
           player={
             mediaKind ? (
               <Player
@@ -1009,13 +1100,28 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             )}
           </div>
         )}
-        <ul className="review-lines" ref={listRef}>
+        {shown.length > 0 && (
+          <div className="review-selectall" role="group" aria-label="Select lines">
+            <button type="button" className={buttonClass('ghost', 'sm')} disabled={allShownSelected} onClick={() => selection.selectMany(shown.map((l) => l.id))}>
+              Select all shown
+            </button>
+            {selection.count > 0 && (
+              <>
+                <button type="button" className={buttonClass('ghost', 'sm')} onClick={selection.clear}>Clear</button>
+                <span role="status" data-testid="selection-count">{selection.count} selected</span>
+              </>
+            )}
+          </div>
+        )}
+        <ul className={['review-lines', compact && 'is-compact', selection.count > 0 && 'has-selection'].filter(Boolean).join(' ')} ref={listRef}>
           {shown.map((l) => (
             <LineRow
               key={l.id}
               dramaId={dramaId}
               line={l}
+              sourceLanguage={sourceLanguage}
               active={l.id === activeId}
+              selected={selection.selectedSet.has(l.id)}
               isPhone={isPhone}
               hasMedia={mediaKind !== null}
               jobRunning={jobRunning}
@@ -1028,9 +1134,11 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               actions={actions}
               searchHit={searching}
               jumped={jumpedId === l.id}
+              focusRetranscribe={retranscribeFocusId === l.id}
             />
           ))}
         </ul>
+        {selection.count > 0 && <SelectionBar ctx={selectionCtx} />}
         {showPager && (
           <div className="review-bottom-pager">
             <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} />
@@ -1098,6 +1206,14 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onClose={() => setSheet(null)}
           onPlay={() => closeSheetThen(() => sheetLine && player.current?.playLine(sheetLine))}
           onEditDetails={() => closeSheetThen(() => sheetLine && void ctl.openEdit(sheetLine.id, true))}
+          canRetranscribe={canRetranscribeLine}
+          onRetranscribe={() =>
+            closeSheetThen(() => {
+              if (!sheetLine) return
+              const id = sheetLine.id
+              void ctl.openEdit(id, true).then((ok) => ok && setRetranscribeFocusId(id))
+            })
+          }
           onImprove={() => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'improve'))}
           onWhy={() => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'explain'))}
           onTool={(mode) => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, mode))}
@@ -1113,6 +1229,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onMerge={doMerge}
           onAdd={doAdd}
           onDelete={doDelete}
+          sourceLanguage={sourceLanguage}
+          onSetLanguage={(lang, scope) => void doSetLanguage(lang, scope)}
         />
         <ShortcutSheet open={keysOpen} onClose={() => setKeysOpen(false)} />
       </div>

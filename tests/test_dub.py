@@ -117,10 +117,16 @@ def _install_fake_requests(monkeypatch, captured):
 
     class FakeResponse:
         status_code = 200
-        content = b"fake-audio"
+        headers = {}
         text = ""
 
-    def fake_post(url, json=None, timeout=None):
+        def iter_content(self, size):
+            yield b"fake-audio"
+
+        def close(self):
+            pass
+
+    def fake_post(url, json=None, timeout=None, stream=False):
         captured.append(json)
         return FakeResponse()
 
@@ -764,7 +770,7 @@ class TestTimeStretch:
     def test_runs_a_pitch_preserving_atempo_and_leaves_no_partial_file(self, monkeypatch, tmp_path):
         seen = []
 
-        def fake_run(cmd, check, capture_output):
+        def fake_run(cmd, check, capture_output, timeout):
             seen.append(cmd)
             _write_ms(cmd[-1], 1000)
         monkeypatch.setattr("subprocess.run", fake_run)
@@ -775,7 +781,7 @@ class TestTimeStretch:
         assert os.listdir(tmp_path) == [os.path.basename(out)]
 
     def test_a_failed_stretch_leaves_nothing_behind_for_the_next_run(self, monkeypatch, tmp_path):
-        def fake_run(cmd, check, capture_output):
+        def fake_run(cmd, check, capture_output, timeout):
             _write_ms(cmd[-1], 10)  # half-written, then ffmpeg dies
             raise RuntimeError("ffmpeg died")
         monkeypatch.setattr("subprocess.run", fake_run)
@@ -843,7 +849,7 @@ class TestDubTrackTimeStretch:
         assert dub.load_pacing(str(tmp_path))[0]["status"] == dub.PACING_OVERFLOW
 
         # Section 7's pacing rewrite, with a fake LLM, shortens the line...
-        monkeypatch.setattr(translate_engines, "call_llm_json",
+        monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json",
                             lambda *a, **k: json.dumps({"1": "x" * 11}))
         translate_engines.rewrite_for_pacing_llm(lines, types.SimpleNamespace(supports_reference=True))
         assert lines[0].en == "x" * 11

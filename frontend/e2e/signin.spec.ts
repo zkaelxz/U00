@@ -11,7 +11,6 @@ test('auth off: the app renders as before, no user menu, no Login page', async (
   const s = await mockAuth(page, ME.authOff)
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
-  await expect(page.getByTestId('api-status')).toBeVisible()
   await expect(page.locator('details.user-menu')).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Sign in with Google' })).toHaveCount(0)
   expect(s.unmocked).toEqual([])
@@ -104,4 +103,25 @@ test('a 401 from any call swaps in the Login page', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'Sign in with Google' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0)
   expect(s.unmocked).toEqual([])
+})
+
+test.describe('below 1024px', () => {
+  test.use({ viewport: { width: 1000, height: 800 } })
+
+test('signed in: the Menu button replaces the cogwheel and its drawer stays on screen', async ({ page }) => {
+  await mockAuth(page, ME.signedIn)
+  await page.goto('/#/library')
+  await expect(page.locator('summary[aria-label="Settings and tools"]')).toHaveCount(0)
+  const menu = page.getByRole('button', { name: 'Menu', exact: true })
+  await expect(menu).toBeVisible()
+  await expect(page.locator('.app-header .header-end .gear-menu')).toHaveCount(0)
+  await maybeScreenshot(page, 'desktop-header')
+  await menu.click()
+  const drawer = page.getByRole('dialog', { name: 'Main menu' })
+  await expect(drawer).toBeVisible()
+  const box = (await drawer.boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await maybeScreenshot(page, 'desktop-menu-open')
+})
 })

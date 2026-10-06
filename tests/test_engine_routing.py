@@ -30,7 +30,7 @@ class TestEngineTags:
         followers = set(translate_engines.engines_with_capability(
             translate_engines.CAP_INSTRUCTIONS))
         assert not followers & translate_engines.TRANSLATION_ONLY_ENGINES
-        assert "test_offline" not in followers  # fake output; can't do QC/JSON tasks
+        assert "fake" not in followers  # fake output; can't do QC/JSON tasks
 
     def test_free_engines_are_cheap(self):
         cheap = set(translate_engines.engines_with_capability(translate_engines.CAP_CHEAP))
@@ -64,7 +64,7 @@ class TestResolve:
 
     def test_refuses_an_engine_without_the_capability(self, isolated_db):
         with pytest.raises(InvalidInputError):
-            routing.set_capability_engine("llm.instructions", "deepl")
+            routing.set_capability_engine("llm.instructions", "nllb")
         with pytest.raises(InvalidInputError):
             routing.set_capability_engine("research.grounded_search", "claude")
         with pytest.raises(InvalidInputError):
@@ -73,8 +73,6 @@ class TestResolve:
             routing.resolve_capability("coding.strong")
 
     def test_offered_choices_match_what_can_be_saved(self, isolated_db):
-        assert "test_offline" not in routing.engine_choices("translation.cheap")
-        assert "test_offline" not in routing.engine_choices("translation.high_quality")
         for name in routing.engine_choices("translation.cheap"):
             routing.set_capability_engine("translation.cheap", name)
             assert settings_service.get_default_engine() == name
@@ -92,7 +90,7 @@ class TestResolve:
         assert routing._capability_entry("llm.instructions")["unset_label"] is None
 
     def test_a_stale_stored_value_reads_back_as_the_default(self, isolated_db):
-        db.set_app_setting("capability.llm.instructions", "deepl")  # not an LLM
+        db.set_app_setting("capability.llm.instructions", "nllb")  # not an LLM
         assert routing.resolve_capability("llm.instructions") == settings_service.get_default_engine()
 
     def test_never_switches_on_a_missing_key(self, isolated_db, no_keys):
@@ -107,10 +105,10 @@ class TestMigratedCallSites:
 
         def fake(cap):
             asked.append(cap)
-            return "test_offline"
+            return "fake"
         monkeypatch.setattr(routing, "resolve_capability", fake)
         cfg = translate_run_service.get_translate_config(did)
-        assert asked == ["translation.cheap"] and cfg["translation_engine"] == "test_offline"
+        assert asked == ["translation.cheap"] and cfg["translation_engine"] == "fake"
 
     def test_a_drama_engine_still_wins(self, isolated_db, monkeypatch):
         did = db.create_drama(title_zh="t")
@@ -128,7 +126,7 @@ class TestMigratedCallSites:
 
     def test_line_helpers_use_the_capability_for_a_translation_only_drama(
             self, isolated_db, monkeypatch):
-        did = db.create_drama(title_zh="t", translation_engine="deepl")
+        did = db.create_drama(title_zh="t", translation_engine="nllb")
         monkeypatch.setattr(routing, "resolve_capability",
                             lambda cap: {"llm.instructions": "gemini"}[cap])
         assert line_ai_service.tool_engine_name(did) == "gemini"
@@ -178,8 +176,8 @@ class TestEngineTest:
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
                             lambda *a, **k: pytest.fail("no call without a key"))
         with pytest.raises(DependencyUnavailableError):
-            routing.test_engine("deepl")
-        assert routing.engine_status("deepl")["status"] == "not_configured"
+            routing.test_engine("gemini")
+        assert routing.engine_status("gemini")["status"] == "not_configured"
 
     def test_a_slow_engine_times_out(self, isolated_db, monkeypatch):
         import threading
@@ -188,7 +186,7 @@ class TestEngineTest:
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
                             lambda *a, **k: release.wait(5) and {"ok": True})
         try:
-            out = routing.test_engine("test_offline")
+            out = routing.test_engine("fake")
         finally:
             release.set()
         assert out["status"] == "failed" and "No answer" in out["last_test"]["error"]
@@ -201,9 +199,9 @@ class TestEngineTest:
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
                             lambda *a, **k: release.wait(5) and {"ok": True})
         try:
-            routing.test_engine("test_offline")
+            routing.test_engine("fake")
             with pytest.raises(ConflictError):
-                routing.test_engine("test_offline")
+                routing.test_engine("fake")
         finally:
             release.set()
 
@@ -230,8 +228,8 @@ class TestEngineTest:
     def test_saving_a_key_forgets_the_last_test(self, isolated_db, tmp_path, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
                             lambda *a, **k: {"ok": True, "error": None})
-        routing.test_engine("test_offline")
-        assert routing.engine_status("test_offline")["status"] == "working"
+        routing.test_engine("fake")
+        assert routing.engine_status("fake")["status"] == "working"
         db.set_app_setting("engine_test.claude", {"ok": True, "tested_at": "x"})
         settings_service.set_engine_key("claude", "sk-new-value-123", env_path=str(tmp_path / ".env"))
         assert routing._last_test("claude") is None
@@ -260,7 +258,7 @@ class TestRoutes:
         ids = [c["id"] for c in body["capabilities"]]
         assert "translation.cheap" in ids and "translation.high_quality" in ids
         instr = next(c for c in body["capabilities"] if c["id"] == "llm.instructions")
-        assert "deepl" not in instr["choices"] and "claude" in instr["choices"]
+        assert "nllb" not in instr["choices"] and "claude" in instr["choices"]
         claude = next(e for e in body["engines"] if e["engine"] == "claude")
         assert claude["status"] == "not_configured"
 
@@ -273,14 +271,14 @@ class TestRoutes:
                         json={"engine": None})
         assert r.json()["is_default"] is True
         assert client.post("/api/settings/engine-routing/capabilities/llm.instructions",
-                           json={"engine": "google"}).status_code == 422
+                           json={"engine": "nllb"}).status_code == 422
         assert client.post("/api/settings/engine-routing/capabilities/nope",
                            json={"engine": "claude"}).status_code == 404
 
     def test_engine_test_route(self, client, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
                             lambda *a, **k: {"ok": True, "error": None})
-        r = client.post("/api/settings/engine-routing/engines/test_offline/test", json={})
+        r = client.post("/api/settings/engine-routing/engines/fake/test", json={})
         assert r.status_code == 200 and r.json()["status"] == "working"
 
     def test_engine_test_without_key_is_503(self, client, no_keys):
@@ -296,7 +294,7 @@ class TestRoutes:
         remote = TestClient(create_app(ApiSettings()), base_url="http://192.168.1.20:8600",
                             client=("192.168.1.20", 5000), raise_server_exceptions=False)
         for path in ("/api/settings/engine-routing/capabilities/translation.cheap",
-                     "/api/settings/engine-routing/engines/test_offline/test"):
+                     "/api/settings/engine-routing/engines/fake/test"):
             assert remote.post(path, json={"engine": "claude"} if "capab" in path
                                else {}).status_code == 403
 

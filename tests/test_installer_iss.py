@@ -193,7 +193,11 @@ class TestUninstall:
 
     def test_each_deletion_is_guarded(self, iss):
         step = _func(iss, "CurUninstallStepChanged")
-        assert re.search(r"if DeleteLibrary then\s+DeleteTree\(UninstDataDir \+ '\\library'", step)
+        # Both the library and the Trash (items cleared from it wait there) go
+        # under the same DeleteLibrary guard, and nowhere else.
+        assert re.search(r"if DeleteLibrary then\s+begin\s+DeleteTree\(UninstDataDir \+ '\\library'[^\n]*\n"
+                         r"\s*(//[^\n]*\n\s*)*DeleteTree\(UninstDataDir \+ '\\baihe_trash'[^\n]*\n\s*end;", step)
+        assert step.count("'\\baihe_trash'") == 1
         assert re.search(r"if DeleteSettings and FileExists\(UninstDataDir \+ '\\\.env'\) then\s+"
                          r"if DeleteFile\(UninstDataDir \+ '\\\.env'\)", step)
         assert re.search(r"if DeleteModels then\s+DeleteTree\(UninstDataDir \+ '\\model_cache'", step)
@@ -333,6 +337,14 @@ class TestBootService:
         assert "if not ServiceOrAdminDirPresent() then" in _func(iss, "RemoveService")
         assert "ServiceOrAdminDirPresent()" in _func(iss, "ConfigureService")
 
+    def test_service_menu_runs_the_admin_folders_copy(self, iss):
+        menus = [e for e in _entries(iss, "Icons") if "service_menu.ps1" in e]
+        assert len(menus) == 1 and menus[0].endswith("Tasks: service")
+        assert ('-File ""{commonpf64}\\Baihe Studio Services\\helper\\lib\\installer\\'
+                'service_menu.ps1"""') in menus[0]
+        assert 'Filename: "{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"' in menus[0]
+        assert "{app}\\service" not in menus[0]
+
     def test_nothing_but_the_service_is_added(self, iss):
         # No firewall, router or second-listener step belongs to the installer.
         for needle in ("netsh", "firewall", "caddy", "upnp"):
@@ -406,15 +418,84 @@ class TestWorkflow:
             "SeImpersonatePrivilege", "qfailure", "http://127.0.0.1:8600/api/health",
             "listening beyond 127.0.0.1:8600", "Stop-Process -Id $server.ProcessId",
             "processes left after stopping the service",
-            "the update changed .env", "the BaiheStudio service is still installed",
+            "the update changed .env", '"the $name service is still installed"',
             "the BaiheStudio account still has access to the data folder",
         ):
             assert needle in wf, needle
-        for needle in ("caddy", "enable-remote", "New-NetFirewallRule", "netsh"):
-            assert needle not in wf.lower(), needle
+        # Caddy is installed off. CI only checks that remote access is refused
+        # without settings; it never turns it on, opens a port or adds a rule.
+        for needle in ("New-NetFirewallRule", "netsh", "add rule", "--household-port"):
+            assert needle not in wf, needle
+        invocations = re.findall(r"^\s*& .*enable-remote.*$", wf, re.M)
+        assert len(invocations) == 1 and invocations[0].rstrip().endswith("enable-remote")
+        assert "expected 2 (refused)" in wf
 
     def test_dispatch_input_goes_through_env(self, wf):
         # Never pasted into a script (injection).
         assert "run: |" in wf
         for block in re.findall(r"run: \|\n(.*?)(?=\n\s*- (?:name|uses):|\Z)", wf, re.S):
             assert "github.event.inputs" not in block
+
+
+class TestInstallerIdentityDoesNotDrift:
+    """The same names are spelled in build_installer.py, baihe.iss,
+    portable.py, launcher.py and postinstall.py. Nothing links them at
+    runtime, so a rename in one place would only show up on a user's PC."""
+
+    @pytest.fixture()
+    def mods(self):
+        import importlib
+        import sys
+        inst = os.path.join(ROOT, "installer")
+        if inst not in sys.path:
+            sys.path.insert(0, inst)
+        return (importlib.import_module("build_installer"), importlib.import_module("postinstall"),
+                importlib.import_module("portable"))
+
+    def test_product_name_matches_manifest_and_the_ownership_check(self, iss, mods, tmp_path):
+        import json
+        bi = mods[0]
+        (tmp_path / "wheels").mkdir()
+        text = bi.write_manifest(tmp_path, "1.0.0").read_text(encoding="utf-8")
+        product = json.loads(text)["product"]
+        assert re.search(rf'^#define AppName "{re.escape(product)}"', iss, re.M)
+        # The Pascal check matches the manifest's JSON text exactly.
+        assert f"Pos('\"product\": \"{product}\"', Manifest)" in iss
+        assert f'"product": "{product}"' in text
+
+    def test_data_folder_name_is_the_product_name(self, iss, mods):
+        assert mods[2].INSTALLED_DATA_DIR_NAME == re.search(r'^#define AppName "([^"]+)"', iss, re.M).group(1)
+
+    def test_installer_file_name_prefix(self, iss):
+        src = _read(os.path.join(ROOT, "installer", "build_installer.py"))
+        prefix = "BaiheStudio-Setup-"
+        assert f'f"{prefix}{{version}}.exe"' in src
+        assert _setup_value(iss, "OutputBaseFilename") == prefix + "{#AppVersion}"
+
+    def test_marker_files_agree_with_the_installer_script(self, iss, mods):
+        bi, post, portable = mods
+        assert post.MARKER_NAME == "INSTALLED"
+        assert os.path.basename(portable._INSTALLED_MARKER_PATH) == post.MARKER_NAME
+        assert os.path.basename(portable._MARKER_PATH) == "PORTABLE"
+        # Never shipped in the payload, and the script reads the same name.
+        assert {"INSTALLED", "PORTABLE"} <= set(bi.EXCLUDED_FILE_NAMES)
+        assert "app\\INSTALLED" in iss
+
+    def test_launcher_file_names_agree_with_the_installer_script(self, iss, mods):
+        launcher_src = _read(os.path.join(ROOT, "installer", "launcher.py"))
+        post_src = _read(os.path.join(ROOT, "installer", "postinstall.py"))
+        names = {}
+        for const in ("PID_FILE_NAME", "TOKEN_FILE_NAME", "START_LOCK_NAME", "SERVER_LOG_NAME"):
+            names[const] = re.search(rf'^{const} = "([^"]+)"', launcher_src, re.M).group(1)
+        assert names == {"PID_FILE_NAME": "server.pid", "TOKEN_FILE_NAME": "shutdown.token",
+                         "START_LOCK_NAME": "starting.lock", "SERVER_LOG_NAME": "server.log"}
+        assert mods[1].LOG_NAME == "install.log"
+        for name in (*names.values(), mods[1].LOG_NAME):
+            assert f"\\launcher\\{name}'" in iss, f"uninstaller doesn't delete {name}"
+        assert 'Path(portable.data_dir()) / "launcher"' in launcher_src
+        assert 'log_dir = data / "launcher"' in post_src
+        assert "RemoveDir(UninstDataDir + '\\launcher')" in iss
+
+    def test_wheel_lock_name(self, mods):
+        bi, post, _ = mods
+        assert post.LOCK_NAME == bi.WHEEL_LOCK.name == "wheels.lock.txt"

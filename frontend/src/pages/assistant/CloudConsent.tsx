@@ -1,5 +1,5 @@
 // Per-provider consent to send this app's code and logs to a cloud engine
-// (lead review of Step 42). The server refuses a cloud engine without it
+// The server refuses a cloud engine without it
 // (409); Ollama runs on this PC and needs none.
 import { useState } from 'react'
 
@@ -17,7 +17,7 @@ type Props = {
   only?: string[]
 }
 
-export const CONSENT_HELP =
+const CONSENT_HELP =
   'The assistant reads this app’s source code and its (redacted) logs to answer. With this on, that text is sent to this provider. Ollama keeps everything on this PC.'
 
 export function CloudConsent({ settings, onSettings, only }: Props) {

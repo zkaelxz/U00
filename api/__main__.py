@@ -6,7 +6,7 @@ unless `BAIHE_API_AUTH=on`. With `BAIHE_API_HOUSEHOLD_PORT` set it also
 serves the household app on that loopback port, in the same process (one
 job list); stopping either stops both.
 
-Local user administration (Step 133). These touch the library database
+Local user administration. These touch the library database
 directly, so only someone at the PC (with file access) can run them; they
 print no tokens or hashes:
 
@@ -15,6 +15,7 @@ print no tokens or hashes:
                                         # allowlist a household member (default permissions);
                                         # their first Google sign-in binds their account
     python -m api deactivate <email>    # block sign-in and end their sessions
+    python -m api revoke-admin <email>  # make an admin a normal member (not the last admin)
     python -m api grant <email> <permission>   # e.g. media.stream, engines.paid
     python -m api list-users
 """
@@ -252,6 +253,18 @@ def _deactivate(email: str) -> int:
     return _run(go)
 
 
+def _revoke_admin(email: str) -> int:
+    from services import auth_service
+
+    def go():
+        user = auth_service.revoke_admin(_user_id(email), at_pc=True)
+        if not user["is_active"]:
+            return f"{user['email']} is no longer an admin (the account stays deactivated)."
+        return (f"{user['email']} is no longer an admin; they stay an active member with: "
+                f"{', '.join(user['permissions'])}. Their sessions were ended.")
+    return _run(go)
+
+
 def _grant(email: str, permission: str) -> int:
     from services import auth_service
 
@@ -288,6 +301,9 @@ def main(argv=None) -> int:
     add.add_argument("--name", default="", help="display name shown in the app")
     deactivate = sub.add_parser("deactivate", help="block a user and end their sessions")
     deactivate.add_argument("email")
+    revoke_admin = sub.add_parser("revoke-admin",
+                                  help="remove a user's admin rights (they stay a member)")
+    revoke_admin.add_argument("email")
     grant_perm = sub.add_parser("grant", help="grant one permission to a user")
     grant_perm.add_argument("email")
     grant_perm.add_argument("permission")
@@ -299,6 +315,8 @@ def main(argv=None) -> int:
         return _add_user(args.email, args.name)
     if args.command == "deactivate":
         return _deactivate(args.email)
+    if args.command == "revoke-admin":
+        return _revoke_admin(args.email)
     if args.command == "grant":
         return _grant(args.email, args.permission)
     if args.command == "list-users":

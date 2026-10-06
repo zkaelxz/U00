@@ -1,8 +1,8 @@
 """
 api/routers/translate_run_routes.py -- Translate-stage endpoints for one
-drama (Migration Slice 39): the read-only stage config and the advisory
-pre-run cost estimate. Distinct from Slice 13's standalone translator
-under /api/translate. Slice 40 adds the start-translate job;
+drama: the read-only stage config and the advisory
+pre-run cost estimate. Distinct from the standalone translator
+under /api/translate. It also adds the start-translate job;
 see services/translate_run_service.py for the scope decision.
 Parity X02/X22 add "Apply tier" (lines.edit: per-drama stage config) and
 "Save as preset" (admin.library, like preset rename: a library catalogue
@@ -19,7 +19,7 @@ the lines a glossary change affects; see services/glossary_retranslate_service.p
 from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request
-from api.auth import (_auth_enabled, holds_paid_engines, is_local_request,
+from api.auth import (is_auth_enabled, holds_paid_engines, is_local_request,
                       require_engines_allowed, require_permission)
 from api.schemas import (ErrorResponse, GlossaryAffectedPreview, GlossaryAffectedRunStart,
                          GlossaryAffectedRunStarted, TranslateBulkCancelResult, TranslateBulkList,
@@ -182,7 +182,7 @@ def apply_translate_preset(body: TranslatePresetApply, drama_id: int = Path(ge=1
              responses={403: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}})
 def save_translate_preset(body: TranslatePresetSave, request: Request):
-    if body.overwrite and _auth_enabled(request.app) and not is_local_request(request):
+    if body.overwrite and is_auth_enabled(request.app) and not is_local_request(request):
         raise ForbiddenError("Replacing a preset is only allowed at the PC.")
     return translate_run_service.save_translate_preset(
         body.name, body.translation_engine, engine_model=body.engine_model,

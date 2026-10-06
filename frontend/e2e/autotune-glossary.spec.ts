@@ -1,12 +1,18 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { suggestFrom } from './suggestTerms'
+import { openFoldFor } from './reviewFolds'
+import { openTranscribeOptions } from './sourceHelpers'
 
-// Auto-tune (Transcribe > Advanced), Glossary > From novel, and the PC-only
+// Auto-tune (Transcribe > Advanced), Glossary > Suggest terms, and the PC-only
 // stage deletes. Drama reads hit the real seeded API; the auto-tune and
 // glossary jobs and the delete routes are mocked; /api/meta is mocked only
 // for remote mode (the real API reports local: true on loopback)
 // (no GPU, no paid engine, and deletes must not touch the shared library).
 
 test.use({ viewport: { width: 1280, height: 800 } })
+
+// What the server answers when no run is held in this app session.
+const IDLE = { job_id: '', status: 'idle', progress: 0, message: '', results: null, best_candidate_ms: null, proposals: null, run_id: null }
 
 const SHOTS = process.env.SHOT_DIR
 
@@ -20,7 +26,10 @@ async function shot(page: Page, name: string) {
 }
 
 async function openSection(page: Page, title: string) {
-  await page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }).first().click()
+  await openFoldFor(page, title)
+  if (['Advanced', 'Speakers', 'Auto-tune min silence'].includes(title)) await openTranscribeOptions(page)
+  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
 async function mockRemote(page: Page) {
@@ -69,7 +78,7 @@ test.describe('Auto-tune min silence', () => {
         state = 'running'
         return route.fulfill({ json: { job_id: 'autotune_1', candidates: [300, 800, 1500] } })
       }
-      if (state === 'none') return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'none' } } })
+      if (state === 'none') return route.fulfill({ json: IDLE })
       if (state === 'running') {
         return route.fulfill({
           json: { job_id: 'autotune_1', status: 'running', progress: 0.33, message: 'Testing candidate 2 of 3 (800ms)...', results: null, best_candidate_ms: null },
@@ -137,15 +146,21 @@ test.describe('Auto-tune min silence', () => {
   })
 })
 
+// A drama that has novel text attached.
+async function withNovel(page: Page) {
+  await page.route('**/api/novel/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_novel_text: true, char_count: 900, chapters: 3, ocr_running: false } }),
+  )
+}
+
 test.describe('Glossary from novel', () => {
   test('is disabled without a series, with a link to Details', async ({ page }) => {
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From novel')
-    const box = page.getByTestId('novel-glossary')
-    await expect(box.getByRole('button', { name: 'Extract terms' })).toBeDisabled()
-    await expect(box).toContainText('Still needed: a series for this drama')
-    await expect(box.getByRole('link', { name: 'set it in Details' })).toHaveAttribute('href', '#/drama/1/source')
+    const bar = page.getByTestId('lines-glossary')
+    await expect(bar.getByRole('button', { name: 'Suggest terms', exact: true })).toBeDisabled()
+    await expect(bar.getByTestId('suggest-reason-novel')).toContainText('Still needed: a series for this drama')
+    await expect(bar.getByTestId('suggest-reason-novel').getByRole('link', { name: 'set it in Details' })).toHaveAttribute('href', '#/drama/1/source')
   })
 
   test('a paid-engine 403 shows the paid copy', async ({ page }) => {
@@ -157,12 +172,12 @@ test.describe('Glossary from novel', () => {
     await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
       route.request().method() === 'POST'
         ? route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } })
-        : route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'none' } } }),
+        : route.fulfill({ json: IDLE }),
     )
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From novel')
-    await page.getByRole('button', { name: 'Extract terms' }).click()
+    await suggestFrom(page, 'Novel')
+    await page.getByRole('button', { name: 'Suggest terms', exact: true }).click()
     await expect(page.getByRole('alert').filter({ hasText: "This engine is paid and this account can't use it." })).toBeVisible()
   })
 
@@ -178,7 +193,7 @@ test.describe('Glossary from novel', () => {
         state = 'running'
         return route.fulfill({ json: { job_id: 'novelglossary_1', engine: 'claude', paired: false } })
       }
-      if (state === 'none') return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'none' } } })
+      if (state === 'none') return route.fulfill({ json: IDLE })
       if (state === 'running') {
         return route.fulfill({ json: { job_id: 'novelglossary_1', status: 'running', progress: 0.42, message: '', proposals: null, run_id: 'run-1' } })
       }
@@ -200,14 +215,14 @@ test.describe('Glossary from novel', () => {
 
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From novel')
-    await page.getByRole('button', { name: 'Extract terms' }).click()
+    await suggestFrom(page, 'Novel')
+    await page.getByRole('button', { name: 'Suggest terms', exact: true }).click()
     await expect(page.getByTestId('novel-glossary-running')).toContainText('Reading the novel… 42%')
     await expect(page.getByTestId('novel-glossary-running').getByRole('button', { name: 'Cancel' })).toBeVisible()
     state = 'done'
     const table = page.getByTestId('novel-glossary-proposals')
     await expect(table.locator('tbody tr')).toHaveCount(4)
-    await expect(table.locator('tbody tr').nth(3)).toContainText('already in glossary')
+    await expect(table.locator('tbody tr').nth(3)).toContainText(/already in glossary/i)
     const add = page.getByRole('button', { name: 'Add 3 terms to series glossary' })
     await expect(add).toBeVisible()
     await page.getByLabel('Select 蓝湛').uncheck()
@@ -241,10 +256,10 @@ test.describe('Glossary from novel', () => {
     })
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From novel')
+    await suggestFrom(page, 'Novel')
     const box = page.getByTestId('novel-glossary')
     const fresh = box.getByRole('switch', { name: 'Fresh suggestions' })
-    const extract = box.getByRole('button', { name: 'Extract terms' })
+    const extract = box.getByRole('button', { name: 'Suggest terms', exact: true })
     await expect(fresh).toHaveAttribute('aria-checked', 'false')
     await fresh.click()
     await expect(fresh).toHaveAttribute('aria-checked', 'true')
@@ -263,6 +278,7 @@ test.describe('Glossary from novel', () => {
 
   test('overwriting always confirms, counts against the current glossary and sends confirm: true', async ({ page }) => {
     await inSeries(page)
+    await withNovel(page)
     await page.route('**/api/glossary/dramas/1/terms', (route) =>
       route.fulfill({
         json: [{ id: 1, term_original: '江澄', term_translation: 'Jiang Cheng', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] }],
@@ -284,10 +300,10 @@ test.describe('Glossary from novel', () => {
     })
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From novel')
+    await suggestFrom(page, 'Novel')
     await page.getByTestId('novel-glossary-proposals').getByLabel('Select 江澄').check()
     await page.getByRole('switch', { name: 'Overwrite existing terms' }).click()
-    await expect(page.getByText('Tick terms marked "already in glossary" to replace them.')).toBeVisible()
+    await expect(page.getByText('Tick terms marked "Already in glossary" to replace them.')).toBeVisible()
     await page.getByRole('button', { name: 'Add 1 term to series glossary' }).click()
     await expect(page.getByText('Replace 1 existing term in the series glossary?')).toBeVisible()
     expect(applyBody).toBe('')
@@ -298,6 +314,7 @@ test.describe('Glossary from novel', () => {
 
   test('a lost extraction (400 on apply) asks to run again', async ({ page }) => {
     await inSeries(page)
+    await withNovel(page)
     await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
     await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
       route.fulfill({
@@ -312,7 +329,7 @@ test.describe('Glossary from novel', () => {
     )
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From novel')
+    await suggestFrom(page, 'Novel')
     await page.getByRole('button', { name: 'Add 1 term to series glossary' }).click()
     await expect(page.getByRole('alert').filter({ hasText: 'Run the extraction again (results are kept only until the app restarts).' })).toBeVisible()
   })
@@ -403,13 +420,13 @@ test.describe('PC-only stage deletes', () => {
     await page.getByRole('button', { name: 'Confirm remove audio/video' }).click()
     await expect(page.getByText('Removed. Lines are untouched.')).toBeVisible()
     await openSection(page, 'Novel text')
-    await expect(page.getByRole('link', { name: 'Build a glossary from this novel (Translate → Glossary) →' })).toHaveAttribute('href', '#/drama/1/translate')
-    const raw = page.getByRole('region', { name: 'Raw novel (original language)' })
+    await expect(page.getByRole('link', { name: 'Build the glossary from this novel in Translate →' })).toHaveAttribute('href', '#/drama/1/translate')
+    const raw = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })
     await raw.locator('.section-title').click()
     await raw.getByRole('button', { name: 'Remove raw novel', exact: true }).click()
     await raw.getByRole('button', { name: 'Confirm remove raw novel' }).click()
     await expect(raw.getByRole('status')).toHaveText('Removed.')
-    await expect(page.getByRole('link', { name: /Build a glossary from this novel/ })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: /Build the glossary from this novel/ })).toHaveCount(0)
     expect(posted.map((u) => new URL(u).pathname)).toEqual([
       '/api/media/dramas/1/remove',
       '/api/novel/dramas/1/raw-novel/remove',

@@ -1,6 +1,5 @@
 """
-sources/auth_browser.py -- signed-in browser sessions (roadmap Step 23k
-items 1, 2 and 4).
+sources/auth_browser.py -- signed-in browser sessions.
 
     1. The capability check runs first. A source whose terms restrict
        automated access (or AI/ML use) is refused here -- before a window
@@ -66,9 +65,9 @@ def has_profile(url: str, source: str = None) -> bool:
 def forget(url: str, source: str = None) -> bool:
     """Deletes this source's saved browser profile (sign-in included).
     Later imports go back to the ordinary, signed-out tiers."""
-    from page_fetch import ProfileBusy, _profile_lock
+    from page_fetch import ProfileBusy, profile_lock
     d = profile_dir(url, source)
-    lock = _profile_lock(d)
+    lock = profile_lock(d)
     if not lock.acquire(blocking=False):
         raise ProfileBusy("This site's browser profile is in use right now -- try again when "
                           "its window is closed and no import is running.")

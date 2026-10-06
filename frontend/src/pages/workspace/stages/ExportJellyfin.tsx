@@ -1,5 +1,5 @@
 /*
- * Export > Send to Jellyfin (roadmap Step 39). Shown only while the Jellyfin
+ * Export > Send to Jellyfin. Shown only while the Jellyfin
  * connector is on (Settings), and only at the PC. Puts this drama's
  * subtitles next to a matching Jellyfin item's video, or into a new title
  * folder in the library (optionally with the video), then asks Jellyfin to
@@ -91,8 +91,8 @@ export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) 
   const canSend = readyToSend(cfg) && !busy && (target === 'folder' || !!itemId)
 
   return (
-    <section className="panel" aria-label="Send to Jellyfin">
-      <Section storageKey="export.jellyfin" title="Send to Jellyfin" summary="put the subtitles in your Jellyfin library">
+    <div role="region" aria-label="Send to Jellyfin">
+      <Section storageKey="export.jellyfin" title="Send to Jellyfin" summary="Put the subtitles in your Jellyfin library">
         <div className="source-panel">
           {!readyToSend(cfg) && (
             <p className="muted">Finish the Jellyfin setup in Settings (address, API key and library folder).</p>
@@ -147,6 +147,6 @@ export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) 
           {error && <p className="error" role="alert">{error}</p>}
         </div>
       </Section>
-    </section>
+    </div>
   )
 }

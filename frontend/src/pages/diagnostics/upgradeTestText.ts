@@ -1,5 +1,6 @@
 // Pure helpers for "Test first" (POST .../dependencies/{name}/test-upgrade,
 // GET /api/diagnostics/upgrade-check): the verdict line and its details.
+import type { DiagnosticsPackageUpdates } from '../../types/diagnostics'
 import type { DiagnosticsUpgradeCheckState } from '../../types/diagnosticsInstalls'
 import { jobRunning } from './jobPoll'
 
@@ -10,7 +11,7 @@ export const testConfirmLabel = (name: string, target: string) =>
 export const testIsFor = (s: DiagnosticsUpgradeCheckState | null, name: string, target: string): boolean =>
   !!s && s.package === name && s.target === target
 
-export type TestLine = { text: string; tone: 'ok' | 'warn' | 'error' | 'muted' }
+type TestLine = { text: string; tone: 'ok' | 'warn' | 'error' | 'muted' }
 
 /** "Testing…" while it runs; the verdict after; null when there is nothing for this target. */
 export function testLine(s: DiagnosticsUpgradeCheckState | null, name: string, target: string): TestLine | null {
@@ -27,7 +28,7 @@ export function testLine(s: DiagnosticsUpgradeCheckState | null, name: string, t
   }
 }
 
-/** The detail lists, only the non-empty ones, in the Streamlit order. */
+/** The detail lists, only the non-empty ones. */
 export function testDetails(s: DiagnosticsUpgradeCheckState): { title: string; lines: string[] }[] {
   const r = s.result
   const out: { title: string; lines: string[] }[] = []
@@ -36,4 +37,18 @@ export function testDetails(s: DiagnosticsUpgradeCheckState): { title: string; l
   if (r?.preexisting_failures?.length) out.push({ title: 'Already fail today', lines: r.preexisting_failures })
   if (s.output_tail.length) out.push({ title: 'Last lines of output', lines: s.output_tail })
   return out
+}
+
+/**
+ * The server's last test (it runs on the server, so it survives leaving the tab)
+ * when no package row on screen would show it: the update check that produced
+ * its target is only held by the page, and a fresh visit has none.
+ */
+export function strandedTest(
+  s: DiagnosticsUpgradeCheckState | null,
+  updates: DiagnosticsPackageUpdates | null,
+): { name: string; target: string } | null {
+  if (!s?.package || !s.target || (!s.job && !s.result)) return null
+  if (updates?.packages[s.package]?.target === s.target) return null
+  return { name: s.package, target: s.target }
 }

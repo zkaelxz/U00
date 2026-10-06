@@ -12,6 +12,8 @@ import os
 import posixpath
 import re
 
+from core import SOURCE_LANGUAGES
+
 IMG_TOKEN_RE = re.compile(r"\[\[IMG:([^\]]+)\]\]")
 
 
@@ -21,7 +23,7 @@ def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: st
     (start, end) 0-indexed chapter slice, for importing just part of a
     long book instead of the whole thing at once.
 
-    images_dir: Step 23c item 1 -- when given, any image an in-range
+    images_dir: when given, any image an in-range
     chapter's HTML references is extracted there (its own filename,
     de-duplicated across chapters by that filename) and its position in
     the returned text is marked with a [[IMG:filename]] placeholder, so
@@ -68,15 +70,6 @@ def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: st
     return "\n\n".join(texts)
 
 
-def get_epub_chapter_count(epub_path: str) -> int:
-    """Quick chapter count without extracting text, for showing a
-    range picker before committing to importing the whole book."""
-    import ebooklib
-    from ebooklib import epub
-    book = epub.read_epub(epub_path)
-    return len([item for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT])
-
-
 def export_epub(lines, title: str, author: str, out_path: str, field: str = "en",
                  lines_per_chapter: int = 200, images_dir: str = None,
                  source_language: str = None):
@@ -86,7 +79,7 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
     translation, 'zh' for the raw text (e.g. exporting a bilingual
     reading copy would need two calls or a custom merge).
 
-    images_dir: Step 23c item 1 -- a directory (e.g. import_epub_text's
+    images_dir: a directory (e.g. import_epub_text's
     own images_dir, or a drama's Scanlate page images) to resolve
     [[IMG:filename]] placeholders in a line's text against, embedding
     the matching file inline at that exact position instead of as plain
@@ -103,7 +96,7 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
     from ebooklib import epub
 
     lang = "en" if field == "en" else (
-        source_language if source_language in ("zh", "ja", "ko") else "zh")
+        source_language if source_language in SOURCE_LANGUAGES else "zh")
 
     book = epub.EpubBook()
     book.set_identifier(f"baihe-subtitler-{title}")

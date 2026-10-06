@@ -13,7 +13,12 @@ Run it by hand after touching anything in `extension/` or
     python extension/verify_end_to_end.py
 
 It needs Playwright with a full Chromium build (the headless *shell*
-cannot load extensions). It touches no real site and needs no API key:
+cannot load extensions). The bridge listens on its real fixed port (8756; stop Baihe's bridge
+first) and the test page is served from `reader.test`, outside the
+shipped host permission. Only the activeTab click cannot be simulated, so
+the extension is loaded from a temp copy whose manifest adds that one
+host; the script asserts that is the only difference. It touches no real
+site and needs no API key:
 `scanlate`'s detect/translate are faked, everything else -- the endpoint,
 the extension, the browser, the token exchange -- is real.
 
@@ -29,14 +34,14 @@ What it asserts:
   * click-to-see-original and the overlay toggle work,
   * the same image appearing twice is sent once, not once per element.
 
-Step 96 added a second, text-capture mode alongside the image one, and
+The extension has a second, text-capture mode alongside the image one, and
 this script covers it with the same rigor:
 
   * with nothing selected, the page's own largest contiguous block of
     paragraph text is captured -- and a <nav>'s links are not, even
     though the nav sits on the same page,
   * that text is translated for real through
-    translate_engines.standalone_translate (not mocked -- TestOfflineEngine
+    translate_engines.standalone_translate (not mocked -- FakeEngine
     needs no network or key, so the real function runs end to end),
   * the result is drawn into a panel on the page itself and saved to the
     Standalone translate tab's own history table,
@@ -61,6 +66,12 @@ CHROMIUM_CANDIDATES = [
     os.environ.get("BAIHE_CHROMIUM", ""),
     "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
 ]
+
+SITE_HOST = "reader.test"
+
+# Not 0: a run that could not check anything must not read as a pass. 77 is the
+# conventional "skipped" status of test runners (automake, meson).
+EXIT_SKIPPED = 77
 
 failures = []
 checks = []
@@ -101,12 +112,12 @@ def main():
         from playwright.sync_api import sync_playwright
     except ImportError:
         print("SKIP: playwright isn't installed (pip install playwright)")
-        return 0
+        return EXIT_SKIPPED
     chromium = find_chromium()
     if not chromium:
         print("SKIP: no full Chromium build found. The headless shell can't load "
               "extensions; set BAIHE_CHROMIUM to a real chrome binary.")
-        return 0
+        return EXIT_SKIPPED
 
     import db
     # Deliberately NOT under extension/: Chromium loads that whole folder
@@ -143,18 +154,32 @@ def main():
 
     scanlate.detect_and_ocr_page = fake_detect
     scanlate.translate_page_bubbles = fake_translate
-    # TestOfflineEngine is real code (translate_engines.py), not a fake --
-    # it just needs no network or key, which is what makes the text-mode
-    # checks below a genuine run of standalone_translate rather than a
-    # mock of it. Standing in for get_engine at all (rather than calling
-    # the real one) only skips API-key bookkeeping the image checks don't
-    # exercise either.
-    translate_engines.get_engine = lambda *a, **kw: translate_engines.TestOfflineEngine()
-    page_server.set_translation_config(engine="test_offline", api_key="x")
+    # The fake key-free engine from the test suite: it needs no network or
+    # key, so the text-mode checks below genuinely run standalone_translate
+    # rather than a mock of it. Standing in for get_engine skips the
+    # API-key bookkeeping the image checks don't exercise either.
+    from tests import fake_engine
+    fake_engine.install()
+    translate_engines.get_engine = lambda *a, **kw: fake_engine.FakeEngine()
+    page_server.set_translation_config(engine="fake", api_key="x")
 
-    server_port = free_port()
+    # The manifest's only host permission is the bridge's fixed port, so the
+    # bridge must really listen there; a free_port() would be unreachable.
+    probe = socket.socket()
+    # Same option the HTTP server uses, so a just-closed earlier run's
+    # TIME_WAIT is not mistaken for a running bridge.
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        probe.bind(("127.0.0.1", page_server.DEFAULT_PORT))
+    except OSError:
+        print(f"SKIP: port {page_server.DEFAULT_PORT} is in use (is Baihe's bridge running? "
+              "turn it off in Settings first)")
+        return EXIT_SKIPPED
+    finally:
+        probe.close()
     token = page_server.load_or_create_token()
-    threading.Thread(target=lambda: page_server._serve(server_port), daemon=True).start()
+    threading.Thread(target=lambda: page_server.serve(page_server.DEFAULT_PORT),
+                     daemon=True).start()
     drama_id = db.create_drama(title_en="Extension check", media_type="manga",
                                source_language="ja")
 
@@ -211,7 +236,26 @@ document.getElementById("viaBlob").src =
     site = ThreadingHTTPServer(("127.0.0.1", site_port), handler)
     site.serve_forever_thread = threading.Thread(target=site.serve_forever, daemon=True)
     site.serve_forever_thread.start()
-    site_url = f"http://127.0.0.1:{site_port}/"
+    # A host name the manifest's loopback-port permission does not cover, so
+    # the test page is genuinely outside the extension's standing access and
+    # can only be reached the way a real page is.
+    site_url = f"http://{SITE_HOST}:{site_port}/"
+
+    # activeTab is granted by a real click on the toolbar icon, which no
+    # headless run can do (chrome.action.openPopup does not grant it). The
+    # one stand-in is a temp copy of the extension whose manifest has the
+    # test page's host added -- the access activeTab would give for the
+    # click. Everything else in the copy is byte-identical, which is
+    # asserted below, and the bridge access is the shipped narrow one.
+    import shutil
+    ext_dir = os.path.join(workdir, "extension")
+    shutil.copytree(HERE, ext_dir, ignore=shutil.ignore_patterns("verify_end_to_end.py", "__pycache__"))
+    with open(os.path.join(HERE, "manifest.json"), encoding="utf-8") as fh:
+        shipped = json.load(fh)
+    stand_in = json.loads(json.dumps(shipped))
+    stand_in["host_permissions"].append(f"http://{SITE_HOST}/*")
+    with open(os.path.join(ext_dir, "manifest.json"), "w", encoding="utf-8") as fh:
+        json.dump(stand_in, fh, indent=2)
 
     profile = os.path.join(workdir, "profile")
     drive = """async ([url, message]) => {
@@ -225,7 +269,11 @@ document.getElementById("viaBlob").src =
         context = p.chromium.launch_persistent_context(
             profile, headless=False, executable_path=chromium,
             args=["--headless=new", "--no-sandbox",
-                  f"--disable-extensions-except={HERE}", f"--load-extension={HERE}"])
+                  f"--host-resolver-rules=MAP {SITE_HOST} 127.0.0.1",
+                  # content.js hashes images with crypto.subtle, which a plain-http
+                  # page does not have; 127.0.0.1 used to be trusted by default.
+                  f"--unsafely-treat-insecure-origin-as-secure={site_url.rstrip('/')}",
+                  f"--disable-extensions-except={ext_dir}", f"--load-extension={ext_dir}"])
         try:
             # An MV3 service worker starts lazily, so it can take a while
             # to appear and may not have appeared yet when we look. Wait
@@ -260,7 +308,6 @@ document.getElementById("viaBlob").src =
             options = context.new_page()
             options.goto(f"chrome-extension://{ext_id}/options.html")
             options.fill("#token", token)
-            options.fill("#port", str(server_port))
             options.click("#save")
             options.wait_for_function(
                 "() => /Connected|bad/.test(document.getElementById('status').textContent)"
@@ -269,6 +316,23 @@ document.getElementById("viaBlob").src =
             status = options.text_content("#status")
             check("the options page reaches the endpoint with the real token",
                   "Connected" in status, status)
+
+            check("the shipped host permission is only the bridge's fixed port",
+                  shipped["host_permissions"] == [f"http://127.0.0.1:{page_server.DEFAULT_PORT}/*"],
+                  str(shipped["host_permissions"]))
+            check("the test copy differs from the shipped manifest only by the test page's host",
+                  {k: v for k, v in stand_in.items() if k != "host_permissions"}
+                  == {k: v for k, v in shipped.items() if k != "host_permissions"}
+                  and stand_in["host_permissions"][:-1] == shipped["host_permissions"])
+            # The test site is on another loopback port. A worker fetch to a
+            # host with no permission is subject to CORS and the site sends
+            # no CORS headers, so it must fail -- the wide pattern allowed it.
+            other_port = options.evaluate(
+                """async (url) => { try { await fetch(url); return 'reached'; }
+                                     catch (e) { return 'blocked'; } }""",
+                f"http://127.0.0.1:{site_port}/index.html")
+            check("a loopback port other than the bridge's is not reachable",
+                  other_port == "blocked", other_port)
 
             page = context.new_page()
             page.goto(site_url + "index.html")
@@ -372,11 +436,11 @@ document.getElementById("viaBlob").src =
                   len([c for c in calls if c[0] == "translate"]) == before,
                   f"{len([c for c in calls if c[0] == 'translate'])} translate call(s) total")
 
-            # -- text capture (Step 96) -------------------------------
+            # -- text capture -------------------------------
             # With nothing selected: the heuristic should pick the
             # <article>'s three paragraphs and skip the <nav> entirely,
             # then run that text through the real (unmocked)
-            # standalone_translate via TestOfflineEngine.
+            # standalone_translate via FakeEngine.
             no_selection = options.evaluate(drive, [site_url, {
                 "type": "translatePageText", "sourceLanguage": "en",
                 "targetLanguage": "zh", "store": True}])
@@ -425,6 +489,19 @@ document.getElementById("viaBlob").src =
             check("history has exactly the one translation that asked to be saved",
                   len(db.list_translate_history()) == 1,
                   f"{len(db.list_translate_history())} entrie(s)")
+
+            # Turning the bridge off must leave the extension saying why.
+            page_server.stop_server()
+            off = options.evaluate("() => chrome.runtime.sendMessage({type: 'health'})")
+            # Either the kept-alive connection gets the server's 503 "turned off",
+            # or a fresh one is refused and background.js names the switch.
+            message = (off or {}).get("error", "")
+            check("with the bridge off the extension fails with a clear message",
+                  bool(off) and off.get("ok") is False
+                  and ("turned off" in message
+                       or ("Extension bridge" in message
+                           and "Settings → Browser extension" in message)),
+                  json.dumps(off)[:200])
         finally:
             context.close()
             site.shutdown()

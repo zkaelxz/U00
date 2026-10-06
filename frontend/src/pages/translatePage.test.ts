@@ -12,6 +12,7 @@ import {
   pickEngine,
   pickLanguage,
   pickModel,
+  showLocalOnlyNote,
   swapDirection,
   visibleHistory,
 } from './translatePage'
@@ -25,22 +26,26 @@ const eng = (name: string, key_configured = true, models: string[] | null = null
 })
 
 describe('engine picker', () => {
-  const all = [eng('claude', false, ['a', 'b']), eng('test_offline'), eng('deepseek')]
+  const all = [eng('claude', false, ['a', 'b']), eng('ollama'), eng('deepseek')]
 
   it('labels engines by name and marks the ones with no key', () => {
-    expect(engineOptionLabel(eng('test_offline'))).toBe('Offline test')
+    expect(engineOptionLabel(eng('deepseek'))).toBe('DeepSeek')
     expect(engineOptionLabel(eng('claude', false))).toBe('Claude (no key)')
   })
 
   it('lists usable engines first, keeping API order', () => {
-    expect(orderEngines(all).map((e) => e.name)).toEqual(['test_offline', 'deepseek', 'claude'])
+    expect(orderEngines(all).map((e) => e.name)).toEqual(['ollama', 'deepseek', 'claude'])
   })
 
   it('restores a remembered engine the server still lists, else the first usable one', () => {
     expect(pickEngine(all, 'deepseek')).toBe('deepseek')
     expect(pickEngine(all, 'claude')).toBe('claude')
-    expect(pickEngine(all, 'gone')).toBe('test_offline')
-    expect(pickEngine(all, '')).toBe('test_offline')
+    expect(pickEngine(all, 'gone')).toBe('ollama')
+    expect(pickEngine(all, '')).toBe('ollama')
+    // Settings' default wins over API order, but only while it can run.
+    expect(pickEngine(all, '', 'deepseek')).toBe('deepseek')
+    expect(pickEngine(all, '', 'claude')).toBe('ollama')
+    expect(pickEngine(all, 'claude', 'deepseek')).toBe('claude')
     expect(pickEngine([eng('claude', false)], '')).toBe('')
     expect(pickEngine([], 'claude')).toBe('')
   })
@@ -71,8 +76,8 @@ describe('languages', () => {
 
 describe('history', () => {
   it('humanizes languages and engine (no raw codes)', () => {
-    const label = historyLabel({ source_language: 'zh', target_language: 'en', engine: 'test_offline' })
-    expect(label).toBe('Chinese → English · Offline test')
+    const label = historyLabel({ source_language: 'zh', target_language: 'en', engine: 'ollama' })
+    expect(label).toBe('Chinese → English · Ollama (local)')
     expect(historyLabel({ source_language: 'en', target_language: 'ja', engine: 'claude' })).toBe(
       'English → Japanese · Claude',
     )
@@ -97,5 +102,16 @@ describe('history', () => {
     expect(visibleHistory(items, false)).toHaveLength(HISTORY_PREVIEW)
     expect(visibleHistory(items, true)).toHaveLength(items.length)
     expect(visibleHistory([1, 2], false)).toEqual([1, 2])
+  })
+})
+
+describe('showLocalOnlyNote', () => {
+  const local = { ...eng('ollama'), free: true }
+  it('shows only for Ollama with no cloud engine keyed', () => {
+    expect(showLocalOnlyNote([eng('claude', false), local], 'ollama')).toBe(true)
+    expect(showLocalOnlyNote([eng('claude', true), local], 'ollama')).toBe(false)
+    expect(showLocalOnlyNote([eng('claude', false), local], 'claude')).toBe(false)
+    expect(showLocalOnlyNote([eng('claude', false), { ...eng('nllb'), free: true }], 'nllb')).toBe(false)
+    expect(showLocalOnlyNote([], 'ollama')).toBe(false)
   })
 })

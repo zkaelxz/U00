@@ -43,6 +43,8 @@ def fakes(isolated_db, monkeypatch):
                         lambda: {"found": True, "version": f"ffmpeg 6 {ABS_PATH}", "path": ABS_PATH})
     monkeypatch.setattr(diagnostics, "check_js_runtime",
                         lambda: {"found": True, "name": "deno", "path": ABS_PATH})
+    monkeypatch.setattr(diagnostics, "check_browser",
+                        lambda: {"found": True, "name": "Chrome", "path": ABS_PATH})
     monkeypatch.setattr(diagnostics, "check_cuda",
                         lambda: {"torch_installed": False, "cuda_available": None})
     monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda *a, **k: [
@@ -65,7 +67,7 @@ def fakes(isolated_db, monkeypatch):
                        "finished_at": 2.0}})
     from services import library_admin_service
     RUNNING["on"] = False
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: RUNNING["on"])
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: RUNNING["on"])
     import applog
     monkeypatch.setattr(applog, "tail", lambda n: [f"INFO line {i}" for i in range(n - 1)]
                         + [f"ERROR {DIRTY}"])
@@ -78,7 +80,7 @@ def fakes(isolated_db, monkeypatch):
         yield {"line": DIRTY}
         yield {"returncode": 0, "timed_out": False}
 
-    monkeypatch.setattr(svc, "_stream_tree", fake_stream)
+    monkeypatch.setattr(svc, "stream_tree", fake_stream)
     monkeypatch.setattr(diagnostics, "nvidia_driver_info",
                         lambda: {"gpu_name": "NVIDIA GeForce RTX 3080 Ti", "driver_version": "580.97"})
     monkeypatch.setattr(svc, "verify_torch", lambda blocking=True: {
@@ -98,6 +100,7 @@ def test_reads(client):
     b = _clean(client.get("/api/diagnostics/setup-checks"))
     assert b["python"] == {"version": "3.11.0", "ok": True}
     assert b["ffmpeg"]["found"] is True and b["js_runtime"] == {"found": True, "name": "deno"}
+    assert b["browser"] == {"found": True, "name": "Chrome"}
     assert "path" not in json.dumps(b)
     m = _clean(client.get("/api/diagnostics/model-cache"))
     assert m["hf_total_bytes"] == 10 and m["piper_voices"] == [{"voice": "en_US-amy",
@@ -111,9 +114,7 @@ def test_reads(client):
     p = _clean(client.get("/api/diagnostics/pyannote?check_access=true"))
     assert p["models"] == [{"model": "pyannote/speaker-diarization-3.1", "accessible": True}]
     assert p["ready"] is True
-    h = _clean(client.get("/api/diagnostics/job-history"))
-    assert [j["job_id"] for j in h] == ["emotion_999999", "custom_job"]
-    assert h[0]["duration_seconds"] == 2.5
+    assert client.get("/api/diagnostics/job-history").status_code == 404
     lg = _clean(client.get("/api/diagnostics/log?n=5&keyword=ERROR"))
     assert len(lg["lines"]) == 1 and lg["lines"][0].startswith("ERROR")
     assert len(_clean(client.get("/api/diagnostics/log"))["lines"]) == svc.LOG_TAIL_DEFAULT
@@ -136,7 +137,7 @@ def test_install_failure_hint(client, monkeypatch):
         yield {"line": "ERROR: [Errno 13] Permission denied: "
                        "'C:\\users\\x\\appdata\\local\\pip\\cache\\wheels\\a.whl'"}
         yield {"returncode": 1, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake_stream)
+    monkeypatch.setattr(svc, "stream_tree", fake_stream)
     b = client.post("/api/diagnostics/dependencies/jieba/install", json={"confirm": True}).json()
     assert b["ok"] is False and "pip\\cache" in b["hint"]
 
@@ -197,7 +198,7 @@ def _h(s):
 
 
 READS = ("/api/diagnostics/setup-checks", "/api/diagnostics/model-cache",
-         "/api/diagnostics/pyannote", "/api/diagnostics/job-history",
+         "/api/diagnostics/pyannote",
          "/api/diagnostics/log", "/api/diagnostics/support-report",
          "/api/diagnostics/install-presets", "/api/diagnostics/gpu-torch")
 WRITES = (("/api/diagnostics/dependencies/edge_tts/install", {"confirm": True}),

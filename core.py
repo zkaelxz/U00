@@ -1,19 +1,30 @@
 """
-core.py -- shared pipeline logic with NO Streamlit dependency, so it can
-be imported by both app.py (the GUI) and cli.py (headless batch mode)
+core.py -- shared pipeline logic with NO UI dependency, so it can be
+imported by both the API services and cli.py (headless batch mode)
 without pulling in a UI framework.
 """
 
+import os
 import re
 import difflib
+import tempfile
 from dataclasses import dataclass, field, replace
+
+
+# The source languages the app handles, and the full names LLM and aligner
+# prompts use for them. Callers fall back to "Chinese" for anything else.
+SOURCE_LANGUAGES = ("zh", "ja", "ko")
+LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
+# What one line's spoken language (Line.lang) may be: a title can mix
+# speakers of several languages, English among them.
+LINE_LANGUAGES = SOURCE_LANGUAGES + ("en",)
 
 
 # The per-line columns db.save_lines writes. `idx` is the line's current
 # position (display order) -- it changes on every merge/split; `id` is the
 # permanent identity notes, emotions and background jobs attach to.
 LINE_FIELDS = ("idx", "start", "end", "zh", "en", "speaker", "dub_filename", "flag", "flag_note",
-               "speaker_manual", "sfx")
+               "speaker_manual", "sfx", "lang")
 
 
 @dataclass
@@ -31,9 +42,13 @@ class Line:
     # speaker detection (diarize.merge_speakers) leaves it alone unless
     # told to overwrite corrections.
     speaker_manual: bool = False
-    # Step 12c: a non-verbal/SFX cue ("door slams") rather than dialogue --
+    # A non-verbal/SFX cue ("door slams") rather than dialogue --
     # exported bracketed and styled apart from speech (see sfx_cue_text).
     sfx: bool = False
+    # This line's spoken language, a LINE_LANGUAGES code; None means the
+    # title's source_language, so titles saved before this field existed
+    # behave exactly as before.
+    lang: str = None
     # Permanent row id (lines.id). None for a line not saved yet.
     id: int = field(default=None, compare=False)
     # Field values as last loaded from / saved to the database. db.save_lines
@@ -46,6 +61,44 @@ class Line:
     merged_ids: list = field(default_factory=list, compare=False, repr=False)
 
 
+def atomic_write(path: str, data, binary: bool = False) -> None:
+    """Writes `data` to a temp file in path's folder, then os.replace()s it
+    over `path`, so a crash mid-write never leaves a truncated file."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb" if binary else "w", **({} if binary else {"encoding": "utf-8"})) as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def normalize_line_lang(value):
+    """A Line.lang value from outside (API body, CLI): None or "" -> None,
+    a LINE_LANGUAGES code in any case -> that code lower-cased. Anything
+    else raises InvalidInputError."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    code = value.strip().lower() if isinstance(value, str) else None
+    if code not in LINE_LANGUAGES:
+        from services.service_errors import InvalidInputError
+        raise InvalidInputError(f"lang must be one of {', '.join(LINE_LANGUAGES)} or empty.",
+                                details={"allowed": list(LINE_LANGUAGES)})
+    return code
+
+
+def _stored_line_lang(value):
+    # A row from an imported backup (or a hand-edited database) may hold a
+    # code this version doesn't know; reading it as the title's default is
+    # safer than refusing to load the lines.
+    code = value.strip().lower() if isinstance(value, str) else None
+    return code if code in LINE_LANGUAGES else None
+
+
 def line_from_row(row) -> "Line":
     """The one shared db row (db.load_lines dict) -> Line conversion. Carries
     id and every field through, so nothing (flags, speaker, dub clip) is
@@ -55,7 +108,7 @@ def line_from_row(row) -> "Line":
               en=row.get("en") or "", speaker=row.get("speaker"),
               dub_filename=row.get("dub_filename"), flag=row.get("flag"),
               flag_note=row.get("flag_note") or "", speaker_manual=bool(row.get("speaker_manual")),
-              sfx=bool(row.get("sfx")), id=row.get("id"))
+              sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"))
     ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
     return ln
 
@@ -65,23 +118,23 @@ def lines_from_rows(rows) -> list:
 
 
 # Fields a snapshot/version records since the undo fix; older ones lack them.
-SAVED_MARK_FIELDS = ("flag", "flag_note", "sfx")
+SAVED_MARK_FIELDS = ("flag", "flag_note", "sfx", "lang")
 
 
 def adopt_ids(restored, current, recorded=()) -> list:
     """For restoring a saved snapshot/translation version over the current
     lines: gives each restored line the permanent id (and `orig`) of the
     current line it replaces -- by id when the snapshot recorded one, else
-    by position (snapshots from before Step 2 have no ids) -- so notes and
+    by position (snapshots from before line ids existed have no ids) -- so notes and
     emotions stay attached instead of being deleted with the old rows.
     Fields a snapshot doesn't store (dub_filename in a version; flag,
-    flag_note and sfx in one saved before they were recorded) are carried
+    flag_note, sfx and lang in one saved before they were recorded) are carried
     over from the matched line rather than wiped. `recorded` names the
     SAVED_MARK_FIELDS the snapshot did store: those keep the snapshot's own
     value, since after a merge the matched line may hold another line's flag.
 
     Positional fallback only applies to a line whose snapshot never
-    recorded an id at all (pre-Step-2). A line whose id *was* recorded but
+    recorded an id at all (older snapshot). A line whose id *was* recorded but
     no longer resolves -- it was merged away since the snapshot was taken
     -- must not fall back to matching by position: idx numbering shifts
     after a merge, so that would silently reattach the snapshot's notes,
@@ -104,12 +157,12 @@ def adopt_ids(restored, current, recorded=()) -> list:
             continue
         used.add(match.id)
         ln.id, ln.orig = match.id, match.orig
-        for f in ("flag", "flag_note", "dub_filename"):
+        for f in ("flag", "flag_note", "dub_filename", "lang"):
             if f not in recorded and getattr(ln, f) in (None, ""):
                 setattr(ln, f, getattr(match, f))
         if "sfx" not in recorded:
             ln.sfx = ln.sfx or match.sfx
-        # Snapshots/versions from before Step 25c didn't record
+        # Older snapshots/versions didn't record
         # speaker_manual -- restoring the same speaker the line has now
         # keeps its hand-corrected mark instead of silently dropping it.
         if ln.speaker == match.speaker:
@@ -124,7 +177,8 @@ def lines_from_saved(rows) -> list:
                  en=r.get("en") or "", speaker=r.get("speaker"),
                  dub_filename=r.get("dub_filename"), flag=r.get("flag") or None,
                  flag_note=r.get("flag_note") or "", sfx=bool(r.get("sfx")),
-                 speaker_manual=bool(r.get("speaker_manual")), id=r.get("id"))
+                 speaker_manual=bool(r.get("speaker_manual")),
+                 lang=_stored_line_lang(r.get("lang")), id=r.get("id"))
             for r in rows]
 
 
@@ -146,7 +200,7 @@ def restore_saved_lines(rows, current, translation_only: bool = False) -> list:
     hand-corrected mark), source text and timing stay as they are now,
     since activating a version picks a translation, not a rollback of the
     whole line. A version saved over a different line structure (merged,
-    split, re-segmented since, or from before Step 2's ids) can only be
+    split, re-segmented since, or from before line ids existed) can only be
     restored whole, since its translations belong to its own lines."""
     if translation_only and saved_matches_lines(rows, current):
         en_by_id = {r["id"]: r.get("en") or "" for r in rows}
@@ -165,7 +219,7 @@ def fmt_ts(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def _notes_suffix(line_idx: int, notes_by_idx: dict) -> str:
+def notes_suffix(line_idx: int, notes_by_idx: dict) -> str:
     """notes_by_idx: {line_idx: [{"term", "note"}, ...]}, from
     db.list_translation_notes() grouped by line -- see
     translation_guide.group_notes_by_line(). Renders as a bracketed
@@ -181,7 +235,7 @@ def _notes_suffix(line_idx: int, notes_by_idx: dict) -> str:
 
 
 def sfx_cue_text(text: str, italic_tags: bool = True) -> str:
-    """Step 12c: a non-verbal/SFX cue's subtitle text -- bracketed, so it
+    """A non-verbal/SFX cue's subtitle text -- bracketed, so it
     reads as "[door slams]" rather than as something a character said.
     Already-bracketed text isn't double-bracketed. italic_tags wraps it in
     <i>...</i>, which SRT/VTT players (and an SRT burn-in) render; ASS
@@ -199,7 +253,7 @@ def lines_to_srt(lines, field="en", notes_by_idx: dict = None) -> str:
         text = getattr(ln, field)
         if getattr(ln, "sfx", False):
             text = sfx_cue_text(text)
-        text += _notes_suffix(ln.idx, notes_by_idx)
+        text += notes_suffix(ln.idx, notes_by_idx)
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
 
@@ -211,44 +265,34 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
         if getattr(ln, "sfx", False):
             en, zh = sfx_cue_text(en), sfx_cue_text(zh)
         text = f"{en}\n{zh}" if en else zh
-        text += _notes_suffix(ln.idx, notes_by_idx)
+        text += notes_suffix(ln.idx, notes_by_idx)
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
 
 
 # ---------------------------------------------------------------------------
-# Step 1: transcribe audio for timing (faster-whisper)
+# Transcribe audio for timing (faster-whisper)
 # ---------------------------------------------------------------------------
 
 _whisper_model_cache = {}
 
 # Speech-recognition models offered in the Workspace picker (faster-whisper
-# names). large-v3-turbo is never the default: it's much faster but reported
-# weaker on Japanese and Korean. large-v3 is the default for all three
-# source languages (zh/ja/ko) -- a consumer GPU in the 8-12GB class this app
-# targets has enough headroom for it, and it's the more accurate choice.
+# names). large-v3-turbo is the default: in our benchmarks (docs/asr-experiments.md)
+# it matched large-v3 on Japanese, trailed it by about half a point on Korean and
+# by more on clean Chinese, and ran about twice as fast. medium was never ahead
+# of it. The labels and the Transcribe stage's note say only what was measured.
 WHISPER_MODELS = {
     "small": "small -- fastest, least accurate",
-    "medium": "medium -- balanced default",
-    "large-v3": "large-v3 -- most accurate, slower, ~3GB",
-    "large-v3-turbo": "large-v3-turbo -- ~large-v3 accuracy much faster, but weaker on Japanese/Korean",
+    "medium": "medium -- no faster or more accurate than turbo in our tests",
+    "large-v3": "large-v3 -- slightly more accurate on Korean and clean Chinese, about 2x slower, ~3GB",
+    "large-v3-turbo": "large-v3-turbo -- default; close to large-v3 in our tests, about 2x faster",
 }
-DEFAULT_WHISPER_SIZE = "large-v3"
-_TURBO_WEAK_LANGUAGES = {"ja", "ko"}
-# Step 6h: auto-tune's default candidate min_silence_duration_ms values --
-# spans the "Speech-splitting sensitivity" slider's real range meaningfully
-# (300 is the new default, 3000 the slider's max) without an unbounded
-# number of full re-transcriptions.
+DEFAULT_WHISPER_SIZE = "large-v3-turbo"
+# Auto-tune's default candidate min_silence_duration_ms values -- spans the
+# "Speech-splitting sensitivity" slider's real range meaningfully (300 is the
+# app's default, services/transcribe_service._DEFAULT_TUNING; 3000 the
+# slider's max) without an unbounded number of full re-transcriptions.
 DEFAULT_AUTOTUNE_CANDIDATES_MS = [300, 800, 1500]
-
-
-def whisper_model_warning(model_size: str, language: str) -> str:
-    """A note to show when the picked model is a known poor fit for the
-    drama's language, or "" if there's nothing to warn about."""
-    if model_size == "large-v3-turbo" and (language or "") in _TURBO_WEAK_LANGUAGES:
-        return ("large-v3-turbo is reported noticeably weaker on Japanese and Korean -- "
-                "large-v3 (or medium) is the safer choice for this drama.")
-    return ""
 
 
 # Decoder settings that stop Whisper's repeated-phrase loops at the source
@@ -263,7 +307,7 @@ WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False, "no_repeat_ngra
 def release_gpu_models():
     """Call after a GPU stage (transcription, alignment, diarization)
     finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models
-    (and a local NLLB translation pipeline, Step 41 item 8)
+    (and a local NLLB translation pipeline)
     and hands CUDA's cached memory back, so the next stage -- or a local
     translation model in Ollama, or TTS -- isn't fighting leftovers for
     the same VRAM. The next run of a stage reloads its model (seconds, from
@@ -329,7 +373,7 @@ def diagnose_hostname(hostname: str = "huggingface.co") -> dict:
     return {"status": "ok", "hostname": hostname, "addresses": sorted(addrs), "detail": ""}
 
 
-def _is_gpu_error(exc: Exception) -> bool:
+def is_gpu_error(exc: Exception) -> bool:
     """CUDA/cuBLAS/cuDNN library-loading and device errors.
 
     Distinct from _is_network_error and from a genuine audio/data
@@ -348,7 +392,7 @@ def _is_gpu_error(exc: Exception) -> bool:
     return any(m in text for m in markers)
 
 
-def _is_network_error(exc: Exception) -> bool:
+def is_network_error(exc: Exception) -> bool:
     """Whisper models download from Hugging Face on first use. A failure
     there is almost always network (DNS, firewall, proxy, VPN) rather
     than anything wrong with the audio or the app, and deserves a
@@ -380,7 +424,7 @@ def is_whisper_model_cached(model_size: str) -> bool:
 _whisper_device_info = {}   # cache_key -> {"device", "compute_type", "gpu_error"}
 
 
-def _short_reason(exc, limit: int = 200) -> str:
+def short_reason(exc, limit: int = 200) -> str:
     """One-line, secret-redacted description of an exception, for
     surfacing why the GPU couldn't be used."""
     from translate_engines import redact_secrets
@@ -409,6 +453,14 @@ def describe_whisper_device(info: dict) -> str:
     return f"Using CPU ({info.get('compute_type')})"
 
 
+def gpu_fallback_notice(task: str, reason: str) -> str:
+    """The plain past-tense sentence every silent GPU->CPU fallback reports
+    (job result, CLI line). `reason` is already one redacted line (short_reason)."""
+    reason = " ".join(str(reason or "").split()).rstrip(".")
+    why = f" ({reason})" if reason else ""
+    return f"{task} ran on the CPU because the GPU couldn't be used{why}. This was slower than on the GPU."
+
+
 def gpu_status() -> dict:
     """Whether ctranslate2 (faster-whisper) sees a CUDA device and whether
     torch.cuda is available. Never raises; each half is None when its
@@ -420,14 +472,14 @@ def gpu_status() -> dict:
     except ImportError:
         pass
     except Exception as exc:
-        status["errors"].append("ctranslate2: " + _short_reason(exc))
+        status["errors"].append("ctranslate2: " + short_reason(exc))
     try:
         import torch
         status["torch_cuda_available"] = bool(torch.cuda.is_available())
     except ImportError:
         pass
     except Exception as exc:
-        status["errors"].append("torch: " + _short_reason(exc))
+        status["errors"].append("torch: " + short_reason(exc))
     return status
 
 
@@ -467,16 +519,16 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
                 model = _build("cuda", "float16")
                 device_info = {"device": "cuda", "compute_type": "float16", "gpu_error": None}
             except Exception as gpu_exc:
-                if _is_network_error(gpu_exc):
+                if is_network_error(gpu_exc):
                     raise
                 # No usable GPU: degrade, don't fail -- but remember why, so
                 # callers can say the GPU was NOT used.
-                device_info["gpu_error"] = _short_reason(gpu_exc)
+                device_info["gpu_error"] = short_reason(gpu_exc)
                 model = _build("cpu", "int8")
         else:
             model = _build("cpu", "int8")
     except Exception as exc:
-        if _is_network_error(exc):
+        if is_network_error(exc):
             diag = diagnose_hostname("huggingface.co")
             if diag["status"] == "blocked":
                 raise ModelDownloadError(
@@ -519,7 +571,7 @@ def build_initial_prompt(terms, max_terms: int = 40) -> str:
 
     `terms` accepts glossary rows or plain strings, so a glossary built
     from the novel can feed straight back into transcription. A glossary
-    row's `aliases` (Step 30: pipe-separated alt spellings/transliterations
+    row's `aliases` (pipe-separated alt spellings/transliterations
     of term_original) are primed too, not just the canonical original --
     whichever spelling Whisper actually latches onto still helps.
     """
@@ -592,6 +644,102 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
             out.extend(segments[i:j])
         i = j
     return out
+
+
+# A transcribed line longer than either limit is cut into subtitle-sized pieces.
+SPLIT_MAX_SECONDS = 8.0
+SPLIT_MAX_CJK_CHARS = 40
+
+_SENTENCE_END_RE = re.compile(r"(?:[。！？!?…]+|\.+(?=\s|$))[\"'”’」』）)\]]*\s*")
+_CLAUSE_END_RE = re.compile(r"[,，、;；:：]+[\"'”’」』）)\]]*\s*")
+_CJK_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+# Only a space run touching CJK on at least one side is a phrase break; a space
+# between two Latin/digit tokens ("Q&A NG") stays inside its piece.
+_CJK_SPACE_RE = re.compile(r"(?<=[぀-ヿ㐀-鿿가-힯])\s+|\s+(?=[぀-ヿ㐀-鿿가-힯])")
+
+
+def _cut_after(text: str, pattern) -> list:
+    """Cuts text after every match of pattern; the pieces concatenate back to text."""
+    pieces, last = [], 0
+    for m in pattern.finditer(text):
+        if m.end() > last:
+            pieces.append(text[last:m.end()])
+            last = m.end()
+    if last < len(text):
+        pieces.append(text[last:])
+    return pieces
+
+
+def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
+                        max_cjk_chars: int = SPLIT_MAX_CJK_CHARS) -> list:
+    """Cuts over-long segments ({"start","end","text",...}) at sentence-ending
+    punctuation, then at commas, then at spaces next to CJK text, packing
+    neighbouring pieces up to the limits.
+
+    Whisper segments carry no word timing at this point, so each piece gets a
+    share of the original span proportional to its character count: boundaries
+    are estimates, but pieces stay contiguous, increasing and inside the span.
+    Text with no usable cut, and short segments, are returned as they are.
+    Other keys (speaker) are copied onto every piece."""
+    out = []
+    for seg in segments:
+        text = seg.get("text") or ""
+        dur = seg["end"] - seg["start"]
+        total = len("".join(text.split()))
+        if total == 0 or dur <= 0 or (
+                dur <= max_seconds and len(_CJK_RE.findall(text)) <= max_cjk_chars):
+            out.append(seg)
+            continue
+
+        def fits(piece):
+            n = len("".join(piece.split()))
+            return (dur * n / total <= max_seconds
+                    and len(_CJK_RE.findall(piece)) <= max_cjk_chars)
+
+        def pack(units):
+            chunks, cur = [], ""
+            for u in units:
+                if cur and not fits(cur + u):
+                    chunks.append(cur)
+                    cur = ""
+                cur += u
+            if cur:
+                chunks.append(cur)
+            return chunks
+
+        pieces = []
+        for chunk in pack(_cut_after(text, _SENTENCE_END_RE)):
+            # one sentence that is still too long: fall back to its commas
+            for sub in [chunk] if fits(chunk) else pack(_cut_after(chunk, _CLAUSE_END_RE)):
+                # Whisper often separates CJK phrases with plain spaces instead of commas
+                pieces.extend([sub] if fits(sub) else pack(_cut_after(sub, _CJK_SPACE_RE)))
+        pieces = [p for p in pieces if p.strip()]
+        if len(pieces) < 2:
+            out.append(seg)
+            continue
+        done = 0
+        for i, p in enumerate(pieces):
+            start = seg["start"] + dur * done / total
+            done += len("".join(p.split()))
+            end = seg["end"] if i == len(pieces) - 1 else seg["start"] + dur * done / total
+            out.append({**seg, "start": start, "end": end, "text": p.strip()})
+    return out
+
+
+def tighten_to_words(start: float, end: float, words) -> tuple:
+    """A segment's own start/end come from its VAD chunk, so a line can show
+    during silence before the voice starts or stay up after it stops. Narrow
+    them to the first and last spoken word, never widening, and keep the
+    segment's times when there are no usable word times."""
+    try:
+        spoken = [w for w in (words or []) if w.end > w.start]
+        if not spoken:
+            return start, end
+        new_start = max(start, min(w.start for w in spoken))
+        new_end = min(end, max(w.end for w in spoken))
+    except (AttributeError, TypeError):
+        return start, end
+    return (new_start, new_end) if new_end > new_start else (start, end)
 
 
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
@@ -668,6 +816,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         "language": language, "vad_filter": True, "beam_size": beam_size,
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
                             "threshold": vad_threshold},
+        "word_timestamps": True,
         **WHISPER_ANTI_LOOP_KWARGS,
     }
     if initial_prompt.strip():
@@ -677,7 +826,12 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         duration = getattr(info, "duration", None) or 0
         result = []
         for s in segments:
-            result.append({"start": s.start, "end": s.end, "text": s.text.strip()})
+            text = s.text.strip()
+            # A segment with no letter, digit or CJK character (a lone "[" from
+            # a cut-off sound tag, "...", a dash) is not a subtitle.
+            if any(ch.isalnum() for ch in text):
+                start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
+                result.append({"start": start, "end": end, "text": text})
             if progress_cb:
                 progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
         if filter_hallucination_repeats:
@@ -700,7 +854,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         # here, never at model construction, no matter how that's wrapped.
         # See load_whisper_model's own GPU->CPU fallback, which protects
         # a different (earlier, rarer) failure point and cannot catch this.
-        if use_gpu and _is_gpu_error(exc):
+        if use_gpu and is_gpu_error(exc):
             if on_gpu_fallback:
                 on_gpu_fallback(exc)
             cpu_model = load_whisper_model(model_size, use_gpu=False,
@@ -712,6 +866,10 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
 
 GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_DEFAULT_MODEL = "whisper-large-v3-turbo"
+# verbose_json segments for an hour of speech are a few MB; Groq's own upload
+# limit keeps a single file far below what would fill this.
+GROQ_RESPONSE_MAX_BYTES = 32 * 1024 * 1024
+GROQ_ERROR_MAX_BYTES = 64 * 1024
 
 
 class GroqTranscriptionError(RuntimeError):
@@ -723,7 +881,7 @@ class GroqTranscriptionError(RuntimeError):
 def transcribe_with_groq(audio_path: str, language: str, api_key: str,
                          model: str = GROQ_DEFAULT_MODEL, progress_cb=None):
     """
-    Step 6i: an opt-in, paid cloud alternative to transcribe_for_timing's
+    An opt-in, paid cloud alternative to transcribe_for_timing's
     local faster-whisper path -- sends the whole file to Groq's hosted
     Whisper Large-v3-Turbo API (the same model family this app defaults
     to locally, at ~$0.04/hour of audio) and returns the identical
@@ -739,6 +897,11 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     import os as _os
     import requests
     import translate_engines
+    from services import capped_body
+
+    def too_big():
+        return GroqTranscriptionError("Groq's reply was too large or too slow to read.")
+
     try:
         with open(audio_path, "rb") as f:
             resp = requests.post(
@@ -747,13 +910,21 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
                 files={"file": (_os.path.basename(audio_path), f)},
                 data={"model": model, "language": language,
                       "response_format": "verbose_json", "timestamp_granularities[]": "segment"},
-                timeout=600)
+                timeout=600, stream=True)
     except requests.RequestException as exc:
         raise GroqTranscriptionError(translate_engines.redact_secrets(str(exc))) from None
     if resp.status_code != 200:
+        try:
+            detail = capped_body.read_capped(resp, GROQ_ERROR_MAX_BYTES, 600, too_big)
+        except Exception:
+            detail = b""
         raise GroqTranscriptionError(translate_engines.redact_secrets(
-            f"Groq API returned {resp.status_code}: {resp.text[:300]}"))
-    data = resp.json()
+            f"Groq API returned {resp.status_code}: "
+            f"{detail.decode('utf-8', 'replace')[:300]}"))
+    try:
+        data = translate_engines.read_json_capped(resp, 600, GROQ_RESPONSE_MAX_BYTES, too_big)
+    except requests.RequestException as exc:
+        raise GroqTranscriptionError(translate_engines.redact_secrets(str(exc))) from None
     result = [{"start": seg["start"], "end": seg["end"], "text": seg["text"].strip()}
               for seg in data.get("segments", []) if seg.get("text", "").strip()]
     if progress_cb:
@@ -761,40 +932,8 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     return result
 
 
-def autotune_subprocess_worker(audio_path, model_size, language, use_gpu, local_model_path,
-                               hf_token, initial_prompt, beam_size, candidate_ms, vad_threshold,
-                               fast_mode, result_queue):
-    """Step 6h: entry point for running one auto-tune candidate's full
-    transcription in its own OS process via
-    background_jobs.start_process_job(), so Cancel can actually
-    terminate it mid-run -- transcribe_for_timing() has no cancel
-    checkpoint of its own (Step 4g's own scoping), but killing the
-    whole process works regardless of where inside the decode pass it
-    is, the same reasoning Step 4d already used for diarization.
-
-    Runs candidate_ms as this call's min_silence_duration_ms, holding
-    every other setting the caller is already using constant -- this is
-    exploring VAD merge sensitivity specifically, not re-testing the
-    rest of the transcription config. Must stay a plain, top-level,
-    picklable function; on_gpu_fallback/progress_cb can't cross the
-    process boundary, so neither is threaded through here -- a fallback
-    or per-chunk progress within one candidate isn't visible, only the
-    per-candidate progress the caller already reports between
-    candidates."""
-    try:
-        segments = transcribe_for_timing(
-            audio_path, model_size, language=language, use_gpu=use_gpu,
-            local_model_path=local_model_path, hf_token=hf_token,
-            initial_prompt=initial_prompt, beam_size=beam_size,
-            min_silence_duration_ms=candidate_ms, vad_threshold=vad_threshold,
-            fast_mode=fast_mode)
-        result_queue.put(("ok", {"candidate_ms": candidate_ms, "segments": segments}))
-    except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, str(exc)))
-
-
 # ---------------------------------------------------------------------------
-# Step 2: align user transcript to Whisper timing
+# Align user transcript to Whisper timing
 # ---------------------------------------------------------------------------
 
 def chunk_novel_text(raw_text: str, max_chars: int = 200):
@@ -845,24 +984,33 @@ def novel_paragraph_ends(lines, source_text: str):
     return ends if p == len(paragraphs) and not buf else None
 
 
+# Pulling the audio out of a multi-hour video; only stops a hung ffmpeg.
+EXTRACT_AUDIO_TIMEOUT_SECONDS = 4 * 3600
+
+
 def extract_audio_from_video(video_path: str, out_path: str):
     """Pulls the audio track out of a video file via ffmpeg, so the
     same timing/alignment pipeline can run on it as on audio-only files."""
     import subprocess
     cmd = ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
            "-ar", "16000", "-ac", "1", out_path]
-    subprocess.run(cmd, check=True, capture_output=True)
+    subprocess.run(cmd, check=True, capture_output=True, timeout=EXTRACT_AUDIO_TIMEOUT_SECONDS)
     return out_path
 
 
+# A line-sized slice takes well under a second; this only stops a hung ffmpeg.
+SLICE_TIMEOUT_SECONDS = 120.0
+
+
 def extract_audio_slice(audio_path: str, start: float, end: float, out_path: str,
-                        timeout: float = None):
+                        timeout: float = SLICE_TIMEOUT_SECONDS):
     """Cuts a [start, end) slice of audio via ffmpeg. Shared by
     forced_align.py (per-chunk forced alignment) and asr_backend.py
     (per-segment Qwen3-ASR re-transcription), both of which need to hand
     a short audio clip to a model that only accepts a few minutes at a
-    time, rather than the whole file. `timeout` (seconds, default none)
-    raises subprocess.TimeoutExpired if ffmpeg runs longer."""
+    time, rather than the whole file. `timeout` (seconds, default
+    SLICE_TIMEOUT_SECONDS; None disables it) raises
+    subprocess.TimeoutExpired if ffmpeg runs longer."""
     import subprocess
     cmd = ["ffmpeg", "-y", "-i", audio_path, "-ss", str(max(start, 0.0)), "-to", str(end),
            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", out_path]
@@ -910,6 +1058,8 @@ def merge_adjacent_short_lines(lines, min_duration: float = 1.2, max_gap: float 
             prev.end = ln.end
             if not prev.flag and ln.flag:
                 prev.flag, prev.flag_note = ln.flag, ln.flag_note
+            if getattr(prev, "lang", None) != getattr(ln, "lang", None):
+                prev.lang = None
             if getattr(ln, "id", None) is not None:
                 prev.merged_ids = list(prev.merged_ids) + [ln.id] + list(ln.merged_ids)
         else:
@@ -931,7 +1081,7 @@ def split_user_transcript(raw_text: str):
     return [p.strip() for p in parts if p.strip()]
 
 
-def _lines_from_char_times(user_lines, per_line_times, total_audio_end):
+def lines_from_char_times(user_lines, per_line_times, total_audio_end):
     """Shared reconstruction step: given, for each line index, whichever
     character timestamps could be attributed to it, produce ordered,
     non-overlapping Line objects -- interpolating from neighboring known
@@ -995,7 +1145,7 @@ def align_transcript_to_timing(user_lines, whisper_segments):
             per_line_times[li].append(w_times[block.a + k])
 
     total_audio_end = whisper_segments[-1]["end"] if whisper_segments else 0.0
-    return _lines_from_char_times(user_lines, per_line_times, total_audio_end)
+    return lines_from_char_times(user_lines, per_line_times, total_audio_end)
 
 
 # ---------------------------------------------------------------------------

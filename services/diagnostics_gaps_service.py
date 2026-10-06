@@ -1,21 +1,20 @@
 """
-services/diagnostics_gaps_service.py -- the parts of the Streamlit
-Diagnostics tab that services/diagnostics_service.py's read-only overview
-does not cover yet: setup checks (as check_setup.py reports them), model
+services/diagnostics_gaps_service.py -- the Diagnostics features
+services/diagnostics_service.py's read-only overview does not cover: setup
+checks (as check_setup.py reports them), model
 versions, model-cache listing, pyannote/HF-token readiness, finished-job
 history, a shareable support report, a capped log tail, and thin
 confirm-gated wrappers over the admin actions that already exist as
 non-UI functions (dependency install/upgrade, library reset).
 
-No Streamlit import, no HTTP types. Every string that could carry a
+No HTTP types. Every string that could carry a
 secret, a token, the OS username or a local path goes through
 diagnostics.redact_for_support (which applies
 translate_engines.redact_secrets first); nothing here returns a path.
 
-Not ported (Streamlit-only by decision, see
-docs/streamlit-retirement-plan.md): accuracy benchmark, bug-bundle replay
-(the saved bundles are listed, and deleted through delete_service), App
-Assistant, and the source-access tests.
+The benchmark, the maintenance assistant and the source-access tests have
+their own services (benchmark_lab_service, maintenance_assistant_service,
+sources_signin_service).
 """
 
 import os
@@ -52,7 +51,7 @@ def _redact(text) -> str:
     return diagnostics.redact_for_support("" if text is None else str(text))
 
 
-def _project_root() -> str:
+def default_project_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -60,8 +59,6 @@ def describe_job(job_id: str) -> str:
     """Turns a raw job_id like 'emotion_42' into 'Detecting emotional
     register -- Some Drama Title', so the jobs list means something at a
     glance instead of showing internal id strings."""
-    if job_id == "live_capture":
-        return "🔴 Live capture"
     prefix, _, suffix = job_id.rpartition("_")
     if prefix in _JOB_LABELS and suffix.isdigit():
         drama = db.get_drama(int(suffix))
@@ -78,12 +75,13 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
     """Core requirements and file checks, the same facts check_setup.py
     prints at launch plus file completeness. Paths are never returned:
     ffmpeg/JS runtime report found/name/version only."""
-    project_root = project_root or _project_root()
+    project_root = project_root or default_project_root()
     library_dir = library_dir or db.LIBRARY_DIR
     py = diagnostics.check_python_version()
     ff = diagnostics.check_ffmpeg()
     js = diagnostics.check_js_runtime()
     cuda = diagnostics.check_cuda()
+    browser = diagnostics.check_browser()
     files = diagnostics.check_file_completeness(project_root)
     return {
         "python": {"version": py.get("version"), "ok": bool(py.get("ok"))},
@@ -91,12 +89,14 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
                    "version": _redact(ff["version"]) if ff.get("version") else None,
                    "libass": ff.get("libass") if ff.get("found") else None},
         "js_runtime": {"found": bool(js.get("found")), "name": js.get("name")},
+        "browser": {"found": bool(browser.get("found")), "name": browser.get("name")},
         "cuda": {"torch_installed": bool(cuda.get("torch_installed")),
                  "cuda_available": cuda.get("cuda_available")},
         "files": {"all_present": bool(files["all_present"]),
                   "missing_top_level": list(files["missing_top_level"]),
                   "missing_tabs": list(files["missing_tabs"])},
         "library_writable": bool(diagnostics.check_library_writable(library_dir)),
+        "warnings": diagnostics.startup_warnings(),
     }
 
 
@@ -211,7 +211,7 @@ def build_support_report(recent_error_lines: int = 20) -> str:
     import platform
     from services import settings_service
     results = diagnostics.run_full_diagnostics(
-        _project_root(), db.LIBRARY_DIR, settings_service.key_status())
+        default_project_root(), db.LIBRARY_DIR, settings_service.key_status())
     cache = diagnostics.scan_hf_cache()
     report = diagnostics.format_diagnostics_report(
         results, cache, diagnostics.get_model_engine_versions())
@@ -260,18 +260,12 @@ class AdminActionNotPossible(AdminActionRefused, InvalidInputError):
     (torch's Upgrade is the GPU PyTorch setup)."""
 
 
-def _maintenance_active() -> bool:
-    # background_jobs has no public reader for the counter that
-    # enter_maintenance()/exit_maintenance() keep.
-    return bool(getattr(background_jobs, "_maintenance_count", 0))
-
-
 PIP_TIMEOUT_SECONDS = diagnostics.UPGRADE_CHECK_PIP_TIMEOUT       # 900 s
 # The CUDA torch wheels are about 2.5 GB; allow a slow link far longer.
 GPU_TORCH_TIMEOUT_SECONDS = 3600
 
 
-def _guard(confirm: bool):
+def guard(confirm: bool):
     """confirm=True; no exclusive hold (a library restore or reset) and no
     maintenance operation (bulk delete, storage cleanup) in progress; and
     no job running or queued here or (fresh job_records rows) in another
@@ -280,10 +274,10 @@ def _guard(confirm: bool):
     if confirm is not True:
         raise AdminActionUnconfirmed("Confirmation required.")
     from services import library_admin_service
-    if background_jobs.exclusive_active() or _maintenance_active():
+    if background_jobs.exclusive_active() or background_jobs.maintenance_active():
         raise AdminActionJobsRunning(
             "A library restore, reset or cleanup is in progress; try again when it ends.")
-    if library_admin_service._any_job_running():
+    if library_admin_service.any_job_running():
         raise AdminActionJobsRunning(
             "A background job is running or queued; wait for it to finish.")
 
@@ -320,17 +314,17 @@ def _install_commands(name: str) -> list:
 
 def _torch_setup_commands(variant: str) -> list:
     return [(_pip("install", *args), GPU_TORCH_TIMEOUT_SECONDS)
-            for args in diagnostics.torch_setup_pip_args(variant, _project_root())]
+            for args in diagnostics.torch_setup_pip_args(variant, default_project_root())]
 
 
 KILL_DRAIN_SECONDS = 5.0
 
 
-def _stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS):
+def stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS):
     """Like diagnostics._stream_process ({"line"} per output line, then
     {"returncode", "timed_out"}), but pip runs in its own process group and
     on timeout (or if the caller stops early) the whole tree is killed
-    with background_jobs._kill_tree, not only pip itself.
+    with background_jobs.kill_tree, not only pip itself.
 
     Every wait is bounded, like background_jobs.run_cancellable's
     kill_timeout: output is read on a helper thread, so a grandchild that
@@ -363,7 +357,7 @@ def _stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SE
             if stop_by is None:
                 if now >= deadline:
                     timed_out = True
-                    background_jobs._kill_tree(proc)
+                    background_jobs.kill_tree(proc)
                     stop_by = now + drain_seconds
                 elif proc.poll() is not None:
                     stop_by = now + drain_seconds     # pip exited; finish reading
@@ -379,7 +373,7 @@ def _stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SE
             yield {"line": item.rstrip("\n")}
     finally:
         if proc.poll() is None:
-            background_jobs._kill_tree(proc)
+            background_jobs.kill_tree(proc)
         try:
             returncode = proc.wait(timeout=drain_seconds)
         except subprocess.TimeoutExpired:
@@ -406,13 +400,16 @@ def torch_conflict_hint(lines, pins: list) -> str:
     return None
 
 
-def _run_commands(cmds: list, torch_pins: list = None) -> dict:
+def _run_commands(cmds: list, torch_pins: list = None, sox_watch=None) -> dict:
     """Runs each (command, timeout) through _stream_tree; ok only if every
-    one exits 0 in time. Stops at the first failure."""
+    one exits 0 in time. Stops at the first failure. `sox_watch` (a
+    diagnostics.SoxBuildWatch) sees every raw output line."""
     tail, ok, hint, raw = [], True, None, []
     for cmd, timeout in cmds:
-        for item in _stream_tree(cmd, timeout):
+        for item in stream_tree(cmd, timeout):
             if "line" in item:
+                if sox_watch:
+                    sox_watch.feed(item["line"])
                 # Checked on the raw line: redaction rewrites the cache path.
                 hint = hint or diagnostics.pip_cache_permission_hint([item["line"]])
                 if torch_pins:
@@ -447,7 +444,7 @@ def _under_install_hold(fn):
             "A job, restore, cleanup or another install is in progress; try again when it ends.")
     try:
         from services import library_admin_service
-        if library_admin_service._any_job_running():     # re-check under the hold
+        if library_admin_service.any_job_running():     # re-check under the hold
             raise AdminActionJobsRunning(
                 "A background job is running or queued; wait for it to finish.")
         return fn()
@@ -455,13 +452,13 @@ def _under_install_hold(fn):
         background_jobs.release_exclusive()
 
 
-def _run_pip(name: str, confirm, cmds_for) -> dict:
+def _run_pip(name: str, confirm, cmds_for, sox_watch=None) -> dict:
     """One whitelisted package's pip run under the install hold. Unless the
     package is itself torch/torchvision/torchaudio, every command also gets
     a constraints file pinning the installed torch family exactly, so pip
     refuses (before changing anything) a package that needs another torch
     instead of replacing a CUDA torch with a CPU one or moving torchvision."""
-    _guard(confirm)
+    guard(confirm)
     if name not in installable_packages():
         raise AdminActionUnknownPackage("Unknown or non-installable package.")
 
@@ -469,10 +466,11 @@ def _run_pip(name: str, confirm, cmds_for) -> dict:
         cmds = cmds_for(name)
         pins = [] if name in diagnostics.TORCH_FAMILY else diagnostics.torch_pin_lines()
         if not pins:
-            return _run_commands(cmds)
+            return _run_commands(cmds, sox_watch=sox_watch)
         path = _write_torch_pins(pins)
         try:
-            return _run_commands([(cmd + ["-c", path], t) for cmd, t in cmds], torch_pins=pins)
+            return _run_commands([(cmd + ["-c", path], t) for cmd, t in cmds],
+                                 torch_pins=pins, sox_watch=sox_watch)
         finally:
             try:
                 os.remove(path)
@@ -483,8 +481,30 @@ def _run_pip(name: str, confirm, cmds_for) -> dict:
     return result
 
 
+def _qwen_asr_fallback_commands(_name: str) -> list:
+    return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)
+            for args in diagnostics.qwen_asr_fallback_pip_args()]
+
+
+def _install_qwen_asr(confirm) -> dict:
+    """The normal install; if it fails building `sox` (see
+    diagnostics.QWEN_ASR_FALLBACK_DEPS), installs qwen-asr without it."""
+    watch = diagnostics.SoxBuildWatch()
+    result = _run_pip("qwen-asr", confirm, _install_commands, sox_watch=watch)
+    if result["ok"] or not watch.failed:
+        return result
+    retry = _run_pip("qwen-asr", confirm, _qwen_asr_fallback_commands)
+    note = "Installing Qwen3-ASR without its `sox` dependency, which Baihe doesn't use."
+    retry["output_tail"] = ([note] + retry["output_tail"])[-_ADMIN_OUTPUT_TAIL:]
+    if not retry["ok"]:
+        retry["hint"] = retry["hint"] or diagnostics.SOX_BUILD_HINT
+    return retry
+
+
 def install_dependency(name: str, confirm: bool = False) -> dict:
     try:
+        if name == "qwen-asr":
+            return _install_qwen_asr(confirm)
         return _run_pip(name, confirm, _install_commands)
     finally:
         _clear_update_cache()      # a new package can hold back (or allow) others
@@ -497,19 +517,19 @@ def upgrade_dependency(name: str, confirm: bool = False, target: str = None) -> 
     confirmed, isn't that check's target any more. Without a check (and no
     target), `--upgrade` with constraints.txt as before."""
     if name in diagnostics.TORCH_FAMILY:
-        _guard(confirm)
+        guard(confirm)
         raise AdminActionNotPossible(
             "torch, torchvision and torchaudio are upgraded together: use GPU PyTorch setup.")
-    checked = _cached_update(name)
+    checked = cached_update(name)
     if checked is not None and target is None:
-        _guard(confirm)
+        guard(confirm)
         raise AdminActionStale("Say which version to update to (the update check's target).")
     if target is not None and (checked is None or checked["status"] != "update"
                                or checked["target"] != target):
-        _guard(confirm)
+        guard(confirm)
         raise AdminActionStale("The update check has changed since; check for updates again.")
     if checked is not None and checked["status"] != "update":
-        _guard(confirm)
+        guard(confirm)
         raise AdminActionNotPossible(
             "The last update check found no update allowed for this package; check again.")
 
@@ -517,11 +537,11 @@ def upgrade_dependency(name: str, confirm: bool = False, target: str = None) -> 
         dist = diagnostics.pip_install_name(n)
         if checked is not None:
             args = [f"{checked['dist']}=={checked['target']}"]
-            constraints = os.path.join(_project_root(), "constraints.txt")
+            constraints = os.path.join(default_project_root(), "constraints.txt")
             if os.path.exists(constraints):
                 args += ["-c", constraints]
         else:
-            args = diagnostics.upgrade_pip_args(dist, _project_root())
+            args = diagnostics.upgrade_pip_args(dist, default_project_root())
         return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)]
     try:
         return _run_pip(name, confirm, cmds)
@@ -556,7 +576,7 @@ def _clear_update_cache() -> None:
                         generation=_UPDATES.get("generation", 0) + 1)
 
 
-def _cached_update(name: str):
+def cached_update(name: str):
     with _UPDATES_LOCK:
         entry = _UPDATES["packages"].get(name)
         return dict(entry) if entry else None
@@ -608,7 +628,7 @@ def _check_package_updates_now() -> dict:
                        if v and n not in diagnostics.TORCH_FAMILY})
     with ThreadPoolExecutor(max_workers=UPDATE_CHECK_WORKERS) as pool:
         releases = dict(zip(to_fetch, pool.map(diagnostics.pypi_release_versions, to_fetch)))
-    constraints = diagnostics.constraint_specifiers(_project_root())
+    constraints = diagnostics.constraint_specifiers(default_project_root())
     required_by = diagnostics.installed_requirements_on()
     packages = {}
     for n in names:
@@ -688,8 +708,8 @@ def check_gpu_torch() -> dict:
     takes a CUDA context (VRAM), so it refuses (409) while a job, restore,
     cleanup or install runs, or while another check does."""
     from services import library_admin_service
-    if (background_jobs.exclusive_active() or _maintenance_active()
-            or library_admin_service._any_job_running()):
+    if (background_jobs.exclusive_active() or background_jobs.maintenance_active()
+            or library_admin_service.any_job_running()):
         raise AdminActionJobsRunning(
             "Wait for running jobs (or the install) to finish before checking CUDA.")
     return get_gpu_torch_status(probe=True)
@@ -742,7 +762,7 @@ def setup_gpu_torch(variant: str = None, confirm: bool = False) -> dict:
     variant, with a driver too old for CUDA 12, or on a Python the wheels
     don't cover. ok only when pip succeeded and the new torch imports as
     the expected version (and, for CUDA, sees the GPU)."""
-    _guard(confirm)
+    guard(confirm)
     nvidia = diagnostics.nvidia_driver_info()
     if variant is None:
         variant = diagnostics.TORCH_RECOMMENDED_VARIANT_GPU if nvidia else "cpu"
@@ -835,7 +855,7 @@ def get_install_presets() -> dict:
     missing optional ones are listed in "optional_missing". Local checks
     only (import specs, installed metadata, requirements files), no network."""
     offered = installable_packages()
-    mins = diagnostics.required_min_versions(_project_root())
+    mins = diagnostics.required_min_versions(default_project_root())
     names = set(offered) | {n for t in diagnostics.INSTALL_TASKS for n in t["packages"]}
     names |= set(diagnostics.OPTIONAL_DEPENDENCIES)    # versions for required ones too
     packages = {n: _package_info(n, _package_installed(n), offered, mins) for n in sorted(names)}
@@ -860,14 +880,13 @@ def get_install_presets() -> dict:
 
 
 def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
-    """Irreversible. Unlike the Streamlit button it does not cancel
-    running jobs; it refuses instead, so a caller must stop them first.
-    `confirm_text`, when given (the API always gives it), must be exactly
-    "RESET", the word the Streamlit button made the user type."""
+    """Irreversible. It does not cancel running jobs; it refuses instead,
+    so a caller must stop them first. `confirm_text`, when given (the API
+    always gives it), must be exactly "RESET"."""
     if confirm_text is not None and confirm_text != RESET_CONFIRM_TEXT:
         raise AdminActionUnconfirmed(
             f'Resetting the library needs confirm=true and confirm_text "{RESET_CONFIRM_TEXT}".')
-    _guard(confirm)
+    guard(confirm)
     # Hold the library exclusively for the reset, as a restore does, so no
     # job can start mid-reset (start_job refuses while the hold is taken).
     if not background_jobs.acquire_exclusive("Library reset"):
@@ -875,7 +894,7 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
             "A job, restore or cleanup is in progress; try again when it ends.")
     try:
         from services import library_admin_service
-        if library_admin_service._any_job_running():     # re-check under the hold
+        if library_admin_service.any_job_running():     # re-check under the hold
             raise AdminActionJobsRunning(
                 "A background job is running or queued; wait for it to finish.")
         # A finished job's thread can still be writing to the database it
@@ -891,8 +910,7 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Model cache delete (Q14) and saved bug bundles (list only; delete is
-# services/delete_service.delete_bug_bundle)
+# Model cache delete (Q14)
 # ---------------------------------------------------------------------------
 
 def _exclusive_delete(delete, failed: str):
@@ -904,7 +922,7 @@ def _exclusive_delete(delete, failed: str):
             "A job, restore, cleanup or install is in progress; try again when it ends.")
     try:
         from services import library_admin_service
-        if library_admin_service._any_job_running():     # re-check under the hold
+        if library_admin_service.any_job_running():     # re-check under the hold
             raise AdminActionJobsRunning(
                 "A background job is running or queued; wait for it to finish.")
         if not delete():
@@ -921,7 +939,7 @@ def delete_hf_revision(revision: str, confirm: bool = False) -> dict:
     if not isinstance(revision, str) or not any(
             e["revision"] == revision for e in diagnostics.scan_hf_cache()):
         raise NotFoundError("No cached model with that revision.")
-    _guard(confirm)
+    guard(confirm)
     _exclusive_delete(lambda: diagnostics.delete_hf_cache_revision(revision),
                       "Couldn't delete that model; see the log for details.")
     return {"deleted": True, "name": revision}
@@ -933,7 +951,7 @@ def delete_piper_voice(voice: str, confirm: bool = False) -> dict:
     if not isinstance(voice, str) or not any(
             e["voice"] == voice for e in diagnostics.scan_piper_voices()):
         raise NotFoundError("No downloaded voice with that name.")
-    _guard(confirm)
+    guard(confirm)
     _exclusive_delete(lambda: diagnostics.delete_piper_voice(voice),
                       "Couldn't delete that voice; see the log for details.")
     return {"deleted": True, "name": voice}
@@ -946,28 +964,7 @@ def delete_model_file(folder: str, name: str, confirm: bool = False) -> dict:
     if folder not in diagnostics.MODEL_FOLDERS or not isinstance(name, str) or not any(
             e["name"] == name for e in diagnostics.scan_model_folder(folder)):
         raise NotFoundError("No downloaded model file with that name.")
-    _guard(confirm)
+    guard(confirm)
     _exclusive_delete(lambda: diagnostics.delete_model_folder_entry(folder, name),
                       "Couldn't delete that model file; see the log for details.")
     return {"deleted": True, "name": name}
-
-
-def list_bug_bundles() -> list:
-    """Saved bug-reproduction bundles (a line's "What happened here?"
-    snapshot), newest first. The frozen input is not returned; outputs are
-    redacted."""
-    out = []
-    for b in db.list_bug_reports():
-        drama = db.get_drama(b["drama_id"])
-        title = (drama.get("title_en") or drama.get("title_zh")) if drama else None
-        out.append({
-            "id": b["id"], "drama_id": b["drama_id"], "drama_title": title,
-            "line_id": b.get("line_id"), "label": _redact(b.get("label") or ""),
-            "engine": b.get("engine"), "model": b.get("model"),
-            "produced_output": _redact(b.get("produced_output") or ""),
-            "replayed": bool(b.get("replayed")),
-            "replay_output": _redact(b["replay_output"]) if b.get("replay_output") else None,
-            "reproduced": bool(b.get("reproduced")) if b.get("replayed") else None,
-            "created_at": b.get("created_at"),
-        })
-    return out

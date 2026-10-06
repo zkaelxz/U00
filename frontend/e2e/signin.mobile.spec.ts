@@ -63,3 +63,24 @@ test('phone: signed-in header keeps the menu on the title row, 44 px targets, Si
   expect(s.logoutHeaders[0]['x-csrf-token']).toBe('phone-token')
   expect(s.unmocked).toEqual([])
 })
+
+test('signed in: the Menu button leads the header, replaces the cogwheel, and its drawer stays on screen', async ({ page }) => {
+  await mockAuth(page, ME.signedIn)
+  await page.goto('/#/library')
+  await expect(page.locator('summary[aria-label="Settings and tools"]')).toHaveCount(0)
+  const menu = page.getByRole('button', { name: 'Menu', exact: true })
+  await expect(menu).toBeVisible()
+  const mb = (await menu.boundingBox())!
+  expect(mb.width).toBeGreaterThanOrEqual(44)
+  expect(mb.height).toBeGreaterThanOrEqual(44)
+  await noSideways(page)
+  await maybeScreenshot(page, 'phone-header')
+  await menu.tap()
+  const drawer = page.getByRole('dialog', { name: 'Main menu' })
+  await expect(drawer).toBeVisible()
+  const box = (await drawer.boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await noSideways(page)
+  await maybeScreenshot(page, 'phone-menu-open')
+})

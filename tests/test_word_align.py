@@ -355,6 +355,31 @@ class TestRealignOversizedSegments:
         assert result[0]["text"] == "split1"
         assert result[1]["text"] == "split2"
 
+    def _three_long_segments(self, monkeypatch):
+        monkeypatch.setattr(word_align, "_check_dependencies", lambda: None)
+        monkeypatch.setattr(word_align, "load_aligner", lambda device="cpu": object())
+        monkeypatch.setattr(word_align, "realign_long_segment",
+                             lambda audio_path, seg, language, **k:
+                             [{**seg, "text": seg["text"] + "-a"}, {**seg, "text": seg["text"] + "-b"}])
+        return [{"start": i * 20.0, "end": i * 20.0 + 20.0, "text": f"s{i}"} for i in range(3)]
+
+    def test_progress_is_reported_per_oversized_segment(self, monkeypatch):
+        segments = self._three_long_segments(monkeypatch)
+        segments.insert(1, {"start": 20.0, "end": 22.0, "text": "short"})
+        calls = []
+        word_align.realign_oversized_segments(
+            segments, "/fake/audio.wav", "zh", progress_cb=lambda d, t: calls.append((d, t)))
+        assert calls == [(1, 3), (2, 3), (3, 3)]
+
+    def test_cancel_stops_before_the_third_and_keeps_earlier_work(self, monkeypatch):
+        segments = self._three_long_segments(monkeypatch)
+        done = []
+        result = word_align.realign_oversized_segments(
+            segments, "/fake/audio.wav", "zh",
+            progress_cb=lambda d, t: done.append(d), cancel_check=lambda: len(done) >= 2)
+        assert done == [1, 2]
+        assert [s["text"] for s in result] == ["s0-a", "s0-b", "s1-a", "s1-b", "s2"]
+
     def test_blank_segments_are_left_unchanged_even_if_long(self, monkeypatch):
         monkeypatch.setattr(word_align, "_check_dependencies", lambda: None)
         called = []
@@ -431,3 +456,26 @@ class TestAlignerLoadedOncePerRun:
         for _ in range(3):
             word_align.align_words("/fake.wav", ["a", "b"], aligner=loaded)
         assert calls == [1]
+
+
+class TestRealignLongSegmentLanguage:
+    def test_segment_language_overrides_the_title_language(self, monkeypatch):
+        seen = []
+
+        def segmenter(text, language, chinese_script="simplified"):
+            seen.append(language)
+            return [("こんにちは", None), ("世界", None)]
+        monkeypatch.setattr(segment_module, "segment_and_annotate", segmenter)
+        monkeypatch.setattr(word_align, "align_words",
+                            lambda *a, **k: [("こんにちは", 0.0, 1.0), ("世界", 1.0, 2.0)])
+        monkeypatch.setattr("core.extract_audio_slice", lambda *a, **k: None)
+        segment = {"start": 0.0, "end": 20.0, "text": "こんにちは世界", "lang": "ja"}
+        result = word_align.realign_long_segment("/fake/audio.wav", segment, "zh")
+        assert seen == ["ja"]
+        assert [r.get("lang") for r in result] == ["ja"]
+
+    def test_english_segment_is_left_unsplit(self, monkeypatch):
+        monkeypatch.setattr(segment_module, "segment_and_annotate",
+                            lambda *a, **k: pytest.fail("no CJK segmenter applies to English"))
+        segment = {"start": 0.0, "end": 20.0, "text": "hello there everyone", "lang": "en"}
+        assert word_align.realign_long_segment("/fake/audio.wav", segment, "zh") == [segment]

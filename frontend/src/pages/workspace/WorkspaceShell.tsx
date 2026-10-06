@@ -1,14 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { getWorkflowProgress } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
+import { Breadcrumbs } from '../../nav/BreadcrumbNav'
+import { routeCrumbs } from '../../nav/breadcrumbs'
 import { routeHref } from '../../router'
 import { isComicType } from '../comic/comicLogic'
 import type { WorkflowProgress } from '../../types/workspace'
 import { STAGE_COMPONENTS } from './stageRegistry'
-import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, stageStates, startStage } from './stages'
+import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, nextAction, stageStates, startStage } from './stages'
+import { JobPill } from './JobPill'
 import { StageContext, type StageContextValue } from './StageContext'
 import { useDrama } from './useDrama'
 import './workspace.css'
@@ -38,11 +42,18 @@ function useProgress(id: number, reloadKey: unknown) {
   return state
 }
 
+// Tabs that can show a count get its width reserved so the tabs never shift when progress loads.
+const COUNTED_STAGES: readonly string[] = ['translate', 'review']
+
 function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const { drama, error, refetch } = useDrama(id)
   const { progress, opened } = useProgress(id, drama)
   const active = stage !== null ? startStage(stage, null, false) : opened
   const states = stageStates(progress?.stages)
+  const phone = useMediaQuery('(max-width: 640px)')
+  const next = nextAction(active, progress)
+  // On Review the phone's fixed edit bar owns the bottom edge, so the bar stays away.
+  const nextHref = next ? routeHref({ name: 'drama', id, stage: next.stage }) : null
   const Stage = active ? STAGE_COMPONENTS[active] : null
 
   const ctx = useMemo<StageContextValue | null>(
@@ -50,10 +61,28 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     [id, drama, refetch],
   )
 
+  // The sticky strip's height is --bar-h, which Review's own sticky toolbar
+  // and side card offset from so they sit below the strip, not under it.
+  const sectionRef = useRef<HTMLElement>(null)
+  const stripRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const section = sectionRef.current
+    const strip = stripRef.current
+    if (!section || !strip) return
+    const apply = () => section.style.setProperty('--bar-h', `${strip.offsetHeight}px`)
+    apply()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(apply)
+    ro.observe(strip)
+    return () => ro.disconnect()
+  }, [])
+
   const title = drama ? drama.title_en || drama.title_zh || `Drama #${id}` : `Drama #${id}`
 
   return (
-    <section className="workspace" aria-label={`Drama ${id} workspace`}>
+    <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Drama ${id} workspace`}>
+      <Breadcrumbs crumbs={routeCrumbs({ name: 'drama', id, stage }, { title, stage: active })} />
+      <div className="ws-strip" ref={stripRef}>
       <header className="workspace-header">
         <ButtonLink href={routeHref({ name: 'library' })} variant="ghost" size="sm" className="ws-back" aria-label="Back to Library">
           <span aria-hidden="true">‹</span>
@@ -75,6 +104,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
             </span>
           )}
         </div>
+        <JobPill dramaId={id} onFinished={refetch} />
         {drama && (
           <ButtonLink
             href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id, page: null })}
@@ -85,8 +115,12 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
             Read
           </ButtonLink>
         )}
+        {next && nextHref && !phone && (
+          <ButtonLink href={nextHref} variant="primary" size="sm" className="ws-next" data-testid="next-action">
+            Next: {next.label}
+          </ButtonLink>
+        )}
       </header>
-      <ErrorBanner error={error} />
       <nav className="stage-tabs" aria-label="Stages">
         {STAGE_IDS.map((s) => {
           const st = states[s]
@@ -101,28 +135,45 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
               data-state={st}
               title={desc ? `${STAGE_LABELS[s]}: ${desc}` : undefined}
             >
-              {st && (
+              {st ? (
                 <span className="stage-mark" aria-hidden="true">
                   {st === 'done' ? '✓' : st === 'current' ? '●' : '○'}
                 </span>
+              ) : (
+                <span className="stage-mark-slot" aria-hidden="true">○</span>
               )}
-              <span className="stage-label">{STAGE_LABELS[s]}</span>
+              <span className="stage-label" data-label={STAGE_LABELS[s]}>{STAGE_LABELS[s]}</span>
               {st === 'blocked' && <span className="visually-hidden"> (blocked)</span>}
-              {count && (
+              {count ? (
                 <span className="stage-count" aria-hidden="true">
                   · {count}
                 </span>
+              ) : (
+                COUNTED_STAGES.includes(s) && <span className="stage-count stage-count-slot" aria-hidden="true" />
               )}
             </a>
           )
         })}
       </nav>
+      </div>
+      <ErrorBanner error={error} />
       {ctx && Stage ? (
         <StageContext.Provider value={ctx}>
           <Stage />
         </StageContext.Provider>
       ) : (
-        !error && <p className="muted">Loading…</p>
+        !error && (
+          <div className="skeleton-block ws-skeleton" role="status" aria-busy="true">
+            <span className="visually-hidden">Loading…</span>
+          </div>
+        )
+      )}
+      {next && nextHref && phone && active !== 'review' && (
+        <div className="ws-next-bar">
+          <ButtonLink href={nextHref} variant="primary" className="ws-next" data-testid="next-action">
+            Next: {next.label}
+          </ButtonLink>
+        </div>
       )}
     </section>
   )

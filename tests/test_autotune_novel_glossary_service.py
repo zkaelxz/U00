@@ -170,7 +170,6 @@ def fake_engine(monkeypatch):
 class TestNovelGlossary:
     def test_paid_exposure(self, isolated_db):
         assert gs.PAID_ENGINE_FUNCTIONS == ("start_novel_glossary_run", "start_lines_glossary_run")
-        assert gs.spends_on_paid_engine("claude") and not gs.spends_on_paid_engine("ollama")
         did, _ = _novel_drama(isolated_db, engine="deepseek")
         assert gs.novel_glossary_engine(did) == "deepseek"
 
@@ -234,7 +233,7 @@ class TestNovelGlossary:
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a: None)
         with pytest.raises(DependencyUnavailableError):
             gs.start_novel_glossary_run(did)
-        did2, _ = _novel_drama(isolated_db, engine="deepl")
+        did2, _ = _novel_drama(isolated_db, engine="nllb")
         with pytest.raises(UnsupportedOperationError):
             gs.start_novel_glossary_run(did2)
 

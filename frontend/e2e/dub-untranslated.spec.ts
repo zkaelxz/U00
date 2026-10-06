@@ -1,4 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // U01: the Dub stage of a novel-narration drama warns about lines with no
 // English yet, worded for the chosen narration language. Config, narration
@@ -26,7 +31,7 @@ async function mockAll(page: Page, opts: { untranslated?: number; progressStatus
     route.fulfill({
       json: {
         drama_id: 1, is_narration: true, has_novel_source: true,
-        engines: [{ key: 'test_offline', key_configured: true }], default_engine: 'test_offline',
+        engines: [{ key: 'fake', key_configured: true }], default_engine: 'fake',
         max_chunk_chars: 500, existing_line_count: 5, replaces_existing_lines: true, job_running: false,
       },
     }))
@@ -106,7 +111,7 @@ test.describe('phone', () => {
     expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
     const box = await note.getByRole('link', { name: 'Go to Translate' }).boundingBox()
     expect(box).not.toBeNull()
-    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(note.getByRole('link', { name: 'Go to Translate' }))).toBeGreaterThanOrEqual(44)
     expect(box!.x + box!.width).toBeLessThanOrEqual(390)
     if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/dub-untranslated-phone.png`, fullPage: true })
   })

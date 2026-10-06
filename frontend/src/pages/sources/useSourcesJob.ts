@@ -7,7 +7,7 @@
  *
  * Polls GET /api/sources/jobs/{id}/result every 1.5 s. On mount (and when
  * the id changes) it looks once: running -> keeps polling, done -> shows the
- * stored result, 404 -> idle. A failed job answers with its mapped error
+ * stored result, status "idle" -> idle. A failed job answers with its mapped error
  * (400/404/409/503), which ends polling. A network failure (status 0) or a
  * 500 is retried up to 3 times with backoff; after that a lost connection
  * reads "Lost contact with the API." and a 500 shows the server's error.
@@ -22,13 +22,13 @@ import { getSourcesJobResult } from '../../api/sources'
 import type { SourcesJobResult, SourcesJobStarted } from '../../types/sources'
 import { isSameJobConflict } from './sourcesFormat'
 
-export type SourcesJobStatus = 'idle' | 'running' | 'done' | 'error'
+type SourcesJobStatus = 'idle' | 'running' | 'done' | 'error'
 
 export const LOST_CONTACT = 'Lost contact with the API.'
-export const POLL_MS = 1500
-export const MAX_RETRIES = 3
+const POLL_MS = 1500
+const MAX_RETRIES = 3
 
-export interface PollHandlers<R> {
+interface PollHandlers<R> {
   fetchResult?: (id: string) => Promise<SourcesJobResult<R>>
   intervalMs?: number
   onUpdate: (r: SourcesJobResult<R>) => void
@@ -52,6 +52,15 @@ export function pollSourcesJob<R>(id: string, h: PollHandlers<R>): () => void {
       const r = await fetchResult(id)
       if (stopped) return
       failures = 0
+      if (r.status === 'idle') {
+        // Never ran is the normal first answer. After a run was seen, the
+        // job vanished (API restart): the same error the 404 used to be.
+        if (!seen) {
+          h.onIdle()
+          return
+        }
+        throw new ApiError(404, { code: 'not_found', message: 'No such job.' })
+      }
       seen = true
       h.onUpdate(r)
       if (r.status !== 'running' && r.status !== 'queued') return
@@ -105,7 +114,7 @@ const idle = <R>(id: string): JobState<R> => ({
 export const isStartedHere = (startedId: string | null, jobId: string | null) =>
   startedId !== null && startedId === jobId
 
-export interface SourcesJobOptions {
+interface SourcesJobOptions {
   // A start's 409 for this same job id reattaches to the running run (search).
   // Off for series: the id is per source, so the running run may be another
   // series; the 409 is then left in `startError` for the page to explain.

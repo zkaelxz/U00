@@ -39,7 +39,7 @@ def env(tmp_path, monkeypatch, isolated_db):
     earlier test in this worker can't queue an event into this test; the
     tests that exercise the hook ask for `job_hook` as well."""
     path = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(path))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
     for names in list(ns.ENV_VARS.values()) + [(ns.ALLOW_LOCAL_NTFY_ENV,), (ns.DISABLED_ENV,),
                                                (settings_service.API_PORT_ENV,), (settings_service.HOUSEHOLD_PORT_ENV,)]:
         for n in names:
@@ -198,8 +198,8 @@ def test_ipv6_loopback_is_refused_without_the_opt_in(env):
 
 
 @pytest.mark.parametrize("url", [
-    "http://127.0.0.1:8501/t", "http://127.0.0.1:8600/t", "http://127.0.0.1:8756/t",
-    "https://127.0.0.2:8756/t", "http://localhost:8600/t", "http://app.localhost:8501/t",
+    "http://127.0.0.1:8600/t", "http://127.0.0.1:8756/t",
+    "https://127.0.0.2:8756/t", "http://localhost:8600/t", "http://app.localhost:8600/t",
     "http://[::1]:8756/t", "http://[::ffff:127.0.0.1]:8756/t", "http://127.0.0.1:9123/t"])
 def test_local_ntfy_never_targets_baihe_own_ports(env, monkeypatch, url):
     env.write_text(f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n")
@@ -265,6 +265,8 @@ def test_message_has_kind_title_outcome_only(env):
     assert ns.build_message("Sources series (C:\\Users\\kae\\secret)", "done") == \
         "Finished: Sources series"
     assert ns.build_message(None, "error") == "Failed: Background job"
+    assert ns.build_message(f"Translation (drama #{did})", "done", with_errors=True).startswith(
+        "Finished with errors: Translation")
     assert ns.build_message("Translation (drama #99999)", "done") == "Finished: Translation"
     zh = db.create_drama(title_zh="月光花园")
     assert ns.build_message(f"Dub generation (drama #{zh})", "done") == \
@@ -355,7 +357,7 @@ def test_local_ntfy_only_when_opted_in(env, dns, posts):
 
 def test_local_name_resolving_to_loopback_on_a_baihe_port_is_refused(env, dns, posts):
     dns["ntfy.lan"] = ["127.0.0.1"]
-    for port in (8501, 8600, 8756):
+    for port in (8600, 8756):
         env.write_text(f"{ns.ENV_VARS['ntfy'][0]}=http://ntfy.lan:{port}/topic\n"
                        f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n")
         assert ns._deliver("x")["ntfy"] == "refused"

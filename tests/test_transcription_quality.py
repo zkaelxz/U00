@@ -66,13 +66,9 @@ class TestWhisperSettings:
         assert entry == "batched"
         assert kwargs["no_repeat_ngram_size"] == 3 and kwargs["vad_filter"] is True
 
-    def test_large_v3_turbo_is_offered_but_flagged_for_japanese_and_korean(self):
+    def test_large_v3_turbo_is_offered_without_a_japanese_korean_weakness_claim(self):
         assert "large-v3-turbo" in core.WHISPER_MODELS
-        assert "weaker on Japanese/Korean" in core.WHISPER_MODELS["large-v3-turbo"]
-        assert core.whisper_model_warning("large-v3-turbo", "ja")
-        assert core.whisper_model_warning("large-v3-turbo", "ko")
-        assert core.whisper_model_warning("large-v3-turbo", "zh") == ""
-        assert core.whisper_model_warning("large-v3", "ja") == ""
+        assert "weaker" not in core.WHISPER_MODELS["large-v3-turbo"]
 
 
 class _Unit:
@@ -111,6 +107,8 @@ class TestForcedAlignerReliability:
                          _Unit("再", 3.0, 3.0), _Unit("见", 3.0, 3.0)]]
         monkeypatch.setattr(fa, "_extract_audio_slice", lambda a, s, e, out: open(out, "wb").close())
         monkeypatch.setattr(fa, "load_qwen3_aligner", lambda use_gpu=False: Aligner())
+        # Repair would fix this input; disable it to exercise the fallback.
+        monkeypatch.setattr(fa, "_repair_unit_spans", lambda spans, lo, hi: spans)
 
         result = fa.align_with_qwen3("/fake.wav", user_lines, whisper_segments, language="zh")
         assert (result[0].start, result[0].end, result[0].flag) == (0.0, 2.0, None)
@@ -302,3 +300,31 @@ class TestSenseVoiceTags:
         # sarcasm sounding happy isn't a contradiction; sad text read as happy is
         assert [r["disagree"] for r in rows] == [False, True]
 
+
+
+class TestSensevoiceCancelAndTimeout:
+    def test_tag_lines_checks_cancel_per_line_and_slices_with_a_timeout(self, monkeypatch):
+        import core
+        import sensevoice_tags as sv
+        from core import Line
+        _fake_funasr(monkeypatch, {})
+        slices = []
+        monkeypatch.setattr(core, "extract_audio_slice",
+                            lambda *a, **k: slices.append(k) or a[3])
+
+        class Stop(Exception):
+            pass
+
+        def cancel():
+            if slices:
+                raise Stop()
+        lines = [Line(idx=i, start=i, end=i + 1, zh="x", id=i + 1) for i in range(3)]
+        with pytest.raises(Stop):
+            sv.tag_lines("a.wav", lines, cancel_check=cancel)
+        assert len(slices) == 1
+
+    def test_slice_default_timeout_is_finite(self):
+        import inspect
+        import core
+        assert inspect.signature(core.extract_audio_slice).parameters["timeout"].default \
+            == core.SLICE_TIMEOUT_SECONDS

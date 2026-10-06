@@ -551,14 +551,14 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
 
     max_seconds: a hard stop -- once this much wall-clock time has passed
     since the call began, capture stops as if Stop were pressed. None
-    means no limit (the Streamlit tab's behavior).
+    means no limit.
 
     stream_url_check: optional callable run on the stream URL yt-dlp
     resolved, before ffmpeg opens it; it raises to refuse (the API checks
     scheme and public host). protocol_whitelist is passed to
     start_segment_capture. proxy is passed to both resolve_stream_url and
-    start_segment_capture. All default to None (the Streamlit tab's
-    behavior).
+    start_segment_capture. All default to None (no check, ffmpeg's default
+    protocols, no proxy).
     """
     overlap_seconds = max(0.0, min(float(overlap_seconds or 0), segment_seconds / 2))
     my_generation = bump_generation(job_id)

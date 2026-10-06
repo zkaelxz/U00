@@ -11,9 +11,7 @@ mode), an optional PNG/JPEG screenshot, and server-side facts added here
 
 Stored as files, not in the database, under
 `<library>/bug_reports/<UTC timestamp>_<n>/`: `report.json`, `report.md`
-and `screenshot.png`/`.jpg`. The existing "bug bundles" (db.bug_reports,
-debug_view.save_bug_bundle) are a different thing -- a frozen per-line
-translation input for replay -- and are not reused.
+and `screenshot.png`/`.jpg`. The old db.bug_reports table is unrelated and no longer written.
 
 Every stored string passes `_scrub`: translate_engines.redact_secrets and
 diagnostics.redact_for_support (OS user name, absolute paths), plus
@@ -23,7 +21,7 @@ routes and API paths are not filesystem paths, so they keep their shape
 unless they look like one. Screenshot metadata (EXIF, XMP, PNG text
 chunks) is stripped. Nothing returned here contains a filesystem path.
 
-No Streamlit import, no HTTP types.
+No HTTP types.
 """
 
 import datetime

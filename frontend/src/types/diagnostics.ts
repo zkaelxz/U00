@@ -1,4 +1,4 @@
-// Mirrors api/schemas.py DiagnosticsOverview and its parts.
+// Mirrors api/schemas/system.py DiagnosticsOverview and its parts.
 
 export interface DependencyStatus {
   installed: boolean
@@ -37,7 +37,7 @@ export interface DiagnosticsOverview {
   recent_log_lines: string[]
 }
 
-// Mirrors api/schemas.py Diagnostics* (API batch 1: /api/diagnostics/...).
+// Mirrors api/schemas/system.py Diagnostics* (/api/diagnostics/...).
 // Found/version/name only; never a path, a token or a key.
 
 export interface DiagnosticsSetupChecks {
@@ -45,9 +45,12 @@ export interface DiagnosticsSetupChecks {
   // libass: built with libass (burned-in subtitles); null/absent = unknown.
   ffmpeg: { found: boolean; version: string | null; libass?: boolean | null }
   js_runtime: { found: boolean; name: string | null }
+  browser?: { found: boolean; name: string | null }
   cuda: { torch_installed: boolean; cuda_available: boolean | null }
   files: { all_present: boolean; missing_top_level: string[]; missing_tabs: string[] }
   library_writable: boolean
+  // Non-blocking heads-ups (old yt-dlp, package conflicts); fixed short text, no paths.
+  warnings?: string[]
 }
 
 export interface DiagnosticsHfCacheEntry {
@@ -87,19 +90,6 @@ export interface DiagnosticsPyannoteReadiness {
   // null: not checked, or huggingface_hub is not installed.
   models: { model: string; accessible: boolean }[] | null
   ready: boolean
-}
-
-export interface DiagnosticsJobHistoryItem {
-  job_id: string
-  label: string
-  status: string | null
-  description: string | null
-  message: string
-  error: string | null
-  gpu_touching: boolean
-  started_at: number | null
-  finished_at: number | null
-  duration_seconds: number | null
 }
 
 export interface DiagnosticsLogTail {
@@ -150,7 +140,7 @@ export interface DiagnosticsInstallTask {
   required_missing?: string[]
   // Missing required + recommended: what "Install for this task" installs.
   to_install: string[]
-  // Missing optional extras, installed one by one from Missing packages.
+  // Missing optional extras, installed one by one from its task row.
   optional_missing?: string[]
   approx_mb: number
 }
@@ -243,27 +233,6 @@ export interface DiagnosticsCacheDeleteResult {
   name: string
 }
 
-// GET /api/diagnostics/bug-bundles: saved "What happened here?" snapshots.
-export interface DiagnosticsBugBundle {
-  id: number
-  drama_id: number
-  drama_title: string | null
-  line_id: number | null
-  label: string
-  engine: string | null
-  model: string | null
-  produced_output: string
-  replayed: boolean
-  replay_output: string | null
-  reproduced: boolean | null
-  created_at: string | null
-}
-
-export interface BugBundleDeleteResult {
-  bundle_id: number
-  deleted: boolean
-}
-
 // GET /api/diagnostics/remote-health: the last scheduled remote-access check
 // (services/remote_health_service.py). States, whole days, Unix times and
 // fixed messages only: never the public name, an address or a URL.
@@ -273,6 +242,20 @@ export type RemoteCheckState = RemoteHealthState | 'not_configured'
 export interface RemoteHealthCheck {
   state: RemoteCheckState
   message: string
+}
+
+/** GET /api/diagnostics/ports (PC only): numbers, flags and fixed text. */
+export interface PortEntry {
+  key: 'api' | 'household' | 'extension' | 'https'
+  label: string
+  /** null while the household listener is off. */
+  port: number | null
+  active: boolean
+  how_to_change: string
+}
+
+export interface PortsOverview {
+  ports: PortEntry[]
 }
 
 export interface RemoteHealth {

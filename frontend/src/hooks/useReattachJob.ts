@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { getJob } from '../api/jobs'
 import { TERMINAL_STATUSES, type JobRecord } from '../types/jobs'
 
-export interface ReattachOptions {
+interface ReattachOptions {
   fetchJob?: (id: string) => Promise<JobRecord>
   // Called with the first id (in list order) whose job is still queued or running.
   attach: (id: string) => void
@@ -12,7 +12,7 @@ export interface ReattachOptions {
 // Queued or running, and not a record a dead process left "running" (the
 // server flags those as `stale`, on its own clock, so a device clock that is
 // off can't hide a live job or revive a dead one).
-export function isLiveJob(job: JobRecord): boolean {
+function isLiveJob(job: JobRecord): boolean {
   return !TERMINAL_STATUSES.includes(job.status) && !job.stale
 }
 

@@ -5,7 +5,7 @@ import { getFilterOptions, searchLines } from '../api/library'
 import type { DramaSummary } from '../api/types'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useMediaQuery } from '../hooks/useMediaQuery'
-import { languageLabel, mediaTypeLabel, statusLabel } from '../labels'
+import { languageLabel, mediaTypeLabel, statusLabel, tagLabel } from '../labels'
 import { lineNumber } from '../lineNumber'
 import { MAX_SELECTION, selectAllVisible, toggleId } from '../pages/libraryAdmin/libraryAdmin'
 import { MEDIA_TYPES, SOURCE_LANGUAGES } from '../pages/libraryForm'
@@ -23,7 +23,7 @@ import { countDramas, dramaName, readHref, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { buttonClass } from './uiClasses'
 
-// Same choices the Streamlit Library tab offers.
+// Status and quick-filter choices; '' means no filter.
 const STATUSES = ['', 'not started', 'aligned', 'translated', 'dubbed', 'exported']
 const QUICK_FILTERS = ['', 'Favorite', 'On Hold', 'Plan to Translate']
 
@@ -177,7 +177,7 @@ export function LibraryList({
           </select>
           <select aria-label="Quick filter" value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)}>
             {QUICK_FILTERS.map((q) => (
-              <option key={q} value={q}>{q || 'All lists'}</option>
+              <option key={q} value={q}>{q ? tagLabel(q) : 'All lists'}</option>
             ))}
           </select>
         </div>}

@@ -1,6 +1,6 @@
 """
 services/url_guard.py -- the one public-address check for server-side
-fetches of a user- or site-supplied URL (B-25).
+fetches of a user- or site-supplied URL.
 
 `resolve_public(url)` accepts http(s) URLs only (no userinfo) whose host
 resolves, and whose EVERY resolved address is global: private, loopback,
@@ -9,9 +9,10 @@ refused before any connection. It returns the first validated address so
 the caller can pin its connection to it.
 
 Callers: `services.metadata_service._check_public_url` (and through it
-`services.safe_fetch`), `sources.http._requests_transport`, which
-re-validates every redirect hop, and `services.egress_proxy`, which checks
-every connection ffmpeg and yt-dlp make during live capture. Error
+`services.safe_fetch`), `sources.http._requests_transport` and
+`page_fetch.fetch_static`, which re-validate every redirect hop, and
+`services.egress_proxy`, which checks every connection ffmpeg and yt-dlp
+make during live capture. Error
 messages are fixed strings with no URL, host or IP in them.
 
 Standard library only, so `sources/` can import it without pulling in the
@@ -24,6 +25,8 @@ from urllib.parse import urlsplit
 NOT_PUBLIC = "The address is not a public web address."
 BAD_URL = "The address must be a valid http:// or https:// URL."
 RESOLVE_FAILED = "The address could not be resolved."
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_SIXTOFOUR = ipaddress.ip_network("2002::/16")
 
 
 class UnsafeURLError(ValueError):
@@ -62,7 +65,9 @@ def resolve_public(url: str) -> str:
             raise UnsafeURLError(NOT_PUBLIC) from None
         if getattr(ip, "ipv4_mapped", None):
             ip = ip.ipv4_mapped
-        if not ip.is_global:
+        # Python reports both as global, yet they tunnel to arbitrary IPv4
+        # hosts (including private ones) through a gateway.
+        if not ip.is_global or ip in _NAT64 or ip in _SIXTOFOUR:
             raise UnsafeURLError(NOT_PUBLIC)
         if pinned is None:
             pinned = raw_ip

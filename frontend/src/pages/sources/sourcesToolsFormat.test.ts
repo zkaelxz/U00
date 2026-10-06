@@ -45,7 +45,7 @@ describe('site check', () => {
     expect(preflightTone(pf({ ok: false, permitted: false }))).toBe('danger')
   })
   it('facts', () => {
-    expect(preflightFacts(pf())).toEqual(['novel', 'via static http', '1,200 characters', 'confidence high'])
+    expect(preflightFacts(pf())).toEqual(['Novel', 'via static http', '1,200 characters', 'confidence high'])
     expect(preflightFacts(pf({ content_type: 'unknown', tier: '', text_chars: 0, images: 1, confidence: '' }))).toEqual(['1 image'])
   })
 })
@@ -71,7 +71,7 @@ describe('extractions', () => {
     resource_types: [], reason: '', lines: [],
   }
   it('meta and access lines', () => {
-    expect(extractionMeta(row)).toBe('novel · AI calls: 1 (cached result reused) · confidence high')
+    expect(extractionMeta(row)).toBe('Novel · AI calls: 1 (cached result reused) · confidence high')
     expect(extractionAccess(row)).toEqual([
       'Authentication: none',
       'Entitlement/purchase: unknown',

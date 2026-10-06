@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
+import { openSettingsGroups } from './settingsNav'
 
 // Diagnostics admin sections and Settings > Browser extension (desktop).
 // Every install, upgrade, reset and extension POST is mocked; a catch-all
@@ -58,13 +59,18 @@ async function guard(page: Page): Promise<string[]> {
 }
 
 async function mockPage(page: Page, o: { jobs?: unknown[]; setup?: unknown; stats?: unknown } = {}) {
+  // No task groups here, so a missing package is installed one by one from "Not installed".
+  await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: { tasks: [], packages: {} } }))
   await page.route('**/api/diagnostics', (r) => r.fulfill({ json: overview }))
   await page.route('**/api/diagnostics/setup-checks', (r) => r.fulfill({ json: o.setup ?? setup() }))
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: o.jobs ?? [], count: (o.jobs ?? []).length } }))
   if (o.stats) await page.route('**/api/library/stats', (r) => r.fulfill({ json: o.stats }))
 }
 
-const openSection = (page: Page, title: RegExp) => page.locator('summary', { hasText: title }).first().click()
+const openSection = async (page: Page, title: RegExp) => {
+  const summary = page.locator('summary', { hasText: title }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+}
 
 test('keeps the testids, hides Jobs when empty, and opens Setup on a problem', async ({ page }) => {
   const unmocked = await guard(page)
@@ -73,16 +79,15 @@ test('keeps the testids, hides Jobs when empty, and opens Setup on a problem', a
   const summary = page.getByTestId('diagnostics-summary')
   await expect(summary.locator('.pill')).toHaveText(['1 setup problem', '2 of 4 packages', 'No jobs running'])
   await expect(summary.locator('.pill').first()).toHaveClass(/pill-warn/)
-  // Setup is an always-open card; the problem sorts first with a Problem badge.
+  // Setup opens by itself on a problem; the problem sorts first with a Problem badge.
   const setupRows = page.getByTestId('setup-rows')
   await expect(setupRows).toBeVisible()
-  await expect(setupRows.locator('li').first()).toContainText('ffmpeg')
-  await expect(setupRows.locator('li').first()).toContainText('ffmpeg not found')
+  await expect(setupRows.locator('li').first()).toContainText('FFmpeg')
+  await expect(setupRows.locator('li').first()).toContainText('FFmpeg not found')
   await expect(setupRows.locator('li').first().locator('.pill')).toHaveText('Problem')
-  await expect(page.getByTestId('setup-summary')).toHaveText('1 problem: ffmpeg')
+  await expect(page.getByTestId('setup-summary')).toHaveText('1 problem: FFmpeg')
   await expect(page.getByTestId('dependency-panel')).toHaveCount(1)
-  await expect(page.getByTestId('job-list')).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: 'Jobs' })).toHaveCount(0)
+  await expect(page.getByTestId('jobs-summary')).toHaveCount(0)
   const header = await summary.boundingBox()
   expect(header!.height).toBeLessThan(40) // one line of badges
   expect(unmocked).toEqual([])
@@ -106,7 +111,6 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   })
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Missing packages/)
   await openSection(page, /^Danger zone/)
 
   await page.getByRole('button', { name: 'Install yt-dlp' }).click()
@@ -154,7 +158,6 @@ test('install errors: 409 shows the server sentence, 404 the unknown-package lin
   }))
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Missing packages/)
   await page.getByRole('button', { name: 'Install yt-dlp' }).click()
   await page.getByRole('button', { name: 'Confirm install yt-dlp' }).click()
   await expect(page.getByRole('alert')).toHaveText('A background job is running or queued; wait for it to finish.')
@@ -164,25 +167,37 @@ test('install errors: 409 shows the server sentence, 404 the unknown-package lin
   expect(unmocked).toEqual([])
 })
 
-test('a running job blocks install and reset with a reason, and Jobs stays open', async ({ page }) => {
+test('a running job blocks install and reset with a reason, and a banner links to Jobs', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, {
     jobs: [job()],
     stats: { total_dramas: 3, total_lines: 10, by_status: {}, by_media_type: {}, translated_lines: 0, usage: {} },
   })
-  await page.route('**/api/jobs/translate_1/cancel', (r) =>
-    r.fulfill({ json: { job_id: 'translate_1', cancel_requested: true, status: 'running' } }))
   await page.goto('/#/diagnostics')
   await expect(page.getByTestId('diagnostics-summary')).toContainText('1 job running')
-  await expect(page.getByTestId('job-list')).toBeVisible()
-  await expect(page.getByTestId('job-list')).toContainText('Running 40%')
+  const banner = page.getByTestId('jobs-summary')
+  await expect(banner).toContainText('1 running')
+  await expect(banner.getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '#/jobs')
+  // The table, Cancel and Delete moved to the Jobs page.
+  await expect(page.getByTestId('job-list')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Cancel Translate/ })).toHaveCount(0)
   await openSection(page, /^Packages/)
   await expect(page.getByTestId('dependency-panel')).toContainText('Wait for running jobs to finish before installing.')
   await openSection(page, /^Danger zone/)
   await expect(page.locator('.danger-zone')).toContainText('Stop running jobs first (see Jobs above).')
   await page.getByLabel(/Type RESET to confirm/).fill('RESET')
   await expect(page.getByRole('button', { name: 'Reset library' })).toBeDisabled()
-  await page.getByRole('button', { name: 'Cancel' }).click()
+  expect(unmocked).toEqual([])
+})
+
+test('without jobs the summary is hidden; with finished ones it is a quiet line and a link', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, { jobs: [job({ status: 'done', finished_at: 2, progress: 1 })] })
+  await page.goto('/#/diagnostics')
+  const summary = page.getByTestId('jobs-summary')
+  await expect(summary).toContainText('None running')
+  await expect(summary).not.toHaveClass(/banner/)
+  await expect(summary.getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '#/jobs')
   expect(unmocked).toEqual([])
 })
 
@@ -232,13 +247,13 @@ test('away from the PC: no install, reset or extension controls and no extension
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Missing packages/)
   await expect(page.getByTestId('dependency-panel')).toContainText('Installing is PC only.')
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
   await openSection(page, /^Danger zone/)
   await expect(page.locator('.danger-zone')).toContainText('Run this on the main PC.')
 
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('PC only')
   await expect(ext).toContainText('Run this on the main PC.')
@@ -278,7 +293,6 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   await openSection(page, /^Packages/)
   const panel = page.getByTestId('dependency-panel')
   await expect(panel).toContainText('Checking whether this is the main PC…')
-  await openSection(page, /^Missing packages/)
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
   await openSection(page, /^Danger zone/)
   await expect(page.locator('.danger-zone')).toContainText('Checking whether this is the main PC…')
@@ -292,87 +306,11 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
 
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext).toContainText("Couldn't confirm this is the main PC.")
   await page.waitForTimeout(300)
   expect(extensionCalls).toEqual([])
-  expect(unmocked).toEqual([])
-})
-
-const REPORT = [
-  'Python: 3.12.4',
-  'Library writable: True',
-  'Model/engine versions:',
-  '  - faster-whisper: 1.1.0',
-  'Recent errors:',
-  '  12:01 ERROR boom',
-].join('\n')
-
-test('support report: one press builds and copies it; the preview reads as rows', async ({ page, context }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  const unmocked = await guard(page)
-  await mockPage(page)
-  let builds = 0
-  await page.route('**/api/diagnostics/support-report', (r) => {
-    builds += 1
-    return r.fulfill({ json: { report: REPORT } })
-  })
-  await page.goto('/#/diagnostics')
-  const card = page.getByRole('region', { name: 'Copy a report for a bug' })
-  await expect(card.getByRole('heading', { name: 'Copy a report for a bug' })).toBeVisible()
-  expect(builds).toBe(0) // nothing is built until asked
-  await expect(card.locator('.btn-primary')).toHaveCount(1)
-
-  await card.getByRole('button', { name: 'Copy report' }).click()
-  await expect(card.getByTestId('report-note')).toHaveText('Copied. Paste it into your bug report.')
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(REPORT)
-  expect(builds).toBe(1)
-
-  // The preview is a fold: rows, the engine list nested, errors in mono; plain text one press away.
-  await card.locator('summary', { hasText: "What's in it" }).click()
-  const list = card.getByTestId('report-list')
-  await expect(list.locator('.report-row', { hasText: 'Library writable' }).locator('dd')).toHaveText('Yes')
-  await expect(list.locator('.report-row', { hasText: 'Model/engine versions' })).toContainText('faster-whisper 1.1.0')
-  await expect(list.locator('.report-items.mono')).toHaveText('12:01 ERROR boom')
-  const summaryEl = card.locator('summary', { hasText: "What's in it" })
-  await expect(summaryEl).toBeFocused() // opening it keeps focus (no re-mount)
-  const plain = card.getByRole('button', { name: 'Plain text' })
-  await expect(plain).toHaveAttribute('aria-pressed', 'false')
-  await plain.click()
-  await expect(card.locator('pre')).toHaveText(REPORT)
-  await expect(plain).toHaveAttribute('aria-pressed', 'true')
-
-  const download = page.waitForEvent('download')
-  await card.getByRole('button', { name: 'Download .txt' }).click()
-  expect((await download).suggestedFilename()).toMatch(/^baihe-support-report-\d{4}-\d{2}-\d{2}\.txt$/)
-  expect(builds).toBe(2) // each copy or download is a fresh report
-  expect(unmocked).toEqual([])
-})
-
-test('support report: a failed build shows the error, and no clipboard falls back to selected text', async ({ page }) => {
-  const unmocked = await guard(page)
-  await mockPage(page)
-  let fail = true
-  await page.route('**/api/diagnostics/support-report', (r) => fail
-    ? r.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'boom' } } })
-    : r.fulfill({ json: { report: REPORT } }))
-  await page.addInitScript(() => {
-    // Plain http on another device with no clipboard API, and the
-    // execCommand fallback refused too: nothing can copy.
-    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
-    document.execCommand = () => false
-  })
-  await page.goto('/#/diagnostics')
-  const card = page.getByRole('region', { name: 'Copy a report for a bug' })
-  await card.getByRole('button', { name: 'Copy report' }).click()
-  await expect(card.getByRole('alert')).toBeVisible()
-  await expect(card.getByTestId('report-note')).toHaveText('')
-
-  fail = false
-  await card.getByRole('button', { name: 'Copy report' }).click()
-  await expect(card.getByTestId('report-note')).toHaveText('Press Ctrl+C to copy.')
-  await expect(card.locator('pre')).toHaveText(REPORT)
-  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(REPORT)
   expect(unmocked).toEqual([])
 })
 
@@ -409,8 +347,9 @@ test('check access asks online only when pressed and links to the terms', async 
     } })
   })
   await page.goto('/#/diagnostics')
-  await expect(page.locator('summary', { hasText: 'Speaker detection' })).toContainText('Ready')
-  await openSection(page, /^Speaker detection/)
+  await expect(page.locator('summary', { hasText: /^Setup/ })).toContainText('All 6 OK') // folded: nothing is wrong
+  await openSection(page, /^Setup/)
+  await expect(page.getByTestId('pyannote-summary')).toHaveText('Ready')
   await page.getByRole('button', { name: 'Check access online' }).click()
   await expect(page.getByText('pyannote/speaker-diarization-3.1: terms not accepted')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Accept terms ↗' })).toHaveAttribute(
@@ -426,7 +365,7 @@ test('check access says why when huggingface_hub is missing', async ({ page }) =
     pyannote_installed: true, hf_token_configured: true, ready: true, models: null,
   } }))
   await page.goto('/#/diagnostics')
-  await openSection(page, /^Speaker detection/)
+  await openSection(page, /^Setup/)
   await expect(page.getByText("Can't check: huggingface_hub isn't installed.")).toHaveCount(0)
   await page.getByRole('button', { name: 'Check access online' }).click()
   await expect(page.getByText("Can't check: huggingface_hub isn't installed.")).toBeVisible()
@@ -448,6 +387,7 @@ test('extension: summary, two-step token reveal, never stored, Hide clears it', 
     return r.fulfill({ json: { enabled: true, running: true, restart_needed: false } })
   })
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('Off · still running until Baihe restarts')
   // The status is the Card's meta line, next to the switch.
@@ -482,7 +422,7 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
   await page.route('**/api/extension/status', (r) => r.fulfill({ json: { enabled: true, running: true } }))
   const engines = [
     { name: 'claude', label: 'Claude', free: false, models: ['claude-sonnet-5', 'claude-opus-4-8'], key_configured: false },
-    { name: 'deepl', label: 'DeepL', free: false, models: null, key_configured: true },
+    { name: 'nllb', label: 'NLLB', free: false, models: null, key_configured: true },
   ]
   let current: Record<string, unknown> = { engine: null, model: null, ready: false, engines }
   const saves: unknown[] = []
@@ -490,13 +430,14 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
     if (r.request().method() === 'POST') {
       const body = r.request().postDataJSON() as { engine: string | null; model: string | null }
       saves.push(body)
-      current = { ...current, ...body, ready: body.engine === 'deepl' }
+      current = { ...current, ...body, ready: body.engine === 'nllb' }
     }
     return r.fulfill({ json: current })
   })
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
-  const picker = ext.getByRole('combobox', { name: 'Translate pages with' })
+  const picker = ext.getByRole('combobox', { name: 'Translation engine' })
   await expect(picker).toHaveValue('')
   await expect(ext.getByTestId('extension-engine-note')).toHaveText(
     'No engine: pages come back with their original text only.')
@@ -508,14 +449,14 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
   await ext.getByRole('combobox', { name: 'Model' }).selectOption('claude-opus-4-8')
   await expect(ext.getByRole('combobox', { name: 'Model' })).toHaveValue('claude-opus-4-8')
 
-  await picker.selectOption('deepl')
+  await picker.selectOption('nllb')
   await expect(ext.getByTestId('extension-engine-note')).toHaveText(
-    'Pages are translated with DeepL. The key stays on this PC.')
+    'Pages are translated with NLLB. The key stays on this PC.')
   await expect(ext.getByRole('combobox', { name: 'Model' })).toHaveCount(0)
   expect(saves).toEqual([
     { engine: 'claude', model: null },
     { engine: 'claude', model: 'claude-opus-4-8' },
-    { engine: 'deepl', model: null },
+    { engine: 'nllb', model: null },
   ])
   expect(unmocked).toEqual([])
 })

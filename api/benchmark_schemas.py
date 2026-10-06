@@ -1,17 +1,18 @@
 """
 api/benchmark_schemas.py -- request/response models for the Benchmark Lab
-routes (api/routers/benchmark_routes.py, Step 38). Kept out of
-api/schemas.py so the step could be built alongside other branches editing
-that file; the shared ErrorResponse still lives there. No key, path or
-file name field exists on any model.
+routes (api/routers/benchmark_routes.py). No key, path or file
+name field exists on any model.
 """
 
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core import SOURCE_LANGUAGES
+
 Stage = Literal["translation", "transcription", "ocr"]
 Tier = Literal["public", "application", "regression"]
+SourceLanguage = Literal[SOURCE_LANGUAGES]
 
 
 class _Strict(BaseModel):
@@ -54,7 +55,7 @@ class BenchmarkCaseCreate(_Strict):
     label: str = Field(max_length=120)
     source_text: str = Field(max_length=4000)
     reference_text: Optional[str] = Field(default=None, max_length=4000)
-    source_language: Literal["zh", "ja", "ko"] = "zh"
+    source_language: SourceLanguage = "zh"
     tier: Tier = "application"
     set_name: str = Field(default="", max_length=60)
 
@@ -73,7 +74,7 @@ class BenchmarkImportRequest(_Strict):
     text: str = Field(max_length=2_000_000)
     format: Literal["jsonl", "tsv"] = "jsonl"
     tier: Tier = "public"
-    source_language: Literal["zh", "ja", "ko"] = "zh"
+    source_language: SourceLanguage = "zh"
 
 
 class BenchmarkImportResult(BaseModel):
@@ -199,6 +200,8 @@ class BenchmarkEngineOption(BaseModel):
     label: str
     free: bool
     models: Optional[List[str]] = None
+    # Label for an offered model that has no built-in entry (id -> text).
+    model_labels: Dict[str, str] = Field(default_factory=dict)
     key_configured: bool
 
 

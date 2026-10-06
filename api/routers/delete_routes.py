@@ -5,8 +5,7 @@ api/routers/delete_routes.py -- the PC-only deletes that had no API yet
 
 Every route is a POST, declared `local_only()` (deletes are PC-only, see
 docs/remote-access-decision.md), and needs `{"confirm": true}` in the body
-(422 otherwise), matching the Streamlit Confirm checkbox each one had. No
-typed confirmation word: none of these buttons asked for one. The paths sit
+(422 otherwise). No typed confirmation word. The paths sit
 under the prefix of the resource they delete; they live in their own router
 so the owning routers stay unchanged.
 """
@@ -14,7 +13,7 @@ so the owning routers stay unchanged.
 from fastapi import APIRouter, Path
 
 from api.auth import local_only
-from api.schemas import (BugBundleDeleteResult, DeleteConfirm, ErrorResponse,
+from api.schemas import (DeleteConfirm, ErrorResponse,
                          MediaRemoveResult, PresetDeleteResult, RawNovelRemoveResult, ReadingHistoryClearResult,
                          SeriesCharacterDeleteResult, TranslationVersionDeleteResult,
                          VoiceBankDeleteResult)
@@ -56,13 +55,6 @@ def delete_version(body: DeleteConfirm, drama_id: int = _id(), version_id: int =
              responses=_ERRS, summary="Delete a series character (confirm=true)")
 def delete_series_character(body: DeleteConfirm, series_id: int = _id(), character_id: int = _id()):
     return svc.delete_series_character(series_id, character_id, confirm=body.confirm)
-
-
-@router.post("/diagnostics/bug-bundles/{bundle_id}/delete", dependencies=[local_only()],
-             response_model=BugBundleDeleteResult, responses=_ERRS,
-             summary="Delete a saved bug-reproduction bundle (confirm=true)")
-def delete_bug_bundle(body: DeleteConfirm, bundle_id: int = _id()):
-    return svc.delete_bug_bundle(bundle_id, confirm=body.confirm)
 
 
 @router.post("/library/presets/{preset_id}/delete", dependencies=[local_only()],

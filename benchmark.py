@@ -98,7 +98,7 @@ def run_translation_case(case: dict, engine):
     known-good translation}.
 
     Runs the given engine's own translate_batch() -- whichever engine the
-    caller picked (Claude/DeepSeek/Gemini/etc, or NLLB, or test_offline),
+    caller picked (Claude/DeepSeek/Gemini/etc, or NLLB),
     exactly the call every real translated line in this app goes through.
     """
     started = time.monotonic()
@@ -184,7 +184,7 @@ def run_suite(cases: list, stage: str, **kwargs):
 
 def compare_configs(case: dict, stage: str, configs: list):
     """
-    Step 24: runs ONE case through each config back to back, for a
+    Runs ONE case through each config back to back, for a
     side-by-side view. configs: [(label, kwargs), ...] -- e.g. two
     translation engines, two OCR backends, two Whisper sizes.
 

@@ -8,17 +8,18 @@ import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { useReattachJob } from '../../../hooks/useReattachJob'
 import type { MediaStatus } from '../../../types/workspace'
+import { Section } from '../../../components/Section'
+import { writeSectionOpen } from '../../../components/sectionStorage'
+import { wantsAutofill } from '../../libraryParity/libraryParity'
+import { mediaKind } from '../detailsForm'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
-import { checkUploadFile, sourceJobIds } from '../sourceForm'
+import { checkUploadFile, sourceJobIds, UPLOAD_EXTENSIONS } from '../sourceForm'
 import { useStage } from '../StageContext'
-import { CreditsCoverPanel } from './CreditsCoverPanel'
-import { DetailsPanel, SourceModePanel } from './DetailsPanel'
-import { AnalyzePanel, AutofillPanel } from './MetadataPanel'
-import { ResearchPanel } from './ResearchPanel'
+import { DetailsPanel } from './DetailsPanel'
+import { FillInPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
-import { NovelGlossary } from './NovelGlossary'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
@@ -32,14 +33,44 @@ export default function SourceStage() {
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null)
   const [reloads, setReloads] = useState(0)
-  // Bumped when the transcript mode changes so the Transcribe panel re-reads its config.
-  const [modeVersion, setModeVersion] = useState(0)
   const pc = usePcOnly()
   const [removeError, setRemoveError] = useState<unknown>(null)
   // "Upload a file" or "From a URL", remembered per viewer.
   const [from, setFrom] = usePersistedState<'file' | 'url'>('source.mediaFrom', 'file')
   const fromUrl = from === 'url'
+
+  // Arriving from Library "Create and auto-fill" must show the Auto-fill panel,
+  // which lives in the collapsed "Details and credits" group's Fill in details fold.
+  useState(() => {
+    if (wantsAutofill(window.location.hash)) {
+      try {
+        writeSectionOpen(window.localStorage, 'source.group.details', true)
+      } catch {
+        // storage unavailable: the group stays closed
+      }
+    }
+  })
+  // Buttons next to a "Still needed" line reveal the section that resolves it.
+  const [revealDetails, setRevealDetails] = useState(0)
+  const [revealMedia, setRevealMedia] = useState(0)
+  const addCredits = () => {
+    setRevealDetails((n) => n + 1)
+    setTimeout(() => {
+      const el = document.querySelector<HTMLElement>('[aria-label="Edit details"] input[name="author"]')
+      el?.scrollIntoView({ block: 'center' })
+      el?.focus()
+    }, 50)
+  }
+  const needMedia = () => {
+    setRevealMedia((n) => n + 1)
+    setTimeout(() => {
+      const el = document.getElementById(mediaFileInputId(dramaId))
+      el?.scrollIntoView({ block: 'center' })
+      el?.focus()
+    }, 50)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -115,7 +146,7 @@ export default function SourceStage() {
           <Badge tone={media.has_source_video ? 'ok' : 'neutral'}>
             {media.has_source_video ? 'Source video attached' : 'No source video'}
           </Badge>
-          <span className="muted">limit {media.upload_max_mb} MB</span>
+          <span className="muted">Limit {media.upload_max_mb} MB</span>
         </p>
       )}
       <div className="segmented source-from" role="radiogroup" aria-label="Get audio or video">
@@ -148,7 +179,7 @@ export default function SourceStage() {
             type="file"
             id={mediaFileInputId(dramaId)}
             aria-label="Audio or video file"
-            accept=".mp3,.wav,.m4a,.flac,.ogg,.mp4,.mkv,.mov,.webm"
+            accept={UPLOAD_EXTENSIONS.join(',')}
             disabled={!media}
             onChange={(e) => pick(e.target.files?.[0] ?? null)}
           />
@@ -177,20 +208,45 @@ export default function SourceStage() {
     </>
   )
 
+  // The workflow for the drama's media type comes first and opens by default.
+  const kind = mediaKind(drama.media_type)
+  const transcribe = (
+    <Section
+      key="transcribe"
+      storageKey="source.group.transcribe"
+      defaultOpen={kind === 'audio'}
+      openSignal={revealMedia}
+      title="Transcribe audio or video"
+      summary={hasMedia ? 'audio attached' : 'upload or download a file'}
+    >
+      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy}
+        onJobStarted={(id, expected) => {
+          setExpectedSeconds(expected ?? null)
+          setJobId(id)
+        }}
+      />
+    </Section>
+  )
+  const novel = (
+    <div key="novel" className="source-group">
+      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} />
+    </div>
+  )
+  const groups = kind === 'audio' ? [transcribe, novel] : [novel, transcribe]
+
   return (
     <div className="stage-source">
-      <TranscribeStage key={modeVersion} mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
-      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} />
-      <section className="panel" aria-label="Glossary from novel">
-        <NovelGlossary title="Glossary from novel" storageKey="source.glossary.novel" />
-      </section>
-      <SourceModePanel onSaved={() => setModeVersion((n) => n + 1)} />
-      <DetailsPanel />
-      <CreditsCoverPanel />
-      <AutofillPanel />
-      <ResearchPanel />
-      <AnalyzePanel hasMedia={hasMedia} />
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      {groups}
+      <Section
+        storageKey="source.group.details"
+        openSignal={revealDetails}
+        title="Details and credits"
+        summary={`${drama.title_en || drama.title_zh || `#${dramaId}`} · credits, cover, fill in`}
+      >
+        <DetailsPanel openSignal={revealDetails} onAddCredits={addCredits} />
+        <FillInPanel hasMedia={hasMedia} onNeedMedia={needMedia} />
+      </Section>
+      {jobId && <JobPanel job={job} pollError={pollError} liveEta={jobId.startsWith('transcribe_')} expectedSeconds={expectedSeconds} />}
     </div>
   )
 }

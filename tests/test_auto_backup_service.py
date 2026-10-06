@@ -243,7 +243,7 @@ def _seed_world():
 
 
 # From the spec, deliberately not read from the module under test.
-SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results"}
+SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results", "speaker_merge_undos"}
 LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
 PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
@@ -604,7 +604,8 @@ class TestDueCheck:
         def boom():
             raise RuntimeError("db gone")
         monkeypatch.setattr(abs_, "get_settings", boom)
-        assert abs_.check_and_run() == "busy"
+        assert abs_.check_and_run() == "error"
+        assert abs_._get_state()["last_error"] == abs_._CHECK_FAILED
 
     def test_real_scheduled_run_then_not_due(self, isolated_db):
         a = db.create_drama(title_en="A")
@@ -1590,9 +1591,10 @@ def test_child_tables_cover_every_fk_to_dramas(isolated_db):
         fk_tables = {t for t in _tables(c)
                      for fk in c.execute(f'PRAGMA foreign_key_list("{t}")')
                      if fk["table"] == "dramas"}
-    assert fk_tables == set(abs_._CHILD_TABLES) | set(abs_._SKIPPED_TABLES)
-    assert not set(abs_._CHILD_TABLES) & set(abs_._SKIPPED_TABLES)
-    assert set(abs_._SKIPPED_TABLES) == {"usage_log", "bulk_jobs", "metadata_research_results"}
+    assert fk_tables == set(abs_.CHILD_TABLES) | set(abs_._SKIPPED_TABLES)
+    assert not set(abs_.CHILD_TABLES) & set(abs_._SKIPPED_TABLES)
+    assert set(abs_._SKIPPED_TABLES) == {"usage_log", "bulk_jobs", "metadata_research_results",
+                                            "speaker_merge_undos"}
 
 
 class TestRestoreRoundTrip:
@@ -1613,7 +1615,8 @@ class TestRestoreRoundTrip:
         assert res["drama_id"] == a and res["restored_as_new"] is False
         assert res["title"] == "Alpha" and res["media_restored"] is False
         assert res["snapshot_kind"] == "db-only"
-        assert res["skipped_tables"] == ["bulk_jobs", "metadata_research_results", "usage_log"]
+        assert res["skipped_tables"] == ["bulk_jobs", "metadata_research_results",
+                                         "speaker_merge_undos", "usage_log"]
         # P2 is gone, so its profile rows are not restored
         for t in PROFILE_TABLES:
             expected[t] = [r for r in expected[t] if "'P2'" not in r]
@@ -1934,7 +1937,7 @@ class TestRestoreMedia:
             fh.write(b"B")
         _snap(include_media=True)
         _delete_drama(a)
-        armed, real_move = [], abs_._move_media_in
+        armed, real_move = [], abs_.move_media_in
 
         def move(*args, **kw):
             real_move(*args, **kw)
@@ -1946,7 +1949,7 @@ class TestRestoreMedia:
                 armed.clear()
                 raise sqlite3.OperationalError("disk I/O error")
             return sqlite3.Connection.commit(self)
-        monkeypatch.setattr(abs_, "_move_media_in", move)
+        monkeypatch.setattr(abs_, "move_media_in", move)
         monkeypatch.setattr(db._TrackedConnection, "commit", commit, raising=False)
         with pytest.raises(ServiceError):
             _restore(a)
@@ -2006,7 +2009,7 @@ class TestRestoreRejectsUnsafeSnapshot:
         self._assert_refused(self._craft(extra))
 
     def test_too_many_drama_members(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(las, "_RESTORE_MAX_MEMBERS", 6)
+        monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 6)
         a = self._craft(lambda a: [(f"dramas/{a}/f{i}.txt", b"x") for i in range(10)])
         self._assert_refused(a)
 
@@ -2031,8 +2034,8 @@ class TestRestoreRejectsUnsafeSnapshot:
         """The whole-zip caps (expanded total, member count, member size)
         still apply to validate_backup_file's default (an upload); only
         the app's own snapshot skips them (check_limits=False)."""
-        a = self._craft(lambda a: [(f"dramas/{a}/bomb.bin", b"\0" * 20_000_000)] +
-                        [(f"dramas/{a}/f{i}", b"x") for i in range(10)])
+        self._craft(lambda a: [(f"dramas/{a}/bomb.bin", b"\0" * 20_000_000)] +
+                    [(f"dramas/{a}/f{i}", b"x") for i in range(10)])
         path = _default_path()
         assert os.path.getsize(path) < 2_000_000   # compresses hard
         las.validate_backup_file(path, check_disk=False)   # within the real caps
@@ -2048,12 +2051,12 @@ class TestRestoreRejectsUnsafeSnapshot:
                 with pytest.raises(InvalidInputError):
                     las.validate_backup_zip(fh.read())
         with monkeypatch.context() as m:   # member count
-            m.setattr(las, "_RESTORE_MAX_MEMBERS", 5)
+            m.setattr(las, "RESTORE_MAX_MEMBERS", 5)
             with pytest.raises(InvalidInputError):
                 las.validate_backup_file(path, check_disk=False)
             las.validate_backup_file(path, check_disk=False, check_limits=False)
         with monkeypatch.context() as m:   # one member too large
-            m.setattr(wjs, "_MAX_RESTORE_MEMBER_BYTES", 10_000_000)
+            m.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 10_000_000)
             with pytest.raises(InvalidInputError):
                 las.validate_backup_file(path, check_disk=False)
             las.validate_backup_file(path, check_disk=False, check_limits=False)
@@ -2070,8 +2073,8 @@ class TestRestoreRejectsUnsafeSnapshot:
         for i in range(8):
             with open(os.path.join(_ddir(a), f"f{i}.bin"), "wb") as fh:
                 fh.write(b"\0" * 50_000)
-        monkeypatch.setattr(las, "_RESTORE_MAX_MEMBERS", 3)
-        monkeypatch.setattr(wjs, "_MAX_RESTORE_MEMBER_BYTES", 10_000)
+        monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 3)
+        monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 10_000)
         monkeypatch.setattr(las, "_RESTORE_MIN_TOTAL_BYTES", 0)
         monkeypatch.setattr(las, "_RESTORE_EXPANSION_FACTOR", 1)
         monkeypatch.setattr(las, "_library_size", lambda: 0)
@@ -2079,7 +2082,7 @@ class TestRestoreRejectsUnsafeSnapshot:
         assert abs_._get_state()["last_error"] is None
         assert abs_.snapshot_info()["kind"] == "full"
         _delete_drama(a)
-        monkeypatch.setattr(las, "_RESTORE_MAX_MEMBERS", 100)
+        monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 100)
         res = _restore(a)
         assert res["media_restored"] and len(os.listdir(_ddir(a))) == 8
 
@@ -2191,7 +2194,7 @@ class TestTombstoneSweep:
                 raise OSError("in use")
         with monkeypatch.context() as m:
             m.setattr(drama_service, "shutil", NoRmtree)
-            assert drama_service._hard_delete_drama(a) is True   # leftover folder
+            assert drama_service.hard_delete_drama(a) is True   # leftover folder
         tombs = [n for n in os.listdir(db.DRAMAS_DIR) if ".deleting-" in n]
         assert len(tombs) == 1
         # the in-flight/leftover tombstone is fresh, so the sweep leaves it
@@ -2969,3 +2972,66 @@ class TestSeriesIdReuse:
         assert res["series"] == "dropped_private"
         assert db.get_drama(a)["series_id"] is None
         assert _series_rows() == before
+
+
+class TestSharedBackupHelpers:
+    """The directory flush and the restore free-space check are shared with
+    db and library_admin_service; these pin how this module uses them."""
+
+    @staticmethod
+    def _snapshot(tmp_path):
+        path = tmp_path / "snap.zip"
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("dramas/7/a.txt", b"x" * 100)
+        return zipfile.ZipFile(path)
+
+    def test_stage_media_checks_the_dramas_folder_with_the_margin(self, isolated_db, tmp_path,
+                                                                  monkeypatch):
+        usage = collections.namedtuple("usage", "total used free")
+        asked = []
+        free = 100 + las.RESTORE_DISK_MARGIN_BYTES - 1
+        monkeypatch.setattr(las.shutil, "disk_usage",
+                            lambda p: (asked.append(p), usage(1, 1, free))[1])
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with self._snapshot(tmp_path) as zf:
+            with pytest.raises(InvalidInputError, match="disk space"):
+                abs_.stage_media(zf, 7, str(staging))
+            assert asked == [db.DRAMAS_DIR]
+            assert list(staging.iterdir()) == []
+            free += 1
+            folder = abs_.stage_media(zf, 7, str(staging))
+        assert _read_bytes(os.path.join(folder, "a.txt")) == b"x" * 100
+
+    def test_stage_media_goes_ahead_when_free_space_is_unreadable(self, isolated_db, tmp_path,
+                                                                 monkeypatch):
+        def unreadable(path):
+            raise OSError("not reported")
+        monkeypatch.setattr(las.shutil, "disk_usage", unreadable)
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        with self._snapshot(tmp_path) as zf:
+            folder = abs_.stage_media(zf, 7, str(staging))
+        assert _read_bytes(os.path.join(folder, "a.txt")) == b"x" * 100
+
+    def test_one_directory_flush_for_backups_and_the_media_journal(self, tmp_path, monkeypatch):
+        assert abs_._fsync_dir is db.fsync_dir
+        flushed = []
+        monkeypatch.setattr(db, "fsync_dir", flushed.append)
+        db.write_media_journal(str(tmp_path), {})
+        assert flushed == [str(tmp_path)]
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX-only directory flush")
+    def test_directory_flush_raises_for_a_missing_folder(self, tmp_path):
+        db.fsync_dir(str(tmp_path))
+        with pytest.raises(OSError):
+            db.fsync_dir(str(tmp_path / "missing"))
+
+    def test_directory_flush_is_skipped_off_posix(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db.os, "name", "nt")
+        db.fsync_dir(str(tmp_path / "missing"))     # no OSError: nothing is opened
+
+
+def _read_bytes(path):
+    with open(path, "rb") as fh:
+        return fh.read()

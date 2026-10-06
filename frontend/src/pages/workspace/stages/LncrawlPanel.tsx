@@ -20,7 +20,7 @@ interface Props {
   onImported?: () => void
 }
 
-// Step 115b: shown only when the user-installed lightnovel-crawler program is
+// Shown only when the user-installed lightnovel-crawler program is
 // found on the PC (GET /api/novel/lncrawl), and never on another device.
 export function LncrawlPanel({ mode, onImported }: Props) {
   const { dramaId } = useStage()
@@ -98,7 +98,7 @@ export function LncrawlPanel({ mode, onImported }: Props) {
         <input type="url" inputMode="url" spellCheck={false} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" />
       </Field>
       <div className="epub-range">
-        <Field label="Chapters" help="lightnovel-crawler can download all chapters, the first few or the latest few. Up to about 2 million characters of text can be attached, so for a very long novel pick the first or latest few.">
+        <Field label="Chapters" help="The lightnovel-crawler program can download all chapters, the first few or the latest few. Up to about 2 million characters of text can be attached, so for a very long novel pick the first or latest few.">
           <select value={chapters} onChange={(e) => setChapters(e.target.value as LncrawlChapters)}>
             <option value="all">All chapters</option>
             <option value="first">First…</option>

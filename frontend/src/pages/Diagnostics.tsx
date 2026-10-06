@@ -1,67 +1,50 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { getDiagnostics, getJobHistory, getModelCache, getSetupChecks } from '../api/diagnostics'
-import { cancelJob, listJobs } from '../api/jobs'
+import { getDiagnostics, getModelCache, getSetupChecks } from '../api/diagnostics'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
-import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RemoteHealthLine } from '../components/RemoteHealthBanner'
-import { statusTone } from '../components/labels'
-import { Section } from '../components/Section'
-import { buttonClass } from '../components/uiClasses'
-import { useEventStream } from '../hooks/useEventStream'
-import { useMediaQuery } from '../hooks/useMediaQuery'
+import { useJobs } from '../hooks/useJobs'
+import type { JobRecord } from '../types/jobs'
 import { usePcOnly } from '../hooks/usePcOnly'
-import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
-import type {
-  DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks,
-} from '../types/diagnostics'
-import { offersCancel, type JobRecord } from '../types/jobs'
-import { AuditLogSection } from './diagnostics/AuditLogSection'
-import { BugBundlesSection } from './diagnostics/BugBundlesSection'
-import { BugReportsSection } from './diagnostics/BugReportsSection'
+import type { DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks } from '../types/diagnostics'
 import { DangerZone } from './diagnostics/DangerZone'
 import { DenoInstall } from './diagnostics/DenoInstall'
-import { JobHistorySection } from './diagnostics/JobHistorySection'
 import { LogSection } from './diagnostics/LogSection'
 import { ModelHealthCard } from './diagnostics/ModelHealthCard'
-import { ModelCacheSection } from './diagnostics/ModelCacheSection'
 import { PackagesSection } from './diagnostics/PackagesSection'
-import { PyannoteSection } from './diagnostics/PyannoteSection'
+import { PortsSection } from './diagnostics/PortsSection'
 import { SetupSection } from './diagnostics/SetupSection'
-import { SupportReportSection } from './diagnostics/SupportReportSection'
-import { UsersSection } from './diagnostics/UsersSection'
-import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
+import { headerBadges, installableEngines, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
-import { formatDuration, isActive, jobDetail, jobStatusLine, splitDependencies, statusLabel, upsertJob } from './diagnosticsFormat'
+import { isActive, jobsSummary, splitDependencies } from './diagnosticsFormat'
 
 const POLL_MS = 3000
 
 export default function DiagnosticsPage() {
   const pc = usePcOnly()
-  const remoteAdmin = isRemoteAdmin(useSession())
+  const { jobs, error: jobsError, polling, reload: refreshJobs } = useJobs()
   const [overview, setOverview] = useState<DiagnosticsOverview | null>(null)
   const [setup, setSetup] = useState<DiagnosticsSetupChecks | null>(null)
   const [checking, setChecking] = useState(false)
-  const [jobs, setJobs] = useState<JobRecord[] | null>(null)
-  const [history, setHistory] = useState<DiagnosticsJobHistoryItem[] | null>(null)
   const [cache, setCache] = useState<DiagnosticsModelCache | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [now, setNow] = useState(() => Date.now() / 1000)
   // One install, upgrade or reset at a time; every admin button waits for it.
   const [adminBusy, setAdminBusy] = useState<AdminBusy>(null)
   const [packagesOpen, setPackagesOpen] = useState(false)
   const [dangerOpen, setDangerOpen] = useState(false)
-
-  const refreshJobs = useCallback(async () => {
-    try {
-      setJobs((await listJobs()).items)
-      setNow(Date.now() / 1000)
-    } catch (e) {
-      setError(e)
-    }
+  // Bumped by the "model engines are in Setup" links in Packages and Model health.
+  const [enginesSignal, setEnginesSignal] = useState(0)
+  const showEngines = useCallback(() => {
+    setEnginesSignal((n) => n + 1)
+    // After the fold has opened.
+    requestAnimationFrame(() => {
+      const h = document.getElementById('diag-model-engines')
+      h?.scrollIntoView({ block: 'start' })
+      h?.focus({ preventScroll: true })
+    })
   }, [])
 
   const refreshSetup = useCallback(() => {
@@ -75,74 +58,33 @@ export default function DiagnosticsPage() {
     })
   }, [])
 
-  const refreshHistory = useCallback(() => {
-    getJobHistory().then(setHistory, () => undefined)
-  }, [])
-
   const refreshCache = useCallback(() => {
     getModelCache().then(setCache, () => undefined)
   }, [])
 
   useEffect(() => {
     refreshSetup()
-    refreshHistory()
     refreshCache()
-  }, [refreshSetup, refreshHistory, refreshCache])
-
-  // Job changes are pushed (GET /api/events); the list is read once at the
-  // start and after every (re)connect.
-  const stream = useEventStream((type, data) => {
-    const pushed = data as Partial<JobRecord> | null
-    if (!pushed?.job_id || (type !== 'job' && type !== 'job_gone')) return
-    setJobs((cur) => (cur === null ? cur : type === 'job' ? upsertJob(cur, pushed as JobRecord) : cur.filter((j) => j.job_id !== pushed.job_id)))
-    setNow(Date.now() / 1000)
-  })
-  useEffect(() => {
-    listJobs().then((r) => {
-      setJobs(r.items)
-      setNow(Date.now() / 1000)
-    }, setError)
-  }, [stream.syncs])
+  }, [refreshSetup, refreshCache])
 
   const active = jobs !== null && jobs.some((j) => isActive(j.status))
   const running = jobs?.filter((j) => isActive(j.status)).length ?? 0
   // While the stream is down: poll while a job runs, and while Packages or
   // the Danger zone is open (their buttons wait for running jobs).
-  const watch = stream.mode === 'poll' && (active || packagesOpen || dangerOpen)
+  const watch = polling && (active || packagesOpen || dangerOpen)
   useEffect(() => {
     if (!watch) return
     const t = setInterval(() => void refreshJobs(), POLL_MS)
     return () => clearInterval(t)
   }, [watch, refreshJobs])
-  // Elapsed times keep counting while a job runs, with or without polls.
-  useEffect(() => {
-    if (!active) return
-    const t = setInterval(() => setNow(Date.now() / 1000), POLL_MS)
-    return () => clearInterval(t)
-  }, [active])
-  // A job just finished: it moves to the history.
-  useEffect(() => {
-    if (!active) refreshHistory()
-  }, [active, refreshHistory])
-
-  const cancel = async (id: string) => {
-    try {
-      await cancelJob(id)
-      setError(null)
-    } catch (e) {
-      setError(e)
-    }
-    await refreshJobs()
-  }
-
-  const afterReset = useCallback(() => {
-    void refreshJobs()
-    refreshHistory()
-  }, [refreshJobs, refreshHistory])
+  const afterReset = useCallback(() => void refreshJobs(), [refreshJobs])
 
   const setupProblems = setup ? setupRows(setup, overview?.gpu ?? null).filter((r) => r.problem).length : null
   const deps = overview ? splitDependencies(overview.dependencies) : null
-  // Running or failed jobs get a card at the top; finished ones a fold with the others.
+  const installable = new Set(overview
+    ? installableEngines(overview.model_engine_versions, Object.keys(overview.dependencies)).map((m) => m.name)
+    : [])
+  // Running or failed jobs put the summary at the top as a banner; otherwise it sits with the other folds.
   const jobsUrgent = !!jobs && jobs.some((j) => isActive(j.status) || j.status === 'error')
   const badges = headerBadges(setupProblems, deps?.installed.length ?? null,
     overview ? Object.keys(overview.dependencies).length : null, jobs ? running : null, adminBusy)
@@ -154,23 +96,32 @@ export default function DiagnosticsPage() {
         <p className="page-meta pill-row" data-testid="diagnostics-summary">
           {badges.length ? badges.map((b) => <Badge key={b.key} tone={b.tone}>{b.text}</Badge>) : 'Loading…'}
         </p>
-        <p className="page-meta">
+        <div className="diag-lab-link">
           <ButtonLink href={routeHref({ name: 'benchmark' })} variant="secondary" size="sm">
             Benchmark Lab
-          </ButtonLink>{' '}
-          Test engines and prompts against golden sets.
-        </p>
+          </ButtonLink>
+          <p className="page-meta">Test engines and prompts against golden sets.</p>
+        </div>
         <RemoteHealthLine />
       </header>
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <ErrorBanner error={error ?? jobsError} onDismiss={() => setError(null)} />
 
-      {jobs && jobsUrgent && <JobsBlock jobs={jobs} now={now} remoteAdmin={remoteAdmin} onCancel={(id) => void cancel(id)} />}
+      {jobs && jobsUrgent && <JobsSummary jobs={jobs} urgent />}
 
       {setup ? (
         <SetupSection
           checks={setup}
           gpu={overview?.gpu ?? null}
           engines={overview?.model_engine_versions ?? []}
+          installable={installable}
+          cache={cache}
+          pc={pc}
+          jobsActive={active}
+          busy={adminBusy}
+          onBusy={setAdminBusy}
+          openSignal={enginesSignal}
+          onInstalled={refreshSetup}
+          onCacheChanged={refreshCache}
           checking={checking}
           onRecheck={() => {
             setChecking(true)
@@ -184,12 +135,10 @@ export default function DiagnosticsPage() {
         !error && <p className="muted">Loading…</p>
       )}
 
-      <ModelHealthCard pc={pc} />
-
-      <SupportReportSection />
+      <ModelHealthCard pc={pc} onShowEngines={showEngines} />
 
       <div className="diag-folds">
-        {jobs && jobs.length > 0 && !jobsUrgent && <JobsBlock jobs={jobs} now={now} remoteAdmin={remoteAdmin} onCancel={(id) => void cancel(id)} />}
+        {jobs && jobs.length > 0 && !jobsUrgent && <JobsSummary jobs={jobs} urgent={false} />}
         {overview && (
           <PackagesSection
             overview={overview}
@@ -200,16 +149,11 @@ export default function DiagnosticsPage() {
             onChanged={refreshSetup}
             onOpenChange={setPackagesOpen}
             onJobStarted={() => void refreshJobs()}
+            onShowEngines={showEngines}
           />
         )}
-        <PyannoteSection />
-        <ModelCacheSection cache={cache} pc={pc} onChanged={refreshCache} />
-        <JobHistorySection items={history} />
+        <PortsSection pc={pc} />
         <LogSection />
-        <BugReportsSection pc={pc} />
-        <BugBundlesSection pc={pc} />
-        <UsersSection pc={pc} />
-        <AuditLogSection />
       </div>
 
       <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset} onOpenChange={setDangerOpen} />
@@ -217,90 +161,12 @@ export default function DiagnosticsPage() {
   )
 }
 
-/** Jobs: a card while one is running or failed; otherwise a collapsed Section. */
-function JobsBlock({ jobs, now, remoteAdmin, onCancel }: { jobs: JobRecord[]; now: number; remoteAdmin: boolean; onCancel: (id: string) => void }) {
-  const phone = useMediaQuery('(max-width: 640px)')
-  const cancellable = (j: JobRecord) => isActive(j.status) && offersCancel(j, remoteAdmin)
-  const body = phone
-    ? <JobCards jobs={jobs} now={now} cancellable={cancellable} onCancel={onCancel} />
-    : <JobTable jobs={jobs} now={now} cancellable={cancellable} onCancel={onCancel} />
-  const urgent = jobs.some((j) => isActive(j.status) || j.status === 'error')
-  const list = (
-    <>
-      {body}
-      {jobs.some((j) => isActive(j.status) && !cancellable(j)) && <p className="muted" data-testid="remote-admin-jobs-note">{REMOTE_ADMIN_NOTE} That includes cancelling their jobs.</p>}
-    </>
-  )
-  if (urgent) {
-    return (
-      <Card title="Jobs" className="diag-jobs" aria-label="Jobs">
-        {list}
-      </Card>
-    )
-  }
+/** One line about jobs and a link to the Jobs page, which holds the table, Cancel, Delete and each job's stage times. */
+function JobsSummary({ jobs, urgent }: { jobs: JobRecord[]; urgent: boolean }) {
   return (
-    <Section title="Jobs" count={jobs.length} storageKey="diagnostics.jobs" summary="None running">
-      {list}
-    </Section>
-  )
-}
-
-type JobListProps = { jobs: JobRecord[]; now: number; cancellable: (j: JobRecord) => boolean; onCancel: (id: string) => void }
-
-function JobTable({ jobs, now, cancellable, onCancel }: JobListProps) {
-  return (
-    <div className="table-scroll">
-      <table data-testid="job-list">
-        <thead>
-          <tr>
-            <th>Job</th>
-            <th>Status</th>
-            <th>Time</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.map((j) => (
-            <tr key={j.job_id}>
-              <td>{j.description || j.job_id}</td>
-              <td>
-                <Badge tone={statusTone(j.status)}>{statusLabel(j.status)}</Badge>
-                {j.progress != null && isActive(j.status) && ` ${Math.round(j.progress * 100)}%`}
-                {jobDetail(j) && <div className="muted">{jobDetail(j)}</div>}
-              </td>
-              <td>{formatDuration(j, now)}</td>
-              <td>
-                {cancellable(j) && (
-                  <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
-                    Cancel
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className={urgent ? 'banner diag-jobs-summary' : 'diag-jobs-summary'} data-testid="jobs-summary">
+      <p>Jobs: {jobsSummary(jobs)}.</p>
+      <ButtonLink href={routeHref({ name: 'jobs' })} size="sm">Open Jobs</ButtonLink>
     </div>
-  )
-}
-
-function JobCards({ jobs, now, cancellable, onCancel }: JobListProps) {
-  return (
-    <ul className="job-cards" data-testid="job-list" aria-label="Jobs">
-      {jobs.map((j) => (
-        <li key={j.job_id}>
-          <strong>{j.description || j.job_id}</strong>
-          <p>{jobStatusLine(j, now)}</p>
-          {jobDetail(j) && <p className="muted">{jobDetail(j)}</p>}
-          {cancellable(j) && (
-            <div className="job-cancel">
-              <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
-                Cancel
-              </button>
-            </div>
-          )}
-        </li>
-      ))}
-    </ul>
   )
 }

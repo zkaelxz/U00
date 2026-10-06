@@ -7,17 +7,17 @@ import type { BadgeTone } from '../../components/labels'
 import { PC_ONLY_FORBIDDEN, describeError, safeDetail } from '../../components/errorMessages'
 import { humanize } from '../../components/labels'
 import type {
-  DiagnosticsBugBundle, DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsModelFolder, DiagnosticsPyannoteReadiness,
+  DiagnosticsHfCacheEntry, DiagnosticsModelCache, DiagnosticsModelFolder, DiagnosticsPyannoteReadiness,
   DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
 } from '../../types/diagnostics'
 import type { ExtensionEnabledResult, ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import type { LibraryDashboard } from '../../types/library'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
-import { describeGpu, formatSeconds, statusLabel } from '../diagnosticsFormat'
+import { describeGpu } from '../diagnosticsFormat'
 
 // Mirrors diagnostics.py INSTALLABLE_TIERS: only these get Install/Update.
-export const INSTALLABLE_TIERS: readonly string[] = ['feature', 'engine']
+const INSTALLABLE_TIERS: readonly string[] = ['feature', 'engine']
 export const isInstallable = (tier: string) => INSTALLABLE_TIERS.includes(tier)
 
 // Big downloads get their size in the confirm step.
@@ -81,12 +81,12 @@ export function adminErrorText(err: unknown, action: AdminAction): string {
 // ---- Setup ----
 
 // `value` is the text without the label ("3.11.9", "ffmpeg not found"); `text` is the one-line form.
-export type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean }
+type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean }
 
 /** The ffmpeg row's problem text: missing, or built without libass. */
 function ffmpegProblem(c: DiagnosticsSetupChecks): string {
-  if (!c.ffmpeg.found) return 'ffmpeg not found'
-  return 'ffmpeg has no libass (burned-in subtitles and the styled preview need it)'
+  if (!c.ffmpeg.found) return 'FFmpeg not found'
+  return 'FFmpeg has no libass (burned-in subtitles and the styled preview need it)'
 }
 
 /** The Setup rows ("Label: value", or "Problem: …") from setup-checks plus the overview's GPU. */
@@ -97,10 +97,14 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
   add('python', 'Python', c.python.ok, c.python.version ?? 'found',
     c.python.version ? `Python ${c.python.version} is too old` : 'Python version unknown')
   const ffmpegOk = c.ffmpeg.found && c.ffmpeg.libass !== false
-  add('ffmpeg', 'ffmpeg', ffmpegOk,
+  add('ffmpeg', 'FFmpeg', ffmpegOk,
     `${c.ffmpeg.version ?? 'found'}${c.ffmpeg.libass ? ' (with libass)' : ''}`, ffmpegProblem(c))
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
     'no JS runtime (some video sites lose formats)')
+  if (c.browser) {
+    add('browser', 'Browser for JavaScript-only sites', c.browser.found,
+      `found (${c.browser.name ?? 'browser'})`, 'not found (install Chrome or Edge)')
+  }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")
   const missing = c.files.missing_top_level.length + c.files.missing_tabs.length
@@ -126,7 +130,7 @@ export function installableEngines(engines: ModelEngineVersion[], packageNames: 
   return engines.filter((m) => !m.installed && m.package && !seen.has(m.package))
 }
 
-export type HeaderBadge = { key: string; text: string; tone: BadgeTone }
+type HeaderBadge = { key: string; text: string; tone: BadgeTone }
 
 /**
  * The badge strip under the page title: setup ("Setup OK" / "2 setup problems"),
@@ -175,6 +179,48 @@ export const MODEL_FOLDER_LABELS: Record<DiagnosticsModelFolder, string> = {
   audio_separator: 'Vocal separation',
 }
 
+// Downloaded weights have no link to an engine in the API, so a Hugging Face repo is matched to
+// its engine by name. Engines listed here are known to download weights; unmatched repos stay
+// in their own "Other downloaded models" group instead of being guessed at.
+const ENGINE_REPO_HINTS: Record<string, RegExp> = {
+  'Whisper (faster-whisper)': /whisper/i,
+  'Qwen3-ASR': /qwen/i,
+  'SenseVoice (FunASR)': /sensevoice|funasr|funaudio/i,
+  'F5-TTS': /f5-?tts/i,
+  OmniVoice: /omnivoice/i,
+  Chatterbox: /chatterbox/i,
+  TADA: /tada/i,
+  'manga-ocr': /manga-?ocr/i,
+}
+
+/** A "repo" engine (not a pip package) lists its Hugging Face repos, comma separated, as its version. */
+const exactRepos = (e: ModelEngineVersion): string[] =>
+  e.package === null && e.version?.includes('/') ? e.version.split(',').map((r) => r.trim()) : []
+
+export type EngineModelRow = {
+  engine: ModelEngineVersion
+  cached: DiagnosticsHfCacheEntry[]
+  // The engine downloads weights but none are cached (and it is installed): "not downloaded".
+  notDownloaded: boolean
+}
+
+/**
+ * One row per model engine with the Hugging Face downloads that belong to it, plus the
+ * downloads that match no engine. Every cached revision lands in exactly one place.
+ */
+export function reconcileModels(engines: ModelEngineVersion[], hf: DiagnosticsHfCacheEntry[]) {
+  const left = [...hf]
+  const rows: EngineModelRow[] = engines.map((engine) => {
+    const repos = exactRepos(engine)
+    const hint = ENGINE_REPO_HINTS[engine.name]
+    const takes = (e: DiagnosticsHfCacheEntry) => repos.includes(e.repo_id) || (!!hint && hint.test(e.repo_id))
+    const cached = left.filter(takes)
+    for (const c of cached) left.splice(left.indexOf(c), 1)
+    return { engine, cached, notDownloaded: engine.installed && cached.length === 0 && (repos.length > 0 || !!hint) }
+  })
+  return { rows, other: left }
+}
+
 /** "12.4 GB · 7 models · 2 voices · 3 model files". */
 export function modelCacheSummary(c: DiagnosticsModelCache): string {
   const parts = [formatBytes(c.hf_total_bytes + c.piper_total_bytes + c.model_files_total_bytes)]
@@ -184,32 +230,6 @@ export function modelCacheSummary(c: DiagnosticsModelCache): string {
     parts.push(`${c.model_files.length} ${c.model_files.length === 1 ? 'model file' : 'model files'}`)
   }
   return parts.join(' · ')
-}
-
-// ---- Job history ----
-
-/** "Translate · Done · 3m 05s · GPU". */
-export function historySummary(h: DiagnosticsJobHistoryItem): string {
-  const parts = [h.label || h.description || h.job_id]
-  if (h.status) parts.push(statusLabel(h.status))
-  if (h.duration_seconds != null) parts.push(formatSeconds(h.duration_seconds))
-  if (h.gpu_touching) parts.push('GPU')
-  return parts.join(' · ')
-}
-
-export const HISTORY_PAGE = 20
-
-// ---- Saved bug bundles ----
-
-/** "#4 Bad pronoun · Signal" ("(deleted drama)" once the drama is gone). */
-export const bugBundleTitle = (b: Pick<DiagnosticsBugBundle, 'id' | 'label' | 'drama_title'>) =>
-  `#${b.id} ${b.label || 'Untitled'} · ${b.drama_title ?? '(deleted drama)'}`
-
-/** The last replay's outcome, or null if never replayed. */
-export function bugBundleReplayText(b: Pick<DiagnosticsBugBundle, 'replayed' | 'replay_output' | 'reproduced'>) {
-  if (!b.replayed) return null
-  const verdict = b.reproduced ? 'Still reproduces the same output.' : 'No longer reproduces: the output changed.'
-  return `${verdict} Last replay: ${b.replay_output || '—'}`
 }
 
 // ---- Log and report ----
@@ -239,7 +259,8 @@ export function extensionSummary(s: ExtensionStatus): string {
 
 /** The note after a toggle, or null. */
 export function extensionToggleNote(r: ExtensionEnabledResult): string | null {
-  if (!r.enabled && (r.restart_needed || r.running)) return 'Off. Restart Baihe to stop it now.'
+  if (!r.enabled && (r.restart_needed || r.running)) return 'Off, but it could not be stopped. Restart Baihe to stop it.'
+  if (!r.enabled) return "Off. The extension can't reach Baihe now."
   if (r.enabled && !r.running) return 'On. It starts next time Baihe starts.'
   return null
 }

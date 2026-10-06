@@ -1,4 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone (390x844): the More filters fold and the Continue shelf fit the width
 // and keep 44px touch targets.
@@ -12,7 +17,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 async function heightOf(page: Page, selector: string) {
-  return (await page.locator(selector).first().boundingBox())?.height ?? 0
+  return (await hitHeight(page.locator(selector).first()))
 }
 
 test('More filters and Continue fit a phone', async ({ page }) => {

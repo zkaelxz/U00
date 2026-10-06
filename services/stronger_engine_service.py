@@ -1,8 +1,8 @@
 """
-services/stronger_engine_service.py -- Step 99: tiered translation
+services/stronger_engine_service.py -- tiered translation
 cost/quality. A drama is translated with its everyday (often cheap or local)
 engine; on a line that looks hard, Review SUGGESTS the stronger engine the
-user picked in Settings (Step 36 capability "translation.high_quality") for
+user picked in Settings (capability "translation.high_quality") for
 that one line. User decision 2026-09-29: suggest only, never switch
 automatically -- nothing here runs on its own or writes a line.
 
@@ -16,7 +16,7 @@ automatically -- nothing here runs on its own or writes a line.
   same glossary, style guidelines, character hints, speaker name and novel
   reference a translate run sends, plus the lines before it.
   Returns the text for the user to accept (the client applies it through
-  the Slice 43 compare-and-set line patch) -- it never writes the line.
+  the compare-and-set line patch) -- it never writes the line.
   Refused once the monthly cap is used up or when the estimate would pass
   it; the spend is logged against the drama, also when the call fails or
   its answer is rejected (it may still have been billed).
@@ -26,7 +26,6 @@ the answer is taken only when exactly one comes back (never by position).
 Keys are resolved server-side, never accepted or returned; an engine failure
 is a fixed message with the redacted detail in the app log.
 """
-import inspect
 import re
 
 import core
@@ -113,12 +112,7 @@ class _Probe:
 
 
 def _default_model(engine_name: str):
-    cls = translate_engines.ENGINES.get(engine_name)
-    try:
-        default = inspect.signature(cls.__init__).parameters.get("model")
-        return default.default if default and default.default is not inspect._empty else None
-    except (TypeError, ValueError):
-        return None
+    return translate_engines.effective_default_model(engine_name)
 
 
 def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
@@ -130,7 +124,7 @@ def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
         drama_id, drama, lines, "novel" if is_novel else "audio_drama", with_emotions=False)
     context = translate_engines.build_translation_context(
         engine, drama, locale=settings_service.get_preference("default_locale"),
-        novel_reference=translate_run_service._load_novel_reference(drama_id, drama),
+        novel_reference=translate_run_service.load_novel_reference(drama_id, drama),
         glossary_terms=glossary, style_guidelines=style,
         ollama_num_ctx_override=settings_service.get_ollama_num_ctx_override() or None)
     return context, character_names
@@ -148,8 +142,6 @@ def _estimate(engine_name: str, zh: str, prompt_chars: int, context_chars: int =
     glossary, style guide, novel excerpt) plus the line and its context,
     at the same ~3.5 chars/token as the run estimate. No key needed."""
     probe = _Probe(engine_name)
-    if engine_name in translate_engines.PRICING_PER_MILLION_CHARACTERS:
-        return round(translate_engines.estimate_cost_for_engine(probe, len(zh), 0), 6)
     input_tokens = int((prompt_chars + context_chars + len(zh)) / 3.5) + 100
     output_tokens = int(len(zh) / 2.5) + 20
     return round(translate_engines.estimate_cost_for_engine(probe, input_tokens, output_tokens), 6)
@@ -204,9 +196,9 @@ def _log_failure(exc: Exception):
 
 
 def _refuse_over_cap(engine_name: str, free_tier: bool, estimate: float):
-    if not translate_run_service._cap_applies(engine_name, free_tier):
+    if not translate_run_service.engine_cap_applies(engine_name, free_tier):
         return
-    monthly = translate_run_service._monthly_cap()
+    monthly = translate_run_service.month_cap_usd()
     if not monthly:
         return
     spent = db.get_month_spend()
@@ -256,6 +248,11 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
             "what first.")
     if stronger != engine_name:
         raise ConflictError("The stronger engine was changed in Settings; try again.")
+    if translate_engines.is_english_line(line):
+        # Already English: the "translation" is the line itself, with no call or cost.
+        return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,
+                "model": None, "text": line.zh.strip(), "based_on_en": line.en or "",
+                "cost_usd": 0.0}
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
         raise DependencyUnavailableError(
@@ -280,6 +277,8 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     context["novel_reference"] = (context.get("novel_reference")
                                   if getattr(engine, "supports_reference", False) else None)
     context["line_ids"] = [line.id]
+    context["line_languages"] = translate_engines.tagged_line_languages(
+        [line], context["source_language"])
     context["speaker_labels"] = [character_names.get(line.speaker)]
     context["recent_context"] = recent
     try:

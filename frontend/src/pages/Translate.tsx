@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { ApiError } from '../api/client'
+import { modelOptionLabel } from '../api/translate'
 import {
   NON_ENGLISH_LANGUAGES,
   engineShortName,
@@ -30,6 +31,7 @@ import {
   pickEngine,
   pickLanguage,
   pickModel,
+  showLocalOnlyNote,
   swapDirection,
   visibleHistory,
 } from './translatePage'
@@ -38,6 +40,7 @@ import type { TranslateEngine, TranslateHistoryEntry } from '../types/translate'
 
 export default function TranslatePage() {
   const [engines, setEngines] = useState<TranslateEngine[]>([])
+  const [defaultEngine, setDefaultEngine] = useState<string | null>(null)
   const [history, setHistory] = useState<TranslateHistoryEntry[]>([])
   // Remembered per viewer (react-ui-guidelines rule 12); validated on read.
   const [enginePref, setEnginePref] = usePersistedState('translate.engine', '')
@@ -60,7 +63,10 @@ export default function TranslatePage() {
   const refreshHistory = useCallback(() => translateApi.history(HISTORY_LIMIT).then(setHistory, setError), [])
 
   useEffect(() => {
-    translateApi.engines().then(setEngines, setError)
+    translateApi.engineList().then((r) => {
+      setEngines(r.items)
+      setDefaultEngine(r.default_engine)
+    }, setError)
     refreshHistory()
   }, [refreshHistory])
 
@@ -73,7 +79,7 @@ export default function TranslatePage() {
       .finally(() => setClearing(false))
   }
 
-  const engine = pickEngine(engines, enginePref)
+  const engine = pickEngine(engines, enginePref, defaultEngine)
   const selected = engines.find((e) => e.name === engine)
   const model = pickModel(selected, modelPref)
   const direction = isDirection(directionPref) ? directionPref : 'to_english'
@@ -142,11 +148,17 @@ export default function TranslatePage() {
   const shown = visibleHistory(history, showAll)
 
   return (
-    <section className="translate-page" aria-label="Translate">
+    <section className="translate-page" aria-label="Quick translate">
       <header className="translate-head">
-        <h2>Translate</h2>
+        <h2>Quick translate</h2>
         <p className="muted">Quick text translation, outside any drama. One side is always English.</p>
       </header>
+      {showLocalOnlyNote(engines, engine) && (
+        <p className="translate-note" role="note" data-testid="local-only-note">
+          No cloud translator is set up. Quick translate is using Ollama on this PC. Start Ollama, or add a key in{' '}
+          <a href="#/settings">Settings</a>.
+        </p>
+      )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <Card className="translate-card" as="div">
         <form onSubmit={submit} className="translate-form">
@@ -175,7 +187,7 @@ export default function TranslatePage() {
                   <option value="">Default</option>
                   {selected.models.map((m) => (
                     <option key={m} value={m}>
-                      {m}
+                      {modelOptionLabel(selected, m)}
                     </option>
                   ))}
                 </select>

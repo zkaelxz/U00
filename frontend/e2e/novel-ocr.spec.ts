@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-// Chapter OCR: the Slice 38 endpoints are mocked (no OCR engine); the drama
+// Chapter OCR: the endpoints are mocked (no OCR engine); the drama
 // read hits the real seeded API.
 
 const png = { name: 'p1.png', mimeType: 'image/png', buffer: Buffer.from('x') }
@@ -26,7 +26,7 @@ test('chapter OCR uploads images, shows the job with cancel, and reloads status'
   await page.getByLabel('Page images', { exact: true }).setInputFiles([png])
   await expect(run).toBeEnabled()
   await run.click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   await expect(page.getByRole('button', { name: /cancel/i })).toBeVisible()
   expect(body).toContain('name="backend"')
   expect(body).toContain('p1.png')

@@ -74,7 +74,7 @@ def test_chinese_query_skips_engine(paid):
     assert paid == []
 
 
-@pytest.mark.parametrize("engine", ["deepl", "nllb", "nope", 5])
+@pytest.mark.parametrize("engine", ["nllb", "nllb", "nope", 5])
 def test_unknown_or_non_reference_engine_is_422(paid, engine):
     with pytest.raises(InvalidInputError):
         svc.translate_query("q", engine)
@@ -88,9 +88,7 @@ def test_no_key_is_503(monkeypatch):
         svc.translate_query("hello", "claude")
 
 
-def test_paid_engine_flag():
-    assert svc.spends_on_paid_engine("claude") and svc.spends_on_paid_engine(None)
-    assert not svc.spends_on_paid_engine("ollama")
+def test_paid_engine_functions():
     assert set(svc.PAID_ENGINE_FUNCTIONS) >= {"translate_query", "bulk_extract"}
 
 
@@ -101,7 +99,7 @@ def test_private_url_is_422_without_connecting(monkeypatch, paid):
 
     def boom(*a, **k):
         raise AssertionError("connected")
-    monkeypatch.setattr(metadata_service, "_pinned_get", boom)
+    monkeypatch.setattr(metadata_service, "pinned_get", boom)
     with pytest.raises(InvalidInputError):
         svc.import_suggestion("http://metadata.internal/latest", "claude")
 
@@ -161,6 +159,14 @@ def test_bulk_extract_per_url_status_and_partial_failure(monkeypatch, paid):
     assert pages[urls[2]]["needs_manual"]
     assert [e["title"] for e in res["entries"]] == ["A"]
     assert KEY not in json.dumps(svc.bulk_extract_result())
+
+
+def test_results_are_idle_before_any_run():
+    idle = {"job_id": "", "status": "idle", "progress": 0.0, "message": "", "result": None}
+    background_jobs.clear_job(svc.BULK_JOB_ID)
+    background_jobs.clear_job(svc.NAV_JOB_ID)
+    assert svc.bulk_extract_result() == idle
+    assert svc.navigation_help_result() == idle
 
 
 def test_bulk_extract_limits(paid):

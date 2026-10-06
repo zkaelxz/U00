@@ -1,27 +1,9 @@
 """
-Tests for services/workspace_job_service.py's own import structure
-(Migration Slice 2). The moved functions' behavior is already covered
-by the existing tests/test_workspace_tab.py and
-tests/test_library_features.py suites, which import them via
-tabs.workspace_tab/tabs.library_tab's own re-export -- this file only
-confirms the move itself didn't break anything at the module level:
-every expected name is actually exported, and the module never imports
-streamlit (the whole point of moving these out of a tab file).
+Tests that services/workspace_job_service.py exports every expected job
+function (a guard against a move or rename dropping one).
 """
 
 import services.workspace_job_service as wjs
-
-
-def test_never_imports_streamlit():
-    import sys
-    assert "streamlit" not in wjs.__dict__
-    # A stricter check than just checking module globals: confirm the
-    # module's own source doesn't import it at all, so a later edit
-    # can't quietly reintroduce a Streamlit dependency here.
-    import inspect
-    source = inspect.getsource(wjs)
-    assert "import streamlit" not in source
-    assert "streamlit" not in sys.modules or True  # importing this module must not require streamlit
 
 
 def test_every_moved_workspace_function_is_exported():
@@ -96,11 +78,11 @@ def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkey
     from services import jobs_service
     did = isolated_db.create_drama(title_en="D", media_type="audio_drama",
                                    content_mode="audio_drama", status="aligned",
-                                   translation_engine="test_offline")
+                                   translation_engine="fake")
     isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句")])
 
     class Revoked:
-        name = "test_offline"
+        name = "fake"
         supports_reference = False
         last_usage = {}
 
@@ -132,7 +114,7 @@ def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkey
     background_jobs.clear_job("bulk_revoked")
 
 
-@pytest.mark.parametrize("engine", ["google", "deepl"])
+@pytest.mark.parametrize("engine", ["claude", "deepseek"])
 def test_bulk_cap_engines_match_translate_run(isolated_db, monkeypatch, engine):
     seen, _ = _capture_bulk_start(isolated_db, monkeypatch, engine, "audio_drama")
     assert seen["kwargs"]["cost_cap_usd"] == pytest.approx(5.0)
@@ -150,7 +132,7 @@ def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):
     _stub_style_sources(monkeypatch)
 
     class Engine:
-        name = "test_offline"
+        name = "fake"
         context = None
 
         def translate_batch(self, zh, context):
@@ -161,7 +143,7 @@ def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):
     lines = core.lines_from_rows(isolated_db.load_lines(did))
     background_jobs.clear_job("fix_ctx")
     wjs.run_fix_flagged_lines_job("fix_ctx", did, lines, None, "small", False, "zh",
-                                  Engine(), "test_offline", locale="en-GB")
+                                  Engine(), "fake", locale="en-GB")
     ctx = Engine.context
     assert ctx["locale"] == "en-GB" and ctx["source_language"] == "zh"
     assert "苏杉" in str(ctx["glossary_terms"])
@@ -193,7 +175,7 @@ def test_fix_flagged_passes_translate_toggles(isolated_db, monkeypatch, genre, p
     calls = _spy_style_context(monkeypatch)
 
     class Engine:
-        name = "test_offline"
+        name = "fake"
 
         def translate_batch(self, zh, context):
             return ["ok"]
@@ -201,7 +183,7 @@ def test_fix_flagged_passes_translate_toggles(isolated_db, monkeypatch, genre, p
     lines = core.lines_from_rows(isolated_db.load_lines(did))
     background_jobs.clear_job("fix_toggles")
     wjs.run_fix_flagged_lines_job("fix_toggles", did, lines, None, "small", False, "zh",
-                                  Engine(), "test_offline", include_genre_notes=genre,
+                                  Engine(), "fake", include_genre_notes=genre,
                                   default_female_pronouns=pronouns)
     assert calls[0]["include_genre_notes"] is genre
     assert calls[0]["default_female_pronouns"] is pronouns
@@ -222,3 +204,42 @@ def test_bulk_series_passes_translate_toggles(isolated_db, monkeypatch):
     background_jobs.clear_job("bulk_toggles")
     assert calls[0]["include_genre_notes"] is False
     assert calls[0]["default_female_pronouns"] is True
+
+
+def test_fix_flagged_reads_each_lines_language(isolated_db, monkeypatch):
+    did = isolated_db.create_drama(title_en="D", media_type="audio_drama",
+                                   content_mode="audio_drama", status="translated",
+                                   source_language="ja")
+    isolated_db.save_lines(did, [
+        Line(idx=0, start=0, end=1, zh="안녕", en="x", flag="bad", flag_note="n", lang="ko"),
+        Line(idx=1, start=1, end=2, zh="hello", en="", flag="bad", flag_note="n", lang="en"),
+        Line(idx=2, start=2, end=3, zh="やあ", en="y", flag="bad", flag_note="n")])
+    _stub_style_sources(monkeypatch)
+    calls = []
+
+    class Engine:
+        name = "fake"
+
+        def translate_batch(self, zh, context):
+            calls.append((list(zh), context.get("line_languages")))
+            return ["T"]
+
+    import core
+    lines = core.lines_from_rows(isolated_db.load_lines(did))
+    background_jobs.clear_job("fix_lang")
+    wjs.run_fix_flagged_lines_job("fix_lang", did, lines, None, "small", False, "ja",
+                                  Engine(), "fake")
+    assert calls == [(["안녕"], ["ko"]), (["やあ"], None)]
+    rows = {r["zh"]: r for r in isolated_db.load_lines(did)}
+    assert rows["hello"]["en"] == "hello" and rows["hello"]["flag"] is None
+    background_jobs.clear_job("fix_lang")
+
+
+def test_bulk_passes_the_settings_default_style_note(isolated_db, monkeypatch):
+    from services import settings_service
+    real = settings_service.get_preference
+    monkeypatch.setattr(settings_service, "get_preference",
+                        lambda name: "Keep honorifics." if name == "default_style_note"
+                        else real(name))
+    seen, _ = _capture_bulk_start(isolated_db, monkeypatch, "claude", "audio_drama")
+    assert seen["args"][5] == "Keep honorifics."

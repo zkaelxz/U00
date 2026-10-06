@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { mockDiscover } from './discoverMocks'
+import { mockDiscover, openTab } from './discoverMocks'
+import { installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the Discover page. Every /api/discover call is mocked.
 
@@ -20,36 +25,47 @@ async function tallTargets(page: Page) {
       'button:not(.link):not(.field-help-btn):not(.toggle), select, input:not([type="checkbox"]), textarea, summary, .discover-review label, a.btn'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
       .filter((x) => x.h < 44)
   })
   expect(small).toEqual([])
 }
 
-test('phone: every section open, no sideways scroll, 44 px targets', async ({ page }) => {
+test('phone: every tab and section open, no sideways scroll, 44 px targets', async ({ page }) => {
   const s = await mockDiscover(page, { bulk: 'done', nav: 'done' })
   await page.goto('/#/discover')
   await expect(page.getByTestId('catalog-count')).toHaveText('2 of 2 saved titles')
-  for (const name of ['Search baihehub', 'Site navigation helper', 'Open a site', 'Bulk import from listing pages']) {
+  await page.getByTestId('catalog-list').getByText('Details').first().click()
+  await page.getByTestId('catalog-list').getByRole('button', { name: 'Add 女将军和长公主 to Library' }).click()
+  await expect(page.getByRole('link', { name: 'In your Library — open' })).toHaveAttribute('href', '#/drama/42')
+  await noSideways(page)
+  await tallTargets(page)
+  await page.screenshot({ path: 'test-results/discover-phone-catalogue.png', fullPage: true })
+
+  await openTab(page, 'Find a title')
+  for (const name of ['Search baihehub', 'Open a site or explain a page']) {
     await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${name}$`) }) }).click()
   }
-  await expect(page.getByTestId('bulk-review')).toBeVisible()
   await expect(page.getByTestId('nav-result')).toBeVisible()
-  await page.getByTestId('catalog-list').getByText('Details').first().click()
-  await page.getByText('Fill in page URLs from a pattern').click()
   await page.getByText('Known official platforms').click()
   await page.getByRole('searchbox', { name: 'Title to find' }).fill('长公主')
   await page.getByRole('button', { name: 'Find', exact: true }).click()
   await expect(page.getByTestId('search-links')).toBeVisible()
-  await page.getByTestId('catalog-list').getByRole('button', { name: 'Add 女将军和长公主 to Library' }).click()
-  await expect(page.getByRole('link', { name: 'In your Library — open' })).toHaveAttribute('href', '#/drama/42')
-  await page.getByLabel('Site URL').fill('https://www.jjwxc.net/a/very/long/path/that/should/not/push/the/page/sideways/at/all')
+  await page.getByLabel('Page URL', { exact: true }).fill('https://www.jjwxc.net/a/very/long/path/that/should/not/push/the/page/sideways/at/all')
   await noSideways(page)
   await tallTargets(page)
   const hit = await page.getByRole('switch', { name: 'Translate English to Chinese first' }).evaluate(
     (el) => parseFloat(getComputedStyle(el, '::after').height) || el.getBoundingClientRect().height,
   )
   expect(hit).toBeGreaterThanOrEqual(44)
-  await page.screenshot({ path: 'test-results/discover-phone.png', fullPage: true })
+  await page.screenshot({ path: 'test-results/discover-phone-find.png', fullPage: true })
+
+  await openTab(page, 'Add titles')
+  await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Bulk import from listing pages$/ }) }).click()
+  await page.getByText('Fill in page URLs from a pattern').click()
+  await expect(page.getByTestId('bulk-review')).toBeVisible()
+  await noSideways(page)
+  await tallTargets(page)
+  await page.screenshot({ path: 'test-results/discover-phone-add.png', fullPage: true })
   expect(s.unmocked).toEqual([])
 })

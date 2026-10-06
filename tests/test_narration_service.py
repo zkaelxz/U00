@@ -52,7 +52,7 @@ class TestStart:
     def test_bad_engine(self, isolated_db, key):
         did = _drama(isolated_db)
         with pytest.raises(InvalidInputError):
-            narration_service.start_narration_run(did, "deepl")
+            narration_service.start_narration_run(did, "nllb")
 
     def test_no_key_is_503_type(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
@@ -154,3 +154,50 @@ class TestApi:
         assert client.post(f"/api/narration/dramas/{did}/run", json={}).status_code == 409
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
         assert client.post(f"/api/narration/dramas/{did}/run", json={}).status_code == 503
+
+
+class TestNarrationCancel:
+    def test_tag_speakers_stops_before_the_next_batch(self, monkeypatch):
+        import translate_engines
+        sent = []
+        monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json",
+                            lambda engine, prompt, **k: sent.append(prompt) or "{}")
+        state = {"cancelled": False}
+
+        def check():
+            if state["cancelled"]:
+                raise background_jobs.JobCancelled("j")
+        orig_batch = translate_engines._id_keyed_batch_request
+
+        def batch(*a, **k):
+            out = orig_batch(*a, **k)
+            state["cancelled"] = True
+            return out
+        monkeypatch.setattr("engine_backends.llm_tasks._id_keyed_batch_request", batch)
+        with pytest.raises(background_jobs.JobCancelled):
+            translate_engines.tag_speakers_by_id(
+                {i: "文" for i in range(40)}, _Engine(), batch_size=15, cancel_check=check)
+        # Only the first batch (plus its one retry for missing ids) was paid for.
+        assert len(sent) == 2
+
+    def test_cancelled_job_saves_nothing_and_does_not_finish(self, isolated_db, monkeypatch):
+        import translate_engines
+        from core import Line
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="旧", en="old")])
+        job_id = f"narration_{did}"
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Engine())
+
+        def tag(chunks, engine, known, **k):
+            background_jobs._jobs[job_id]["cancel_requested"] = True
+            return {i: "Ann" for i in chunks}   # an engine that finished anyway
+        monkeypatch.setattr(translate_engines, "tag_speakers_by_id", tag)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                         "error": None, "cancel_requested": False, "result": None}
+        try:
+            with pytest.raises(background_jobs.JobCancelled):
+                narration_service._run_narration_job(job_id, did, NOVEL, "claude", "k", None)
+        finally:
+            background_jobs._jobs.pop(job_id, None)
+        assert [ln.zh for ln in isolated_db.load_line_objects(did)] == ["旧"]
+        assert isolated_db.get_drama(did)["status"] != "aligned"

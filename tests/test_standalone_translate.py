@@ -62,11 +62,10 @@ class TestStandaloneDirectionSupport:
     """Step 26b item 6: which configured engine actually supports the
     requested direction. zh/ja/ko -> English is this app's existing,
     well-tested direction (every engine keeps doing it, unwarned).
-    English -> zh/ja/ko is new: DeepL/Google/NLLB take an explicit
-    source+target pair so they're just as capable; the LLM engines are
+    English -> zh/ja/ko is new: NLLB takes an explicit
+    source+target pair so it's just as capable; the LLM engines are
     prompted directly; Ollama depends on whichever local model is
-    loaded (attempted, with a warning); LibreTranslate's language-pair
-    coverage isn't discoverable from here, so it's refused outright."""
+    loaded (attempted, with a warning)."""
 
     def test_to_english_is_always_supported_for_every_engine(self):
         for name in te.ENGINES:
@@ -74,14 +73,14 @@ class TestStandaloneDirectionSupport:
             assert ok is True
             assert message is None
 
-    def test_deepl_google_nllb_support_english_to_cjk(self):
-        for name in ("deepl", "google", "nllb"):
+    def test_nllb_supports_english_to_cjk(self):
+        for name in ("nllb",):
             ok, message = te.standalone_direction_support(name, "en", "zh")
             assert ok is True
             assert message is None
 
     def test_llm_engines_support_english_to_cjk(self):
-        for name in ("claude", "deepseek", "gemini", "test_offline"):
+        for name in ("claude", "deepseek", "gemini", "fake"):
             ok, message = te.standalone_direction_support(name, "en", "ja")
             assert ok is True
             assert message is None
@@ -91,17 +90,6 @@ class TestStandaloneDirectionSupport:
         assert ok is True
         assert message
         assert "model" in message.lower()
-
-    def test_libretranslate_english_to_cjk_is_refused_with_a_clear_reason(self):
-        ok, message = te.standalone_direction_support("libretranslate", "en", "zh")
-        assert ok is False
-        assert message
-        assert "libretranslate" in message.lower()
-
-    def test_libretranslate_to_english_is_still_supported(self):
-        ok, message = te.standalone_direction_support("libretranslate", "zh", "en")
-        assert ok is True
-        assert message is None
 
 
 class TestChunkStandaloneText:
@@ -146,7 +134,7 @@ class _ShufflingEngine:
             pairs = {str(i): f"OUT:{zh_lines[i - 1]}" for i in ids}
             shuffled = dict(reversed(list(pairs.items())))
             return json.dumps(shuffled)
-        return te._request_translations_with_retry(zh_lines, None, call_model)
+        return te.request_translations_with_retry(zh_lines, None, call_model)
 
 
 class _CountingEngine:
@@ -193,8 +181,10 @@ class TestStandaloneTranslate:
         assert te.standalone_translate("   ", engine, "zh", "en") == ""
         assert engine.called is False
 
-    def test_unsupported_engine_direction_is_refused_before_translate_batch_runs(self):
-        engine = _CountingEngine("libretranslate")
+    def test_unsupported_engine_direction_is_refused_before_translate_batch_runs(self, monkeypatch):
+        monkeypatch.setattr("engine_backends.standalone.standalone_direction_support",
+                            lambda *a: (False, "Not supported."))
+        engine = _CountingEngine("nllb")
         with pytest.raises(te.UnsupportedDirectionError):
             te.standalone_translate("Hello there.", engine, "en", "zh")
         assert engine.called is False  # refused, never attempted

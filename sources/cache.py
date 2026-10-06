@@ -1,5 +1,5 @@
 """
-sources/cache.py -- the configurable raw-content cache (Step 23 item 4).
+sources/cache.py -- the configurable raw-content cache.
 
 The point isn't saving Baihe money on re-OCR (that costs next to
 nothing); it's not re-hitting a rate-limited external source for content
@@ -78,7 +78,7 @@ class RawCache:
         # A hit counts as use for the size ceiling (enforce_ceiling):
         # created_at doubles as "last used". put() already rewrites it on
         # every store and nothing else reads it, so this needs no new
-        # column in a schema that has no migration path.
+        # cache_index column (and no store._ADDED_COLUMNS entry).
         with store.connect() as conn:
             conn.execute("UPDATE cache_index SET created_at=? WHERE url=?", (time.time(), url))
         return data

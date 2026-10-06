@@ -1,12 +1,10 @@
 """
 services/media_upload_service.py -- upload an audio/video file into a
-drama's folder (Migration Slice 31), mirroring the Streamlit Source tab's
-"Upload a file" branch (`tabs/workspace_tab.py`, `run_prep`): the file is
-saved as `source<ext>` in the drama folder; a video also gets its audio
+drama's folder: the file is saved as `source<ext>` in the drama folder; a video also gets its audio
 track extracted to `audio.wav` and both filenames recorded, an audio file
 records just `audio_filename`.
 
-B-09: a video's audio extraction (ffmpeg) runs in background job
+A video's audio extraction (ffmpeg) runs in background job
 `extract_audio_<drama_id>`, not in the request. The job owns the whole
 step (extraction, then the field-scoped DB write) and, for
 upload-and-transcribe, starts the transcribe run and follows it, so the
@@ -35,10 +33,10 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm")
 _CHUNK = 1024 * 1024
 _DEFAULT_MAX_MB = 2048
 _TOO_LARGE = "The uploaded file is too large."
-# Streamlit offers the audio/video upload only when content_mode is one of
-# these (tabs/workspace_tab.py `has_audio_pipeline`); keep in sync by hand.
-_UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
-_NO_UPLOAD_MODE = ("This drama has no audio to upload (it is set to work from a novel). "
+# The content modes with an audio pipeline (source_service's
+# `has_audio_pipeline`); keep in sync by hand.
+UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
+NO_UPLOAD_MODE = ("This drama has no audio to upload (it is set to work from a novel). "
                    "Change what you are working from to Audio drama or Streamer/VOD first.")
 _BAD_TYPE = "Unsupported file type. Upload an audio or video file."
 _EXTRACT_FAILED = "Could not read audio from that video file."
@@ -48,12 +46,12 @@ EXTRACT_JOB_PREFIX = "extract_audio_"
 EXTRACT_TIMEOUT_SECONDS = 2 * 60 * 60
 _FOLLOW_POLL_SECONDS = 0.5
 _BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
-# Per-drama upload claim (B-09): held from the running-job check until the
+# Per-drama upload claim: held from the running-job check until the
 # file is in place and any extraction job is registered, so a concurrent
 # upload is refused before it touches `source<ext>`. In-process only;
 # another process is covered by job_running_for_drama's job_records check.
-_claims_lock = threading.Lock()
-_claimed = set()
+claims_lock = threading.Lock()
+claimed = set()
 
 
 def max_upload_bytes() -> int:
@@ -81,8 +79,8 @@ def _save_upload(drama_id, client_filename, fileobj):
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
-    if (drama.get("content_mode") or "audio_drama") not in _UPLOAD_CONTENT_MODES:
-        raise InvalidInputError(_NO_UPLOAD_MODE)
+    if (drama.get("content_mode") or "audio_drama") not in UPLOAD_CONTENT_MODES:
+        raise InvalidInputError(NO_UPLOAD_MODE)
     limit = max_upload_bytes()
     ddir = db.drama_dir(drama_id)
     fd, tmp_path = tempfile.mkstemp(prefix=".upload_", suffix=".part", dir=ddir)
@@ -117,10 +115,10 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None) ->
     starts and follows the transcribe run once the audio is extracted; for
     an audio file the run is started here, under the upload claim, and its
     id returned as "transcribe_job_id" (the upload is kept if it fails)."""
-    with _claims_lock:
-        if drama_id in _claimed:
+    with claims_lock:
+        if drama_id in claimed:
             raise ConflictError("Another upload is in progress for this drama.")
-        _claimed.add(drama_id)
+        claimed.add(drama_id)
     try:
         if drama_service.job_running_for_drama(drama_id):
             raise ConflictError(_BUSY)
@@ -141,8 +139,8 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None) ->
             raise ConflictError(_BUSY)
         return {"name": f"source{ext}", "size": size, "kind": "video", "job_id": job_id}
     finally:
-        with _claims_lock:
-            _claimed.discard(drama_id)
+        with claims_lock:
+            claimed.discard(drama_id)
 
 
 def _extract_audio_job(job_id, drama_id, ext, transcribe_options=None):

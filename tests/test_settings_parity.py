@@ -32,7 +32,7 @@ SECRET = "sk-secret-value-123"
 @pytest.fixture
 def env_file(tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(path))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
     for names in settings_service.ENV_NAMES.values():
         for n in names:
             monkeypatch.delenv(n, raising=False)
@@ -97,8 +97,8 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
 
 
 @pytest.mark.parametrize("key,bad", [
-    ("default_engine", "not-an-engine"), ("default_engine", "test_offline"),
-    ("default_locale", "fr-FR"), ("episode_summary_engine", "deepl"),
+    ("default_engine", "not-an-engine"),
+    ("default_locale", "fr-FR"), ("episode_summary_engine", "nllb"),
     ("monthly_cap_usd", -1), ("monthly_cap_usd", True), ("monthly_cap_usd", "5"),
     ("ollama_num_ctx_override", 1.5), ("ollama_num_ctx_override", -1),
     ("ollama_num_ctx_override", True), ("ocr_backend", "easyocr"),
@@ -186,10 +186,10 @@ def test_endpoint_url_set_clear_and_read(env_file):
 
 
 def test_hand_edited_url_with_password_is_not_returned(isolated_db, env_file):
-    env_file.write_text("BAIHE_LIBRETRANSLATE_URL=http://me:hunter2@lt.local:5000\n")
+    env_file.write_text("BAIHE_OLLAMA_URL=http://me:hunter2@lt.local:5000\n")
     ov = settings_service.get_settings_overview()
-    assert ov["endpoints"]["libretranslate_url"] is None
-    assert ov["engine_keys"]["libretranslate_url"] is True
+    assert ov["endpoints"]["ollama_url"] is None
+    assert ov["engine_keys"]["ollama_url"] is True
     assert "hunter2" not in repr(ov)
 
 
@@ -200,7 +200,7 @@ def test_api_get_and_post_preferences(client):
     assert body["preferences"]["default_engine"] == "claude"
     assert "manga_ocr" in body["choices"]["ocr_backends"]
     assert "firefox" in body["choices"]["cookie_browsers"]
-    assert set(body["endpoints"]) == {"ollama_url", "libretranslate_url", "gpt_sovits_url"}
+    assert set(body["endpoints"]) == {"ollama_url", "gpt_sovits_url"}
     r = client.post("/api/settings", json={"default_locale": "en-AU", "monthly_cap_usd": 3,
                                            "tesseract_cmd": "/usr/bin/tesseract"})
     assert r.status_code == 200
@@ -285,7 +285,8 @@ def test_remote_read_gets_path_flags_not_paths(isolated_db, env_file):
                    raise_server_exceptions=False)
     r = c.get("/api/settings", headers=_h(_session(True)))
     prefs = r.json()["preferences"]
-    assert r.status_code == 200 and "models" not in r.text and "Tesseract" not in r.text
+    body = r.text.replace("offer_provider_models", "")
+    assert r.status_code == 200 and "models" not in body and "Tesseract" not in body
     assert prefs["whisper_model_path"] == prefs["tesseract_cmd"] == prefs["cookies_file"] == ""
     assert prefs["whisper_model_path_configured"] is True
     assert prefs["tesseract_cmd_configured"] is True
@@ -312,11 +313,11 @@ def test_translate_config_uses_default_engine_locale_style_and_cap(isolated_db, 
     did = _seed(isolated_db)
     cfg = translate_run_service.get_translate_config(did)
     assert cfg["translation_engine"] == "claude" and cfg["default_locale"] == "en-US"
-    settings_service.set_settings({"default_engine": "deepl", "default_locale": "en-GB",
+    settings_service.set_settings({"default_engine": "nllb", "default_locale": "en-GB",
                                    "default_style_note": "Short lines.",
                                    "monthly_cap_usd": 9})
     cfg = translate_run_service.get_translate_config(did)
-    assert cfg["translation_engine"] == "deepl"
+    assert cfg["translation_engine"] == "nllb"
     assert cfg["default_locale"] == "en-GB" and cfg["default_style_note"] == "Short lines."
     assert cfg["monthly_cap_usd"] == 9.0
     # A drama with its own engine keeps it.
@@ -340,18 +341,18 @@ def test_translate_run_passes_num_ctx_override_and_summary_engine(isolated_db, e
 
     def fake_get_engine(name, key, *a, **k):
         built.append((name, key))
-        return real_get_engine("test_offline", "offline")
+        return real_get_engine("fake", "offline")
     monkeypatch.setattr(translate_engines, "get_engine", fake_get_engine)
     env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
 
-    translate_run_service.start_translate_run(did, engine_name="test_offline")
+    translate_run_service.start_translate_run(did, engine_name="fake")
     assert captured["ollama_num_ctx_override"] is None
     assert captured["summary_engine_choice"] == "ollama"
 
     settings_service.set_settings({"ollama_num_ctx_override": 32768,
                                    "episode_summary_engine": "deepseek"})
     background_jobs.clear_all_jobs()
-    translate_run_service.start_translate_run(did, engine_name="test_offline")
+    translate_run_service.start_translate_run(did, engine_name="fake")
     assert captured["ollama_num_ctx_override"] == 32768
     assert captured["summary_engine_choice"] == "deepseek"
     assert ("deepseek", "ds-key") in built
@@ -360,7 +361,7 @@ def test_translate_run_passes_num_ctx_override_and_summary_engine(isolated_db, e
 def test_summary_engine_cloud_without_key_is_skipped(isolated_db, env_file):
     from services import translate_run_service
     settings_service.set_settings({"episode_summary_engine": "claude"})
-    assert translate_run_service._summary_engine() == (None, None)
+    assert translate_run_service.pick_summary_engine() == (None, None)
 
 
 def test_summary_engine_paid_pick_skipped_when_not_allowed(isolated_db, env_file, monkeypatch):
@@ -370,10 +371,10 @@ def test_summary_engine_paid_pick_skipped_when_not_allowed(isolated_db, env_file
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
     env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
     settings_service.set_settings({"episode_summary_engine": "deepseek"})
-    assert translate_run_service._summary_engine(allow_paid=False) == (None, None)
-    assert translate_run_service._summary_engine()[1] == "deepseek"
+    assert translate_run_service.pick_summary_engine(allow_paid=False) == (None, None)
+    assert translate_run_service.pick_summary_engine()[1] == "deepseek"
     settings_service.set_settings({"episode_summary_engine": "ollama"})
-    assert translate_run_service._summary_engine(allow_paid=False)[1] == "ollama"
+    assert translate_run_service.pick_summary_engine(allow_paid=False)[1] == "ollama"
 
 
 def test_translate_run_passes_allow_paid_summary_and_monthly_cap(isolated_db, env_file,
@@ -389,16 +390,16 @@ def test_translate_run_passes_allow_paid_summary_and_monthly_cap(isolated_db, en
     monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
     real_get_engine = translate_engines.get_engine
     monkeypatch.setattr(translate_engines, "get_engine",
-                        lambda *a, **k: real_get_engine("test_offline", "offline"))
+                        lambda *a, **k: real_get_engine("fake", "offline"))
     env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
     settings_service.set_settings({"episode_summary_engine": "deepseek", "monthly_cap_usd": 7})
 
-    translate_run_service.start_translate_run(did, engine_name="test_offline",
+    translate_run_service.start_translate_run(did, engine_name="fake",
                                               allow_paid_summary=False)
     assert captured["summary_engine"] is None and captured["summary_engine_choice"] is None
     assert captured["summary_monthly_cap_usd"] == 7.0
     background_jobs.clear_all_jobs()
-    translate_run_service.start_translate_run(did, engine_name="test_offline")
+    translate_run_service.start_translate_run(did, engine_name="fake")
     assert captured["summary_engine_choice"] == "deepseek"
 
 
@@ -443,7 +444,6 @@ def test_default_engine_used_for_drama_without_one(isolated_db, env_file):
     did = _seed(isolated_db)
     settings_service.set_settings({"default_engine": "ollama"})
     assert glossary_service.novel_glossary_engine(did) == "ollama"
-    assert glossary_service.spends_on_paid_engine(None) is False
     est = translate_run_service.estimate_translate_cost(did)
     assert est["engine"] == "ollama"
 
@@ -467,8 +467,8 @@ def test_bulk_library_translate_uses_default_locale_and_saved_cap(isolated_db, e
 
 def test_transcribe_uses_saved_tesseract_path(isolated_db, env_file, monkeypatch):
     from services import transcribe_service
-    from tests.test_transcribe_service import _drama_with_audio
-    did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+    from tests.test_transcribe_service import _drama_with_video
+    did, _ = _drama_with_video(isolated_db)
     captured = {}
 
     def fake_start_job(job_id, target, *a, **k):
@@ -504,14 +504,23 @@ def test_transcribe_job_uses_offline_whisper_folder(isolated_db, env_file, monke
     monkeypatch.setattr(transcribe_service, "transcribe_for_timing", fake_transcribe)
     captured = {}
 
-    def fake_start_job(job_id, target, *a, **k):
-        captured["call"] = (target, a)
+    def fake_start_process_job(job_id, target, args=(), **k):
+        captured["call"] = (target, args)
         return True
-    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
     transcribe_service.start_transcribe_run(did)
     target, args = captured["call"]
-    with pytest.raises(RuntimeError, match="stop here"):
-        target(*args)
+    # Run the worker in this process: keep this process's group and temp dir.
+    import queue
+    import tempfile
+    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
+    result_queue = queue.Queue()
+    target(*args, result_queue)
+    items = []
+    while not result_queue.empty():
+        items.append(result_queue.get_nowait())
+    assert items[-1] == ("error", "RuntimeError", "stop here")
     assert seen == {"load": "/models/faster-whisper-small",
                     "info": "/models/faster-whisper-small",
                     "transcribe": "/models/faster-whisper-small"}
@@ -557,7 +566,7 @@ def test_url_download_passes_saved_cookies(isolated_db, env_file, monkeypatch, t
 def test_live_saved_cookies_only_when_asked(isolated_db, env_file, monkeypatch):
     from services import live_service
     monkeypatch.setattr(live_service, "_require_public", lambda *a, **k: None)
-    monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("test_offline", object()))
+    monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("fake", object()))
     captured = []
 
     def fake_start_job(job_id, target, *a, **k):
@@ -626,7 +635,7 @@ def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
     assert seen["locale"] == "en-AU" and seen["style_note"] == "Terse."
     assert seen["ollama_num_ctx_override"] == 8192
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args(engine="test_offline", locale="en-GB", style_note="",
+        cli.cmd_translate(args(engine="fake", locale="en-GB", style_note="",
                                ollama_num_ctx=0))
     assert seen["locale"] == "en-GB" and seen["style_note"] == ""
     assert seen["ollama_num_ctx_override"] == 0
@@ -634,13 +643,13 @@ def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
 
 def test_baihe_own_ports_includes_configured_ports(monkeypatch, tmp_path):
     from services import settings_service as ss
-    monkeypatch.setattr(ss, "_default_env_path", lambda: str(tmp_path / ".env"))
+    monkeypatch.setattr(ss, "default_env_path", lambda: str(tmp_path / ".env"))
     for name in (ss.API_PORT_ENV, ss.HOUSEHOLD_PORT_ENV):
         monkeypatch.delenv(name, raising=False)
-    assert ss.baihe_own_ports() == {8501, 8600, 8756}
+    assert ss.baihe_own_ports() == {8600, 8756}
     monkeypatch.setenv(ss.API_PORT_ENV, "9123")
     monkeypatch.setenv(ss.HOUSEHOLD_PORT_ENV, " 9124 ")
     (tmp_path / ".env").write_text(f"{ss.API_PORT_ENV}=9125\n")
-    assert ss.baihe_own_ports() == {8501, 8600, 8756, 9123, 9124, 9125}
+    assert ss.baihe_own_ports() == {8600, 8756, 9123, 9124, 9125}
     monkeypatch.setenv(ss.API_PORT_ENV, "not-a-port")
     assert 9123 not in ss.baihe_own_ports()

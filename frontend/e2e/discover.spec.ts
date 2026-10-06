@@ -1,11 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { mockDiscover, posts } from './discoverMocks'
+import { mockDiscover, openTab, posts } from './discoverMocks'
 
 // Desktop: the Discover page (#/discover). Every /api/discover call is mocked (discoverMocks.ts).
 
-const openSection = (page: Page, title: string) =>
-  page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).click()
+const openSection = async (page: Page, title: string) => {
+  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+}
 
 test('nav entry, empty catalogue loads starter titles, search and filters', async ({ page }) => {
   const s = await mockDiscover(page, { titles: [] })
@@ -28,6 +30,19 @@ test('nav entry, empty catalogue loads starter titles, search and filters', asyn
   await expect(card.getByText('A general and a princess.')).toBeVisible()
   await expect(card.getByRole('link', { name: 'example.cn' })).toHaveAttribute('href', 'https://example.cn/t/1')
   expect(s.unmocked).toEqual([])
+})
+
+test('opening the page makes no 404 request to /api/discover', async ({ page }) => {
+  const notFound: string[] = []
+  page.on('response', (r) => {
+    if (r.status() === 404 && new URL(r.url()).pathname.startsWith('/api/discover/')) notFound.push(r.url())
+  })
+  const s = await mockDiscover(page)
+  await page.goto('/#/discover')
+  await expect(page.getByTestId('catalog-count')).toBeVisible()
+  await expect.poll(() => s.calls.some((c) => c.path.endsWith('/bulk-extract/result'))).toBe(true)
+  await expect.poll(() => s.calls.some((c) => c.path.endsWith('/navigation-help/result'))).toBe(true)
+  expect(notFound).toEqual([])
 })
 
 test('add to Library, already-added 409, PC-only remove', async ({ page }) => {
@@ -63,6 +78,7 @@ test('remote viewer: no remove button', async ({ page }) => {
 test('find on platforms translates an English title with the picked engine', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
+  await openTab(page, 'Find a title')
   // Only engines the Discover routes accept are offered.
   const picker = page.getByLabel('AI engine', { exact: true })
   await expect(picker.locator('option')).toHaveText(['Claude', 'Ollama (local) (free)'])
@@ -97,6 +113,7 @@ test('find on platforms translates an English title with the picked engine', asy
 test('baihehub search falls back to a browser link; navigation helper shows steps', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
+  await openTab(page, 'Find a title')
   await openSection(page, 'Search baihehub')
   await page.getByRole('searchbox', { name: 'Title to search' }).fill('长公主')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
@@ -104,11 +121,16 @@ test('baihehub search falls back to a browser link; navigation helper shows step
   await expect(bh.getByRole('link', { name: 'Run this search in your browser' })).toHaveAttribute('href', 'https://baihehub.com/search?q=x')
   expect(posts(s, '/translate-query')).toHaveLength(0) // already Chinese
 
-  await openSection(page, 'Site navigation helper')
-  const go = page.getByRole('button', { name: 'Get navigation steps' })
+  await openSection(page, 'Open a site or explain a page')
+  const go = page.getByRole('button', { name: 'Explain this page' })
   await expect(go).toBeDisabled()
+  const open = page.getByRole('button', { name: 'Open site' })
+  await expect(open).toBeDisabled()
   await page.getByLabel('Start from a known site').selectOption({ label: 'JJWXC (晋江文学城)' })
   await expect(page.getByLabel('Page URL', { exact: true })).toHaveValue('https://www.jjwxc.net')
+  await expect(page.getByRole('link', { name: 'Open site' })).toHaveAttribute('href', /^https:\/\/www\.jjwxc\.net\/?$/)
+  await expect(page.getByRole('link', { name: 'Open site' })).toHaveAttribute('target', '_blank')
+  await expect(go).toBeDisabled()
   await page.getByLabel('What are you trying to do?').fill('find audio dramas')
   await go.click()
   const result = page.getByTestId('nav-result')
@@ -124,6 +146,7 @@ test('baihehub search falls back to a browser link; navigation helper shows step
 test('add a title from a URL suggestion, then by hand', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
+  await openTab(page, 'Add titles')
   await page.getByLabel('Fill from a page (optional)').fill('https://example.cn/snow')
   await page.getByRole('button', { name: 'Read page' }).click()
   await expect(page.getByLabel('Title (original language)')).toHaveValue('雪夜')
@@ -147,6 +170,7 @@ test('add a title from a URL suggestion, then by hand', async ({ page }) => {
 test('bulk import: pattern, extract job, review, add', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
+  await openTab(page, 'Add titles')
   await openSection(page, 'Bulk import from listing pages')
   await page.getByText('Fill in page URLs from a pattern').click()
   await page.getByLabel('URL pattern').fill('https://www.jjwxc.net/tag.php?page={page}')
@@ -176,10 +200,30 @@ test('bulk import: pattern, extract job, review, add', async ({ page }) => {
 })
 
 test('no configured engine: AI actions say what is missing', async ({ page }) => {
-  await mockDiscover(page, { engines: [{ name: 'deepl', label: 'DeepL', free: false, models: null, key_configured: true }] })
+  await mockDiscover(page, { engines: [{ name: 'nllb', label: 'NLLB', free: false, models: null, key_configured: true }] })
   await page.goto('/#/discover')
   await expect(page.getByTestId('no-engine')).toBeVisible()
+  await openTab(page, 'Find a title')
   await expect(page.getByText('No AI engine is set up, so the title is searched as typed.')).toBeVisible()
+  await openTab(page, 'Add titles')
   await openSection(page, 'Bulk import from listing pages')
   await expect(page.getByRole('button', { name: 'Extract entries' })).toBeDisabled()
+})
+
+test('tabs: catalogue first, remembered choice, one panel at a time', async ({ page }) => {
+  await mockDiscover(page)
+  await page.goto('/#/discover')
+  const tabs = page.getByRole('tablist', { name: 'Discover tasks' }).getByRole('tab')
+  await expect(tabs).toHaveText(['Catalogue', 'Find a title', 'Add titles'])
+  await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('catalog-list')).toBeVisible()
+  await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeHidden()
+  await openTab(page, 'Find a title')
+  await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeVisible()
+  await expect(page.getByTestId('catalog-list')).toBeHidden()
+  await page.reload()
+  await expect(page.getByRole('tab', { name: 'Find a title' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('tab', { name: 'Find a title' }).press('ArrowRight')
+  await expect(page.getByRole('tab', { name: 'Add titles' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByLabel('Fill from a page (optional)')).toBeVisible()
 })

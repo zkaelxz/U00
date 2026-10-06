@@ -4,8 +4,9 @@ tests/test_workspace_tab.py. Each class names the Streamlit test class it
 came from, so the invariant survives when the tab and its tests are deleted
 (docs/archive/streamlit-test-triage.md, section 1 notes). Fully mocked: isolated_db,
 no model, GPU or network."""
+import functools
+import multiprocessing
 import os
-import threading
 import time
 
 import pytest
@@ -17,6 +18,7 @@ import resegment
 from core import Line
 from services import drama_service, restructure_service, transcribe_service
 from services.service_errors import ConflictError, InvalidInputError
+from tests.http_fakes import StreamedBody
 
 LONG = "他说他明天会来，可是我不太相信他。因为他上次也是这么说的，结果根本没有出现"
 FIRST = "他说他明天会来，可是我不太相信他。"
@@ -78,21 +80,30 @@ def _run_job_body(did, ddir, text):
     return background_jobs.get_status(job_id)["result"]
 
 
+def _worker_with_fake_whisper(release, *args):
+    """The transcribe worker in its spawned process, which imports every
+    module fresh: the fake Whisper is installed here, not by monkeypatch."""
+    core_module.load_whisper_model = lambda *a, **k: object()
+    transcribe_service.transcribe_for_timing = (
+        lambda *a, **k: (release.wait(5.0), [{"start": 0.0, "end": 1.0, "text": "你好"}])[1])
+    transcribe_service._transcribe_worker(*args)
+
+
 class TestTranscriptionCompletionInvariants:
     def test_job_applies_itself_with_the_text_captured_at_start(self, monkeypatch):
         """No client has to be present when the job finishes (the "new
         session" case), and the text used is the one passed at start, not
         re-read later: a later change to the request/UI can't reach it."""
         did, _ = _transcript_drama()
-        release = threading.Event()
-        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
-                            lambda *a, **k: (release.wait(5.0),
-                                             [{"start": 0.0, "end": 1.0, "text": "你好"}])[1])
+        # Shared with the transcription's (spawned) worker process.
+        release = multiprocessing.get_context("spawn").Event()
+        monkeypatch.setattr(transcribe_service, "_transcribe_worker",
+                            functools.partial(_worker_with_fake_whisper, release))
         text = ["真实台词"]
         out = transcribe_service.start_transcribe_run(did, transcript_text=text[0])
         text[0] = "被修改的文本"  # the caller's copy changes while the job runs
         release.set()
-        job = _wait(out["job_id"])
+        job = _wait(out["job_id"], timeout=60)
         assert job["status"] == "done", job
         assert [ln.zh for ln in db.load_line_objects(did)] == ["真实台词"]
 
@@ -341,7 +352,7 @@ class TestGlossaryTermDeleteInvariants:
 # B-27: a line-scoped run on another engine keeps the drama's engine
 # ---------------------------------------------------------------------------
 
-class _OllamaResp:
+class _OllamaResp(StreamedBody):
     status_code = 200
 
     def raise_for_status(self):

@@ -1,4 +1,7 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type Page } from '@playwright/test'
+import { openFoldFor } from './reviewFolds'
+
+import { expect, test } from './fixtures'
 
 import { clearReviewResults, deleteLine, seedReviewResults } from './reviewResultsSeed'
 
@@ -17,6 +20,7 @@ const section = (page: Page, title: string) =>
   page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: new RegExp(`^${title}$`) }) })
 
 async function open(page: Page, title: string) {
+  await openFoldFor(page, title)
   const s = section(page, title)
   if ((await s.getAttribute('open')) === null) await s.locator(':scope > summary').click()
   await expect(s).toHaveAttribute('open', '')
@@ -198,7 +202,7 @@ test('AI checks send the chosen engine and model; emotion sends the audio-cues c
   await expect.poll(() => bodies.consistency).toEqual({})
 
   const opts = await open(page, 'Check options')
-  await opts.getByRole('combobox', { name: 'Engine' }).selectOption(eng.name)
+  await opts.getByRole('combobox', { name: 'AI engine' }).selectOption(eng.name)
   await opts.getByRole('combobox', { name: 'Model' }).selectOption(eng.models[0])
   const cues = opts.getByRole('switch', { name: /audio delivery cues/ })
   const wasOn = (await cues.getAttribute('aria-checked')) === 'true'

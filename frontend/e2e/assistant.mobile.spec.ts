@@ -1,6 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockAssistant } from './assistantMocks'
+import { navLink, openMenu } from './settingsNav'
+import { installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the Maintenance assistant. Every /api/assistant call is mocked.
 
@@ -21,7 +27,7 @@ async function tallTargets(page: Page) {
     const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input, textarea, summary, a.btn'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
       .filter((x) => x.h < 44)
   })
   expect(small).toEqual([])
@@ -30,8 +36,9 @@ async function tallTargets(page: Page) {
 test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true })
   await page.goto('/#/assistant')
-  const nav = page.getByRole('navigation', { name: 'Main' })
-  await expect(nav.getByRole('link', { name: 'Assistant' })).toBeVisible()
+  await openMenu(page)
+  await expect(navLink(page, 'Assistant')).toBeVisible()
+  await page.keyboard.press('Escape') // the open drawer makes the page inert
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
   await chat.getByRole('textbox', { name: 'Question' }).fill('Why does dub skip lines?')
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
@@ -39,7 +46,6 @@ test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', a
   await chat.getByText('Tools used (2)').click()
   await expect(chat.getByRole('list', { name: 'Tools used' }).getByRole('listitem')).toHaveCount(2)
   await expect(chat.getByRole('figure', { name: 'Proposed fix' })).toContainText('not applied')
-  await chat.locator('summary').filter({ hasText: 'Engine' }).click()
   await page.getByRole('region', { name: 'Tools' }).getByText('What it can read').click()
 
   const card = page.getByRole('region', { name: 'Backlog' })
@@ -56,12 +62,11 @@ test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', a
   expect(s.unmocked).toEqual([])
 })
 
-test('phone: mode off shows only the switch, with a 44 px hit area', async ({ page }) => {
+test('phone: mode off shows only the Settings link', async ({ page }) => {
   await mockAssistant(page)
   await page.goto('/#/assistant')
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Assistant' })).toHaveCount(0)
-  const sw = page.getByRole('region', { name: 'Developer Mode is off' }).getByRole('switch', { name: 'Developer Mode' })
-  const hit = await sw.evaluate((el) => parseFloat(getComputedStyle(el, '::after').height) || el.getBoundingClientRect().height)
-  expect(hit).toBeGreaterThanOrEqual(44)
+  await expect(navLink(page, 'Assistant')).toHaveCount(0)
+  const link = page.getByRole('link', { name: 'Turn on in Settings' })
+  await expect(link).toBeVisible()
   await noSideways(page)
 })

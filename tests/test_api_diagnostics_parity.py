@@ -1,6 +1,5 @@
 """Diagnostics parity (react-misc-parity): ffmpeg libass in the setup
-checks (Q01), deleting a cached model or Piper voice (Q14, PC only) and the
-saved bug-bundle list. Every scan/delete is faked; no network, no files
+checks (Q01), deleting a cached model or Piper voice (Q14, PC only). Every scan/delete is faked; no network, no files
 outside the throwaway library."""
 import subprocess
 
@@ -18,7 +17,6 @@ from api.server import create_app
 from services import library_admin_service
 
 REV = "a" * 40
-SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
 
 
 @pytest.fixture
@@ -41,7 +39,7 @@ def cache(monkeypatch):
         {"name": {"torch": "htdemucs.th", "audio_separator": "model.ckpt"}[kind], "size_bytes": 7}])
     monkeypatch.setattr(diagnostics, "delete_model_folder_entry",
                         lambda kind, name, *a, **k: deleted.append(f"{kind}:{name}") or True)
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
     return deleted
 
 
@@ -107,7 +105,7 @@ class TestModelCacheDelete:
         assert cache == []
 
     def test_refused_while_a_job_runs(self, client, cache, monkeypatch):
-        monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: True)
+        monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
         r = client.post(f"/api/diagnostics/model-cache/hf/{REV}/delete", json={"confirm": True})
         assert r.status_code == 409 and cache == []
 
@@ -139,19 +137,3 @@ class TestModelCacheDelete:
         assert remote.post("/api/diagnostics/model-cache/files/torch/htdemucs.th/delete",
                            json={"confirm": True}).status_code in (401, 403)
         assert cache == []
-
-
-class TestBugBundles:
-    def test_list_then_delete(self, client):
-        did = db.create_drama(title_en="Drama")
-        bid = db.save_bug_report(did, None, "Bad line", '{"src": "x"}', "claude", "m",
-                                 f"output with {SECRET}")
-        items = client.get("/api/diagnostics/bug-bundles").json()
-        assert len(items) == 1
-        b = items[0]
-        assert b["id"] == bid and b["drama_title"] == "Drama" and b["label"] == "Bad line"
-        assert b["replayed"] is False and b["reproduced"] is None
-        assert "input_json" not in b and SECRET not in b["produced_output"]
-        assert client.post(f"/api/diagnostics/bug-bundles/{bid}/delete",
-                           json={"confirm": True}).status_code == 200
-        assert client.get("/api/diagnostics/bug-bundles").json() == []

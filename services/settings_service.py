@@ -1,14 +1,14 @@
 """
-services/settings_service.py -- Streamlit-free settings resolution shared
-between the Settings sidebar (tabs/settings_tab.py) and the FastAPI
-settings endpoint (api/routers/settings_routes.py), so both read the same
-env-var mapping instead of maintaining two copies that could drift.
+services/settings_service.py -- settings resolution for the settings
+endpoint (api/routers/settings_routes.py) and every service that needs a
+key or preference, so all of them read the same env-var mapping.
 
 Per D2 (docs/archive/migration-review.md §6): API keys are server-side only.
-resolve_key() is for server-side use (e.g. a future translate route) --
+resolve_key() is for server-side use (e.g. the translate route) --
 never return its result over an HTTP response. key_status() and
 get_settings_overview() are what an API route may expose: booleans only.
 """
+import datetime
 import os
 import sqlite3
 import threading
@@ -19,25 +19,20 @@ import portable
 from services.service_errors import InvalidInputError
 
 # Per settings key, the env var name(s) to read, in priority order -- the
-# first entry is also the canonical name tabs/settings_tab.py's
-# save_key_to_env() writes back, so a saved key round-trips through the
-# exact same name it would be read back under. Kept in sync with
-# tabs/settings_tab.py, which imports this dict rather than keeping its
-# own copy.
+# first entry is also the canonical name set_engine_key()/set_endpoint_url()
+# write back, so a saved key round-trips through the exact same name it
+# would be read back under.
 ENV_NAMES = {
     "claude": ("BAIHE_CLAUDE_KEY", "ANTHROPIC_API_KEY"),
     "deepseek": ("BAIHE_DEEPSEEK_KEY", "DEEPSEEK_API_KEY"),
-    # Deliberately NOT falling back to GOOGLE_API_KEY here -- that name
-    # is already claimed by the separate Google Translate engine below,
-    # and a Cloud Translation key isn't guaranteed to also work as a
-    # Gemini API key (different products, often different projects).
+    # Deliberately NOT falling back to GOOGLE_API_KEY here -- a key under
+    # that name isn't guaranteed to also work as a Gemini API key
+    # (different products, often different projects).
     "gemini": ("BAIHE_GEMINI_KEY", "GEMINI_API_KEY"),
-    "deepl": ("BAIHE_DEEPL_KEY", "DEEPL_API_KEY"),
-    "google": ("BAIHE_GOOGLE_KEY", "GOOGLE_API_KEY"),
+    "openai": ("BAIHE_OPENAI_KEY", "OPENAI_API_KEY"),
     "groq": ("BAIHE_GROQ_KEY", "GROQ_API_KEY"),
     "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
     "ollama_url": ("BAIHE_OLLAMA_URL",),
-    "libretranslate_url": ("BAIHE_LIBRETRANSLATE_URL",),
     "gpt_sovits_url": ("BAIHE_GPT_SOVITS_URL",),
     "monthly_cap_usd": ("BAIHE_MONTHLY_CAP_USD",),
 }
@@ -48,23 +43,22 @@ ENV_NAMES = {
 _ENGINE_KEY_NAMES = tuple(k for k in ENV_NAMES if k != "monthly_cap_usd")
 
 
-def _default_env_path() -> str:
+def default_env_path() -> str:
     # The project folder for a source checkout; the per-user data folder
     # for an installed copy, so keys never sit in the program files an
-    # update replaces (portable.data_dir(), Step 80b).
+    # update replaces (portable.data_dir()).
     return os.path.join(portable.data_dir(), ".env")
 
 
-def _read_env_file(env_path: str = None) -> dict:
-    """Parses the project's .env file the same way tabs/settings_tab.py's
-    _load_env_defaults() does: utf-8-sig (BOM-safe, since Notepad-saved
+def read_env_file(env_path: str = None) -> dict:
+    """Parses the project's .env file: utf-8-sig (BOM-safe, since Notepad-saved
     .env files often carry one), skips comments/blank lines, strips
     surrounding quotes. Returns {} if the file is missing or malformed --
     a broken .env should never crash a caller.
     """
     env = {}
     if env_path is None:
-        env_path = _default_env_path()
+        env_path = default_env_path()
     if os.path.exists(env_path):
         try:
             with open(env_path, encoding="utf-8-sig") as fh:
@@ -92,7 +86,7 @@ def resolve_env_names(names, env_path: str = None) -> Optional[str]:
     """Server-side only: the first non-empty value among `names`, from .env
     then real environment variables. Shared with notification_service's
     webhook/topic secrets, which are not engine keys."""
-    env = _read_env_file(env_path)
+    env = read_env_file(env_path)
     for name in names:
         val = env.get(name) or os.environ.get(name)
         if val:
@@ -100,10 +94,10 @@ def resolve_env_names(names, env_path: str = None) -> Optional[str]:
     return None
 
 
-# Default API port (api.api_config.DEFAULT_PORT), Streamlit's 8501 and the
-# extension bridge's 8756 (page_server.DEFAULT_PORT). Services may not import
-# api/, so the numbers are repeated here.
-_BAIHE_FIXED_PORTS = (8501, 8600, 8756)
+# Default API port (api.api_config.DEFAULT_PORT) and the extension bridge's
+# 8756 (page_server.DEFAULT_PORT). Services may not import api/, so the
+# numbers are repeated here.
+_BAIHE_FIXED_PORTS = (8600, 8756)
 API_PORT_ENV = "BAIHE_API_PORT"
 HOUSEHOLD_PORT_ENV = "BAIHE_API_HOUSEHOLD_PORT"
 
@@ -114,7 +108,7 @@ def baihe_own_ports() -> set:
     configured BAIHE_API_PORT and BAIHE_API_HOUSEHOLD_PORT. Both the real
     environment and .env are read, so a port set in either is protected."""
     ports = set(_BAIHE_FIXED_PORTS)
-    env = _read_env_file()
+    env = read_env_file()
     for name in (API_PORT_ENV, HOUSEHOLD_PORT_ENV):
         for raw in (os.environ.get(name), env.get(name)):
             try:
@@ -122,6 +116,44 @@ def baihe_own_ports() -> set:
             except (TypeError, ValueError):
                 pass
     return ports
+
+
+def baihe_ports(api_port: int, household_port: int = 0, public_url: str = "") -> dict:
+    """{"ports": [{key, label, port, active, how_to_change}]} for the
+    Diagnostics Ports panel. The caller passes the API settings' values
+    (services may not import api/). `port` is None for the household
+    listener while it is off. Numbers and fixed text only."""
+    import page_server
+    from services import remote_health_service
+    try:
+        household = int(household_port or 0)
+    except (TypeError, ValueError):
+        household = 0
+    try:
+        bridge_running = bool(page_server.server_running())
+    except Exception:
+        bridge_running = False
+    https_on = remote_health_service.remote_access_enabled(public_url, household)
+    ports = [
+        {"key": "api", "label": "Baihe (this PC's window)", "port": int(api_port), "active": True,
+         "how_to_change": "Service install: Start menu > Baihe Studio service > Change port "
+                          "(asks for administrator permission); changing or deleting "
+                          "BAIHE_API_PORT does not move an installed service. Launcher "
+                          "install: set BAIHE_API_PORT and restart Baihe."},
+        {"key": "household", "label": "Household listener", "port": household or None,
+         "active": household > 0,
+         "how_to_change": "Service install: Start menu > Baihe Studio service > Turn remote access "
+                          "on (it asks for the household port) or off. Otherwise set "
+                          "BAIHE_API_HOUSEHOLD_PORT and restart Baihe; unset it to turn the "
+                          "listener off."},
+        {"key": "extension", "label": "Browser extension bridge", "port": page_server.DEFAULT_PORT,
+         "active": bridge_running,
+         "how_to_change": "Fixed: this port cannot be changed. Turn the bridge on or off in Settings."},
+        {"key": "https", "label": "HTTPS for remote access (Caddy)", "port": 443, "active": https_on,
+         "how_to_change": "Fixed: remote access always uses 443. It is only used once remote "
+                          "access is set up."},
+    ]
+    return {"ports": ports}
 
 
 def key_status(env_path: str = None) -> dict:
@@ -145,8 +177,14 @@ def get_use_gpu() -> bool:
 
 
 def get_gemini_free_tier() -> bool:
-    """Persisted 'Gemini is on the free tier' flag (Slice 23). Default False."""
+    """Persisted 'Gemini is on the free tier' flag. Default False."""
     return _get_bool_setting("gemini_free_tier")
+
+
+def get_offer_provider_models() -> bool:
+    """Opt-in: the Claude model picker also offers models Anthropic lists
+    (from the last manual model check) that the app doesn't know yet."""
+    return _get_bool_setting("offer_provider_models")
 
 
 def get_bulk_auto_resume() -> bool:
@@ -169,14 +207,17 @@ def get_settings_overview(env_path: str = None) -> dict:
     return {
         "engine_keys": key_status(env_path),
         "gpu_limit_enabled": background_jobs.get_gpu_limit_enabled(),
+        "gpu_max_parallel": background_jobs.get_gpu_max_parallel(),
         "notify_on_completion": background_jobs.get_notify_on_completion(),
         "use_gpu": get_use_gpu(),
         "gemini_free_tier": get_gemini_free_tier(),
         "bulk_auto_resume": get_bulk_auto_resume(),
+        "offer_provider_models": get_offer_provider_models(),
         "preferences": get_preferences(),
         "endpoints": endpoint_values(env_path),
         "monthly_cap_env_usd": _parse_cap(resolve_key("monthly_cap_usd", env_path)),
         "effective_monthly_cap_usd": get_monthly_cap_usd(env_path),
+        **month_spend_status(),
         "choices": preference_choices(),
     }
 
@@ -189,7 +230,7 @@ def _set_app_bool(key: str, enabled: bool):
     db.set_app_setting(key, bool(enabled))
 
 
-# Typed allow-list of writable, non-secret boolean settings (Slice 23).
+# Typed allow-list of writable, non-secret boolean settings.
 # Keys are never here (D2); preferences (paths, defaults, the cap) are in
 # _PREFERENCES below, endpoint URLs go through set_endpoint_url.
 _WRITABLE_SETTINGS = {
@@ -198,6 +239,7 @@ _WRITABLE_SETTINGS = {
     "use_gpu": lambda v: _set_app_bool("use_gpu", v),
     "gemini_free_tier": lambda v: _set_app_bool("gemini_free_tier", v),
     "bulk_auto_resume": lambda v: _set_app_bool(BULK_AUTO_RESUME_KEY, v),
+    "offer_provider_models": lambda v: _set_app_bool("offer_provider_models", v),
 }
 
 
@@ -208,7 +250,11 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
     offending value (it could be a pasted secret)."""
     cleaned = {}
     for key, value in updates.items():
-        if key in _WRITABLE_SETTINGS:
+        if key == "gpu_max_parallel":
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise InvalidInputError("'gpu_max_parallel' must be a whole number.")
+            cleaned[key] = value  # clamped to 1..4 by the setter
+        elif key in _WRITABLE_SETTINGS:
             if not isinstance(value, bool):
                 raise InvalidInputError(f"Setting '{key}' must be true or false.")
             cleaned[key] = value
@@ -217,7 +263,9 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
         else:
             raise InvalidInputError("Unknown or non-writable setting.")
     for key, value in cleaned.items():
-        if key in _WRITABLE_SETTINGS:
+        if key == "gpu_max_parallel":
+            background_jobs.set_gpu_max_parallel(value)
+        elif key in _WRITABLE_SETTINGS:
             _WRITABLE_SETTINGS[key](value)
         else:
             import db
@@ -226,14 +274,13 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
 
 
 # --- Persisted PC-side preferences (settings parity G05, G08, G09, G13,
-# G14, G15). Streamlit kept these in session state only; here they live in
-# db.app_settings under "pref.<name>" and the services that use them read
+# G14, G15). They live in db.app_settings under "pref.<name>" and the services that use them read
 # them through the getters below. Written only through set_settings
 # (POST /api/settings, local_only). A stored value that no longer
 # validates (e.g. an engine that was removed) reads back as the default.
 
 _PREF_PREFIX = "pref."
-# Step 36: the last "Test" result per engine (engine_routing_service). A key
+# The last "Test" result per engine (engine_routing_service). A key
 # or endpoint write forgets it, so a stale "working" never outlives the key.
 ENGINE_TEST_PREFIX = "engine_test."
 _MAX_PATH_LENGTH = 1024
@@ -241,12 +288,12 @@ _MAX_STYLE_NOTE_LENGTH = 2000
 _MAX_NUM_CTX = 1_048_576
 _MAX_MONTHLY_CAP = 1_000_000.0
 LOCALE_CHOICES = ("en-US", "en-GB", "en-AU")
-SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini")
+SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini", "openai")
 
 
 def _engine_choices() -> tuple:
     import translate_engines
-    return tuple(k for k in translate_engines.ENGINES if k != "test_offline")
+    return tuple(translate_engines.ENGINES)
 
 
 def engine_preference_choices() -> tuple:
@@ -342,7 +389,7 @@ _PREFERENCES = {
     # Accepted risk (inventory G05): the program Tesseract runs is editable
     # here. Writes are PC-only, like every other settings write.
     "tesseract_cmd": ("", _check_text("tesseract_cmd", _MAX_PATH_LENGTH)),
-    # Step 115b: the lightnovel-crawler program, when it isn't on PATH. Same
+    # The lightnovel-crawler program, when it isn't on PATH. Same
     # accepted risk as tesseract_cmd; services/lncrawl_service.py also only
     # runs a file named lncrawl / lightnovel-crawler.
     "lncrawl_cmd": ("", _check_text("lncrawl_cmd", _MAX_PATH_LENGTH)),
@@ -395,6 +442,31 @@ def get_monthly_cap_usd(env_path: str = None) -> float:
     if saved is not None:
         return float(saved)
     return _parse_cap(resolve_key("monthly_cap_usd", env_path))
+
+
+def month_spend_status() -> dict:
+    """Numbers and a timestamp only: the full month's logged spend, what the
+    cap counts (since an active reset), and when that reset was made."""
+    import db
+    return {"month_spend_usd": db.get_month_spend(since_reset=False),
+            "month_spend_counted_usd": db.get_month_spend(),
+            "month_spend_reset_at": db.get_month_spend_reset_at()}
+
+
+def reset_month_counter() -> dict:
+    """Start counting the monthly cap from now. Usage rows are kept; Undo
+    clears the marker."""
+    import db
+    before = month_spend_status()
+    db.set_app_setting(db.MONTHLY_SPEND_RESET_KEY, datetime.datetime.utcnow().isoformat())
+    return {"before": before, "after": month_spend_status()}
+
+
+def undo_month_counter_reset() -> dict:
+    import db
+    before = month_spend_status()
+    db.set_app_setting(db.MONTHLY_SPEND_RESET_KEY, None)
+    return {"before": before, "after": month_spend_status()}
 
 
 def get_default_engine() -> str:
@@ -459,7 +531,7 @@ def _auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool) -> str
 # route shape. Not secrets, but a URL with userinfo or a query could carry
 # one, so those are refused and never echoed back.
 
-ENDPOINT_NAMES = ("ollama_url", "libretranslate_url", "gpt_sovits_url")
+ENDPOINT_NAMES = ("ollama_url", "gpt_sovits_url")
 _MAX_URL_LENGTH = 300
 
 
@@ -514,7 +586,7 @@ def _validate_endpoint_name(name: str):
 def set_endpoint_url(name: str, value: str, env_path: str = None) -> dict:
     _validate_endpoint_name(name)
     value = validate_endpoint_url(value)
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
     write_env_var(ENV_NAMES[name][0], value, env_path)
     _forget_engine_test(name)
     return {"name": name, "url": endpoint_values(env_path)[name],
@@ -525,16 +597,16 @@ def clear_endpoint_url(name: str, env_path: str = None) -> dict:
     """Removes the endpoint from .env. One set in the real environment
     stays in effect; the result reports what now applies."""
     _validate_endpoint_name(name)
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
     remove_env_vars(ENV_NAMES[name], env_path)
     _forget_engine_test(name)
     return {"name": name, "url": endpoint_values(env_path)[name],
             "configured": bool(resolve_key(name, env_path))}
 
 
-# Slice 24: write-only secret keys. URL settings and the numeric cap are
+# Write-only secret keys. URL settings and the numeric cap are
 # not secrets and stay out; only real keys/tokens can be set here.
-KEY_WRITE_ENGINES = ("claude", "deepseek", "gemini", "deepl", "google", "groq", "hf_token")
+KEY_WRITE_ENGINES = ("claude", "deepseek", "gemini", "openai", "groq", "hf_token")
 _MAX_KEY_LENGTH = 512
 
 
@@ -608,12 +680,13 @@ def _line_var(line: str) -> str:
 
 
 def set_engine_key(engine: str, value: str, env_path: str = None) -> dict:
-    """Writes `value` to .env under the engine's canonical name (same name
-    tabs/settings_tab.save_key_to_env uses), preserving other lines.
+    """Writes `value` to .env under the engine's canonical name (the first
+    ENV_NAMES entry, the one resolve_key reads first), preserving other
+    lines.
     Returns {engine, configured} only -- never the value."""
     _validate_engine(engine)
     value = _validate_key_value(value)
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
     write_env_var(ENV_NAMES[engine][0], value, env_path)
     _forget_engine_test(engine)
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
@@ -623,7 +696,7 @@ def write_env_var(var_name: str, value: str, env_path: str = None):
     """Sets `var_name=value` in .env in place (appends when absent),
     keeping every other line. `value` must already be validated (no
     whitespace, quotes or control characters)."""
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
 
     def transform(lines):
         new_line = f"{var_name}={value}\n"
@@ -646,7 +719,7 @@ def write_env_var(var_name: str, value: str, env_path: str = None):
 
 def remove_env_vars(names, env_path: str = None):
     """Removes every line setting one of `names` from .env (if it exists)."""
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
     names = set(names)
     if os.path.exists(env_path):
         _rewrite_env(env_path, lambda lines: [l for l in lines if _line_var(l) not in names])
@@ -657,7 +730,7 @@ def clear_engine_key(engine: str, env_path: str = None) -> dict:
     it). A key that also comes from a real environment variable stays
     configured -- `configured` reports the truth."""
     _validate_engine(engine)
-    env_path = env_path or _default_env_path()
+    env_path = env_path or default_env_path()
     remove_env_vars(ENV_NAMES[engine], env_path)
     _forget_engine_test(engine)
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
@@ -679,7 +752,7 @@ def engine_test_generation(engine: str) -> int:
 
 def _forget_engine_test(name: str):
     """Drops the saved Test result for the engine a key or endpoint belongs
-    to (Step 36), e.g. "ollama_url" -> "ollama". Best effort: the key or URL
+    to, e.g. "ollama_url" -> "ollama". Best effort: the key or URL
     is already written to .env, and status bookkeeping must never turn that
     into an error (e.g. a library whose tables don't exist yet)."""
     import db

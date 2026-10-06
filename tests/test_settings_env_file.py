@@ -2,8 +2,7 @@
 tests/test_settings_env_file.py -- the .env key loader and writer in
 services/settings_service.py (resolve_key, set_engine_key).
 
-Moved from tests/test_settings_tab.py (Streamlit retirement,
-docs/streamlit-retirement-plan.md section 9, guardrail 4), where the same
+Moved from tests/test_settings_tab.py (Streamlit retirement), where the same
 cases ran against the Settings tab's _load_env_defaults/save_key_to_env and
 asserted st.session_state. They now assert the service's return values.
 
@@ -43,9 +42,9 @@ class TestLoadsFromEnvFile:
 
     def test_ignores_comments_and_blank_lines(self, tmp_path):
         env_path = _write_env(tmp_path / ".env",
-                               "# a comment\n\nBAIHE_HF_TOKEN=hf_abc123\n# BAIHE_DEEPL_KEY=unused\n")
+                               "# a comment\n\nBAIHE_HF_TOKEN=hf_abc123\n# BAIHE_GROQ_KEY=unused\n")
         assert settings_service.resolve_key("hf_token", env_path) == "hf_abc123"
-        assert not settings_service.resolve_key("deepl", env_path)
+        assert not settings_service.resolve_key("groq", env_path)
 
     def test_malformed_file_does_not_crash(self, tmp_path):
         env_path = _write_env(tmp_path / ".env", "this is not a valid env line at all")
@@ -56,11 +55,9 @@ class TestLoadsFromEnvFile:
         assert settings_service.resolve_key("gemini", env_path) == "g_abc123"
 
     def test_gemini_does_not_fall_back_to_google_api_key(self, tmp_path):
-        # GOOGLE_API_KEY belongs to the separate Google Translate engine --
-        # a Cloud Translation key isn't guaranteed to also work as a Gemini
-        # key, so gemini must not silently pick it up.
-        env_path = _write_env(tmp_path / ".env", "GOOGLE_API_KEY=translate_key_only\n")
-        assert settings_service.resolve_key("google", env_path) == "translate_key_only"
+        # A key under GOOGLE_API_KEY isn't guaranteed to also work as a
+        # Gemini key, so gemini must not silently pick it up.
+        env_path = _write_env(tmp_path / ".env", "GOOGLE_API_KEY=other_google_key\n")
         assert not settings_service.resolve_key("gemini", env_path)
 
 
@@ -106,8 +103,8 @@ class TestSaveKeyToEnv:
 
     def test_round_trips_through_resolve_key(self, tmp_path):
         env_path = str(tmp_path / ".env")
-        settings_service.set_engine_key("deepl", "dl-abc123", env_path)
-        assert settings_service.resolve_key("deepl", env_path) == "dl-abc123"
+        settings_service.set_engine_key("groq", "gq-abc123", env_path)
+        assert settings_service.resolve_key("groq", env_path) == "gq-abc123"
 
 
 class TestRepeatedCallsPickUpLateEdits:

@@ -11,7 +11,7 @@ adapters build their own URLs. Everything returned is plain dicts with URLs
 reduced to scheme+host+path and free text scrubbed of secrets and paths
 (the helpers in services/sources_registry_service.py).
 
-ToS/robots enforcement is OFF by user decision (Step 90; spec Q1), but each
+ToS/robots enforcement is OFF by user decision, but each
 fetch still goes through `ladder.check_terms(...)` (registry.multi_search
 calls it per source; the series job calls it before fetching), so turning
 that one function back on covers the API too.
@@ -28,7 +28,7 @@ from services import ownership_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
                                      UnsupportedOperationError)
-from services.sources_registry_service import _require_source, _scrub, _scrub_any, safe_url
+from services.sources_registry_service import require_source, scrub, scrub_any, safe_url
 from sources import chapter_order, generic_import, health, ladder, registry
 from sources.http import Cancelled, ResponseRefused
 from sources.models import (ChallengeDetected, ContentHidden, FailureReason, NotSupportedError,
@@ -40,11 +40,13 @@ SERIES_JOB_PREFIX = "sources_series_"
 IMPORT_JOB_PREFIX = "sourceimport_"
 # Paste-a-URL preview (S-5), one at a time in the process.
 URL_PREVIEW_JOB_ID = "sources_url_preview"
+# Saving chapters as CBZ files (sources_save_service), one at a time.
+SAVE_JOB_ID = "sources_save"
 MAX_QUERY_LEN = 200
 MAX_ID_LEN = 200
 
 
-class _JobFailed(Exception):
+class JobFailed(Exception):
     """Raised by a job after it stored its structured error, so the job
     ends as "error" with an already-scrubbed message."""
 
@@ -64,9 +66,13 @@ def _note_layout_change(source, message: str):
         pass  # health is best-effort; the error view must still be returned
 
 
-def _error_view(exc, source: str = None) -> dict:
+def error_view(exc, source: str = None) -> dict:
     """A SourceError (or anything else) as {status, code, message, details}."""
-    msg = _scrub(str(exc)) or type(exc).__name__
+    msg = scrub(str(exc)) or type(exc).__name__
+    from page_fetch import BROWSER_MISSING, BrowserNotFound
+    if isinstance(exc, BrowserNotFound):
+        return {"status": 503, "code": DependencyUnavailableError.code, "message": BROWSER_MISSING,
+                "details": {"reason": "BROWSER_MISSING"}}
     if isinstance(exc, TermsProhibited):
         return {"status": 400, "code": UnsupportedOperationError.code, "message": msg,
                 "details": {"reason": "TOS_PROHIBITED"}}
@@ -127,7 +133,7 @@ def _raise_error_view(err: dict):
 # Input checks
 # ---------------------------------------------------------------------------
 
-def _plain_text(value, what: str, max_len: int) -> str:
+def plain_text(value, what: str, max_len: int) -> str:
     text = str(value or "").strip()
     if not text:
         raise InvalidInputError(f"{what} is required.")
@@ -139,26 +145,26 @@ def _plain_text(value, what: str, max_len: int) -> str:
     return text
 
 
-def _series_id(value) -> str:
+def clean_series_id(value) -> str:
     """Adapters append a series id to their own base URL, and some urljoin
     it (52shuku), so "//other.host/x" would change the host. Refuse
     anything that could: a leading slash or backslash, backslashes, "@",
     ":", ".." segments, whitespace and control characters."""
-    text = _plain_text(value, "series_id", MAX_ID_LEN)
+    text = plain_text(value, "series_id", MAX_ID_LEN)
     if (text[0] in "/\\" or any(c in text for c in "\\@:") or ".." in text
             or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in text)):
         raise InvalidInputError("series_id must be a plain id.")
     return text
 
 
-def _enabled_source(name: str):
-    cls = _require_source(name)
+def enabled_source(name: str):
+    cls = require_source(name)
     if not registry.is_enabled(name):
         raise UnsupportedOperationError("That source is switched off.")
     return cls
 
 
-def _start(job_id: str, target, *args, description: str):
+def start_job(job_id: str, target, *args, description: str):
     status = background_jobs.get_status(job_id)
     if status and status.get("status") in ("running", "queued"):
         raise ConflictError("A request like this is already running.",
@@ -212,18 +218,18 @@ def _search_job(job_id: str, query: str, names):
         exc = raised.get(name)
         if isinstance(exc, Cancelled) or (exc is None and was_cancelled):
             continue
-        errors[name] = _error_view(exc, name) if exc is not None else {
-            "status": 500, "code": ServiceError.code, "message": _scrub(text), "details": None}
+        errors[name] = error_view(exc, name) if exc is not None else {
+            "status": 500, "code": ServiceError.code, "message": scrub(text), "details": None}
     background_jobs.set_result(job_id, {
         "kind": "search",
-        "query": _scrub(query),
+        "query": scrub(query),
         "cancelled": was_cancelled,
         "results": [{
-            "title": _scrub(m.title),
+            "title": scrub(m.title),
             "key": m.key,
             "sources": list(m.sources),
             "entries": [{"source": e.source, "series_id": str(e.series_id),
-                         "title": _scrub(e.title), "url": safe_url(e.url),
+                         "title": scrub(e.title), "url": safe_url(e.url),
                          "cover_url": safe_url(e.cover_url)} for e in m.entries],
         } for m in res.results],
         "errors": errors,
@@ -235,16 +241,16 @@ def start_search(query, sources=None) -> dict:
     """Starts the fixed-id `sources_search` job. 409 if one is running; a
     finished one is cleared first. `sources` (names) limits the search to
     those enabled sources; unknown names are 404, switched-off ones 400."""
-    query = _plain_text(query, "The search text", MAX_QUERY_LEN)
+    query = plain_text(query, "The search text", MAX_QUERY_LEN)
     names = None
     if sources is not None:
         names = set()
         for n in sources:
-            _enabled_source(str(n))
+            enabled_source(str(n))
             names.add(str(n))
         if not names:
             raise InvalidInputError("Pick at least one source, or leave the list out.")
-    return _start(SEARCH_JOB_ID, _search_job, SEARCH_JOB_ID, query, names,
+    return start_job(SEARCH_JOB_ID, _search_job, SEARCH_JOB_ID, query, names,
                   description="Sources search")
 
 
@@ -262,8 +268,8 @@ def _link_views(links) -> list:
             continue
         url = safe_url(link.get("url"))
         if url.startswith(("https://", "http://")):
-            out.append({"label": _scrub(str(link.get("label") or ""))[:80] or url,
-                        "url": url, "password": _scrub(str(link.get("password") or ""))[:40]})
+            out.append({"label": scrub(str(link.get("label") or ""))[:80] or url,
+                        "url": url, "password": scrub(str(link.get("password") or ""))[:40]})
     return out
 
 
@@ -278,24 +284,24 @@ def _series_job(job_id: str, name: str, series_id: str, local: bool = True):
         background_jobs.update_progress(job_id, 0.6, "Loading the chapter list...")
         chapters = chapter_order.reading_order(adapter, adapter.get_chapters(series_id))
     except Exception as e:
-        err = _error_view(e, name)
+        err = error_view(e, name)
         background_jobs.set_result(job_id, {"kind": "series", "source": name,
                                             "series_id": series_id, "error": err})
-        raise _JobFailed(err["message"]) from None
+        raise JobFailed(err["message"]) from None
     background_jobs.set_result(job_id, {
         "kind": "series",
         "source": name,
         "series_id": series_id,
         "info": None if info is None else {
-            "title": _scrub(info.title), "url": safe_url(info.url),
+            "title": scrub(info.title), "url": safe_url(info.url),
             "cover_url": safe_url(info.cover_url),
-            "authors": [_scrub(a) for a in (info.authors or [])],
-            "description": _scrub(info.description), "genres": [_scrub(g) for g in (info.genres or [])],
+            "authors": [scrub(a) for a in (info.authors or [])],
+            "description": scrub(info.description), "genres": [scrub(g) for g in (info.genres or [])],
             "status": info.status, "content_type": info.content_type, "language": info.language,
             "links": _link_views(info.links),
         },
-        "chapters": [{"chapter_id": str(c.chapter_id), "title": _scrub(c.title),
-                      "group": _scrub(c.group or ""), "url": safe_url(c.url)} for c in chapters],
+        "chapters": [{"chapter_id": str(c.chapter_id), "title": scrub(c.title),
+                      "group": scrub(c.group or ""), "url": safe_url(c.url)} for c in chapters],
     })
 
 
@@ -304,8 +310,8 @@ def start_series(name, series_id, local: bool = True) -> dict:
     chapter_order.reading_order: the site's own order. `local` False (a request not
     from this PC) keeps an adapter from opening a browser."""
     name = str(name or "")
-    cls = _enabled_source(name)
-    series_id = _series_id(series_id)
+    cls = enabled_source(name)
+    series_id = clean_series_id(series_id)
     if not cls().supports("get_chapters"):
         raise UnsupportedOperationError("This source can't list chapters.",
                                         details={"reason": "NOT_SUPPORTED"})
@@ -313,7 +319,7 @@ def start_series(name, series_id, local: bool = True) -> dict:
     # Start and record together, so a poll never pairs this run with the
     # previous run's series.
     with _IDENTITY_LOCK:
-        started = _start(job_id, _series_job, job_id, name, series_id, bool(local),
+        started = start_job(job_id, _series_job, job_id, name, series_id, bool(local),
                          description=f"Sources series ({name})")
         _SERIES_IDENTITY[job_id] = (name, series_id)
     return started
@@ -334,7 +340,7 @@ def _is_ours(job_id: str, local: bool = False) -> bool:
     from services import sources_signin_service as signin
     from services import sources_tools_service as tools
     from sources.chapter_check import CHECK_JOB_ID
-    if job_id in (SEARCH_JOB_ID, URL_PREVIEW_JOB_ID, CHECK_JOB_ID) + tools.job_ids():
+    if job_id in (SEARCH_JOB_ID, URL_PREVIEW_JOB_ID, SAVE_JOB_ID, CHECK_JOB_ID) + tools.job_ids():
         return True
     if signin.is_pc_only_job(job_id):
         # Sign-in and tier-test outcomes are for the owner at the PC.
@@ -346,23 +352,30 @@ def _is_ours(job_id: str, local: bool = False) -> bool:
 
 
 def get_job_result(job_id, local: bool = False, principal=None) -> dict:
-    """{job_id, status, progress, message, result}. 404 when the job is not
-    resident in this process (or is a PC-only sign-in/tier-test job and the
-    request is not `local`); a failed job raises its mapped error (503
-    with retry_after, 409 handoff, 400 terms/hidden/unsupported)."""
+    """{job_id, status, progress, message, result}. A job that has not run
+    in this process is the normal first answer: status "idle" (also for
+    another user's run of a shared id, so it never leaks). 404 for an id
+    that is not a Sources job, a PC-only sign-in/tier-test job asked for
+    from another device, and an import into a drama the caller can't see;
+    a failed job raises its mapped error (503 with retry_after, 409
+    handoff, 400 terms/hidden/unsupported)."""
     job_id = str(job_id or "")
+    if not _is_ours(job_id, local):
+        raise NotFoundError("No such Sources job in this app session.")
+    if (job_id.startswith(IMPORT_JOB_PREFIX)
+            and not ownership_service.can_see_job(principal, job_id, None)):
+        raise NotFoundError("No such Sources job in this app session.")
     with _IDENTITY_LOCK:
-        status = background_jobs.get_status(job_id) if _is_ours(job_id, local) else None
+        status = background_jobs.get_status(job_id)
         started_for = _SERIES_IDENTITY.get(job_id)
     if not status or not ownership_service.can_see_job(principal, job_id,
                                                        status.get("owner_user_id")):
-        # Another user's search/preview/series run, or an import into a
-        # drama the caller can't see (auth B2), looks like no job at all.
-        raise NotFoundError("No such Sources job in this app session.")
+        return {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
+                "result": None}
     result = status.get("result")
     if status.get("status") == "error":
         err = (result or {}).get("error") if isinstance(result, dict) else None
-        _raise_error_view(err or {"status": 500, "message": _scrub(status.get("error"))})
+        _raise_error_view(err or {"status": 500, "message": scrub(status.get("error"))})
     done = status.get("status") == "done"
     out = {
         "job_id": job_id,
@@ -377,14 +390,14 @@ def get_job_result(job_id, local: bool = False, principal=None) -> dict:
             ident = (result.get("source"), result.get("series_id"))
         if ident:
             out["source"], out["series_id"] = ident
-    return _scrub_any(out)
+    return scrub_any(out)
 
 
 def known_chapter_ids(series_result: dict) -> list:
     """Chapter ids to record as already known when a series starts being
     tracked from this fetched result, so the first check doesn't announce
     (or auto-import) the whole back catalogue. Accepts either the
-    `get_job_result` payload or its inner `result`. Not wired to tracking."""
+    `get_job_result` payload or its inner `result`."""
     r = series_result or {}
     if isinstance(r.get("result"), dict):
         r = r["result"]

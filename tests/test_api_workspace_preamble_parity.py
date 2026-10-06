@@ -89,7 +89,7 @@ class TestRomanize:
         assert client.post("/api/metadata/dramas/999/romanize-credits", json={}).status_code == 404
         did = _drama(author="A")
         assert client.post(f"/api/metadata/dramas/{did}/romanize-credits",
-                           json={"engine": "google"}).status_code == 422   # not an LLM
+                           json={"engine": "nllb"}).status_code == 422   # not an LLM
         assert client.post(f"/api/metadata/dramas/{did}/romanize-credits",
                            json={"key": "x"}).status_code == 422           # extra field
         monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: None)
@@ -242,7 +242,7 @@ class TestCover:
         did = _drama()
         monkeypatch.setattr(cover_art_service, "MAX_COVER_BYTES", 10)
         monkeypatch.setattr(drama_routes, "_COVER_MULTIPART_OVERHEAD", 0)
-        monkeypatch.setattr(drama_routes, "_capped", lambda *a: (_ for _ in ()).throw(
+        monkeypatch.setattr(drama_routes, "capped", lambda *a: (_ for _ in ()).throw(
             AssertionError("body read")))
         r = client.post(f"/api/dramas/{did}/cover", files={"file": ("c.png", _image(), "image/png")})
         assert r.status_code == 413

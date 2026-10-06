@@ -15,6 +15,8 @@ import pytest
 
 import translate_engines as te
 from core import Line
+from tests import fake_engine
+from tests.http_fakes import StreamedBody
 
 
 class RateLimitError(Exception):
@@ -23,6 +25,88 @@ class RateLimitError(Exception):
 
 class GenericError(Exception):
     pass
+
+
+class TestBackoffCancelAndDeadlines:
+    def _sleeps(self, monkeypatch):
+        slept = []
+        monkeypatch.setattr("time.sleep", lambda sec: slept.append(sec))
+        return slept
+
+    def test_backoff_sleep_stops_when_the_job_is_cancelled(self, monkeypatch):
+        slept = self._sleeps(monkeypatch)
+        cancelled = {"v": False}
+        calls = {"n": 0}
+
+        def always_429():
+            calls["n"] += 1
+            raise RateLimitError("429")
+
+        def check():
+            return cancelled["v"] and True
+
+        token = te._cancel_check_var.set(check)
+        try:
+            monkeypatch.setattr("time.sleep", lambda sec: (slept.append(sec),
+                                                           cancelled.__setitem__("v", True)))
+            with pytest.raises(te.TranslationCancelled):
+                te.call_with_backoff(always_429, base_delay=30.0)
+        finally:
+            te._cancel_check_var.reset(token)
+        assert calls["n"] == 1
+        assert max(slept) <= te._SLEEP_SLICE_SECONDS  # never one long sleep
+
+    def test_translate_run_passes_its_cancel_check_to_the_backoff(self, monkeypatch):
+        self._sleeps(monkeypatch)
+        cancelled = {"v": False}
+
+        class Engine:
+            def translate_batch(self, zh, ctx):
+                cancelled["v"] = True
+                raise RateLimitError("429")
+
+        lines = [Line(idx=0, start=0, end=1, zh="a")]
+        _, errors = te.translate_lines_with_engine(
+            lines, Engine(), {}, cancel_check_cb=lambda: cancelled["v"])
+        assert len(errors) == 1 and lines[0].en == ""
+
+    def test_429_text_match_ignores_other_numbers_and_known_statuses(self):
+        assert te._is_rate_limit_error(Exception("HTTP 429 Too Many Requests"))
+        assert not te._is_rate_limit_error(Exception("failed at line 14290"))
+
+        class Other(Exception):
+            status_code = 500
+        assert not te._is_rate_limit_error(Other("upstream said 429 somewhere"))
+
+    def test_exhausted_fallback_chain_is_not_backed_off_again(self, monkeypatch):
+        slept = self._sleeps(monkeypatch)
+        monkeypatch.setattr("engine_backends.fallback._fallback_sleep", lambda s: None)
+        calls = {"n": 0}
+
+        class Always429:
+            name = "x"
+            model = "m"
+
+            def translate_batch(self, zh, ctx):
+                calls["n"] += 1
+                raise RateLimitError("429")
+
+        chain = te.FallbackEngine([Always429()], ["x"])
+        with pytest.raises(RateLimitError):
+            te.call_with_backoff(lambda: chain.translate_batch(["a"], {}))
+        assert calls["n"] == 1 + te.FALLBACK_TRANSIENT_RETRIES  # not 6x that
+        assert slept == []
+
+    def test_daily_limit_stops_the_run_with_a_clear_error(self, monkeypatch):
+        self._sleeps(monkeypatch)
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        limit = te.gemini_free_tier_limits_for(engine.model)["rpd"]
+        now = time.monotonic()
+        engine._free_tier_daily_request_times = [now] * limit
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(6)]
+        _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+        assert len(errors) == 1  # stopped after the first batch
+        assert "daily request limit" in errors[0]["error"]
 
 
 class TestCallWithBackoff:
@@ -158,7 +242,7 @@ class TestTranslateLinesWithEngine:
         assert engine2.call_count == 1
 
     def test_source_language_from_drama_meta_reaches_the_engine(self):
-        """Regression test for a real bug: DeepLEngine/GoogleEngine used
+        """Regression test for a real bug: engines used
         to hardcode source_language="zh" regardless of the drama's actual
         source, so a Japanese/Korean drama silently mistranslated through
         either. context["source_language"] must reflect drama_meta."""
@@ -433,7 +517,8 @@ class ContextCapturingEngine:
         self.calls.append({"zh_lines": list(zh_lines),
                             "recent_context": list(context.get("recent_context") or []),
                             "upcoming_lines": list(context.get("upcoming_lines") or []),
-                            "speaker_labels": list(context.get("speaker_labels") or [])})
+                            "speaker_labels": list(context.get("speaker_labels") or []),
+                            "line_languages": context.get("line_languages")})
         return [f"EN:{z}" for z in zh_lines]
 
 
@@ -550,44 +635,129 @@ class TestSpeakerNamesReachTheBatch:
         assert engine.calls[0]["speaker_labels"] == [None]
 
 
+class TestPerLineLanguage:
+    def test_only_lines_in_another_language_are_tagged(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", lang=None),
+                 Line(idx=1, start=1, end=2, zh="b", lang="ko"),
+                 Line(idx=2, start=2, end=3, zh="c", lang="ja")]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {"source_language": "ja"}, batch_size=10)
+        assert engine.calls[0]["line_languages"] == [None, "ko", None]
+
+    def test_single_language_title_sends_no_language_context(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a")]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=10)
+        assert engine.calls[0]["line_languages"] is None
+
+    def test_english_lines_are_copied_not_sent_to_the_engine(self):
+        lines = [Line(idx=0, start=0, end=1, zh="hello", lang="en"),
+                 Line(idx=1, start=1, end=2, zh="你好")]
+        engine = ContextCapturingEngine()
+        saved = []
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=10,
+                                       save_cb=lambda ls: saved.append([ln.en for ln in ls]))
+        assert engine.calls[0]["zh_lines"] == ["你好"]
+        assert lines[0].en == "hello" and lines[1].en == "EN:你好"
+        assert saved[-1] == ["hello", "EN:你好"]
+
+    def test_all_english_titles_still_save_the_copies(self):
+        lines = [Line(idx=0, start=0, end=1, zh="hello", lang="en")]
+        engine = ContextCapturingEngine()
+        saved = []
+        te.translate_lines_with_engine(lines, engine, {}, save_cb=lambda ls: saved.append(1))
+        assert engine.calls == [] and saved and lines[0].en == "hello"
+
+    def test_tagged_line_languages_only_marks_other_languages(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", lang="ja"),
+                 Line(idx=1, start=1, end=2, zh="b", lang="ko"),
+                 Line(idx=2, start=2, end=3, zh="c")]
+        assert te.tagged_line_languages(lines, "ja") == [None, "ko", None]
+        assert te.tagged_line_languages([lines[0], lines[2]], "ja") is None
+        assert te.tagged_source_texts(lines, "ja") == ["a", "(spoken in Korean) b", "c"]
+
+    def test_numbered_lines_tag_the_spoken_language(self):
+        result = te.build_numbered_lines([1, 2], ["a", "b"], languages=[None, "ko"])
+        assert result == "1. a\n2. (spoken in Korean) b"
+
+    def test_request_retry_prompt_carries_the_tag(self):
+        seen = []
+        te.request_translations_with_retry(
+            ["a", "b"], None, lambda text: seen.append(text) or '{"1": "x", "2": "y"}',
+            line_languages=[None, "ja"])
+        assert "2. (spoken in Japanese) b" in seen[0] and "1. a" in seen[0]
+
+    def test_reflect_prompts_carry_the_tag(self):
+        prompts = []
+
+        class Reflect:
+            supports_reference = True
+            name = "r"
+
+            def complete(self, *a, **k):
+                raise AssertionError
+
+        import engine_backends.translate_pipeline as tp
+        orig = tp.call_llm_json
+        tp.call_llm_json = lambda eng, prompt, **k: prompts.append(prompt) or '{"1": "x"}'
+        try:
+            te.reflect_translate_batch(Reflect(), ["a"], {"line_languages": ["ko"], "drama_meta": {}})
+        finally:
+            tp.call_llm_json = orig
+        assert "(spoken in Korean) a" in prompts[0]
+
+    def test_nllb_translates_each_language_with_its_own_pipeline(self):
+        eng = te.NLLBEngine()
+        used = []
+
+        def fake_pipeline(src, tgt="en"):
+            return lambda texts: [{"translation_text": f"{src}:{t}"} for t in texts]
+
+        eng._get_pipeline = lambda src, tgt="en": (used.append(src), fake_pipeline(src, tgt))[1]
+        out = eng.translate_batch(["a", "b", "c"], {"source_language": "ja",
+                                                    "line_languages": [None, "ko", None]})
+        assert out == ["ja:a", "ko:b", "ja:c"]
+        assert sorted(used) == ["ja", "ko"]
+
+
 class TestBuildNumberedLines:
     def test_lines_with_no_speaker_names_have_no_prefix(self):
-        result = te._build_numbered_lines([1, 2], ["你好", "再见"])
+        result = te.build_numbered_lines([1, 2], ["你好", "再见"])
         assert result == "1. 你好\n2. 再见"
 
     def test_known_speaker_is_prefixed_in_brackets(self):
-        result = te._build_numbered_lines([1, 2], ["你好", "再见"], speaker_names=["Xiaoling", None])
+        result = te.build_numbered_lines([1, 2], ["你好", "再见"], speaker_names=["Xiaoling", None])
         assert result == "1. [Xiaoling] 你好\n2. 再见"
 
     def test_ids_need_not_start_at_one(self):
         # Used for retrying only the missing ids from a partial response --
         # their ORIGINAL batch ids must be preserved, not renumbered.
-        result = te._build_numbered_lines([3, 5], ["a", "b"])
+        result = te.build_numbered_lines([3, 5], ["a", "b"])
         assert result == "3. a\n5. b"
 
 
 class TestParseIdKeyedJson:
     def test_parses_a_well_formed_object(self):
-        result = te._parse_id_keyed_json('{"1": "Hello.", "2": "Hi."}', [1, 2])
+        result = te.parse_id_keyed_json('{"1": "Hello.", "2": "Hi."}', [1, 2])
         assert result == {"1": "Hello.", "2": "Hi."}
 
     def test_ignores_unexpected_extra_ids(self):
-        result = te._parse_id_keyed_json('{"1": "Hello.", "99": "bogus"}', [1, 2])
+        result = te.parse_id_keyed_json('{"1": "Hello.", "99": "bogus"}', [1, 2])
         assert result == {"1": "Hello."}
 
     def test_missing_ids_are_simply_absent_from_the_result(self):
-        result = te._parse_id_keyed_json('{"1": "Hello."}', [1, 2])
+        result = te.parse_id_keyed_json('{"1": "Hello."}', [1, 2])
         assert result == {"1": "Hello."}
 
     def test_shuffled_key_order_is_still_correctly_matched_by_id(self):
-        result = te._parse_id_keyed_json('{"2": "Second.", "1": "First."}', [1, 2])
+        result = te.parse_id_keyed_json('{"2": "Second.", "1": "First."}', [1, 2])
         assert result == {"1": "First.", "2": "Second."}
 
     def test_a_same_length_array_is_malformed_not_matched_by_position(self):
         """CLAUDE.md rule: never match AI results back to lines by list
         position. Even a same-length array can be reordered, so it's
         treated as a malformed reply (empty) and the retry path re-asks."""
-        result = te._parse_id_keyed_json('["Hello.", "Hi."]', [1, 2])
+        result = te.parse_id_keyed_json('["Hello.", "Hi."]', [1, 2])
         assert result == {}
 
     def test_short_positional_array_is_rejected_not_misassigned(self):
@@ -597,25 +767,25 @@ class TestParseIdKeyedJson:
         mismatch has no reliable position-to-id mapping at all, so it
         must come back empty and let the retry path re-request the
         missing ones instead."""
-        result = te._parse_id_keyed_json('["A", "C"]', [1, 2, 3])
+        result = te.parse_id_keyed_json('["A", "C"]', [1, 2, 3])
         assert result == {}
 
     def test_long_positional_array_is_also_rejected(self):
-        result = te._parse_id_keyed_json('["A", "B", "C"]', [1, 2])
+        result = te.parse_id_keyed_json('["A", "B", "C"]', [1, 2])
         assert result == {}
 
     def test_markdown_fences_are_stripped(self):
-        result = te._parse_id_keyed_json('```json\n{"1": "Hello."}\n```', [1])
+        result = te.parse_id_keyed_json('```json\n{"1": "Hello."}\n```', [1])
         assert result == {"1": "Hello."}
 
     def test_malformed_json_returns_empty_not_raises(self):
-        assert te._parse_id_keyed_json("not json at all", [1, 2]) == {}
+        assert te.parse_id_keyed_json("not json at all", [1, 2]) == {}
 
     def test_non_string_values_are_treated_as_missing(self):
         """{"1": null, "2": ["x"]} used to pass straight through, leaving
         ln.en set to None or a list. Any non-string value must be
         dropped so the id is treated as missing and gets retried."""
-        result = te._parse_id_keyed_json('{"1": null, "2": ["x"], "3": "Hi."}', [1, 2, 3])
+        result = te.parse_id_keyed_json('{"1": null, "2": ["x"], "3": "Hi."}', [1, 2, 3])
         assert result == {"3": "Hi."}
 
     def test_prose_wrapped_around_the_json_object_is_tolerated(self):
@@ -623,11 +793,11 @@ class TestParseIdKeyedJson:
         e.g. "Here you go:\\n{...}". The first JSON value anywhere in the
         text should be extracted rather than requiring the whole
         response to be nothing but JSON."""
-        result = te._parse_id_keyed_json('Here you go:\n{"1": "Hello."}\nHope that helps!', [1])
+        result = te.parse_id_keyed_json('Here you go:\n{"1": "Hello."}\nHope that helps!', [1])
         assert result == {"1": "Hello."}
 
     def test_prose_wrapped_around_an_array_is_still_malformed(self):
-        result = te._parse_id_keyed_json('Sure, here it is: ["Hello.", "Hi."]', [1, 2])
+        result = te.parse_id_keyed_json('Sure, here it is: ["Hello.", "Hi."]', [1, 2])
         assert result == {}
 
 
@@ -637,7 +807,7 @@ class TestRequestTranslationsWithRetry:
         def call_model(numbered):
             calls.append(numbered)
             return '{"1": "A.", "2": "B."}'
-        result = te._request_translations_with_retry(["a", "b"], None, call_model)
+        result = te.request_translations_with_retry(["a", "b"], None, call_model)
         assert result == ["A.", "B."]
         assert len(calls) == 1
 
@@ -648,7 +818,7 @@ class TestRequestTranslationsWithRetry:
         do that anymore."""
         def call_model(numbered):
             return '{"3": "Third.", "1": "First.", "2": "Second."}'
-        result = te._request_translations_with_retry(["a", "b", "c"], None, call_model)
+        result = te.request_translations_with_retry(["a", "b", "c"], None, call_model)
         assert result == ["First.", "Second.", "Third."]
 
     def test_missing_lines_are_retried_and_recovered(self):
@@ -658,7 +828,7 @@ class TestRequestTranslationsWithRetry:
             if len(calls) == 1:
                 return '{"1": "First."}'  # line 2 missing this round
             return '{"2": "Second."}'  # retry recovers it
-        result = te._request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
+        result = te.request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
         assert result == ["First.", "Second."]
         assert len(calls) == 2
         assert "2. b" in calls[1]  # retry only re-sent the missing line
@@ -667,13 +837,13 @@ class TestRequestTranslationsWithRetry:
     def test_still_missing_after_retries_exhausted_leaves_that_line_blank_only(self):
         def call_model(numbered):
             return '{"1": "First."}'  # line 2 never comes back, ever
-        result = te._request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
+        result = te.request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
         assert result == ["First.", ""]  # only the genuinely-missing line is blank
 
     def test_extra_unexpected_ids_in_the_response_are_ignored(self):
         def call_model(numbered):
             return '{"1": "First.", "2": "Second.", "47": "bogus extra"}'
-        result = te._request_translations_with_retry(["a", "b"], None, call_model)
+        result = te.request_translations_with_retry(["a", "b"], None, call_model)
         assert result == ["First.", "Second."]
 
     def test_speaker_names_reach_the_numbered_lines_sent_to_the_model(self):
@@ -681,7 +851,7 @@ class TestRequestTranslationsWithRetry:
         def call_model(numbered):
             captured["numbered"] = numbered
             return '{"1": "Hi."}'
-        te._request_translations_with_retry(["你好"], ["Xiaoling"], call_model)
+        te.request_translations_with_retry(["你好"], ["Xiaoling"], call_model)
         assert "[Xiaoling]" in captured["numbered"]
 
 
@@ -809,7 +979,7 @@ class TestGeminiEngine:
     def test_translate_batch_parses_response_and_records_usage(self, monkeypatch):
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -819,7 +989,7 @@ class TestGeminiEngine:
                     "usageMetadata": {"promptTokenCount": 42, "candidatesTokenCount": 8},
                 }
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             captured["url"] = url
             captured["headers"] = headers
             captured["json"] = json
@@ -843,13 +1013,13 @@ class TestGeminiEngine:
     def test_recent_context_reaches_the_user_message_not_the_system_instruction(self, monkeypatch):
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": "[]"}]}}]}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             captured["json"] = json
             return FakeResponse()
 
@@ -865,13 +1035,13 @@ class TestGeminiEngine:
     def test_speaker_labels_reach_the_actual_numbered_lines_sent(self, monkeypatch):
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             captured["json"] = json
             return FakeResponse()
 
@@ -889,13 +1059,13 @@ class TestGeminiEngine:
         so the translator sees them on the line itself."""
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             captured["json"] = json
             return FakeResponse()
 
@@ -911,7 +1081,7 @@ class TestGeminiEngine:
     def test_a_response_missing_one_id_is_retried_before_giving_up(self, monkeypatch):
         call_count = {"n": 0}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def __init__(self, text):
                 self._text = text
             def raise_for_status(self):
@@ -919,7 +1089,7 @@ class TestGeminiEngine:
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": self._text}]}}]}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 return FakeResponse('{"1": "First."}')  # line 2 missing
@@ -933,7 +1103,7 @@ class TestGeminiEngine:
         assert call_count["n"] == 2
 
     def test_missing_usage_metadata_does_not_crash(self, monkeypatch):
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -952,7 +1122,7 @@ class TestGeminiEngine:
         started -- no `candidates` key at all, the real reason sitting in
         `promptFeedback.blockReason` instead. Used to raise a bare
         IndexError from the old `data["candidates"][0]...` indexing."""
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -971,7 +1141,7 @@ class TestGeminiEngine:
         """Step 31 item 1, shape two: a candidate came back, but with
         finishReason SAFETY/PROHIBITED_CONTENT and no `content` key --
         used to raise a bare KeyError from `candidates[0]["content"]...`."""
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -1057,8 +1227,11 @@ class TestGeminiFreeTierThrottle:
         limit = te.gemini_free_tier_limits_for(engine.model)["rpd"]
         engine._free_tier_daily_request_times = [0.0] * limit
 
-        engine._throttle_for_free_tier()
-        assert state["slept"] == [86400.0]
+        # Waiting out the daily window would take hours: stop with a clear
+        # message instead of sleeping.
+        with pytest.raises(te.FreeTierDailyLimitReached, match="daily request limit"):
+            engine._throttle_for_free_tier()
+        assert state["slept"] == []
 
     def test_tpm_paces_a_job_when_past_requests_used_the_shared_budget(self, monkeypatch):
         state = self._fake_clock(monkeypatch)
@@ -1083,7 +1256,7 @@ class TestGeminiRateStatus:
     against the static table otherwise."""
 
     def _post_with_headers(self, monkeypatch, headers):
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -1093,7 +1266,7 @@ class TestGeminiRateStatus:
         resp = FakeResponse()
         resp.headers = headers
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             return resp
 
         monkeypatch.setattr("requests.post", fake_post)
@@ -1221,13 +1394,13 @@ class TestOllamaEngine:
     parsing from Step 1."""
 
     def _fake_response(self, captured, text='{"1": "Hello."}'):
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"message": {"content": text}}
 
-        def fake_post(url, json=None, timeout=None):
+        def fake_post(url, json=None, timeout=None, stream=None):
             captured["json"] = json
             captured["timeout"] = timeout
             return FakeResponse()
@@ -1280,6 +1453,55 @@ class TestOllamaEngine:
         assert captured["timeout"] is not None
 
 
+class TestOllamaUnavailableErrors:
+    def test_translate_batch_and_call_llm_json_share_the_mapping(self, monkeypatch):
+        import requests
+
+        def refuse(url, json=None, timeout=None, stream=None):
+            raise requests.ConnectionError(f"refused {url}")
+        monkeypatch.setattr("requests.post", refuse)
+        engine = te.OllamaEngine(base_url="http://10.1.2.3:11434")
+        with pytest.raises(te.OllamaUnavailableError) as batch:
+            engine.translate_batch(["你好"], {})
+        with pytest.raises(te.OllamaUnavailableError) as free_form:
+            te.call_llm_json(engine, "hi")
+        for info in (batch, free_form):
+            assert info.value.reason == "ollama_unreachable"
+            assert "10.1.2.3" not in str(info.value)
+
+
+    def test_a_stalled_or_reset_body_read_is_mapped_too(self, monkeypatch):
+        # The body is read after post() returns, so a drop there raises from
+        # the read; requests' text for it names the host.
+        import requests
+
+        class Dropped:
+            status_code = 200
+            ok = True
+            headers = {}
+            closed = False
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, size):
+                raise requests.ConnectionError(
+                    "HTTPConnectionPool(host='192.168.7.9', port=11434): Read timed out.")
+                yield b""
+
+            def close(self):
+                self.closed = True
+
+        resp = Dropped()
+        monkeypatch.setattr("requests.post", lambda *a, **k: resp)
+        engine = te.OllamaEngine(base_url="http://192.168.7.9:11434")
+        with pytest.raises(te.OllamaUnavailableError) as info:
+            engine.translate_batch(["你好"], {})
+        assert info.value.reason == "ollama_unreachable"
+        assert "192.168" not in str(info.value)
+        assert resp.closed
+
+
 class TestOllamaReachability:
     """Regression coverage for a real gap: Ollama is exempted from the
     API-key check entirely (workspace_tab.py's _needs_key), with nothing
@@ -1295,12 +1517,12 @@ class TestOllamaReachability:
     def _fake_get(self, ok=True, raises=None):
         captured = {}
 
-        def fake_get(url, timeout=None):
+        def fake_get(url, timeout=None, stream=None):
             captured["url"] = url
             captured["timeout"] = timeout
             if raises:
                 raise raises
-            return type("Resp", (), {"ok": ok})()
+            return type("Resp", (), {"ok": ok, "close": lambda self: None})()
         return fake_get, captured
 
     def test_true_when_the_server_responds_ok(self, monkeypatch):
@@ -1323,7 +1545,7 @@ class TestOllamaReachability:
     def test_result_is_cached_briefly_not_rechecked_every_call(self, monkeypatch):
         fake_get, _ = self._fake_get(ok=True)
         calls = {"n": 0}
-        def counting_get(url, timeout=None):
+        def counting_get(url, timeout=None, stream=None):
             calls["n"] += 1
             return fake_get(url, timeout=timeout)
         monkeypatch.setattr("requests.get", counting_get)
@@ -1348,339 +1570,6 @@ class TestOllamaReachability:
         monkeypatch.setattr("requests.get", fake_get)
         te.check_ollama_reachable("http://localhost:11434/")
         assert captured["url"] == "http://localhost:11434/api/tags"
-
-
-class TestDeepLEngine:
-    """Regression coverage for a real bug: source_language was hardcoded
-    to "ZH" regardless of the drama's actual source language, so a
-    Japanese or Korean drama translated through DeepL silently told
-    DeepL its audio was Chinese the whole time."""
-
-    def _install_fake_deepl(self, monkeypatch):
-        import sys, types
-        fake_module = types.ModuleType("deepl")
-        captured = {}
-
-        class FakeResult:
-            def __init__(self, text):
-                self.text = text
-
-        class FakeTranslator:
-            def __init__(self, api_key):
-                captured["api_key"] = api_key
-
-            def translate_text(self, texts, source_lang, target_lang):
-                captured["source_lang"] = source_lang
-                captured["target_lang"] = target_lang
-                return [FakeResult(f"EN:{t}") for t in texts]
-
-        fake_module.Translator = FakeTranslator
-        monkeypatch.setitem(sys.modules, "deepl", fake_module)
-        return captured
-
-    def test_defaults_to_chinese_source(self, monkeypatch):
-        captured = self._install_fake_deepl(monkeypatch)
-        engine = te.DeepLEngine("fake-key")
-        result = engine.translate_batch(["你好"], {})
-        assert result == ["EN:你好"]
-        assert captured["source_lang"] == "ZH"
-
-    def test_japanese_source_language_reaches_deepl(self, monkeypatch):
-        captured = self._install_fake_deepl(monkeypatch)
-        engine = te.DeepLEngine("fake-key")
-        engine.translate_batch(["こんにちは"], {"source_language": "ja"})
-        assert captured["source_lang"] == "JA"
-
-    def test_korean_source_language_reaches_deepl(self, monkeypatch):
-        captured = self._install_fake_deepl(monkeypatch)
-        engine = te.DeepLEngine("fake-key")
-        engine.translate_batch(["안녕"], {"source_language": "ko"})
-        assert captured["source_lang"] == "KO"
-
-    def test_a_single_result_is_normalized_to_a_list(self, monkeypatch):
-        """DeepL's SDK returns a bare TextResult (not a list) when given
-        a single-element input list -- confirmed real behavior, not
-        hypothetical, hence the isinstance check in the engine itself."""
-        import sys, types
-
-        class FakeResult:
-            def __init__(self, text):
-                self.text = text
-
-        class FakeTranslator:
-            def __init__(self, api_key):
-                pass
-
-            def translate_text(self, texts, source_lang, target_lang):
-                return FakeResult("EN:solo")  # bare object, not a list
-
-        fake_module = types.ModuleType("deepl")
-        fake_module.Translator = FakeTranslator
-        monkeypatch.setitem(sys.modules, "deepl", fake_module)
-
-        engine = te.DeepLEngine("fake-key")
-        result = engine.translate_batch(["solo"], {})
-        assert result == ["EN:solo"]
-
-    def test_defaults_to_english_target(self, monkeypatch):
-        captured = self._install_fake_deepl(monkeypatch)
-        engine = te.DeepLEngine("fake-key")
-        engine.translate_batch(["你好"], {})
-        assert captured["target_lang"] == "EN-US"
-
-    def test_step_26b_english_source_and_chinese_target_reach_deepl(self, monkeypatch):
-        """Step 26b: the standalone translate tool's English -> zh/ja/ko
-        direction -- DeepL takes both ends of the pair explicitly, so
-        this is just wiring target_language through the same way
-        source_language already was."""
-        captured = self._install_fake_deepl(monkeypatch)
-        engine = te.DeepLEngine("fake-key")
-        engine.translate_batch(["Hello"], {"source_language": "en", "target_language": "zh"})
-        assert captured["source_lang"] == "EN"
-        assert captured["target_lang"] == "ZH"
-
-    def test_step_26b_japanese_and_korean_targets_reach_deepl(self, monkeypatch):
-        captured = self._install_fake_deepl(monkeypatch)
-        engine = te.DeepLEngine("fake-key")
-        engine.translate_batch(["Hi"], {"source_language": "en", "target_language": "ja"})
-        assert captured["target_lang"] == "JA"
-        engine.translate_batch(["Hi"], {"source_language": "en", "target_language": "ko"})
-        assert captured["target_lang"] == "KO"
-
-    def test_reports_billed_characters_as_usage(self, monkeypatch):
-        """Step 25w: DeepLEngine had no last_usage at all, so the cost-cap
-        system could never see any spend from it -- confirmed real, not
-        hypothetical (translate_lines_with_engine's spend accumulator only
-        runs `if hasattr(engine, "last_usage")`). billed_characters is the
-        API's own real per-result count."""
-        import sys, types
-        fake_module = types.ModuleType("deepl")
-
-        class FakeResult:
-            def __init__(self, text, billed_characters):
-                self.text = text
-                self.billed_characters = billed_characters
-
-        class FakeTranslator:
-            def __init__(self, api_key):
-                pass
-
-            def translate_text(self, texts, source_lang, target_lang):
-                return [FakeResult(f"EN:{t}", len(t) + 1) for t in texts]
-
-        fake_module.Translator = FakeTranslator
-        monkeypatch.setitem(sys.modules, "deepl", fake_module)
-
-        engine = te.DeepLEngine("fake-key")
-        assert engine.last_usage["input_tokens"] == 0  # before any call
-        engine.translate_batch(["你好", "再见"], {})
-        # len("你好")+1 + len("再见")+1 == 3 + 3
-        assert engine.last_usage["input_tokens"] == 6
-
-    def test_falls_back_to_source_length_without_billed_characters(self, monkeypatch):
-        """An older deepl SDK might not expose billed_characters -- falls
-        back to the source text's own length, the correct value in the
-        common (no-glossary) case, rather than reporting zero spend."""
-        import sys, types
-        fake_module = types.ModuleType("deepl")
-
-        class FakeResult:
-            def __init__(self, text):
-                self.text = text
-                # deliberately no billed_characters attribute
-
-        class FakeTranslator:
-            def __init__(self, api_key):
-                pass
-
-            def translate_text(self, texts, source_lang, target_lang):
-                return [FakeResult(f"EN:{t}") for t in texts]
-
-        fake_module.Translator = FakeTranslator
-        monkeypatch.setitem(sys.modules, "deepl", fake_module)
-
-        engine = te.DeepLEngine("fake-key")
-        engine.translate_batch(["你好"], {})
-        assert engine.last_usage["input_tokens"] == len("你好")
-
-    def test_billed_characters_are_priced_per_million_characters(self, monkeypatch):
-        captured = self._install_fake_deepl(monkeypatch)
-        engine = te.DeepLEngine("fake-key")
-        engine.translate_batch(["你好"], {})
-        cost = te.estimate_cost_for_engine(
-            engine, engine.last_usage["input_tokens"], engine.last_usage["output_tokens"])
-        expected = len("你好") / 1_000_000 * te.PRICING_PER_MILLION_CHARACTERS["deepl"]
-        assert cost == pytest.approx(expected)
-        assert cost > 0
-
-
-class TestGoogleEngine:
-    """Same regression coverage as TestDeepLEngine, for GoogleEngine."""
-
-    def test_defaults_to_chinese_source(self, monkeypatch):
-        captured = {}
-
-        class FakeResponse:
-            def raise_for_status(self):
-                pass
-            def json(self):
-                return {"data": {"translations": [{"translatedText": "EN:你好"}]}}
-
-        def fake_post(url, headers=None, json=None, timeout=None):
-            captured["json"] = json
-            captured["headers"] = headers
-            return FakeResponse()
-
-        monkeypatch.setattr("requests.post", fake_post)
-        engine = te.GoogleEngine("fake-key")
-        result = engine.translate_batch(["你好"], {})
-        assert result == ["EN:你好"]
-        assert captured["json"]["source"] == "zh"
-        # Key goes in a header, never the URL/query string -- see the
-        # matching Gemini test above for why.
-        assert captured["headers"] == {"X-Goog-Api-Key": "fake-key"}
-
-    def test_japanese_source_language_reaches_google(self, monkeypatch):
-        captured = {}
-
-        class FakeResponse:
-            def raise_for_status(self):
-                pass
-            def json(self):
-                return {"data": {"translations": [{"translatedText": "EN:x"}]}}
-
-        monkeypatch.setattr("requests.post",
-                             lambda url, headers=None, json=None, timeout=None:
-                                 captured.update(json=json) or FakeResponse())
-        engine = te.GoogleEngine("fake-key")
-        engine.translate_batch(["x"], {"source_language": "ja"})
-        assert captured["json"]["source"] == "ja"
-
-    def test_korean_source_language_reaches_google(self, monkeypatch):
-        captured = {}
-
-        class FakeResponse:
-            def raise_for_status(self):
-                pass
-            def json(self):
-                return {"data": {"translations": [{"translatedText": "EN:x"}]}}
-
-        monkeypatch.setattr("requests.post",
-                             lambda url, headers=None, json=None, timeout=None:
-                                 captured.update(json=json) or FakeResponse())
-        engine = te.GoogleEngine("fake-key")
-        engine.translate_batch(["x"], {"source_language": "ko"})
-        assert captured["json"]["source"] == "ko"
-
-    def test_defaults_to_english_target(self, monkeypatch):
-        captured = {}
-
-        class FakeResponse:
-            def raise_for_status(self):
-                pass
-            def json(self):
-                return {"data": {"translations": [{"translatedText": "x"}]}}
-
-        monkeypatch.setattr("requests.post",
-                             lambda url, headers=None, json=None, timeout=None:
-                                 captured.update(json=json) or FakeResponse())
-        engine = te.GoogleEngine("fake-key")
-        engine.translate_batch(["x"], {})
-        assert captured["json"]["target"] == "en"
-
-    def test_step_26b_english_source_and_cjk_target_reach_google(self, monkeypatch):
-        captured = {}
-
-        class FakeResponse:
-            def raise_for_status(self):
-                pass
-            def json(self):
-                return {"data": {"translations": [{"translatedText": "x"}]}}
-
-        monkeypatch.setattr("requests.post",
-                             lambda url, headers=None, json=None, timeout=None:
-                                 captured.update(json=json) or FakeResponse())
-        engine = te.GoogleEngine("fake-key")
-        engine.translate_batch(["Hello"], {"source_language": "en", "target_language": "zh"})
-        assert captured["json"]["source"] == "en"
-        assert captured["json"]["target"] == "zh"
-
-    def test_reports_the_sent_character_count_as_usage(self, monkeypatch):
-        """Step 25w: GoogleEngine had no last_usage at all -- same real gap
-        as DeepLEngine's. The v2 API doesn't report usage in its response,
-        but it bills every character sent for processing (per Google's own
-        billing docs), so the sent text's own length is the exact billed
-        count, not an estimate."""
-        class FakeResponse:
-            def raise_for_status(self):
-                pass
-            def json(self):
-                return {"data": {"translations": [{"translatedText": "x"}, {"translatedText": "y"}]}}
-
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
-        engine = te.GoogleEngine("fake-key")
-        assert engine.last_usage["input_tokens"] == 0  # before any call
-        engine.translate_batch(["你好", "再见"], {})
-        assert engine.last_usage["input_tokens"] == len("你好") + len("再见")
-
-    def test_sent_characters_are_priced_per_million_characters(self, monkeypatch):
-        class FakeResponse:
-            def raise_for_status(self):
-                pass
-            def json(self):
-                return {"data": {"translations": [{"translatedText": "x"}]}}
-
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
-        engine = te.GoogleEngine("fake-key")
-        engine.translate_batch(["你好"], {})
-        cost = te.estimate_cost_for_engine(
-            engine, engine.last_usage["input_tokens"], engine.last_usage["output_tokens"])
-        expected = len("你好") / 1_000_000 * te.PRICING_PER_MILLION_CHARACTERS["google"]
-        assert cost == pytest.approx(expected)
-        assert cost > 0
-
-
-class TestCharacterBilledEngineCostCap:
-    """Step 25w: the cost-cap system structurally couldn't ever apply to
-    Google/DeepL -- translate_lines_with_engine's spend accumulator only
-    ran `if hasattr(engine, "last_usage")`, which was always false for
-    both. This exercises the actual accumulation path end to end, not
-    just the two engines' own last_usage in isolation."""
-
-    def test_spend_accumulates_across_batches_for_google(self, monkeypatch):
-        class FakeResponse:
-            def raise_for_status(self):
-                pass
-            def json(self):
-                return {"data": {"translations": [{"translatedText": "x"}]}}
-
-        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
-        engine = te.GoogleEngine("fake-key")
-        line = Line(idx=0, start=0.0, end=1.0, zh="你好世界")  # 4 characters
-        cap_reached = {}
-        te.translate_lines_with_engine(
-            [line], engine, {}, cost_cap_usd=0.0000001,  # trivially small: any real spend crosses it
-            cap_cb=lambda spent: cap_reached.update(spent=spent))
-        # A single-batch run always completes that batch even past the cap
-        # (see translate_lines_with_engine's own docstring), so the cap
-        # can't have visibly fired here -- what matters is that real spend
-        # was tracked at all, which a hasattr(engine, "last_usage") of
-        # False (the pre-fix bug) would make impossible.
-        assert line.en == "x"
-
-    def test_estimate_translation_cost_uses_character_pricing_for_google(self, monkeypatch):
-        engine = te.GoogleEngine("fake-key")
-        zh_lines = ["你好世界"]  # 4 characters
-        estimate = te.estimate_translation_cost(engine, zh_lines)
-        expected = 4 / 1_000_000 * te.PRICING_PER_MILLION_CHARACTERS["google"]
-        assert estimate == pytest.approx(expected)
-
-    def test_estimate_translation_cost_uses_character_pricing_for_deepl(self, monkeypatch):
-        engine = te.DeepLEngine.__new__(te.DeepLEngine)  # skip __init__'s real deepl import
-        zh_lines = ["你好世界"]  # 4 characters
-        estimate = te.estimate_translation_cost(engine, zh_lines)
-        expected = 4 / 1_000_000 * te.PRICING_PER_MILLION_CHARACTERS["deepl"]
-        assert estimate == pytest.approx(expected)
 
 
 class TestNLLBEngine:
@@ -1810,12 +1699,12 @@ class TestNLLBEngine:
 
 class TestFreeEngineLabelling:
     """Step 1d item 4: every free-to-use option is clearly labelled as
-    such (test_offline, ollama, nllb, libretranslate always; gemini only
+    such (test_offline, ollama, nllb always; gemini only
     when the per-session "free-tier key" setting is on), and paid
     engines keep their normal descriptions."""
 
     def test_free_engines_set_matches_the_roadmap_table(self):
-        assert te.FREE_ENGINES == {"test_offline", "ollama", "nllb", "libretranslate"}
+        assert te.FREE_ENGINES == {"fake", "ollama", "nllb"}
 
     def test_gemini_is_not_unconditionally_free(self):
         # Gemini reuses one engine for free and paid keys -- whether a
@@ -1828,7 +1717,7 @@ class TestFreeEngineLabelling:
             assert te.engine_picker_label(name) == te.ENGINE_NOTES[name]
 
     def test_paid_engine_notes_are_unmarked(self):
-        for name in ("claude", "deepseek", "deepl", "google"):
+        for name in ("claude", "deepseek"):
             assert "🧪" not in te.ENGINE_NOTES[name]
 
     def test_gemini_label_is_plain_by_default(self):
@@ -1863,7 +1752,7 @@ class TestGetEngineFreeTierPassthrough:
         # Every other engine class's __init__ has no free_tier parameter --
         # this must not raise a TypeError just because the caller always
         # passes the kwarg.
-        engine = te.get_engine("test_offline", free_tier=True)
+        engine = te.get_engine("fake", free_tier=True)
         assert not hasattr(engine, "free_tier")
 
     def test_free_tier_reaches_gemini_even_with_an_explicit_model(self):
@@ -1896,7 +1785,7 @@ class TestGetEngineOllamaBaseUrlPassthrough:
         # Every other engine class's __init__ has no base_url parameter --
         # this must not raise a TypeError just because the caller always
         # passes the kwarg.
-        engine = te.get_engine("test_offline", base_url="http://gpu-box:11434")
+        engine = te.get_engine("fake", base_url="http://gpu-box:11434")
         assert not hasattr(engine, "base_url")
 
 
@@ -1942,7 +1831,7 @@ class TestCallLlmJson:
             input_tokens = 10
             output_tokens = 5
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             usage = FakeUsage()
             content = [_FakeBlock('{"ok": true}')]
 
@@ -1973,7 +1862,7 @@ class TestCallLlmJson:
             class message:
                 content = "[1, 2, 3]"
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             usage = FakeUsage()
             choices = [FakeChoice()]
 
@@ -1997,7 +1886,7 @@ class TestCallLlmJson:
     def test_gemini_engine_is_not_silently_skipped(self, monkeypatch):
         captured_usage = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
 
@@ -2020,7 +1909,7 @@ class TestCallLlmJson:
         """call_llm_json's Gemini branch is a second, separate call site
         from translate_batch -- confirms the free-tier throttle applies
         there as well, not just to translation."""
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -2035,7 +1924,7 @@ class TestCallLlmJson:
         assert calls == [1]
 
     def test_test_offline_engine_declines_without_crashing(self):
-        engine = te.TestOfflineEngine()
+        engine = fake_engine.FakeEngine()
         assert engine.client is None  # by design
         result = te.call_llm_json(engine, "prompt", fallback="[]")
         assert result == "[]"
@@ -2048,14 +1937,14 @@ class TestCallLlmJson:
         pacing rewrite all silently did nothing at all with Ollama."""
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
                 return {"message": {"content": "real answer"},
                         "prompt_eval_count": 12, "eval_count": 4}
 
-        def fake_post(url, json=None, timeout=None):
+        def fake_post(url, json=None, timeout=None, stream=None):
             captured["url"] = url
             captured["json"] = json
             captured["timeout"] = timeout
@@ -2075,20 +1964,20 @@ class TestCallLlmJson:
         assert captured["timeout"] is not None
 
     def test_an_engine_with_no_recognized_shape_raises_a_clear_error(self):
-        """DeepL/Google/NLLB/LibreTranslate (translation-only, no .client,
+        """NLLB (translation-only, no .client,
         not Gemini/Ollama/test_offline) used to silently return the bare
         fallback here too -- the same "looks like it worked, did
         nothing" failure mode as the Ollama bug above, just for a
         different set of engines. Now raises instead of pretending to
         have produced a real (empty) result."""
         class FakeTranslationOnlyEngine:
-            name = "google"
+            name = "nllb"
 
-        with pytest.raises(RuntimeError, match="google can't run this feature"):
+        with pytest.raises(RuntimeError, match="nllb can't run this feature"):
             te.call_llm_json(FakeTranslationOnlyEngine(), "prompt", fallback="[]")
 
     def test_a_malformed_gemini_response_returns_fallback(self, monkeypatch):
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
 
@@ -2153,7 +2042,7 @@ class TestCheckConsistencyLlm:
         """call_llm_json returns its `fallback` (None, here) rather than
         raising when a provider's response can't be parsed at all -- that
         has to be counted the same as an outright exception."""
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
 
@@ -2433,7 +2322,7 @@ class TestTagSpeakersLlm:
         result -- not the old silent fallback (which for this particular
         feature happened to look like a plausible "Narrator" label,
         making the bug easy to miss without a test like this one)."""
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
             def json(self):
@@ -2488,17 +2377,17 @@ class TestOfflineTestEngine:
     no API key, no network, and no spend. These guard that promise."""
 
     def test_registered_as_an_engine(self):
-        assert "test_offline" in te.ENGINES
+        assert "fake" in te.ENGINES
 
     def test_works_with_no_api_key(self):
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         assert engine is not None
-        engine2 = te.get_engine("test_offline", None)
+        engine2 = te.get_engine("fake", None)
         assert engine2 is not None
 
     def test_translates_every_line_without_network(self):
         lines = [Line(idx=i, start=float(i), end=float(i) + 1, zh=f"第{i}句") for i in range(6)]
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
         assert errors == []
         assert all(ln.en for ln in lines)
@@ -2506,7 +2395,7 @@ class TestOfflineTestEngine:
     def test_output_is_obviously_placeholder(self):
         # Must never be mistakable for a real translation.
         lines = [Line(idx=0, start=0, end=1, zh="真实对白")]
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         te.translate_lines_with_engine(lines, engine, {})
         assert lines[0].en.startswith("[TEST]")
 
@@ -2515,19 +2404,19 @@ class TestOfflineTestEngine:
 
     def test_records_usage_so_dashboard_path_is_exercised(self):
         lines = [Line(idx=0, start=0, end=1, zh="测试")]
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         te.translate_lines_with_engine(lines, engine, {})
         assert engine.last_usage["input_tokens"] > 0
 
     def test_long_lines_are_truncated_in_placeholder(self):
         lines = [Line(idx=0, start=0, end=1, zh="字" * 200)]
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         te.translate_lines_with_engine(lines, engine, {})
         assert len(lines[0].en) < 100
 
     def test_has_no_sdk_client_so_llm_features_decline_cleanly(self):
         # Free-form LLM helpers check for .client; None must not crash them.
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         assert engine.client is None
         # Step 55: a decline-cleanly response is still a batch that couldn't
         # actually be checked -- counted as failed, not silently zeroed out.
@@ -2738,7 +2627,7 @@ class TestReflectModeInTranslateLinesWithEngine:
 
     def test_reflect_false_never_touches_reflect_translate_batch(self, monkeypatch):
         called = []
-        monkeypatch.setattr(te, "reflect_translate_batch", lambda *a, **k: called.append(1))
+        monkeypatch.setattr("engine_backends.translate_pipeline.reflect_translate_batch", lambda *a, **k: called.append(1))
 
         class PlainEngine:
             supports_reference = True
@@ -2809,7 +2698,7 @@ class _FakeClaudeMessages:
         block = _Block()
         block.text = text
 
-        class _Resp:
+        class _Resp(StreamedBody):
             pass
         resp = _Resp()
         resp.content = [block]
@@ -2875,7 +2764,7 @@ class TestStablePromptPrefix:
         import re as _re
         bodies = []
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def __init__(self, body):
                 self.body = body
 
@@ -2889,7 +2778,7 @@ class TestStablePromptPrefix:
                 return {"candidates": [{"content": {"parts": [
                     {"text": _json.dumps({i: "x" for i in ids})}]}}]}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             bodies.append(json)
             return FakeResponse(json)
 
@@ -3125,14 +3014,14 @@ class TestGemini31FlashLite:
     def test_reaches_the_api_with_the_right_model_id(self, monkeypatch):
         captured = {}
 
-        class FakeResponse:
+        class FakeResponse(StreamedBody):
             def raise_for_status(self):
                 pass
 
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
 
-        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None:
+        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None, stream=None:
                             captured.update(url=url) or FakeResponse())
         engine = te.get_engine("gemini", "k", "gemini-3.1-flash-lite")
         assert engine.translate_batch(["你好"], {}) == ["Hi."]
@@ -3178,3 +3067,63 @@ class TestCancelBetweenBatches:
             tg.generate_translation_notes_llm(lines, engine, batch_size=3,
                                               cancel_check=self._stop_after(0))
         assert engine.call_count == 0
+
+
+def test_failed_flag_batches_are_logged_not_silently_clean(monkeypatch):
+    import applog
+    seen = []
+
+    class Log:
+        def warning(self, msg, *args):
+            seen.append(msg % args)
+    monkeypatch.setattr(applog, "get_logger", lambda: Log())
+
+    def boom(*a, **k):
+        raise RuntimeError("down")
+    monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json", boom)
+    lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(4)]
+    te.flag_uncertain_lines(lines, FakeFlaggingEngine(), batch_size=2)
+    assert seen == ["flag check failed for 2 of 2 batches; their lines were not checked"]
+
+
+class _EmptyReplyEngine:
+    """translate_batch pads missing ids with "", as request_translations_with_retry does."""
+    model = "fake-model"
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+
+    def translate_batch(self, zh_lines, context):
+        return self.replies.pop(0)
+
+
+class TestEmptyTranslationsAreErrors:
+    def _lines(self, en=""):
+        return [Line(idx=i, start=0, end=1, zh=f"l{i}", en=en) for i in range(3)]
+
+    def test_all_empty_reply_records_error_and_writes_nothing(self):
+        lines = self._lines(en="old")
+        engine = _EmptyReplyEngine([["", "  ", ""]])
+        _, errors = te.translate_lines_with_engine(
+            lines, engine, {}, batch_size=3, force_retranslate=True)
+        assert len(errors) == 1
+        assert errors[0]["lines"] == [0, 1, 2]
+        assert "3 of 3 lines got no translation" in errors[0]["error"]
+        assert "smaller batch size" in errors[0]["error"]
+        assert [l.en for l in lines] == ["old"] * 3
+
+    def test_partial_reply_keeps_good_lines(self):
+        lines = self._lines()
+        engine = _EmptyReplyEngine([["One.", "", "Three."]])
+        _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=3)
+        assert [l.en for l in lines] == ["One.", "", "Three."]
+        assert errors[0]["lines"] == [1]
+        assert "1 of 3 lines" in errors[0]["error"]
+
+    def test_reflect_truncated_reply_records_error(self):
+        lines = self._lines()
+        engine = _ScriptedReflectEngine(['{"1": "Dra', '{"1": "Cri', '{"1": "Fin'])
+        _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=3, reflect=True)
+        assert len(errors) == 1
+        assert "got no translation" in errors[0]["error"]
+        assert all(l.en == "" for l in lines)

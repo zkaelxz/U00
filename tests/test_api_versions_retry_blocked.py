@@ -286,7 +286,7 @@ class TestRetryService:
         gate = _hold_job(f"translate_{did}")
         try:
             with pytest.raises(ConflictError):
-                blocked_retry_service.retry_blocked_line(did, ids[1], "test_offline")
+                blocked_retry_service.retry_blocked_line(did, ids[1], "fake")
         finally:
             gate.set()
         assert built == []
@@ -328,7 +328,7 @@ class TestRetryService:
 
     def test_offline_engine_end_to_end(self, isolated_db):
         did, ids = _blocked()
-        out = blocked_retry_service.retry_blocked_line(did, ids[1], "test_offline")
+        out = blocked_retry_service.retry_blocked_line(did, ids[1], "fake")
         assert out["retried"] is True and out["line"]["en"].startswith("[TEST]")
 
 
@@ -350,18 +350,18 @@ class TestRetryApi:
 
     def test_404s(self, client):
         did, ids = _blocked()
-        assert client.post(_retry(did, 999999), json={"engine": "test_offline"}).status_code == 404
+        assert client.post(_retry(did, 999999), json={"engine": "fake"}).status_code == 404
         assert client.post(_retry(999999, ids[1]),
-                           json={"engine": "test_offline"}).status_code == 404
+                           json={"engine": "fake"}).status_code == 404
         other, oids = _blocked()
         assert client.post(_retry(did, oids[1]),
-                           json={"engine": "test_offline"}).status_code == 404
+                           json={"engine": "fake"}).status_code == 404
 
     def test_409_when_not_blocked(self, client):
         did, ids = _seed(flag="uncertain")
-        r = client.post(_retry(did, ids[1]), json={"engine": "test_offline"})
+        r = client.post(_retry(did, ids[1]), json={"engine": "fake"})
         assert r.status_code == 409
-        assert client.post(_retry(did, ids[0]), json={"engine": "test_offline"}).status_code == 409
+        assert client.post(_retry(did, ids[0]), json={"engine": "fake"}).status_code == 409
 
     def test_422s(self, client):
         did, ids = _blocked()
@@ -380,20 +380,20 @@ class TestRetryApi:
     def test_busy_is_429(self, client, monkeypatch):
         did, ids = _blocked()
         _use_engine(monkeypatch, FakeEngine(lambda zh, ctx: ["Goodbye"]))
-        llm_slots._ACTIVE_CALLERS.add("local")
+        llm_slots.ACTIVE_CALLERS.add("local")
         try:
             r = client.post(_retry(did, ids[1]), json={"engine": "claude"})
             assert r.status_code == 429 and r.json()["error"]["code"] == "rate_limited"
         finally:
-            llm_slots._ACTIVE_CALLERS.discard("local")
-        got = [llm_slots._SLOTS.acquire(blocking=False) for _ in range(llm_slots.LLM_MAX_IN_FLIGHT)]
+            llm_slots.ACTIVE_CALLERS.discard("local")
+        got = [llm_slots.SLOTS.acquire(blocking=False) for _ in range(llm_slots.LLM_MAX_IN_FLIGHT)]
         try:
             assert all(got)
             assert client.post(_retry(did, ids[1]), json={"engine": "claude"}).status_code == 429
         finally:
             for ok in got:
                 if ok:
-                    llm_slots._SLOTS.release()
+                    llm_slots.SLOTS.release()
         row = next(x for x in db.load_lines(did) if x["id"] == ids[1])
         assert row["flag"] == "content_blocked"
         assert client.post(_retry(did, ids[1]), json={"engine": "claude"}).status_code == 200
@@ -423,7 +423,7 @@ class TestRetryApi:
         did, ids = _blocked()
         gate = _hold_job(f"translate_{did}")
         try:
-            r = client.post(_retry(did, ids[1]), json={"engine": "test_offline"})
+            r = client.post(_retry(did, ids[1]), json={"engine": "fake"})
             assert r.status_code == 409
         finally:
             gate.set()
@@ -561,3 +561,33 @@ class TestBatchCompareAndSet:
             tvs.activate_version(did, vid, confirm=True)
         assert [r["en"] for r in db.load_lines(did)] == ["Hello", ""]
         assert not any(v["is_active"] for v in db.list_translation_versions(did) if v["id"] == vid)
+
+
+class TestRetrySpokenLanguage:
+    def _seed_lang(self, lang, title="ja"):
+        did = db.create_drama(title_en="D", source_language=title)
+        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="안녕", lang=lang,
+                                 flag="content_blocked", flag_note="x")])
+        return did, db.load_lines(did)[0]["id"]
+
+    def test_other_language_line_is_tagged(self, isolated_db, monkeypatch):
+        did, lid = self._seed_lang("ko")
+        eng = FakeEngine(lambda zh, ctx: ["Hi"])
+        _use_engine(monkeypatch, eng)
+        blocked_retry_service.retry_blocked_line(did, lid, "deepseek")
+        assert eng.calls[0][1]["line_languages"] == ["ko"]
+
+    def test_title_language_line_sends_no_language_context(self, isolated_db, monkeypatch):
+        did, lid = self._seed_lang("ja")
+        eng = FakeEngine(lambda zh, ctx: ["Hi"])
+        _use_engine(monkeypatch, eng)
+        blocked_retry_service.retry_blocked_line(did, lid, "deepseek")
+        assert "line_languages" not in eng.calls[0][1]
+
+    def test_english_line_is_copied_without_building_an_engine(self, isolated_db, monkeypatch):
+        did, lid = self._seed_lang("en")
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda *a, **k: pytest.fail("no engine for an English line"))
+        out = blocked_retry_service.retry_blocked_line(did, lid, "deepseek")
+        assert out["retried"] is True and out["line"]["en"] == "안녕"
+        assert out["line"]["flag"] is None

@@ -19,12 +19,13 @@ import stat
 import threading
 import time
 import uuid
+import weakref
 from typing import List
 
 import portable
 
 # Next to the code for a source checkout; the per-user data folder for an
-# installed copy (portable.data_dir(), Step 80b).
+# installed copy (portable.data_dir()).
 LIBRARY_DIR = os.path.join(portable.data_dir(), "library")
 DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
 DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
@@ -49,10 +50,8 @@ def configure_library_dir(path: str):
     LIBRARY_DIR = path
     DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
     DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
-    # BENCHMARK_DIR used to be left pointed at the real library even under
-    # test isolation -- a real gap: any test that exercised the benchmark
-    # case file-upload path (Diagnostics tab) would have silently written
-    # into the actual production library folder instead of the temp one.
+    # Every library path is redirected, BENCHMARK_DIR included, or a test
+    # of the benchmark case upload path would write into the real library.
     BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
     VOICE_BANK_DIR = os.path.join(LIBRARY_DIR, "voice_bank")
     os.makedirs(DRAMAS_DIR, exist_ok=True)
@@ -62,70 +61,74 @@ def configure_library_dir(path: str):
     _db_ready = False
 
 
-# Connections opened but not yet closed, keyed by the ident() of the thread
-# that opened them. Under normal flow a function opens one and closes it
-# (via the try/finally every public function below wraps around its own
-# get_conn()/close() pair) before returning, so a thread's own entry here is
-# removed again before that same thread's next get_conn() call -- this dict
-# is a last-resort net for whatever still slips past that.
+# Connections opened but not yet closed: thread ident -> list of weak
+# references, one per get_conn() call that thread still has open. A list,
+# because a thread may legitimately hold more than one at a time: a helper
+# that calls get_conn() while its caller still holds a connection (possibly
+# mid-transaction) must get a second connection, not close the caller's,
+# which would silently roll back the caller's uncommitted writes.
 #
-# Keyed per-thread, and swept with real care, because this app is not
-# single-threaded: background_jobs.py runs real threading.Thread workers
-# that call straight into db.py concurrently with the main Streamlit
-# thread. A connection that's simply still in ordinary use by another,
-# still-*running* thread is not a leak -- closing it out from under that
-# thread is a worse bug than the one this net exists to catch (confirmed
-# directly: an earlier version of this fix used one flat list and closed
-# whatever was in it on every get_conn() call, regardless of whose thread
-# was still using it -- under Streamlit's own AppTest, which runs the
-# script in its own thread while the test thread also calls db.py, this
-# reliably closed a connection the script thread's very next statement
-# then hit as "Cannot operate on a closed database"). So a sweep only
-# ever closes:
-#   (a) the current thread's OWN previous connection, if it left one
-#       leaked; or
-#   (b) a connection whose owning thread has since died -- safe because a
-#       dead thread can never touch it again, so there's no race.
-# It never touches a live *other* thread's still-open connection.
+# Weak references, so the registry never keeps a connection alive by
+# itself: a connection its caller dropped without close() is closed (and
+# any open transaction rolled back) by garbage collection -- the cycle
+# collector, since sqlite3's statement cache refers back to its connection.
+#
+# The sweep in _close_leaked_connections only ever closes connections whose
+# owning thread has died -- a dead thread can never touch them again, so
+# there's no race. background_jobs.py runs real threading.Thread workers
+# that call straight into db.py concurrently with the request threads, and
+# a live thread's still-open connection is never closed by anyone else
+# (an earlier version that did reliably broke the other thread's very next
+# statement with "Cannot operate on a closed database").
+#
+# Only the owning thread changes its own list; other threads only pop the
+# entry of a thread that has died.
 _open_connections = {}
 
 
 class _TrackedConnection(sqlite3.Connection):
-    """Deregisters itself on close, so a normal call leaves nothing behind
-    for the next get_conn() to clean up. sqlite3.Connection forbids
-    assigning to .close, so subclassing via connect(factory=...) is the
-    supported way to hook it. Closing is always done by the same thread
-    that opened the connection (see _open_connections above), so reading
-    the current thread's own ident here to find which entry is "self" is
-    safe -- the cross-thread case is handled separately, directly on
-    _open_connections, in _close_leaked_connections below."""
+    """Deregisters itself on close, so a normal call leaves nothing behind.
+    sqlite3.Connection forbids assigning to .close (and plain instances
+    can't be weakly referenced), so subclassing via connect(factory=...) is
+    the supported way to hook it. A connection is closed by the thread
+    that opened it (see _open_connections above), so only that thread's
+    own list is looked at here."""
 
     def close(self):
         ident = threading.get_ident()
-        if _open_connections.get(ident) is self:
-            del _open_connections[ident]
+        refs = _open_connections.get(ident)
+        if refs is not None:
+            refs[:] = [r for r in refs if r() is not None and r() is not self]
+            if not refs:
+                del _open_connections[ident]
         super().close()
 
 
 def _close_leaked_connections():
-    my_ident = threading.get_ident()
+    # Snapshot the registered threads first: a thread that registers after this
+    # point is not in the list being swept, so it can't look dead because it
+    # started after the live-thread set was taken.
+    registered = list(_open_connections)
     alive_idents = {t.ident for t in threading.enumerate()}
-    for ident in list(_open_connections):
-        if ident != my_ident and ident in alive_idents:
-            continue  # still in ordinary use by a live thread -- not a leak
-        leaked = _open_connections.pop(ident)
-        try:
-            sqlite3.Connection.close(leaked)
-        except Exception:
-            # Already popped from _open_connections above, so a failed
-            # close here would otherwise vanish silently -- untracked and
-            # never actually closed, holding its WAL handle open for the
-            # rest of the process's life with no future get_conn() call
-            # ever retrying it. Log so that's visible instead of invisible.
-            import applog  # local import: applog imports db, so this can't be top-level
-            applog.get_logger().warning(
-                "Failed to close a leaked db connection; it may stay open "
-                "for the rest of this process's life.", exc_info=True)
+    for ident in registered:
+        if ident in alive_idents:
+            continue  # possibly still in ordinary use by a live thread -- not a leak
+        for ref in _open_connections.pop(ident, ()):
+            leaked = ref()
+            if leaked is None:
+                continue
+            try:
+                sqlite3.Connection.close(leaked)
+            except Exception:
+                # Already popped from _open_connections above, so a failed
+                # close here would otherwise vanish silently -- untracked and
+                # never actually closed, holding its WAL handle open for the
+                # rest of the process's life with no future get_conn() call
+                # ever retrying it. Log so that's visible instead of invisible.
+                import applog  # local import: applog imports db, so this can't be top-level
+                applog.get_logger().warning(
+                    "Failed to close a leaked db connection; it may stay open "
+                    "for the rest of this process's life.", exc_info=True)
 
 
 def _ensure_ready():
@@ -144,19 +147,29 @@ def _ensure_ready():
 def get_conn():
     _ensure_ready()
     _close_leaked_connections()
-    # check_same_thread=False: needed for case (b) above -- closing a
+    # check_same_thread=False: needed for the sweep above -- closing a
     # connection whose owning thread has died, which sqlite3 forbids by
     # default even though it's safe (a dead thread can never race with us).
     path = getattr(_path_override, "path", None) or DB_PATH
     conn = sqlite3.connect(path, factory=_TrackedConnection, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    # SQLite leaves foreign keys off by default, per connection, so every
+    # connection has to turn them on or ON DELETE CASCADE silently no-ops.
     conn.execute("PRAGMA foreign_keys = ON")
     if path != DB_PATH:
         # migrate_database_file on a staged restore copy: no schema-defined
         # function calls (the restore allows only plain tables/indexes).
         conn.execute("PRAGMA trusted_schema = OFF")
+    # WAL: readers (job threads, the API, cli.py) and the one writer don't
+    # block each other; it is also why snapshot_database uses the backup API.
+    # Under WAL, every read-then-write transaction in this module starts with
+    # BEGIN IMMEDIATE: a deferred BEGIN takes the write lock only at its first
+    # write, and if another connection committed in between, that upgrade
+    # fails at once with "database is locked" instead of waiting.
     conn.execute("PRAGMA journal_mode = WAL")
-    _open_connections[threading.get_ident()] = conn
+    refs = _open_connections.setdefault(threading.get_ident(), [])
+    refs[:] = [r for r in refs if r() is not None]
+    refs.append(weakref.ref(conn))
     return conn
 
 
@@ -199,10 +212,9 @@ def _safe_alter(conn, sql: str):
     """Runs one `ALTER TABLE ... ADD COLUMN` from init_db()'s own
     check-then-ALTER lightweight-migration block, swallowing exactly the
     race it's there to guard against: `_ensure_ready()` calls `init_db()`
-    lazily, per process, with no cross-process lock -- Streamlit and a
-    separately-running `python -m api` process (React + FastAPI
-    migration, Slice 6) can both reach the same "column not in
-    existing_cols yet" check at once on a fresh/upgraded database, and
+    lazily, per process, with no cross-process lock -- the API server
+    and a separately-running cli.py process can both reach the same
+    "column not in existing_cols yet" check at once on a fresh/upgraded database, and
     whichever ALTER runs second then hits sqlite3.OperationalError:
     duplicate column name, even though the migration itself succeeded.
     Anything else raises -- a column genuinely failing to add for a real
@@ -216,7 +228,38 @@ def _safe_alter(conn, sql: str):
 
 def init_db():
     with contextlib.closing(get_conn()) as conn:
-        conn.executescript("""
+        # Order matters: later steps read tables and columns that earlier
+        # ones create (the ownership step needs users and app_settings).
+        _create_library_tables(conn)
+        _create_series_tables(conn)
+        _create_line_annotation_tables(conn)
+        _create_bulk_job_tables(conn)
+        _create_reading_tables(conn)
+        _create_review_tables(conn)
+        _create_library_tool_tables(conn)
+        _create_job_tables(conn)
+        _create_metadata_research_tables(conn)
+        _create_core_indexes(conn)
+        _migrate_job_records_columns(conn)
+        _create_auth_tables(conn)
+        _migrate_line_columns(conn)
+        _migrate_drama_columns(conn)
+        _migrate_series_and_character_columns(conn)
+        _migrate_scanlate_columns(conn)
+        _migrate_bulk_job_columns(conn)
+        _migrate_vocab_and_style_columns(conn)
+        _migrate_ownership_columns(conn)
+        _migrate_auth_session_columns(conn)
+        _migrate_off_removed_test_engine(conn)
+        conn.commit()
+    _init_benchmark_lab_schema()
+    _migrate_gpu_lock_slots()
+    _migrate_line_refs_to_ids()
+    _migrate_step26e_profiles()
+
+
+def _create_library_tables(conn):
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS dramas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title_zh TEXT,
@@ -229,15 +272,15 @@ def init_db():
             status TEXT DEFAULT 'not started',   -- not started / aligned / translated / dubbed / exported
             content_mode TEXT DEFAULT 'audio_drama',  -- 'audio_drama', 'streamer_vod', or 'novel_narration'
             narration_language TEXT DEFAULT 'translation',  -- novel_narration only: 'translation' or
-                                                       -- 'original' (Step 26c)
+                                                       -- 'original'
             source_language TEXT DEFAULT 'zh',        -- 'zh', 'ja', or 'ko'
             media_type TEXT DEFAULT 'audio_drama',    -- 'audio_drama', 'video_drama', 'novel',
                                                        -- 'manhwa', 'manga', 'manhua', 'asmr', 'other'
             series_id INTEGER,        -- shares a glossary across multiple dramas of the same series
-            episode_number INTEGER,   -- Step 74: explicit ordering within series_id, for "previous
+            episode_number INTEGER,   -- Explicit ordering within series_id, for "previous
                                        -- episode" lookups. NULL/unset by default -- an existing
                                        -- series with no numbers set keeps its old created_at order.
-            episode_summary TEXT,     -- Step 74: a short auto-generated running summary of this
+            episode_summary TEXT,     -- A short auto-generated running summary of this
                                        -- episode (key events, unresolved threads, character state),
                                        -- fed forward as fixed context into the immediately following
                                        -- episode's translation prompt. Editable, never auto-applied
@@ -285,7 +328,7 @@ def init_db():
             offline_voice TEXT,      -- offline/Piper fallback voice (a Piper voice name); NULL = default
             ref_audio_filename TEXT, -- reference clip for voice cloning (relative to drama dir)
             ref_text TEXT,           -- transcript of what's said in the reference clip
-            elevenlabs_voice_id TEXT,-- hosted clone (engine removed in Step 11d); kept as a record, unused
+            elevenlabs_voice_id TEXT,-- hosted clone (engine removed); kept as a record, unused
             clone_engine TEXT,       -- local voice engine (dub.CLONE_ENGINES key); NULL = F5-TTS
             voice_design TEXT,       -- described voice (OmniVoice voice design) for a character with no clip
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
@@ -329,6 +372,11 @@ def init_db():
             media_type TEXT,         -- 'novel', 'audio_drama', 'manhwa', 'manga', 'manhua', 'game'
             created_at TEXT
         );
+    """)
+
+
+def _create_series_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS series (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -365,10 +413,10 @@ def init_db():
             policy TEXT,              -- keep_pinyin, hybrid, translate_meaning, etc.
             enforce_exact INTEGER DEFAULT 0,  -- 1 = hard find-replace, no drift allowed
             aliases TEXT,              -- pipe-separated alt spellings/transliterations of
-                                       -- term_original itself (Step 30) -- same convention
+                                       -- term_original itself -- same convention
                                        -- as series_characters.aliases, but for the source
                                        -- term, not a character
-            banned_translations TEXT,  -- pipe-separated known-bad renderings (Step 30) --
+            banned_translations TEXT,  -- pipe-separated known-bad renderings --
                                        -- Auto QC flags a line using one of these for review;
                                        -- it never rewrites. Independent of the older
                                        -- enforce_exact/notes hard-substitution mechanism
@@ -377,7 +425,7 @@ def init_db():
             UNIQUE(series_id, term_original)
         );
 
-        -- Step 24: source->translation pairs a translator has approved by hand
+        -- Source->translation pairs a translator has approved by hand
         -- (edited and saved, or accepted), reused as suggestions on later
         -- near-identical source lines in the same series -- never auto-applied.
         CREATE TABLE IF NOT EXISTS translation_memory (
@@ -391,7 +439,7 @@ def init_db():
             UNIQUE(series_id, source_text)
         );
 
-        -- Step 8: a voice-match suggestion ("SPEAKER_01 sounds like <name>")
+        -- A voice-match suggestion ("SPEAKER_01 sounds like <name>")
         -- the user explicitly rejected for this exact (drama, speaker,
         -- candidate) triple -- never shown again for that combination, but a
         -- different candidate for the same speaker (or the same candidate
@@ -406,6 +454,27 @@ def init_db():
             FOREIGN KEY (series_character_id) REFERENCES series_characters(id) ON DELETE CASCADE,
             UNIQUE(drama_id, speaker_label, series_character_id)
         );
+
+        -- One undo for a speaker merge, kept here so the browser never holds
+        -- the Characters rows (reference-clip names, transcripts). Single-use
+        -- and short-lived; scoped to the drama and the user who merged.
+        CREATE TABLE IF NOT EXISTS speaker_merge_undos (
+            id TEXT PRIMARY KEY,
+            drama_id INTEGER NOT NULL,
+            user_id INTEGER,
+            source_label TEXT NOT NULL,
+            target_label TEXT NOT NULL,
+            snapshot TEXT NOT NULL,
+            stale INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );
+    """)
+
+
+def _create_line_annotation_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS translation_notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -468,8 +537,13 @@ def init_db():
             created_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE SET NULL
         );
+    """)
 
-        -- Step 9 bulk mode: one row per submitted provider batch (or, for
+
+def _create_bulk_job_tables(conn):
+    conn.executescript("""
+
+        -- Bulk mode: one row per submitted provider batch (or, for
         -- DeepSeek, per job scheduled into its next off-peak window), kept on
         -- disk so a restarted app can pick a pending batch back up by its id.
         CREATE TABLE IF NOT EXISTS bulk_jobs (
@@ -485,16 +559,16 @@ def init_db():
             result_summary TEXT,      -- JSON counts once results are applied
             submitted_at TEXT,
             updated_at TEXT,
-            -- Step 9d: which per-line LLM pass this job runs. 'translate' is
-            -- Step 9's original (and still the default, for old rows and
+            -- Which per-line LLM pass this job runs. 'translate' is
+            -- the original (and still the default, for old rows and
             -- every existing call site that doesn't pass one).
             kind TEXT NOT NULL DEFAULT 'translate',
-            -- Step 9d: Reflect's own three-pass pipeline ('faithful' ->
+            -- Reflect's own three-pass pipeline ('faithful' ->
             -- 'reflect' -> 'expressive'), NULL for every other kind -- see
             -- bulk_translate.py's own module docstring for how one stage's
             -- applied results submit the next.
             stage TEXT,
-            -- Step 9d: shared across all three of one Reflect run's stage
+            -- Shared across all three of one Reflect run's stage
             -- rows (a plain string id, not a FK -- there's no single "parent"
             -- row, just three siblings), so the Bulk jobs panel can group and
             -- show them as one pipeline instead of three unrelated entries.
@@ -512,13 +586,13 @@ def init_db():
             request_key TEXT,         -- the provider request (custom_id / metadata key) it was sent in
             zh_hash TEXT NOT NULL,
             en_at_submit TEXT,
-            -- Step 9d: a Reflect faithfulness/reflection stage's own raw
+            -- A Reflect faithfulness/reflection stage's own raw
             -- per-line output (a draft translation or a critique) -- not
             -- applied to the line itself, just held here so the NEXT stage's
             -- prompt can be built from it once this stage's batch returns.
             -- Unused (NULL) for every other kind/stage.
             result_text TEXT,
-            -- Step 9d: JSON snapshot of whatever field(s) a non-translate
+            -- JSON snapshot of whatever field(s) a non-translate
             -- kind is about to write, as they stood at submission -- e.g.
             -- {"flag": ..., "flag_note": ...} for a flag job. Lets its own
             -- apply step tell "the user already changed this since
@@ -530,6 +604,11 @@ def init_db():
             PRIMARY KEY (bulk_job_id, line_id),
             FOREIGN KEY (bulk_job_id) REFERENCES bulk_jobs(id) ON DELETE CASCADE
         );
+    """)
+
+
+def _create_reading_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS line_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -547,7 +626,7 @@ def init_db():
             created_at TEXT
         );
 
-        -- Step 26e: household profiles (Jellyfin-style) -- one shared library,
+        -- Household profiles (Jellyfin-style) -- one shared library,
         -- but each profile's own reading position, history and notes. No
         -- password field: this app has no accounts/auth of its own, so a
         -- profile is "which household member is this" (picked from a list),
@@ -603,6 +682,11 @@ def init_db():
             created_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
+    """)
+
+
+def _create_review_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS bug_reports (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -655,6 +739,11 @@ def init_db():
             created_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
+    """)
+
+
+def _create_library_tool_tables(conn):
+    conn.executescript("""
 
         CREATE TABLE IF NOT EXISTS benchmark_cases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -681,7 +770,7 @@ def init_db():
             FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE CASCADE
         );
 
-        -- Step 9c: a named, reusable snapshot of a Workspace configuration --
+        -- A named, reusable snapshot of a Workspace configuration --
         -- captured at the library level (no drama_id/series_id), so it works
         -- across unrelated series/projects, not just the drama it was saved
         -- from. Applying one is a one-time fill-in, never a live link: no
@@ -701,7 +790,7 @@ def init_db():
             updated_at TEXT
         );
 
-        -- Step 26b: history for the standalone translate tool -- not tied to
+        -- History for the standalone translate tool -- not tied to
         -- any drama/project (no drama_id), same "library-level" shape as
         -- presets above, since a standalone translation doesn't belong to
         -- any one drama.
@@ -715,7 +804,7 @@ def init_db():
             created_at TEXT
         );
 
-        -- Step 26: reusable voice clips sampled from any drama's clone
+        -- Reusable voice clips sampled from any drama's clone
         -- reference, for reuse as a character's clone reference in a
         -- *different* project -- library-level, not tied to any one
         -- drama/series, so the source drama can be deleted afterward with no
@@ -736,30 +825,32 @@ def init_db():
             source_speaker TEXT,
             created_at TEXT
         );
+    """)
 
-        -- Step 25w: cross-process "one GPU job at a time" guard. background_jobs.py's
-        -- own guard (Step 5c) is plain in-process module state, invisible to a
-        -- separate OS process -- this single-row table is the shared coordination
-        -- point so cli.py's GPU-touching commands and the live Streamlit UI can't
-        -- both hold the GPU at once. See try_acquire_gpu_lock/release_gpu_lock below.
+
+def _create_job_tables(conn):
+    conn.executescript("""
+
+        -- Cross-process GPU guard. background_jobs.py's own guard
+        -- is plain in-process module state, invisible to a separate OS
+        -- process -- this table is the shared coordination point so cli.py's
+        -- GPU-touching commands and the live UI can't hold more GPU slots than
+        -- the "GPU jobs at once" setting allows. One row per holder; id is the
+        -- slot, and the CHECK is the hard cap. See try_acquire_gpu_lock below.
         CREATE TABLE IF NOT EXISTS gpu_lock (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
+            id INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND 4),
             holder TEXT NOT NULL,
             description TEXT,
             acquired_at REAL NOT NULL,
             heartbeat_at REAL NOT NULL
         );
 
-        -- Migration Slice 7 (React + FastAPI migration, D1 fix 1): background_jobs.py's
-        -- own _jobs dict (Step 5c docstring: "Single-process, in-memory only") is
-        -- invisible to a separate process -- a job started from the live Streamlit UI
-        -- doesn't show up if `python -m api` later lists jobs, and vice versa. This
-        -- table is a records-only mirror, written at status transitions (queued,
-        -- started, finished), never on every progress tick -- "much smaller than
-        -- Step 41's checkpointing" per the migration doc's own D1 text. No resume:
-        -- a job whose owning process dies leaves its last-written record exactly as
-        -- it was, forever (a real, named limitation, not silently glossed over) --
-        -- see save_job_record's own docstring.
+        -- Cross-process mirror of background_jobs.py's in-memory _jobs dict, which
+        -- another process (`python -m api`, cli.py) cannot see. Records only,
+        -- written at status transitions (queued, started, finished), never on
+        -- every progress tick. No resume: a job whose owning process dies is not
+        -- restarted; its row is closed as cancelled by the owner_pid / heartbeat
+        -- sweep (close_orphaned_job_record, close_stale_job_record).
         CREATE TABLE IF NOT EXISTS job_records (
             job_id TEXT PRIMARY KEY,
             status TEXT NOT NULL,
@@ -773,15 +864,13 @@ def init_db():
             updated_at REAL NOT NULL
         );
 
-        -- Migration Slice 9 (D1 fix 2): a general-purpose, cross-process
-        -- app-settings store -- not sources/store.py's settings table,
-        -- which is deliberately scoped to the source-adapter system's own
-        -- domain (its own docstring: "a separate domain from the drama/
-        -- line data"). This table is for the handful of app-wide runtime
-        -- toggles that used to live only as a Python module global (the
-        -- GPU-limit and notify-on-completion toggles in background_jobs.py
-        -- being D1's own two named examples), invisible to a separate
-        -- `python -m api` process and lost on every restart. Same
+        -- A general-purpose, cross-process app-settings store -- not
+        -- sources/store.py's settings table, which is deliberately scoped to
+        -- the source-adapter system's own domain (its own docstring: "a
+        -- separate domain from the drama/line data"). This table is for
+        -- app-wide runtime toggles (e.g. background_jobs.py's GPU-limit and
+        -- notify-on-completion) that a module global would hide from a
+        -- separate process and lose on every restart. Same
         -- JSON-encoded-value/upsert shape as sources/store.py's own
         -- settings table, for consistency, not shared storage.
         CREATE TABLE IF NOT EXISTS app_settings (
@@ -789,7 +878,7 @@ def init_db():
             value TEXT NOT NULL
         );
 
-        -- Step 42: the maintenance assistant's small project backlog
+        -- The maintenance assistant's small project backlog
         -- ("track this as a bug"). Written only by the user, through
         -- services/maintenance_assistant_service.py.
         CREATE TABLE IF NOT EXISTS assistant_backlog (
@@ -799,7 +888,7 @@ def init_db():
             created_at TEXT NOT NULL
         );
 
-        -- Step 41 (services/job_checkpoint_service.py): per-unit progress
+        -- (services/job_checkpoint_service.py): per-unit progress
         -- of a long job, so a re-run after a crash or cancel skips the
         -- units already done. `scope` already folds in the input, model
         -- and settings, so a changed run never reuses stale units.
@@ -811,7 +900,7 @@ def init_db():
             PRIMARY KEY (scope, unit_id)
         );
 
-        -- Step 41 item 1: opt-in result cache keyed on
+        -- Opt-in result cache keyed on
         -- (kind, input_hash, model, settings_hash).
         CREATE TABLE IF NOT EXISTS result_cache (
             cache_key TEXT PRIMARY KEY,
@@ -824,7 +913,7 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_result_cache_kind ON result_cache(kind, created_at);
 
-        -- Step 41 item 5 (services/job_timing_service.py): one row per
+        -- (services/job_timing_service.py): one row per
         -- stage of a real job (duration and the estimated spend logged
         -- while it ran). Job ids repeat across runs; `run_started_at`
         -- tells runs apart.
@@ -840,7 +929,7 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_job_stage_timings_job ON job_stage_timings(job_id, run_started_at);
 
-        -- Step 41 item 4 (services/line_provenance_service.py): what
+        -- (services/line_provenance_service.py): what
         -- produced each line's current translation.
         CREATE TABLE IF NOT EXISTS line_provenance (
             drama_id INTEGER NOT NULL,
@@ -856,8 +945,13 @@ def init_db():
             created_at REAL NOT NULL,
             PRIMARY KEY (drama_id, line_id)
         );
+    """)
 
-        -- Step 37: grounded metadata research. The cache is keyed by the
+
+def _create_metadata_research_tables(conn):
+    conn.executescript("""
+
+        -- Grounded metadata research. The cache is keyed by the
         -- looked-up entity (not the drama), so a repeat lookup never
         -- re-spends the daily free-search budget; the provenance table
         -- holds one row per researched field value the user accepted
@@ -868,7 +962,7 @@ def init_db():
             created_at TEXT NOT NULL
         );
 
-        -- One row per lookup shown to a user (Step 37): apply reads the
+        -- One row per lookup shown to a user: apply reads the
         -- snapshot by this id and drama, never the shared entity cache.
         CREATE TABLE IF NOT EXISTS metadata_research_results (
             research_id TEXT PRIMARY KEY,
@@ -892,6 +986,11 @@ def init_db():
             status TEXT NOT NULL,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
+    """)
+
+
+def _create_core_indexes(conn):
+    conn.executescript("""
 
         CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
         CREATE INDEX IF NOT EXISTS idx_characters_drama ON characters(drama_id);
@@ -912,19 +1011,30 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_benchmark_runs_case ON benchmark_runs(case_id);
         CREATE INDEX IF NOT EXISTS idx_translate_history_created ON translate_history(created_at);
         CREATE INDEX IF NOT EXISTS idx_voice_bank_name ON voice_bank(name);
-        """)
-        # Migration Slice 22: cross-process cancel request flag on the job mirror.
-        jr_cols = {r[1] for r in conn.execute("PRAGMA table_info(job_records)").fetchall()}
-        if "cancel_requested" not in jr_cols:
-            _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN cancel_requested INTEGER DEFAULT 0")
-        # A job's redacted, allowlisted result (services/jobs_service.project_result),
-        # JSON-encoded, so the API can tell a "done" job that failed from one that worked.
-        if "result_json" not in jr_cols:
-            _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN result_json TEXT")
-        # Step 133: API users, permissions, server-side sessions, audit log.
-        # Additive only; nothing above is touched. Session ids / CSRF tokens
-        # are stored as SHA-256 hashes only (see services/auth_service.py).
-        conn.executescript("""
+    """)
+
+
+def _migrate_job_records_columns(conn):
+    # Cross-process cancel request flag on the job mirror.
+    jr_cols = {r[1] for r in conn.execute("PRAGMA table_info(job_records)").fetchall()}
+    if "cancel_requested" not in jr_cols:
+        _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN cancel_requested INTEGER DEFAULT 0")
+    # A job's redacted, allowlisted result (services/jobs_service.project_result),
+    # JSON-encoded, so the API can tell a "done" job that failed from one that worked.
+    if "result_json" not in jr_cols:
+        _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN result_json TEXT")
+    # The OS pid of the process running the job, so a row whose owner
+    # has exited can be closed at once instead of after the heartbeat
+    # cutoff (services/jobs_service.sweep_stale_job_records).
+    if "owner_pid" not in jr_cols:
+        _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN owner_pid INTEGER")
+
+
+def _create_auth_tables(conn):
+    # API users, permissions, server-side sessions, audit log.
+    # Additive only; nothing above is touched. Session ids / CSRF tokens
+    # are stored as SHA-256 hashes only (see services/auth_service.py).
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             google_sub TEXT UNIQUE,
@@ -961,277 +1071,309 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, id);
         CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id, id);
-        """)
-        # Lightweight migrations for DBs created before these columns existed
-        existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
-        if "speaker" not in existing_cols:
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN speaker TEXT")
-        if "dub_filename" not in existing_cols:
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN dub_filename TEXT")
-        if "flag" not in existing_cols:
-            # A key from translate_engines.FLAG_REASONS, set by flag_uncertain_lines()
-            # -- the review queue for a long file, so a person doesn't have to
-            # scan every line to find the handful worth a second look.
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag TEXT")
-        if "flag_note" not in existing_cols:
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag_note TEXT")
-        if "speaker_manual" not in existing_cols:
-            # 1 once a line's speaker was set by hand; re-running speaker
-            # detection won't overwrite it without confirmation (Step 4).
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN speaker_manual INTEGER DEFAULT 0")
-        if "sfx" not in existing_cols:
-            # 1 for a non-verbal/SFX cue line ("[door slams]") -- exported
-            # bracketed and styled apart from dialogue (Step 12c).
-            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN sfx INTEGER DEFAULT 0")
-        drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
-        if "translation_engine" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN translation_engine TEXT DEFAULT 'claude'")
-        if "content_mode" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN content_mode TEXT DEFAULT 'audio_drama'")
-        if "narration_language" not in drama_cols:
-            # Step 26c: novel narration only -- 'translation' (default, existing
-            # behavior) speaks ln.en; 'original' speaks ln.zh (the app's generic
-            # source-text field, holding ja/ko source text too when that's the
-            # drama's actual source_language).
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN narration_language TEXT DEFAULT 'translation'")
-        if "source_video_filename" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_video_filename TEXT")
-        if "source_language" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_language TEXT DEFAULT 'zh'")
-        if "chinese_script" not in drama_cols:
-            # Only meaningful when source_language == "zh": Whisper transcription
-            # and LLM translation don't care (they read/produce either script
-            # fine), but OCR (Tesseract's chi_sim vs chi_tra language pack) and
-            # jieba segmentation (built for Simplified, degrades on Traditional)
-            # both need to know which one they're looking at.
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN chinese_script TEXT DEFAULT 'simplified'")
-        if "media_type" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN media_type TEXT DEFAULT 'audio_drama'")
-        if "series_id" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN series_id INTEGER")
-        if "episode_number" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_number INTEGER")
-        if "episode_summary" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_summary TEXT")
-        if "updated_at" not in drama_cols:
-            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN updated_at TEXT")
-        for col, coltype in [("last_translate_errors", "TEXT"),
-                              ("author_romanized", "TEXT"), ("studio_romanized", "TEXT"),
-                              ("voice_actors_romanized", "TEXT"), ("director_romanized", "TEXT"),
-                              ("cover_art_filename", "TEXT"), ("genre", "TEXT"),
-                              ("publication_status", "TEXT"), ("chapter_count", "INTEGER"),
-                              ("custom_tags", "TEXT"), ("personal_notes", "TEXT"),
-                              # The original URL a stream/VOD was downloaded from --
-                              # title_en/title_zh already double as translated/
-                              # untranslated stream name, this was the missing piece
-                              # (no dedicated "where did this come from" field existed).
-                              ("source_url", "TEXT"),
-                              # Recognition/alignment pipeline choices -- previously only
-                              # lived in Streamlit session_state, which resets on every
-                              # app restart, so "I don't have a transcript" (and the
-                              # model/backend picks) had to be re-selected every time.
-                              ("transcript_mode", "TEXT"), ("whisper_size", "TEXT"),
-                              ("alignment_method", "TEXT"), ("asr_backend_choice", "TEXT"),
-                              # Migration Slice 20: the remaining Whisper-tuning knobs that
-                              # transcript_mode/whisper_size/alignment_method/asr_backend_choice
-                              # (above) didn't already cover -- these previously lived only in
-                              # Streamlit session_state (min_silence_ms) or as bare widget
-                              # defaults with no persistence at all, so a stateless API client
-                              # had nowhere to read a real per-drama default from.
-                              ("min_silence_ms", "INTEGER DEFAULT 300"),
-                              ("vad_threshold", "REAL DEFAULT 0.5"),
-                              ("beam_size", "INTEGER DEFAULT 5"),
-                              ("separate_vocals_first", "INTEGER DEFAULT 0"),
-                              ("separation_backend", "TEXT DEFAULT 'auto'"),
-                              ("realign_long_segments", "INTEGER DEFAULT 0"),
-                              ("whisper_fast_mode", "INTEGER DEFAULT 0"),
-                              ("use_groq", "INTEGER DEFAULT 0"),
-                              # Migration Slice 21: hardsub_ocr's own two tuning knobs --
-                              # same "previously session-state only" gap as Slice 20's.
-                              ("hardsub_ocr_backend", "TEXT"),
-                              ("hardsub_interval_sec", "REAL DEFAULT 1.0"),
-                              # Step 12e: freeform, multi-line instructions that DO reach
-                              # the translation prompt (translate_engines.build_llm_instructions)
-                              # -- unlike personal_notes above, which is private and never
-                              # sent anywhere. The series-level counterpart is
-                              # series.instructions, inherited by every drama in the series.
-                              ("project_instructions", "TEXT"),
-                              # Roadmap 112: the Notion page this drama was last exported
-                              # to (services/notion_service.py), so a re-export updates
-                              # that page in place. Only the id, never a token or URL.
-                              ("notion_page_id", "TEXT")]:
-            if col not in drama_cols:
-                _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
-        series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
-        if "instructions" not in series_cols:
-            _safe_alter(conn, "ALTER TABLE series ADD COLUMN instructions TEXT")
-        char_cols = {r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()}
-        if "ref_audio_filename" not in char_cols:
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_audio_filename TEXT")
-        if "ref_text" not in char_cols:
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_text TEXT")
-        if "elevenlabs_voice_id" not in char_cols:
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN elevenlabs_voice_id TEXT")
-        if "clone_engine" not in char_cols:
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN clone_engine TEXT")
-        if "voice_design" not in char_cols:
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN voice_design TEXT")
-        if "offline_voice" not in char_cols:
-            # Step 25c: Piper can't load an edge-tts voice name, so the offline
-            # engine gets its own per-character voice instead of reading tts_voice.
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN offline_voice TEXT")
-        if "series_character_id" not in char_cols:
-            # Links this drama's speaker to a persistent series_characters row,
-            # so renaming/updating the series-level character (once) reflects
-            # everywhere it's been assigned, instead of needing a per-drama edit.
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN series_character_id INTEGER")
-        if "pronouns" not in char_cols:
-            # Per-drama pronoun text ("she/her", "they/them", "xe/xem", ...) --
-            # lets a drama with no series set pronouns at all, and overrides
-            # the linked series character's value when both are set.
-            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN pronouns TEXT")
-        gloss_cols = {r[1] for r in conn.execute("PRAGMA table_info(glossary_terms)").fetchall()}
-        if "category" not in gloss_cols:
-            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN category TEXT")
-        if "policy" not in gloss_cols:
-            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN policy TEXT")
-        if "enforce_exact" not in gloss_cols:
-            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN enforce_exact INTEGER DEFAULT 0")
-        if "aliases" not in gloss_cols:
-            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN aliases TEXT")
-        if "banned_translations" not in gloss_cols:
-            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN banned_translations TEXT")
-        sc_cols = {r[1] for r in conn.execute("PRAGMA table_info(series_characters)").fetchall()}
-        if "gender" not in sc_cols:
-            # Feeds translation as a fixed pronoun hint for this character
-            # (e.g. "Su Shan: she/her") -- Mandarin's spoken 他/她/它 are
-            # homophones, so Whisper's transcribed character for a pronoun is
-            # not a reliable gender signal on its own, and misgendering a
-            # named character is a much more visible error than an ambiguous
-            # unnamed one. NULL/"" means unset -- no hint is added for that
-            # character, distinct from "unspecified" as a deliberate choice.
-            _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN gender TEXT")
-        usage_cols = {r[1] for r in conn.execute("PRAGMA table_info(usage_log)").fetchall()}
-        if "cache_read_tokens" not in usage_cols:
-            # Step 9: the part of input_tokens served from a provider prompt
-            # cache, so the dashboard can show how often caching actually hits.
-            _safe_alter(conn, "ALTER TABLE usage_log ADD COLUMN cache_read_tokens INTEGER DEFAULT 0")
-        if "voice_fingerprint" not in sc_cols:
-            # Step 8: a running-average pyannote voice embedding (JSON list of
-            # floats), built up from every drama where a speaker was confirmed
-            # (by Accept, never automatically) as this character -- see
-            # update_series_character_voice_fingerprint(). Compared by cosine
-            # similarity against a NEW drama's own per-speaker embeddings to
-            # suggest "this speaker sounds like <name>". NULL until at least
-            # one confirmed sample exists.
-            _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint TEXT")
-            _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint_samples INTEGER DEFAULT 0")
-        bubble_cols = {r[1] for r in conn.execute("PRAGMA table_info(bubbles)").fetchall()}
-        if "font_category" not in bubble_cols:
-            # One of scanlate.FONT_CATEGORIES ("regular"/"bold"/"handwritten"),
-            # auto-filled from sample_text_style()'s classical-CV stroke-weight/
-            # irregularity analysis at detection time, editable per bubble
-            # before render -- see scanlate.py's own docstring for why this
-            # isn't a trained font-classifier model.
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN font_category TEXT DEFAULT 'regular'")
-        if "kind" not in bubble_cols:
-            # Step 12d: each bubble row is a structured text region (see
-            # scanlate.TextRegion) -- region type from classify_text_regions(),
-            # the detector's own confidence (NULL for the OpenCV heuristic,
-            # which has none), language, text orientation, and panel. Rows
-            # predating this are all speech bubbles, hence kind's default.
-            # include_sfx is the per-region override that puts an SFX region
-            # back into the automated inpaint-and-replace pass.
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind TEXT DEFAULT 'bubble'")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind_confidence REAL")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN confidence REAL")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN language TEXT")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN orientation TEXT")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
-            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
-        page_cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)").fetchall()}
-        if "rev" not in page_cols:
-            # Scanlate S0: rev is bumped by every id-preserving region write
-            # (insert/update/delete/reorder/replace_bubbles_if_unchanged; not
-            # the legacy save_bubbles); context_summary is the rolling
-            # translation context after this page; run_notes is a redacted
-            # JSON list of {level, message} from the last automatic run.
-            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN rev INTEGER DEFAULT 0")
-        if "context_summary" not in page_cols:
-            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN context_summary TEXT")
-        if "run_notes" not in page_cols:
-            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN run_notes TEXT")
-        bulk_job_cols ={r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
-        if "kind" not in bulk_job_cols:
-            # Step 9d: see the `bulk_jobs` table's own comment above -- every
-            # bulk job predating this column was a translation job.
-            _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'translate'")
-            _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN stage TEXT")
-            _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN pipeline_id TEXT")
-        bulk_job_line_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_job_lines)").fetchall()}
-        if "result_text" not in bulk_job_line_cols:
-            _safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN result_text TEXT")
-            _safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN state_at_submit TEXT")
-        vocab_cols = {r[1] for r in conn.execute("PRAGMA table_info(vocab_lookups)").fetchall()}
-        if "export_rich" not in vocab_cols:
-            # Step 20b: flags a lookup as queued for the richer sentence+audio
-            # Anki card type, set from the Reader right where the word was
-            # looked up, rather than only via a bulk end-of-session export.
-            _safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
-        style_cols = {r[1] for r in conn.execute("PRAGMA table_info(style_profile)").fetchall()}
-        if "history_json" not in style_cols:
-            # Earlier learned-style profiles (newest first, at most
-            # STYLE_HISTORY_KEEP), so a learn or reset can be undone.
-            _safe_alter(conn, "ALTER TABLE style_profile ADD COLUMN history_json TEXT")
-        # Auth slice B1: ownership and sharing (services/ownership_service.py).
-        # Existing rows keep owner_user_id NULL / is_private 0, meaning "the PC
-        # owner / admins, shared" -- no admin id is guessed.
-        for table, col, coltype in (
-            ("dramas", "owner_user_id", "INTEGER"),
-            ("dramas", "is_private", "INTEGER DEFAULT 0"),
-            ("series", "owner_user_id", "INTEGER"),
-            ("series", "is_private", "INTEGER DEFAULT 0"),
-            ("users", "share_by_default", "INTEGER DEFAULT 0"),
-            ("translate_history", "user_id", "INTEGER"),
-            ("job_records", "owner_user_id", "INTEGER"),
-        ):
-            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-            if col not in cols:
-                _safe_alter(conn, f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
-        # New items became private by default (user decision 2026-09-30).
-        # A users.share_by_default added before that defaulted to 1, which
-        # nobody chose (nothing could set it): switch every account off once.
-        # The marker keeps later choices across restarts.
-        user_cols = {r[1]: r[4] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
-        marker = "migrations.share_by_default_off"
-        if str(user_cols.get("share_by_default")) == "1" and conn.execute(
-                "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
-            conn.execute("UPDATE users SET share_by_default = 0")
-            conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
-        session_cols = {r[1] for r in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
-        if "device_label" not in session_cols:
-            # A coarse "Chrome on Android" label (auth_service.device_label),
-            # the only device detail the signed-in-devices list shows.
-            _safe_alter(conn, "ALTER TABLE auth_sessions ADD COLUMN device_label TEXT DEFAULT ''")
-        # Sessions from before the label kept the first 60 characters of the
-        # user agent: label them from it, then drop it, so no raw user agent
-        # stays stored. Rows already blanked don't match, so this runs once.
-        old_agents = conn.execute(
-            "SELECT id, user_agent_short, device_label FROM auth_sessions "
-            "WHERE user_agent_short IS NOT NULL AND user_agent_short != ''").fetchall()
-        if old_agents:
-            from services.auth_service import device_label
-            conn.executemany(
-                "UPDATE auth_sessions SET device_label = ?, user_agent_short = '' WHERE id = ?",
-                [(r[2] or device_label(r[1]), r[0]) for r in old_agents])
-        conn.commit()
-    _init_benchmark_lab_schema()
-    _migrate_line_refs_to_ids()
-    _migrate_step26e_profiles()
+    """)
+
+
+def _migrate_line_columns(conn):
+    # Lightweight migrations for DBs created before these columns existed
+    existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
+    if "speaker" not in existing_cols:
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN speaker TEXT")
+    if "dub_filename" not in existing_cols:
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN dub_filename TEXT")
+    if "flag" not in existing_cols:
+        # A key from translate_engines.FLAG_REASONS, set by flag_uncertain_lines()
+        # -- the review queue for a long file, so a person doesn't have to
+        # scan every line to find the handful worth a second look.
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag TEXT")
+    if "flag_note" not in existing_cols:
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag_note TEXT")
+    if "speaker_manual" not in existing_cols:
+        # 1 once a line's speaker was set by hand; re-running speaker
+        # detection won't overwrite it without confirmation.
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN speaker_manual INTEGER DEFAULT 0")
+    if "sfx" not in existing_cols:
+        # 1 for a non-verbal/SFX cue line ("[door slams]") -- exported
+        # bracketed and styled apart from dialogue.
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN sfx INTEGER DEFAULT 0")
+    if "lang" not in existing_cols:
+        # The line's spoken language (core.Line.lang); NULL is the title's
+        # source_language, so existing lines keep their meaning.
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN lang TEXT")
+
+
+def _migrate_drama_columns(conn):
+    drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
+    if "translation_engine" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN translation_engine TEXT DEFAULT 'claude'")
+    if "content_mode" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN content_mode TEXT DEFAULT 'audio_drama'")
+    if "narration_language" not in drama_cols:
+        # Novel narration only -- 'translation' (default, existing
+        # behavior) speaks ln.en; 'original' speaks ln.zh (the app's generic
+        # source-text field, holding ja/ko source text too when that's the
+        # drama's actual source_language).
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN narration_language TEXT DEFAULT 'translation'")
+    if "source_video_filename" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_video_filename TEXT")
+    if "source_language" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_language TEXT DEFAULT 'zh'")
+    if "chinese_script" not in drama_cols:
+        # Only meaningful when source_language == "zh": Whisper transcription
+        # and LLM translation don't care (they read/produce either script
+        # fine), but OCR (Tesseract's chi_sim vs chi_tra language pack) and
+        # jieba segmentation (built for Simplified, degrades on Traditional)
+        # both need to know which one they're looking at.
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN chinese_script TEXT DEFAULT 'simplified'")
+    if "media_type" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN media_type TEXT DEFAULT 'audio_drama'")
+    if "series_id" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN series_id INTEGER")
+    if "episode_number" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_number INTEGER")
+    if "episode_summary" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_summary TEXT")
+    if "updated_at" not in drama_cols:
+        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN updated_at TEXT")
+    for col, coltype in [("last_translate_errors", "TEXT"),
+                          ("author_romanized", "TEXT"), ("studio_romanized", "TEXT"),
+                          ("voice_actors_romanized", "TEXT"), ("director_romanized", "TEXT"),
+                          ("cover_art_filename", "TEXT"), ("genre", "TEXT"),
+                          ("publication_status", "TEXT"), ("chapter_count", "INTEGER"),
+                          ("custom_tags", "TEXT"), ("personal_notes", "TEXT"),
+                          # The original URL a stream/VOD was downloaded from --
+                          # title_en/title_zh already double as translated/
+                          # untranslated stream name, this was the missing piece
+                          # (no dedicated "where did this come from" field existed).
+                          ("source_url", "TEXT"),
+                          # Recognition/alignment pipeline choices, per drama, so
+                          # "I don't have a transcript" (and the model/backend
+                          # picks) survive an app restart.
+                          ("transcript_mode", "TEXT"), ("whisper_size", "TEXT"),
+                          ("alignment_method", "TEXT"), ("asr_backend_choice", "TEXT"),
+                          # The remaining Whisper-tuning knobs, persisted per drama
+                          # so a stateless API client can read a real per-drama
+                          # default.
+                          ("min_silence_ms", "INTEGER DEFAULT 300"),
+                          ("vad_threshold", "REAL DEFAULT 0.5"),
+                          ("beam_size", "INTEGER DEFAULT 5"),
+                          ("separate_vocals_first", "INTEGER DEFAULT 0"),
+                          ("separation_backend", "TEXT DEFAULT 'auto'"),
+                          ("realign_long_segments", "INTEGER DEFAULT 0"),
+                          ("whisper_fast_mode", "INTEGER DEFAULT 0"),
+                          ("use_groq", "INTEGER DEFAULT 0"),
+                          # hardsub_ocr's own two tuning knobs --
+                          # same "previously session-state only" gap as the ones above.
+                          ("hardsub_ocr_backend", "TEXT"),
+                          ("hardsub_interval_sec", "REAL DEFAULT 1.0"),
+                          # Freeform, multi-line instructions that DO reach
+                          # the translation prompt (translate_engines.build_llm_instructions)
+                          # -- unlike personal_notes above, which is private and never
+                          # sent anywhere. The series-level counterpart is
+                          # series.instructions, inherited by every drama in the series.
+                          ("project_instructions", "TEXT"),
+                          # Roadmap 112: the Notion page this drama was last exported
+                          # to (services/notion_service.py), so a re-export updates
+                          # that page in place. Only the id, never a token or URL.
+                          ("notion_page_id", "TEXT")]:
+        if col not in drama_cols:
+            _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
+
+
+def _migrate_series_and_character_columns(conn):
+    series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
+    if "instructions" not in series_cols:
+        _safe_alter(conn, "ALTER TABLE series ADD COLUMN instructions TEXT")
+    char_cols = {r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()}
+    if "ref_audio_filename" not in char_cols:
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_audio_filename TEXT")
+    if "ref_text" not in char_cols:
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_text TEXT")
+    if "elevenlabs_voice_id" not in char_cols:
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN elevenlabs_voice_id TEXT")
+    if "clone_engine" not in char_cols:
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN clone_engine TEXT")
+    if "voice_design" not in char_cols:
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN voice_design TEXT")
+    if "offline_voice" not in char_cols:
+        # Piper can't load an edge-tts voice name, so the offline
+        # engine gets its own per-character voice instead of reading tts_voice.
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN offline_voice TEXT")
+    if "series_character_id" not in char_cols:
+        # Links this drama's speaker to a persistent series_characters row,
+        # so renaming/updating the series-level character (once) reflects
+        # everywhere it's been assigned, instead of needing a per-drama edit.
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN series_character_id INTEGER")
+    if "pronouns" not in char_cols:
+        # Per-drama pronoun text ("she/her", "they/them", "xe/xem", ...) --
+        # lets a drama with no series set pronouns at all, and overrides
+        # the linked series character's value when both are set.
+        _safe_alter(conn, "ALTER TABLE characters ADD COLUMN pronouns TEXT")
+    gloss_cols = {r[1] for r in conn.execute("PRAGMA table_info(glossary_terms)").fetchall()}
+    if "category" not in gloss_cols:
+        _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN category TEXT")
+    if "policy" not in gloss_cols:
+        _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN policy TEXT")
+    if "enforce_exact" not in gloss_cols:
+        _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN enforce_exact INTEGER DEFAULT 0")
+    if "aliases" not in gloss_cols:
+        _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN aliases TEXT")
+    if "banned_translations" not in gloss_cols:
+        _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN banned_translations TEXT")
+    sc_cols = {r[1] for r in conn.execute("PRAGMA table_info(series_characters)").fetchall()}
+    if "gender" not in sc_cols:
+        # Feeds translation as a fixed pronoun hint for this character
+        # (e.g. "Su Shan: she/her") -- Mandarin's spoken 他/她/它 are
+        # homophones, so Whisper's transcribed character for a pronoun is
+        # not a reliable gender signal on its own, and misgendering a
+        # named character is a much more visible error than an ambiguous
+        # unnamed one. NULL/"" means unset -- no hint is added for that
+        # character, distinct from "unspecified" as a deliberate choice.
+        _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN gender TEXT")
+    usage_cols = {r[1] for r in conn.execute("PRAGMA table_info(usage_log)").fetchall()}
+    if "cache_read_tokens" not in usage_cols:
+        # The part of input_tokens served from a provider prompt
+        # cache, so the dashboard can show how often caching actually hits.
+        _safe_alter(conn, "ALTER TABLE usage_log ADD COLUMN cache_read_tokens INTEGER DEFAULT 0")
+    if "estimated_cost_usd_before_recost" not in usage_cols:
+        # The stored estimate a row had before the opt-in re-cost
+        # (services/usage_recost_service) replaced it; NULL means never
+        # re-costed. Undo copies it back.
+        _safe_alter(conn, "ALTER TABLE usage_log ADD COLUMN estimated_cost_usd_before_recost REAL")
+    if "voice_fingerprint" not in sc_cols:
+        # A running-average pyannote voice embedding (JSON list of
+        # floats), built up from every drama where a speaker was confirmed
+        # (by Accept, never automatically) as this character -- see
+        # update_series_character_voice_fingerprint(). Compared by cosine
+        # similarity against a NEW drama's own per-speaker embeddings to
+        # suggest "this speaker sounds like <name>". NULL until at least
+        # one confirmed sample exists.
+        _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint TEXT")
+        _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint_samples INTEGER DEFAULT 0")
+
+
+def _migrate_scanlate_columns(conn):
+    bubble_cols = {r[1] for r in conn.execute("PRAGMA table_info(bubbles)").fetchall()}
+    if "font_category" not in bubble_cols:
+        # One of scanlate.FONT_CATEGORIES ("regular"/"bold"/"handwritten"),
+        # auto-filled from sample_text_style()'s classical-CV stroke-weight/
+        # irregularity analysis at detection time, editable per bubble
+        # before render -- see scanlate.py's own docstring for why this
+        # isn't a trained font-classifier model.
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN font_category TEXT DEFAULT 'regular'")
+    if "kind" not in bubble_cols:
+        # Each bubble row is a structured text region (see
+        # scanlate.TextRegion) -- region type from classify_text_regions(),
+        # the detector's own confidence (NULL for the OpenCV heuristic,
+        # which has none), language, text orientation, and panel. Rows
+        # predating this are all speech bubbles, hence kind's default.
+        # include_sfx is the per-region override that puts an SFX region
+        # back into the automated inpaint-and-replace pass.
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind TEXT DEFAULT 'bubble'")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind_confidence REAL")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN confidence REAL")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN language TEXT")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN orientation TEXT")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
+        _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
+    page_cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)").fetchall()}
+    if "rev" not in page_cols:
+        # Scanlate S0: rev is bumped by every id-preserving region write
+        # (insert/update/delete/reorder/replace_bubbles_if_unchanged; not
+        # the legacy save_bubbles); context_summary is the rolling
+        # translation context after this page; run_notes is a redacted
+        # JSON list of {level, message} from the last automatic run.
+        _safe_alter(conn, "ALTER TABLE pages ADD COLUMN rev INTEGER DEFAULT 0")
+    if "context_summary" not in page_cols:
+        _safe_alter(conn, "ALTER TABLE pages ADD COLUMN context_summary TEXT")
+    if "run_notes" not in page_cols:
+        _safe_alter(conn, "ALTER TABLE pages ADD COLUMN run_notes TEXT")
+
+
+def _migrate_bulk_job_columns(conn):
+    bulk_job_cols ={r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
+    if "kind" not in bulk_job_cols:
+        # See the `bulk_jobs` table's own comment above -- every
+        # bulk job predating this column was a translation job.
+        _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'translate'")
+        _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN stage TEXT")
+        _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN pipeline_id TEXT")
+    bulk_job_line_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_job_lines)").fetchall()}
+    if "result_text" not in bulk_job_line_cols:
+        _safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN result_text TEXT")
+        _safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN state_at_submit TEXT")
+
+
+def _migrate_vocab_and_style_columns(conn):
+    vocab_cols = {r[1] for r in conn.execute("PRAGMA table_info(vocab_lookups)").fetchall()}
+    if "export_rich" not in vocab_cols:
+        # Flags a lookup as queued for the richer sentence+audio
+        # Anki card type, set from the Reader right where the word was
+        # looked up, rather than only via a bulk end-of-session export.
+        _safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
+    style_cols = {r[1] for r in conn.execute("PRAGMA table_info(style_profile)").fetchall()}
+    if "history_json" not in style_cols:
+        # Earlier learned-style profiles (newest first, at most
+        # STYLE_HISTORY_KEEP), so a learn or reset can be undone.
+        _safe_alter(conn, "ALTER TABLE style_profile ADD COLUMN history_json TEXT")
+
+
+def _migrate_ownership_columns(conn):
+    # Ownership and sharing (services/ownership_service.py).
+    # Existing rows keep owner_user_id NULL / is_private 0, meaning "the PC
+    # owner / admins, shared" -- no admin id is guessed.
+    for table, col, coltype in (
+        ("dramas", "owner_user_id", "INTEGER"),
+        ("dramas", "is_private", "INTEGER DEFAULT 0"),
+        ("series", "owner_user_id", "INTEGER"),
+        ("series", "is_private", "INTEGER DEFAULT 0"),
+        ("users", "share_by_default", "INTEGER DEFAULT 0"),
+        ("translate_history", "user_id", "INTEGER"),
+        ("job_records", "owner_user_id", "INTEGER"),
+    ):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if col not in cols:
+            _safe_alter(conn, f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+    # New items became private by default (user decision 2026-09-30).
+    # A users.share_by_default added before that defaulted to 1, which
+    # nobody chose (nothing could set it): switch every account off once.
+    # The marker keeps later choices across restarts.
+    user_cols = {r[1]: r[4] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    marker = "migrations.share_by_default_off"
+    if str(user_cols.get("share_by_default")) == "1" and conn.execute(
+            "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
+        conn.execute("UPDATE users SET share_by_default = 0")
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+
+
+def _migrate_auth_session_columns(conn):
+    session_cols = {r[1] for r in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
+    if "device_label" not in session_cols:
+        # A coarse "Chrome on Android" label (auth_service.device_label),
+        # the only device detail the signed-in-devices list shows.
+        _safe_alter(conn, "ALTER TABLE auth_sessions ADD COLUMN device_label TEXT DEFAULT ''")
+    # Sessions from before the label kept the first 60 characters of the
+    # user agent: label them from it, then drop it, so no raw user agent
+    # stays stored. Rows already blanked don't match, so this runs once.
+    old_agents = conn.execute(
+        "SELECT id, user_agent_short, device_label FROM auth_sessions "
+        "WHERE user_agent_short IS NOT NULL AND user_agent_short != ''").fetchall()
+    if old_agents:
+        from services.auth_service import device_label
+        conn.executemany(
+            "UPDATE auth_sessions SET device_label = ?, user_agent_short = '' WHERE id = ?",
+            [(r[2] or device_label(r[1]), r[0]) for r in old_agents])
+
+
+def _migrate_off_removed_test_engine(conn):
+    # The fake "test_offline" engine is gone: a drama or preset still on it
+    # goes back to the default engine instead of failing to start a run.
+    conn.execute("UPDATE dramas SET translation_engine = 'claude' WHERE translation_engine = 'test_offline'")
+    conn.execute("UPDATE presets SET translation_engine = 'claude' WHERE translation_engine = 'test_offline'")
 
 
 # ---------------------------------------------------------------------------
-# Step 40b: model re-evaluation candidates and decisions
+# Model re-evaluation candidates and decisions
 # ---------------------------------------------------------------------------
 
 def create_model_candidate(capability: str, engine: str, model: str, note: str = "") -> int:
@@ -1297,7 +1439,7 @@ def list_model_decisions(capability: str):
 
 
 def _init_benchmark_lab_schema():
-    """Step 38 (Benchmark Lab): golden-set tiers on benchmark_cases, plus a
+    """Benchmark Lab: golden-set tiers on benchmark_cases, plus a
     per-run record (benchmark_sessions: engine/model/prompt version/context,
     aggregate score, latency, cost, VRAM) and its per-case results. Additive
     only; the older benchmark_runs history is left as it was."""
@@ -1344,7 +1486,7 @@ def _init_benchmark_lab_schema():
             FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE SET NULL
         );
         CREATE INDEX IF NOT EXISTS idx_benchmark_results_session ON benchmark_results(session_id);
-        -- Step 40b: candidate models for scheduled re-evaluation, and every
+        -- Candidate models for scheduled re-evaluation, and every
         -- promote/reject decision (kept so a rejected candidate isn't re-proposed
         -- as new).
         CREATE TABLE IF NOT EXISTS model_candidates (
@@ -1415,7 +1557,7 @@ _LINE_ID_FOR_IDX_SQL = ("(SELECT l.id FROM lines l WHERE l.drama_id = t.drama_id
 
 
 def _migrate_line_refs_to_ids():
-    """One-time (Step 2): translation_notes, line_emotions and
+    """One-time: translation_notes, line_emotions and
     reading_history pointed at a line by its position (line_idx), which a
     merge or split renumbers -- so a note silently ended up on a
     different line. They now point at lines.id.
@@ -1471,7 +1613,7 @@ def _line_id_for_idx(conn, drama_id, line_idx):
 
 
 def _migrate_step26e_profiles():
-    """One-time (Step 26e): creates the default profile every pre-profiles
+    """One-time: creates the default profile every pre-profiles
     install's existing progress/reading_history/personal_notes data gets
     attached to, and rebuilds `progress` for its new (drama_id, profile_id)
     primary key -- SQLite can't ALTER a PRIMARY KEY in place, so this is a
@@ -1650,9 +1792,11 @@ def _is_journalled_folder(final: str, entry: dict) -> bool:
     return ident is not None and _folder_identity(final) == ident
 
 
-def _fsync_dir(path: str):
+def fsync_dir(path: str):
+    """Makes a rename into `path` durable; raises OSError. POSIX only:
+    Windows can't open a directory and commits the rename with the file."""
     if os.name != "posix":
-        return      # Windows can't open a directory; it commits the rename with the file
+        return
     fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(fd)
@@ -1725,13 +1869,17 @@ def write_media_journal(staging: str, folders: dict):
             fh.flush()
             os.fsync(fh.fileno())
         ids[str(int(did))] = {"marker": token, "ident": _folder_identity(path)}
+    # Markers and journal are fsynced, and the journal lands by os.replace
+    # (then a directory fsync), before any folder moves: after a crash,
+    # recovery trusts the journal as proof of which folders it may remove,
+    # so it must be durable and never seen half-written.
     tmp = os.path.join(staging, _MEDIA_JOURNAL + ".tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump({"format": 2, "staging": os.path.basename(staging), "ids": ids}, fh)
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, os.path.join(staging, _MEDIA_JOURNAL))
-    _fsync_dir(staging)
+    fsync_dir(staging)
 
 
 def move_staged_folder(staging: str, drama_id: int, staged: str) -> bool:
@@ -1803,8 +1951,8 @@ def _drama_rows_exist(ids):
     if not os.path.isfile(DB_PATH):
         return None
     try:
-        # Its own untracked connection: callers hold a get_conn() connection
-        # (mid-transaction), which a nested get_conn() in this thread would close.
+        # A separate connection: callers hold a get_conn() connection
+        # mid-transaction, so this sees only committed rows.
         with contextlib.closing(sqlite3.connect(DB_PATH, timeout=10)) as conn:
             for i in range(0, len(ids), 500):
                 chunk = ids[i:i + 500]
@@ -1994,7 +2142,7 @@ def claim_new_drama_folder(drama_id: int):
 
 def create_drama(**fields) -> int:
     if fields.get("series_id") is not None:
-        # Auth slice B1 (user decision 4): only a whole series, or a drama
+        # User decision: only a whole series, or a drama
         # with no series, can be private.
         fields["is_private"] = 0
     with contextlib.closing(get_conn()) as conn:
@@ -2016,7 +2164,7 @@ def update_drama(drama_id: int, **fields):
     if not fields:
         return
     if fields.get("series_id") is not None:
-        fields["is_private"] = 0    # auth slice B1, as in create_drama
+        fields["is_private"] = 0    # as in create_drama
     fields["updated_at"] = datetime.datetime.utcnow().isoformat()
     with contextlib.closing(get_conn()) as conn:
         set_clause = ", ".join(f"{k} = ?" for k in fields)
@@ -2037,7 +2185,7 @@ def set_drama_notion_page_id(drama_id: int, page_id):
 def delete_drama(drama_id: int):
     with contextlib.closing(get_conn()) as conn:
         conn.execute("DELETE FROM dramas WHERE id = ?", (drama_id,))
-        # Step 41 tables keyed by drama (no foreign key): a checkpoint scope
+        # The checkpoint/cache/provenance tables are keyed by drama (no foreign key): a checkpoint scope
         # is "<kind>:<drama_id>:<digest>".
         conn.execute("DELETE FROM line_provenance WHERE drama_id = ?", (drama_id,))
         conn.execute("DELETE FROM job_checkpoints WHERE scope LIKE ?", (f"%:{int(drama_id)}:%",))
@@ -2047,14 +2195,14 @@ def delete_drama(drama_id: int):
         shutil.rmtree(d)
 
 
-# Every drama row also carries its series' instructions (Step 12e) as
+# Every drama row also carries its series' instructions as
 # series_instructions, so any drama_meta handed to the translation prompt
 # already has both levels -- Workspace, CLI and bulk translate all build
 # drama_meta from get_drama()/list_dramas(), and nothing else has to thread
 # the series lookup through. A subquery rather than a JOIN keeps every
 # existing unqualified column name in list_dramas' filters unambiguous.
 #
-# Step 74: same trick for previous_episode_summary -- the immediately
+# Same trick for previous_episode_summary -- the immediately
 # preceding episode's stored running summary (the sibling row in the same
 # series whose episode_number is the largest one strictly less than this
 # row's own). Only resolves when BOTH this row and a sibling have
@@ -2077,7 +2225,7 @@ def get_drama(drama_id: int):
 
 def drama_visible_sql(alias: str, visible_to: int):
     """(sql, params): a WHERE fragment true when the drama row `alias` is
-    visible to user `visible_to` (auth slice B1/B2). Same rule as
+    visible to user `visible_to`. Same rule as
     ownership_service._visible: the series owner sees every drama in their
     series; a private series hides its dramas from everyone else (drama
     ownership doesn't override it); otherwise the drama's owner, or anyone
@@ -2093,7 +2241,7 @@ def drama_visible_sql(alias: str, visible_to: int):
 def list_dramas(search: str = "", studio: str = "", author: str = "",
                  voice_actor: str = "", status: str = "", source_language: str = "",
                  media_type: str = "", visible_to: int = None):
-    """`visible_to` (auth slice B1): a non-admin user id; when set, only
+    """`visible_to`: a non-admin user id; when set, only
     dramas that user may see are returned (any drama in a series they own;
     otherwise, outside a private series, their own or non-private ones).
     None = unfiltered. The rule itself lives in
@@ -2133,7 +2281,7 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
 
 
 def list_dramas_by_series(series_id: int):
-    """Every drama in a series, across every media_type -- Step 22's
+    """Every drama in a series, across every media_type -- the
     series-level view: a manga project and a video project already share
     one glossary/character list under the hood (series_characters and
     glossary_terms are keyed by series_id, not drama_id/media_type); this
@@ -2144,7 +2292,7 @@ def list_dramas_by_series(series_id: int):
     list_dramas()/get_drama() already give.
 
     Order: newest first (created_at DESC), same as list_dramas() -- UNLESS
-    Step 74's episode_number is actually in use somewhere in this series,
+    the episode_number is actually in use somewhere in this series,
     in which case it's the real ordering signal and takes over (ascending,
     reading order), with any not-yet-numbered sibling sorted after the
     numbered ones rather than crashing or getting silently interleaved.
@@ -2160,36 +2308,21 @@ def list_dramas_by_series(series_id: int):
     return dramas
 
 
-def distinct_values(column: str) -> List[str]:
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(f"SELECT DISTINCT {column} FROM dramas WHERE {column} IS NOT NULL AND {column} != ''").fetchall()
-    return sorted({r[0] for r in rows})
-
-
-def distinct_voice_actors() -> List[str]:
-    """voice_actors is comma-separated per row -- split and dedupe."""
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("SELECT voice_actors FROM dramas WHERE voice_actors IS NOT NULL AND voice_actors != ''").fetchall()
-    names = set()
-    for r in rows:
-        for name in r[0].split(","):
-            name = name.strip()
-            if name:
-                names.add(name)
-    return sorted(names)
-
-
 # ---------------------------------------------------------------------------
 # Lines CRUD
 # ---------------------------------------------------------------------------
 
 from core import LINE_FIELDS as _LINE_COLUMNS  # noqa: E402 -- core has no db dependency
+from core import LINE_LANGUAGES as _LINE_LANGUAGES  # noqa: E402
 
 
-def _line_value(ln, f):
+def line_value(ln, f):
     v = getattr(ln, f, None)
     if f in ("speaker_manual", "sfx"):
         return int(bool(v))
+    if f == "lang":
+        # "" and None both mean "the title's language"; store one of them.
+        return v or None
     return "" if (f == "flag_note" and v is None) else v
 
 
@@ -2224,6 +2357,7 @@ def update_lines_fields_if_many(drama_id: int, items) -> list:
     missed = []
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         for lid, sql, params in stmts:
             if conn.execute(sql, params).rowcount == 0:
@@ -2253,6 +2387,15 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
         elif col == "sfx":
             conds.append("COALESCE(sfx, 0) = ?")
             cargs.append(int(bool(val)))
+        elif col == "lang":
+            # Stored rows are read leniently (core._stored_line_lang): an
+            # imported "KO" reads as "ko" and an unknown code as the title
+            # default, so the check must see the same value or the line could
+            # never be saved again.
+            codes = ", ".join("?" for _ in _LINE_LANGUAGES)
+            conds.append(f"CASE WHEN LOWER(lang) IN ({codes}) THEN LOWER(lang) ELSE '' END = ?")
+            cargs.extend(_LINE_LANGUAGES)
+            cargs.append(val or "")
         elif col in ("zh", "en", "speaker", "flag", "flag_note"):
             conds.append(f"COALESCE({col}, '') = ?")
             cargs.append(val or "")
@@ -2304,7 +2447,7 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
     cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = get_conn()
     try:
-        # IMMEDIATE (B-29): a deferred BEGIN reads then upgrades to a write,
+        # IMMEDIATE: a deferred BEGIN reads then upgrades to a write,
         # and in WAL mode a commit from another connection in between fails
         # that upgrade at once with "database is locked" (no busy wait).
         conn.execute("BEGIN IMMEDIATE")
@@ -2316,7 +2459,7 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
             orig = getattr(ln, "orig", None)
             if lid in existing and lid not in kept:
                 changed = [f for f in cols
-                           if orig is None or _line_value(ln, f) != orig.get(f)]
+                           if orig is None or line_value(ln, f) != orig.get(f)]
                 if changed and only_if_unchanged:
                     if orig is None:
                         unwritten.add(lid)
@@ -2325,14 +2468,14 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
                         # to a Line, so a text field compares through COALESCE.
                         expected = [(f, orig.get(f)) for f in changed]
                         # A guard with no value is empty text, as NULL is to a Line.
-                        expected += [(f, "" if _line_value(ln, f) is None else _line_value(ln, f))
+                        expected += [(f, "" if line_value(ln, f) is None else line_value(ln, f))
                                      for f in guard_cols]
                         guards = [f"COALESCE({f}, '') = ?" if isinstance(v, str)
                                   else f"{f} IS ?" for f, v in expected]
                         cur = conn.execute(
                             f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
                             f"WHERE id = ? AND drama_id = ? AND {' AND '.join(guards)}",
-                            [_line_value(ln, f) for f in changed] + [lid, drama_id]
+                            [line_value(ln, f) for f in changed] + [lid, drama_id]
                             + [v for _f, v in expected])
                         if cur.rowcount == 0:
                             unwritten.add(lid)
@@ -2340,16 +2483,18 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
                     conn.execute(
                         f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
                         f"WHERE id = ? AND drama_id = ?",
-                        [_line_value(ln, f) for f in changed] + [lid, drama_id])
+                        [line_value(ln, f) for f in changed] + [lid, drama_id])
                 kept.add(lid)
             elif fields is None:
                 cur = conn.execute(
                     f"INSERT INTO lines (drama_id, {', '.join(_LINE_COLUMNS)}) "
                     f"VALUES (?, {', '.join('?' for _ in _LINE_COLUMNS)})",
-                    [drama_id] + [_line_value(ln, f) for f in _LINE_COLUMNS])
+                    [drama_id] + [line_value(ln, f) for f in _LINE_COLUMNS])
                 ln.id = cur.lastrowid
                 kept.add(ln.id)
             else:
+                # A field-scoped save never inserts: a job's stale copy of a
+                # line the user deleted or merged away must not resurrect it.
                 continue
         if fields is None:
             for ln in lines:
@@ -2371,7 +2516,7 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
             continue
         # What this caller last wrote/saw is now the baseline, so its next
         # save only writes what changes after this point.
-        ln.orig = {**(ln.orig or {}), **{f: _line_value(ln, f) for f in cols}}
+        ln.orig = {**(ln.orig or {}), **{f: line_value(ln, f) for f in cols}}
         if fields is None:
             ln.merged_ids = []
     return unwritten
@@ -2399,7 +2544,7 @@ def load_lines(drama_id: int):
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute(
             "SELECT id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, speaker_manual, "
-            "sfx FROM lines WHERE drama_id = ? ORDER BY idx, id",
+            "sfx, lang FROM lines WHERE drama_id = ? ORDER BY idx, id",
             (drama_id,)
         ).fetchall()
     return [dict(r) for r in rows]
@@ -2416,7 +2561,7 @@ def load_line_ids(drama_id: int) -> set:
     """Just the current set of line ids for this drama -- a cheap
     staleness check for a caller about to commit a full line-list
     replacement it computed from a snapshot taken earlier (see
-    resegment Apply's own safety check, Step 6f): if the database's
+    resegment Apply's own safety check): if the database's
     real current id set doesn't match what the snapshot was built
     from, something else changed the drama's lines in between, and
     committing the snapshot anyway would silently orphan/duplicate rows."""
@@ -2487,6 +2632,311 @@ def clear_character_series_link(drama_id: int, speaker_label: str):
         conn.execute("UPDATE characters SET series_character_id = NULL "
                      "WHERE drama_id = ? AND speaker_label = ?", (drama_id, speaker_label))
         conn.commit()
+
+
+def rename_speaker_atomic(drama_id: int, old_label: str, new_label: str, character_name,
+                          line_updates: list):
+    """Renames a speaker in ONE transaction: each of line_updates ({id,
+    expect_speaker, expect_manual, speaker, manual}) is written only while the
+    row still holds the expected speaker and manual flag, then the characters
+    row (voice, pronouns, series link) and dismissed voice matches move from
+    old_label to new_label with character_name set (None clears it; a speaker
+    with no row gets one). Returns the number of lines written, or "changed"
+    (a line no longer matched) / "name_taken" (new_label already has a row);
+    in those cases, and on any error, nothing is written."""
+    conn = get_conn()
+    try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
+        conn.execute("BEGIN IMMEDIATE")
+        written = 0
+        for u in line_updates:
+            cur = conn.execute(
+                "UPDATE lines SET speaker = ?, speaker_manual = ? WHERE id = ? AND drama_id = ? "
+                "AND COALESCE(speaker, '') = ? AND COALESCE(speaker_manual, 0) = ?",
+                (u["speaker"], int(bool(u["manual"])), u["id"], drama_id,
+                 u["expect_speaker"], int(bool(u["expect_manual"]))))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return "changed"
+            written += 1
+        # A line outside the update still on either label would end up merged
+        # with the renamed speaker or stranded on the old label.
+        ids = {u["id"] for u in line_updates}
+        if any(r["id"] not in ids for r in conn.execute(
+                "SELECT id FROM lines WHERE drama_id = ? AND COALESCE(speaker, '') IN (?, ?)",
+                (drama_id, old_label, new_label)).fetchall()):
+            conn.rollback()
+            return "changed"
+        if conn.execute("SELECT 1 FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                        (drama_id, new_label)).fetchone():
+            conn.rollback()
+            return "name_taken"
+        conn.execute("INSERT OR IGNORE INTO characters (drama_id, speaker_label) VALUES (?, ?)",
+                     (drama_id, old_label))
+        conn.execute("UPDATE characters SET speaker_label = ?, character_name = ? "
+                     "WHERE drama_id = ? AND speaker_label = ?",
+                     (new_label, character_name, drama_id, old_label))
+        conn.execute("UPDATE OR IGNORE voice_suggestion_dismissals SET speaker_label = ? "
+                     "WHERE drama_id = ? AND speaker_label = ?", (new_label, drama_id, old_label))
+        conn.commit()
+        return written
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+MERGE_ROW_FIELDS = ("character_name", "voice_actor", "tts_voice", "offline_voice",
+                    "ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
+                    "voice_design", "pronouns", "series_character_id")
+# One reference voice: a clip, its transcript, the engine it was made for, or a
+# designed voice. Merging takes all four from one speaker, never a mix, since
+# dubbing clones from the clip using the transcript and engine stored with it.
+_MERGE_VOICE_GROUP = ("ref_audio_filename", "ref_text", "clone_engine", "voice_design")
+MERGE_UNDO_TTL_SECONDS = 15 * 60
+
+
+def _blank(value) -> bool:
+    return value is None or value == ""
+
+
+def _merge_row(conn, drama_id: int, label: str):
+    row = conn.execute("SELECT * FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                       (drama_id, label)).fetchone()
+    return None if row is None else {c: row[c] for c in MERGE_ROW_FIELDS}
+
+
+def _merge_dismissals(conn, drama_id: int, labels: tuple) -> list:
+    marks = ", ".join("?" * len(labels))
+    return [dict(r) for r in conn.execute(
+        "SELECT speaker_label, series_character_id, created_at FROM voice_suggestion_dismissals "
+        f"WHERE drama_id = ? AND speaker_label IN ({marks}) ORDER BY id", (drama_id, *labels))]
+
+
+def _folded_row(src: dict, tgt: dict) -> dict:
+    out = dict(tgt)
+    for col in MERGE_ROW_FIELDS:
+        if col not in _MERGE_VOICE_GROUP and _blank(tgt[col]):
+            out[col] = src[col]
+    if (_blank(tgt["ref_audio_filename"]) and _blank(tgt["voice_design"])
+            and not (_blank(src["ref_audio_filename"]) and _blank(src["voice_design"]))):
+        for col in _MERGE_VOICE_GROUP:
+            out[col] = src[col]
+    return out
+
+
+def merge_speakers_atomic(drama_id: int, source: str, target: str, user_id, now: float,
+                          undo_id: str):
+    """Merges speaker `source` into `target` in ONE transaction and records
+    the undo server-side. The lines on source, and both Characters rows, are
+    read inside the transaction, so what is merged is exactly what is stored.
+    Lines get target as speaker (marked set by hand); source's row is folded
+    into target's (a blank target field takes source's value, a filled one is
+    kept; the reference voice moves as one group, see _MERGE_VOICE_GROUP) and
+    deleted; source's dismissed voice matches move to target.
+
+    The undo record holds both rows as they were, the target row as the merge
+    wrote it, the moved lines' previous flags and both labels' dismissed voice
+    matches, scoped to drama_id and user_id. Returns "link_conflict" (the rows
+    are linked to different series characters; nothing written) or
+    {"moved": n}. Undo records of this drama naming either speaker are
+    retired in the same transaction."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        src, tgt = _merge_row(conn, drama_id, source), _merge_row(conn, drama_id, target)
+        blank_row = {c: None for c in MERGE_ROW_FIELDS}
+        src_full, tgt_full = src or blank_row, tgt or blank_row
+        if (src_full["series_character_id"] and tgt_full["series_character_id"]
+                and src_full["series_character_id"] != tgt_full["series_character_id"]):
+            conn.rollback()
+            return "link_conflict"
+        _retire_merge_undos(conn, drama_id, (source, target))
+        moved = [{"id": r["id"], "speaker_manual": bool(r["speaker_manual"])} for r in conn.execute(
+            "SELECT id, speaker_manual FROM lines WHERE drama_id = ? AND COALESCE(speaker, '') = ? "
+            "ORDER BY id", (drama_id, source))]
+        conn.execute("UPDATE lines SET speaker = ?, speaker_manual = 1 "
+                     "WHERE drama_id = ? AND COALESCE(speaker, '') = ?", (target, drama_id, source))
+        dismissals_before = _merge_dismissals(conn, drama_id, (source, target))
+        merged = _folded_row(src_full, tgt_full)
+        conn.execute("INSERT OR IGNORE INTO characters (drama_id, speaker_label) VALUES (?, ?)",
+                     (drama_id, target))
+        conn.execute(
+            f"UPDATE characters SET {', '.join(c + ' = ?' for c in MERGE_ROW_FIELDS)} "
+            "WHERE drama_id = ? AND speaker_label = ?",
+            (*(merged[c] for c in MERGE_ROW_FIELDS), drama_id, target))
+        conn.execute("DELETE FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                     (drama_id, source))
+        conn.execute("UPDATE OR IGNORE voice_suggestion_dismissals SET speaker_label = ? "
+                     "WHERE drama_id = ? AND speaker_label = ?", (target, drama_id, source))
+        conn.execute("DELETE FROM voice_suggestion_dismissals WHERE drama_id = ? "
+                     "AND speaker_label = ?", (drama_id, source))
+        src_clip = src_full["ref_audio_filename"]
+        orphan = src_clip if src_clip and merged["ref_audio_filename"] != src_clip else None
+        record = {"source_row": src, "target_before": tgt, "target_after": merged, "moved": moved,
+                  "dismissals_before": dismissals_before,
+                  "dismissals_after": _merge_dismissals(conn, drama_id, (target,)),
+                  "orphan_clip": orphan}
+        conn.execute(
+            "INSERT INTO speaker_merge_undos (id, drama_id, user_id, source_label, target_label, "
+            "snapshot, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (undo_id, drama_id, user_id, source, target, json.dumps(record), now,
+             now + MERGE_UNDO_TTL_SECONDS))
+        conn.commit()
+        return {"moved": len(moved)}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def undo_merge_speakers_atomic(drama_id: int, undo_id: str, user_id, now, clip_exists):
+    """Reverses the merge recorded under undo_id, in ONE transaction. The
+    record must belong to this drama and user and be unexpired; it is
+    single-use, deleted whatever the outcome.
+
+    Nothing is written unless everything the merge left is still as it left
+    it: the target row (all fields) and its dismissed voice matches, the
+    source label unused, and every moved line still on target and marked
+    manual. Otherwise "stale". clip_exists(rel) checks the stored clip file
+    before the source row gets its clip link back; a missing file is
+    "clip_missing". Returns {"status": "ok" | "missing" | "stale" |
+    "clip_missing", "moved": n}."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if now is None:
+            # Read after the write lock is held: waiting for the lock can take
+            # seconds, and an expiry decided before it would let an undo run
+            # after live_speaker_merge_undo_clips already reported its clip unused.
+            now = time.time()
+        rec = conn.execute(
+            "SELECT * FROM speaker_merge_undos WHERE id = ? AND drama_id = ? "
+            "AND COALESCE(user_id, -1) = COALESCE(?, -1)", (undo_id, drama_id, user_id)).fetchone()
+        if rec is None:
+            conn.rollback()
+            return {"status": "missing", "moved": 0}
+        snap = json.loads(rec["snapshot"])
+        conn.execute("DELETE FROM speaker_merge_undos WHERE id = ?", (undo_id,))
+        source, target = rec["source_label"], rec["target_label"]
+        if rec["expires_at"] <= now:
+            conn.commit()
+            return {"status": "missing", "moved": 0}
+        if rec["stale"]:
+            conn.commit()
+            return {"status": "stale", "moved": 0}
+
+        def refuse(status):
+            conn.commit()
+            return {"status": status, "moved": 0}
+
+        moved_ids = [m["id"] for m in snap["moved"]]
+        on_target = {r["id"]: r for r in conn.execute(
+            "SELECT id, speaker_manual FROM lines WHERE drama_id = ? AND COALESCE(speaker, '') = ?",
+            (drama_id, target))}
+        if (_merge_row(conn, drama_id, target) != snap["target_after"]
+                or _merge_row(conn, drama_id, source) is not None
+                or conn.execute("SELECT 1 FROM lines WHERE drama_id = ? AND COALESCE(speaker, '') = ?",
+                                (drama_id, source)).fetchone()
+                or _merge_dismissals(conn, drama_id, (target,)) != snap["dismissals_after"]
+                or any(i not in on_target or not on_target[i]["speaker_manual"] for i in moved_ids)):
+            return refuse("stale")
+        src = snap["source_row"]
+        if src and src["ref_audio_filename"] and not clip_exists(src["ref_audio_filename"]):
+            return refuse("clip_missing")
+        for m in snap["moved"]:
+            conn.execute("UPDATE lines SET speaker = ?, speaker_manual = ? "
+                         "WHERE id = ? AND drama_id = ?",
+                         (source, int(m["speaker_manual"]), m["id"], drama_id))
+        if src is not None:
+            conn.execute(
+                f"INSERT INTO characters (drama_id, speaker_label, {', '.join(MERGE_ROW_FIELDS)}) "
+                f"VALUES (?, ?{', ?' * len(MERGE_ROW_FIELDS)})",
+                (drama_id, source, *(src[c] for c in MERGE_ROW_FIELDS)))
+        before = snap["target_before"]
+        if before is None:
+            conn.execute("DELETE FROM characters WHERE drama_id = ? AND speaker_label = ?",
+                         (drama_id, target))
+        else:
+            conn.execute(
+                f"UPDATE characters SET {', '.join(c + ' = ?' for c in MERGE_ROW_FIELDS)} "
+                "WHERE drama_id = ? AND speaker_label = ?",
+                (*(before[c] for c in MERGE_ROW_FIELDS), drama_id, target))
+        conn.execute("DELETE FROM voice_suggestion_dismissals WHERE drama_id = ? "
+                     "AND speaker_label IN (?, ?)", (drama_id, source, target))
+        for d in snap["dismissals_before"]:
+            conn.execute(
+                "INSERT INTO voice_suggestion_dismissals (drama_id, speaker_label, "
+                "series_character_id, created_at) VALUES (?, ?, ?, ?)",
+                (drama_id, d["speaker_label"], d["series_character_id"], d["created_at"]))
+        conn.commit()
+        return {"status": "ok", "moved": len(moved_ids)}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def drop_speaker_merge_undos(expired_before: float):
+    """Deletes undo records expired before the given time (database rows only)."""
+    conn = get_conn()
+    try:
+        # Characters writes call this; skip the write lock when nothing expired.
+        if conn.execute("SELECT 1 FROM speaker_merge_undos WHERE expires_at <= ? LIMIT 1",
+                        (expired_before,)).fetchone() is None:
+            return
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("DELETE FROM speaker_merge_undos WHERE expires_at <= ?", (expired_before,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def live_speaker_merge_undo_clips(drama_id: int, now: float) -> set:
+    """Clip files that a live (unexpired, not retired) undo record of the
+    drama would give back to the source row. Listing unused clips must count
+    these as in use: a merge never deletes a clip file."""
+    conn = get_conn()
+    try:
+        rows = conn.execute("SELECT snapshot FROM speaker_merge_undos "
+                            "WHERE drama_id = ? AND stale = 0 AND expires_at > ?",
+                            (drama_id, now)).fetchall()
+        return {c for c in (json.loads(r["snapshot"])["orphan_clip"] for r in rows) if c}
+    finally:
+        conn.close()
+
+
+def _retire_merge_undos(conn, drama_id: int, labels: tuple):
+    marks = ", ".join("?" * len(labels))
+    conn.execute(
+        "UPDATE speaker_merge_undos SET stale = 1 WHERE drama_id = ? AND stale = 0 "
+        f"AND (source_label IN ({marks}) OR target_label IN ({marks}))",
+        (drama_id, *labels, *labels))
+
+
+def retire_speaker_merge_undos(drama_id: int, labels: tuple):
+    """Marks the drama's live undo records that name one of labels as stale
+    (an edit to those speakers means they can't be applied). The record stays
+    until its id is used or it expires, so the undo answers with a plain 409
+    rather than looking like an unknown id."""
+    if not labels:
+        return
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        _retire_merge_undos(conn, drama_id, labels)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -2611,7 +3061,7 @@ def _blend_voice_fingerprint(conn, series_character_id: int, new_embedding: list
 
 
 def update_series_character_voice_fingerprint(series_character_id: int, new_embedding: list):
-    """Step 8: blends a newly-confirmed voice embedding into this
+    """Blends a newly-confirmed voice embedding into this
     character's running-average fingerprint (simple incremental mean,
     weighted by how many samples went into the average so far), so later
     dramas compare against an average across every drama where this
@@ -2634,6 +3084,7 @@ def accept_voice_link(drama_id: int, speaker_label: str, series_character_id: in
     blend the same embedding twice."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         conn.execute("INSERT OR IGNORE INTO characters (drama_id, speaker_label) VALUES (?, ?)",
                      (drama_id, speaker_label))
@@ -2668,6 +3119,7 @@ def remember_speaker_as_series_character(drama_id: int, speaker_label: str, seri
     written) when the speaker was linked or renamed meanwhile."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT 1 FROM characters WHERE drama_id = ? AND speaker_label = ? "
@@ -2808,7 +3260,7 @@ def next_page_idx(drama_id: int) -> int:
 
 # Scanlate S0: id-preserving region writes. Unlike save_bubbles (a full
 # delete-and-reinsert that gives every bubble a new id, still used by the
-# Streamlit tab and the extension bridge until they are frozen), each of
+# extension bridge in page_server.py), each of
 # these keeps every other bubble's id and bumps pages.rev once.
 BUBBLE_EDIT_FIELDS = ("x", "y", "w", "h", "source_text", "translated_text", "font_size",
                       "skip", "font_category", "kind", "kind_confidence", "confidence",
@@ -2875,6 +3327,7 @@ def update_bubble_fields(bubble_id: int, fields: dict, expected: dict = None,
             params.append(_bubble_value(k, v))
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute(f"UPDATE bubbles SET {sets} WHERE {' AND '.join(where)}", params)
         changed = cur.rowcount > 0
@@ -2896,6 +3349,7 @@ def insert_bubble(page_id: int, bubble: dict, position: int = None) -> int:
     position (clamped) and later bubbles' idx shift by one. Returns the new id."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         ids = [r[0] for r in conn.execute(
             "SELECT id FROM bubbles WHERE page_id = ? ORDER BY idx, id", (page_id,)).fetchall()]
@@ -2920,6 +3374,7 @@ def delete_bubble(page_id: int, bubble_id: int) -> bool:
     renumbered to stay contiguous). False if it isn't on that page."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute("DELETE FROM bubbles WHERE id = ? AND page_id = ?", (bubble_id, page_id))
         if cur.rowcount == 0:
@@ -2946,6 +3401,7 @@ def reorder_bubbles(page_id: int, ordered_ids) -> bool:
     ordered_ids = [int(i) for i in ordered_ids]
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         current = {r[0] for r in conn.execute(
             "SELECT id FROM bubbles WHERE page_id = ?", (page_id,)).fetchall()}
@@ -2975,6 +3431,7 @@ def replace_bubbles_if_unchanged(page_id: int, expected_ids, bubbles, expected_r
     expected = {int(i) for i in expected_ids}
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT COALESCE(rev, 0) FROM pages WHERE id = ?", (page_id,)).fetchone()
         if row is None or (expected_rev is not None and int(row[0]) != int(expected_rev)):
@@ -3001,7 +3458,7 @@ def replace_bubbles_if_unchanged(page_id: int, expected_ids, bubbles, expected_r
 def save_bubbles(page_id: int, bubbles):
     """bubbles: list of dicts with x,y,w,h,source_text,translated_text,font_size,skip,
     font_category (one of scanlate.FONT_CATEGORIES -- "regular" if unset), plus the
-    Step 12d region fields kind ("bubble" if unset), kind_confidence, confidence,
+    region fields kind ("bubble" if unset), kind_confidence, confidence,
     language, orientation, panel_id, include_sfx. List order is reading order (idx).
     Replaces all bubbles for this page -- so a caller rebuilding the list must carry
     every one of these fields through, or they're wiped."""
@@ -3037,9 +3494,8 @@ def load_bubbles(page_id: int):
 
 def list_bubbles_for_drama(drama_id: int):
     """Every bubble across every saved page of a drama, each carrying its
-    page's idx as page_idx -- used by Scanlate's bulk find-and-replace
-    (Step 11 item 9), which needs to preview/apply across a whole
-    drama's saved pages at once, not just whichever page is currently
+    page's idx as page_idx -- used by Scanlate's bulk find-and-replace,
+    which needs to preview/apply across a whole drama's saved pages at once, not just whichever page is currently
     open in the tab."""
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute(
@@ -3053,7 +3509,7 @@ def update_bubble_text(bubble_id: int, translated_text: str):
     """Updates just one bubble's translated_text, nothing else -- unlike
     save_bubbles() (which deletes and re-inserts every bubble on a
     page), this is the safe, minimal-field write bulk find-and-replace
-    (Step 11 item 9) needs: touching only the field the operation is
+    needs: touching only the field the operation is
     actually about, so x/y/w/h/source_text/skip/font_category on every
     other bubble -- and every OTHER bubble on the same page -- are never
     at risk of being silently clobbered."""
@@ -3115,7 +3571,7 @@ def delete_known_title(title_id: int):
 # ---------------------------------------------------------------------------
 
 def get_or_create_series(name: str, owner_user_id: int = None, is_private: bool = False) -> int:
-    """`owner_user_id`/`is_private` (auth slice B1) only stamp a newly
+    """`owner_user_id`/`is_private` only stamp a newly
     created row; an existing series is returned unchanged. Not
     visibility-aware: non-admin callers use
     ownership_service.get_or_create_series_for, which refuses a name taken
@@ -3135,7 +3591,7 @@ def get_or_create_series(name: str, owner_user_id: int = None, is_private: bool 
 
 
 def create_series(name: str, owner_user_id: int = None, is_private: bool = False) -> int:
-    """Auth slice B1: insert-only. Raises sqlite3.IntegrityError when the
+    """Insert-only. Raises sqlite3.IntegrityError when the
     name is taken (series.name is UNIQUE) -- never returns an existing id."""
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute("INSERT INTO series (name, created_at, owner_user_id, is_private) "
@@ -3153,7 +3609,7 @@ def get_series_id_by_name(name: str):
 
 
 def list_series(visible_to: int = None):
-    """`visible_to` (auth slice B1): a non-admin user id; when set, only
+    """`visible_to`: a non-admin user id; when set, only
     that user's own or non-private series. None = unfiltered."""
     with contextlib.closing(get_conn()) as conn:
         if visible_to is None:
@@ -3166,7 +3622,7 @@ def list_series(visible_to: int = None):
 
 
 def update_series_instructions(series_id: int, instructions: str):
-    """Step 12e: the series-level project instructions every drama in the
+    """The series-level project instructions every drama in the
     series inherits (see _DRAMA_SELECT's series_instructions)."""
     with contextlib.closing(get_conn()) as conn:
         conn.execute("UPDATE series SET instructions = ? WHERE id = ?", (instructions, series_id))
@@ -3233,13 +3689,12 @@ def save_translation_notes(drama_id: int, notes, id_by_idx: dict = None):
                 line_id = (id_by_idx.get(line_idx) if id_by_idx is not None
                            else _line_id_for_idx(conn, drama_id, line_idx))
             if line_id is None:
-                # Step 25d item 11: the line this note was about no longer
-                # exists (same case save_emotions already skips) -- inserting
-                # it anyway with line_id = NULL used to accumulate orphaned
-                # duplicates forever, since SQLite treats every NULL as
-                # distinct for the (drama_id, line_id, term) uniqueness this
-                # ON CONFLICT relies on, so it never matched an earlier NULL
-                # row to update instead of insert.
+                # The line this note was about no longer exists (same case
+                # save_emotions skips). Inserting it with line_id = NULL
+                # would accumulate orphaned duplicates, since SQLite treats
+                # every NULL as distinct for the (drama_id, line_id, term)
+                # uniqueness this ON CONFLICT relies on, so it would never
+                # match an earlier NULL row to update instead of insert.
                 continue
             conn.execute("""
                 INSERT INTO translation_notes (drama_id, line_id, line_idx, term, note_type, note, created_at)
@@ -3311,9 +3766,8 @@ def save_emotions(drama_id: int, emotion_map: dict, id_by_idx: dict = None):
     """emotion_map: {line_idx: {"emotion", "intensity", "note"}}, the shape
     emotion.detect_emotions() returns. Persisted so a whole-drama emotion
     detection run (a real LLM batch job, same cost scale as translation)
-    survives a page refresh instead of vanishing with Streamlit's session
-    state -- previously the only place this result lived, so losing the
-    session meant re-running (and re-paying for) the whole thing.
+    survives a page refresh and an app restart, rather than needing a
+    re-run (and re-paying for) the whole thing.
 
     Stored against each line's permanent id; id_by_idx works as in
     save_translation_notes."""
@@ -3555,20 +4009,7 @@ def clear_reading_history(drama_id: int = None, profile_id: int = None):
 # Custom tags
 # ---------------------------------------------------------------------------
 
-def distinct_custom_tags():
-    """custom_tags is comma-separated per drama -- split and dedupe."""
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT custom_tags FROM dramas WHERE custom_tags IS NOT NULL AND custom_tags != ''").fetchall()
-    tags = set()
-    for r in rows:
-        for t in r[0].split(","):
-            if t.strip():
-                tags.add(t.strip())
-    return sorted(tags)
-
-
-# Step 24: personal organizational tags, kept in custom_tags alongside any
+# Personal organizational tags, kept in custom_tags alongside any
 # user-defined ones -- deliberately separate from dramas.status, which
 # tracks pipeline progress, not how the person is organizing their list.
 ORGANIZATIONAL_TAGS = ("Favorite", "On Hold", "Plan to Translate")
@@ -3605,7 +4046,8 @@ def save_translation_version(drama_id: int, lines, label: str, engine: str = "",
                 "speaker": getattr(ln, "speaker", None),
                 "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
                 "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
-                "sfx": bool(getattr(ln, "sfx", False))} for ln in lines]
+                "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None)}
+               for ln in lines]
     with contextlib.closing(get_conn()) as conn:
         if make_active:
             conn.execute("UPDATE translation_versions SET is_active = 0 WHERE drama_id = ?", (drama_id,))
@@ -3649,59 +4091,6 @@ def set_active_translation_version(drama_id: int, version_id: int):
 def delete_translation_version(version_id: int):
     with contextlib.closing(get_conn()) as conn:
         conn.execute("DELETE FROM translation_versions WHERE id = ?", (version_id,))
-        conn.commit()
-
-
-# ---------------------------------------------------------------------------
-# Bug record-and-replay (Step 58 item 5) -- a frozen, re-runnable snapshot
-# of a flagged/wrong translation, saved on demand rather than reconstructed
-# later from a state that's since moved on.
-# ---------------------------------------------------------------------------
-
-def save_bug_report(drama_id: int, line_id: int, label: str, input_json: str,
-                     engine: str, model: str, produced_output: str,
-                     flag: str = None, flag_note: str = "") -> int:
-    with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute("""
-            INSERT INTO bug_reports (drama_id, line_id, label, input_json, engine, model,
-                                      produced_output, flag, flag_note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (drama_id, line_id, label, input_json, engine, model, produced_output,
-              flag, flag_note, datetime.datetime.utcnow().isoformat()))
-        conn.commit()
-        new_id = cur.lastrowid
-    return new_id
-
-
-def get_bug_report(report_id: int):
-    with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT * FROM bug_reports WHERE id = ?", (report_id,)).fetchone()
-    return dict(row) if row else None
-
-
-def list_bug_reports(drama_id: int = None):
-    with contextlib.closing(get_conn()) as conn:
-        if drama_id:
-            rows = conn.execute(
-                "SELECT * FROM bug_reports WHERE drama_id = ? ORDER BY created_at DESC",
-                (drama_id,)).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM bug_reports ORDER BY created_at DESC").fetchall()
-    return [dict(r) for r in rows]
-
-
-def update_bug_report_replay(report_id: int, replay_output: str, reproduced: bool):
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("""
-            UPDATE bug_reports SET replay_output = ?, replayed = 1, reproduced = ?
-            WHERE id = ?
-        """, (replay_output, int(reproduced), report_id))
-        conn.commit()
-
-
-def delete_bug_report(report_id: int):
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM bug_reports WHERE id = ?", (report_id,))
         conn.commit()
 
 
@@ -3829,6 +4218,7 @@ def replace_style_profile(scope: str, profile: dict, sample_count: int = 0):
     can bring it back."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT profile_json, sample_count, updated_at, history_json "
                            "FROM style_profile WHERE scope = ?", (scope,)).fetchone()
@@ -3867,6 +4257,7 @@ def restore_style_profile(scope: str, index: int = 0):
     Returns False when there is no such entry."""
     conn = get_conn()
     try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT profile_json, sample_count, updated_at, history_json "
                            "FROM style_profile WHERE scope = ?", (scope,)).fetchone()
@@ -3925,7 +4316,7 @@ def delete_glossary_term(term_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Translation memory (Step 24) -- see translation_memory.py for matching
+# Translation memory -- see translation_memory.py for matching
 # ---------------------------------------------------------------------------
 
 def record_translation_memory(series_id: int, source_text: str, translation: str):
@@ -4004,7 +4395,7 @@ def update_glossary_term(term_id: int, term_original: str, term_translation: str
 
 
 # ---------------------------------------------------------------------------
-# Step 9c: Workspace-configuration presets -- library-level, reusable
+# Workspace-configuration presets -- library-level, reusable
 # across unrelated series/projects. See the `presets` table's own comment
 # in init_db for why deleting/renaming one never touches a drama it was
 # previously applied to: nothing else references presets.id at all.
@@ -4063,7 +4454,7 @@ def insert_preset(name: str, translation_engine: str = None, engine_model: str =
 
 
 def set_preset_engine_model(preset_id: int, engine_model: str, expected_model: str = None) -> bool:
-    """Step 40's guided switch: changes only a preset's model, and only if it
+    """The guided switch: changes only a preset's model, and only if it
     still holds expected_model (when given). False when nothing changed."""
     with contextlib.closing(get_conn()) as conn:
         if expected_model is None:
@@ -4111,24 +4502,25 @@ def delete_preset(preset_id: int):
 def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int = 10):
     """Saves a full snapshot of the current lines before a risky bulk
     operation. Keeps only the most recent `keep_last` snapshots per
-    drama to avoid unbounded growth -- older ones are pruned."""
+    drama to avoid unbounded growth -- older ones are pruned. Returns the
+    new snapshot's id."""
     snapshot = [
         {"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
          "zh": ln.zh, "en": ln.en,
          "speaker": getattr(ln, "speaker", None), "dub_filename": getattr(ln, "dub_filename", None),
          "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
          "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
-         "sfx": bool(getattr(ln, "sfx", False))}
+         "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None)}
         for ln in lines
     ]
     conn = get_conn()
     try:
         conn.execute("BEGIN")
-        conn.execute(
+        history_id = conn.execute(
             "INSERT INTO line_history (drama_id, label, snapshot_json, created_at) VALUES (?, ?, ?, ?)",
             (drama_id, label, json.dumps(snapshot, ensure_ascii=False),
              datetime.datetime.utcnow().isoformat())
-        )
+        ).lastrowid
         # Prune old snapshots. Inside the same transaction so a failure here
         # can't leave the prune applied without the new snapshot written.
         ids = conn.execute(
@@ -4143,6 +4535,7 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
         raise
     finally:
         conn.close()
+    return history_id
 
 
 def list_line_history(drama_id: int):
@@ -4211,7 +4604,7 @@ def list_vocab_lookups(drama_id: int = None, rich_only: bool = False):
 def set_vocab_export_rich(drama_id: int, word: str, flag: bool = True):
     """Queues (or un-queues) a single already-looked-up word for the
     richer sentence+audio Anki card type -- called from the Reader's
-    definitions right where the word was looked up, per Step 20b."""
+    definitions right where the word was looked up."""
     with contextlib.closing(get_conn()) as conn:
         conn.execute("UPDATE vocab_lookups SET export_rich = ? WHERE drama_id = ? AND word = ?",
                      (1 if flag else 0, drama_id, word))
@@ -4236,7 +4629,7 @@ def log_usage(drama_id: int, engine: str, model: str, operation: str,
               estimated_cost_usd, datetime.datetime.utcnow().isoformat(), cache_read_tokens or 0))
         conn.commit()
     try:
-        # Step 41 item 5: count the spend toward the running job's stage
+        # Count the spend toward the running job's stage
         # (a no-op outside a background job's own thread).
         from services import job_timing_service
         job_timing_service.add_cost(estimated_cost_usd)
@@ -4244,55 +4637,194 @@ def log_usage(drama_id: int, engine: str, model: str, operation: str,
         pass
 
 
-def get_month_spend(now: datetime.datetime = None) -> float:
-    """Estimated spend logged so far in the current calendar month (UTC),
-    across the whole library -- what the monthly cap is checked against."""
+MONTHLY_SPEND_RESET_KEY = "monthly_spend_reset_at"
+
+
+def get_month_spend_reset_at(now: datetime.datetime = None):
+    """The saved reset time (UTC ISO) while it applies to this month, else None.
+    A reset from an earlier month is ignored so the new month starts at its
+    own first day without anyone having to undo it. A marker that is not a
+    datetime or lies after `now` (clock was ahead when Reset was pressed, or a
+    restored library.db) is ignored too: honouring it would count ~nothing and
+    silently switch the monthly cap off."""
     now = now or datetime.datetime.utcnow()
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    saved = get_app_setting(MONTHLY_SPEND_RESET_KEY)
+    if not isinstance(saved, str):
+        return None
+    try:
+        when = datetime.datetime.fromisoformat(saved)
+    except ValueError:
+        return None
+    if when.tzinfo is not None:
+        when = when.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return when.isoformat() if month_start <= when <= now else None
+
+
+def get_month_spend(now: datetime.datetime = None, since_reset: bool = True) -> float:
+    """Estimated spend logged so far in the current calendar month (UTC),
+    across the whole library. By default only rows at or after an active
+    reset count: this is what the monthly cap is checked against.
+    `since_reset=False` is the full month, for stats and display."""
+    now = now or datetime.datetime.utcnow()
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    if since_reset:
+        start = get_month_spend_reset_at(now) or start
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute(
             "SELECT COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM usage_log WHERE created_at >= ?",
-            (month_start,)).fetchone()
+            (start,)).fetchone()
     return float(row["spent"])
 
 
-# Step 25w: how long a held gpu_lock row is trusted before it's treated as
+def usage_recost_candidates(models) -> list:
+    """Usage rows of exactly `models` with a real stored cost. Rows already
+    re-costed are included: a later price correction may lower them again,
+    and the apply step skips any whose figure already matches."""
+    marks = ",".join("?" * len(models))
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT id, model, operation, input_tokens, output_tokens, cache_read_tokens, "
+            "estimated_cost_usd, created_at FROM usage_log "
+            f"WHERE estimated_cost_usd > 0 AND model IN ({marks})",
+            tuple(models)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def apply_usage_recost(updates) -> int:
+    """`updates` is [(row_id, expected_old_cost, new_cost), ...]. A row's
+    first original is kept in estimated_cost_usd_before_recost (never
+    overwritten by a later re-cost, so Undo returns the logged figure), and
+    a row that changed since it was read is skipped. All in one transaction;
+    returns how many rows were written."""
+    written = 0
+    conn = get_conn()
+    try:
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
+        conn.execute("BEGIN IMMEDIATE")
+        for row_id, old, new in updates:
+            written += conn.execute(
+                "UPDATE usage_log SET estimated_cost_usd_before_recost = "
+                "COALESCE(estimated_cost_usd_before_recost, estimated_cost_usd), "
+                "estimated_cost_usd = ? WHERE id = ? AND estimated_cost_usd = ?",
+                (new, row_id, old)).rowcount
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return written
+
+
+def undo_usage_recost() -> int:
+    """Puts every re-costed row's saved cost back; returns how many rows."""
+    with contextlib.closing(get_conn()) as conn:
+        n = conn.execute(
+            "UPDATE usage_log SET estimated_cost_usd = estimated_cost_usd_before_recost, "
+            "estimated_cost_usd_before_recost = NULL "
+            "WHERE estimated_cost_usd_before_recost IS NOT NULL").rowcount
+        conn.commit()
+    return n
+
+
+# How long a held gpu_lock row is trusted before it's treated as
 # abandoned (its holder process crashed or was killed without releasing
 # it) and given to whoever asks next. Comfortably longer than
 # background_jobs.py's own progress-poll cadence, so a live job's regular
 # heartbeat_gpu_lock() calls always land well inside this window.
 GPU_LOCK_STALE_SECONDS = 600
+# Matches the gpu_lock table's CHECK: no caller can hold more slots.
+GPU_LOCK_MAX_SLOTS = 4
 
 
-def try_acquire_gpu_lock(holder: str, description: str = None) -> bool:
-    """Cross-process "one GPU job at a time" guard. background_jobs.py's
-    own guard (Step 5c) is plain in-process module state -- invisible to a
-    separate OS process, so a `cli.py` run and the live Streamlit UI could
-    each start their own GPU-touching job with neither ever seeing the
-    other. This single-row table in the shared library.db is the
-    coordination point instead (SQLite's own transaction handling makes
-    the read-then-write below atomic across processes), not a new
-    subsystem.
+def _migrate_gpu_lock_slots():
+    """gpu_lock used to allow a single row (CHECK (id = 1)); it now has one
+    row per holder. A CHECK can't be changed with ALTER TABLE, so the table
+    is rebuilt once, in one transaction, keeping any held row."""
+    conn = get_conn()
+    conn.isolation_level = None  # explicit BEGIN/COMMIT below
+    def single_row():
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'gpu_lock'").fetchone()
+        return bool(row) and "CHECK(id=1)" in "".join((row[0] or "").split())
 
-    Returns True if the lock was free, already held by `holder` itself, or
-    abandoned (its holder's last heartbeat is older than
-    GPU_LOCK_STALE_SECONDS) -- and is now held by `holder`. Returns False
-    if someone else genuinely holds it right now."""
+    try:
+        if not single_row():
+            return
+        # IMMEDIATE, not a deferred BEGIN: see the WAL note in get_conn.
+        conn.execute("BEGIN IMMEDIATE")
+        if not single_row():  # another process migrated it while this one waited
+            conn.execute("ROLLBACK")
+            return
+        conn.execute("DROP TABLE IF EXISTS gpu_lock_new")
+        conn.execute("""
+            CREATE TABLE gpu_lock_new (
+                id INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND 4),
+                holder TEXT NOT NULL,
+                description TEXT,
+                acquired_at REAL NOT NULL,
+                heartbeat_at REAL NOT NULL
+            )""")
+        conn.execute("INSERT INTO gpu_lock_new SELECT id, holder, description, acquired_at, heartbeat_at "
+                     "FROM gpu_lock")
+        conn.execute("DROP TABLE gpu_lock")
+        conn.execute("ALTER TABLE gpu_lock_new RENAME TO gpu_lock")
+        conn.execute("COMMIT")
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
+def try_acquire_gpu_lock(holder: str, description: str = None, max_holders: int = 1,
+                         settle_seconds: float = 0) -> bool:
+    """Cross-process GPU guard. background_jobs.py's own guard
+    is plain in-process module state -- invisible to a separate OS
+    process, so a `cli.py` run and the live UI could each start their own
+    GPU-touching job with neither ever seeing the other. The gpu_lock
+    table in the shared library.db is the coordination point instead
+    (BEGIN IMMEDIATE makes the read-then-write below atomic across
+    processes).
+
+    Returns True if `holder` already holds a slot (refreshed), or fewer
+    than `max_holders` (at most GPU_LOCK_MAX_SLOTS) other live holders
+    exist -- a holder whose last heartbeat is older than
+    GPU_LOCK_STALE_SECONDS is abandoned and doesn't count -- and is now
+    holding a slot. With `settle_seconds`, joining other holders is also
+    refused until the newest of them has held its slot that long, so a
+    free-VRAM reading taken before this call already includes that
+    holder's model; checked here so two processes reading the same free
+    VRAM can't both join on it. Returns False otherwise."""
     now = time.time()
+    max_holders = max(1, min(int(max_holders), GPU_LOCK_MAX_SLOTS))
     conn = get_conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT holder, heartbeat_at FROM gpu_lock WHERE id = 1").fetchone()
-        if row and row["holder"] != holder and (now - row["heartbeat_at"]) < GPU_LOCK_STALE_SECONDS:
-            conn.execute("ROLLBACK")
-            return False
+        rows = conn.execute("SELECT id, holder, acquired_at, heartbeat_at FROM gpu_lock").fetchall()
+        mine = next((r for r in rows if r["holder"] == holder), None)
+        if mine is not None:
+            slot = mine["id"]
+        else:
+            live = [r for r in rows if (now - r["heartbeat_at"]) < GPU_LOCK_STALE_SECONDS]
+            if len(live) >= max_holders or (
+                    live and settle_seconds
+                    and now - max(r["acquired_at"] for r in live) < settle_seconds):
+                # Refused, nothing to write: end the IMMEDIATE transaction
+                # here so the write lock other processes wait on is released
+                # explicitly rather than left to close().
+                conn.execute("ROLLBACK")
+                return False
+            taken = {r["id"] for r in live}
+            slot = next(i for i in range(1, GPU_LOCK_MAX_SLOTS + 1) if i not in taken)
         conn.execute("""
             INSERT INTO gpu_lock (id, holder, description, acquired_at, heartbeat_at)
-            VALUES (1, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET holder = excluded.holder,
                 description = excluded.description, acquired_at = excluded.acquired_at,
                 heartbeat_at = excluded.heartbeat_at
-        """, (holder, description, now, now))
+        """, (slot, holder, description, now, now))
         conn.commit()
         return True
     finally:
@@ -4303,33 +4835,45 @@ def heartbeat_gpu_lock(holder: str):
     """Refreshes a held lock's heartbeat so a still-running job doesn't
     look abandoned to another process partway through a long run."""
     with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE gpu_lock SET heartbeat_at = ? WHERE id = 1 AND holder = ?",
+        conn.execute("UPDATE gpu_lock SET heartbeat_at = ? WHERE holder = ?",
                      (time.time(), holder))
         conn.commit()
 
 
 def release_gpu_lock(holder: str):
-    """No-ops if `holder` isn't the current lock holder -- e.g. it already
-    went stale and was taken over by someone else, so releasing it now
-    would release the new holder's lock instead of this one's."""
+    """No-ops if `holder` holds no slot -- e.g. it already went stale and
+    was taken over by someone else, so releasing it now would release the
+    new holder's slot instead of this one's."""
     with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM gpu_lock WHERE id = 1 AND holder = ?", (holder,))
+        conn.execute("DELETE FROM gpu_lock WHERE holder = ?", (holder,))
         conn.commit()
 
 
-def gpu_lock_status():
-    """(holder, description) of whoever currently holds the cross-process
-    GPU lock, or (None, None) if it's free or the holder went stale."""
+def gpu_lock_holder_count(exclude_holder: str = None) -> int:
+    """How many live (not stale) holders the GPU lock has, not counting
+    `exclude_holder`."""
     with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT holder, description, heartbeat_at FROM gpu_lock WHERE id = 1").fetchone()
-    if not row or (time.time() - row["heartbeat_at"]) >= GPU_LOCK_STALE_SECONDS:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM gpu_lock WHERE heartbeat_at > ? AND holder IS NOT ?",
+            (time.time() - GPU_LOCK_STALE_SECONDS, exclude_holder)).fetchone()
+    return int(row[0])
+
+
+def gpu_lock_status():
+    """(holder, description) of a live holder of the cross-process GPU
+    lock (the lowest slot), or (None, None) if none holds it or every
+    holder went stale."""
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT holder, description FROM gpu_lock WHERE heartbeat_at > ? "
+                           "ORDER BY id LIMIT 1",
+                           (time.time() - GPU_LOCK_STALE_SECONDS,)).fetchone()
+    if not row:
         return None, None
     return row["holder"], row["description"]
 
 
 def get_app_setting(key: str, default=None):
-    """A general-purpose, cross-process app setting (Migration Slice 9,
-    D1 fix 2) -- distinct from sources/store.py's own settings table,
+    """A general-purpose, cross-process app setting -- distinct from sources/store.py's own settings table,
     which is scoped to the source-adapter system only."""
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
@@ -4348,7 +4892,7 @@ def set_app_setting(key: str, value):
 
 
 def get_research_cache(cache_key: str):
-    """Step 37: a cached grounded-research result (the decoded dict), or None."""
+    """A cached grounded-research result (the decoded dict), or None."""
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute("SELECT result_json FROM metadata_research_cache WHERE cache_key = ?",
                            (cache_key,)).fetchone()
@@ -4370,7 +4914,7 @@ RESEARCH_RESULT_TTL_DAYS = 7
 
 
 def put_research_result(research_id: str, drama_id: int, result: dict):
-    """Step 37: the snapshot a research_id applies; rows older than
+    """The snapshot a research_id applies; rows older than
     RESEARCH_RESULT_TTL_DAYS are pruned on each insert."""
     now = datetime.datetime.utcnow()
     cutoff = (now - datetime.timedelta(days=RESEARCH_RESULT_TTL_DAYS)).isoformat()
@@ -4393,7 +4937,7 @@ def get_research_result(research_id: str, drama_id: int):
 def add_field_provenance(drama_id: int, field: str, value: str, status: str, *,
                          sources=None, retrieved_at: str = None, confidence: float = None,
                          last_verified: str = None):
-    """Step 37: one researched field value with its own evidence. `sources`
+    """One researched field value with its own evidence. `sources`
     is a list of {"title", "url"}; the first is also stored as source /
     source_url."""
     sources = list(sources or [])
@@ -4426,9 +4970,9 @@ def list_field_provenance(drama_id: int):
 def save_job_record(job_id: str, status: str, progress: float = None, message: str = None,
                     error: str = None, description: str = None, gpu_touching: bool = False,
                     started_at: float = None, finished_at: float = None,
-                    result_json: str = None, owner_user_id: int = None):
+                    result_json: str = None, owner_user_id: int = None, owner_pid: int = None):
     """Mirrors one background_jobs.py job's status-transition fields into
-    the cross-process job_records table (Migration Slice 7) -- records
+    the cross-process job_records table -- records
     only, no resume: this is the *last written* state, not necessarily
     the *current* state, if the process that wrote it has since died
     without writing a terminal status. A caller reading this table for
@@ -4437,14 +4981,16 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
     with contextlib.closing(get_conn()) as conn:
         conn.execute("""
             INSERT INTO job_records (job_id, status, progress, message, error, description,
-                gpu_touching, started_at, finished_at, updated_at, result_json, owner_user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                gpu_touching, started_at, finished_at, updated_at, result_json, owner_user_id,
+                owner_pid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(job_id) DO UPDATE SET
                 status = excluded.status, progress = excluded.progress,
                 message = excluded.message, error = excluded.error,
                 description = excluded.description, gpu_touching = excluded.gpu_touching,
                 started_at = excluded.started_at, finished_at = excluded.finished_at,
                 updated_at = excluded.updated_at, result_json = excluded.result_json,
+                owner_pid = excluded.owner_pid,
                 owner_user_id = CASE
                     WHEN excluded.status IN ('queued', 'running')
                          AND job_records.status NOT IN ('queued', 'running')
@@ -4458,12 +5004,12 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
                 cancel_requested = CASE WHEN excluded.status IN ('queued', 'running')
                     THEN job_records.cancel_requested ELSE 0 END
         """, (job_id, status, progress, message, error, description, int(bool(gpu_touching)),
-              started_at, finished_at, time.time(), result_json, owner_user_id))
+              started_at, finished_at, time.time(), result_json, owner_user_id, owner_pid))
         conn.commit()
 
 
 def request_job_record_cancel(job_id: str) -> bool:
-    """Migration Slice 22: flags a job_records row as cancel-requested so
+    """Flags a job_records row as cancel-requested so
     the process actually running the job (which may not be this one) can
     notice it. Only touches a still queued/running row; returns whether
     it did."""
@@ -4476,7 +5022,7 @@ def request_job_record_cancel(job_id: str) -> bool:
 
 
 def touch_job_records(job_ids) -> None:
-    """B-04: the owning process's heartbeat (background_jobs) -- bumps
+    """The owning process's heartbeat (background_jobs) -- bumps
     updated_at on its still queued/running rows so a job that is alive
     but not changing status never looks abandoned. updated_at is only ever
     written by the owner (request_job_record_cancel leaves it alone)."""
@@ -4492,16 +5038,33 @@ def touch_job_records(job_ids) -> None:
         conn.commit()
 
 
-def close_stale_job_record(job_id: str, cutoff: float) -> bool:
-    """B-04: marks a queued/running row cancelled only if its owner has not
+def close_stale_job_record(job_id: str, cutoff: float, error: str = None) -> bool:
+    """Marks a queued/running row cancelled only if its owner has not
     written or heartbeated since `cutoff` -- a single conditional UPDATE,
     so a row the owner just finished ("done") or just touched is never
-    overwritten. Returns whether it closed the row."""
+    overwritten. `error`, if given, says why. Returns whether it closed
+    the row."""
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute(
-            "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0 "
+            "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0, "
+            "error = COALESCE(?, error) "
             "WHERE job_id = ? AND status IN ('queued', 'running') "
-            "AND COALESCE(updated_at, 0) < ?", (time.time(), job_id, cutoff))
+            "AND COALESCE(updated_at, 0) < ?", (time.time(), error, job_id, cutoff))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def close_orphaned_job_record(job_id: str, owner_pid: int, error: str = None) -> bool:
+    """Marks a queued/running row cancelled if it still belongs to the
+    (exited) process `owner_pid`: one conditional UPDATE, so a new run of
+    the same job id by a live process is never closed. Returns whether it
+    closed the row."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0, "
+            "error = COALESCE(?, error) "
+            "WHERE job_id = ? AND status IN ('queued', 'running') AND owner_pid = ?",
+            (time.time(), error, job_id, owner_pid))
         conn.commit()
         return cur.rowcount > 0
 
@@ -4515,9 +5078,9 @@ def is_job_record_cancel_requested(job_id: str) -> bool:
 
 def list_job_records() -> list:
     """Every job_records row, newest-started first -- the cross-process
-    job list a `GET /api/jobs` endpoint (Migration Slice 8) would read.
+    job list a `GET /api/jobs` endpoint would read.
     Rows accumulate forever unless cleared (delete_job_record/
-    clear_all_job_records) -- no automatic pruning in this slice."""
+    clear_all_job_records) -- no automatic pruning."""
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute(
             "SELECT * FROM job_records ORDER BY started_at DESC NULLS LAST").fetchall()
@@ -4617,7 +5180,7 @@ def get_usage_by_drama(visible_to: int = None):
 
 
 # ---------------------------------------------------------------------------
-# Step 26b: standalone translate tool history
+# Standalone translate tool history
 # ---------------------------------------------------------------------------
 
 def save_translate_history(source_language: str, target_language: str, engine: str,
@@ -4657,7 +5220,7 @@ def clear_translate_history():
 
 
 # ---------------------------------------------------------------------------
-# Step 26: voice bank -- reuse a cloned voice across projects
+# Voice bank -- reuse a cloned voice across projects
 # ---------------------------------------------------------------------------
 
 def save_voice_bank_entry(name: str, clip_source_path: str, ref_text: str = "",
@@ -4737,7 +5300,7 @@ def delete_voice_bank_entry(entry_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Bulk (batch-API / off-peak) translation jobs -- Step 9
+# Bulk (batch-API / off-peak) translation jobs
 # ---------------------------------------------------------------------------
 
 BULK_PENDING_STATUSES = ("submitted", "scheduled", "auth_error")
@@ -4754,7 +5317,7 @@ def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
     -- a plain 4-tuple still works, with state_at_submit left NULL.
 
     kind/stage/pipeline_id: see the `bulk_jobs` table's own comment
-    (Step 9d). Every existing call site left these at their defaults, so
+    Every existing call site left these at their defaults, so
     an old job is still exactly what it always was: a translate job."""
     now = datetime.datetime.utcnow().isoformat()
     conn = get_conn()
@@ -4806,7 +5369,7 @@ def get_bulk_job(bulk_job_id: int):
 
 def list_bulk_jobs(drama_id: int = None, statuses=None, pipeline_id: str = None) -> list:
     """Newest first. statuses: optional iterable to filter on.
-    pipeline_id: Step 9d -- every stage row of one Reflect run shares one,
+    pipeline_id: every stage row of one Reflect run shares one,
     so the Bulk jobs panel can pull all three (whichever exist so far) to
     show them as a single pipeline."""
     sql, params = "SELECT * FROM bulk_jobs WHERE 1=1", []
@@ -4851,7 +5414,7 @@ def list_bulk_job_lines(bulk_job_id: int) -> list:
 
 
 def set_bulk_job_line_result_texts(bulk_job_id: int, result_by_line_id: dict):
-    """Step 9d: records a Reflect stage's own raw per-line output (a
+    """Records a Reflect stage's own raw per-line output (a
     faithfulness draft or a reflection critique) against this job's own
     line rows -- read back by the NEXT stage's prompt builder, never
     applied to a line directly (see the `bulk_job_lines` table's own
@@ -5010,7 +5573,7 @@ def latest_benchmark_run_per_case(stage: str = None):
 
 
 # ---------------------------------------------------------------------------
-# Step 38: Benchmark Lab -- golden-set cases and persistent per-run records.
+# Benchmark Lab -- golden-set cases and persistent per-run records.
 # services/benchmark_lab_service.py holds the logic; this is persistence.
 # ---------------------------------------------------------------------------
 
@@ -5154,6 +5717,15 @@ def reset_library():
     import shutil
 
     _close_leaked_connections()
+    # The calling thread's own leftovers too: an open handle blocks removing
+    # the files on Windows.
+    for ref in _open_connections.pop(threading.get_ident(), ()):
+        leftover = ref()
+        if leftover is not None:
+            try:
+                sqlite3.Connection.close(leftover)
+            except Exception:
+                pass
     for suffix in ("", "-wal", "-shm", "-journal"):
         # A job thread closing its last connection can checkpoint and delete
         # the -wal/-shm files between a check and the remove, so just try.
@@ -5171,7 +5743,7 @@ def reset_library():
 
 
 # ---------------------------------------------------------------------------
-# Step 133: auth storage (users, permissions, sessions, audit log).
+# Auth storage (users, permissions, sessions, audit log).
 # Plain data access only; policy lives in services/auth_service.py. Every
 # writable column is whitelisted here because the UPDATE is built from keys.
 # ---------------------------------------------------------------------------
@@ -5207,7 +5779,7 @@ def auth_update_user(user_id: int, **fields) -> bool:
 
 
 def get_item_ownership(kind: str, item_id: int):
-    """Auth slice B1: the ownership fields of one drama or series, or None
+    """The ownership fields of one drama or series, or None
     if it doesn't exist. For a drama, `series_is_private` and
     `series_owner_user_id` are included."""
     with contextlib.closing(get_conn()) as conn:
@@ -5232,7 +5804,7 @@ _OTHERS_DRAMA_SQL = ("d.owner_user_id IS NOT NULL AND d.owner_user_id IS NOT s.o
 
 
 def assign_drama_series(drama_id: int, series_id: int) -> bool:
-    """Auth slice B1: moves a drama into a series in one conditional write,
+    """Moves a drama into a series in one conditional write,
     so it can't race the series being made private. Refused (False) when
     the series is private and the drama belongs to someone other than the
     series owner. Also clears the drama's own private flag (user decision
@@ -5263,7 +5835,7 @@ def unassign_drama_series(drama_id: int) -> bool:
 
 
 def set_item_private(kind: str, item_id: int, private: bool) -> bool:
-    """Auth slice B1: field-scoped write of is_private only. Making private
+    """Field-scoped write of is_private only. Making private
     is one conditional write, so it can't race a drama being moved: a
     series is refused while it holds another user's drama, a drama while
     it is in a series. False when refused or the item doesn't exist."""
@@ -5503,6 +6075,21 @@ def auth_deactivate_user_keeping_an_admin(user_id: int) -> bool:
             # non-zero value is on.
             "UPDATE users SET is_active = 0 WHERE id = ? AND (COALESCE(is_admin, 0) = 0 "
             "OR COALESCE(is_active, 0) = 0 OR EXISTS (SELECT 1 FROM users o WHERE o.id != ? "
+            "AND COALESCE(o.is_admin, 0) != 0 AND COALESCE(o.is_active, 0) != 0))",
+            (user_id, user_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def auth_revoke_admin_keeping_an_admin(user_id: int) -> bool:
+    """Sets is_admin=0 on an admin unless that would leave no active admin.
+    One statement, so two admins demoting each other at once can't both
+    succeed. False when refused, not an admin, or the user doesn't exist."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            # Flag truthiness as in auth_deactivate_user_keeping_an_admin.
+            "UPDATE users SET is_admin = 0 WHERE id = ? AND COALESCE(is_admin, 0) != 0 "
+            "AND (COALESCE(is_active, 0) = 0 OR EXISTS (SELECT 1 FROM users o WHERE o.id != ? "
             "AND COALESCE(o.is_admin, 0) != 0 AND COALESCE(o.is_active, 0) != 0))",
             (user_id, user_id))
         conn.commit()

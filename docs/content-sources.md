@@ -36,7 +36,7 @@ work".
 |---|---|
 | URL patterns | `52shuku.(net\|top\|vip\|org)/<category>/<N>_b/<alnum-id>[_<n>].html` (updated 2026-09-26; see Status) |
 | Content type / language | novel, zh |
-| Status | `VERIFIED` (2026-09-26) -- **two real regressions found in a live pass, both fixed the same day.** The site's real book-URL shape is `/<category>/<N>_b/<alnum-id>.html` (e.g. `/KeHuan/20_b/bkceK.html`) -- `<N>_b/` with an alphanumeric id, not the originally-documented `/<category>/b/<id>.html` with a purely numeric id. `url_patterns`/`parse_url()` now match both shapes (the old one is kept working too), and `parse_url()`'s returned series_id now carries the `.html` suffix `get_series()`/`get_chapters()` actually need -- a second, pre-existing bug fixed alongside it. `get_chapter_text()`'s container also moved to `div.content.contentmargin`; the old `article.article-content div#text`/`div#text` selectors are kept as fallbacks. Re-verified end to end after the fix: real search-routing, 1347 real chapters, and real chapter text all confirmed live. |
+| Status | `VERIFIED` (2026-09-26) -- a live pass found two regressions, both fixed the same day. The real book-URL shape is `/<category>/<N>_b/<alnum-id>.html` (the old `/<category>/b/<id>.html` shape still matches), and `parse_url()`'s series_id now carries the `.html` suffix `get_series()`/`get_chapters()` need. `get_chapter_text()`'s container moved to `div.content.contentmargin` (old selectors kept as fallbacks). Re-verified live: search routing, 1347 chapters, chapter text. |
 | Access tier | `STATIC_HTTP` only. Plain server-rendered HTML, no JavaScript/decoding step needed (unlike manhuagui's packed-script case). |
 | Auth | None hit in testing (a small sample, not a guarantee). No `login()`. |
 | Extraction | **Chapters:** the TOC page (`/<category>/<N>_b/<alnum-id>.html`), `ul.list.clearfix > li.mulu > a`. **Chapter text:** `div.content.contentmargin` (confirmed live 2026-09-26), falling back to `article.article-content div#text` / `div#text`. **Series title:** the page's own `<title>` tag (no confirmed dedicated title/author/cover selector was found for this site specifically -- unlike xbanxia's `div.book-describe`, which was) -- kept honest rather than guessed. `search()` is left unsupported: neither reference scraper's search endpoint was read in enough detail to reimplement faithfully. |
@@ -52,10 +52,11 @@ work".
 |---|---|
 | URL patterns | `xbanxia.cc/books/<id>[/<chapter>.html]` (updated 2026-09-26; see Status) |
 | Content type / language | novel, zh |
-| Status | `VERIFIED` (2026-09-26) -- **the domain question is resolved, and four real bugs found in a live pass are all fixed.** `xbanxia.cc` (via `www.xbanxia.cc`) is confirmed the correct, working site. Fixed: (1) `search()` silently returned an empty list -- `BASE_URL` was bare `xbanxia.cc`, which 301-redirects to `www.xbanxia.cc`, and `requests` downgrades a redirected POST to GET by default, dropping the form data; `BASE_URL` now points at `www.xbanxia.cc` directly. (2) `url_patterns`/`parse_url()` never matched a real book/chapter URL -- the real path is `/books/<id>.html`/`/books/<id>/<chapter>.html` (plural "books"), not the `/<id>/` shape assumed; both now match the real shape. (3) A latent bug never previously exercised live: `_series_page()`/`get_chapter_text()` built the series/chapter path as `/{id}/` and `/{id}/{chapter}.html`, which 404 on the real site regardless of what `series_id` held -- both now build `/books/{id}.html` and `/books/{id}/{chapter}.html`. (4) `search()`'s result selectors never matched the real results markup (`li.pop-book2` with two `<a>` tags sharing one href) -- fixed, with the old selectors kept as a fallback. Re-verified end to end after the fixes: 13 real search results, a real series page, 567 real chapters, and real chapter text (`div#nr1`, no fallback needed) all confirmed live. |
+| Status | `VERIFIED` (2026-09-26) -- `xbanxia.cc` (via `www.xbanxia.cc`) is the correct, working site. A live pass found four bugs, all fixed: `BASE_URL` now points at `www.xbanxia.cc` directly (the bare domain's 301 turned the search POST into a GET and dropped the form data, so `search()` returned nothing); URL patterns and series/chapter paths use the real `/books/<id>.html` and `/books/<id>/<chapter>.html`; search selectors match `li.pop-book2` (old ones kept as a fallback). Re-verified live: 13 search results, 567 chapters, chapter text (`div#nr1`). |
 | Access tier | `STATIC_HTTP` only. Plain server-rendered HTML. |
 | Auth | None. `search()` is a POST with a static cookie, not a login. |
 | Extraction | **Search:** POST `/modules/article/search_t.php` with `searchkey`/`Submit` form fields, a spoofed Firefox user-agent, and a static `jieqiUserCharset=utf-8` cookie; results are `li.pop-book2` (confirmed live 2026-09-26), falling back to the original `div.book-list`/`div.result-list`/`a.book-title` guess. **Series:** `/books/<id>.html`, `div.book-describe h1`/`p` (最近更新/最新章節/類型 prefixes), cover `img[data-original]`. **Chapters:** flat `div.book-list ul li a`, no pagination. **Chapter text:** `/books/<id>/<chapter>.html`, `div#nr1`, falling back to the single largest text block on the page if that id isn't found. |
+| Domains | A domain list (`sources/domains.py`): `www.xbanxia.cc`, then `xbanxia.cc`, tried in order with the last one that worked first (remembered in `sources.db`, so it survives a restart). The owner can edit the list on the PC (`/api/source-domains`). A result that ended on another host (the bare domain's redirect to `www` included) counts as that domain failing and is not used; a search POST may already have had its form re-sent by a 307/308. If a listed domain redirects to a new https host whose page passes `verify_site` (半夏 in the title, the `search_t.php` search form, three or more `/books/<id>.html` links), that host becomes a pending proposal; only the owner's confirmation adds it to the list. |
 | Pacing | The normal default pace -- no concurrency-sensitivity signal found for this site. |
 | Terms, recorded separately | robots.txt (from the roadmap's direct check, not re-fetched while building this): `User-agent: *` with zero `Disallow` lines -- no restrictions declared at all. The ToS has not been reviewed. |
 | Reference | `lncrawl/lightnovel-crawler` (GPL-3.0 per its current LICENSE, checked 2026-09-30; earlier recorded here as MIT), `sources/zh/xbanxia.py`. Technique only, no code ported. |
@@ -84,7 +85,7 @@ work".
 |---|---|
 | URL patterns | `manga.bilibili.com/...` (chapter URL shape guessed as `detail/mc<id>/<chapter>` or `mc<id>/<chapter>` -- not independently confirmed, see Known limits) |
 | Content type / language | manhua, zh |
-| Status | `UNTESTED`, deliberately not `DISQUALIFIED` or `VERIFIED` -- every authentication-dependent state genuinely hasn't been checked (see the two manual checks below), not guessed at in either direction. **A live pass (2026-09-26) had real, unrestricted network access (unlike the original build environment) but still couldn't get a conclusive render**: a plain fetch of `manga.bilibili.com/detail/mc28793` still confirms the client-rendered-only shell described above, but headless Chromium's own navigation to that page was intermittently unreliable in this sandbox (succeeded once with a near-empty shell, then repeatedly hit Playwright navigation timeouts on retry) in a way plain HTTP fetches to the same host never were -- see manhuaku's own entry below for the same pattern observed there. The two auth-dependent manual checks are still genuinely open; no real Bilibili account was available here either. |
+| Status | `UNTESTED`, deliberately not `DISQUALIFIED` or `VERIFIED` -- every authentication-dependent state is unchecked (see the two manual checks below). A live pass (2026-09-26) confirmed a plain fetch of `manga.bilibili.com/detail/mc28793` returns the client-rendered-only shell described above, but headless Chromium's navigation to it was intermittently unreliable (one near-empty shell, then repeated Playwright timeouts), so there was no conclusive render. No real Bilibili account was available. |
 | Access tier | `RENDERED_BROWSER` as the **minimum**, not an optional fallback -- confirmed fully client-rendered: a real series page (`manga.bilibili.com/detail/mc28793`) returns essentially `<div id="app-vm"></div>` plus a `<noscript>` notice, no server-side content leakage at all. This is the one zh source vetted so far where `STATIC_HTTP` never has anything to offer. |
 | Auth | Unverified. No logged-in Bilibili session was available for this research, so whether an ordinary authenticated browser session is sufficient, and whether purchased-chapter tokens behave differently, are open questions -- see the manual checks below. |
 | Extraction | **Pages only** (`search`/`get_series`/`get_chapters` are left unsupported -- no server-rendered markup exists to parse, and no rendered-DOM structure for those was independently verified either). `get_pages()` loads the chapter URL through `sources.generic_import.import_comic_page()`, the same generic browser-based comic extraction Step 23 item 6 offers any unsupported site: a real headless-browser render, then every `<img>` candidate on the rendered page, filtered for real page content. **Token reuse, never token generation**: this adapter never calls Bilibili Manga's own `ImageToken` API or constructs a token itself -- it downloads exactly whatever already-signed image URLs the site's own JavaScript legitimately puts on the rendered page, the same "the browser is the source of truth for what the user can actually access" principle the challenge hand-off flow already applies to a CAPTCHA. `download_page()` returns bytes `get_pages()` already fetched during its one rendered-page visit, since the image tokens are short-lived. |
@@ -104,10 +105,10 @@ work".
 | Access tier | `STATIC_HTTP` only. Plain server-rendered HTML; the page-image list is lightly obfuscated (see Extraction) but needs no JavaScript execution to recover. |
 | Auth | None observed. No `login()`. |
 | Extraction | **Search:** `/bbs/search.php?sfl=wr_subject\|\|wr_content&stx=<query>`, `div.section-item-inner` (shared with the popular-listing markup). **Series:** `table.bt_view1` (`td.bt_title`/`td.bt_over`/`td.bt_thumb img`). **Chapters:** `table.web_list`, rows carrying a `data-role` attribute on `td.content__title` for the chapter URL. **Pages:** a `<script>` tag's `var toon_img = '<base64>'` assignment -- Base64-decoded to an HTML fragment, then every `src="..."` in that fragment, in order. Confirmed end-to-end against a real chapter (128 real page images decoded correctly) while building this adapter. |
-| Domain rotation | **A real, confirmed history, not theoretical** -- this is why `base_url` is an overridable constructor argument (same pattern as `xbanxia.py`'s own domain caveat) rather than a hardcoded literal. `toonkor0.org` was re-confirmed live, current, and unchallenged immediately before writing this adapter. |
+| Domain rotation | **A real, confirmed history, not theoretical.** The domain is a list (`sources/domains.py`, default `toonkor0.org`), tried in order with the last one that worked first (remembered in `sources.db`), and editable by the owner on the PC (`/api/source-domains`). A page a listed domain redirects to another host is not used or cached; if that page is https and passes `verify_site` (툰코/ToonKor in the title and three or more `div.section-item-inner` webtoon cards, i.e. a home or listing page), its host becomes a pending proposal the owner confirms or dismisses. If every domain fails and nothing is pending, the source's health shows "all domains unreachable" and, with the maintenance assistant on, one backlog item is filed. `toonkor0.org` answered HTTP 522 (Cloudflare: origin unreachable) on 2026-09-30. |
 | Terms, recorded separately | `robots.txt`: `User-agent: *` with `Allow: /` and no `Disallow` lines at all -- fully permissive. Cloudflare observed acting only as a CDN, not an active challenge. (Re-verified by direct fetch while building this adapter, not carried over from an earlier vetting pass.) The ToS has not been reviewed. |
 | Reference | `keiyoushi/extensions-source src/ko/toonkor` (Apache-2.0). Technique only, no code ported. |
-| Known limits | If the site changes its markup, the adapter reports "layout has changed" rather than guessing. If the domain rotates again, `base_url` needs updating (or passing explicitly) -- `url_patterns` is intentionally loose enough to still route a pasted URL from a same-shaped new domain, but discovery/registration still assumes `toonkor0.org` as the default. |
+| Known limits | If the site changes its markup, the adapter reports "layout has changed" rather than guessing. `url_patterns` stays loose (`toonkor<digit>`), so a pasted link from a same-shaped new domain still routes here; a confirmed domain of another shape is used for requests but a pasted link from it isn't recognised until `url_patterns` is widened. |
 | Tests | `tests/test_sources_toonkor.py`, including a full Base64-decode round-trip test. |
 
 ## 瓜子漫画 Guazimanhua — `sources/adapters/guazimanhua.py`
@@ -132,7 +133,7 @@ work".
 |---|---|
 | URL patterns | `miaoqumh.org/<series-slug>` (series), `miaoqumh.org/<series-folder-id>/<chapter-id>.html` (chapter) |
 | Content type / language | manhua, zh |
-| Status | `VERIFIED` (2026-09-26) -- a live pass ran `get_series`, `get_chapters` and `get_pages` end to end for a real series (`shiyemowang`): real metadata, a real chapter list, and 17 real page-image URLs correctly recovered through the full base64/XOR/base64/JSON decode chain. |
+| Status | **UNVERIFIED on the owner's machine (owner report 2026-10):** a plain fetch returned an empty SPA shell and the browser tier has not been run for this site, so "no browser needed" is not confirmed. The 2026-09-26 sandbox pass below is kept as history. `VERIFIED` (2026-09-26) -- a live pass ran `get_series`, `get_chapters` and `get_pages` end to end for a real series (`shiyemowang`): real metadata, a real chapter list, and 17 real page-image URLs correctly recovered through the full base64/XOR/base64/JSON decode chain. |
 | Access tier | `STATIC_HTTP` only. |
 | Auth | None observed. No `login()`. |
 | Extraction | **Series/chapters:** the mobile page (`m.miaoqumh.org/<slug>`), `.infobox` (`.title`, first `img`, `.tage` lines prefixed 作者：/类型：/更新于), `.text` for the description, `ul.list > li > a` for chapters. **Pages:** the chapter page's body contains `var DATA='<base64>'`; decoded as base64 → XOR (cyclic, one of 10 fixed 8-byte keys selected by `chapter_id % 10`) → base64 again → JSON `[{"id","url"}, ...]`. |
@@ -148,7 +149,7 @@ work".
 |---|---|
 | URL patterns | `(baozimh.org\|godamh.com\|baozimh.one\|bzmh.org\|g-mh.org)/manga/<slug>` |
 | Content type / language | manhua, zh |
-| Status | `VERIFIED` (2026-09-26) -- a live pass ran `search`, `get_series`, `get_chapters` and `get_pages` end to end for a real title (`斗破苍穹`): real search results, a real chapter list from the live JSON API, and the custom obfuscation decoder correctly recovered 11 real image URLs from a real chapter's real encoded payload. |
+| Status | **UNVERIFIED on the owner's machine (owner report 2026-10):** a plain fetch returned an empty SPA shell and the browser tier has not been run for this site, so "no browser needed" is not confirmed. The 2026-09-26 sandbox pass below is kept as history. `VERIFIED` (2026-09-26) -- a live pass ran `search`, `get_series`, `get_chapters` and `get_pages` end to end for a real title (`斗破苍穹`): real search results, a real chapter list from the live JSON API, and the custom obfuscation decoder correctly recovered 11 real image URLs from a real chapter's real encoded payload. |
 | Access tier | `STATIC_HTTP` only. Listing/search/series are plain HTML; the chapter list and chapter images come from two real JSON API endpoints on a separate, fixed host (`api-get-v3.mgsearcher.com`), not mirrored across the six content domains. |
 | Distinct from `baozimh.com` | The similarly-branded `baozimh.com` was confirmed blocked twice and was never built. This adapter targets the technically-open sibling family (`baozimh.org`/`godamh.com` and four more mirrors) the roadmap separately vetted -- don't conflate the two. |
 | Auth | None observed. No `login()`. |
@@ -165,7 +166,7 @@ work".
 |---|---|
 | URL patterns | `kuaikanmanhua.com/web/topic/<id>` (series), `kuaikanmanhua.com/web/comic/<id>` or `/webs/comic-next/<id>` (chapter) |
 | Content type / language | manhua, zh |
-| Status | `VERIFIED` (2026-09-26) -- **was found completely broken against the real site, fixed the same day, and the fix wasn't in this adapter's own code.** Every call (`get_series`, `get_chapters`, `get_pages`) failed immediately with `KeyError: "name='referer_name', domain=None, path=None"`. Root cause, confirmed by reproducing it directly against `requests`: kuaikan's real site sets a cookie named `referer_name` with an **empty string value**. `sources/http.py`'s `_requests_transport` merged a response's cookies with `cookies.update(hop.cookies)` / `cookies.update(r.cookies)` (a plain `dict.update()` against a `requests.cookies.RequestsCookieJar`) -- this called the jar's `__getitem__` per key, and `RequestsCookieJar._find_no_duplicates` treats a falsy cookie value (an empty string) as "not found" and raises `KeyError` instead of returning it (a real quirk in `requests` itself, not something this project wrote). **Fixed** by iterating each jar's own `Cookie` objects directly instead of going through `dict.update()`'s `__getitem__`-based lookup -- this was a shared-infrastructure bug, not a kuaikan-specific one, so the fix lives in `sources/http.py` and protects every other source too. Re-verified end to end after the fix: real series metadata, a real chapter list, and real page-image URLs all decoded correctly from the Nuxt state. **No Keiyoushi/Mihon extension exists for this site** (the old one was removed as broken, upstream issue #507) -- unlike every other adapter built this session, everything here came from direct, repeated live verification, not ported technique. |
+| Status | **UNVERIFIED on the owner's machine (owner report 2026-10):** a plain fetch returned an empty SPA shell and the browser tier has not been run for this site, so "no browser needed" is not confirmed. The 2026-09-26 sandbox pass below is kept as history. `VERIFIED` (2026-09-26) -- found broken against the real site and fixed the same day, in shared code rather than this adapter: `sources/http.py`'s `_requests_transport` merged response cookies with `dict.update()`, which raises `KeyError` on a cookie with an empty value (kuaikan sets `referer_name=""`). It now iterates each jar's `Cookie` objects, which protects every source. Re-verified live: series metadata, chapter list, page-image URLs decoded from the Nuxt state. No Keiyoushi/Mihon extension exists for this site (upstream issue #507), so everything here came from direct live verification. |
 | Access tier | `STATIC_HTTP` only -- **a real, confirmed correction to the roadmap**, which expected the browser-rendered tier for cover images. Direct verification found the *visible* DOM is genuinely client-populated (empty chapter lists, src-less cover `<img>` tags), but the page also embeds a `window.__NUXT__=(function(a,b,...){return {...}}(argA,argB,...))` legacy Nuxt.js SSR-state dump containing the *complete* real data -- series metadata, every chapter, and (on a chapter's own reader page) the real, already-signed page-image URLs. The catch is a real but bounded, non-JSON serialization trick (dedup identifiers plus a short list of `ident[n]=value` placeholder-mutation statements for shared substructures) -- not obfuscation, not a security boundary, just an old build tool's compaction trick. Decoded by a small, deterministic literal-plus-identifier parser (`_decode_nuxt_state` in the adapter) that never calls a function, evaluates an operator, or executes anything resembling general JavaScript. **Run against three independent real pages while building this adapter and cross-checked byte-for-byte against the same pages evaluated in a real, sandboxed Node.js `vm` used only for that verification** -- not a guessed shape. Net result: no browser-rendered tier is needed for this adapter at all. |
 | Auth | None observed for free chapters. Locked/paid chapters (`locked: true` in the embedded state, `comicImages` empty) raise `ContentHidden` naming that this adapter never bypasses a purchase/entitlement check -- confirmed against a real locked chapter while building this adapter. No `login()`. |
 | Extraction | **Series:** the topic page's embedded state, `topicInfo` (title/description/tags/cover/author/status). **Chapters:** the same state's `comics` array -- every chapter, already in ascending order, with real id/title/lock-status, no pagination or scroll-loading needed. **Pages:** the chapter reader page's own embedded state, `comicInfo.comicImages` -- real, already-signed CDN URLs, used exactly as issued (token reuse, never generation, the same principle already applied to Bilibili Manga's image tokens). |
@@ -182,7 +183,7 @@ work".
 |---|---|
 | URL patterns | `manhuaku.net/<slug>` (series), `manhuaku.net/chapter/<id>.html` (chapter) |
 | Content type / language | manhua, zh |
-| Status | `VERIFIED` (2026-09-26) -- `get_series`/`get_chapters` live, and `get_pages()` now fully working for both of this site's real content paths after two same-day fixes. Some chapters (the site's baozimh-aggregated ones, per the multi-source note below) return plain, real, directly-fetchable page-image URLs and always worked correctly. Others -- the site's own natively-hosted, `readPic()`-protected chapters -- deliver their real page images as JavaScript `blob:` object URLs (created client-side from the AES-decrypted bytes via `URL.createObjectURL()`), which only exist inside that one browser tab's memory and can never be independently re-fetched over plain HTTP; a live run initially returned 10 wrong `PageRef`s (other titles' cover thumbnails) with no error before this was understood. **Fix 1**: `page_fetch.fetch_rendered_resolving_blobs()` now captures a blob:'s real bytes from inside the page's own JS context (`fetch()`+`FileReader`, chunked to avoid a large-image stack overflow) before the browser closes, and `get_pages()` serves them directly -- the same "let the site's own legitimate execution path produce the result" principle this adapter already applies to the AES key, extended to the images it decrypts. A blob: candidate that still can't be captured refuses clearly (`ContentHidden`, `ENCRYPTED_RESOURCE`) rather than guessing. **Fix 2, a second real bug found investigating the first**: even without any blob: URLs, the exact same chapter sometimes rendered with *zero* real reader content at all (only recommendation-sidebar and page-furniture images in the DOM) -- reproduced directly by inspecting the rendered DOM (`div.rd-guess` for every surviving image, no reader container at all) and confirmed to be a scroll/resize-triggered lazy-load (jquery.lazyload) the initial page load never fires. `page_fetch._rendered_page()` now scrolls to the bottom once and re-settles after the initial load, fixing this for every browser-tier adapter, not just manhuaku -- confirmed live: the same previously-failing chapter returned 18 real images and downloaded a real 234KB page across two separate re-runs after the fix. |
+| Status | `VERIFIED` (2026-09-26) -- `get_series`/`get_chapters` live, and `get_pages()` works for both content paths after two same-day fixes. Baozimh-aggregated chapters return plain image URLs. Natively hosted `readPic()` chapters deliver `blob:` object URLs that exist only inside the browser tab; they had returned 10 wrong `PageRef`s (other titles' covers) with no error. Fix 1: `page_fetch.fetch_rendered_resolving_blobs()` captures the blob bytes from inside the page, and an uncapturable blob refuses with `ContentHidden` (`ENCRYPTED_RESOURCE`). Fix 2, shared code: `page_fetch._rendered_page()` scrolls to the bottom once after load, because a scroll-triggered lazy-load left some chapters with no reader images; this helps every browser-tier adapter. Confirmed live: 18 real images and a real 234KB page, twice. |
 | Access tier | `STATIC_HTTP` for search/series/chapters. **`RENDERED_BROWSER` exclusively, and deliberately, for `get_pages()`** -- a real, confirmed stock MCCMS deployment whose chapter-reader image data is passed through a `readPic(...)` call wrapped in a commercial JS obfuscator (jsjiami.com.v7) and AES-encrypted with an embedded key (corroborated by public CVE-2025-50234 documenting the same scheme server-side in MCCMS's own code). **This adapter never deobfuscates that code or reimplements its AES decryption, even though the key is real and findable** -- the same "let the site's own legitimate execution path produce the result" principle already applied to Bilibili Manga's signed tokens. `get_pages()` calls `page_fetch.fetch_rendered` directly (not the ladder's own static-first escalation, since a static fetch here would "succeed" -- a real, non-shell page -- without ever finding real images, so the ladder would never know to escalate on its own), then scrapes real image URLs from the already-decrypted, rendered DOM. |
 | Auth | None observed. No `login()`. |
 | Extraction | **Series:** `div.cy_title h1` (title), `span.cy_author a` (author), `span.cy_type a` (genre), `span.cy_serialize font` (连载中/已完结 status), `#comic-description`, `div.cy_info_cover img` (cover). **Chapters:** `ul[id^=mh-chapter-list-ol] li.chapter__item a`. **Multi-source note:** this site aggregates some titles from more than one upstream source (a real "source" tab list was observed naming 催漫画网 and baozimh -- the same baozimh this project has its own dedicated adapter for); only the default/first source's chapter list is read, since other sources' lists appeared to load only on demand rather than being present in the static HTML. |
@@ -198,7 +199,7 @@ work".
 |---|---|
 | URL patterns | `zerosumonline.com/detail/<slug>` (series; also used for chapters, since the real site has no separate per-chapter URL -- the reader is client-side-only inside the series page, matching the reference extension's own behavior). |
 | Content type / language | manga, ja |
-| Status | `VERIFIED` (2026-09-26) -- a live pass ran `search`, `get_chapters` and `get_pages` end to end for a real series (`futsuoya`): real listing results, a real two-chapter list, and the from-scratch protobuf reader correctly decoded 38 real page-image URLs from a real `ViewerView` response. |
+| Status | **UNVERIFIED on the owner's machine (owner report 2026-10):** a plain fetch returned an empty SPA shell and the browser tier has not been run for this site, so "no browser needed" is not confirmed. The 2026-09-26 sandbox pass below is kept as history. `VERIFIED` (2026-09-26) -- a live pass ran `search`, `get_chapters` and `get_pages` end to end for a real series (`futsuoya`): real listing results, a real two-chapter list, and the from-scratch protobuf reader correctly decoded 38 real page-image URLs from a real `ViewerView` response. |
 | Access tier | `STATIC_HTTP`. |
 | **Real protocol-level obstacle** | The content API (`api.<domain>/api/v1/...`) returns **Protocol Buffers, not JSON** -- confirmed by decoding real captured responses byte-for-byte, not trusted from the (mislabeled `content-type: application/json`) response header. A small, from-scratch, generic protobuf wire-format reader handles this (tag/varint/length-delimited only -- not a protoc-generated decoder, not a general-purpose library, and not a new dependency), general enough for this site's own small fixed schema. |
 | Extraction | `GET /list?category=series&sort=date` or `/search?keyword=<q>` -- `TitleListView` (repeated `ApiTitle`, fields: 2 slug, 3 name, 4 altTitle, 5 authors, 7 description, 8 thumbnail). `GET /title?tag=<slug>` -- `TitleDetailView` (field 2 title, field 3 repeated `ApiChapter`: 1 id, 2 name, 4 publishedAt). Chapters come back **newest-first** (confirmed against a real series) -- reversed to ascending. `POST /viewer?chapter_id=<id>` (empty body) -- `ViewerView` (field 5 repeated `ViewerImage`, field 1 url). |
@@ -206,24 +207,6 @@ work".
 | Terms | `robots.txt` is a real HTTP 404 (this is a Next.js app; confirmed by content it's the app's own catch-all, not a proxy artifact) -- no crawl guidance exists. ToS genuinely unlocatable after real effort (site + Ichijinsha's corporate umbrella) -- stays a candidate on that basis, not a clearance. |
 | Reference | `keiyoushi/extensions-source` `src/ja/zerosumonline` (Apache-2.0). |
 | Tests | `tests/test_sources_zerosumonline.py` -- a test-only protobuf encoder (the exact inverse of the adapter's decoder) builds every fixture; no request reaches the real site. |
-
-## マンガ図書館Z Manga Toshokan Z — `sources/adapters/mangaz.py`
-
-| | |
-|---|---|
-| URL patterns | `mangaz.com/series/detail/<id>`, `mangaz.com/book/detail/<id>` |
-| Content type / language | manga, ja |
-| Status | **`search`/`get_series`/`get_chapters` are `VERIFIED` live (2026-09-26)**: a real listing (`/title/addpage_renewal`), a real series page, and a real 3-chapter list all decoded correctly. `get_pages()`'s real RSA+AES flow is addressed in its own note below. |
-| Access tier | `STATIC_HTTP` for search/series/chapters; `get_pages()` runs the site's own real session-scoped RSA+AES exchange. |
-| **The most technically involved mechanism found this session** | A fresh 512-bit RSA keypair per session (the site's own real, legacy-weak choice); a ticket (`virgo!__ticket` cookie) + serial (embedded in real, live `app.js`) exchange; the RSA public key is POSTed and the response returns an RSA/PKCS1v1.5-wrapped AES key plus an AES-CBC/PKCS7-encrypted page manifest, decrypted locally. Ported exactly from the real reference extension's own `Crypto.kt`, never approximated. Python's mainstream crypto libraries refuse to *generate* an RSA key below 1024 bits, so this adapter generates the two ~256-bit primes itself with a standard Miller-Rabin test -- ordinary textbook keygen math, not a novel algorithm -- and hands them to `cryptography`'s own key-loading API; every actual crypto *operation* still runs through that real, audited library. |
-| Extraction | Search/latest: `GET /title/addpage_renewal` (`.itemList li` cards). Series: `GET /book/detail/<id>` (`.detailAuthor > li`, `.wordbreak`, `.inductionTags a`, `.GA4_booktitle`, `div.detailCover img` -- the last two are adaptations from the reference, which never extracts a standalone title/cover; see the module docstring). Chapters/volumes: `GET /series/detail/<id>` (`.itemList li`, a real CSS *descendant* selector -- `.itemList > .itemSort > ul > li`, not direct children). Pages: the RSA+AES flow above. |
-| Auth | None observed for the tier this adapter uses. No `login()`. |
-| Known limits | The `.iconContinues`/`.iconEnd` ongoing/completed status markers named in the reference extension were **not found on any real page checked here** (a real, confirmed site change) -- `status` stays `unknown` until the site restores them; not chased further, since it's cosmetic. **A full live RSA+AES decrypt of a real chapter's real encrypted payload was still not completed in the 2026-09-26 live pass -- but the earlier mystery is now resolved, and the remaining one is narrowed down hard.** First finding: the apparent "hang" (350+ seconds, no response) reported earlier this same pass was never a real network freeze -- it was this adapter's own `SourceClient` retrying a real, fast HTTP 500 response up to `max_retries` times, and `vw.mangaz.com`'s own 120-second crawl-delay pacing re-applies before *every* retry, not just the first attempt, so three retries alone account for 350+ seconds of real, expected (if slow) behavior. A raw request bypassing the retry wrapper confirmed this: the server actually responds in ~1 second. Second finding, now the real remaining blocker: that fast response is a genuine, consistent **HTTP 500** (`{"name":"An Internal Error Has Occurred.","message":"An Internal Error Has Occurred.","url":"/virgo/docx/<id>.json"}`, a Laravel-shaped generic error body) -- reproduced identically across **7 different real books** and **8 different request variations**: with/without `Referer`/`Origin` headers (their absence is what triggers the retry-storm above); the public key as PEM vs. raw base64 DER, `SubjectPublicKeyInfo` vs. `PKCS1` encoding, and a byte-exact reproduction of the real reference extension's own Android `Base64.DEFAULT`-shaped PEM (76-char wrap, no blank line before the footer); this adapter's own two explicitly-forwarded cookies vs. the real session's complete natural set (two more real cookies, `MANGAZ[_VUU_]`/`_MANGAZ_`, this adapter never captures at all); and, to rule out TLS/HTTP2 fingerprinting specifically, the identical request re-sent via `curl_cffi` impersonating a real Chrome client all the way down to its TLS handshake. **The real reference extension's own source was also read directly** (`keiyoushi/extensions-source`, `MangaToshokanZ.kt`/`Crypto.kt`) to cross-check field names, the ticket/serial mechanism, and the key format byte-for-byte -- this adapter's own implementation matches it in every material way; no discrepancy was found. None of the above changed the outcome. **Third finding, and the actual answer: `/virgo/docx/<id>.json` is a decommissioned endpoint, and this whole RSA+AES flow is a dead legacy protocol.** Read directly out of the real site's own current viewer script (`vw.mangaz.com/virgo/js/vw6-simple.js`, viewer generation "vw6"): it still calls `forge.pki.rsa.generateKeyPair(512)` but **discards the result** (bare statement, no assignment, and `forge` appears nowhere else in the file), makes no `docx` request at all, and instead reads the entire page manifest straight out of the viewer page's own HTML -- `JSON.parse(window.atob($("#doc").text()))`. The serial and ticket this adapter works so hard to obtain do survive, but only as parameters to the viewer's two *other* live endpoints (`/virgo/serifs/<baid>.json`, `/virgo/bingToken/<baid>.json`). Confirmed against three real books: `GET /virgo/view/<book_id>` carries a `#doc` element that base64-decodes to real JSON with `Location` (`base`, `scramble_dir`), `Orders` (every page's `name`/`side`/`pair_no` plus its own descramble `crops`), `Book`, and `User`. So the 500 is the site correctly rejecting a request to something it no longer serves -- nothing was ever wrong with this adapter's crypto. See "Current real protocol" below. The RSA-512/AES-CBC/PKCS7 mechanics are still exercised end-to-end in tests against a locally-generated key and payload (see Tests), but they no longer correspond to anything the live site does. |
-| **Current real protocol -- implemented 2026-09-27** | `GET https://vw.mangaz.com/virgo/view/<book_id>` (with `Cookie: _LANG_=ja`) returns the reader page, whose `#doc` element is base64-encoded JSON. `get_pages()` reads exactly that: `Location` (`base`, `scramble_dir`), `Orders` (every page's `name`/`side`/`pair_no` plus its own descramble `crops`), `Book`, `User`. **Confirmed live, twice: 43 real pages in ~1 second**, with no key exchange, ticket or serial involved at all. `Location.base` + `Location.scramble_dir` + `Orders[i].name` is a real, directly-fetchable URL (HTTP 200, real JPEG) -- but **tile-scrambled**: a 1190x1684 page arrives as a ~4760x421 strip, with that page's own `crops` describing the reassembly. **This adapter never performs that reassembly.** Porting the crop transform to Python would be easy, browserless and faster, and is deliberately not done -- the same line this project draws around manhuaku's AES and Bilibili Manga's signed tokens. `download_page()` instead opens the site's own reader and steps it with its own public `JCOMI.viewer.movePage()` API, exactly as a reader clicking onward would, then reads back the page the viewer itself descrambled and published as a blob to its own `<img>` -- tagged by the site's own code with that page's number, so pages are identified by the site rather than by our ordering. One viewer session covers a whole book and every page it yields is cached for the `download_page()` calls that follow. |
-| **What the live runs actually proved, and didn't** | **Proved**: one run captured **38 of 43** pages of a real book and served them at full resolution -- page 0 came back as a real 795KB, **1190x1684** JPEG, visually confirmed as a correctly reassembled page, and page 1 was served instantly from the same session's cache. The five it missed weren't withheld, the viewer simply hadn't finished drawing them when their turn came round; a straggler-revisit pass was added for exactly that. **Not proved**: a full 43/43 capture. Two attempts to confirm it both failed before reaching the viewer -- one on `net::ERR_TOO_MANY_RETRIES` navigating to the reader, one with the page loading but `JCOMI` never appearing -- after this session had hit the site hard all day (dozens of viewer loads, image fetches and the earlier RSA probing). Both failures are now reported as plain reasons rather than tracebacks, and pacing was slowed (3-8s between requests, 1.5-4s jittered page-turns) in response. The honest reading is that the mechanism works and the remaining uncertainty is about how much automated reading this site will tolerate in one day -- which is precisely the problem `docs/archive/handoff-browser-extension.md` proposes sidestepping, since a person's own browser reading at human speed never hits it. **Verified offline afterwards, with no further requests to the site**: the three real viewer pages captured during the live pass were replayed back through `get_pages()`, which reproduced 195, 43 and 55 pages in the manifest's own order, every page name matching and every URL under `Location.base`. That replay also turned up a real bug the live runs had masked -- `download_page()` re-drove a **whole browser session per missing page**, so the 38-of-43 run would have opened five more full passes over the book, each behind this host's real 120s crawl delay. A book is now driven once whether or not the reader manages to draw every page, and that, the multi-straggler recovery, and "a page the reader never drew is refused rather than filled with a neighbour's bytes" are all pinned by tests. |
-| Terms | Real `robots.txt` `Crawl-delay: 120` for `User-agent: *` on both `www.mangaz.com` and `vw.mangaz.com` -- respected via `host_min_interval`. No AI/crawling-specific ToS clause found (roadmap's own finding). |
-| Reference | `keiyoushi/extensions-source` `src/ja/mangatoshokanz` + its own `Crypto.kt` (Apache-2.0). |
-| Tests | `tests/test_sources_mangaz.py`. Page reading is covered against a fake viewer that answers the adapter's probes the way the real reader does: pages come from the `#doc` manifest, the scrambled `.jpg` is never fetched directly, several stragglers across a 43-page book are all recovered, a page the reader never drew is refused rather than substituted, a book is driven once even when pages are missing, and a reader that never opens is not retried per page. The legacy RSA+AES helpers keep their own full round trip -- a real keypair, a real RSA/PKCS1v1.5 encrypt of a real AES key, and a real AES-CBC/PKCS7 encrypt of a real JSON manifest, built by the test as the exact inverse of what the adapter decrypts -- but they no longer correspond to anything the live site does. |
 
 ## 猫耳FM MissEvan — `sources/adapters/missevan.py`
 
@@ -302,7 +285,7 @@ work".
 | URL patterns | Book page `/bookinfo/<a>/<id>.html`, chapter list `/html/<a>/<id>/` (also without the slash or as `index.html`), chapter `/html/<a>/<id>/<chapterid>.html`, on `www.piaotia.com`, `piaotia.com`, `ptwxz.com` and `www.ptwxz.com`, http or https. `<a>` must be `<id> // 1000` (146 is in `0`, 16054 in `16`), otherwise the URL is not recognised. Every request goes to `https://www.piaotia.com` (ptwxz.com only redirects there and is never contacted). Lookalikes are rejected (`evilptwxz.com`, `ptwxz.com.evil.com`, `ptwwxz.com`, userinfo tricks, other subdomains). |
 | Content type / language | novel, zh |
 | Status | **Read against the live site 2026-09-30** (about 20 GETs and 3 search POSTs, honest User-Agent, no cookies, 2 s or more apart): the home page, `/help/`, a completed book with volume headings (755 chapters), a serial with 924 chapters on one list page, three chapters, the 404 and the 200 "no such book" page, and search (single hit, many hits, no hit). The adapter was run offline against those saved pages and gave the expected results; **no chapter has been imported through the app**, so status stays a caveat. |
-| Access tier | `STATIC_HTTP` only. Server-rendered GBK HTML (declared in a `<meta>`, none in the header; `decode_html` handles it). No challenge seen. |
+| Access tier | `STATIC_HTTP` only. Server-rendered GBK HTML (declared in a `<meta>`, none in the header; `decode_html` handles it). No challenge seen in the 2026-09-30 pass, but the owner reports a Cloudflare challenge on plain requests (2026-10): the adapter stops by design and a saved page from your own browser is the way in. |
 | Extraction | **Series:** `#centerm h1` (title), the cells "类 别：", "作 者：", "文章状态：" (连载中 / 已完成), the text after `span.hottext` "内容简介：" (synopsis, `<br>` to lines), the cover only when it is `/files/article/image/<a>/<id>/…` on the same host. **Chapters:** one page, the whole book; `div.centent` holds `div.list` headings (become `ChapterInfo.group`, including "作品相关" for author notes at the top) and `ul > li > a` with relative `<cid>.html` hrefs; `&nbsp;` padding items are skipped; links outside `.centent` (the footer book recommendations) and links to other books or hosts are ignored; de-duplicated by chapter id; site order kept (ids are not monotonic); more than 10000 chapters is an error, not a truncation. **Text:** there is no container. The text is bare text and `<br>`s after `div.toplink` and the ad tables, up to `div.bottomlink`; a paragraph is `&nbsp;&nbsp;&nbsp;&nbsp;text<br /><br />`, so each becomes one line (indent and the double break dropped). The only boilerplate stripped is a final line that is exactly `www.` (seen once, at the end of one chapter). No leading title is present in the body. **Search:** `POST /modules/article/search.php` (`searchtype=articlename`, `searchkey` as percent-encoded GBK; robots.txt does not disallow it): one exact match answers a 302 to the book page, otherwise a 30-row `table.grid` (title link, latest chapter, author, size, date, 连载/完结). Page 2 and later use the site's own pager GET (`…?searchtype=articlename&searchkey=…&page=<n>`), **unverified live**. |
 | Failures | 404/410 -> "doesn't exist". A missing **book page is served with HTTP 200** and the title 出现错误！ ("错误原因：对不起，该文章不存在！"), reported with the site's message. A challenge -> the usual hand-off. A missing selector -> `LayoutChanged` naming the piece. An empty list, an empty chapter, or one under 5 characters -> an error, never an empty import. A redirect off `www.piaotia.com`, to `/login.php`, a password field, or 18+ wording -> a plain error. **Login and age pages were never met** (UNVERIFIED LIVE); those branches only recognise the obvious signs. |
 | Pacing | `host_min_interval` 2.5 s for `www.piaotia.com` (robots.txt has no `Crawl-delay`; the owner asked for human-paced use), on top of the shared client's random gaps and breaks. Search sends no cookies, so the site's own search throttle (a `jieqiVisitTime` cookie it sets) is not in play; the adapter's pacing is the only limit, so keep searches occasional. |
@@ -311,6 +294,22 @@ work".
 | Not done | No `site_terms.py` entry (that table records restrictions found in terms; there are none to record). No login, cookies, age handling or proxies. Search by author is not offered. |
 | Reference | Read directly from the live site. No code ported. |
 | Tests | `tests/test_sources_piaotian.py` (small invented GBK fixtures shaped like the live pages; no network). |
+
+## MangaK — `sources/adapters/mangak.py`
+
+| | |
+|---|---|
+| URL patterns | `mangak.io/<slug>` (series), `mangak.io/<slug>/<chapter-slug>` (chapter). Site pages (`/search`, `/genres`, `/terms-of-service` and the like) are not treated as series. |
+| Content type / language | manga, manhwa, manhua; en (English translations) |
+| Status | **Read against the live site 2026-10-03** (plain GETs, no cookies, no login): search, a 152-chapter series, its full chapter list, an 18-page chapter and one image download, all through the adapter. **No import has been run through the app.** |
+| Access tier | `STATIC_HTTP` only. A Next.js site whose pages embed their data as JSON in `<script id="__NEXT_DATA__">`; nothing needs JavaScript. |
+| Extraction | **Search:** `/search?q=<query>&page=<n>`, `pageProps.ssrItems`. **Series:** `/<slug>`, `pageProps.initialManga` (its `id` and `cv`). **Chapters:** `api.mangak.io/titles/<id>/chapters?cv=<cv>`, JSON `data.chapters`, sorted by the site's own `number` (the series page only embeds the newest 50). **Pages:** `/<slug>/<chapter-slug>`, `pageProps.initialChapter.pages[].url`. **Images:** webp on CDN hosts (`rx.qvzr*.org`); they answer 403 without a `mangak.io` Referer, which the adapter sends. |
+| Failures | 404 -> "doesn't exist". A missing `__NEXT_DATA__`, missing keys, an empty chapter list or a chapter with no images -> `LayoutChanged`. A series or chapter slug that isn't a plain slug (letters, digits, `-`, `_`) is refused before it reaches a URL or a file name. |
+| Adult works | The site flags some works `isAdult` but serves them without a switch, so there is no toggle; search results carry the flag in `extra["adult"]`. |
+| Terms | robots.txt: `mangak.io/robots.txt` and `api.mangak.io/robots.txt` both answer 404 (2026-10-03), so no rules and no crawl delay. **The terms of service (https://mangak.io/terms-of-service, titled MangaBuddy, "Last updated: March 2025") forbid automated access:** section 4 "You agree not to: ... Use automated tools, bots, or scrapers to access the service". Section 2 says the site hosts nothing itself and that content is "sourced from third-party providers and publicly available sources"; series summaries name official English publishers. Recorded as `EXPLICITLY_RESTRICTED` in `capabilities()`; enforcement is off app-wide, so the adapter works, but the finding is shown. |
+| Owner decision | 2026-10-03: ship the adapter although the terms forbid automated access; the owner accepts that, for personal storage of chapters. Use stays personal-scale through the shared client's pacing, with no login and no cookies. |
+| Reference | `Yui007/mangak-downloader` (MIT), endpoints and field names only, all re-checked live. No code ported. (`Dyslexic-churchschool477/mangak-downloader` is a malware fork of it; never use it.) |
+| Tests | `tests/test_sources_mangak.py` (small invented fixtures shaped like the live pages; no network). |
 
 ## Generic "paste a URL" import (no adapter)
 
@@ -356,15 +355,6 @@ fetch, through the normal access ladder, answering:
 an unreachable page, a challenge, and text that fails the checks all come
 back as a readable finding rather than a traceback.
 
-**Why not just check whether Google Translate works on the site.** That
-rule of thumb is sound — a translator and a scraper both need the text to
-be real DOM text rather than pixels in an image or glyphs on a canvas —
-but it measures the property indirectly. `validate_novel` already scores
-exactly that property here, offline, without sending anyone's URLs to a
-third party, and it also answers the three things a translation check
-never could: is there a chapter list, is this prose or navigation, and
-are we allowed to read it at all.
-
 ### Adaptive extraction (Step 23g) — `sources/adaptive.py`, `sources/ai_extract.py`, `sources/profiles.py`
 
 Order tried for a pasted novel/comic URL, stopping at the first that
@@ -376,12 +366,12 @@ passes the independent checks:
 
 | | |
 |---|---|
-| Confidence | Per field (title, author, chapter title/number, content, next/previous link, page images, page order) as a score and HIGH/MEDIUM/LOW/FAILED. It's checked independently (length, repeat rate, text actually on the page, URL shape, image size and duplicates). The model's own score can only lower a field's confidence. |
-| Profiles | Generated from an AI result, or from a profile that stopped fitting. Re-run on the page and validated before saving. Auto-saved only at HIGH, otherwise held for approval. Versions are append-only; a failing version is marked, never deleted; any version can be made active again under **🩺 Sources, health & diagnostics**. |
-| Review Extraction | Shown under the import when confidence is low, or always with **Extraction diagnostics mode** (Source settings). Novel: choose the text container, leave out nav/comments/ads, pick the title and next/previous links. Comic: mark each image content/cover/ad/..., renumber pages. Corrections can be saved as the site's profile; the source content itself is never edited. |
+| Confidence | Per field (title, author, chapter title/number, content, next/previous link, page images, page order) as HIGH/MEDIUM/LOW/FAILED, checked independently of the model (length, repeat rate, text on the page, URL shape, image size). The model's own score can only lower it. |
+| Profiles | Generated from an AI result or a profile that stopped fitting, re-run on the page and validated before saving. Auto-saved only at HIGH, otherwise held for approval. Versions are append-only; any can be made active again under **🩺 Sources, health & diagnostics**. |
+| Review Extraction | Shown when confidence is low, or always with **Extraction diagnostics mode**. Novel: choose the text container, drop nav/comments/ads, pick title and next/previous links. Comic: mark each image content/cover/ad, renumber pages. Corrections can be saved as the site's profile; the source content is never edited. |
 | Media on unknown pages | For a video page no adapter or yt-dlp shortcut recognizes: **🔎 Identify media on this page** lists video/audio/manifest/subtitle resources (identify only). The one you pick goes through the normal video import. DRM markers are named, never worked around. |
-| Diagnostics | Each attempt is added to the same access-attempt log as the ladder (source `generic`). It records which access tier and which extraction tier worked, how many AI calls were made, what happened with the profile, any protection detected, and the plain-language reason for a failure. |
-| AI recovery of a changed layout | When a novel adapter's page loads but its layout no longer matches, the chapter import stops there and marks the chapter "needs AI help"; after you confirm an engine (one AI call), the page is read with the extraction ladder above and opens in Review extraction, and nothing is written until you import it. This is in the web app and API only (`cli.py` has no sources commands). |
+| Diagnostics | Each attempt goes in the access-attempt log (source `generic`): access tier, extraction tier, AI call count, profile outcome, protection detected, and a plain-language failure reason. |
+| AI recovery of a changed layout | When a novel adapter's page loads but its layout no longer matches, the chapter is marked "needs AI help"; after you confirm an engine (one AI call) the page opens in Review extraction, and nothing is written until you import it. Web app and API only (`cli.py` has no sources commands). |
 | Tests | `tests/test_adaptive_extraction.py` — mocked engine, no network. |
 
 ## Signed-in browser sessions (Step 23k) — `sources/auth_browser.py`, `page_fetch.py`
@@ -438,7 +428,7 @@ path as Workspace's "Video URL" option, with the same cookie settings.
 |---|---|
 | Name | `demo`. Hidden until **Sources → Source settings → Show the demo source** is turned on. |
 | What it is | A locally generated three-chapter comic, plus a "Challenge test" series that always answers like a Cloudflare challenge. It goes through the real paced client, so the status view and the hand-off can be tried without the network. |
-| Tests | `tests/test_sources_workflows.py`, `tests/test_sources_tab.py` |
+| Tests | `tests/test_sources_workflows.py` |
 
 ## If a site blocks your IP or region
 
@@ -451,73 +441,16 @@ Check the site's terms before routing around a block.
 
 ## Manual checks still to do
 
-These have only been run against offline fixtures. Tick them off once
-they've been tried against the real site.
+Open items only. Each source's own table above records what was already checked live. The 2026-09-26 pass drove the adapters' methods directly against the live sites, so the Sources-tab import into a drama is not separately confirmed for them.
 
-> **2026-09-26 live-verification pass**: this session had real, unrestricted
-> network access (a first for this project -- every earlier pass here was
-> either offline or behind a sandboxed proxy that couldn't reach these
-> sites at all) and drove each adapter's real methods (`search`,
-> `get_series`, `get_chapters`, `get_pages`, `download_page`) directly
-> against the live sites, bypassing the Streamlit UI. That confirms the
-> extraction/decode logic itself against real data -- the one thing no
-> earlier pass could do -- but **did not** click through the actual
-> Sources tab or confirm imported pages render in Scanlate/Workspace, so
-> the UI-integration half of each checklist item below is still open.
-> Items are marked accordingly. Full details and reproductions are in
-> each source's own table above.
-
-- [x] **manhuagui, normal work:** `search("斗罗大陆")` → `get_series` →
-  `get_chapters` → `get_pages` → `download_page` all ran end to end
-  against the real site: real search results, a real 51-page chapter, and
-  a real 292KB `.webp` page image downloaded intact. **UI import into a
-  drama/Scanlate itself not separately driven.**
 - [ ] **manhuagui, adult-flagged work:** turn on **🔞 Include adult-flagged
   works** for manhuagui. Open a work that was refused with it off, and
   confirm its chapter list loads and a chapter imports. Turn the toggle
   off again and confirm the same work is refused with the message that
   names the toggle.
-- [x] **Generic paste-a-URL:** confirmed (2026-09-27) against a real
-  chapter page on `m.zgzl.net` (site brand "文海小说"), a site with no
-  registered adapter -- `sources.preflight.preflight()` reached it over
-  plain HTTP, correctly classified it as `novel`, and trafilatura pulled
-  its chapter text at `HIGH` confidence. No robots.txt (404) and no
-  ToS/copyright notice found on the page. **UI import into a drama itself
-  not separately driven** -- this ran the preflight/extraction path
-  directly, the same way the 2026-09-26 adapter pass drove adapters
-  directly rather than clicking through Streamlit.
 - [ ] **Browser tier:** install Playwright (`pip install playwright` then
   `playwright install chromium`), and confirm **Test Browser** on a
   JavaScript-only page records a real result.
-- [x] **Novel text:** confirmed (2026-09-27) on the same `m.zgzl.net`
-  page -- trafilatura extracted real chapter prose at `HIGH` confidence,
-  independently of the adapter-specific novel sites (52shuku, xbanxia)
-  already verified above.
-- [x] **xbanxia domain question:** confirmed (2026-09-26) -- `xbanxia.cc`
-  redirects to `www.xbanxia.cc`, which is a real, live, working novel
-  site (`半夏小說`) with real search results, a real 567-chapter book page,
-  and real chapter text. `xbanxia.com` returns HTTP 403 and `banxia.cc`
-  redirects elsewhere; `xbanxia.cc`/`www.xbanxia.cc` is confirmed the
-  right target, not a guess. Two real bugs found in the process -- see the
-  adapter's own table entry above.
-- [x] **52shuku, normal work:** confirmed (2026-09-26), including the
-  regression this same pass found and fixed -- `get_chapter_text`'s
-  container moved to `div.content.contentmargin` (fixed, with the old
-  selectors kept as fallbacks) and the URL-routing patterns were updated
-  to the site's real current shape. Re-verified end to end after the fix:
-  real search-routing, 1347 real chapters, and real chapter text.
-  **UI import into a novel drama itself not separately driven.**
-- [x] **xbanxia, normal work:** confirmed (2026-09-26) against
-  `www.xbanxia.cc` -- `div#nr1` matched a real chapter directly, no
-  fallback needed. **UI import into a drama itself not separately
-  driven.**
-- [x] **Bilibili:** confirmed (2026-09-26) against a real public video
-  (`BV11ihW69EYg`, `bilibili.com/video/...`): `matches_url`, `get_metadata`
-  (correct title/uploader/date/duration), `available_qualities`
-  (`480p`/`Audio only`), `get_subtitles` and `get_parts` (correctly
-  reported as single-part) all returned correct real data before any
-  download. **Full video download and transcription-pipeline hand-off, and
-  a real multipart `?p=2` case, not separately driven.**
 - [ ] **Bilibili Manga, terms text:** read all four agreement URLs listed
   above in a real, logged-out browser (their text loads via client-side
   JS at runtime, so a plain fetch never sees it) and record whether any
@@ -526,9 +459,7 @@ they've been tried against the real site.
   Bilibili account, confirm whether an ordinary authenticated browser
   session is sufficient for a free chapter, and whether a purchased
   chapter's image tokens behave differently or carry extra protection.
-  Required before this adapter is trusted for real use -- not just before
-  it's marked done in the roadmap's sense (see the batch instruction that
-  authorized merging this step with these two checks still pending).
+  Required before this adapter is trusted for real use.
 - [ ] **Step 23g, Source Diagnostics:** during a real pasted-URL import,
   open **🩺 Source diagnostics** (and the list under **🩺 Sources, health &
   diagnostics**) and confirm it shows which tier actually worked, whether
@@ -539,61 +470,14 @@ they've been tried against the real site.
   (e.g. mark an image as an ad), save it to the site's profile, and confirm
   the next chapter from that site uses the corrected profile, with the
   source content itself untouched.
-- [x] **ToonKor, normal work:** confirmed (2026-09-26) -- searched a real
-  title on `toonkor0.org`, opened its real chapter list, and decoded 249
-  real page-image URLs from a real chapter. **UI import into a drama/
-  Scanlate itself not separately driven.**
-- [x] **ToonKor, domain check:** confirmed (2026-09-26) -- `toonkor0.org`
-  is still live, reachable and unchallenged.
-- [x] **guazimanhua, normal work:** confirmed (2026-09-26) -- searched a
-  real title, opened a real chapter list, and got 36 real page-image URLs
-  straight out of `section.reader-images` in the raw HTML on the first
-  plain HTTP fetch (no browser-tier fallback needed), validating this
-  adapter's own deviation from the roadmap's browser-tier expectation.
-  **UI import into a drama/Scanlate itself not separately driven.**
-- [x] **miaoqumh, normal work:** confirmed (2026-09-26) -- opened a real
-  series's chapter list and decoded 17 real page-image URLs from a real
-  chapter through the full base64/XOR/base64/JSON chain. **UI import into
-  a drama/Scanlate itself not separately driven.**
 - [ ] **miaoqumh, search endpoint:** not re-checked this pass -- still
   open.
-- [x] **baozimh/godamh, normal work:** confirmed (2026-09-26) -- searched
-  a real title, opened a real chapter list from the live JSON API, and
-  decoded 11 real page-image URLs from a real chapter's real obfuscated
-  payload. **UI import into a drama/Scanlate itself not separately
-  driven.**
 - [ ] **baozimh/godamh, mirror fallback:** with one of the six mirrors
   genuinely unreachable (or simulated via a hosts-file/firewall block),
   confirm a real import still succeeds via the next configured mirror.
-- [x] **Kuaikan, normal work:** **was blocked by a real bug (2026-09-26),
-  not this adapter's own fault, now fixed.** `get_series`/`get_chapters`/
-  `get_pages` all crashed immediately with `KeyError: "name='referer_name',
-  domain=None, path=None"` before the `window.__NUXT__` decode was ever
-  reached -- root cause was in shared code (`sources/http.py`'s cookie
-  merging), triggered by a real empty-value cookie kuaikan's site sets.
-  **Fixed** (see the adapter's own table entry above). Re-verified end to
-  end: real series metadata, a real chapter list, and real page-image URLs
-  all decoded correctly from the Nuxt state. **UI import into a manhua
-  drama itself not separately driven.**
 - [ ] **Kuaikan, locked-chapter message:** not reached this pass -- the
   chapter used for the normal-work check above was a free one.
-- [x] **Kuaikan, browser-tier double-check:** the transport bug that
-  blocked this before is fixed, and the normal-work check above confirms
-  `window.__NUXT__` really is present and decodes correctly on an ordinary
-  real page load -- no browser-rendered tier needed, as designed.
 - [ ] **Kuaikan, search:** not re-checked this pass.
-- [x] **manhuaku, normal work:** exercised for real (2026-09-26), a first
-  for this adapter -- `get_series`/`get_chapters` work correctly against
-  the live site. `get_pages()`'s browser-rendered tier was **found broken
-  in two distinct ways and fixed the same day**: `blob:`-protected
-  chapters (returned other titles' cover thumbnails with no error) are now
-  read correctly by capturing their real bytes from inside the rendered
-  page; and a separate scroll/resize-triggered lazy-load issue (the exact
-  same chapter sometimes rendered with zero real content at all) is fixed
-  by scrolling once after the initial page load. Re-verified live, twice:
-  the previously-failing chapter returned 18 real images and downloaded a
-  real page both times. **UI import into a drama/Scanlate itself not
-  separately driven.**
 - [ ] **manhuaku, search endpoint:** not re-checked this pass.
 - [ ] **Step 23k, signed-in session (pending a real account):** with a
   real account on a source actually confirmed permitted (Bilibili Manga,
@@ -612,55 +496,6 @@ they've been tried against the real site.
   that closing the Chromium window fires Playwright's context `close`
   event on every OS, and that a site accepts a session signed in on a
   headed window when it is later read headless.
-- [x] **zerosumonline, normal work:** confirmed (2026-09-26) -- searched a
-  real series (`futsuoya`), pulled a real 2-chapter list, and the
-  from-scratch protobuf reader decoded 38 real page-image URLs from a real
-  `ViewerView` response with no changes needed. **UI import into a drama
-  itself not separately driven.**
-- [ ] **mangaz, full RSA+AES round trip:** `search`/`get_series`/
-  `get_chapters` confirmed live (2026-09-26) against real data, and this
-  pass got much further than ever before on `get_pages()` -- a real serial
-  and a real, valid ticket were both obtained live, and the "hang" reported
-  earlier this pass turned out to be `SourceClient`'s own retry logic
-  re-triggering the site's 120s crawl-delay pacing on every retry of a
-  real, fast HTTP 500 -- not a true network freeze. That 500 itself
-  reproduced identically across 7 different real books and 8 request
-  variations, including impersonating a real Chrome TLS/HTTP2 fingerprint
-  via `curl_cffi` (ruling out fingerprint-based blocking) and a direct
-  line-by-line cross-check against the real reference extension's own
-  source (`MangaToshokanZ.kt`/`Crypto.kt`), which confirmed this adapter's
-  implementation is faithful to it. **Root cause finally identified: that
-  endpoint is decommissioned and the whole RSA+AES flow is a dead legacy
-  protocol** -- the site's own current viewer script discards the RSA
-  keypair it still generates, never calls `docx` at all, and reads its
-  page manifest straight out of the viewer page's own `#doc` element. The
-  500 was the site correctly rejecting something it no longer serves.
-  **The current protocol is now implemented** (see the adapter's own
-  table above): `get_pages()` reads the viewer's embedded manifest -- 43
-  real pages in ~1 second, confirmed live twice -- and `download_page()`
-  reads back what the site's own reader descrambles, confirmed live at
-  full resolution. What's left to check is a **full-book capture**: the
-  best confirmed run got 38 of 43 pages (the other five were slow to
-  draw, and a revisit pass was added for them), and two attempts to
-  confirm 43/43 couldn't reach the viewer at all after a day of heavy
-  automated access to this site. Worth re-running on a fresh day, from a
-  normal machine, on a short book. The manifest half of this was since
-  re-verified **offline**, replaying the three real viewer pages captured
-  during the live pass back through `get_pages()` (195/43/55 pages, order
-  and names matching, zero requests to the site) -- which also exposed a
-  per-missing-page browser re-drive that the live runs had masked, now
-  fixed and covered by tests. Only the browser capture itself still needs
-  a real machine.
-- [x] **missevan, normal work (free content):** confirmed live (2026-09-28)
-  -- `search("重生")` returned real results via the real `s=` query param
-  (not `keyword=`, which 200s but always reports zero hits), a real
-  drama's episode list loaded via `getdrama`, and `getsound` resolved a
-  real free episode to a real, playable, signed HLS `.m3u8` URL. A real
-  paid drama's locked episode (魔道祖师 第三季) was also confirmed with no
-  session: HTTP 200 / `success:true` with `soundurl`/`soundurl_128` both
-  `null` and `need_pay`/`price` set -- the exact "silent null field, not
-  an error" shape this adapter's `get_audio_url()` checks for. **UI
-  import into a drama itself not separately driven.**
 - [ ] **missevan, signed-in/paid session (pending a real account):** with
   a real purchased or VIP MissEvan account signed in through this
   source's browser profile, confirm whether `get_audio_url()`'s

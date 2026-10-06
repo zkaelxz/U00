@@ -79,7 +79,7 @@ def _no_leak(r, extra=()):
 
 
 def test_start_poll_stop_flow(client, fake_live):
-    r = client.post("/api/live/sessions", json={"url": URL, "engine": "test_offline",
+    r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake",
                                                 "max_minutes": 5, "use_gpu": True})
     assert r.status_code == 200, r.text
     sid = r.json()["session_id"]
@@ -109,9 +109,9 @@ def test_404_and_422(client):
     assert client.post(f"/api/live/sessions/{unknown}/stop").status_code == 404
     assert client.get("/api/live/sessions/not-a-session").status_code == 422
     assert client.post("/api/live/sessions/x/stop").status_code == 422
-    for body in ({"url": "file:///etc/passwd", "engine": "test_offline"},
-                 {"url": URL, "engine": "test_offline", "source_language": "fr"},
-                 {"url": URL, "engine": "test_offline", "whisper_size": "huge"},
+    for body in ({"url": "file:///etc/passwd", "engine": "fake"},
+                 {"url": URL, "engine": "fake", "source_language": "fr"},
+                 {"url": URL, "engine": "fake", "whisper_size": "huge"},
                  {"url": URL, "engine": "nope"},
                  {"url": URL, "cookies": "x"},
                  {"url": URL, "use_gpu": "yes"},
@@ -125,7 +125,7 @@ def test_private_host_422_and_no_key_503(client, monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.2", 443))])
     assert client.post("/api/live/sessions",
-                       json={"url": "http://router.local/", "engine": "test_offline"}
+                       json={"url": "http://router.local/", "engine": "fake"}
                        ).status_code == 422
     monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: PUBLIC)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: None)
@@ -152,7 +152,7 @@ def _headers(*perms, email="kid@example.com", revoke=()):
 
 def test_auth_on_permissions(fake_live):
     c = _on_client()
-    free = {"url": URL, "engine": "test_offline"}
+    free = {"url": URL, "engine": "fake"}
     paid = {"url": URL, "engine": "claude"}
     assert c.post("/api/live/sessions", json=free).status_code == 401
     household = _headers()
@@ -180,7 +180,7 @@ def test_auth_on_permissions(fake_live):
 
 
 def test_one_session_at_a_time(client, fake_live):
-    body = {"url": URL, "engine": "test_offline"}
+    body = {"url": URL, "engine": "fake"}
     first = client.post("/api/live/sessions", json=body)
     assert first.status_code == 200
     for _ in range(3):
@@ -193,20 +193,8 @@ def test_one_session_at_a_time(client, fake_live):
     assert _wait(lambda: client.post("/api/live/sessions", json=body).status_code == 200)
 
 
-def test_streamlit_capture_job_blocks_a_start(client, fake_live):
-    import threading
-    gate = threading.Event()
-    assert background_jobs.start_job("live_capture", lambda: gate.wait(60))  # set in finally
-    try:
-        r = client.post("/api/live/sessions", json={"url": URL, "engine": "test_offline"})
-        assert r.status_code == 409
-    finally:
-        gate.set()
-        _wait(lambda: not background_jobs.is_running("live_capture"))
-
-
 def test_job_gets_stream_check_and_ffmpeg_whitelist(client, fake_live):
-    r = client.post("/api/live/sessions", json={"url": URL, "engine": "test_offline"})
+    r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake"})
     assert r.status_code == 200
     assert _wait(lambda: "kw" in fake_live)
     assert fake_live["kw"]["stream_url_check"] is live_service.check_stream_url
@@ -237,7 +225,7 @@ def test_refused_stream_url_ends_the_job_without_leaking(client, fake_live, monk
     def fake_run(job_id, url, out_dir, *a, stream_url_check=None, **kw):
         stream_url_check("file:///etc/passwd?token=" + SECRET)
     monkeypatch.setattr(live_translate, "run_live_job", fake_run)
-    sid = client.post("/api/live/sessions", json={"url": URL, "engine": "test_offline"}
+    sid = client.post("/api/live/sessions", json={"url": URL, "engine": "fake"}
                       ).json()["session_id"]
     assert _wait(lambda: client.get(f"/api/live/sessions/{sid}").json()["status"] == "error")
     g = client.get(f"/api/live/sessions/{sid}")

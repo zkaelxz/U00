@@ -1,4 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSection } from './diagnosticsInstallsMocks'
+import { openSettingsGroups } from './settingsNav'
+import { hitHeight, installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): Diagnostics admin with the Log, the
 // support report and a failed install's Output open. Every POST is mocked;
@@ -26,38 +33,34 @@ async function guard(page: Page): Promise<string[]> {
   return unmocked
 }
 
-test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', async ({ page }) => {
+test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll', async ({ page }) => {
   const unmocked = await guard(page)
-  await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 1, items: [{
+  // No task groups here, so a missing package is installed one by one from "Not installed".
+  await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: { tasks: [], packages: {} } }))
+  await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 2, items: [{
     job_id: 'translate_1', status: 'running', progress: 0.4, message: 'Batch 2 of 5', error: null,
     description: 'Translate Signal', gpu_touching: false, started_at: Date.now() / 1000 - 185, finished_at: null, updated_at: 0,
+  }, {
+    job_id: 'dub_2', status: 'error', progress: null, message: '', error: `Provider failed: ${long}`,
+    description: 'Dub Signal', gpu_touching: false, started_at: 10, finished_at: 20, updated_at: 0,
   }] } }))
   await page.route('**/api/diagnostics/log**', (r) =>
     r.fulfill({ json: { lines: [`12:00 ERROR ${long}`, '12:01 INFO fine'] } }))
-  await page.route('**/api/diagnostics/support-report', (r) => r.fulfill({ json: { report: `Baihe report\n${long}` } }))
   await page.route('**/api/diagnostics/dependencies/**', (r) =>
     r.fulfill({ json: { package: 'yt-dlp', ok: false, output_tail: [`ERROR: ${long}`] } }))
 
   await page.goto('/#/diagnostics')
-  // Jobs as cards, Cancel on its own line.
-  const card = page.locator('ul.job-cards > li').first()
-  await expect(card).toContainText('Running 40% · 3m')
-  const cancel = card.getByRole('button', { name: 'Cancel' })
-  expect((await cancel.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  // The jobs summary is a banner with a 44px link to the Jobs page.
+  const banner = page.getByTestId('jobs-summary')
+  await expect(banner).toContainText('1 running, 1 failed')
+  expect((await hitHeight(banner.getByRole('link', { name: 'Open Jobs' })))).toBeGreaterThanOrEqual(44)
 
   await page.locator('summary', { hasText: /^Log/ }).click()
   await expect(page.getByLabel('Log lines')).toContainText('INFO fine')
-  // Support report: a card with Copy report; the preview fold shows it, plain text one tap away.
-  await page.locator('summary', { hasText: "What's in it" }).click()
-  await expect(page.getByTestId('report-list')).toContainText('Baihe report')
-  await page.getByRole('button', { name: 'Plain text' }).click()
-  await expect(page.getByLabel('Support report')).toContainText('Baihe report')
-
   // The job blocks installs; drop it so the Install button works.
   await page.unroute('**/api/jobs')
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 0, items: [] } }))
-  await page.locator('summary', { hasText: /^Packages/ }).click()
-  await page.locator('summary', { hasText: /^Missing packages/ }).click()
+  await openSection(page, /^Packages/)
   const install = page.getByRole('button', { name: 'Install yt-dlp' })
   await expect(install).toBeEnabled({ timeout: 10_000 })
 
@@ -72,9 +75,9 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
   await expect(page.getByTestId('install-result')).toContainText('Install failed for yt-dlp.')
   await expect(page.getByTestId('install-result').locator('pre')).toBeVisible()
 
-  const small = await page.locator('button:not(.link):not(.field-help-btn), summary').evaluateAll((els) =>
+  const small = await page.locator('button:not(.link):not(.field-help-btn):not(.toggle), summary').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent ?? '').trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
   expect(small).toEqual([])
   await noSideways(page)
@@ -86,25 +89,23 @@ test('Settings on a phone: the extension section fits and its targets are 44px',
   await page.route('**/api/extension/status', (r) => r.fulfill({ json: { enabled: true, running: true } }))
   await page.route('**/api/extension/token', (r) => r.fulfill({ json: { token: 'tok-phone' } }))
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('On · running')
   await ext.getByRole('button', { name: 'Show extension token' }).click()
   await ext.getByRole('button', { name: 'Confirm show extension token' }).click()
   await expect(ext.getByLabel('Extension token', { exact: true })).toHaveValue('tok-phone')
   for (const name of ['Copy', 'Hide']) {
-    expect((await ext.getByRole('button', { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect((await hitHeight(ext.getByRole('button', { name })))).toBeGreaterThanOrEqual(44)
   }
   await noSideways(page)
   expect(unmocked).toEqual([])
 })
 
-test('Diagnostics at 360px: Setup and report cards, Packages with GPU PyTorch, report preview fit', async ({ page }) => {
+test('Diagnostics at 360px: Setup card, Packages with GPU PyTorch fit', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   const unmocked = await guard(page)
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 0, items: [] } }))
-  await page.route('**/api/diagnostics/support-report', (r) => r.fulfill({
-    json: { report: `Python: 3.12.4\nModel/engine versions:\n  - faster-whisper: 1.1.0\nRecent errors:\n  12:00 ERROR ${long}` },
-  }))
   await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch', (r) => r.fulfill({ json: {
     nvidia: { found: true, gpu_name: 'NVIDIA GeForce RTX 3080 Ti', driver_version: '581.42', status: 'ok', recommended: '570.65', minimum: '528.33' },
     installed: [{ name: 'torch', version: null, build: null }, { name: 'torchvision', version: null, build: null },
@@ -118,9 +119,8 @@ test('Diagnostics at 360px: Setup and report cards, Packages with GPU PyTorch, r
   } }))
   await page.goto('/#/diagnostics')
   await expect(page.getByTestId('setup-rows')).toBeVisible()
-  await page.locator('summary', { hasText: "What's in it" }).click()
-  await expect(page.getByTestId('report-list')).toContainText('faster-whisper')
-  await page.locator('summary', { hasText: /^Packages/ }).click()
+  await openSection(page, /^Packages/)
+  await openSection(page, /^GPU PyTorch/) // 'missing' is not a problem, so it starts folded
   await expect(page.getByRole('table', { name: 'PyTorch versions' })).toContainText('0.26.0+cu128')
   await expect(page.getByRole('button', { name: 'Set up GPU PyTorch' })).toBeVisible()
 
@@ -128,45 +128,10 @@ test('Diagnostics at 360px: Setup and report cards, Packages with GPU PyTorch, r
   const table = await page.getByRole('table', { name: 'PyTorch versions' }).evaluate((t) =>
     ({ scroll: t.parentElement!.scrollWidth, client: t.parentElement!.clientWidth }))
   expect(table.scroll).toBeLessThanOrEqual(table.client)
-  const small = await page.locator('button:not(.field-help-btn), summary, a.btn').evaluateAll((els) =>
+  const small = await page.locator('button:not(.field-help-btn):not(.toggle), summary, a.btn').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent ?? '').trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
-  expect(small).toEqual([])
-  await noSideways(page)
-  expect(unmocked).toEqual([])
-})
-
-test('Job history time by stage fits a phone and its summaries are 44px', async ({ page }) => {
-  const unmocked = await guard(page)
-  await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 0, items: [] } }))
-  await page.route('**/api/diagnostics/job-history', (r) => r.fulfill({ json: [{
-    job_id: 'a', label: 'Translating Signal episode 12 with the long description', status: 'done', description: null,
-    message: '', error: null, gpu_touching: true, started_at: 1, finished_at: 2, duration_seconds: 4000,
-  }] }))
-  await page.route('**/api/jobs/a/stages', (r) => r.fulfill({ json: { job_id: 'a', runs: [{
-    run_started_at: 100, running: false, total_seconds: 4000, cost_usd: 1.25, stages: [
-      { stage: 'Preparing', started_at: 100, duration_seconds: 3.4, cost_usd: 0 },
-      { stage: 'Translating batches with the reviewer pass and glossary checks', started_at: 104,
-        duration_seconds: 3725, cost_usd: 1.2 },
-      { stage: 'Saving', started_at: 3829, duration_seconds: 271.6, cost_usd: 0.05 },
-    ] }] } }))
-  await page.goto('/#/diagnostics')
-  await page.locator('summary', { hasText: /^Job history/ }).click()
-  const history = page.getByRole('list', { name: 'Job history' })
-  await history.locator('summary', { hasText: 'Translating Signal' }).click()
-  const rows = history.getByRole('list', { name: 'Time by stage' }).locator('li')
-  await expect(rows).toHaveCount(3)
-  await expect(rows.nth(1)).toContainText('1 h 02 min · $1.20')
-  await expect(history).toContainText('Total 1 h 06 min · estimated $1.25')
-  // Each stage's time stays inside the row.
-  for (let i = 0; i < 3; i++) {
-    const row = (await rows.nth(i).boundingBox())!
-    const nums = (await rows.nth(i).locator('.stage-times-nums').boundingBox())!
-    expect(nums.x + nums.width).toBeLessThanOrEqual(row.x + row.width + 1)
-  }
-  const small = await history.locator('summary').evaluateAll((els) =>
-    els.map((e) => e.getBoundingClientRect().height).filter((h) => h < 44))
   expect(small).toEqual([])
   await noSideways(page)
   expect(unmocked).toEqual([])

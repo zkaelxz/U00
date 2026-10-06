@@ -2,7 +2,7 @@
 S8): config and page detail, page import with its limits, the one-job-per-
 drama detect/OCR/translate/render run, re-render and ZIP/PDF export.
 
-Mocked: detection/OCR is a fake, translation is test_offline or a fake
+Mocked: detection/OCR is a fake, translation is the fake engine or a stub
 engine with a patched call_llm_json. Rendering and slicing run for real on
 tiny synthetic images (OpenCV + Pillow, no models, no network)."""
 
@@ -117,7 +117,7 @@ def test_config_has_key_booleans_only(client, monkeypatch):
     body = r.json()
     assert "sk-ant" not in r.text
     names = {e["name"]: e for e in body["engines"]}
-    assert names["test_offline"]["key_configured"] is True
+    assert names["fake"]["key_configured"] is True
     assert set(names["claude"]) == {"name", "label", "free", "key_configured"}
     assert body["page_count"] == 1 and body["job_id"] == f"scanlate_{did}"
     assert body["upload_limits"]["max_image_mb"] == 30
@@ -368,7 +368,7 @@ def test_translate_all_skips_pages_with_regions(client, fake_detect):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
     db.save_bubbles(p1, [_region(1, translated_text="kept")])
-    r = _run(client, did, engine="test_offline")
+    r = _run(client, did, engine="fake")
     assert r.status_code == 200, r.text
     assert r.json()["job_id"] == f"scanlate_{did}"
     st = _wait(f"scanlate_{did}")
@@ -396,7 +396,7 @@ def test_uses_saved_ocr_backend_and_tesseract(client, fake_detect, monkeypatch):
     monkeypatch.setattr(settings_service, "get_tesseract_cmd", lambda: "C:/saved/tesseract.exe")
     did = _drama()
     _page(did)
-    _run(client, did, engine="test_offline", detect_backend="cv")
+    _run(client, did, engine="fake", detect_backend="cv")
     _wait(f"scanlate_{did}")
     assert fake_detect[0]["ocr_backend"] == "paddle"
     assert fake_detect[0]["tesseract_cmd"] == "C:/saved/tesseract.exe"
@@ -408,15 +408,15 @@ def test_redo_page_replaces_and_redo_all_needs_confirm(client, fake_detect):
     p1, p2 = _page(did, 0), _page(did, 1)
     db.save_bubbles(p1, [_region(1, translated_text="old")])
     db.save_bubbles(p2, [_region(1, translated_text="old2")])
-    r = _run(client, did, mode="all", engine="test_offline")
+    r = _run(client, did, mode="all", engine="fake")
     assert r.status_code == 409
-    assert _run(client, did, mode="page", engine="test_offline").status_code == 422
-    r = _run(client, did, mode="page", page_id=p1, engine="test_offline")
+    assert _run(client, did, mode="page", engine="fake").status_code == 422
+    r = _run(client, did, mode="page", page_id=p1, engine="fake")
     assert r.status_code == 200
     _wait(f"scanlate_{did}")
     assert len(db.load_bubbles(p1)) == 3
     assert db.load_bubbles(p2)[0]["translated_text"] == "old2"
-    r = _run(client, did, mode="all", confirm=True, engine="test_offline")
+    r = _run(client, did, mode="all", confirm=True, engine="fake")
     assert r.status_code == 200
     _wait(f"scanlate_{did}")
     assert len(db.load_bubbles(p2)) == 3
@@ -433,7 +433,7 @@ def test_page_edited_mid_run_is_not_wiped(client, monkeypatch):
         assert db.update_bubble_fields(bid, {"translated_text": "my edit"})
         return [_region(5)], []
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
-    _run(client, did, mode="page", page_id=pid, engine="test_offline")
+    _run(client, did, mode="page", page_id=pid, engine="fake")
     st = _wait(f"scanlate_{did}")
     assert "edited meanwhile" in st["message"]
     rows = db.load_bubbles(pid)
@@ -490,7 +490,7 @@ def test_redo_that_detects_nothing_keeps_the_regions(client, monkeypatch):
     pid = _page(did)
     db.save_bubbles(pid, [_region(1, translated_text="good")])
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([], []))
-    _run(client, did, mode="page", page_id=pid, engine="test_offline")
+    _run(client, did, mode="page", page_id=pid, engine="fake")
     _wait(f"scanlate_{did}")
     assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
 
@@ -507,8 +507,8 @@ def test_answers_are_applied_by_key_not_position(monkeypatch):
 
 def test_source_language_and_usage_reach_machine_translation(isolated_db):
     class MT:
-        name = "deepl"
-        model = "deepl"
+        name = "nllb"
+        model = "nllb"
         supports_reference = False
         last_usage = {}
 
@@ -562,7 +562,7 @@ def test_secret_and_path_in_error_are_redacted(client, monkeypatch):
         raise RuntimeError("401 for key sk-ant-api03-SECRETSECRETSECRET1234 reading "
                            "/home/kae/baihe/library/dramas/1/pages/page_0000.png")
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
-    _run(client, did, engine="test_offline")
+    _run(client, did, engine="fake")
     st = _wait(f"scanlate_{did}")
     assert st["status"] == "done" and "1 failed" in st["message"]
     notes = db.get_page(pid)["run_notes"]
@@ -581,7 +581,7 @@ def test_cancel_between_pages(client, monkeypatch):
         background_jobs.request_cancel(f"scanlate_{did}")
         return [_region(5)], []
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
-    _run(client, did, engine="test_offline")
+    _run(client, did, engine="fake")
     assert _wait(f"scanlate_{did}")["status"] == "cancelled"
     assert seen == [p1] and len(db.load_bubbles(p1)) == 1 and db.load_bubbles(p2) == []
 
@@ -589,19 +589,19 @@ def test_cancel_between_pages(client, monkeypatch):
 def test_run_refusals(client, monkeypatch):
     from services import translate_service
     did = _drama()
-    assert _run(client, did, engine="test_offline").status_code == 400      # no pages
+    assert _run(client, did, engine="fake").status_code == 400      # no pages
     _page(did)
     assert _run(client, did, engine="nope").status_code == 422
-    assert _run(client, did, engine="test_offline", detect_backend="gpu").status_code == 422
+    assert _run(client, did, engine="fake", detect_backend="gpu").status_code == 422
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: None)
     assert _run(client, did, engine="claude").status_code == 503
     monkeypatch.undo()
     db.save_bubbles(db.list_pages(did)[0]["id"], [_region(1, translated_text="x")])
     _put_job(f"scanlate_{did}")
-    assert _run(client, did, engine="test_offline").status_code == 409
+    assert _run(client, did, engine="fake").status_code == 409
     assert client.post(f"/api/scanlate/dramas/{did}/render", json={}).status_code == 409
     assert client.post(f"/api/scanlate/dramas/{did}/export", json={}).status_code == 409
-    assert _run(client, 9999, engine="test_offline").status_code == 404
+    assert _run(client, 9999, engine="fake").status_code == 404
 
 
 def test_scanlate_job_blocks_drama_delete(isolated_db):
@@ -622,7 +622,7 @@ def test_engine_gate_for_household_user(isolated_db):
     url = f"/api/scanlate/dramas/{did}/run"
     assert c.post(url, json={"engine": "claude"}, headers=h).status_code == 403
     # no pages yet, so a free engine gets past the permission check to a 400
-    assert c.post(url, json={"engine": "test_offline"}, headers=h).status_code == 400
+    assert c.post(url, json={"engine": "fake"}, headers=h).status_code == 400
 
 
 # --- S6 / S8 ------------------------------------------------------------------------
@@ -770,3 +770,49 @@ def test_pdf_inflation_ceiling_is_applied_when_pypdf_has_one(monkeypatch):
                         raising=False)
     pages_svc._limit_pdf_inflation()
     assert filters.ZLIB_MAX_OUTPUT_LENGTH == pages_svc._PDF_INFLATE_CAP
+
+
+def test_failed_error_note_write_is_logged(isolated_db, monkeypatch):
+    import applog
+    import background_jobs
+    seen = []
+
+    class Log:
+        def warning(self, msg, *args):
+            seen.append(msg % args)
+    monkeypatch.setattr(applog, "get_logger", lambda: Log())
+    monkeypatch.setattr(run_svc.render_svc, "check_cancel", lambda jid: None)
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "auto")
+    monkeypatch.setattr(run_svc.settings_service, "resolve_key", lambda k: None)
+    monkeypatch.setattr(run_svc.settings_service, "get_tesseract_cmd", lambda: None)
+
+    def page_fails(*a, **k):
+        raise RuntimeError("page broke")
+
+    def note_fails(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(run_svc, "_process_page", page_fails)
+    monkeypatch.setattr(run_svc.db, "update_page", note_fails)
+    monkeypatch.setattr(run_svc.db, "get_drama", lambda did: {})
+    run_svc._run_job("j", 1, "all", [7], "claude", object(), "auto")
+    assert len(seen) == 1 and "page 7" in seen[0] and "disk full" in seen[0]
+
+
+def test_stored_page_error_note_is_redacted(isolated_db, monkeypatch):
+    import background_jobs
+    stored = []
+    monkeypatch.setattr(run_svc.render_svc, "check_cancel", lambda jid: None)
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "auto")
+    monkeypatch.setattr(run_svc.settings_service, "resolve_key", lambda k: None)
+    monkeypatch.setattr(run_svc.settings_service, "get_tesseract_cmd", lambda: None)
+
+    def page_fails(*a, **k):
+        raise RuntimeError("bad key sk-ant-abcdefghijklmnopqrstuvwxyz0123")
+    monkeypatch.setattr(run_svc, "_process_page", page_fails)
+    monkeypatch.setattr(run_svc.db, "update_page", lambda pid, **f: stored.append(f["run_notes"]))
+    monkeypatch.setattr(run_svc.db, "get_drama", lambda did: {})
+    run_svc._run_job("j", 1, "all", [7], "claude", object(), "auto")
+    assert len(stored) == 1 and "This page failed" in stored[0]
+    assert "sk-ant-abcdefghijklmnopqrstuvwxyz0123" not in stored[0]

@@ -17,6 +17,8 @@ import { Field } from '../components/Field'
 import { Section } from '../components/Section'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { Breadcrumbs } from '../nav/BreadcrumbNav'
+import { routeCrumbs } from '../nav/breadcrumbs'
 import { routeHref } from '../router'
 import { resolveTheme, useThemePref } from '../theme'
 import type {
@@ -353,11 +355,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
         </header>
       ) : (
         <div className="reader-top">
-          <nav aria-label="Breadcrumb" className="reader-crumbs">
-            <a href={routeHref({ name: 'library' })}>Library</a>
-            <span aria-hidden="true"> / </span>
-            <a href={workspaceHref}>{title ?? 'Loading…'}</a>
-          </nav>
+          <Breadcrumbs crumbs={routeCrumbs({ name: 'read', id, page: null }, { title })} />
           {aa}
         </div>
       )}
@@ -413,7 +411,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
               {vocab && vocab.count > 0 && (
                 <VocabSection dramaId={id} vocab={vocab} onChanged={() => setVocabTick((n) => n + 1)} />
               )}
-              {terms.length > 0 && <GlossarySection terms={terms} />}
+              {terms.length > 0 && <GlossarySection dramaId={id} terms={terms} />}
               <StorySection
                 dramaId={id}
                 page={page}

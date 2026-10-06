@@ -62,7 +62,7 @@ test.describe('selection bar (real API)', () => {
 
 test.describe('Backup & storage (mocked)', () => {
   async function openSection(page: Page) {
-    await page.goto('/')
+    await page.goto('/#/library-tools')
     await page.getByText('Backup & storage', { exact: true }).click()
   }
 
@@ -160,8 +160,9 @@ test.describe('Backup & storage (mocked)', () => {
     await page.route('**/api/meta', (r) => r.fulfill({ json: {
       app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
     await openSection(page)
-    await expect(page.getByText('Run this on the main PC.')).toBeVisible()
+    await expect(page.getByText('Run this on the main PC.').first()).toBeVisible()
     await expect(page.getByRole('button', { name: /Back up library|Scan|Export all/ })).toHaveCount(0)
+    await page.goto('/#/library')
     // Grid view: Select turns the cards into checkboxes.
     await page.getByRole('button', { name: 'Select', exact: true }).click()
     await page.getByRole('checkbox', { name: 'Select Signal' }).check()
@@ -192,7 +193,7 @@ test('preset delete is two-step: first press makes no call, second sends confirm
     deleted = true
     return r.fulfill({ json: { preset_id: 7, deleted: true } })
   })
-  await page.goto('/')
+  await page.goto('/#/library-tools')
   await presetsSummary(page).click()
   await expect(page.getByText('Dramas that used it keep their settings.')).toBeVisible()
 
@@ -213,7 +214,7 @@ test('an armed delete reverts after 5 s', async ({ page }) => {
   await page.route('**/api/library/voice-bank', (r) => r.fulfill({ json: {
     items: [{ id: 3, name: 'Narrator', language: 'en', clone_engine: null, source_drama: null, clip_available: false }],
   } }))
-  await page.goto('/')
+  await page.goto('/#/library-tools')
   await page.locator('summary', { hasText: 'Voice bank' }).click()
   await page.getByRole('button', { name: 'Delete Narrator' }).click()
   await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toBeVisible()
@@ -232,7 +233,7 @@ test('a failed delete re-enables the first step with focus; one press then only 
     await new Promise((res) => setTimeout(res, 400))
     return r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'A job is running.' } } })
   })
-  await page.goto('/')
+  await page.goto('/#/library-tools')
   await presetsSummary(page).click()
   await page.getByRole('button', { name: 'Delete Slow preset' }).click()
   await page.getByRole('button', { name: 'Confirm delete Slow preset' }).click()

@@ -10,13 +10,13 @@ export const SCREENS = '/tmp/claude-0/-home-user-U00/0474fa7c-90c2-5302-85f6-dd0
 
 export const CAND_ID = 'ab'.repeat(16)
 
-export const character = (over: object = {}) => ({
+const character = (over: object = {}) => ({
   speaker_label: 'SPEAKER_00', character_name: 'Wei Ying', voice_actor: '', pronouns: '', tts_voice: '',
   offline_voice: '', clone_engine: 'f5tts', voice_design: '', has_ref_audio: false, ref_text_present: false,
   series_character_id: null, series_character_name: '', line_count: 12, ...over,
 })
 
-export const dubConfig = (over: object = {}) => ({
+const dubConfig = (over: object = {}) => ({
   drama_id: 1, content_mode: null, is_narration: false, narration_language: 'translation',
   narration_language_options: ['translation', 'original'], source_language: 'zh',
   tts_engines: [{ key: 'edge_tts', label: 'Edge TTS', requires_internet: true }],
@@ -47,7 +47,7 @@ export async function guard(page: Page): Promise<string[]> {
   return unmocked
 }
 
-export interface Mocks {
+interface Mocks {
   posts: { url: string; body: unknown; headers: Record<string, string> }[]
   // started: an extraction job exists (set by the extract POST, or by a test
   // that opens the panel while one is already running, to check reattach).
@@ -171,6 +171,7 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
 export async function openVoices(page: Page) {
   await page.goto('/#/drama/1/dub')
   const summary = page.locator('summary', { hasText: 'Voices and cloning' }).first()
-  await summary.click()
+  // The section starts open; click only a closed one.
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
   return page.getByRole('region', { name: 'Voices and cloning' })
 }

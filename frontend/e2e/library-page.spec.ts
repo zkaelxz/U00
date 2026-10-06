@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-// Assumes LibraryPage is wired in at '/'. Seed data: e2e/serve_seeded_api.py.
+// Seed data: e2e/serve_seeded_api.py.
 // Creates then deletes its own drama so the seeded three are unchanged afterwards.
 
 test('stats line, Continue shelf and global line search', async ({ page }) => {
@@ -70,7 +70,11 @@ test('create (Enter submits) then delete with typed confirmation', async ({ page
   await page.getByRole('button', { name: 'New drama' }).click()
   await page.getByLabel('English title').fill('E2E Temp Drama')
   await page.getByLabel('English title').press('Enter')
-  await expect(page.getByTestId('created-notice')).toContainText('Created “E2E Temp Drama”.')
+  // Creating goes straight to the new drama's workspace; its details sheet is one click away in the Library.
+  await expect(page).toHaveURL(/#\/drama\/\d+$/)
+  await expect(page.getByTestId('drama-title')).toHaveText('E2E Temp Drama')
+  await page.getByRole('link', { name: 'Back to Library' }).click()
+  await page.getByRole('button', { name: 'Details: E2E Temp Drama' }).click()
   const detail = page.getByRole('dialog', { name: 'E2E Temp Drama' })
   await expect(detail).toBeVisible()
 
@@ -81,5 +85,4 @@ test('create (Enter submits) then delete with typed confirmation', async ({ page
   await confirm.click()
   await expect(page.getByRole('dialog', { name: 'E2E Temp Drama' })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Dramas' }).getByRole('link', { name: 'E2E Temp Drama' })).toHaveCount(0)
-  await expect(page.getByTestId('created-notice')).toHaveCount(0)
 })

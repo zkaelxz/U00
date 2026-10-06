@@ -29,7 +29,7 @@ Safety (spec §4):
   the saved settings on the server, never from the request.
 - Every note is redacted and path-stripped before it is stored.
 Model runs hold the pipeline lock shared with the extension bridge.
-No FastAPI or Streamlit import.
+No FastAPI import.
 """
 import background_jobs
 import db
@@ -47,7 +47,7 @@ _CONFIRM_ALL = ("Redo all replaces the text regions of every page, including any
 
 def _build_engine(engine_name: str):
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown translate engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
         raise DependencyUnavailableError(
@@ -175,10 +175,10 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
         if not page.get("rendered_filename"):
             notes = []
             render_svc.render_page(drama_id, page_id, notes)
-            render_svc._append_notes(page_id, notes)
+            render_svc.append_notes(page_id, notes)
         return "skipped"
     expected_ids, expected_rev = [b["id"] for b in existing], int(page.get("rev") or 0)
-    src = render_svc._original_path(drama_id, page)
+    src = render_svc.original_path(drama_id, page)
     lang = drama.get("source_language") or "zh"
     with pages_svc.pipeline_lock():
         bubbles, detect_notes = scanlate.detect_and_ocr_page(src, lang, page_id=page_id,
@@ -215,8 +215,9 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     try:
         render_svc.render_page(drama_id, page_id, render_notes)
     except Exception as exc:
-        render_notes.append(("error", f"Render failed: {type(exc).__name__}: {exc}"))
-    render_svc._append_notes(page_id, render_notes)
+        render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
+                             f"{translate_engines.redact_secrets(str(exc))}"))
+    render_svc.append_notes(page_id, render_notes)
     return "translated" if new_context is not None else "done"
 
 
@@ -233,7 +234,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
     counts = {"translated": 0, "done": 0, "skipped": 0, "stale": 0, "kept": 0, "failed": 0}
     total = len(page_ids)
     for n, pid in enumerate(page_ids, start=1):
-        render_svc._check_cancel(jid)
+        render_svc.check_cancel(jid)
         background_jobs.update_progress(jid, (n - 1) / total, f"Page {n} of {total}")
         try:
             counts[_process_page(drama_id, drama, pid, mode, engine, engine_name,
@@ -244,9 +245,12 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
             counts["failed"] += 1
             try:
                 db.update_page(pid, run_notes=pages_svc.notes_to_json(
-                    [("error", f"This page failed: {type(exc).__name__}: {exc}")]))
-            except Exception:
-                pass
+                    [("error", f"This page failed: {type(exc).__name__}: "
+                                f"{translate_engines.redact_secrets(str(exc))}")]))
+            except Exception as note_exc:
+                from applog import get_logger
+                get_logger().warning("Could not save the error note for page %s: %s", pid,
+                                     translate_engines.redact_secrets(str(note_exc)))
     parts = [f"{counts['translated']} translated"]
     if counts["done"]:
         parts.append(f"{counts['done']} without translation")

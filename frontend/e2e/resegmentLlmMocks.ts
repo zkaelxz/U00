@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import type { Page, Route } from '@playwright/test'
 import { untilTestEnds } from './stageLineMocks'
+import { openFoldFor } from './reviewFolds'
 
 // Shared by review-resegment-llm(.mobile).spec.ts (parity R47): three real
 // lines for drama 3 in the throwaway library, and mocks for the AI preview
@@ -12,7 +13,7 @@ import { untilTestEnds } from './stageLineMocks'
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
 
-export function python(code: string) {
+function python(code: string) {
   execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot })
 }
 
@@ -30,7 +31,7 @@ db.save_lines(3, [
 
 export const clearLines = () => python('db.save_lines(3, [])')
 
-export const job = (id: string, status: string) => ({
+const job = (id: string, status: string) => ({
   job_id: id, status, progress: status === 'running' ? 0.4 : null, message: '', error: null, description: null,
   gpu_touching: false, started_at: 1, finished_at: status === 'running' ? null : 2, updated_at: 1,
 })
@@ -51,7 +52,7 @@ export const PREVIEW = {
   engine: 'gemini',
 }
 
-export interface Calls {
+interface Calls {
   previewStarts: Record<string, unknown>[]
   applies: Record<string, unknown>[]
 }
@@ -80,11 +81,11 @@ export async function mockAiResegment(
           engines: [
             { name: 'claude', label: 'Claude', free: false, models: null, key_configured: true },
             { name: 'gemini', label: 'Gemini', free: false, models: ['flash', 'pro'], key_configured: true },
-            { name: 'deepl', label: 'DeepL', free: false, models: null, key_configured: true },
+            { name: 'nllb', label: 'NLLB', free: false, models: null, key_configured: true },
           ],
           month_spend: 1.25,
           monthly_cap_usd: 20,
-          cap_applies_by_engine: { claude: true, gemini: true, deepl: true },
+          cap_applies_by_engine: { claude: true, gemini: true, nllb: true },
         },
       })
     }),
@@ -113,6 +114,7 @@ export async function mockAiResegment(
 export async function openAiStructure(page: Page) {
   await page.goto('/#/drama/3/review')
   await page.locator('.review-line:not(.review-skeleton)').first().waitFor()
+  await openFoldFor(page, 'Structure')
   const group = page.getByRole('group', { name: 'Structure' })
   await group.locator('summary', { hasText: 'Structure' }).click()
   await group.getByRole('switch', { name: 'Use AI' }).click()

@@ -49,10 +49,10 @@ def test_unknown_drama_404(client):
 
 
 def test_estimate_free_engine(client):
-    r = client.get(f"{BASE}/{_seed()}/estimate", params={"engine": "test_offline"})
+    r = client.get(f"{BASE}/{_seed()}/estimate", params={"engine": "fake"})
     assert r.status_code == 200
     body = r.json()
-    assert body["free"] is True and body["engine"] == "test_offline"
+    assert body["free"] is True and body["engine"] == "fake"
     assert body["target_line_count"] == 1
 
 
@@ -61,7 +61,7 @@ def test_estimate_validation(client):
     r = client.get(f"{BASE}/{did}/estimate", params={"engine": "nope"})
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "validation_error"
-    r = client.get(f"{BASE}/{did}/estimate", params={"engine": "deepl", "reflect": "true"})
+    r = client.get(f"{BASE}/{did}/estimate", params={"engine": "nllb", "reflect": "true"})
     assert r.status_code == 400
     assert "error" in r.json()
     r = client.get(f"{BASE}/{did}/estimate", params={"job_cost_cap_usd": -1})
@@ -173,7 +173,7 @@ def test_bulk_line_count_uses_count(isolated_db):
 
 @pytest.mark.parametrize("engine,model", [
     ("nllb", "someone/evil-repo"), ("nllb", "../models/x"), ("claude", "not-a-claude-model"),
-    ("test_offline", "anything"), ("deepseek", 123)])
+    ("fake", "anything"), ("deepseek", 123)])
 def test_run_refuses_model_not_offered(client, monkeypatch, engine, model):
     import translate_engines
     from services import translate_service

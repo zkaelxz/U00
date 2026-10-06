@@ -125,7 +125,7 @@ def test_free_engines(isolated_db, cap):
     cap(0)
     did = _drama()
     _seed(did, [("你好" * 20, "")])
-    for name in ("test_offline", "ollama", "nllb", "libretranslate"):
+    for name in ("fake", "ollama", "nllb"):
         r = svc.estimate_translate_cost(did, name)
         assert r["free"] is True and not r["estimated_usd"] and r["cap_applies"] is False
     g = svc.estimate_translate_cost(did, "gemini", gemini_free_tier=True)
@@ -146,12 +146,22 @@ def test_monthly_refusal_and_above_cap(isolated_db, cap):
     assert r["effective_cap_usd"] == 1000.0 and r["estimate_above_cap"] is False
 
 
+@pytest.mark.parametrize("engine", ["deepl", "google", "libretranslate"])
+def test_a_removed_engine_is_refused_with_a_clear_message(isolated_db, engine):
+    did = _drama()
+    _seed(did, [("你好", "")])
+    with pytest.raises(InvalidInputError, match="was removed"):
+        svc.estimate_translate_cost(did, engine)
+    with pytest.raises(InvalidInputError, match="was removed"):
+        svc.start_translate_run(did, engine_name=engine)
+
+
 def test_validation(isolated_db):
     did = _drama()
     with pytest.raises(InvalidInputError):
         svc.estimate_translate_cost(did, "nope")
     with pytest.raises(UnsupportedOperationError):
-        svc.estimate_translate_cost(did, "deepl", reflect=True)
+        svc.estimate_translate_cost(did, "nllb", reflect=True)
     bad = next(iter(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS))
     with pytest.raises(UnsupportedOperationError):
         svc.estimate_translate_cost(did, "gemini", model=bad, gemini_free_tier=True)
@@ -213,3 +223,55 @@ def test_api_config_carries_ollama_reachable(isolated_db, monkeypatch):
     assert r.status_code == 200 and r.json()["ollama_reachable"] is True
     r = c.get(f"/api/translate-run/dramas/{_drama(translation_engine='claude')}/config")
     assert r.status_code == 200 and r.json()["ollama_reachable"] is None
+
+
+def test_summary_engine_build_failure_is_logged_without_key(isolated_db, monkeypatch):
+    import applog
+    import translate_engines
+    from services import settings_service, translate_service, translate_run_service as trs
+    seen = []
+
+    class Log:
+        def warning(self, msg, *args):
+            seen.append(msg % args)
+    monkeypatch.setattr(applog, "get_logger", lambda: Log())
+    monkeypatch.setattr(settings_service, "get_preference", lambda k: "claude")
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda c: "k")
+
+    def boom(*a, **k):
+        raise ValueError("bad config sk-ant-abcdefghijklmnopqrstuvwxyz0123")
+    monkeypatch.setattr(translate_engines, "get_engine", boom)
+    assert trs.pick_summary_engine() == (None, None)
+    assert len(seen) == 1 and "bad config" in seen[0] and "sk-ant-abcdef" not in seen[0]
+
+
+_OK = dict(locale="en-US", style_preset="audio_drama", context_window=6,
+           context_window_ahead=3, batch_size=20, job_cost_cap_usd=None, gemini_free_tier=False)
+
+
+@pytest.mark.parametrize("override,error,text", [
+    (dict(locale="xx"), InvalidInputError, "Unknown English variant."),
+    (dict(style_preset="nope"), InvalidInputError, "Unknown style preset."),
+    (dict(job_cost_cap_usd=-1), InvalidInputError, "can't be negative"),
+    (dict(context_window=-1), InvalidInputError, "out of range"),
+    (dict(context_window_ahead=-1), InvalidInputError, "out of range"),
+    (dict(batch_size=0), InvalidInputError, "out of range"),
+    (dict(batch_size=svc.MAX_BATCH_SIZE + 1), InvalidInputError, "Batch size can't be more"),
+    (dict(model="not-a-model"), InvalidInputError, "isn't offered"),
+])
+def test_validate_run_options_refuses_bad_values(override, error, text):
+    kwargs = {**_OK, **override}
+    model = kwargs.pop("model", None)
+    with pytest.raises(error, match=text):
+        svc.validate_run_options("claude", model, **kwargs)
+
+
+def test_validate_run_options_blocks_gemini_free_tier_models():
+    model = sorted(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS)[0]
+    with pytest.raises(UnsupportedOperationError, match="free tier"):
+        svc.validate_run_options("gemini", model, **{**_OK, "gemini_free_tier": True})
+    svc.validate_run_options("gemini", model, **_OK)
+
+
+def test_validate_run_options_accepts_the_defaults():
+    svc.validate_run_options("claude", None, **_OK)

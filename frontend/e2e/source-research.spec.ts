@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { openFillIn } from './source-groups'
 
-// "Research online" (Step 37): the grounded-research endpoints are mocked
+// "Research online": the grounded-research endpoints are mocked
 // (no Gemini, no network); the drama read hits the real seeded API.
 
 const budget = {
@@ -33,8 +34,8 @@ test('research shows per-field sources, never pre-chooses an overwrite, applies 
     return route.fulfill({ json: { drama_id: 1, replaced: [], saved_alternates: ['title_en'], confirmed: [], kept: [] } })
   })
   await page.goto('/#/drama/1/source')
+  await openFillIn(page, 'Research online')
   await expect(page.getByText('498 free searches left today')).toBeVisible()
-  await page.locator('.section-title', { hasText: 'Research online' }).click()
   await expect(page.getByTestId('research-cost')).toHaveText('Free (free-tier Gemini key).')
   await page.getByRole('button', { name: 'Research online' }).click()
 
@@ -61,7 +62,7 @@ test('used-up free searches need the paid toggle before a lookup', async ({ page
   )
   await page.route('**/api/metadata/dramas/1/research', (route) => { calls += 1; return route.fulfill({ json: result }) })
   await page.goto('/#/drama/1/source')
-  await page.locator('.section-title', { hasText: 'Research online' }).click()
+  await openFillIn(page, 'Research online')
   const run = page.getByRole('button', { name: 'Research online' })
   await expect(run).toBeDisabled()
   await page.getByRole('switch', { name: 'Allow paid searches' }).click()
@@ -79,7 +80,7 @@ test('stored sources show as a quiet note without URLs; a failed read shows noth
       retrieved_at: '2026-09-29T10:00:00Z', last_verified: '2026-09-29T10:00:00Z', sources: [{ title: 'Example Wiki', url: 'https://example.org/a' }] },
   ] } }))
   await page.goto('/#/drama/1/source')
-  await page.locator('.section-title', { hasText: 'Research online' }).click()
+  await openFillIn(page, 'Research online')
   await page.getByText('Where saved details came from (1)').click()
   const list = page.getByRole('list', { name: 'Saved sources' })
   await expect(list).toContainText('Studio: Filled from Example Wiki on')
@@ -91,7 +92,7 @@ test('a failed provenance read does not block research', async ({ page }) => {
   await page.route('**/api/metadata/research/budget', (route) => route.fulfill({ json: budget }))
   await page.route('**/api/metadata/dramas/1/provenance', (route) => route.fulfill({ status: 500, json: { detail: 'boom' } }))
   await page.goto('/#/drama/1/source')
-  await page.locator('.section-title', { hasText: 'Research online' }).click()
+  await openFillIn(page, 'Research online')
   await expect(page.getByRole('button', { name: 'Research online' })).toBeEnabled()
   await expect(page.getByText('Where saved details came from')).toHaveCount(0)
 })

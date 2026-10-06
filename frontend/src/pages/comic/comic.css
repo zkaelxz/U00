@@ -31,7 +31,7 @@
 .comic-zoom .comic-zoom-level { min-width: 4rem; font-variant-numeric: tabular-nums; }
 
 .comic-pager { display: flex; align-items: center; gap: var(--space-2); flex: 2 1 18rem; min-width: 0; }
-.comic-pager > button { min-width: 44px; font-size: 1.2rem; line-height: 1; }
+.comic-pager > button { min-width: 44px; font-size: var(--text-lg); line-height: 1; }
 .comic-scrubber { flex: 1 1 auto; min-width: 4rem; accent-color: var(--accent); }
 .comic-page-label { white-space: nowrap; font-variant-numeric: tabular-nums; }
 
@@ -105,7 +105,7 @@
   border-radius: 999px;
   background: var(--accent);
   color: var(--on-accent);
-  font-size: var(--font-sm);
+  font-size: var(--text-sm);
   font-weight: 600;
   line-height: 1;
 }
@@ -123,10 +123,10 @@
   border-radius: var(--radius);
   background: var(--bg);
 }
-.comic-panel h2 { font-size: var(--font-md); }
+.comic-panel h2 { font-size: var(--text-md); }
 .comic-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
 .comic-lines li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: start; }
-.comic-line-source { font-size: var(--font-sm); }
+.comic-line-source { font-size: var(--text-sm); }
 
 /* Bars hidden with a tap on the middle of the page */
 .comic-chrome-off .comic-head,
@@ -161,7 +161,7 @@
 .comic-empty > p { margin: 0; }
 .scanlate-panel input[type='file'] { max-width: 100%; min-width: 0; }
 .scanlate-panel select { max-width: 100%; }
-.scanlate-limits, .scanlate-hint { margin: 0; font-size: 0.875rem; }
+.scanlate-limits, .scanlate-hint { margin: 0; font-size: var(--text-sm); }
 .scanlate-notes h4 { margin: 0; }
 .scanlate-notes ul { margin: 0; padding-left: 1.25rem; display: grid; gap: var(--space-1); }
 .scanlate-notes li { overflow-wrap: anywhere; }

@@ -48,6 +48,8 @@ class _FakeHandler(page_server._Handler):
     passes here is exercising the shipped logic.
     """
 
+    server = None       # matches page_server._server while no real server runs
+
     def __init__(self, path="/health", method="GET", headers=None, body=b"",
                  client=("127.0.0.1", 51000)):
         self.path = path
@@ -222,6 +224,14 @@ class TestTheEndpointRefusesWhatItShould:
         handler = _post(token, {"images": [{"data": "!!!not base64!!!",
                                             "content_type": "image/png"}]})
         assert handler.status == 400
+
+    def test_oversized_base64_is_refused_before_decoding(self, token, monkeypatch):
+        def no_decode(*a, **k):
+            raise AssertionError("decoded an oversized image")
+        monkeypatch.setattr("base64.b64decode", no_decode)
+        too_big = "A" * (page_server.MAX_IMAGE_BYTES * 4 // 3 + 8)
+        handler = _post(token, {"images": [{"data": too_big, "content_type": "image/png"}]})
+        assert handler.status == 413
 
     def test_an_unknown_endpoint_is_a_404(self, token):
         assert _get(token, path="/anything-else").status == 404
@@ -528,15 +538,17 @@ class TestTranslatingCapturedText:
     def test_an_unsupported_direction_is_refused_with_a_clear_message(self, token, isolated_db,
                                                                       monkeypatch):
         import translate_engines
+        monkeypatch.setattr(translate_engines, "standalone_direction_support",
+                            lambda *a: (False, "Not supported."))
 
         class _FakeEngine:
-            name = "libretranslate"
+            name = "nllb"
 
             def translate_batch(self, chunks, context):
                 return list(chunks)
 
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _FakeEngine())
-        page_server.set_translation_config(engine="libretranslate", api_key="local")
+        page_server.set_translation_config(engine="nllb", api_key="local")
         handler = self._post_text(token, text="hello there", source_language="en",
                                   target_language="zh")
         assert handler.status == 422
@@ -546,7 +558,8 @@ class TestStartingTheServer:
     def test_it_starts_once_per_process(self, monkeypatch):
         started = []
         monkeypatch.setattr(page_server, "_server_started", False)
-        monkeypatch.setattr(page_server, "_serve", lambda port: started.append(port))
+        monkeypatch.setattr(page_server, "serve",
+                            lambda port, generation=None: started.append(port))
         assert page_server.ensure_server_started(port=18756) is True
         assert page_server.ensure_server_started(port=18756) is False
         assert started == [18756]
@@ -563,21 +576,139 @@ class TestStartingTheServer:
                 pass
 
         monkeypatch.setattr(page_server, "ThreadingHTTPServer", FakeServer)
-        page_server._serve(18757)
+        monkeypatch.setattr(page_server, "_server", None)   # serve() registers its server
+        page_server.serve(18757)
         assert bound["address"][0] == "127.0.0.1"
 
     def test_a_port_conflict_is_reported_not_claimed_as_running(self, monkeypatch):
         monkeypatch.setattr(page_server, "_server_started", False)
 
-        def boom(port):
+        def boom(port, generation=None):
             raise OSError("address already in use")
-        monkeypatch.setattr(page_server, "_serve", boom)
+        monkeypatch.setattr(page_server, "serve", boom)
         page_server.ensure_server_started(port=18758)
         for _ in range(100):
             if not page_server.server_running():
                 break
             threading.Event().wait(0.01)
         assert page_server.server_running() is False
+
+
+def _free_port():
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _wait_until(predicate, seconds=5.0):
+    deadline = threading.Event()
+    for _ in range(int(seconds / 0.01)):
+        if predicate():
+            return True
+        deadline.wait(0.01)
+    return predicate()
+
+
+class TestStoppingTheServer:
+    """Turning the bridge off stops it in this process, so these drive a
+    real loopback server on a free port."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_server(self, monkeypatch):
+        monkeypatch.setattr(page_server, "_server", None)
+        monkeypatch.setattr(page_server, "_server_started", False)
+        yield
+        page_server.stop_server()
+
+    def _start(self):
+        port = _free_port()
+        assert page_server.ensure_server_started(port=port) is True
+        assert _wait_until(lambda: page_server._server is not None)
+        return port
+
+    def _health(self, conn, token):
+        conn.request("GET", "/health", headers={page_server.TOKEN_HEADER: token})
+        r = conn.getresponse()
+        return r.status, r.read().decode("utf-8")
+
+    def test_stop_closes_the_port_and_a_start_reopens_it(self, token):
+        import http.client
+        port = self._start()
+        assert self._health(http.client.HTTPConnection("127.0.0.1", port, timeout=5), token)[0] == 200
+        assert page_server.stop_server() is True
+        assert page_server.server_running() is False
+        with pytest.raises(ConnectionRefusedError):
+            self._health(http.client.HTTPConnection("127.0.0.1", port, timeout=5), token)
+        assert page_server.ensure_server_started(port=port) is True
+        assert _wait_until(lambda: page_server._server is not None)
+        assert self._health(http.client.HTTPConnection("127.0.0.1", port, timeout=5), token)[0] == 200
+
+    def test_a_kept_alive_connection_is_refused_after_stop(self, token):
+        """The extension's fetch may reuse a connection accepted before the
+        stop; that connection must not go on serving."""
+        import http.client
+        port = self._start()
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        assert self._health(conn, token)[0] == 200
+        page_server.stop_server()
+        status, body = self._health(conn, token)
+        assert status == 503
+        assert token not in body and "dramas" not in body
+        assert "Settings > Browser extension" in body
+
+    def test_stop_does_not_wait_for_an_in_flight_request(self, token, monkeypatch):
+        import http.client
+        import time
+        entered, release = threading.Event(), threading.Event()
+
+        def slow_engine(config):
+            entered.set()
+            release.wait(10)
+            return None
+        monkeypatch.setattr(page_server, "_build_engine", slow_engine)
+        port = self._start()
+        result = {}
+
+        def in_flight():
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=15)
+            result["status"] = self._health(conn, token)[0]
+        worker = threading.Thread(target=in_flight)
+        worker.start()
+        assert entered.wait(5)
+        began = time.monotonic()
+        assert page_server.stop_server() is True
+        assert time.monotonic() - began < 3
+        release.set()
+        worker.join(10)
+        assert result.get("status") == 200
+
+    def test_a_stop_while_the_server_is_still_binding_wins(self, monkeypatch):
+        """A start's thread may not have bound yet when the bridge is turned
+        off; it must close what it binds rather than serve."""
+        binding, release = threading.Event(), threading.Event()
+        made = []
+
+        class SlowServer:
+            def __init__(self, address, handler):
+                self.calls = []
+                made.append(self)
+                binding.set()
+                release.wait(5)
+
+            def serve_forever(self):
+                self.calls.append("serve")
+
+            def server_close(self):
+                self.calls.append("close")
+        monkeypatch.setattr(page_server, "ThreadingHTTPServer", SlowServer)
+        page_server.ensure_server_started(port=_free_port())
+        assert binding.wait(5)
+        assert page_server.stop_server() is False
+        release.set()
+        assert _wait_until(lambda: made and made[0].calls)
+        assert made[0].calls == ["close"]
+        assert page_server._server is None and page_server.server_running() is False
 
 
 class TestTheConfigBridge:

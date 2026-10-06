@@ -14,6 +14,11 @@ processes.
 Exit code: 0 PASS, 1 FAIL, 2 ERROR (setup/timeout), 3 PREEXISTING (the same
 tests fail on the known-good version too, so the package isn't to blame).
 
+--quick runs the static-analysis test, tests that mention the package, and the
+files PACKAGE_TESTS lists for it; add --then-full to follow a quick PASS with
+the whole suite. When `uv` is on PATH the throwaway venv is built with it
+(much faster installs); otherwise it is venv + pip exactly as before.
+
 --write-pin appends `pkg<FAILING_VERSION` to constraints.txt (the last
 known-good version stays allowed) only when the failing version is newer than
 the known-good one. It never edits requirements files or
@@ -21,7 +26,7 @@ installer/wheels.lock.txt: refresh the installer lock separately (see
 docs/windows-installer-design.md). Pinning your real environment back is a
 manual step; the pip command is printed.
 
-Standard library only.
+Standard library only (uv is optional).
 """
 
 import argparse
@@ -44,6 +49,24 @@ FULL_TEST_TIMEOUT = 3600
 QUICK_TEST_TIMEOUT = 900
 TAIL_LINES = 40
 MAX_RERUN_IDS = 50
+
+# Distribution name (normalized) -> test globs under tests/ that exercise it but
+# don't show up by name or import: the import name differs from the
+# distribution name (bs4, multipart) or the package is used through the app
+# (fastapi/starlette routes, the HTTP stack behind sources/).
+PACKAGE_TESTS = {
+    "beautifulsoup4": ("test_sources_*.py", "test_epub_io.py", "test_safe_fetch.py"),
+    "python-multipart": ("test_api_media_upload*.py", "test_api_bug_reports.py"),
+    "requests": ("test_sources_*.py", "test_safe_fetch.py"),
+    "urllib3": ("test_sources_http_limits.py", "test_safe_fetch.py", "test_b25_redirect_ssrf.py"),
+    "fastapi": ("test_api_*.py",),
+    "starlette": ("test_api_*.py", "test_auth_login.py"),
+    "uvicorn": ("test_api_household_listener.py", "test_shutdown.py"),
+    "authlib": ("test_auth_login.py", "test_auth_service.py"),
+    "httpx": ("test_auth_login.py", "test_api_foundation.py"),
+    "pillow": ("test_scanlate*.py", "test_ocr.py", "test_emotion_manhua_ui.py"),
+    "numpy": ("test_scanlate*.py", "test_audio_preprocess.py", "test_vad_segments.py"),
+}
 
 PASS, FAIL, ERROR, PREEXISTING = "PASS", "FAIL", "ERROR", "PREEXISTING"
 EXIT_CODES = {PASS: 0, FAIL: 1, ERROR: 2, PREEXISTING: 3}
@@ -173,10 +196,13 @@ def quick_test_files(tests_dir, package: str) -> list:
     name_bits = {module.lower(), module.lower().replace(".", "_")}
     import_re = re.compile(r"^\s*(?:import|from)\s+" + re.escape(module) + r"(?![A-Za-z0-9_])",
                            re.MULTILINE | re.IGNORECASE)
+    mapped = {f.name for pattern in PACKAGE_TESTS.get(normalize(package), ())
+              for f in tests_dir.glob(pattern)}
     chosen = []
     for f in sorted(tests_dir.glob("test_*.py")):
         stem = f.stem.lower()
-        hit = f.name == "test_static_analysis.py" or any(b in stem for b in name_bits)
+        hit = (f.name == "test_static_analysis.py" or f.name in mapped
+               or any(b in stem for b in name_bits))
         if not hit:
             try:
                 hit = bool(import_re.search(f.read_text(encoding="utf-8", errors="replace")))
@@ -214,7 +240,22 @@ def _run(cmd, timeout, env, cwd=None):
         return 127, str(e)
 
 
-def _pip(py, *args):
+def uv_path():
+    return shutil.which("uv")
+
+
+def _uv_cache_dir(uv):
+    """The real uv cache. clean_env points HOME at the throwaway dir, which
+    would otherwise give uv an empty cache and cancel its speed advantage."""
+    if os.environ.get("UV_CACHE_DIR"):
+        return os.environ["UV_CACHE_DIR"]
+    rc, out = _run([uv, "cache", "dir"], 30, {k: os.environ[k] for k in ENV_ALLOWLIST if k in os.environ})
+    return out.strip().splitlines()[-1] if rc == 0 and out.strip() else None
+
+
+def _pip(py, *args, uv=None):
+    if uv:
+        return [uv, "pip", args[0], "--python", py, *args[1:]]
     return [py, "-m", "pip", *args]
 
 
@@ -231,7 +272,7 @@ def _pytest_cmd(py, files=None, full=False):
     return cmd + list(files or [])
 
 
-def run_canary(package, target, quick, with_optional, root=REPO_ROOT, log=print):
+def run_canary(package, target, quick, with_optional, root=REPO_ROOT, log=print, then_full=False):
     """Returns a result dict: verdict, known_good, version, failures, tail, reason."""
     root = Path(root)
     result = dict(verdict=ERROR, known_good=None, version=None, failures=[], tail="", reason="")
@@ -240,14 +281,23 @@ def run_canary(package, target, quick, with_optional, root=REPO_ROOT, log=print)
         venv_dir, data_dir = os.path.join(tmp, "venv"), os.path.join(tmp, "data")
         os.makedirs(data_dir)
         env = clean_env(data_dir)
-        log("Creating throwaway venv (your real environment is not touched)...")
-        rc, out = _run([sys.executable, "-m", "venv", venv_dir], VENV_TIMEOUT, env)
+        uv = uv_path()
+        if uv:
+            cache = _uv_cache_dir(uv)
+            if cache:
+                env["UV_CACHE_DIR"] = cache
+            venv_cmd = [uv, "venv", "--python", sys.executable, venv_dir]
+        else:
+            venv_cmd = [sys.executable, "-m", "venv", venv_dir]
+        log("Creating throwaway venv (your real environment is not touched)"
+            + (" with uv..." if uv else "..."))
+        rc, out = _run(venv_cmd, VENV_TIMEOUT, env)
         if rc != 0:
             result["reason"], result["tail"] = "couldn't create the venv", out
             return result
         py = venv_python(venv_dir)
         constraints = str(root / "constraints.txt")
-        install = _pip(py, "install", "-r", str(root / "requirements-core.txt"))
+        install = _pip(py, "install", "-r", str(root / "requirements-core.txt"), uv=uv)
         if with_optional:
             install += ["-r", str(root / "requirements-optional.txt")]
         install += ["pytest", "pytest-xdist", "httpx", "-c", constraints]
@@ -260,7 +310,7 @@ def run_canary(package, target, quick, with_optional, root=REPO_ROOT, log=print)
         log(f"Known-good {package}: {result['known_good'] or 'not installed'}")
         spec = package if target == "latest" else f"{package}=={target}"
         log(f"Upgrading {package} to {target}...")
-        rc, out = _run(_pip(py, "install", "--upgrade", spec, "-c", constraints),
+        rc, out = _run(_pip(py, "install", "--upgrade", spec, "-c", constraints, uv=uv),
                        INSTALL_TIMEOUT, env, cwd=str(root))
         if rc != 0:
             result["reason"], result["tail"] = f"pip couldn't install {spec}", out
@@ -271,6 +321,9 @@ def run_canary(package, target, quick, with_optional, root=REPO_ROOT, log=print)
             files = quick_test_files(root / "tests", package)
             log("Quick subset: " + ", ".join(files))
             rc, out = _run(_pytest_cmd(py, files), QUICK_TEST_TIMEOUT, env, cwd=str(root))
+            if rc == 0 and then_full:
+                log("Quick subset passed; running the full suite...")
+                rc, out = _run(_pytest_cmd(py, full=True), FULL_TEST_TIMEOUT, env, cwd=str(root))
         else:
             rc, out = _run(_pytest_cmd(py, full=True), FULL_TEST_TIMEOUT, env, cwd=str(root))
         verdict, failures = parse_verdict(rc, out)
@@ -279,7 +332,7 @@ def run_canary(package, target, quick, with_optional, root=REPO_ROOT, log=print)
             result["reason"] = "the test run didn't finish cleanly"
         if verdict == FAIL and result["known_good"] and result["version"] != result["known_good"]:
             log("Re-running the failed tests on the known-good version...")
-            rc, _ = _run(_pip(py, "install", f"{package}=={result['known_good']}", "-c", constraints),
+            rc, _ = _run(_pip(py, "install", f"{package}=={result['known_good']}", "-c", constraints, uv=uv),
                          INSTALL_TIMEOUT, env, cwd=str(root))
             if rc == 0:
                 ids = failures[:MAX_RERUN_IDS]
@@ -304,6 +357,9 @@ def report(result, package, write_pin_flag, constraints_path, out=print):
             out("  " + redact(f))
     if tail:
         out("--- output tail ---\n" + tail)
+    if v == PASS:
+        out("Next: after a PASS, run the smoke pack on your PC before upgrading for real "
+            "(python scripts/smoke_pack.py run).")
     if v != FAIL:
         return
     good, bad = result["known_good"], result["version"]
@@ -329,6 +385,8 @@ def main(argv=None) -> int:
     ap.add_argument("target", nargs="?", default="latest", help="version or 'latest' (default)")
     ap.add_argument("--quick", action="store_true",
                     help="static analysis + tests that mention the package")
+    ap.add_argument("--then-full", action="store_true",
+                    help="with --quick: after the subset passes, run the full suite too")
     ap.add_argument("--with-optional", action="store_true", help="also install requirements-optional.txt")
     ap.add_argument("--write-pin", action="store_true", help="on FAIL, append an upper bound to constraints.txt")
     args = ap.parse_args(argv)
@@ -338,7 +396,8 @@ def main(argv=None) -> int:
     except CanaryError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
-    result = run_canary(args.package, args.target, args.quick, args.with_optional)
+    result = run_canary(args.package, args.target, args.quick, args.with_optional,
+                        then_full=args.then_full)
     report(result, args.package, args.write_pin, REPO_ROOT / "constraints.txt")
     return EXIT_CODES[result["verdict"]]
 

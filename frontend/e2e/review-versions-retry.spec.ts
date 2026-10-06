@@ -2,11 +2,12 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
+import { openFoldFor } from './reviewFolds'
 
 // Review parity R39 (use a saved translation version) and R10 (retry a
 // content-blocked line). Both run against the real seeded API: the version
 // switch is a real field-scoped write, and the retry uses the free
-// test_offline engine (no network, no key). Lines and versions for drama 3
+// fake engine (no network, no key). Lines and versions for drama 3
 // are written straight into the throwaway library before each test and the
 // versions are removed after, so review-stage.spec.ts sees none.
 
@@ -50,7 +51,9 @@ for v in db.list_translation_versions(3):
 const rows = (page: Page) => page.locator('.review-line:not(.review-skeleton)')
 
 async function openSection(page: Page, title: string) {
-  await page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }).first().click()
+  await openFoldFor(page, title)
+  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
 test('Use this version reports lines edited meanwhile as kept', async ({ page }) => {
@@ -103,7 +106,7 @@ test('Retry a content-blocked line with another engine from the line details', a
   await expect(retry).toBeVisible()
   const picker = retry.getByLabel('Retry engine')
   await expect(picker).toHaveValue('ollama')
-  await picker.selectOption('test_offline')
+  await picker.selectOption('fake')
   await shot(page, 'review-blocked-retry-desktop')
   await retry.getByRole('button', { name: 'Retry line' }).click()
   await expect(row.getByTestId('line-en')).toContainText('[TEST]')

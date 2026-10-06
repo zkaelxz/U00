@@ -11,7 +11,7 @@ import background_jobs
 import db
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
-from services.service_errors import ConflictError, InvalidInputError
+from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
 def _new(title="T", status="aligned"):
@@ -187,6 +187,71 @@ def test_backup_job_then_valid_for_restore(isolated_db):
         assert not any(n.startswith("backups/") for n in zf.namelist())
 
 
+def _media(n=5):
+    for i in range(n):
+        d = os.path.join(db.DRAMAS_DIR, str(i))
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "audio.bin"), "wb") as f:
+            f.write(os.urandom(1000 * (i + 1)))
+
+
+def _members(path):
+    with zipfile.ZipFile(path) as zf:
+        return {i.filename: zf.read(i.filename) for i in zf.infolist() if i.filename != "library.db"}
+
+
+def test_backup_zip_progress_monotonic_and_same_members(isolated_db, tmp_path, monkeypatch):
+    _new("P")
+    _media()
+    monkeypatch.setattr(las, "_BACKUP_PROGRESS_INTERVAL", 0)
+    calls = []
+    plain, with_cb = str(tmp_path / "a.zip"), str(tmp_path / "b.zip")
+    las.write_backup_zip(plain)
+    las.write_backup_zip(with_cb, progress=lambda f, m: calls.append((f, m)),
+                         should_cancel=lambda: False)
+    assert _members(plain) == _members(with_cb)
+    with zipfile.ZipFile(plain) as a, zipfile.ZipFile(with_cb) as b:
+        assert a.namelist() == b.namelist()
+    fracs = [f for f, _ in calls]
+    assert fracs == sorted(fracs) and 0 <= fracs[0] and fracs[-1] <= 1.0
+    assert all(m for _, m in calls)
+    assert calls[0][1] == "Counting files..."
+    assert any("of 5 files" in m for _, m in calls)
+
+
+def test_backup_job_reports_progress_and_ends_at_one(isolated_db):
+    _media()
+    st = _wait(las.start_backup()["job_id"])
+    assert st["status"] == "done", st.get("error")
+    assert st["progress"] == 1.0 and st["message"] == "Backup ready."
+
+
+def test_backup_job_cancel_leaves_no_partial_or_zip(isolated_db, monkeypatch):
+    _media()
+    monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: True)
+    with pytest.raises(background_jobs.JobCancelled):
+        las._backup_job(las.BACKUP_JOB_ID)
+    folder = las._artifact_dir("backup", create=True)
+    assert os.listdir(folder) == []
+
+
+def test_backup_job_cancel_marks_job_cancelled(isolated_db, monkeypatch):
+    _media()
+    monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: True)
+    job_id = las.start_backup()["job_id"]
+    end = time.time() + 10
+    st = None
+    while time.time() < end:
+        st = background_jobs.get_status(job_id)
+        if st and st["status"] in ("done", "error", "cancelled"):
+            break
+        time.sleep(0.05)
+    assert st["status"] == "cancelled"
+    with pytest.raises(NotFoundError):
+        las.latest_admin_artifact("backup")
+    assert os.listdir(las._artifact_dir("backup", create=True)) == []
+
+
 # ---- restore --------------------------------------------------------------
 
 def test_restore_refused_while_job_running(isolated_db, monkeypatch):
@@ -251,15 +316,15 @@ def test_oversized_zip_rejected_before_change(isolated_db, monkeypatch):
     called = []
     monkeypatch.setattr(wjs, "restore_library_backup", lambda *a: called.append(a))
     data = _zip({"library.db": b"x" * 100, "big.bin": b"y" * 1000})
-    monkeypatch.setattr(wjs, "_MAX_RESTORE_MEMBER_BYTES", 500)
+    monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 500)
     with pytest.raises(InvalidInputError):
         las.restore_backup(data, confirm=True, confirm_text="RESTORE")
-    monkeypatch.setattr(wjs, "_MAX_RESTORE_MEMBER_BYTES", 10 ** 9)
-    monkeypatch.setattr(wjs, "_MAX_RESTORE_TOTAL_BYTES", 900)
+    monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBER_BYTES", 10 ** 9)
+    monkeypatch.setattr(wjs, "MAX_RESTORE_TOTAL_BYTES", 900)
     with pytest.raises(InvalidInputError):
         las.restore_backup(data, confirm=True, confirm_text="RESTORE")
-    monkeypatch.setattr(wjs, "_MAX_RESTORE_TOTAL_BYTES", 10 ** 9)
-    monkeypatch.setattr(wjs, "_MAX_RESTORE_MEMBERS", 1)
+    monkeypatch.setattr(wjs, "MAX_RESTORE_TOTAL_BYTES", 10 ** 9)
+    monkeypatch.setattr(wjs, "MAX_RESTORE_MEMBERS", 1)
     with pytest.raises(InvalidInputError):
         las.restore_backup(data, confirm=True, confirm_text="RESTORE")
     assert not called
@@ -309,7 +374,6 @@ import threading  # noqa: E402
 
 import page_server  # noqa: E402
 from services import auth_service  # noqa: E402
-from services.service_errors import NotFoundError  # noqa: E402
 from sources import store as src_store  # noqa: E402
 
 
@@ -536,10 +600,27 @@ def test_restore_rechecks_jobs_before_swap(isolated_db, monkeypatch):
     data = _backup_bytes()
     b = _new("B")
     answers = iter([False, True])
-    monkeypatch.setattr(las, "_any_job_running", lambda: next(answers))
+    monkeypatch.setattr(las, "any_job_running", lambda: next(answers))
     with pytest.raises(ConflictError):
         _restore(data)
     assert db.get_drama(a) and db.get_drama(b)
+    assert not _leftovers()
+    assert not background_jobs.exclusive_active()
+
+
+def test_restore_waits_for_finished_job_threads_before_swap(isolated_db, monkeypatch):
+    """A finished job's thread still writes timing/notification/GPU-lock
+    rows; the library must not be swapped under it (as reset_library)."""
+    _new("A")
+    data = _backup_bytes()
+    b = _new("B")
+    calls = []
+    monkeypatch.setattr(background_jobs, "wait_for_job_threads",
+                        lambda timeout: calls.append(timeout) or False)
+    with pytest.raises(ConflictError):
+        _restore(data)
+    assert calls
+    assert db.get_drama(b)
     assert not _leftovers()
     assert not background_jobs.exclusive_active()
 
@@ -595,10 +676,10 @@ def test_restore_caps(isolated_db, monkeypatch):
         zf.writestr("library.db", b"x" * 100)
         zf.writestr("big.bin", b"y" * 5000)   # compresses far below 5000 bytes
     data = buf.getvalue()
-    monkeypatch.setattr(las, "_RESTORE_MAX_MEMBERS", 1)
+    monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 1)
     with pytest.raises(InvalidInputError):
         las.restore_backup(data, confirm=True, confirm_text="RESTORE")
-    monkeypatch.setattr(las, "_RESTORE_MAX_MEMBERS", 100)
+    monkeypatch.setattr(las, "RESTORE_MAX_MEMBERS", 100)
     monkeypatch.setattr(las, "_RESTORE_MIN_TOTAL_BYTES", 1)
     monkeypatch.setattr(las, "_RESTORE_EXPANSION_FACTOR", 1)   # cap = upload size
     monkeypatch.setattr(las, "_library_size", lambda: 0)
@@ -614,6 +695,31 @@ def test_restore_caps(isolated_db, monkeypatch):
     monkeypatch.setattr(las.shutil, "disk_usage", lambda p: usage(1, 1, 10 ** 12))
     las.restore_backup(data, confirm=True, confirm_text="RESTORE")
     assert len(called) == 1
+    # The library's parent folder is checked; free space that can't be read
+    # doesn't block the restore.
+    asked = []
+
+    def unreadable(path):
+        asked.append(path)
+        raise OSError("not reported")
+    monkeypatch.setattr(las.shutil, "disk_usage", unreadable)
+    las.restore_backup(data, confirm=True, confirm_text="RESTORE")
+    assert len(called) == 2
+    assert asked == [os.path.dirname(os.path.abspath(db.LIBRARY_DIR))]
+
+
+def test_has_disk_room_needs_the_margin(monkeypatch):
+    usage = collections.namedtuple("usage", "total used free")
+    need = 1000
+    monkeypatch.setattr(las.shutil, "disk_usage",
+                        lambda p: usage(1, 1, need + las.RESTORE_DISK_MARGIN_BYTES))
+    assert las.has_disk_room("x", need)
+    assert not las.has_disk_room("x", need + 1)
+
+    def unreadable(path):
+        raise OSError("not reported")
+    monkeypatch.setattr(las.shutil, "disk_usage", unreadable)
+    assert las.has_disk_room("x", 10 ** 18)
 
 
 def test_encrypted_member_is_invalid_input(isolated_db):
@@ -801,7 +907,7 @@ def test_restore_aborts_if_auth_changed_meanwhile(isolated_db, monkeypatch):
     a = _new("A")
     data = _backup_bytes()
     b = _new("B")
-    orig = las._any_job_running
+    orig = las.any_job_running
     calls = []
 
     def running():
@@ -809,7 +915,7 @@ def test_restore_aborts_if_auth_changed_meanwhile(isolated_db, monkeypatch):
         if len(calls) == 2:   # the before_swap re-check: a sign-in happens now
             auth_service.add_user("new@example.com")
         return orig()
-    monkeypatch.setattr(las, "_any_job_running", running)
+    monkeypatch.setattr(las, "any_job_running", running)
     with pytest.raises(ConflictError):
         _restore(data)
     assert db.get_drama(a) and db.get_drama(b)

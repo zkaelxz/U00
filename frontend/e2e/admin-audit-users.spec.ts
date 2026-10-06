@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
+import { navLink } from './settingsNav'
 
-// Diagnostics > Users and Audit log (desktop). Every /api/admin call is
+// Admin > Users and Audit log (desktop). Every /api/admin call is
 // mocked; a catch-all fails the test on any other non-GET /api call, so no
 // real account is ever changed.
 
@@ -49,7 +50,10 @@ async function mockPage(page: Page, permissions: string[], local = true) {
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: [], count: 0 } }))
 }
 
-const openSection = (page: Page, title: RegExp) => page.locator('summary', { hasText: title }).first().click()
+const openSection = async (page: Page, title: RegExp) => {
+  const summary = page.locator('summary', { hasText: title }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+}
 
 test('Users: lists accounts, explains the guards, and deactivates after a confirm', async ({ page }) => {
   const unmocked = await guard(page)
@@ -63,7 +67,7 @@ test('Users: lists accounts, explains the guards, and deactivates after a confir
     users = [ME_ADMIN, updated, GUEST]
     return r.fulfill({ json: updated })
   })
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/admin')
   await openSection(page, /^Users/)
   const list = page.getByRole('list', { name: 'Users' })
   await expect(list.locator('li')).toHaveCount(3)
@@ -77,7 +81,7 @@ test('Users: lists accounts, explains the guards, and deactivates after a confir
   await expect(list.locator('li').nth(2).getByRole('button', { name: 'Activate guest@example.com' })).toBeEnabled()
 
   const kid = list.locator('li').nth(1)
-  await expect(kid).toContainText('signed in on 2 devices')
+  await expect(kid).toContainText(/signed in on 2 devices/i)
   await kid.getByRole('button', { name: 'Deactivate kid@example.com' }).click()
   expect(sent).toHaveLength(0) // the first press only arms
   await kid.getByRole('button', { name: 'Confirm deactivate kid@example.com' }).click()
@@ -100,7 +104,7 @@ test('Users: a refused action shows the server reason in plain words', async ({ 
     status: 409,
     json: { error: { code: 'conflict', message: "This is the last active admin. Baihe needs at least one, so it can't be deactivated." } },
   }))
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/admin')
   await openSection(page, /^Users/)
   const section = page.getByTestId('admin-users')
 
@@ -123,7 +127,7 @@ test('Users: away from the PC, admin accounts are off with the reason; others st
   const other = user({ id: 4, email: 'second@example.com', is_admin: true })
   const otherOff = user({ id: 5, email: 'third@example.com', is_admin: true, is_active: false, active_sessions: 0 })
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, other, otherOff, KID] } }))
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/admin')
   await openSection(page, /^Users/)
   const list = page.getByRole('list', { name: 'Users' })
   const second = list.locator('li').nth(1)
@@ -131,9 +135,61 @@ test('Users: away from the PC, admin accounts are off with the reason; others st
   await expect(second.getByRole('button', { name: 'Deactivate second@example.com' })).toBeDisabled()
   await expect(second.getByRole('button', { name: 'Sign out everywhere second@example.com' })).toBeDisabled()
   await expect(list.locator('li').nth(2).getByRole('button', { name: 'Activate third@example.com' })).toBeDisabled()
+  await expect(list.getByRole('button', { name: /^Remove admin/ })).toHaveCount(0)
   const kid = list.locator('li').nth(3)
   await expect(kid.getByRole('button', { name: 'Deactivate kid@example.com' })).toBeEnabled()
   await expect(kid.getByRole('button', { name: 'Sign out everywhere kid@example.com' })).toBeEnabled()
+  expect(unmocked).toEqual([])
+})
+
+test('Users: on the PC, removes admin rights after a confirm and refreshes the list', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['admin.users.read', 'admin.users'])
+  const other = user({ id: 4, email: 'second@example.com', is_admin: true })
+  let users = [ME_ADMIN, other, KID]
+  await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users } }))
+  const sent: string[] = []
+  await page.route('**/api/admin/users/4/revoke-admin', (r) => {
+    sent.push(`${r.request().method()} ${new URL(r.request().url()).pathname}`)
+    const updated = { ...other, is_admin: false, active_sessions: 0 }
+    users = [ME_ADMIN, updated, KID]
+    return r.fulfill({ json: updated })
+  })
+  await page.goto('/#/admin')
+  await openSection(page, /^Users/)
+  const list = page.getByRole('list', { name: 'Users' })
+  const self = list.locator('li').nth(0)
+  await expect(self).toContainText("You can't remove your own admin rights.")
+  await expect(self.getByRole('button', { name: 'Remove admin owner@example.com' })).toBeDisabled()
+  await expect(list.locator('li').nth(2).getByRole('button', { name: /^Remove admin/ })).toHaveCount(0)
+
+  const second = list.locator('li').nth(1)
+  await second.getByRole('button', { name: 'Remove admin second@example.com' }).click()
+  expect(sent).toHaveLength(0) // the first press only arms
+  await second.getByRole('button', { name: 'Confirm remove admin rights from second@example.com' }).click()
+  await expect(page.getByTestId('admin-users')).toContainText('second@example.com is no longer an admin and was signed out.')
+  expect(sent).toEqual(['POST /api/admin/users/4/revoke-admin'])
+  await expect(second).not.toContainText('Admin')
+  await expect(list.getByRole('button', { name: /^Remove admin/ })).toHaveCount(1) // only the caller's, still off
+  await expect(self).toContainText("You can't remove your own admin rights.")
+  expect(unmocked).toEqual([])
+})
+
+test('Users: a last-admin refusal from the server is shown in the banner', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['admin.users.read', 'admin.users'])
+  const other = user({ id: 4, email: 'second@example.com', is_admin: true })
+  await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, other] } }))
+  await page.route('**/api/admin/users/4/revoke-admin', (r) => r.fulfill({
+    status: 409,
+    json: { error: { code: 'conflict', message: "This is the last active admin. Baihe needs at least one, so their admin rights can't be removed." } },
+  }))
+  await page.goto('/#/admin')
+  await openSection(page, /^Users/)
+  const section = page.getByTestId('admin-users')
+  await section.getByRole('button', { name: 'Remove admin second@example.com' }).click()
+  await section.getByRole('button', { name: 'Confirm remove admin rights from second@example.com' }).click()
+  await expect(section.getByRole('alert')).toContainText("This is the last active admin. Baihe needs at least one, so their admin rights can't be removed.")
   expect(unmocked).toEqual([])
 })
 
@@ -141,7 +197,7 @@ test('Users: an admin on the household address sees the list without any buttons
   const unmocked = await guard(page)
   await mockPage(page, ['library.read', 'admin.users.read'], false)
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, KID, GUEST] } }))
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/admin')
   await openSection(page, /^Users/)
   const section = page.getByTestId('admin-users')
   await expect(section.getByRole('list', { name: 'Users' }).locator('li')).toHaveCount(3)
@@ -166,7 +222,7 @@ test('Audit log: newest first, filters by action and user, pages back', async ({
     }
     return r.fulfill({ json: { events: [event(9), event(8)], next_before_id: 8, actions: ['login.denied', 'login.success', 'user.deactivate'] } })
   })
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/admin')
   await openSection(page, /^Audit log/)
   const rows = page.getByRole('table', { name: 'Audit log' }).locator('tbody tr')
   await expect(rows).toHaveCount(2)
@@ -201,8 +257,9 @@ test('hidden from a signed-in user without admin.users.read', async ({ page }) =
     admin.push(r.request().url())
     return r.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } })
   })
-  await page.goto('/#/diagnostics')
-  await expect(page.getByTestId('diagnostics-summary')).toBeVisible()
+  await page.goto('/#/admin')
+  await expect(page.getByText('Only an admin can see this page.')).toBeVisible()
+  await expect(navLink(page, 'Admin')).toHaveCount(0)
   await expect(page.locator('summary', { hasText: /^Users/ })).toHaveCount(0)
   await expect(page.locator('summary', { hasText: /^Audit log/ })).toHaveCount(0)
   expect(admin).toEqual([])

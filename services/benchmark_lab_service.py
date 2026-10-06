@@ -1,7 +1,7 @@
 """
-services/benchmark_lab_service.py -- Step 38: the Benchmark Lab. UI-free.
+services/benchmark_lab_service.py -- the Benchmark Lab. UI-free.
 
-Builds on Step 24's benchmark (benchmark.py's runners and scoring, the
+Builds on the earlier benchmark (benchmark.py's runners and scoring, the
 benchmark_cases table) rather than beside it:
 
 - Golden sets. Every case has a tier -- "public" (an imported public test
@@ -13,12 +13,11 @@ benchmark_cases table) rather than beside it:
   engine, model, prompt version, context settings, aggregate score, average
   latency, cost, peak VRAM) with one benchmark_results row per case, so a
   model or prompt change is provably better or worse. The older
-  benchmark_runs history (the Streamlit panel's run-over-run check) is not
-  written to.
+  benchmark_runs history (an older run-over-run check) is not written to.
 - Model Arena. Starting a run with two or more configs runs the same cases
   through each in turn under one arena_group; arena() lines their results
-  up case by case. This replaces Step 24's "compare engines on one case"
-  with a persisted, whole-set version (roadmap Step 38 item 9).
+  up case by case. This replaces the "compare engines on one case"
+  check with a persisted, whole-set version.
 - Metrics (item 11): translation scores are benchmark.score_text_similarity;
   transcription and OCR use 1 - CER (character error rate), or 1 - WER for
   a transcript in a space-delimited language. Each result records its
@@ -38,7 +37,7 @@ Keys are resolved server-side (translate_service.resolve_api_key) and never
 returned; errors are passed through translate_engines.redact_secrets before
 they are stored.
 
-Not built here (see the Step 38 PR): scoped translation-memory saves,
+Not built here: scoped translation-memory saves,
 the auto-derived Translation Profile and a COMET scorer.
 """
 import functools
@@ -50,6 +49,7 @@ import background_jobs
 import benchmark
 import db
 import translate_engines
+from core import SOURCE_LANGUAGES
 from services import settings_service, translate_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
@@ -58,7 +58,6 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 JOB_ID = "benchmark_lab"
 TIERS = ("public", "application", "regression")
 STAGES = ("translation", "transcription", "ocr")
-SOURCE_LANGUAGES = ("zh", "ja", "ko")
 REGRESSION_SET = "regressions"
 # A result at or above this counts as a pass (the per-example pass/fail).
 PASS_THRESHOLD = 0.8
@@ -70,9 +69,9 @@ MAX_LABEL_CHARS = 120
 MAX_SET_NAME_CHARS = 60
 OCR_BACKENDS = ("tesseract", "paddle", "manga_ocr", "paddle_vl_manga")
 # Engines whose spend counts toward the monthly cap (as translate_run_service).
-_CAP_ENGINES = ("claude", "deepseek", "gemini", "google", "deepl")
+_CAP_ENGINES = ("claude", "deepseek", "gemini", "openai")
 # Languages whose transcripts are scored per character (no word spaces).
-_CHARACTER_LANGUAGES = ("zh", "ja", "ko")
+_CHARACTER_LANGUAGES = SOURCE_LANGUAGES
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +404,7 @@ def _cap_applies(engine: str) -> bool:
         engine == "gemini" and settings_service.get_gemini_free_tier())
 
 
-def _check_config(stage: str, cfg) -> dict:
+def check_config(stage: str, cfg) -> dict:
     if not isinstance(cfg, dict):
         raise InvalidInputError("Each config needs an engine.")
     engine, model = cfg.get("engine"), cfg.get("model")
@@ -421,7 +420,7 @@ def _check_config(stage: str, cfg) -> dict:
                 if not model or len(model) > 100 or any(ch.isspace() for ch in model) \
                         or ".." in model or model.startswith("/"):
                     raise InvalidInputError("That model isn't offered for this engine.")
-            elif entry["models"] is None and model == _default_model(engine):
+            elif entry["models"] is None and model == default_model(engine):
                 model = None   # an engine without a model picker: its built-in model
             elif entry["models"] is None or model not in entry["models"]:
                 raise InvalidInputError("That model isn't offered for this engine.")
@@ -446,7 +445,7 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
         raise InvalidInputError("Pick at least one engine to run.")
     if len(configs) > MAX_CONFIGS:
         raise InvalidInputError(f"At most {MAX_CONFIGS} engines at once.")
-    checked = [_check_config(stage, c) for c in configs]
+    checked = [check_config(stage, c) for c in configs]
     keys = [(c["engine"], c["model"]) for c in checked]
     if len(set(keys)) != len(keys):
         raise InvalidInputError("The same engine and model is picked twice.")
@@ -464,17 +463,15 @@ def _estimate_config(cfg: dict, cases: list):
     engine_cls = translate_engines.ENGINES[cfg["engine"]]
     probe = type("Probe", (), {})()
     probe.name = getattr(engine_cls, "name", cfg["engine"])
-    probe.model = cfg["model"] or _default_model(cfg["engine"])
+    probe.model = cfg["model"] or default_model(cfg["engine"])
     probe.free_tier = False
     # One call per case, so the fixed instructions overhead is paid per case.
     return sum(translate_engines.estimate_translation_cost(probe, [c.get("source_text") or ""])
                for c in cases)
 
 
-def _default_model(engine: str):
-    import inspect
-    param = inspect.signature(translate_engines.ENGINES[engine].__init__).parameters.get("model")
-    return param.default if param is not None and param.default is not inspect.Parameter.empty else None
+def default_model(engine: str):
+    return translate_engines.effective_default_model(engine)
 
 
 def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
@@ -495,7 +492,8 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
     return {
         "stage": stage, "case_count": len(cases), "configs": per_config,
         "estimated_cost_usd": round(total, 6), "monthly_cap_usd": monthly_cap,
-        "month_spend_usd": round(spend, 6),
+        # With no cap the panel shows the month's real spend, not the since-reset count.
+        "month_spend_usd": round(spend if monthly_cap > 0 else db.get_month_spend(since_reset=False), 6),
         "remaining_usd": None if cap is None else round(cap, 6),
         "monthly_refusal": refusal,
         "estimate_above_cap": bool(cap is not None and total > cap),
@@ -541,7 +539,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     for cfg in checked:
         session_ids.append(db.create_benchmark_session({
             "label": label, "stage": stage, "engine": cfg["engine"], "model": cfg["model"]
-            or (_default_model(cfg["engine"]) if stage == "translation" else None),
+            or (default_model(cfg["engine"]) if stage == "translation" else None),
             "prompt_version": prompt_version, "context_settings": json.dumps(context),
             "case_filter": case_filter, "arena_group": arena_group, "status": "queued",
             "case_count": len(cases)}))
@@ -565,7 +563,7 @@ def _now() -> str:
     return datetime.datetime.utcnow().isoformat()
 
 
-def _redact(text, key=None):
+def redact(text, key=None):
     """Secrets (redact_secrets, plus the run's own key by value, since a key
     without a recognisable prefix would otherwise slip through) and absolute
     paths / the OS user name (diagnostics.redact_for_support, via
@@ -576,7 +574,7 @@ def _redact(text, key=None):
     if key and len(key) >= 8:
         text = text.replace(key, "[redacted]")
     from services import jobs_service
-    return jobs_service._redact_text(text)
+    return jobs_service.redact_text(text)
 
 
 def _translation_context(case: dict) -> dict:
@@ -601,7 +599,7 @@ def _run_translation(engine, case: dict, key: str = None) -> dict:
         error = None
         usage = getattr(engine, "last_usage", None)
     except Exception as exc:
-        output_text, error = "", _redact(exc, key)
+        output_text, error = "", redact(exc, key)
     cost = 0.0
     if usage:
         cost = translate_engines.estimate_cost_for_engine(
@@ -620,14 +618,14 @@ def _run_file_case(stage: str, cfg: dict, case: dict, use_gpu: bool) -> dict:
         r = benchmark.run_transcription_case(prepared, whisper_size=cfg["model"], use_gpu=use_gpu)
     else:
         r = benchmark.run_ocr_case(prepared, backend=cfg["engine"])
-    r["error"] = _redact(r.get("error"))
+    r["error"] = redact(r.get("error"))
     return r
 
 
 def _peak_vram_mb():
     try:
         import asr_benchmark
-        return asr_benchmark._peak_vram_mb()
+        return asr_benchmark.read_peak_vram_mb()
     except Exception:
         return None
 
@@ -635,7 +633,7 @@ def _peak_vram_mb():
 def _reset_vram():
     try:
         import asr_benchmark
-        asr_benchmark._reset_vram_counter()
+        asr_benchmark.reset_vram_counter()
     except Exception:
         pass
 
@@ -669,7 +667,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                     base_url=(settings_service.resolve_key("ollama_url") or None)
                     if cfg["engine"] == "ollama" else None)
             except Exception as exc:
-                db.update_benchmark_session(session_id, status="failed", note=_redact(exc, api_key),
+                db.update_benchmark_session(session_id, status="failed", note=redact(exc, api_key),
                                             finished_at=_now())
                 step += len(ordered)
                 continue
@@ -763,11 +761,11 @@ def _session_out(s: dict) -> dict:
             out[k] = json.loads(s.get(k) or "{}")
         except ValueError:
             out[k] = {}
-    out["note"] = _redact(out["note"])
+    out["note"] = redact(out["note"])
     return out
 
 
-def _close_stale_runs():
+def close_stale_runs():
     """A run left queued/running with no live job (the app was closed
     mid-run) is marked interrupted, so it doesn't read "running" forever."""
     if _job_active():
@@ -781,7 +779,7 @@ def _close_stale_runs():
 def list_runs(stage: str = None, limit: int = 50) -> dict:
     if stage is not None and stage not in STAGES:
         raise InvalidInputError("Unknown stage.")
-    _close_stale_runs()
+    close_stale_runs()
     limit = max(1, min(int(limit or 50), 200))
     return {"runs": [_session_out(s) for s in db.list_benchmark_sessions(limit, stage)]}
 
@@ -791,7 +789,7 @@ def _result_out(r: dict) -> dict:
             "output_text": r.get("output_text") or "", "score": r.get("score"),
             "metric": r.get("metric"), "scorer": r.get("scorer"), "passed": None if r.get("passed") is None else bool(r["passed"]),
             "duration_seconds": r.get("duration_seconds"), "cost_usd": r.get("cost_usd") or 0.0,
-            "error": _redact(r.get("error"))}
+            "error": redact(r.get("error"))}
 
 
 def get_run(run_id: int) -> dict:

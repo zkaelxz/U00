@@ -91,6 +91,11 @@ class TestDiagnostics:
             assert deps[pip_name][0] == import_name
             assert deps[pip_name][2] == "feature"
 
+    def test_ctranslate2_is_registered_for_gpu_detection(self):
+        """core.gpu_status imports ctranslate2 lazily; without an entry
+        Diagnostics could never say it is missing."""
+        assert diagnostics.OPTIONAL_DEPENDENCIES["ctranslate2"][0] == "ctranslate2"
+
     def test_lazy_optional_imports_in_asr_modules_are_registered(self):
         """CLAUDE.md: every optional import must be in OPTIONAL_DEPENDENCIES,
         or Diagnostics never reports it missing. asr_backend/forced_align
@@ -382,7 +387,7 @@ class TestModelFolders:
         monkeypatch.setenv("XDG_CACHE_HOME", tmp_path_str)
         assert diagnostics.model_folder("torch") == os.path.join(
             tmp_path_str, "torch", "hub", "checkpoints")
-        monkeypatch.setattr(audio_preprocess, "_MODEL_DIR", tmp_path_str)
+        monkeypatch.setattr(audio_preprocess, "MODEL_DIR", tmp_path_str)
         assert diagnostics.model_folder("audio_separator") == tmp_path_str
 
     def test_lists_files_and_folders_largest_first_skipping_symlinks(self, tmp_path_str):
@@ -449,7 +454,7 @@ class TestModelEngineVersions:
         for name in ("OmniVoice", "GPT-SoVITS", "Chatterbox", "TADA"):
             assert name in rows
         # a separate server, not a pip package -- says so rather than "not installed"
-        assert rows["GPT-SoVITS"]["version"] == "separate local server (not pip-installed)"
+        assert rows["GPT-SoVITS"]["version"] == "Separate local server (not pip-installed)"
 
     def test_step_11b_pip_engines_are_registered_dependencies(self):
         # keyed by the real pip name, since the Install button runs `pip install <key>`
@@ -498,7 +503,7 @@ class TestGpuStatus:
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: False)
         status = diagnostics.get_gpu_status()
         assert status["available"] is False
-        assert "torch isn't installed" in status["message"]
+        assert "PyTorch isn't installed" in status["message"]
 
     def test_unavailable_no_error_when_no_gpu_present(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
@@ -650,8 +655,8 @@ class TestCheckEngineReachable:
     mocked, same as every other network-reaching diagnostics check."""
 
     def test_a_working_engine_reports_ok(self):
-        result = diagnostics.check_engine_reachable("test_offline")
-        assert result == {"engine": "test_offline", "ok": True, "error": None}
+        result = diagnostics.check_engine_reachable("fake")
+        assert result == {"engine": "fake", "ok": True, "error": None}
 
     def test_unknown_engine_name_reports_failure_not_a_crash(self):
         result = diagnostics.check_engine_reachable("not-a-real-engine")
@@ -676,17 +681,6 @@ class TestCheckEngineReachable:
         assert result["ok"] is False
         assert "empty" in result["error"].lower()
 
-    def test_doctor_report_checks_a_batch_of_engines(self, monkeypatch):
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "standalone_translate",
-                            lambda text, engine, *a, **k: f"[{engine.name}] ok")
-        results = diagnostics.doctor_report([
-            {"engine": "test_offline"},
-            {"engine": "claude", "api_key": "sk-x"},
-        ])
-        assert [r["engine"] for r in results] == ["test_offline", "claude"]
-        assert all(r["ok"] for r in results)
-
 
 class TestDependencyVersionCheck:
     """Step 27: 'is this outdated' + Upgrade. Like the pyannote check
@@ -704,10 +698,13 @@ class TestDependencyVersionCheck:
     def test_get_latest_pypi_version_parses_a_successful_response(self, monkeypatch):
         class FakeResp:
             status_code = 200
-            def json(self):
-                return {"info": {"version": "9.9.9"}}
+            headers = {}
+            def iter_content(self, size):
+                yield b'{"info": {"version": "9.9.9"}}'
+            def close(self):
+                pass
         captured = {}
-        def fake_get(url, timeout=None):
+        def fake_get(url, timeout=None, stream=False, allow_redirects=True):
             captured["url"], captured["timeout"] = url, timeout
             return FakeResp()
         monkeypatch.setattr("requests.get", fake_get)
@@ -718,11 +715,29 @@ class TestDependencyVersionCheck:
     def test_get_latest_pypi_version_returns_none_on_404(self, monkeypatch):
         class FakeResp:
             status_code = 404
-        monkeypatch.setattr("requests.get", lambda url, timeout=None: FakeResp())
+            def close(self):
+                pass
+        monkeypatch.setattr("requests.get", lambda url, timeout=None, **kw: FakeResp())
         assert diagnostics.get_latest_pypi_version("no-such-package") is None
 
+    def test_get_latest_pypi_version_gives_up_on_an_oversized_body(self, monkeypatch):
+        closed = []
+
+        class FakeResp:
+            status_code = 200
+            headers = {}
+            def iter_content(self, size):
+                while True:             # a server that never stops
+                    yield b"x" * size
+            def close(self):
+                closed.append(True)
+        monkeypatch.setattr(diagnostics, "PYPI_JSON_MAX_BYTES", 1000)
+        monkeypatch.setattr("requests.get", lambda url, timeout=None, **kw: FakeResp())
+        assert diagnostics.get_latest_pypi_version("somepkg") is None
+        assert closed
+
     def test_get_latest_pypi_version_returns_none_on_network_error(self, monkeypatch):
-        def boom(url, timeout=None):
+        def boom(url, timeout=None, **kw):
             raise ConnectionError("no network")
         monkeypatch.setattr("requests.get", boom)
         assert diagnostics.get_latest_pypi_version("somepkg") is None
@@ -789,45 +804,6 @@ class TestUpgradePipArgs:
     def test_no_constraints_flag_when_the_file_is_missing(self, tmp_path):
         args = diagnostics.upgrade_pip_args("somepkg", project_root=str(tmp_path))
         assert "-c" not in args
-
-
-class TestRedundantTtsInstallWarning:
-    """Step 47 item 4: warn, never block, before installing a second heavy
-    local voice-cloning/TTS backend when a functionally-equivalent one is
-    already installed."""
-
-    def test_none_for_a_package_outside_the_group(self):
-        assert diagnostics.redundant_tts_install_warning("faster-whisper", {"chatterbox-tts"}) is None
-
-    def test_none_when_nothing_else_in_the_group_is_installed(self):
-        assert diagnostics.redundant_tts_install_warning("omnivoice", set()) is None
-        assert diagnostics.redundant_tts_install_warning("omnivoice", {"faster-whisper"}) is None
-
-    def test_warns_when_a_group_sibling_is_already_installed(self):
-        msg = diagnostics.redundant_tts_install_warning("omnivoice", {"chatterbox-tts"})
-        assert msg is not None
-        assert "Chatterbox" in msg
-        assert "OmniVoice" in msg
-        assert "won't replace" in msg
-
-    def test_never_warns_against_itself(self):
-        # Already-installed rows never show an Install button in the first
-        # place, but the function itself should still be self-consistent.
-        assert diagnostics.redundant_tts_install_warning("omnivoice", {"omnivoice"}) is None
-
-    def test_names_every_sibling_already_installed_not_just_one(self):
-        msg = diagnostics.redundant_tts_install_warning(
-            "hume-tada", {"chatterbox-tts", "omnivoice"})
-        assert "Chatterbox" in msg and "OmniVoice" in msg
-
-    def test_underscore_and_hyphen_spellings_are_treated_the_same(self):
-        # OPTIONAL_DEPENDENCIES' own key is "f5_tts" (underscore);
-        # MODEL_ENGINE_REGISTRY's is "f5-tts" (hyphen) -- both call sites
-        # pass whichever spelling their own registry uses.
-        msg = diagnostics.redundant_tts_install_warning("f5_tts", {"chatterbox-tts"})
-        assert msg is not None
-        msg2 = diagnostics.redundant_tts_install_warning("f5-tts", {"chatterbox-tts"})
-        assert msg2 is not None
 
 
 class TestUpgradeBlockedReason:
@@ -915,6 +891,16 @@ class TestRedactForSupport:
         text = diagnostics.redact_for_support(r"saved to C:\Users\bob\U00\library\drama_3\audio.wav")
         assert "bob" not in text
         assert "audio.wav" in text
+
+    def test_collapses_windows_paths_with_spaces_in_folder_names(self):
+        text = diagnostics.redact_for_support(
+            r"saved to C:\Users\x\My Documents\Baihe Data\library\12\audio.wav")
+        assert text == "saved to .../audio.wav"
+
+    def test_collapses_posix_paths_with_spaces_in_folder_names(self):
+        text = diagnostics.redact_for_support(
+            "saved to /home/x/My Documents/Baihe Data/library/12/audio.wav, retrying")
+        assert text == "saved to .../audio.wav, retrying"
 
     def test_empty_text_is_safe(self):
         assert diagnostics.redact_for_support("") == ""

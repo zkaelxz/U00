@@ -1,11 +1,11 @@
 """
 api/routers/translate_routes.py -- Translate-standalone endpoints.
 
-Migration Slice 11 added the two read-only routes: the engine list
+The two read-only routes: the engine list
 (name/label/free/models/key_configured, never a key value -- D2) and
-translate history. Migration Slice 13 added the translate action itself,
-resolving a server-side key per engine rather than accepting one from the
-caller. Migration Slice 17 adds clearing history -- a confirm-gated
+translate history. The translate action itself resolves
+a server-side key per engine rather than accepting one from the
+caller. Clearing history is also here -- a confirm-gated
 delete (see services/translate_service.py's own docstring for why it
 requires an explicit confirm=true rather than a bare DELETE).
 """
@@ -15,7 +15,7 @@ from api.auth import local_only, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import (ClearHistoryResult, ErrorResponse, TranslateEngineListResponse,
                          TranslateHistoryResponse, TranslateRequest, TranslateResponse)
-from services import translate_service
+from services import settings_service, translate_service
 
 router = APIRouter(prefix="/api/translate", tags=["translate"])
 
@@ -23,7 +23,8 @@ router = APIRouter(prefix="/api/translate", tags=["translate"])
 @router.get("/engines", dependencies=[require_permission("library.read")], response_model=TranslateEngineListResponse,
             summary="Available translate engines and whether each has a key configured")
 def get_engines():
-    return {"items": translate_service.list_engines()}
+    return {"items": translate_service.list_engines(),
+            "default_engine": settings_service.get_default_engine()}
 
 
 @router.get("/history", dependencies=[require_permission("library.read")], response_model=TranslateHistoryResponse,
@@ -46,6 +47,7 @@ def post_translate(payload: TranslateRequest, request: Request):
             principal=request.state.principal)
 
 
+# Deletes are PC-only (docs/remote-access-decision.md).
 @router.delete("/history", dependencies=[local_only()], response_model=ClearHistoryResult,
               summary="Clear standalone-translate history (requires confirm=true)",
               responses={422: {"model": ErrorResponse}})

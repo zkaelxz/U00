@@ -2,9 +2,14 @@ import { useEffect, useState } from 'react'
 
 export type Route =
   | { name: 'library' }
+  | { name: 'library-tools' }
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
-  | { name: 'drama'; id: number; stage: string | null }
-  | { name: 'settings' }
+  // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it.
+  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus }
+  | { name: 'jobs' }
+  // section: "#/settings?section=developer-mode" opens that card's fold and scrolls to it.
+  | { name: 'settings'; section?: 'developer-mode' }
+  | { name: 'admin' }
   | { name: 'diagnostics' }
   // compare: the raw "engine:model,engine:model" value of ?compare= (Model
   // health's "Compare in Benchmark Lab"; pages/benchmark/benchmarkForm.ts reads it).
@@ -16,6 +21,12 @@ export type Route =
   | { name: 'assistant' }
   | { name: 'read'; id: number; page: number | null }
   | { name: 'comic'; id: number; page: number | null }
+  // Chapters saved as CBZ files: the list, one series, one chapter's pages.
+  | { name: 'manga' }
+  | { name: 'manga-series'; source: string; series: string }
+  | { name: 'manga-read'; source: string; series: string; chapter: string; page: number | null }
+
+export type DramaFocus = 'glossary' | 'characters'
 
 export const DEFAULT_STAGE = 'source'
 
@@ -25,7 +36,14 @@ export function parseRoute(hash: string): Route {
   const [path, qs = ''] = hash.replace(/^#\/?/, '').split('?')
   const parts = path.split('/').filter(Boolean)
   const [head, a, b] = parts
-  if (head === 'settings' && parts.length === 1) return { name: 'settings' }
+  if (head === 'library-tools' && parts.length === 1) return { name: 'library-tools' }
+  if (head === 'jobs' && parts.length === 1) return { name: 'jobs' }
+  if (head === 'settings' && parts.length === 1) {
+    return new URLSearchParams(qs).get('section') === 'developer-mode'
+      ? { name: 'settings', section: 'developer-mode' }
+      : { name: 'settings' }
+  }
+  if (head === 'admin' && parts.length === 1) return { name: 'admin' }
   if (head === 'diagnostics' && parts.length === 1) return { name: 'diagnostics' }
   if (head === 'benchmark' && parts.length === 1) {
     // Kept raw (still %-encoded) so a ":" or "," inside a model name can't be misread.
@@ -43,6 +61,24 @@ export function parseRoute(hash: string): Route {
     const page = p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null
     return { name: head, id: Number(a), page }
   }
+  if (head === 'manga') {
+    // "#/manga/<source>/<series>[/<chapter>][?page=N]", each name %-encoded.
+    let names: string[]
+    try {
+      names = parts.slice(1).map(decodeURIComponent)
+    } catch {
+      return { name: 'library' }
+    }
+    if (names.some((n) => !n)) return { name: 'library' }
+    if (names.length === 0) return { name: 'manga' }
+    if (names.length === 2) return { name: 'manga-series', source: names[0], series: names[1] }
+    if (names.length === 3) {
+      const p = new URLSearchParams(qs).get('page')
+      const page = p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null
+      return { name: 'manga-read', source: names[0], series: names[1], chapter: names[2], page }
+    }
+    return { name: 'library' }
+  }
   if (head === 'drama' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length <= 3) {
     let stage: string | null = null
     if (b) {
@@ -52,20 +88,28 @@ export function parseRoute(hash: string): Route {
         return { name: 'library' }
       }
     }
-    return { name: 'drama', id: Number(a), stage }
+    const focus = new URLSearchParams(qs).get('focus')
+    return focus === 'glossary' || focus === 'characters'
+      ? { name: 'drama', id: Number(a), stage, focus }
+      : { name: 'drama', id: Number(a), stage }
   }
   return { name: 'library' }
 }
 
 export function routeHref(r: Route): string {
-  if (r.name === 'drama') return r.stage === null ? `#/drama/${r.id}` : `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
+  if (r.name === 'drama') {
+    const base = r.stage === null ? `#/drama/${r.id}` : `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
+    return r.focus ? `${base}?focus=${r.focus}` : base
+  }
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
+  if (r.name === 'manga-series') return `#/manga/${encodeURIComponent(r.source)}/${encodeURIComponent(r.series)}`
+  if (r.name === 'manga-read') {
+    const base = `#/manga/${[r.source, r.series, r.chapter].map(encodeURIComponent).join('/')}`
+    return r.page ? `${base}?page=${r.page}` : base
+  }
+  if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`
   if (r.name === 'benchmark' && r.compare) return `#/benchmark?compare=${r.compare}`
   return `#/${r.name}`
-}
-
-export function navigate(r: Route) {
-  window.location.hash = routeHref(r)
 }
 
 export function useRoute(): Route {

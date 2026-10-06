@@ -6,7 +6,7 @@ export const MAX_DOMAINS = 10
 
 const LABEL = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/
 
-export type HostResult = { host: string; error?: undefined } | { host?: undefined; error: string }
+type HostResult = { host: string; error?: undefined } | { host?: undefined; error: string }
 
 /** Lowercase, drop a trailing dot and a default :443, and check one host[:port]. */
 export function normalizeHost(raw: string): HostResult {
@@ -29,7 +29,7 @@ export function normalizeHost(raw: string): HostResult {
   return { host: p && p !== '443' ? `${host}:${p}` : host }
 }
 
-export type AddResult = { list: string[]; error?: string }
+type AddResult = { list: string[]; error?: string }
 
 /** Add one host to the end; a duplicate or a full list leaves the list as is. */
 export function addDomain(list: string[], raw: string): AddResult {

@@ -152,7 +152,7 @@ def test_autofill_bad_scheme_422(client, drama, monkeypatch, url):
 
 
 @pytest.mark.parametrize("ip", ["127.0.0.1", "10.0.0.5", "192.168.1.1", "169.254.169.254",
-                                "::1", "::ffff:127.0.0.1"])
+                                "::1", "::ffff:127.0.0.1", "64:ff9b::7f00:1", "2002:7f00:1::1"])
 def test_autofill_private_hosts_422(client, drama, monkeypatch, ip):
     monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: "k")
     _dns(monkeypatch, ip)
@@ -172,7 +172,7 @@ def test_redirect_to_private_blocked(monkeypatch):
     def fake_get(url, ip, headers):
         calls.append((url, ip))
         return Resp()
-    monkeypatch.setattr(metadata_service, "_pinned_get", fake_get)
+    monkeypatch.setattr(metadata_service, "pinned_get", fake_get)
     # second hop resolves to loopback
     monkeypatch.setattr(metadata_service.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", (
@@ -197,9 +197,9 @@ def test_connection_pinned_to_validated_ip(monkeypatch):
         r.status_code = 200
         return r
     monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", fake_send)
-    ip = metadata_service._check_public_url("https://ok.example:8443/p?q=1")
+    ip = metadata_service.check_public_url("https://ok.example:8443/p?q=1")
     assert ip == "93.184.216.34"
-    metadata_service._pinned_get("https://ok.example:8443/p?q=1", ip, {})
+    metadata_service.pinned_get("https://ok.example:8443/p?q=1", ip, {})
     url, host, kw = sent[0]
     assert url == "https://93.184.216.34:8443/p?q=1"
     assert host == "ok.example:8443"
@@ -217,7 +217,7 @@ def test_pinned_adapter_keeps_hostname_for_tls(monkeypatch):
     monkeypatch.setattr(requests.adapters.HTTPAdapter, "init_poolmanager", spy)
     monkeypatch.setattr(requests.adapters.HTTPAdapter, "send",
                         lambda self, r, **kw: requests.Response())
-    metadata_service._pinned_get("https://ok.example/", "2606:4700::1", {})
+    metadata_service.pinned_get("https://ok.example/", "2606:4700::1", {})
     assert seen["server_hostname"] == "ok.example" == seen["assert_hostname"]
 
 

@@ -134,7 +134,7 @@ def test_engine_list_names_only(client):
     r = client.get("/api/sources/url/ai-engines")
     assert r.status_code == 200
     body = r.json()
-    assert "test_offline" not in body["engines"] and "claude" in body["engines"]
+    assert "claude" in body["engines"]
     assert body["default"] == "claude"
     assert SECRET not in r.text and "key" not in r.text.lower()
 
@@ -185,7 +185,7 @@ def test_ambiguous_page_asks_the_engine_once(client, env, monkeypatch):
 def test_engine_checks_before_any_job(client, env):
     url = _novel_page(env)
     did = db.create_drama(title_en="N", media_type="novel")
-    for engine in ("test_offline", "google", "nope"):
+    for engine in ("google", "nope"):
         r = client.post("/api/sources/url/import",
                         json={"url": url, "drama_id": did, "use_ai": True, "engine": engine})
         assert r.status_code == 422, engine
@@ -376,6 +376,9 @@ def test_comic_no_pages_and_handoff(client, env, comic, monkeypatch):
     did = _comic_drama()
     r = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
     assert r.status_code == 422 and SECRET not in r.text
+    err = r.json()["error"]
+    assert err["message"].startswith("No comic pages were found") and "Why:" in err["message"]
+    assert err["details"]["reason"] == "NO_CONTENT"
 
     def challenge(url, client=None, rendered_fetch=None, user_html=None, authenticated_fetch=None,
                   allow_signed_in=True, allow_browser=True, record=True):
@@ -386,6 +389,17 @@ def test_comic_no_pages_and_handoff(client, env, comic, monkeypatch):
     r = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
     assert r.status_code == 409 and r.json()["error"]["details"]["handoff"] is True
     assert SECRET not in r.text and db.list_pages(did) == []
+
+
+def test_comic_no_pages_on_bilibili_manga_says_why_and_what_to_do(client, env, comic):
+    url = "https://manga.bilibili.com/mc40738/2129714?from=manga_detail"
+    env["fetch"].pages[url] = "<html><body><div id='app-vm'></div></body></html>"
+    did = _comic_drama()
+    r = _run(client, "/api/sources/url/import-comic", {"url": url, "drama_id": did}, did)
+    assert r.status_code == 422
+    msg = r.json()["error"]["message"]
+    assert "Why:" in msg and "Sign in to Bilibili Manga" in msg
+    assert "from=manga_detail" not in r.text and SECRET not in r.text
 
 
 def test_comic_auth_on_remote_is_static_only(env, comic):

@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { CURRENT_ROWS, OLDER_PRESET, RETIRED_PRESET, guardWrites, status } from './modelHealthMocks'
 
-// Model health card on Diagnostics (Step 40, desktop). The real e2e API has
+// Model health card on Diagnostics (desktop). The real e2e API has
 // no keys, so the first test only checks the card against the real status
 // route; the rest mock /api/models/* so the provider check and the preset
 // switch never touch the shared seeded library (a catch-all fails the test
@@ -12,6 +12,11 @@ import { CURRENT_ROWS, OLDER_PRESET, RETIRED_PRESET, guardWrites, status } from 
 const SHOTS = process.env.MODEL_HEALTH_SHOTS_DIR
 
 const card = (page: Page) => page.getByRole('region', { name: 'Model health' })
+
+// The card is a fold that opens itself only on a problem; these specs need it open.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.diagnostics.modelHealth', '1'))
+})
 
 test('the card reads the real status route and never checks providers by itself', async ({ page, request }) => {
   const real = await (await request.get('/api/models/status')).json()
@@ -25,7 +30,7 @@ test('the card reads the real status route and never checks providers by itself'
     if (r.url().includes('/api/models/') && r.method() !== 'GET') posts.push(r.url())
   })
   await page.goto('/#/diagnostics')
-  await expect(card(page).getByRole('heading', { name: 'Model health' })).toBeVisible()
+  await expect(page.locator('summary', { hasText: /^Model health/ })).toBeVisible()
   await expect(card(page).getByTestId('model-health-badge')).toBeVisible()
   await expect(card(page).getByRole('button', { name: 'Check providers now' })).toBeEnabled()
   expect(posts).toEqual([])
@@ -48,7 +53,8 @@ test('retired and older rows come first with their notes; the rest fold away', a
   await expect(rows.nth(0)).toContainText('Preset: Old DeepSeek')
   await expect(rows.nth(0)).toContainText("DeepSeek's legacy alias")
   await expect(rows.nth(1)).toContainText('Deprecated')
-  await expect(rows.nth(1)).toContainText('Built into the app — update the app to change it.')
+  // A built-in row can now be changed by the owner, once a provider check has listed models to choose from.
+  await expect(rows.nth(1)).toContainText('Press "Check providers now" first to load the models your provider lists.')
   await expect(rows.nth(1).getByRole('button')).toHaveCount(0)
   await expect(rows.nth(2)).toContainText('Older model')
   await expect(rows.nth(2).getByRole('button', { name: 'Switch Preset: Drama A to claude-sonnet-5' })).toBeVisible()
@@ -99,7 +105,7 @@ test('Check providers now shows the check time and per-engine errors; a second c
   await c.getByRole('button', { name: 'Check providers now' }).click()
   await expect(c.getByTestId('model-health-checked')).toHaveText('Providers last checked 2026-09-30 14:03 UTC')
   const lines = c.getByRole('list', { name: 'Last provider check' }).locator('li')
-  await expect(lines).toHaveText(["Gemini: Couldn't check: HTTPError: 403 Forbidden", 'Claude: 12 models listed'])
+  await expect(lines).toHaveText([/^Gemini: Gemini rejected the key\. Check its key under Engines and keys, then test again\.\s*Details/, 'Claude: 12 models listed'])
   await expect(c.getByTestId('model-health-notice')).toHaveText('Checked. The list below is up to date.')
 
   await c.getByRole('button', { name: 'Check providers now' }).click()

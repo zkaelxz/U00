@@ -84,9 +84,9 @@ def _affected(drama_id: int, drama: dict, term_ids) -> tuple:
         if not zh.strip() or not en.strip():
             continue
         matched = {t["id"]: "source" for t in translate_engines.matching_glossary_terms(zh, terms)}
-        en_lower = auto_qc._normalize(en).lower()
+        en_lower = auto_qc.normalize(en).lower()
         for t, forms in banned:
-            if forms and auto_qc._banned_hit(forms, en_lower):
+            if forms and auto_qc.banned_hit(forms, en_lower):
                 matched[t["id"]] = "banned"
         if matched:
             candidates.append((row, matched))

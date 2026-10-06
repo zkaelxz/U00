@@ -1,6 +1,5 @@
 """
-api/routers/jellyfin_routes.py -- the optional Jellyfin connector (roadmap
-Step 39). See services/jellyfin_service.py.
+api/routers/jellyfin_routes.py -- the optional Jellyfin connector. See services/jellyfin_service.py.
 
 Every route is local_only(); the key routes, and a change of server address
 (which moves where the key is sent), also take the engine-key gate
@@ -16,7 +15,7 @@ from api.auth import local_only
 from api.jellyfin_schemas import (JellyfinConfig, JellyfinConfigUpdate, JellyfinKeyClear,
                                   JellyfinKeySet, JellyfinScanReport, JellyfinScanRequest,
                                   JellyfinSendRequest, JellyfinSendResult, JellyfinTestResult)
-from api.routers.settings_routes import _read_body, _require_confirm, _require_local_admin
+from api.routers.settings_routes import read_body, require_confirm, require_local_admin
 from api.schemas import ErrorResponse
 from services import jellyfin_service
 
@@ -38,8 +37,8 @@ def get_config():
              responses={422: {"model": ErrorResponse}})
 def set_config(payload: JellyfinConfigUpdate, request: Request):
     if payload.server_url is not None:  # where the key goes: same gate as endpoint URLs
-        _require_local_admin(request)
-        _require_confirm(payload.confirm)
+        require_local_admin(request)
+        require_confirm(payload.confirm)
     return jellyfin_service.set_config(enabled=payload.enabled, server_url=payload.server_url,
                                        library_dir=payload.library_dir)
 
@@ -48,9 +47,9 @@ def set_config(payload: JellyfinConfigUpdate, request: Request):
              summary="PC only: set the Jellyfin API key (write-only; same gate as engine keys)",
              responses={422: {"model": ErrorResponse}})
 async def set_key(request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, JellyfinKeySet)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, JellyfinKeySet)
+    require_confirm(body.confirm)
     return jellyfin_service.set_key(body.value)
 
 
@@ -58,9 +57,9 @@ async def set_key(request: Request):
              summary="PC only: remove the Jellyfin API key from .env",
              responses={422: {"model": ErrorResponse}})
 async def clear_key(request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, JellyfinKeyClear)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, JellyfinKeyClear)
+    require_confirm(body.confirm)
     return jellyfin_service.clear_key()
 
 

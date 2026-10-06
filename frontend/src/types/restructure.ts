@@ -1,4 +1,4 @@
-// Hand-written mirrors of api/schemas.py (Restructure*, Resegment*,
+// Hand-written mirrors of api/schemas/review.py (Restructure*, Resegment*,
 // RestoreVersion*). Every write sends `expected_line_ids`: the drama's line
 // ids, in order, as the client last saw them; any difference is a 409.
 import type { ReviewLine } from './review'
@@ -76,4 +76,30 @@ export interface ResegmentStarted {
 export interface RestoreVersionResult {
   history_id: number
   line_ids: number[]
+}
+
+// POST /api/restructure/dramas/{id}/resplit: the finished summary (estimated
+// timing) or, with align_to_audio, the started job.
+export interface ResplitStart {
+  expected_line_ids: number[]
+  align_to_audio: boolean
+  confirm: boolean
+}
+
+export interface ResplitResult {
+  job_id?: string | null
+  drama_id?: number | null
+  split_lines?: number | null
+  lines_before?: number | null
+  line_count?: number | null
+  timing?: string | null
+  aligned_lines?: number | null
+  cleared_translations?: number | null
+  speakers_reassigned?: boolean | null
+  note?: string | null
+}
+
+export interface ReassignResult {
+  changed: number
+  kept_manual: number
 }

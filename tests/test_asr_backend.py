@@ -127,6 +127,21 @@ class TestQwen3ASRBackendTranscription:
         assert result[1]["text"] == "qwen3 text"
         assert len(calls) == 1
 
+    def test_progress_cb_reports_the_share_of_segments_done_per_batch(self, monkeypatch):
+        import asr_backend as ab
+        self._stub_audio_slicing(monkeypatch, ab)
+        segs = [{"start": float(i), "end": i + 1.0, "text": "w"} for i in range(3)]
+
+        class FakeModel:
+            def transcribe(self, audio, language):
+                return [FakeResult("q")]
+
+        monkeypatch.setattr(ab, "load_qwen3_asr", lambda use_gpu=False, model_size="1.7B": FakeModel())
+        seen = []
+        ab.Qwen3ASRBackend().transcribe("/fake.wav", "zh", whisper_segments=segs,
+                                        progress_cb=seen.append)
+        assert seen == pytest.approx([1 / 3, 2 / 3, 1.0])
+
     def test_empty_model_result_becomes_empty_text(self, monkeypatch):
         import asr_backend as ab
         self._stub_audio_slicing(monkeypatch, ab)
@@ -198,6 +213,45 @@ class TestLoadQwen3Asr:
         model = asr_backend.load_qwen3_asr(use_gpu=True)
         assert model is not None
         assert calls == ["cuda:0", "cpu"]
+
+    def _load(self, from_pretrained, use_gpu):
+        self._install_fake_qwen_asr(from_pretrained)
+        import asr_backend
+        importlib.reload(asr_backend)
+        asr_backend._asr_model_cache.clear()
+        seen = {"device": [], "fallback": []}
+        asr_backend.load_qwen3_asr(use_gpu=use_gpu, on_device=seen["device"].append,
+                                   on_gpu_fallback=seen["fallback"].append)
+        return seen
+
+    def test_cuda_shaped_error_reports_cpu_and_the_redacted_reason(self):
+        def from_pretrained(model_id, dtype, device_map, max_new_tokens):
+            if device_map == "cuda:0":
+                raise RuntimeError("CUBLAS_STATUS_NOT_INITIALIZED at C:\\Users\\me\\x.dll "
+                                   "key=sk-abcdefghijklmnopqrstuvwxyz123456")
+            return object()
+        seen = self._load(from_pretrained, use_gpu=True)
+        assert seen["device"] == ["CPU"]
+        import core
+        reason = core.short_reason(seen["fallback"][0])
+        assert "CUBLAS_STATUS_NOT_INITIALIZED" in reason
+        assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in reason
+        assert "\n" not in reason and len(reason) <= 200
+
+    def test_gpu_that_loads_reports_gpu_with_no_fallback(self):
+        seen = self._load(lambda model_id, dtype, device_map, max_new_tokens: object(), use_gpu=True)
+        assert seen == {"device": ["GPU"], "fallback": []}
+
+    def test_cpu_request_reports_cpu_with_no_fallback(self):
+        seen = self._load(lambda model_id, dtype, device_map, max_new_tokens: object(), use_gpu=False)
+        assert seen == {"device": ["CPU"], "fallback": []}
+
+    def test_a_cached_model_still_reports_its_device(self):
+        import asr_backend
+        seen = self._load(lambda model_id, dtype, device_map, max_new_tokens: object(), use_gpu=True)
+        again = []
+        asr_backend.load_qwen3_asr(use_gpu=True, on_device=again.append)
+        assert seen["device"] == again == ["GPU"]
 
     def test_network_error_raises_model_download_error(self):
         def from_pretrained(model_id, dtype, device_map, max_new_tokens):

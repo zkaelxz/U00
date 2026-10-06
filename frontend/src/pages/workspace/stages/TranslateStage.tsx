@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
 import { getPresets } from '../../../api/library'
+import { modelOptionLabel } from '../../../api/translate'
 import {
   applyTranslatePreset,
   applyWorkflowTier,
@@ -67,6 +68,7 @@ import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
 import { translateBlocker } from './stageBlockers'
 import './translate.css'
+import { AI_ENGINE_LABEL, NOTHING_STARTS_HELP, NO_KEY_ENGINES_HELP } from '../../../helpText'
 
 function EstimateView({ e }: { e: TranslateRunEstimate }) {
   const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown' : `about $${e.estimated_usd.toFixed(2)}`
@@ -111,8 +113,8 @@ function appliedText(t: WorkflowTierApplied): string {
   return `Applied ${t.label}: ${humanize('engine', t.translation_engine)}${model}, Reflect ${t.reflect ? 'on' : 'off'}.${qc} Nothing has started.`
 }
 
-// Parity X02: Streamlit's "Starting tier" + "Apply tier". Saves the tier's
-// engine on the drama and fills the form; never starts a run.
+// "Starting tier" + "Apply tier". Saves the tier's engine on the drama and
+// fills the form; never starts a run.
 function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onApplied: (t: WorkflowTierApplied) => void }) {
   const { dramaId } = useStage()
   const tiers = config.workflow_tiers ?? []
@@ -134,7 +136,7 @@ function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onAppli
   }
   return (
     <div className="check-row translate-tier">
-      <Field label="Starting tier" help="Sets the engine, model and Reflect together. Draft: DeepSeek, no Reflect. Standard: Claude Sonnet, no Reflect. Release: Claude Opus, Reflect on, Auto QC on. Everything stays editable afterward, and nothing starts until you press Translate.">
+      <Field label="Starting tier" help={`Sets engine, model and Reflect together (Draft: DeepSeek; Standard: Claude Sonnet; Release: Claude Opus with Reflect and Auto QC), and stays editable. ${NOTHING_STARTS_HELP}`}>
         <select value={tier} onChange={(e) => setTier(e.target.value)}>
           {tiers.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
         </select>
@@ -146,7 +148,7 @@ function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onAppli
   )
 }
 
-// Parity X03: Streamlit's "Apply a preset" on an existing drama. Saves the
+// "Apply a preset" on an existing drama. Saves the
 // preset's engine on the drama, fills the form and keeps its values for later
 // visits (as a preset chosen at creation does); never starts a run.
 function PresetPicker({ onApplied }: { onApplied: (p: TranslatePresetApplied) => void }) {
@@ -183,7 +185,7 @@ function PresetPicker({ onApplied }: { onApplied: (p: TranslatePresetApplied) =>
   }
   return (
     <div className="check-row translate-tier">
-      <Field label="Saved preset" help="Fills in the engine, model, style, locale and the two guidance toggles from a preset saved with Save as preset. Everything stays editable, and nothing starts until you press Translate. Manage presets in the Library.">
+      <Field label="Saved preset" help={`Fills in engine, model, style, English variant and guidance toggles from a saved preset. ${NOTHING_STARTS_HELP} Manage presets in the Library.`}>
         <select value={picked} onChange={(e) => { setPicked(e.target.value); setApplied(null) }}>
           <option value="">Choose a preset</option>
           {presets.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
@@ -196,7 +198,7 @@ function PresetPicker({ onApplied }: { onApplied: (p: TranslatePresetApplied) =>
   )
 }
 
-// Parity X22: Streamlit's "Save as preset". Captures engine, model, style,
+// "Save as preset". Captures engine, model, style,
 // locale and the two toggles. A taken name asks before replacing it.
 function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string }) {
   const [open, setOpen] = useState(false)
@@ -232,8 +234,8 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
     <div className="advanced-wide">
       {!open ? (
         <div className="check-row">
-          <button type="button" className={buttonClass('secondary')} onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
-          <span className="muted">Saves the engine, model, style, locale and the two guidance toggles for any drama.</span>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
+          <span className="muted">Saves the engine, model, style, English variant and the two guidance toggles for any drama.</span>
           {saved && <span role="status">{saved}</span>}
         </div>
       ) : (
@@ -264,8 +266,8 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
   )
 }
 
-// Parity X24: Streamlit's "Can't reach Ollama" warning. A warning only (Streamlit
-// disabled Translate; here the run stays startable). No URL is shown: the
+// "Can't reach Ollama" warning. A warning only: the run stays startable, so
+// the server's own error is the final word. No URL is shown: the
 // server only sends a boolean. "Check again" re-reads just that flag.
 function OllamaNotice({ onRecheck }: { onRecheck: () => Promise<void> }) {
   const [pending, setPending] = useState(false)
@@ -376,21 +378,8 @@ function RunPanel({
   return (
     <section className="panel" aria-label="Translate run">
       <h3>Translate</h3>
-      <TierPicker
-        config={config}
-        onApplied={(t) => {
-          setF((s) => applyTierToForm(s, t, config))
-          onTierApplied(t)
-        }}
-      />
-      <PresetPicker
-        onApplied={(p) => {
-          setF((s) => applyPresetToForm(s, p, config))
-          onPresetApplied(p)
-        }}
-      />
       <div className="translate-basics">
-        <Field label="Engine" help="Which service translates. The default comes from Settings; engines marked (no key) cannot run.">
+        <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP}`}>
           <select value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
             <option value="">Default ({engineLabel(config.translation_engine)})</option>
             {config.engines.map((e) => (
@@ -402,7 +391,7 @@ function RunPanel({
           <Field label="Model">
             <select value={f.model} onChange={(e) => set('model', e.target.value)}>
               <option value="">Engine default</option>
-              {models.map((m) => <option key={m} value={m}>{m}</option>)}
+              {models.map((m) => <option key={m} value={m}>{modelOptionLabel(engine, m)}</option>)}
             </select>
           </Field>
         )}
@@ -411,9 +400,9 @@ function RunPanel({
             {config.style_presets.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
           </select>
         </Field>
-        <Field label="Locale" help="English variant, for example en-US or en-GB spelling.">
+        <Field label="English variant" help="Spelling for the translation: US, UK or Australian English.">
           <select value={f.locale} onChange={(e) => set('locale', e.target.value)}>
-            {config.locales.map((l) => <option key={l} value={l}>{l}</option>)}
+            {config.locales.map((l) => <option key={l} value={l}>{humanize('locale', l)}</option>)}
           </select>
         </Field>
       </div>
@@ -434,37 +423,37 @@ function RunPanel({
         >
           Translate {lineCount} line{lineCount === 1 ? '' : 's'}
         </button>
+        {blocker && (
+          <p className="stage-blocker" id="translate-blocker" data-testid="translate-blocker">
+            {blocker.kind === 'no-lines' && (
+              <>
+                <span>Still needed: lines to translate.</span>
+                <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
+                  Go to Source
+                </ButtonLink>
+              </>
+            )}
+            {blocker.kind === 'all-translated' && (
+              <>
+                <span>All {blocker.total} line{blocker.total === 1 ? ' has' : 's have'} English.</span>
+                <button
+                  type="button"
+                  className={buttonClass('ghost', 'sm')}
+                  onClick={() => {
+                    focusAck.current = true
+                    setF((s) => ({ ...s, force: true, forceConfirmed: false }))
+                  }}
+                >
+                  Re-translate existing…
+                </button>
+              </>
+            )}
+            {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}
+          </p>
+        )}
         <button type="button" className={buttonClass('ghost')} onClick={runEstimate}>Estimate cost</button>
         {estimate && <EstimateView e={estimate} />}
       </div>
-      {blocker && (
-        <p className="stage-blocker" id="translate-blocker" data-testid="translate-blocker">
-          {blocker.kind === 'no-lines' && (
-            <>
-              <span>Still needed: lines to translate.</span>
-              <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-                Go to Source
-              </ButtonLink>
-            </>
-          )}
-          {blocker.kind === 'all-translated' && (
-            <>
-              <span>All {blocker.total} line{blocker.total === 1 ? ' has' : 's have'} English.</span>
-              <button
-                type="button"
-                className={buttonClass('ghost', 'sm')}
-                onClick={() => {
-                  focusAck.current = true
-                  setF((s) => ({ ...s, force: true, forceConfirmed: false }))
-                }}
-              >
-                Re-translate existing…
-              </button>
-            </>
-          )}
-          {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}
-        </p>
-      )}
       {f.force && (
         <label className="inline stage-ack">
           <input
@@ -516,6 +505,19 @@ function RunPanel({
         <p className="error" role="alert">A translate job is already running for this drama.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <TierPicker
+        config={config}
+        onApplied={(t) => {
+          setF((s) => applyTierToForm(s, t, config))
+          onTierApplied(t)
+        }}
+      />
+      <PresetPicker
+        onApplied={(p) => {
+          setF((s) => applyPresetToForm(s, p, config))
+          onPresetApplied(p)
+        }}
+      />
       <Section storageKey="translate.advanced" title="Advanced" summary={advancedSummary(f, base)}>
         <div className="advanced-grid">
           <div className="advanced-wide">
@@ -523,7 +525,7 @@ function RunPanel({
               <textarea rows={2} value={f.style_note} onChange={(e) => set('style_note', e.target.value)} />
             </Field>
           </div>
-          <Field label="Batch size" unit="lines" help="Lines sent per request, 1 to 200.">
+          <Field label="Batch size" unit="lines" help="Lines sent per request, 1 to 60.">
             <input type="number" value={f.batch_size} onChange={(e) => set('batch_size', e.target.value)} />
           </Field>
           <Field label="Context before" unit="lines" help="Earlier lines sent as context, 0 to 100.">
@@ -622,7 +624,7 @@ function RunPanel({
   )
 }
 
-// Parity X01: Streamlit's warning about the last run's failed batches, with
+// Warning about the last run's failed batches, with
 // Dismiss (clears only that record; the lines stay untranslated, so running
 // Translate again retries just those).
 function FailedBatchesNotice({ config, onDismissed }: { config: TranslateRunConfig; onDismissed: () => void }) {
@@ -704,6 +706,9 @@ export default function TranslateStage() {
           onDismissed={() => setConfig((c) => (c ? { ...c, last_translate_errors: null } : c))}
         />
       )}
+      {!config && !error && (
+        <div className="skeleton-block translate-skeleton" role="status" aria-busy="true" aria-label="Loading translate options" />
+      )}
       {config && (
         <RunPanel
           config={config}
@@ -718,8 +723,8 @@ export default function TranslateStage() {
       {jobId && <JobPanel job={job} pollError={pollError} />}
       <BulkBatchesPanel reloadKey={reloads} />
       <NovelFilePanel kind="reference" busy={busy} onChanged={() => setReloads((n) => n + 1)} />
-      <GlossaryPanel />
-      <CharactersPanel />
+      <GlossaryPanel focusReady={config !== null || error !== null} />
+      <CharactersPanel focusReady={config !== null || error !== null} />
     </div>
   )
 }

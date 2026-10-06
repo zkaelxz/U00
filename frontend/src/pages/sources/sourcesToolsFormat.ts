@@ -1,6 +1,7 @@
 // Pure helpers for the Sources tools (SO02 site check, SO03 pasted page
 // source, SO08 identify media, SO16 pasted-URL diagnostics) and the
 // Discover pasted listing (DI07).
+import { sentenceCase } from '../../labels'
 import { MAX_PASTED_HTML_BYTES, MAX_PASTED_LISTING_CHARS, utf8Bytes } from '../../api/sourcesTools'
 import type { MediaResource, SourceExtraction, UrlPreflight } from '../../types/sourcesTools'
 
@@ -19,7 +20,7 @@ export function pastedListingProblem(text: string): string | null {
   return null
 }
 
-export type Tone = 'ok' | 'warn' | 'danger'
+type Tone = 'ok' | 'warn' | 'danger'
 
 export function preflightTone(p: UrlPreflight): Tone {
   if (!p.permitted) return 'danger'
@@ -29,7 +30,7 @@ export function preflightTone(p: UrlPreflight): Tone {
 /** Short facts under the verdict: type, how it was reached, what was read. */
 export function preflightFacts(p: UrlPreflight): string[] {
   const out: string[] = []
-  if (p.content_type && p.content_type !== 'unknown') out.push(p.content_type)
+  if (p.content_type && p.content_type !== 'unknown') out.push(sentenceCase(p.content_type))
   if (p.tier) out.push(`via ${p.tier.replace(/_/g, ' ').toLowerCase()}`)
   if (p.text_chars) out.push(`${p.text_chars.toLocaleString('en-US')} characters`)
   if (p.images) out.push(`${p.images} image${p.images === 1 ? '' : 's'}`)
@@ -64,7 +65,7 @@ export function playableResources(rs: MediaResource[]): MediaResource[] {
 
 export function extractionMeta(a: SourceExtraction): string {
   const bits: string[] = []
-  if (a.content_type) bits.push(a.content_type)
+  if (a.content_type) bits.push(sentenceCase(a.content_type))
   bits.push(`AI calls: ${a.llm_calls}${a.cache_hit ? ' (cached result reused)' : ''}`)
   if (a.confidence) bits.push(`confidence ${a.confidence.toLowerCase()}`)
   return bits.join(' · ')

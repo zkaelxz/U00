@@ -1,6 +1,9 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type Page } from '@playwright/test'
 
-// Settings > Notifications (Step 44) and the header bell. Every notification
+import { expect, test } from './fixtures'
+import { openSettingsGroups } from './settingsNav'
+
+// Settings > Notifications and the header bell. Every notification
 // call is mocked and fulfilled; a catch-all aborts (and records) any other
 // non-GET /api call, so nothing is written to the seeded library's .env and
 // nothing is sent. NOTIFY_SCREENS_DIR saves review screenshots (not asserted).
@@ -79,6 +82,7 @@ async function mockNotifications(
 
 async function open(page: Page) {
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const section = page.getByRole('region', { name: 'Notifications' })
   await expect(section).toBeVisible()
   return section
@@ -135,7 +139,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   await input.fill('https://ntfy.sh/secret-topic-name')
   await section.getByRole('button', { name: 'Save ntfy address' }).click()
   await section.getByRole('button', { name: 'Confirm save ntfy address' }).click()
-  await expect(section.getByText(/only be set on the Baihe PC itself/)).toBeVisible()
+  await expect(section.getByText(/can only be changed on the Baihe PC itself/)).toBeVisible()
   await expect(input).toHaveValue('')
   expect(await page.content()).not.toContain('secret-topic-name')
   expect(unmocked).toEqual([])
@@ -154,6 +158,7 @@ test('away from the PC the section says PC only and makes no notification calls'
     return route.fulfill({ response: resp, json: { ...body, local: false } })
   })
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const section = page.getByRole('region', { name: 'Notifications' })
   await expect(section.locator('.card-meta')).toHaveText('PC only')
   await expect(section.getByText('Run this on the main PC.')).toBeVisible()
@@ -311,12 +316,11 @@ test('header bell: fits the one-row header at 1280px, and its panel stays on scr
   for (const width of [1280, 1024]) {
     await page.setViewportSize({ width, height: 800 })
     await page.goto('/#/library')
-    await expect(page.getByTestId('api-status')).toBeVisible()
     const bell = page.getByRole('button', { name: /^Notifications/ })
+    await expect(bell).toBeVisible()
     const b = (await bell.boundingBox())!
-    const nav = (await page.getByRole('navigation', { name: 'Main' }).boundingBox())!
-    // 1280: the bell did not push the header onto a second row.
-    if (width === 1280) expect(b.y).toBeLessThan(nav.y + nav.height)
+    // The header is a single row of icons beside the left rail, so the bell sits at the top of the page.
+    expect(b.y).toBeLessThan(80)
     await bell.click()
     const p = (await page.getByRole('region', { name: 'Recent notifications' }).boundingBox())!
     expect(p.x).toBeGreaterThanOrEqual(0)

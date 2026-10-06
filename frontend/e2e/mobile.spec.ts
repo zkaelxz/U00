@@ -1,4 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSettingsGroups } from './settingsNav'
+import { hitHeight, installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project only (390x844, touch): each screen fits the width and its
 // main touch targets are at least 44px tall.
@@ -15,7 +21,7 @@ async function expectTall(page: Page, selector: string) {
   const heights = await page.locator(selector).evaluateAll((els) =>
     els
       .filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent ?? '').trim().slice(0, 40) })),
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent ?? '').trim().slice(0, 40) })),
   )
   expect(heights.length, `no visible ${selector}`).toBeGreaterThan(0)
   for (const { h, text } of heights) expect(h, `${selector} "${text}"`).toBeGreaterThanOrEqual(44)
@@ -29,7 +35,7 @@ async function visiblePrimaries(page: Page) {
 
 async function checkScreen(page: Page, extra: string[] = []) {
   await expectNoHorizontalOverflow(page)
-  await expectTall(page, '.app-header nav a')
+  await expectTall(page, '.app-header .menu-btn')
   for (const sel of extra) await expectTall(page, sel)
   if ((await visiblePrimaries(page)) > 0) await expectTall(page, 'button.primary, .btn-primary')
 }
@@ -59,7 +65,7 @@ for (const stage of ['source', 'translate', 'review', 'dub', 'export']) {
     expect(new Set(boxes.map((b) => b.top)).size).toBe(1)
     for (const b of boxes) expect(b.right).toBeLessThanOrEqual(390)
     // §3.3: the app header and Workspace header are compact enough that stage content starts by y=300.
-    const contentTop = await page.locator('nav.stage-tabs').evaluate((n) => {
+    const contentTop = await page.locator('.ws-strip').evaluate((n) => {
       let s = n.nextElementSibling
       while (s && s.getBoundingClientRect().height === 0) s = s.nextElementSibling
       return s ? s.getBoundingClientRect().top : Infinity
@@ -105,12 +111,12 @@ test('Notion: the settings card and Export to Notion fit a phone', async ({ page
   await page.route('**/api/notion/dramas/1', (route) =>
     route.fulfill({ json: { drama_id: 1, page_id: 'abc', page_url: 'https://www.notion.so/Signal-abc' } }))
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Notion' })
   await expect(card.getByTestId('notion-token')).toHaveText('Token saved')
   await expectNoHorizontalOverflow(page)
   for (const name of ['Save token', 'Test connection', 'Clear token']) {
-    const box = await card.getByRole('button', { name }).boundingBox()
-    expect(box?.height ?? 0, name).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(card.getByRole('button', { name })), name).toBeGreaterThanOrEqual(44)
   }
 
   await page.goto('/#/drama/1/export')
@@ -127,6 +133,7 @@ test('Jellyfin: the settings card fits a phone (labels on one line, full-width f
   await page.route('**/api/jellyfin/config', (route) =>
     route.fulfill({ json: { enabled: true, server_url: 'http://192.168.1.20:8096', library_dir: 'D:\\Media\\Dramas', key_configured: true } }))
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Jellyfin' })
   await expect(card.getByTestId('jellyfin-key')).toHaveText('Set')
   await expectNoHorizontalOverflow(page)
@@ -134,7 +141,7 @@ test('Jellyfin: the settings card fits a phone (labels on one line, full-width f
   const labels = await card.locator('.field-label-row label').evaluateAll((els) =>
     els.map((e) => {
       const lh = parseFloat(getComputedStyle(e).lineHeight) || 20
-      return { text: e.textContent ?? '', lines: Math.round(e.getBoundingClientRect().height / lh) }
+      return { text: e.textContent ?? '', lines: Math.round(window.hitHeight(e) / lh) }
     }),
   )
   expect(labels.length).toBeGreaterThanOrEqual(4)
@@ -144,7 +151,6 @@ test('Jellyfin: the settings card fits a phone (labels on one line, full-width f
     expect(box?.width ?? 0, 'field too narrow').toBeGreaterThanOrEqual(250)
   }
   for (const name of ['Save', 'Save key', 'Remove key', 'Test connection', 'Scan library']) {
-    const box = await card.getByRole('button', { name, exact: true }).boundingBox()
-    expect(box?.height ?? 0, name).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(card.getByRole('button', { name, exact: true })), name).toBeGreaterThanOrEqual(44)
   }
 })

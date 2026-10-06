@@ -158,7 +158,9 @@ batches and stops early rather than running to completion regardless,
 and the reset button requests cancellation of every running job and
 **waits (up to 10 seconds) for them to actually stop** before the
 destructive reset proceeds -- refusing to reset rather than risk
-corruption if a job won't stop in time. Verified by reproducing the
+corruption if a job won't stop in time. (Later replaced: reset now takes
+the exclusive hold, so no new job can start, and then calls
+`background_jobs.wait_for_job_threads`; see `docs/background-jobs.md`.) Verified by reproducing the
 exact original scenario end to end, including the id-reuse case, and
 confirming no contamination survives.
 
@@ -274,3 +276,65 @@ synthetic test images, not just reading the code:
 - **manga_ocr and the Tesseract simplified/traditional split**: both
   confirmed working as documented by actually installing and running
   them against synthetic Japanese/Chinese test images -- no fix needed.
+
+## Per-line spoken language (`Line.lang`)
+
+A title used to have exactly one spoken language (`dramas.source_language`),
+which broke on clips that mix speakers: transcribing a Korean speaker as
+Japanese produced Japanese text. Each line can now carry its own language.
+Transcription detects it per span (Mixed languages); the live translate loop
+reads it too (see the last bullet).
+
+Contract:
+
+- `core.Line.lang` / `lines.lang` (TEXT, nullable, no default): a lower-case
+  code from `core.LINE_LANGUAGES` (`zh`, `ja`, `ko`, `en`). `None`/NULL means
+  "the title's `source_language`", so every existing line keeps its meaning.
+- `core.normalize_line_lang(value)` is the one validator for input: `None` or
+  `""` gives `None`, a known code in any case gives it lower-cased, anything
+  else raises `InvalidInputError`. Stored rows are read leniently: an unknown
+  code (from an imported backup, say) loads as `None`.
+- `lang` is in `core.LINE_FIELDS`, so `db.save_lines` (full sync, field-scoped
+  `fields=("lang",)`, `orig`, `only_if_unchanged`) and the compare-and-set
+  helpers handle it like any other column; `""` is stored as NULL.
+- Undo snapshots and translation versions record it (`SAVED_MARK_FIELDS`);
+  restoring one saved before the field existed keeps each line's current
+  `lang`.
+- Split, re-split and re-segment pieces keep the parent's `lang`. A merge
+  keeps it only when every merged line has the same one, otherwise the line
+  falls back to the title's language (nothing is flagged).
+- API: line responses carry `lang` (null = title default). The line edit route
+  accepts `lang` (`""` = title default) and `expected.lang`.
+  `POST /api/lines/dramas/{drama_id}/set-language` takes `lang` plus exactly
+  one of `line_ids` or `speaker`, writes only `lang`, and skips ids that are
+  not lines of that drama.
+- Review shows a language chip only on a line whose `lang` differs from the
+  title's, so a single-language title looks the same as before.
+- Translation (`translate_pipeline._translate_lines_with_engine`, shared by the
+  app and `cli.py translate`): a line whose `lang` differs from the title's gets
+  a `(spoken in Korean)` tag in the numbered prompt text and in all three Reflect
+  passes (`context["line_languages"]`, `None` for a single-language batch, so
+  those prompts are unchanged); `en` lines are copied to `en` without a model
+  call; NLLB groups a batch by language.
+- The other paths read it through the same helpers in `engine_backends/shared.py`
+  (`tagged_line_languages`, `tagged_source_texts`, `is_english_line`):
+  bulk translate tags each request's numbered lines and copies `en` lines at
+  submission (bulk Reflect tags all three stages); the DeepSeek off-peak run and
+  `cli.py translate` go through the shared translate loop; `try_line` (stronger
+  engine), `retry_blocked_line` and the fix-flagged job tag the single line's
+  context and answer an `en` line without a call; the line AI tools
+  (`line_ai_service`) pass the line's own language to their prompts. Not yet
+  covered: glossary terms per language.
+- Export: subtitle wrapping uses the caller's per-field caps
+  (`wrap_chars_en` / `wrap_chars_source`) and breaks each line by its own text
+  (`subtitle_formats._is_cjk`), so a mixed title needs no per-line language;
+  `LINE_CHAR_LIMITS` is only the re-split/resegment threshold. ASS styles do
+  not vary by script. The CLI exports through the same service.
+- Forced alignment: Re-split's "Align to audio" runs the aligner once per line
+  (`restructure_service._aligned_pieces`) in `Line.lang`, else the title's
+  language, and an `en` line is aligned as English (`forced_align.ALIGNER_LANGUAGE_NAMES`;
+  words are kept space-separated for the aligner). English alignment quality on real audio
+  has not been checked yet.
+  `word_align.realign_long_segment` reads a segment's own `lang` and leaves an
+  English segment unsplit. Transcript alignment (app and `cli.py align`) runs
+  on pasted text with no per-line language yet, so it still uses the title's.

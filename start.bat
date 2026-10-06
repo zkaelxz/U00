@@ -36,9 +36,9 @@ REM                            opening http://127.0.0.1:8600/ yourself.
 REM                            Still loopback only (no LAN access until the
 REM                            API has authentication). Same effect as
 REM                            setting BAIHE_SERVER_ONLY.
-REM   start.bat --build-frontend -- developers only: if frontend\dist is
-REM                            missing, build it (npm ci, npm run build in
-REM                            frontend\). Needs Node.js. End users unzip
+REM   start.bat --build-frontend -- developers only: always rebuild
+REM                            frontend\dist (npm ci, npm run build in
+REM                            frontend\), even if one exists. Needs Node.js. End users unzip
 REM                            the prebuilt release zip instead (docs/RELEASE.md).
 REM   start.bat --python-version 3.12 -- Step 79: pin the Python version
 REM                            used to create the venv, via the `py`
@@ -120,7 +120,7 @@ if errorlevel 1 (
         if errorlevel 1 (
             echo Python wasn't found on PATH.
             echo.
-            echo Install Python 3.9 or newer from https://python.org/downloads/
+            echo Install Python 3.10 or newer from https://python.org/downloads/
             echo and make sure to tick "Add python.exe to PATH" during setup,
             echo then run this again.
         ) else (
@@ -183,8 +183,8 @@ REM --- Prebuilt React app (frontend\dist) -----------------------------------
 REM End users never need Node.js: the frontend ships as a prebuilt release
 REM zip (docs/RELEASE.md) unzipped into frontend\dist. npm only ever runs
 REM here when a developer passes --build-frontend.
-if exist "frontend\dist\index.html" goto :frontend_ready
 if defined BAIHE_BUILD_FRONTEND goto :build_frontend
+if exist "frontend\dist\index.html" goto :frontend_ready
 if defined BAIHE_CI goto :frontend_missing_noninteractive
 if defined BAIHE_SERVER_ONLY goto :frontend_missing_noninteractive
 echo The app's screens ^(frontend\dist^) aren't installed yet.

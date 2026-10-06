@@ -831,6 +831,7 @@ class TestChapterCommit:
                          "updated_at REAL NOT NULL, PRIMARY KEY (source, series_id, drama_id, "
                          "chapter_id))")
             conn.execute("INSERT INTO import_retry VALUES ('a', 's1', 1, 'c1', '', 'failed', '', 0)")
+        store._initialised.clear()   # the next process start: migrations run again
         for _ in range(2):   # the second connect finds the column already there
             with store.connect() as conn:
                 cols = [r["name"] for r in conn.execute("PRAGMA table_info(import_retry)")]

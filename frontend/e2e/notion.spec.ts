@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSettingsGroups } from './settingsNav'
 
 // Notion export (roadmap item 112): the /api/notion routes and the export
 // job are mocked (no Notion); everything else hits the real seeded API.
@@ -41,6 +42,7 @@ test('settings: saves the token without showing it, saves the target, tests the 
     route.fulfill({ json: { ok: true, bot_name: 'Baihe', target_title: 'Dramas', target_type: 'database' } }))
 
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Notion' })
   await expect(card).toContainText('Not set up')
   await expect(card.getByTestId('notion-token')).toHaveText('No token')
@@ -87,6 +89,7 @@ test('settings: a refused token write shows the key-writes hint', async ({ page 
   await page.route('**/api/notion/token', (route) =>
     route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'API key writes are disabled.' } } }))
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Notion' })
   await card.getByLabel('Token', { exact: true }).fill(TOKEN)
   await card.getByRole('button', { name: 'Save token' }).click()
@@ -98,7 +101,7 @@ test('settings: a refused token write shows the key-writes hint', async ({ page 
 test('export: hidden when Notion is not set up; a hint when half set up', async ({ page }) => {
   const { state } = await mockConfig(page, empty)
   await page.goto('/#/drama/1/export')
-  await expect(page.getByText('More export').first()).toBeVisible()
+  await expect(page.getByText('Video and audio').first()).toBeVisible()
   await expect(page.getByRole('region', { name: 'Export to Notion' })).toHaveCount(0)
 
   state.cfg = { ...empty, token_configured: true }
@@ -144,7 +147,7 @@ test('export: starts a job, shows progress, then links to the page', async ({ pa
   await expect(panel.getByRole('alert')).toHaveText('Another job is running for this drama.')
 
   await panel.getByRole('button', { name: 'Export to Notion' }).click()
-  await expect(panel.getByTestId('job-status')).toContainText('running · Writing blocks')
+  await expect(panel.getByTestId('job-status')).toContainText('Running · Writing blocks')
   await expect(panel.getByTestId('job-percent')).toHaveText('50%')
   const link = panel.getByRole('link', { name: 'Open in Notion' })
   await expect(link).toHaveAttribute('href', PAGE_URL)
@@ -174,9 +177,10 @@ test('away from the PC: no Notion export, and Settings says PC only', async ({ p
     return route.fulfill({ json: ready })
   })
   await page.goto('/#/drama/1/export')
-  await expect(page.getByText('More export').first()).toBeVisible()
+  await expect(page.getByText('Video and audio').first()).toBeVisible()
   await expect(page.getByRole('region', { name: 'Export to Notion' })).toHaveCount(0)
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Notion' })
   await expect(card).toContainText('Run this on the main PC.')
   await expect(card.getByLabel('Token', { exact: true })).toHaveCount(0)

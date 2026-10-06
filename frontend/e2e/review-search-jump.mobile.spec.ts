@@ -2,6 +2,11 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Parity R05 on a phone: "Show on its page" is a full touch target and the
 // search results fit the screen without sideways scrolling.
@@ -29,8 +34,7 @@ test('phone: a search hit opens on its page from a 44px button', async ({ page }
   await expect(rows).toHaveCount(1)
 
   const show = page.getByRole('button', { name: 'Show on its page: line 45' })
-  const box = await show.boundingBox()
-  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect(await hitHeight(show)).toBeGreaterThanOrEqual(44)
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBeLessThanOrEqual(0)
 

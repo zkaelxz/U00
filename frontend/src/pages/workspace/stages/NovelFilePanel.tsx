@@ -35,6 +35,7 @@ import { useStage } from '../StageContext'
 import {
   NOVEL_FILE_EXTENSIONS,
   checkNovelFile,
+  epubSizeProblem,
   novelFileStatusLine,
   novelFileSummary,
   pasteProblem,
@@ -52,11 +53,11 @@ const COPY: Record<NovelFileKind, { title: string; name: string; label: string; 
     help: 'An existing English translation of the novel (.txt or .md, or paste it). Translation uses it to keep names and terms consistent.',
   },
   raw: {
-    title: 'Raw novel (original language)',
+    title: 'Raw source novel (original language, used as reference)',
     name: 'raw novel',
     label: 'Raw novel file',
     pasteLabel: 'Raw novel text',
-    help: 'The original-language novel (.txt, .md or .epub, or paste it). The automatic prompt uses its names and phrasing to help speech recognition.',
+    help: 'The original-language novel (.txt, .md or .epub, or paste it). Kept only as a reference: the automatic prompt uses its names and phrasing to help speech recognition. It is not the text that gets translated; that is under Novel text.',
   },
 }
 
@@ -87,7 +88,7 @@ export function NovelFilePanel({ kind, busy = false, onChanged }: Props) {
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [reloads, setReloads] = useState(0)
-  const fileProblem = file ? checkNovelFile(kind, file.name) : null
+  const fileProblem = file ? checkNovelFile(kind, file.name) ?? epubSizeProblem(file) : null
   const textProblem = pasteProblem(text)
   const ready = source === 'file' ? !!file && !fileProblem : !!text.trim() && !textProblem
 

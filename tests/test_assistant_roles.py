@@ -170,7 +170,7 @@ def test_api_settings_and_answer_carry_the_review(engines, monkeypatch):
     monkeypatch.setattr(svc, "_chat", EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nfine"]))
     r = c.post("/api/assistant/ask", json={"question": "x"})
     assert r.status_code == 200 and r.json()["review"]["verdict"] == "agrees"
-    assert c.post("/api/assistant/settings", json={"review_engine": "deepl"}).status_code == 422
+    assert c.post("/api/assistant/settings", json={"review_engine": "nllb"}).status_code == 422
 
 
 def test_an_unbuildable_review_engine_keeps_the_fix(engines, monkeypatch):
@@ -205,7 +205,7 @@ def test_review_engine_without_cloud_consent_is_not_reviewed(engines, monkeypatc
     monkeypatch.undo()
     monkeypatch.setattr(svc, "build_engine",
                         lambda name=None, model=None: (FakeEngine("claude"), "claude", None))
-    monkeypatch.setattr(reader_service, "_llm_engine", lambda n, m: FakeEngine(n))
+    monkeypatch.setattr(reader_service, "llm_engine", lambda n, m: FakeEngine(n))
     monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", lambda *a: None)
     chat = EngineChat(claude=[PATCH], gemini=["VERDICT: AGREES\nok"])
     out = svc.ask("x", chat=chat)
@@ -226,7 +226,7 @@ def _real_review_build(monkeypatch):
     monkeypatch.undo()
     monkeypatch.setattr(svc, "build_engine",
                         lambda name=None, model=None: (FakeEngine("claude"), "claude", None))
-    monkeypatch.setattr(reader_service, "_llm_engine", lambda n, m: FakeEngine(n))
+    monkeypatch.setattr(reader_service, "llm_engine", lambda n, m: FakeEngine(n))
     monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", lambda *a: None)
 
 
@@ -263,19 +263,3 @@ def test_cloud_reviewer_without_consent_is_refused_through_the_api(engines, monk
     assert [call[0] for call in svc._chat.calls] == ["claude"]
 
 
-def test_offline_test_engine_is_not_a_review_choice(isolated_db):
-    s = svc.get_settings()
-    assert "test_offline" in s["engine_choices"]
-    assert "test_offline" not in s["review_engine_choices"] and "gemini" in s["review_engine_choices"]
-    with pytest.raises(svc.InvalidInputError):
-        svc.set_settings({"review_engine": "test_offline"})
-    c = _client()
-    assert c.post("/api/assistant/settings", json={"review_engine": "test_offline"}).status_code == 422
-
-
-def test_a_saved_offline_reviewer_is_not_used(isolated_db):
-    import db
-    db.set_app_setting(svc._SETTINGS_PREFIX + "review_engine", "test_offline")
-    assert svc.get_settings()["review_engine"] is None
-    with pytest.raises(svc.ConflictError):
-        svc.build_review_engine()

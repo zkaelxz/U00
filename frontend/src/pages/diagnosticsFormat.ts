@@ -3,6 +3,26 @@ import type { JobRecord } from '../types/jobs'
 
 export const isActive = (status: string) => status === 'queued' || status === 'running'
 
+export const isFinished = (status: string) => status === 'done' || status === 'error' || status === 'cancelled'
+
+// Queued/running jobs first (they are what the viewer is waiting on), then
+// the rest, each group keeping the server's newest-first order.
+export function orderJobs(jobs: JobRecord[]): JobRecord[] {
+  return [...jobs.filter((j) => isActive(j.status)), ...jobs.filter((j) => !isActive(j.status))]
+}
+
+// "2 running, 1 failed" / "None running" (+ queued and failed when present).
+export function jobsSummary(jobs: JobRecord[]): string {
+  const count = (pred: (j: JobRecord) => boolean) => jobs.filter(pred).length
+  const running = count((j) => j.status === 'running')
+  const queued = count((j) => j.status === 'queued')
+  const failed = count((j) => j.status === 'error')
+  const parts = [running ? `${running} running` : 'None running']
+  if (queued) parts.push(`${queued} queued`)
+  if (failed) parts.push(`${failed} failed`)
+  return parts.join(', ')
+}
+
 export const hasActiveJobs = (jobs: JobRecord[]) => jobs.some((j) => isActive(j.status))
 
 export function splitDependencies(deps: Record<string, DependencyStatus>) {
@@ -38,17 +58,13 @@ export function formatSeconds(seconds: number): string {
   return `${s}s`
 }
 
-// A job card's status line: "Running 40% · 3m 05s".
-export function jobStatusLine(job: JobRecord, nowSec: number): string {
-  const pct = job.progress != null && isActive(job.status) ? ` ${Math.round(job.progress * 100)}%` : ''
-  return `${statusLabel(job.status)}${pct} · ${formatDuration(job, nowSec)}`
-}
-
 // The small line under a job's status: live progress text while it runs,
 // the error for a failed job, nothing once it is done or cancelled (its
-// last progress text, e.g. "Transcribing... 99%", would read as stuck).
+// last progress text, e.g. "Transcribing... 99%", would read as stuck),
+// except why a cancelled job ended when the server says (Baihe restarted).
 export function jobDetail(job: Pick<JobRecord, 'status' | 'message' | 'error'>): string | null {
-  if (job.status === 'done' || job.status === 'cancelled') return null
+  if (job.status === 'cancelled') return job.error || null
+  if (job.status === 'done') return null
   if (job.status === 'error') return job.error || job.message || null
   return job.message || null
 }

@@ -82,7 +82,7 @@ def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
     }
 
 
-# B-28: a public page must not be able to redirect or script the browser onto
+# A public page must not be able to redirect or script the browser onto
 # a private address. Two layers:
 #  1. Every Chromium this module launches sends ALL its traffic (navigations,
 #     every redirect hop, subresources, fetch/XHR, WebSockets) through a
@@ -316,7 +316,8 @@ def _guarded_chromium(p):
     proxy = None
     try:
         proxy = _PinningProxy()
-        browser = p.chromium.launch(headless=True, **proxy.launch_kwargs())
+        browser = _launch_chromium(p.chromium.launch, headless=True,
+                                   **proxy.launch_kwargs())
         try:
             yield browser, proxy
         finally:
@@ -342,7 +343,7 @@ def _goto(page, url: str, proxy, allow_unguarded: bool = False, **kwargs):
     """`page.goto`, then fail closed: with no proxy for this launch, or when
     an http(s) navigation returned a response but the pinning proxy saw no
     request at all (e.g. a managed browser policy overriding the proxy
-    setting), the B-28 protection is not in force. `allow_unguarded` is
+    setting), the private-address protection is not in force. `allow_unguarded` is
     only for an injected test launcher, which has no proxy."""
     if proxy is None and not allow_unguarded:
         raise ProxyBypassed(_BYPASSED)
@@ -354,7 +355,7 @@ def _goto(page, url: str, proxy, allow_unguarded: bool = False, **kwargs):
 
 
 def _guard_context(context):
-    """Install the B-28 request guard on a browser context."""
+    """Install the private-address request guard on a browser context."""
     context.route("**/*", make_request_guard())
     return context
 
@@ -367,15 +368,46 @@ def _guarded_page(browser):
     return context.new_page()
 
 
-def fetch_static(url: str, timeout: int = 20):
-    """Plain fetch. Returns (html, text). Raises on network failure."""
-    import requests
-    from bs4 import BeautifulSoup
+STATIC_FETCH_MAX_BYTES = 5_000_000
+STATIC_FETCH_MAX_REDIRECTS = 5
+_REDIRECT_CODES = (301, 302, 303, 307, 308)
 
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"}
-    resp = requests.get(url, headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    html = resp.text
+
+def fetch_static(url: str, timeout: int = 20):
+    """Plain fetch. Returns (html, text). Raises on network failure, and
+    `url_guard.UnsafeURLError` when the URL or any redirect hop is not a
+    public http(s) address."""
+    from urllib.parse import urljoin
+    from bs4 import BeautifulSoup
+    from services import metadata_service, url_guard
+
+    headers = {"User-Agent": _UA}
+    current = url
+    # Redirects are followed by hand so every hop is validated and the
+    # connection pinned to the validated IP (no DNS-rebinding window).
+    for _ in range(STATIC_FETCH_MAX_REDIRECTS + 1):
+        ip = url_guard.resolve_public(current)
+        resp = metadata_service.pinned_get(current, ip, headers, timeout=timeout)
+        location = resp.headers.get("Location")
+        if resp.status_code in _REDIRECT_CODES and location:
+            resp.close()
+            current = urljoin(current, location)
+            continue
+        break
+    else:
+        raise url_guard.UnsafeURLError("Too many redirects.")
+    try:
+        resp.raise_for_status()
+        encoding = resp.encoding or "utf-8"
+    except Exception:
+        resp.close()
+        raise
+    from services import capped_body
+
+    def too_big():
+        return ValueError("The page is too large to fetch.")
+    html = capped_body.read_capped(resp, STATIC_FETCH_MAX_BYTES, max(timeout, 1) * 3,
+                                   too_big).decode(encoding, errors="replace")
 
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
@@ -404,7 +436,7 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
 # Resolves every `<img src="blob:...">` on the page into real bytes from
 # inside that page's own JS context, before the browser (and with it, the
 # blob's only storage) closes. Manhuaku's own real readPic() mechanism
-# (Step 23j) writes decrypted page images into the DOM exactly this way --
+# writes decrypted page images into the DOM exactly this way --
 # a blob: URL only exists in that one tab's memory and can never be
 # independently re-fetched afterward. Chunked base64 encoding avoids
 # blowing the call stack on a large image (a naive
@@ -456,82 +488,23 @@ def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: s
     return html, _visible_lines(html), blob_bytes
 
 
-# Keeps every Blob a page creates alive and its object URL resolvable.
-# Injected before the site's own scripts run. Some viewers (mangaz.com's
-# own, Step 23l) call URL.revokeObjectURL() inside the image's onload, so
-# by the time anything else looks the blob is already gone -- the rendered
-# bitmap is still on screen, but its bytes are unreachable. This only
-# declines to throw away what the page itself already produced for
-# display; it decodes nothing and defeats nothing.
-_BLOB_KEEPALIVE_JS = """
-window.__keptBlobs = {};
-const __origCreateObjectURL = URL.createObjectURL.bind(URL);
-URL.createObjectURL = function (obj) {
-    const url = __origCreateObjectURL(obj);
-    try { window.__keptBlobs[url] = obj; } catch (e) {}
-    return url;
-};
-URL.revokeObjectURL = function () { /* kept resolvable on purpose */ };
-"""
-
-# Reads back the kept blobs, newest first is irrelevant -- keyed by the
-# object URL the page itself handed to its own <img> tags, so a caller can
-# tie each one to whatever element referenced it.
-_KEPT_BLOBS_JS = """
-async () => {
-    const out = {};
-    for (const [url, blob] of Object.entries(window.__keptBlobs || {})) {
-        try {
-            const buf = new Uint8Array(await blob.arrayBuffer());
-            let binary = '';
-            for (let i = 0; i < buf.length; i += 8192) {
-                binary += String.fromCharCode.apply(null, buf.subarray(i, i + 8192));
-            }
-            out[url] = btoa(binary);
-        } catch (e) {
-            // left out; a missing key means "couldn't capture"
-        }
-    }
-    return out;
-}
-"""
-
-
 @contextmanager
-def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500,
-                     keep_blobs: bool = False):
+def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500):
     """An open, loaded page the caller drives itself, instead of the
     one-shot fetch_rendered() shape.
 
-    For a site whose content only appears as its own viewer is navigated
-    (mangaz.com's paginated reader, Step 23l): the caller steps through
-    using that site's own public viewer API and reads what it produces,
-    rather than this project reproducing the site's rendering itself.
-    With `keep_blobs`, blobs the page creates stay resolvable for
-    `kept_blob_bytes()` to read back.
+    For a site whose content only appears as its own viewer is navigated:
+    the caller steps through using that site's own public viewer API and
+    reads what it produces, rather than this project reproducing the
+    site's rendering itself.
     """
     sync_playwright = _require_playwright()
     with sync_playwright() as p:
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
-            if keep_blobs:
-                page.add_init_script(_BLOB_KEEPALIVE_JS)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="domcontentloaded")
             page.wait_for_timeout(wait_ms)
             yield page
-
-
-def kept_blob_bytes(page) -> dict:
-    """{object URL: real bytes} for every Blob a `keep_blobs` session's
-    page has created so far. A blob that couldn't be read is left out."""
-    import base64
-    out = {}
-    for blob_url, b64 in (page.evaluate(_KEPT_BLOBS_JS) or {}).items():
-        try:
-            out[blob_url] = base64.b64decode(b64)
-        except (ValueError, TypeError):
-            continue
-    return out
 
 
 def _url_matches(url: str, pattern) -> bool:
@@ -562,7 +535,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
     whose URL matches `url_pattern`, as the page's own JavaScript makes
     them -- yielding `(page, captured)` so the caller can also drive the
     page further (click, scroll, call a viewer's own API) the same way
-    `rendered_session()` already lets mangaz.py step through a reader.
+    `rendered_session()` lets a caller step through a reader.
 
     For a site that protects its own content API with something computed
     client-side -- a request signature built from a nonce, a timestamp,
@@ -572,7 +545,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
     real, already-signed request/response pairs the page makes on its
     own, instead of porting the signing algorithm to Python. The same
     "let the site's own execution path produce the result" principle
-    mangaz.py and manhuaku.py already apply to descrambling and AES,
+    manhuaku.py already applies to descrambling,
     extended here to an API a site protects with a computed signature
     rather than encrypted output. Nothing about the signature is ever
     inspected, guessed at, or reproduced -- only the response body the
@@ -619,6 +592,23 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
             yield page, captured
 
 
+# Readers that load each page image as it scrolls into view fill in
+# nothing for a single jump to the bottom: step down about a screen at a
+# time (bounded to ~10 s), then land at the bottom as before.
+_SCROLL_THROUGH_JS = """
+async () => {
+    let y = 0;
+    for (let i = 0; i < 40; i++) {
+        y += Math.max(window.innerHeight * 0.9, 400);
+        window.scrollTo(0, y);
+        await new Promise(r => setTimeout(r, 250));
+        if (y >= document.documentElement.scrollHeight) break;
+    }
+    window.scrollTo(0, document.body.scrollHeight);
+}
+"""
+
+
 @contextmanager
 def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     """A rendered, settled page, open for the caller to read from --
@@ -640,7 +630,7 @@ def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
             page = _guarded_page(browser)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="networkidle")
             try:
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.evaluate(_SCROLL_THROUGH_JS)
                 page.wait_for_load_state("networkidle", timeout=timeout * 1000)
             except Exception:
                 pass  # a scroll-triggered navigation or a slow settle isn't fatal
@@ -681,6 +671,150 @@ def _require_playwright():
     return sync_playwright
 
 
+# ---------------------------------------------------------------------------
+# Which browser program to launch
+# ---------------------------------------------------------------------------
+#
+# Playwright pins one exact Chromium build per release, so upgrading the
+# package makes the build it downloaded earlier "missing". Rather than ask
+# for another download, the launch order is: BAIHE_BROWSER_PATH if that
+# file exists, then Playwright's own build, then an installed Chrome or
+# Edge. Nothing is downloaded here.
+
+BROWSER_ENV = "BAIHE_BROWSER_PATH"
+
+BROWSER_MISSING = ("No browser is available for JavaScript-only sites. Install Google Chrome "
+                   "or Microsoft Edge, or run the installer's repair (or "
+                   "`python -m playwright install chromium`), or set BAIHE_BROWSER_PATH to "
+                   "a Chrome or Edge program file. Then try again.")
+
+
+class BrowserNotFound(RuntimeError):
+    """No usable browser program was found. The message is fixed text with
+    no filesystem path, so it is safe to show."""
+
+
+def _system_browser_candidates():
+    """(name, path) in preference order for this OS."""
+    import shutil
+    import sys
+    out = []
+    if sys.platform == "win32":
+        roots = [os.environ.get(v) for v in ("ProgramFiles", "ProgramFiles(x86)", "LocalAppData")]
+        for root in (r for r in roots if r):
+            out.append(("Chrome", os.path.join(root, "Google", "Chrome", "Application", "chrome.exe")))
+            out.append(("Edge", os.path.join(root, "Microsoft", "Edge", "Application", "msedge.exe")))
+    elif sys.platform == "darwin":
+        for base in ("/Applications", os.path.expanduser("~/Applications")):
+            out.append(("Chrome", base + "/Google Chrome.app/Contents/MacOS/Google Chrome"))
+            out.append(("Edge", base + "/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"))
+    else:
+        for exe, name in (("google-chrome", "Chrome"), ("google-chrome-stable", "Chrome"),
+                          ("microsoft-edge", "Edge"), ("microsoft-edge-stable", "Edge"),
+                          ("chromium", "Chromium"), ("chromium-browser", "Chromium")):
+            found = shutil.which(exe)
+            if found:
+                out.append((name, found))
+    return out
+
+
+def find_system_browser():
+    """(name, path) of an installed Chrome, Edge or Chromium, or None."""
+    return next(((n, p) for n, p in _system_browser_candidates() if os.path.isfile(p)), None)
+
+
+def _explicit_browser():
+    path = (os.environ.get(BROWSER_ENV) or "").strip().strip('"')
+    return path if path and os.path.isfile(path) else None
+
+
+_BROWSER_PROGRAMS = {"chrome", "chrome.exe", "chromium", "google chrome for testing",
+                     "chrome-headless-shell", "chrome-headless-shell.exe", "headless_shell"}
+
+
+def _has_browser_program(folder: str, depth: int = 5) -> bool:
+    """Whether `folder` holds a browser program file within `depth` levels
+    (the unpacked layout differs by OS and Playwright release)."""
+    try:
+        for entry in os.scandir(folder):
+            if entry.is_file():
+                if entry.name.lower() in _BROWSER_PROGRAMS and os.access(entry.path, os.X_OK):
+                    return True
+            elif depth > 0 and entry.is_dir() and _has_browser_program(entry.path, depth - 1):
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def _wanted_browser_folders():
+    """Folder names the installed Playwright launches Chromium from (full
+    and headless shell), read from its bundled manifest without importing
+    it. None when the package or manifest can't be read."""
+    import importlib.util
+    import json
+    try:
+        spec = importlib.util.find_spec("playwright")
+        pkg = list(spec.submodule_search_locations or [])[0]
+        with open(os.path.join(pkg, "driver", "package", "browsers.json"), encoding="utf-8") as f:
+            browsers = json.load(f)["browsers"]
+        names = [f"{b['name'].replace('-', '_')}-{b['revision']}" for b in browsers
+                 if b["name"] in ("chromium", "chromium-headless-shell")]
+    except (ImportError, ValueError, OSError, IndexError, KeyError, TypeError, AttributeError):
+        return None
+    return names or None
+
+
+def _bundled_browser_present() -> bool:
+    """Whether the Chromium build the installed Playwright wants (not just
+    any older download) is on disk with its program file. False when
+    Playwright or its manifest can't be read."""
+    wanted = _wanted_browser_folders()
+    if not wanted:
+        return False
+    dirs = []
+    env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if env and env != "0":
+        dirs.append(env)
+    if os.environ.get("LOCALAPPDATA"):
+        dirs.append(os.path.join(os.environ["LOCALAPPDATA"], "ms-playwright"))
+    home = os.path.expanduser("~")
+    dirs += [os.path.join(home, "Library", "Caches", "ms-playwright"),
+             os.path.join(home, ".cache", "ms-playwright")]
+    return any(all(_has_browser_program(os.path.join(d, n)) for n in wanted) for d in dirs)
+
+
+def browser_status() -> dict:
+    """{found, name}: what a browser launch would use, without launching.
+    Never includes a path."""
+    if _explicit_browser():
+        return {"found": True, "name": "custom"}
+    if _bundled_browser_present():
+        return {"found": True, "name": "Playwright Chromium"}
+    system = find_system_browser()
+    if system:
+        return {"found": True, "name": system[0]}
+    return {"found": False, "name": None}
+
+
+def _launch_chromium(launch, *args, **kwargs):
+    """`launch(*args, **kwargs)` (chromium.launch or launch_persistent_context),
+    falling back to an installed Chrome/Edge when Playwright's own build is
+    missing. Raises BrowserNotFound when there is none."""
+    explicit = _explicit_browser()
+    if explicit:
+        return launch(*args, executable_path=explicit, **kwargs)
+    try:
+        return launch(*args, **kwargs)
+    except Exception as e:
+        if "Executable doesn't exist" not in str(e) and "playwright install" not in str(e):
+            raise
+    system = find_system_browser()
+    if system is None:
+        raise BrowserNotFound(BROWSER_MISSING) from None
+    return launch(*args, executable_path=system[1], **kwargs)
+
+
 def _visible_lines(html: str) -> str:
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
@@ -690,7 +824,7 @@ def _visible_lines(html: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Persistent browser profiles (Step 23k)
+# Persistent browser profiles
 # ---------------------------------------------------------------------------
 #
 # One Chromium profile directory per source, opened with Playwright's
@@ -700,7 +834,7 @@ def _visible_lines(html: str) -> str:
 #
 # What persists is the profile directory -- the browser process itself is
 # started per call and closed after. Playwright's sync objects only work
-# on the thread that created them (Streamlit runs each rerun on its own
+# on the thread that created them (each background job runs on its own
 # thread), a Chromium profile can only be open in one browser at a time,
 # and the visible sign-in window and the headless reads need separate
 # launches anyway. Login state survives all of that because it lives in
@@ -718,7 +852,7 @@ class ProfileBusy(RuntimeError):
     """The profile is already open (e.g. its sign-in window is still up)."""
 
 
-def _profile_lock(profile_dir: str) -> threading.Lock:
+def profile_lock(profile_dir: str) -> threading.Lock:
     key = os.path.abspath(profile_dir)
     with _PROFILE_LOCKS_GUARD:
         return _PROFILE_LOCKS.setdefault(key, threading.Lock())
@@ -733,9 +867,9 @@ def _launch_persistent(profile_dir: str, headless: bool):
     proxy = None
     try:
         proxy = _PinningProxy()
-        context = pw.chromium.launch_persistent_context(profile_dir, headless=headless,
-                                                        service_workers="block",
-                                                        **proxy.launch_kwargs())
+        context = _launch_chromium(pw.chromium.launch_persistent_context, profile_dir,
+                                   headless=headless, service_workers="block",
+                                   **proxy.launch_kwargs())
     except Exception:
         if proxy is not None:
             proxy.stop()
@@ -763,7 +897,7 @@ def fetch_with_profile(url: str, profile_dir: str, timeout: int = 30, wait_selec
     `profile_dir`, so a site the person already signed in to sees that
     same signed-in browser. Returns (html, text). `launcher(profile_dir,
     headless)` -> (playwright, context) is injectable for tests."""
-    lock = _profile_lock(profile_dir)
+    lock = profile_lock(profile_dir)
     if not lock.acquire(timeout=PROFILE_BUSY_WAIT):
         raise ProfileBusy("This site's browser profile is still in use (is its sign-in "
                           "window still open?). Finish there and close it first.")
@@ -818,7 +952,7 @@ def open_login_window(url: str, profile_dir: str, launcher=None):
     and waits -- with no timeout -- until the person closes it. They sign
     in (and pass any CAPTCHA/MFA the site asks for) themselves, the normal
     way; nothing here types, clicks, solves or reads anything."""
-    lock = _profile_lock(profile_dir)
+    lock = profile_lock(profile_dir)
     if not lock.acquire(blocking=False):
         raise ProfileBusy("This site's browser profile is already open -- finish in that "
                           "window (or wait for the import using it) first.")
@@ -846,6 +980,22 @@ def open_login_window(url: str, profile_dir: str, launcher=None):
         lock.release()
 
 
+def _redact(exc) -> str:
+    """A fixed-text reason for a failed fetch. str(exc) is never echoed: a
+    requests error carries the URL it connected to (the pinned IP, or a
+    redirect target the site chose) and may hold query-string tokens, which
+    redact_secrets does not mask. Only the guard's own fixed messages and
+    the install hint for a missing browser are passed through."""
+    from engine_backends.shared import redact_secrets
+    from services import url_guard
+    if isinstance(exc, (url_guard.UnsafeURLError, url_guard.URLResolveError, ImportError)):
+        return redact_secrets(str(exc))
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status, int):
+        return f"the site answered HTTP {status}"
+    return "the connection failed"
+
+
 def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
     """
     Fetches a page and tells you honestly what you got.
@@ -866,7 +1016,7 @@ def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
         html, text = fetch_static(url, timeout=timeout)
     except Exception as e:
         result["needs_manual"] = True
-        result["message"] = f"Couldn't reach that page: {e}"
+        result["message"] = f"Couldn't reach that page: {_redact(e)}"
         return result
 
     check = looks_like_unrendered_shell(html, text)
@@ -902,11 +1052,11 @@ def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
             result["needs_manual"] = True
             result["message"] = (
                 "This page is built with JavaScript, so a plain fetch only returns an "
-                f"empty shell.\n\n{e}\n\nOr use the manual paste option below.")
+                f"empty shell.\n\n{_redact(e)}\n\nOr use the manual paste option below.")
             return result
         except Exception as e:
             result["needs_manual"] = True
-            result["message"] = f"Browser rendering failed: {e}. Try the manual paste option."
+            result["message"] = f"Browser rendering failed: {_redact(e)}. Try the manual paste option."
             return result
 
     result["needs_manual"] = True
@@ -914,36 +1064,3 @@ def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
         "This page is built with JavaScript -- a plain fetch returns only the page "
         "furniture, not the listings. Enable browser rendering or paste the text manually.")
     return result
-
-
-# ---------------------------------------------------------------------------
-# Embedding
-# ---------------------------------------------------------------------------
-
-# Sites known to send X-Frame-Options / frame-ancestors headers that stop
-# them being embedded. Not exhaustive -- most large sites do this.
-KNOWN_FRAME_BLOCKERS = [
-    "jjwxc.net", "missevan.com", "bilibili.com", "kuaikanmanhua.com",
-    "naver.com", "kakao.com", "lezhin.com", "ridibooks.com",
-    "bookwalker.jp", "dlsite.com", "fantia.jp",
-]
-
-
-def can_probably_embed(url: str) -> dict:
-    """
-    Best-effort guess at whether a URL can be shown in an iframe.
-
-    Most substantial sites block framing for clickjacking protection, so
-    an embedded browser panel will usually render blank. This lets the UI
-    warn up front rather than showing an empty box and leaving you to
-    wonder what broke.
-    """
-    lowered = (url or "").lower()
-    for blocker in KNOWN_FRAME_BLOCKERS:
-        if blocker in lowered:
-            return {"embeddable": False, "reason": f"{blocker} blocks iframe embedding",
-                    "certain": True}
-    return {"embeddable": True,
-            "reason": "Not on the known-blocked list, but many sites block framing -- "
-                      "if the panel below is blank, that's why.",
-            "certain": False}

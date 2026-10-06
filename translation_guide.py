@@ -17,7 +17,8 @@ depend on context only a person reading the story can settle.
 
 import re
 import json
-from translate_engines import call_llm_json, _parse_json_array
+from core import LANGUAGE_NAMES
+from translate_engines import call_llm_json, parse_json_array
 
 
 # ---------------------------------------------------------------------------
@@ -314,10 +315,9 @@ def _sample_lines_across_text(zh_lines: list, max_lines: int) -> list:
     extract_glossary_from_novel further down this file for the same
     "spread across the whole thing, not a truncating prefix" idea, applied
     to a list of individual lines instead of one long string): max_lines
-    lines evenly spread across the WHOLE list. A drama longer than
-    max_lines used to only ever show the model its first max_lines lines,
-    so a name or relationship introduced later was invisible to extraction
-    no matter how long the drama actually was. Spreading the sample means
+    lines evenly spread across the WHOLE list, not a prefix: a prefix
+    would hide any name or relationship introduced after the first
+    max_lines lines from extraction. Spreading the sample means
     the model sees the range of names/relationships across beginning,
     middle and end in one combined view -- the real mechanism VideoLingo's
     own whole-document pass uses (not a separate prose summary first)."""
@@ -372,7 +372,7 @@ def extract_terms_llm(zh_lines, engine, source_language: str = "zh", max_lines: 
         known_block = ("\n\nAlready in the glossary (do NOT propose these again): "
                        + ", ".join(t["term_original"] for t in known_terms))
 
-    lang_name = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang_name = LANGUAGE_NAMES.get(source_language, "Chinese")
     categories_desc = "\n".join(f"  - {k}: {v}" for k, v in TERM_CATEGORIES.items())
     policies_desc = "\n".join(f"  - {k}: {v['label']} (e.g. {v['example']})"
                                for k, v in TERM_POLICIES.items())
@@ -394,7 +394,7 @@ def extract_terms_llm(zh_lines, engine, source_language: str = "zh", max_lines: 
     )
 
     text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]", usage_cb=usage_cb)
-    entries = _parse_json_array(text, 0)
+    entries = parse_json_array(text, 0)
     if not isinstance(entries, list):
         return []
     # Normalize/validate category and policy so bad values can't corrupt the glossary
@@ -426,7 +426,7 @@ def build_translation_notes_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     """The translation-notes prompt for one batch, each line numbered by
     id_fn(ln) (position by default, matching generate_translation_notes_llm's
     own "line_idx" output field). bulk_translate.py's bulk submission
-    (Step 9d) passes id_fn=lambda ln: ln.id -- see
+    passes id_fn=lambda ln: ln.id -- see
     translate_engines.build_flag_prompt's docstring for why a permanent
     id matters once results can come back hours later."""
     types_desc = "\n".join(f"  - {k}: {v}" for k, v in NOTE_TYPES.items())
@@ -455,7 +455,7 @@ def generate_translation_notes_llm(lines, engine, batch_size: int = 40, usage_cb
 
     Returns a list of {line_idx, term, note_type, note} -- for review and
     optional export as a notes appendix. Doesn't modify any line text.
-    cancel_check (B-05): called before each batch; it may raise to stop the
+    cancel_check: called before each batch; it may raise to stop the
     run between batches (a batch already sent still finishes).
     """
     if not getattr(engine, "supports_reference", False):
@@ -473,7 +473,7 @@ def generate_translation_notes_llm(lines, engine, batch_size: int = 40, usage_cb
         batch = translated[start:start + batch_size]
         prompt = build_translation_notes_prompt(batch)
         text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb)
-        notes = _parse_json_array(text, 0)
+        notes = parse_json_array(text, 0)
         if isinstance(notes, list):
             for n in notes:
                 if isinstance(n, dict) and n.get("note"):
@@ -490,7 +490,7 @@ def group_notes_by_line(notes) -> dict:
     Notes with no line_idx (not tied to a specific line) are dropped --
     inlining them into the subtitle track has nowhere sensible to go;
     they're still in the Markdown appendix and the in-app Reader.
-    Step 7's reflection notes (note_type "reflection" -- see
+    The reflection notes (note_type "reflection" -- see
     translate_engines.translate_lines_with_engine's notes_cb) are dropped
     too --
     a translator's own reasoning about a line's wording is for review,
@@ -540,6 +540,9 @@ def apply_hard_term_substitutions(text: str, glossary_terms) -> str:
     produced with the canonical form. Longest terms first, so a longer
     term containing a shorter one isn't partially clobbered.
     """
+    # enforce_exact terms only, with variants from `notes`. A glossary term's
+    # banned_translations are separate and flag-only (auto_qc.build_banned_terms
+    # flags the line for review); never rewrite text from them here.
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
     for t in sorted(enforced, key=lambda x: len(x.get("term_translation") or ""), reverse=True):
         canonical = t.get("term_translation")
@@ -601,7 +604,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
     Returns the same shape as extract_terms_llm(), for review before
     anything is committed to a glossary.
 
-    response_cache (Step 41): optional (get(prompt) -> text or None,
+    response_cache: optional (get(prompt) -> text or None,
     put(prompt, text)). A re-run after a crash or cancel then re-sends only
     the passages the earlier run never finished. Only a reply with at least
     one usable term is cached, so a failed or empty call is retried.
@@ -614,7 +617,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         return []
     en_samples = _sample_across_text(english_translation) if english_translation.strip() else []
 
-    lang_name = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang_name = LANGUAGE_NAMES.get(source_language, "Chinese")
     categories_desc = "\n".join(f"  - {k}: {v}" for k, v in TERM_CATEGORIES.items())
     policies_desc = "\n".join(f"  - {k}: {v['label']} (e.g. {v['example']})"
                                for k, v in TERM_POLICIES.items())
@@ -656,7 +659,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         if not cached:
             text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]",
                                  usage_cb=usage_cb)
-        entries = _parse_json_array(text, 0)
+        entries = parse_json_array(text, 0)
         if (response_cache and not cached and isinstance(entries, list)
                 and any(isinstance(e, dict) and e.get("term") for e in entries)):
             response_cache[1](prompt, text)
@@ -818,7 +821,7 @@ def romanize_metadata(drama_meta: dict, engine, source_language: str = "zh", usa
     if not present:
         return {}
 
-    lang = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang = LANGUAGE_NAMES.get(source_language, "Chinese")
     listing = "\n".join(f"{k}: {v}" for k, v in present.items())
 
     prompt = (
@@ -845,11 +848,3 @@ def romanize_metadata(drama_meta: dict, engine, source_language: str = "zh", usa
         return {}
     return {k: str(v).strip() for k, v in data.items()
             if k in METADATA_FIELDS and str(v).strip()}
-
-
-def format_bilingual_credit(original: str, romanized: str) -> str:
-    """Renders a credit as 'Romanized (原文)', or just whichever exists."""
-    original, romanized = (original or "").strip(), (romanized or "").strip()
-    if original and romanized and original != romanized:
-        return f"{romanized} ({original})"
-    return romanized or original

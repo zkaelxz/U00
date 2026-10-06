@@ -114,7 +114,8 @@ export function pageParams(
   page: number,
   opts: { phone: boolean; appLook: ThemeLook },
 ): ReaderPageParams {
-  const theme = prefs.theme === 'auto' ? opts.appLook : prefs.theme
+  // The server page has no OLED look; the app's black falls back to its dark page.
+  const theme = prefs.theme === 'auto' ? (opts.appLook === 'oled' ? 'dark' : opts.appLook) : prefs.theme
   const p: ReaderPageParams = {
     page,
     chapter_size: prefs.chapterSize,
@@ -177,11 +178,11 @@ export function metricsLine(ov: Pick<ReaderOverview, 'percent_complete' | 'lengt
     .join(' · ')
 }
 
-export const MAX_CHAT_TURNS = 40
-// Server caps (api/schemas.py ReaderChatTurn/ReaderAskRequest): 20,000
+const MAX_CHAT_TURNS = 40
+// Server caps (api/schemas/reader.py ReaderChatTurn/ReaderAskRequest): 20,000
 // characters per turn, and about 100,000 across the history.
-export const MAX_TURN_CHARS = 20_000
-export const MAX_HISTORY_CHARS = 100_000
+const MAX_TURN_CHARS = 20_000
+const MAX_HISTORY_CHARS = 100_000
 
 /**
  * Q&A history as the API accepts it: each turn cut to 20,000 characters,

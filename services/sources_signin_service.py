@@ -13,7 +13,7 @@ The page URL a sign-in or tier test uses must be a public http(s) address
 (`sources_url_service.check_public_url`) on the source's own site: a page
 the adapter recognises (`matches_url`) or its login page, base URL or a
 mirror (same host or a subdomain). So the window and the tests only ever go
-to that site. ToS enforcement is OFF (Step 90), but `adapter.login` and
+to that site. ToS enforcement is OFF, but `adapter.login` and
 `ladder.test_tier` still call `ladder.check_terms` first.
 
 Jobs (one per source; results via GET /api/sources/jobs/{id}/result, which
@@ -38,8 +38,8 @@ from urllib.parse import urlsplit
 import background_jobs
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
-from services.sources_registry_service import _require_source, _scrub
-from services.sources_search_service import _error_view, _JobFailed, _start
+from services.sources_registry_service import require_source, scrub
+from services.sources_search_service import error_view, JobFailed, start_job
 from services.sources_url_service import check_public_url, without_urls
 from sources import auth_browser, ladder, registry
 from sources.models import AccessTier
@@ -88,7 +88,7 @@ def _site_url(cls, adapter, url) -> str:
 def _job_error(e) -> dict:
     from page_fetch import ProfileBusy, ProxyBypassed
     if isinstance(e, ProfileBusy):
-        return {"status": 409, "code": ConflictError.code, "message": _scrub(str(e)),
+        return {"status": 409, "code": ConflictError.code, "message": scrub(str(e)),
                 "details": {"reason": "PROFILE_BUSY"}}
     if isinstance(e, ImportError):
         return {"status": 503, "code": DependencyUnavailableError.code,
@@ -96,14 +96,14 @@ def _job_error(e) -> dict:
                 "details": {"reason": "NOT_INSTALLED"}}
     if isinstance(e, ProxyBypassed):
         return {"status": 503, "code": DependencyUnavailableError.code,
-                "message": _scrub(str(e)), "details": {"reason": "PROXY_BYPASSED"}}
-    return without_urls(_error_view(e))
+                "message": scrub(str(e)), "details": {"reason": "PROXY_BYPASSED"}}
+    return without_urls(error_view(e))
 
 
 def _fail(job_id: str, kind: str, source: str, e):
     err = _job_error(e)
     background_jobs.set_result(job_id, {"kind": kind, "source": source, "error": err})
-    raise _JobFailed(err["message"]) from None
+    raise JobFailed(err["message"]) from None
 
 
 # ---------------------------------------------------------------------------
@@ -120,8 +120,8 @@ def _signin_job(job_id: str, name: str, url: str):
         _fail(job_id, "signin", name, e)
     background_jobs.set_result(job_id, {
         "kind": "signin", "source": name, "ok": bool(check.ok),
-        "message": _scrub(check.message) or "",
-        "lines": [_scrub(line) for line in (check.lines or [])][:20],
+        "message": scrub(check.message) or "",
+        "lines": [scrub(line) for line in (check.lines or [])][:20],
         "has_saved_signin": bool(auth_browser.has_profile("", name)),
     })
 
@@ -130,7 +130,7 @@ def start_signin(name: str, url: str = "") -> dict:
     """{job_id}. 400 when the source has no sign-in; 422 a URL off its site
     (or none, for a source with no login page); 409 while one runs."""
     name = str(name or "")
-    cls = _require_source(name)
+    cls = require_source(name)
     if not cls.auth_supported:
         raise UnsupportedOperationError("This source has no sign-in.",
                                         details={"reason": "NOT_SUPPORTED"})
@@ -143,7 +143,7 @@ def start_signin(name: str, url: str = "") -> dict:
     else:
         url = cls.login_url
     job_id = SIGNIN_JOB_PREFIX + name
-    return _start(job_id, _signin_job, job_id, name, url,
+    return start_job(job_id, _signin_job, job_id, name, url,
                   description=f"Sign-in window ({name})")
 
 
@@ -152,7 +152,7 @@ def forget_signin(name: str, confirm: bool) -> dict:
     while the profile is open (a sign-in window or an import using it)."""
     from page_fetch import ProfileBusy
     name = str(name or "")
-    cls = _require_source(name)
+    cls = require_source(name)
     if confirm is not True:
         raise InvalidInputError("Forgetting a sign-in needs confirm=true.")
     if not cls.auth_supported:
@@ -193,8 +193,8 @@ def _tier_job(job_id: str, name: str, tier_key: str, url: str):
     background_jobs.set_result(job_id, {
         "kind": "tier_test", "source": name, "tier": tier_key,
         "ok": bool(res and res.ok),
-        "reason": _scrub(res.reason) if res else None,
-        "detail": _scrub(res.detail) if res else None,
+        "reason": scrub(res.reason) if res else None,
+        "detail": scrub(res.detail) if res else None,
     })
 
 
@@ -202,12 +202,12 @@ def start_tier_test(name: str, tier: str, url: str) -> dict:
     """{job_id}. 422 unknown tier, URL off the site, or the signed-in tier
     with no saved sign-in (testing it would create an empty profile)."""
     name = str(name or "")
-    cls = _require_source(name)
+    cls = require_source(name)
     if tier not in TIERS:
         raise InvalidInputError("tier must be one of: " + ", ".join(TIERS))
     url = _site_url(cls, cls(), url)
     if TIERS[tier] == AccessTier.AUTHENTICATED_BROWSER and not auth_browser.has_profile(url, name):
         raise InvalidInputError("Sign in to this source first.")
     job_id = TIERTEST_JOB_PREFIX + name
-    return _start(job_id, _tier_job, job_id, name, tier, url,
+    return start_job(job_id, _tier_job, job_id, name, tier, url,
                   description=f"Test access ({name})")

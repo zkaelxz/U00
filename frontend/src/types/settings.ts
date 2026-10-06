@@ -4,6 +4,7 @@ export type SettingsToggleKey =
   | 'use_gpu'
   | 'gemini_free_tier'
   | 'bulk_auto_resume'
+  | 'offer_provider_models'
 
 // Persisted PC-side preferences (GET/POST /api/settings). Paths are paths
 // only; a cookies file's contents never cross the API.
@@ -39,22 +40,28 @@ export interface SettingsChoices {
   cookie_browsers: string[]
 }
 
-export type EndpointName = 'ollama_url' | 'libretranslate_url' | 'gpt_sovits_url'
+export type EndpointName = 'ollama_url' | 'gpt_sovits_url'
 
 // engine_keys maps a setting name to "is a key/endpoint configured"; the
 // API never returns a key, and neither does this type. endpoints carries a
 // URL only when it has no user name, password, query or fragment.
 export interface SettingsOverview extends Record<SettingsToggleKey, boolean> {
   engine_keys: Record<string, boolean>
+  gpu_max_parallel: number // 1..4; 1 = one GPU job at a time
   preferences: SettingsPreferences
   endpoints: Record<EndpointName, string | null>
   monthly_cap_env_usd: number
   effective_monthly_cap_usd: number
+  // Full month vs what the cap counts since an active reset (UTC ISO time).
+  month_spend_usd: number
+  month_spend_counted_usd: number
+  month_spend_reset_at: string | null
   choices: SettingsChoices
 }
 
 // The toggles plus any subset of the preferences (extra="forbid" server side).
-export type SettingsUpdate = Partial<Record<SettingsToggleKey, boolean>> & Partial<SettingsPreferences>
+export type SettingsUpdate = Partial<Record<SettingsToggleKey, boolean>> &
+  Partial<SettingsPreferences> & { gpu_max_parallel?: number }
 
 // Result of a write-only key set/clear: never carries the key itself.
 export interface EngineKeyResult {
@@ -66,4 +73,15 @@ export interface EndpointUrlResult {
   name: EndpointName
   url: string | null
   configured: boolean
+}
+
+export interface MonthSpendStatus {
+  month_spend_usd: number
+  month_spend_counted_usd: number
+  month_spend_reset_at: string | null
+}
+
+export interface MonthCounterResetResult {
+  before: MonthSpendStatus
+  after: MonthSpendStatus
 }

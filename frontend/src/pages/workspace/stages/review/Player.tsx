@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { mediaStreamUrl, type MediaKind } from '../../../../api/media'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
+import { usePopOut } from '../../../../hooks/usePopOut'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
@@ -39,14 +40,14 @@ interface Props {
   panelHost?: HTMLElement | null
 }
 
-export const PLAY_ERROR = 'Couldn’t play the audio. Check the file on Source.'
+const PLAY_ERROR = 'Couldn’t play the audio. Check the file on Source.'
 const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
   English: 'No English subtitles yet: nothing is translated.',
   Source: 'No original subtitles yet: nothing is transcribed.',
   Bilingual: 'Both-language subtitles need an original and a translation.',
 }
 
-// A player over the Slice 52 Range endpoint, with a seek bar, jump to time and
+// A player over the Range endpoint, with a seek bar, jump to time and
 // subtitles from the current lines (the Reader's caption route). Only rendered
 // when the drama has audio (or a source video); the element fetches the stream itself.
 export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, trailing, panelHost }: Props) {
@@ -88,12 +89,19 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     loopRef.current = loop
   }, [loop])
 
-  // Move (never detach) the panel: while the dock isn't mounted yet (null) it
-  // stays where it is, so the video never leaves the page and keeps playing.
-  useLayoutEffect(() => {
+  const place = useCallback(() => {
     const target = panelHost === undefined ? slotRef.current : panelHost
     if (target && panelBox.parentNode !== target) target.appendChild(panelBox)
   }, [panelHost, panelBox])
+  const pop = usePopOut(panelBox, place)
+  const floating = pop.active
+
+  // Move (never detach) the panel: while the dock isn't mounted yet (null) it
+  // stays where it is, so the video never leaves the page and keeps playing.
+  // While it is in the floating window it stays there.
+  useLayoutEffect(() => {
+    if (!floating) place()
+  }, [place, floating])
   useLayoutEffect(() => () => panelBox.remove(), [panelBox])
 
   const setSeg = (s: Segment | null) => {
@@ -128,14 +136,15 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   useEffect(() => {
     const t = trackEl.current?.track
     if (!t || !src) return
-    t.mode = kind === 'video' ? 'showing' : 'hidden'
+    // Floating, the caption text under the video replaces the drawn cue.
+    t.mode = kind === 'video' && !floating ? 'showing' : 'hidden'
     const onCue = () => {
       const active = t.activeCues ? Array.from(t.activeCues) : []
       setCueFor({ src, text: active.map((c) => (c as VTTCue).getCueAsHTML?.().textContent ?? (c as VTTCue).text).join('\n') })
     }
     t.addEventListener('cuechange', onCue)
     return () => t.removeEventListener('cuechange', onCue)
-  }, [src, kind])
+  }, [src, kind, floating])
 
   const play = useCallback(() => {
     const el = media.current
@@ -239,7 +248,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
 
   // Kept mounted while folded away, so the sound and the strip above still work.
   const panel = (
-    <div className="review-player-panel" hidden={!open}>
+    <div className="review-player-panel" hidden={!open && !floating}>
       {kind === 'video' ? (
         <video
           ref={(el) => {
@@ -247,18 +256,19 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
           }}
           className="review-video"
           playsInline
+          // The browser's own picture-in-picture is video only; the app's Pop out keeps the subtitles.
+          disablePictureInPicture
           // A click on the picture plays or pauses; the Play button above stays the keyboard control.
           onClick={failed ? undefined : togglePlay}
           {...common}
         >
           {track}
         </video>
-      ) : (
-        subs !== 'off' && (
-          <p className="review-caption" data-testid="player-caption">
-            {cue || '\u00a0'}
-          </p>
-        )
+      ) : null}
+      {(kind !== 'video' || floating) && subs !== 'off' && (
+        <p className="review-caption" data-testid="player-caption">
+          {cue || '\u00a0'}
+        </p>
       )}
       <div className="review-player-controls">
         <input
@@ -343,6 +353,11 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Hide player' : 'Show player'}
         </button>
+        {pop.supported && (
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={floating ? pop.close : () => void pop.open()} title="Keep the player in a small window that stays on top">
+            {floating ? 'Return player' : 'Pop out'}
+          </button>
+        )}
         {trailing}
       </div>
       {failed && (

@@ -7,8 +7,13 @@ and cleans the parts that are safely regenerable, while never touching
 irreplaceable files (your source audio, the database).
 """
 
+import contextlib
 import os
+import re
 import shutil
+import stat
+import tempfile
+import time
 
 
 # What each category is, and whether losing it is recoverable.
@@ -197,3 +202,106 @@ def categories_for_preset(preset_key: str):
     if not preset["keep_typeset_pages"]:
         cats.append("typeset_pages")
     return cats
+
+
+# ---------------------------------------------------------------------------
+# Library temp folder: the one place job work folders and partial export
+# files live, so a startup sweep can clear what a crash or a cancelled
+# queued job left behind, and backups and restores can skip it.
+# ---------------------------------------------------------------------------
+
+TEMP_DIRNAME = "tmp"
+STALE_TEMP_SECONDS = 24 * 3600
+_OWNER_SEP = "~"
+
+
+def temp_root() -> str:
+    """<library>/tmp, created on demand."""
+    import db
+    root = os.path.join(db.LIBRARY_DIR, TEMP_DIRNAME)
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
+def _owner_token(job_id) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(job_id or "anon"))[:80]
+
+
+def new_workdir(job_id=None) -> str:
+    """A fresh folder in the temp root named after the job that owns it
+    ("<job id>~<random>"), so the sweep never removes a live job's folder."""
+    return tempfile.mkdtemp(prefix=_owner_token(job_id) + _OWNER_SEP, dir=temp_root())
+
+
+def new_partial_file(prefix: str, suffix: str = ".part") -> str:
+    """A fresh empty file in the temp root (caller removes or renames it)."""
+    fd, path = tempfile.mkstemp(prefix=_owner_token(prefix) + _OWNER_SEP, suffix=suffix,
+                                dir=temp_root())
+    os.close(fd)
+    return path
+
+
+@contextlib.contextmanager
+def job_workdir(job_id=None, dir=None):
+    """A work folder removed on exit. `dir` overrides the parent (tests)."""
+    if dir:
+        path = tempfile.mkdtemp(dir=dir)
+    else:
+        path = new_workdir(job_id)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def _is_link(path: str) -> bool:
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return True
+    if stat.S_ISLNK(st.st_mode):
+        return True
+    # Windows junctions and other reparse points
+    return bool(getattr(st, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def sweep_stale_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None) -> int:
+    """Startup sweep of the library temp folder: entries older than
+    `max_age` whose owning job is not queued or running. Links (symlinks,
+    junctions) are left alone and never followed. Besides the temp folder it
+    removes separator checkpoints left truncated by a killed download (see
+    audio_preprocess.sweep_interrupted_downloads). Returns the number of
+    temp entries removed."""
+    import background_jobs
+    import db
+    try:
+        import audio_preprocess
+        audio_preprocess.sweep_interrupted_downloads()
+    except Exception:
+        pass  # a model-folder hiccup must not stop the temp sweep
+    now = time.time() if now is None else now
+    root = os.path.join(db.LIBRARY_DIR, TEMP_DIRNAME)
+    if _is_link(root):
+        return 0
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return 0
+    live = {_owner_token(j) for j in background_jobs.active_job_ids()}
+    removed = 0
+    for name in names:
+        path = os.path.join(root, name)
+        owner = name.rsplit(_OWNER_SEP, 1)[0] if _OWNER_SEP in name else None
+        if owner in live or _is_link(path):
+            continue
+        try:
+            if now - os.lstat(path).st_mtime < max_age:
+                continue
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+            removed += 1
+        except OSError:
+            continue
+    return removed

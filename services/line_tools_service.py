@@ -1,7 +1,7 @@
 """
 services/line_tools_service.py -- two Review per-line tools that aren't
-plain read-only LLM text (review parity R19, R28). Streamlit-free; plain
-dicts/bytes in and out. The LLM text tools (improve, explain, alternatives,
+plain read-only LLM text (review parity R19, R28). Plain dicts/bytes in
+and out. The LLM text tools (improve, explain, alternatives,
 grammar) live in services/line_ai_service.py.
 
   - pronounce_line(): an edge-tts clip of one line's SOURCE text in the
@@ -11,7 +11,7 @@ grammar) live in services/line_ai_service.py.
     The clip is made in a temporary folder that is removed before return;
     nothing is written to the drama or the database. The text is the
     stored line's, never client-supplied.
-  - shorten_overlong(): the tab's "Auto-shorten overlong lines with LLM":
+  - shorten_overlong(): "Auto-shorten overlong lines with LLM":
     lines the pacing check calls too long for their time slot are
     rewritten more concisely by `translate_engines.rewrite_for_pacing_llm`
     (id-keyed, never matched back by position). Writes ONLY `en`, one
@@ -48,7 +48,7 @@ SHORTEN_SNAPSHOT_LABEL = "before auto-shorten"
 
 def pronounce_line(drama_id: int, line_id: int) -> bytes:
     """MP3 bytes of the line's source text read aloud in its language."""
-    drama, _, ln = lines_service._load(drama_id, line_id)
+    drama, _, ln = lines_service.load(drama_id, line_id)
     text = (ln.zh or "").strip()
     if not text:
         raise UnsupportedOperationError("This line has no source text to pronounce.")
@@ -65,7 +65,7 @@ def pronounce_line(drama_id: int, line_id: int) -> bytes:
     with tempfile.TemporaryDirectory(prefix="baihe_pronounce_") as tmp:
         out = os.path.join(tmp, "pronounce.mp3")
         try:
-            asyncio.run(asyncio.wait_for(dub._edge_tts_synthesize(text, voice, out),
+            asyncio.run(asyncio.wait_for(dub.edge_tts_synthesize(text, voice, out),
                                          PRONOUNCE_TIMEOUT_S))
         except asyncio.TimeoutError:
             raise ServiceError("The pronunciation service took too long. Try again.") from None
@@ -95,7 +95,7 @@ def _snapshot_row(ln) -> dict:
             "dub_filename": getattr(ln, "dub_filename", None),
             "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
             "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
-            "sfx": bool(getattr(ln, "sfx", False))}
+            "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None)}
 
 
 def _shorten_pass_key(drama_id: int) -> str:
@@ -161,7 +161,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
         return empty
     remaining = max(0, len(targets) - MAX_SHORTEN_LINES)
     targets = targets[:MAX_SHORTEN_LINES]
-    engine, name = line_ai_service._engine_for(drama, engine_name, model, gemini_free_tier,
+    engine, name = line_ai_service.engine_for(drama, engine_name, model, gemini_free_tier,
                                                check_cap=True)
     model_name = getattr(engine, "model", model) or name
 
@@ -172,7 +172,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
     before = {ln.id: ln.en for ln in targets}
     work = [Line(idx=ln.idx, start=ln.start, end=ln.end, zh=ln.zh, en=ln.en, id=ln.id)
             for ln in targets]
-    line_ai_service._run(lambda: translate_engines.rewrite_for_pacing_llm(
+    line_ai_service.run(lambda: translate_engines.rewrite_for_pacing_llm(
         work, engine, usage_cb=usage))
 
     changed = [w for w in work if (w.en or "").strip() and w.en.strip() != before[w.id].strip()]

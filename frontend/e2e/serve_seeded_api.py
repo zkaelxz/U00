@@ -81,7 +81,7 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     # parse and resolve_key, looked up as a module attribute everywhere), and
     # core/scanlate/huggingface_hub also read HF_TOKEN-style variables from
     # the process environment directly -- so blank all three.
-    setattr_(settings_service, "_read_env_file", lambda env_path=None: {})
+    setattr_(settings_service, "read_env_file", lambda env_path=None: {})
     setattr_(settings_service, "resolve_key", lambda settings_key, env_path=None: None)
     environ = os.environ if environ is None else environ
     for key, names in settings_service.ENV_NAMES.items():
@@ -159,6 +159,10 @@ def main():
     from api.server import create_app
 
     install_e2e_stubs()
+    # The key-free fake engine (tests/fake_engine.py): lets specs run a real
+    # translation through the real API with no key or network.
+    from tests import fake_engine
+    fake_engine.install()
     # The push stream answers 429 here, so the client falls back to polling:
     # most specs mock GET /api/jobs/{id} and friends and expect them polled.
     # event-stream.spec.ts mocks /api/events itself. E2E_SSE=1 turns the real

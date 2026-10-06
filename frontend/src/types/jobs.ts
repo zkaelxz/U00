@@ -1,4 +1,4 @@
-// Mirrors api/schemas.py JobRecord / JobListResponse / JobCancelResult.
+// Mirrors api/schemas/system.py JobRecord / JobListResponse / JobCancelResult.
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
@@ -23,10 +23,25 @@ export interface JobRecord {
   // Queued/running on record but not heartbeated for 15 minutes (judged on
   // the server's clock): left behind by a process that died.
   stale?: boolean
+  // Running here, but no progress update for a while (advisory only).
+  stalled?: boolean
   // The caller started this job or owns its drama, judged by the server from
   // the session. Missing (an older server) counts as false.
   owned_by_me?: boolean
+  // The title a drama-scoped job runs on, else null. Missing (an older
+  // server) counts as null.
+  drama_id?: number | null
+  // What the job does; `other` for anything unclassified. Missing counts as other.
+  kind?: JobKind
+  // The page the job belongs to, decided by the server from the job id; how a
+  // job with no title can still link somewhere. Missing counts as null.
+  page?: JobPage | null
 }
+
+export type JobPage = 'title' | 'sources' | 'discover' | 'live' | 'settings' | 'diagnostics'
+
+export type JobKind =
+  | 'transcribe' | 'translate' | 'align' | 'dub' | 'export' | 'review' | 'import' | 'other'
 
 // A remote household admin may cancel only their own jobs; everyone else
 // gets Cancel as before (the server still refuses what they may not stop).

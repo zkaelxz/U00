@@ -1,6 +1,5 @@
 /*
- * Pure helpers for the Model re-evaluation card (pages/benchmark/ReevalCard.tsx,
- * Step 40b): labels, signed deltas, whether "Run now" may be pressed, the
+ * Pure helpers for the Model re-evaluation card (pages/benchmark/ReevalCard.tsx): labels, signed deltas, whether "Run now" may be pressed, the
  * schedule and candidate request bodies, and the wording shown for a
  * candidate that was already evaluated. No React here (reeval.test.ts).
  */
@@ -12,8 +11,8 @@ import type {
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
 import { configLabel, formatCost, formatScore, formatWhen, isRunActive } from './benchmarkForm'
 
-export const DEFAULT_INTERVAL_DAYS = 30
-export const MAX_INTERVAL_DAYS = 365
+const DEFAULT_INTERVAL_DAYS = 30
+const MAX_INTERVAL_DAYS = 365
 export const MAX_REASON_CHARS = 300
 export const MAX_NOTE_CHARS = 200
 
@@ -27,25 +26,25 @@ export const canReopen = (status: string) => status === 'rejected' || status ===
 export const candidateStatusLabel = (s: string) => STATUS_LABELS[s] ?? humanizeValue(s)
 export const candidateStatusTone = (s: string): BadgeTone => STATUS_TONES[s] ?? 'neutral'
 
-/** "Claude · claude-sonnet-5" / "LibreTranslate". */
+/** "Claude · claude-sonnet-5" / "NLLB". */
 export const modelLabel = (m: Pick<ProductionModel, 'engine' | 'model'>) => configLabel('translation', m.engine, m.model)
 
 /** Two models are the same pick (engine and model). */
 export const sameModel = (a: Pick<ProductionModel, 'engine' | 'model'>, b: Pick<ProductionModel, 'engine' | 'model'>) =>
   a.engine === b.engine && (a.model ?? null) === (b.model ?? null)
 
-/** Where the production model comes from: "from Settings" or "promoted 2026-09-30". */
+/** Where the production model comes from: "From Settings" or "Promoted 2026-09-30". */
 export function productionSource(overview: Pick<ReevalOverview, 'production' | 'candidates'>): string {
   const { production, candidates } = overview
-  if (production.source !== 'promoted') return 'from Settings'
-  if (production.promoted_at) return `promoted ${production.promoted_at.slice(0, 10)}`
+  if (production.source !== 'promoted') return 'From Settings'
+  if (production.promoted_at) return `Promoted ${production.promoted_at.slice(0, 10)}`
   // Older records have no date: the promote decision carries one.
   const promoted = candidates
     .filter((c) => c.status === 'promoted' && sameModel(c, production) && c.last_decision?.decided_at)
     .map((c) => c.last_decision!.decided_at as string)
     .sort()
   const when = promoted.length ? promoted[promoted.length - 1].slice(0, 10) : null
-  return when ? `promoted ${when}` : 'promoted'
+  return when ? `Promoted ${when}` : 'Promoted'
 }
 
 // ---- signed deltas (candidate minus production) ----
@@ -121,7 +120,7 @@ export function reportActive(overview: Pick<ReevalOverview, 'report'>): boolean 
   return (!!report.production_run && isRunActive(report.production_run)) || report.rows.some(isRunActive)
 }
 
-export interface RunNowState {
+interface RunNowState {
   ok: boolean
   // Plain-English reasons "Run now" is disabled; the first is the most useful.
   reasons: string[]
@@ -176,7 +175,7 @@ export function intervalProblem(text: string): string | null {
   return null
 }
 
-export const MAX_LIMIT_USD = 10000
+const MAX_LIMIT_USD = 10000
 
 /** Why the per-run limit can't be saved, or null (blank is fine: no limit). */
 export function limitProblem(text: string): string | null {
@@ -239,7 +238,7 @@ export function nextDueText(overview: Pick<ReevalOverview, 'settings' | 'next_du
 
 // ---- candidates ----
 
-export interface CandidateForm {
+interface CandidateForm {
   engine: string
   model: string
   note: string
@@ -254,10 +253,9 @@ export function candidateBody(f: CandidateForm): CandidateAddRequest {
   return body
 }
 
-/** Engines a candidate can use: every translation engine but the offline test one (fake output); usable ones first. */
+/** Engines a candidate can use: every translation engine, usable ones first. */
 export function candidateEngines(engines: BenchmarkEngineOption[]): BenchmarkEngineOption[] {
-  const list = engines.filter((e) => e.name !== 'test_offline')
-  return [...list.filter((e) => e.key_configured), ...list.filter((e) => !e.key_configured)]
+  return [...engines.filter((e) => e.key_configured), ...engines.filter((e) => !e.key_configured)]
 }
 
 export interface AddOutcome {

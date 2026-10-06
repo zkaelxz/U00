@@ -14,6 +14,7 @@ from core import (
     merge_adjacent_short_lines, chunk_novel_text,
     filter_hallucinated_segments,
 )
+from tests.http_fakes import StreamedBody
 
 
 class TestFmtTs:
@@ -183,22 +184,22 @@ class TestModelDownloadErrorHandling:
     regression cover for the real error seen in the field."""
 
     def test_classifies_the_real_windows_dns_failure(self):
-        from core import _is_network_error
+        from core import is_network_error
         exc = Exception("Got: ConnectError: [Errno 11004] getaddrinfo failed")
-        assert _is_network_error(exc) is True
+        assert is_network_error(exc) is True
 
     def test_classifies_common_network_failures(self):
-        from core import _is_network_error
+        from core import is_network_error
         for msg in ("httpx.ConnectError", "Max retries exceeded",
                     "LocalEntryNotFoundError", "Connection timed out",
                     "Temporary failure in name resolution", "proxy error"):
-            assert _is_network_error(Exception(msg)) is True, msg
+            assert is_network_error(Exception(msg)) is True, msg
 
     def test_does_not_misclassify_real_audio_or_gpu_errors(self):
-        from core import _is_network_error
+        from core import is_network_error
         for msg in ("Invalid audio file format", "CUDA out of memory",
                     "unsupported sample rate"):
-            assert _is_network_error(Exception(msg)) is False, msg
+            assert is_network_error(Exception(msg)) is False, msg
 
     def test_model_download_error_is_a_runtime_error(self):
         from core import ModelDownloadError
@@ -211,17 +212,16 @@ class TestModelDownloadErrorHandling:
 
 
 class TestDefaultWhisperSize:
-    """Step 5b item 9: a consumer GPU in the 8-12GB class this app targets
-    (confirmed against real hardware -- an RTX 3080 Ti, 12GB) comfortably
-    fits large-v3 without needing large-v3-turbo's memory savings, and
-    large-v3-turbo is reported weaker on Japanese/Korean -- so large-v3 is
-    the default for all three source languages, not just an available
-    option alongside 'medium'."""
+    """large-v3-turbo is the default and its label says so, without the old
+    claim that it is weaker on Japanese/Korean (the benchmarks don't show it)."""
 
-    def test_default_whisper_size_is_large_v3(self):
+    def test_default_whisper_size_is_large_v3_turbo(self):
         from core import DEFAULT_WHISPER_SIZE, WHISPER_MODELS
-        assert DEFAULT_WHISPER_SIZE == "large-v3"
+        assert DEFAULT_WHISPER_SIZE == "large-v3-turbo"
         assert DEFAULT_WHISPER_SIZE in WHISPER_MODELS
+        assert "default" in WHISPER_MODELS["large-v3-turbo"]
+        assert "default" not in WHISPER_MODELS["medium"]
+        assert "weaker" not in WHISPER_MODELS["large-v3-turbo"]
 
 
 class TestDnsDiagnosis:
@@ -549,97 +549,71 @@ class TestTranscribeForTimingHallucinationFilter:
         assert len(result) == 6  # nothing collapsed
 
 
-class TestAutotuneSubprocessWorker:
-    """Step 6h: autotune_subprocess_worker() is the entry point
-    background_jobs.start_process_job() runs in its own OS process for
-    each auto-tune candidate, so a real mid-run Cancel can terminate it
-    (transcribe_for_timing() has no cancel checkpoint of its own).
-    Tested here as a plain function call against the same fakes used
-    elsewhere in this file -- background_jobs.py's own tests cover the
-    actual multiprocessing.Process/cancel machinery."""
+class TestTightenToWords:
+    class W:
+        def __init__(self, start, end):
+            self.start, self.end = start, end
 
-    def _stub_faster_whisper(self, texts):
-        import sys, types
+    def test_narrows_to_the_first_and_last_spoken_word(self):
+        from core import tighten_to_words
+        words = [self.W(3.2, 3.6), self.W(3.6, 4.1), self.W(4.1, 4.4)]
+        assert tighten_to_words(1.0, 8.0, words) == (3.2, 4.4)
 
-        class FakeSegment:
-            def __init__(self, start, end, text):
-                self.start, self.end, self.text = start, end, text
+    def test_never_widens_the_segment(self):
+        from core import tighten_to_words
+        words = [self.W(0.5, 1.0), self.W(1.0, 9.0)]
+        assert tighten_to_words(1.0, 8.0, words) == (1.0, 8.0)
 
-        class FakeModel:
-            def __init__(self, *a, **k):
-                pass
+    def test_keeps_the_segment_times_without_usable_words(self):
+        from core import tighten_to_words
+        for words in (None, [], [object()], [self.W(2.0, 2.0)], "not words"):
+            assert tighten_to_words(1.0, 8.0, words) == (1.0, 8.0)
 
+    def test_transcribe_uses_word_times_and_asks_whisper_for_them(self):
+        import core, sys, types
+
+        seen = {}
+
+        class Seg:
+            start, end, text = 0.0, 10.0, " hi "
+            words = [self.W(4.0, 4.5), self.W(4.5, 5.0)]
+
+        class Model:
             def transcribe(self, audio_path, **kwargs):
-                def gen():
-                    for i, t in enumerate(texts):
-                        yield FakeSegment(float(i), float(i + 1), t)
-                return gen(), None
+                seen.update(kwargs)
+                return iter([Seg()]), None
 
         fake_fw = types.ModuleType("faster_whisper")
-        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        fake_fw.WhisperModel = lambda *a, **k: Model()
         sys.modules["faster_whisper"] = fake_fw
-
-    def test_matches_a_direct_transcribe_for_timing_call_on_success(self):
-        import queue
-        import core
-
-        core._whisper_model_cache.clear()
-        self._stub_faster_whisper(["你好", "世界"])
-        direct = core.transcribe_for_timing("/fake/audio.wav", "medium", language="zh",
-                                            min_silence_duration_ms=800)
-
-        core._whisper_model_cache.clear()
-        self._stub_faster_whisper(["你好", "世界"])
-        result_queue = queue.Queue()
-        core.autotune_subprocess_worker(
-            "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 800, 0.5, False,
-            result_queue)
-        outcome = result_queue.get_nowait()
-
-        assert outcome == ("ok", {"candidate_ms": 800, "segments": direct})
-
-    def test_uses_the_given_candidate_ms_as_min_silence_duration(self):
-        import queue
-        import core
-
-        core._whisper_model_cache.clear()
-        self._stub_faster_whisper(["a"])
-        seen = {}
-        real_transcribe = core.transcribe_for_timing
-
-        def spy(*a, **kw):
-            seen.update(kw)
-            return real_transcribe(*a, **kw)
-        core.transcribe_for_timing = spy
-        try:
-            result_queue = queue.Queue()
-            core.autotune_subprocess_worker(
-                "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 1500, 0.5, False,
-                result_queue)
-        finally:
-            core.transcribe_for_timing = real_transcribe
-
-        assert seen["min_silence_duration_ms"] == 1500
-
-    def test_reports_an_exception_instead_of_raising(self):
-        import queue
-        import core
-
         core._whisper_model_cache.clear()
 
-        def _boom(*a, **k):
-            raise RuntimeError("model download failed")
-        core.transcribe_for_timing, real = _boom, core.transcribe_for_timing
-        try:
-            result_queue = queue.Queue()
-            core.autotune_subprocess_worker(
-                "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 300, 0.5, False,
-                result_queue)
-        finally:
-            core.transcribe_for_timing = real
-        outcome = result_queue.get_nowait()
+        assert core.transcribe_for_timing("/fake/audio.mp3") == [
+            {"start": 4.0, "end": 5.0, "text": "hi"}]
+        assert seen["word_timestamps"] is True
 
-        assert outcome == ("error", "RuntimeError", "model download failed")
+
+class TestPunctuationOnlySegmentsDropped:
+    def test_a_lone_bracket_is_dropped_but_real_and_tag_lines_stay(self):
+        import core, sys, types
+
+        class Seg:
+            def __init__(self, start, text):
+                self.start, self.end, self.text, self.words = start, start + 1.0, text, None
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                texts = ["[", "你好", "...", "[Music]", "  —  ", "こんにちは。", "7"]
+                return iter([Seg(float(i), t) for i, t in enumerate(texts)]), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: Model()
+        sys.modules["faster_whisper"] = fake_fw
+        core._whisper_model_cache.clear()
+
+        got = core.transcribe_for_timing("/fake/audio.mp3")
+
+        assert [g["text"] for g in got] == ["你好", "[Music]", "こんにちは。", "7"]
 
 
 class TestLineCoverageDiagnosis:
@@ -734,21 +708,21 @@ class TestGpuInferenceFailureFallback:
     time. transcribe_for_timing now catches it there instead."""
 
     def test_classifies_the_exact_reported_error(self):
-        from core import _is_gpu_error
+        from core import is_gpu_error
         exc = RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
-        assert _is_gpu_error(exc) is True
+        assert is_gpu_error(exc) is True
 
     def test_classifies_common_cuda_failures(self):
-        from core import _is_gpu_error
+        from core import is_gpu_error
         for msg in ("CUDA error: no kernel image is available",
                     "cuDNN error", "no CUDA-capable device is detected",
                     "CUDA out of memory"):
-            assert _is_gpu_error(RuntimeError(msg)) is True, msg
+            assert is_gpu_error(RuntimeError(msg)) is True, msg
 
     def test_does_not_misclassify_network_or_genuine_errors(self):
-        from core import _is_gpu_error
-        assert _is_gpu_error(RuntimeError("Connection timed out")) is False
-        assert _is_gpu_error(ValueError("Invalid audio file format")) is False
+        from core import is_gpu_error
+        assert is_gpu_error(RuntimeError("Connection timed out")) is False
+        assert is_gpu_error(ValueError("Invalid audio file format")) is False
 
     def _stub_faster_whisper(self):
         import sys, types
@@ -967,7 +941,7 @@ class TestTranscribeWithGroq:
     result reaches the exact same downstream pipeline (alignment,
     diarization hand-off)."""
 
-    class _FakeResponse:
+    class _FakeResponse(StreamedBody):
         def __init__(self, status_code=200, segments=None, text=""):
             self.status_code = status_code
             self._segments = segments if segments is not None else []
@@ -982,7 +956,7 @@ class TestTranscribeWithGroq:
         audio.write_bytes(b"x")
         captured = {}
 
-        def fake_post(url, headers=None, files=None, data=None, timeout=None):
+        def fake_post(url, headers=None, files=None, data=None, timeout=None, stream=None):
             captured["url"], captured["headers"] = url, headers
             captured["data"], captured["timeout"] = data, timeout
             return self._FakeResponse(segments=[
@@ -1137,3 +1111,96 @@ class TestWhisperDeviceReporting:
         status = core.gpu_status()
         assert status["ctranslate2_cuda_devices"] is None
         assert status["errors"] and "boom" in status["errors"][0]
+
+
+class TestSplitLongSegments:
+    @staticmethod
+    def _seg(text, start=10.0, end=40.0, **extra):
+        return {"start": start, "end": end, "text": text, **extra}
+
+    @staticmethod
+    def _check(seg, pieces):
+        assert pieces[0]["start"] == seg["start"] and pieces[-1]["end"] == seg["end"]
+        for a, b in zip(pieces, pieces[1:]):
+            assert a["end"] == b["start"]
+        assert all(p["start"] < p["end"] for p in pieces)
+        assert "".join("".join(p["text"].split()) for p in pieces) == "".join(seg["text"].split())
+
+    def test_splits_at_sentence_ends_and_keeps_text(self):
+        import core
+        seg = self._seg("好,你刚讲不要讲。哇,我先离开一下。好,OK。重来。哇,大家好哦!" * 3,
+                        speaker="A")
+        out = core.split_long_segments([seg], max_seconds=8, max_cjk_chars=1000)
+        assert len(out) > 3
+        self._check(seg, out)
+        assert all(p["speaker"] == "A" for p in out)
+        assert all(p["end"] - p["start"] <= 8.0 + 1e-6 for p in out)
+        assert all(p["text"][-1] in "。!" for p in out)
+
+    def test_comma_fallback_for_one_long_sentence(self):
+        import core
+        seg = self._seg(",".join(["一二三四五六七八九十"] * 8) + "。", 0.0, 30.0)
+        out = core.split_long_segments([seg], max_seconds=8)
+        assert len(out) > 1
+        self._check(seg, out)
+
+    def test_no_punctuation_left_alone(self):
+        import core
+        seg = self._seg("一二三四五六七八九十" * 10)
+        assert core.split_long_segments([seg]) == [seg]
+
+    def test_cjk_spaces_are_cut_points_when_no_punctuation(self):
+        import core
+        seg = self._seg(" ".join(["我們記得昨天早的時候呢"] * 6), 0.0, 26.0)
+        out = core.split_long_segments([seg], max_seconds=8)
+        assert len(out) > 1
+        self._check(seg, out)
+        assert all(p["end"] - p["start"] <= 8.0 + 1e-6 for p in out)
+
+    def test_space_fallback_respects_char_limit(self):
+        import core
+        seg = self._seg(" ".join(["一二三四五六七八九十"] * 7), 0.0, 6.0)
+        out = core.split_long_segments([seg], max_seconds=8, max_cjk_chars=40)
+        assert len(out) > 1
+        self._check(seg, out)
+        assert all(len(core._CJK_RE.findall(p["text"])) <= 40 for p in out)
+
+    def test_space_fallback_keeps_latin_tokens_whole(self):
+        import core
+        seg = self._seg("這是一個很長的句子呢 Dormi Q&A 絕不NG的表單 " * 4, 0.0, 30.0)
+        out = core.split_long_segments([seg], max_seconds=8)
+        assert len(out) > 1
+        self._check(seg, out)
+        for p in out:
+            assert not p["text"].startswith(("Q&A", "A ")) and not p["text"].endswith(("Dormi", "Q&A "[:3]))
+            assert "Dormi Q&A" in p["text"] or "Dormi" not in p["text"]
+
+    def test_punctuated_line_not_cut_at_spaces(self):
+        import core
+        seg = self._seg("一二三 四五六。七八九 十一二。", 0.0, 12.0)
+        out = core.split_long_segments([seg], max_seconds=8)
+        assert [p["text"] for p in out] == ["一二三 四五六。", "七八九 十一二。"]
+
+    def test_spaceless_unpunctuated_line_still_whole(self):
+        import core
+        seg = self._seg("一二三四五六七八九十" * 10, 0.0, 30.0)
+        assert core.split_long_segments([seg]) == [seg]
+
+    def test_short_line_untouched(self):
+        import core
+        seg = self._seg("好。你好。再见。", 0.0, 3.0)
+        assert core.split_long_segments([seg]) == [seg]
+
+    def test_mixed_cjk_latin_japanese_korean(self):
+        import core
+        for text in ("今日はいい天気ですね。Let's go to the park. Really? 行きましょう!" * 2,
+                     "안녕하세요. 오늘은 날씨가 좋네요? Okay, let's go. 갑시다!" * 2):
+            seg = self._seg(text, 5.0, 25.0)
+            out = core.split_long_segments([seg], max_seconds=8)
+            assert len(out) > 1
+            self._check(seg, out)
+
+    def test_decimal_point_is_not_a_sentence_end(self):
+        import core
+        seg = self._seg("Pi is 3.14159 and e is 2.71828 which is nice", 0.0, 30.0)
+        assert core.split_long_segments([seg], max_seconds=8) == [seg]

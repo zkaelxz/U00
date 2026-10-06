@@ -4,48 +4,13 @@ annotations (pinyin/furigana) above each word, English translation
 alongside, and click-to-define popups. All definition/reading data is
 precomputed in Python and baked into the HTML as JSON, so the
 in-browser interactivity (click a word -> see its definition) is pure
-client-side JS with no round-trip back to Streamlit needed.
+client-side JS with no round-trip back to the server needed.
 
-Rendered via st.iframe() from the reader tab.
+The React Reader page shows it in an iframe (services/reader_service.py).
 """
 
 import json
 import html
-
-
-def build_page_audio_data_uri(audio_path: str, start: float, end: float, max_seconds: float = 600):
-    """Extracts the [start, end] span of the source audio (clamped to
-    max_seconds to keep the embedded page from bloating) and returns it
-    as a base64 data: URI for embedding directly in the reader HTML.
-    Returns None if the span is empty, the file doesn't exist, or
-    ffmpeg fails -- the reader just renders without click-to-seek in
-    that case rather than breaking the whole page.
-    """
-    import subprocess
-    import base64
-    import tempfile
-    import os
-
-    if not audio_path or not os.path.exists(audio_path):
-        return None
-    duration = min(end - start, max_seconds)
-    if duration <= 0:
-        return None
-
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-        out_path = tmp.name
-    try:
-        cmd = ["ffmpeg", "-y", "-ss", str(max(0, start)), "-t", str(duration),
-               "-i", audio_path, "-acodec", "libmp3lame", "-b:a", "96k", out_path]
-        subprocess.run(cmd, check=True, capture_output=True)
-        with open(out_path, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode("ascii")
-        return f"data:audio/mp3;base64,{encoded}"
-    except Exception:
-        return None
-    finally:
-        if os.path.exists(out_path):
-            os.unlink(out_path)
 
 
 THEMES = {
@@ -248,8 +213,8 @@ def build_reader_html(lines, source_language: str, definitions: dict,
   }}
 
   // Follow-along: highlight the line matching the current playback position
-  // and keep it in view. Entirely client-side -- Streamlit can't observe an
-  // <audio> element's position, so this has to live in the page itself.
+  // and keep it in view. Entirely client-side: the iframe's host page can't
+  // observe the <audio> element's position, so this lives in the page itself.
   (function setupFollow() {{
     const player = document.getElementById('player');
     if (!player) return;

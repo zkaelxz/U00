@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { glossaryCsvUrl, importGlossary } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -10,11 +10,11 @@ import type { GlossaryImportResult } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
 import { GLOSSARY_FILE_ACCEPT, importSummary, validateImportText } from './glossaryImportForm'
 
-// Parity T03/T04: Streamlit's "Import glossary file" and "Export glossary as CSV".
+// "Import glossary file" and "Export glossary as CSV".
 // A file is read in the browser and its text is sent like a paste; nothing is uploaded as a file.
 // Away from the PC only pasting new terms is offered: choosing a file and replacing existing
 // terms are PC-only until network zones exist (the server refuses a remote overwrite with 403).
-export function GlossaryImport({ hasTerms, onImported }: { hasTerms: boolean; onImported: () => void }) {
+export function GlossaryImport({ hasTerms, onImported, openSignal = 0 }: { hasTerms: boolean; onImported: () => void; openSignal?: number }) {
   const { dramaId } = useStage()
   const remote = usePcOnly() === 'remote'
   const [text, setText] = useState('')
@@ -25,6 +25,13 @@ export function GlossaryImport({ hasTerms, onImported }: { hasTerms: boolean; on
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [result, setResult] = useState<GlossaryImportResult | null>(null)
+  // A button elsewhere (the empty-state card) reveals this fold.
+  const fold = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    if (!openSignal || !fold.current) return
+    fold.current.open = true
+    fold.current.scrollIntoView({ block: 'center' })
+  }, [openSignal])
 
   const load = (file: File | undefined) => {
     if (!file) return
@@ -68,7 +75,7 @@ export function GlossaryImport({ hasTerms, onImported }: { hasTerms: boolean; on
   }
 
   return (
-    <details className="glossary-import">
+    <details className="glossary-import" ref={fold}>
       <summary>Import or export</summary>
       <p className="muted">CSV, TSV or JSON. A two-column term, translation sheet works.</p>
       {!remote && (

@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test'
 
 import { guardWrites, status } from './modelHealthMocks'
+import { hitHeight, installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Model health card on a phone (390x844, touch): no sideways scroll, 44px
 // targets for its buttons and links, and the two-step preset switch.
@@ -8,6 +13,11 @@ import { guardWrites, status } from './modelHealthMocks'
 // Set MODEL_HEALTH_SHOTS_DIR=<dir> to save phone screenshots.
 
 const SHOTS = process.env.MODEL_HEALTH_SHOTS_DIR
+
+// The card is a fold that opens itself only on a problem; these specs need it open.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.diagnostics.modelHealth', '1'))
+})
 
 test('phone: the card fits, targets are 44px, and a switch asks twice', async ({ page }) => {
   const unmocked = await guardWrites(page)
@@ -25,17 +35,17 @@ test('phone: the card fits, targets are 44px, and a switch asks twice', async ({
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBeLessThanOrEqual(0)
 
-  const targets = card.locator('.card-body > .model-list').first().locator('button, a').or(card.locator('.card-actions button'))
+  const targets = card.locator('ul.model-list').first().locator('button, a').or(card.locator('.actions button'))
   const n = await targets.count()
   expect(n).toBeGreaterThanOrEqual(4)
   for (let i = 0; i < n; i++) {
     const box = await targets.nth(i).boundingBox()
     expect(box, `target ${i}`).not.toBeNull()
-    expect(box!.height, `target ${i} height`).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(targets.nth(i)), `target ${i} height`).toBeGreaterThanOrEqual(44)
     expect(box!.x + box!.width).toBeLessThanOrEqual(390)
   }
   const fold = card.locator('summary', { hasText: 'Other configured models' })
-  expect((await fold.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(fold))).toBeGreaterThanOrEqual(44)
 
   if (SHOTS) {
     await card.screenshot({ path: `${SHOTS}/model-health-phone-card.png` })
@@ -46,7 +56,7 @@ test('phone: the card fits, targets are 44px, and a switch asks twice', async ({
   await row.getByRole('button', { name: 'Switch Preset: Old DeepSeek to deepseek-v4-flash' }).tap()
   expect(posted).toBe(0)
   const confirm = row.getByRole('button', { name: 'Confirm switch to deepseek-v4-flash' })
-  expect((await confirm.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(confirm))).toBeGreaterThanOrEqual(44)
   if (SHOTS) await card.screenshot({ path: `${SHOTS}/model-health-phone-confirm.png` })
   await confirm.tap()
   await expect(card.getByTestId('model-health-notice')).toHaveText('Preset: Old DeepSeek now uses deepseek-v4-flash.')

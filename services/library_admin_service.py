@@ -1,10 +1,10 @@
 """
-services/library_admin_service.py -- the Library tab's destructive and
-admin actions (migration E0 remainder): bulk status/tags/delete, bulk
-translate, export-all zip, full backup, backup of one person's items,
+services/library_admin_service.py -- the Library and Library tools pages'
+destructive and admin actions (migration E0 remainder): bulk
+status/tags/delete, bulk translate, export-all zip, full backup, backup of one person's items,
 restore and storage cleanup.
 
-Service half only; no router yet. Rules this module keeps:
+Routes: api/routers/library_admin_routes.py. Rules this module keeps:
   - Destructive actions need `confirm is True` plus an exact typed word
     (the migration decision: match today's UI bar with a typed confirm).
     A wrong or missing confirm raises InvalidInputError before anything
@@ -25,10 +25,10 @@ Service half only; no router yet. Rules this module keeps:
   - No result or error message carries a filesystem path. Finished export
     and backup files live in library-level folders excluded from backups;
     `latest_admin_artifact` returns name/size, and
-    `admin_artifact_path` (server-side only) is what a future download
-    route streams.
+    `admin_artifact_path` (server-side only) is what the download route
+    streams.
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 
 import contextlib
@@ -65,7 +65,7 @@ DELETE_CONFIRM_TEXT = "DELETE"
 RESTORE_CONFIRM_TEXT = "RESTORE"
 CLEAN_CONFIRM_TEXT = "CLEAN"
 
-BULK_TRANSLATE_JOB_ID = "bulk_series_translate"  # same id the Streamlit tab uses
+BULK_TRANSLATE_JOB_ID = "bulk_series_translate"
 EXPORT_JOB_ID = "library_export_zip"
 BACKUP_JOB_ID = "library_backup"
 DATABASE_BACKUP_JOB_ID = "library_db_backup"
@@ -74,7 +74,7 @@ AUTO_BACKUP_JOB_ID = "library_auto_backup"  # services/auto_backup_service.py
 
 # Both under LIBRARY_DIR/backups, which a full backup already skips, so an
 # export or old backup is never zipped into the next backup.
-_ARTIFACT_SUBDIRS = {"backup": ("backups",), "export": ("backups", "exports"),
+ARTIFACT_SUBDIRS = {"backup": ("backups",), "export": ("backups", "exports"),
                      "database": ("backups", "database"),
                      "user_backup": ("backups", "user_backups")}
 _ARTIFACT_EXT = {"backup": ".zip", "export": ".zip", "database": ".db", "user_backup": ".zip"}
@@ -88,7 +88,7 @@ _EXPORTABLE_STATUSES = ("translated", "dubbed", "exported")
 # helpers
 # --------------------------------------------------------------------------
 
-def _require_confirm(confirm, confirm_text, word: str, action: str):
+def require_confirm(confirm, confirm_text, word: str, action: str):
     if confirm is not True or confirm_text != word:
         raise InvalidInputError(f"{action} needs confirm=true and confirm_text set to the "
                                 f"word {word}, in capitals.")
@@ -121,14 +121,14 @@ def _bulk_apply(drama_ids, fn) -> dict:
     return {"results": results, "updated": sum(r["ok"] for r in results)}
 
 
-def _any_job_running() -> bool:
+def any_job_running() -> bool:
     """In-process running/queued jobs, plus fresh running/queued
     job_records rows from another process (same staleness rule as
     drama_service.job_running_for_drama)."""
     if any(j.get("status") in ("running", "queued")
            for j in background_jobs.list_all_jobs().values()):
         return True
-    cutoff = time.time() - drama_service._STALE_JOB_RECORD_SECONDS
+    cutoff = time.time() - drama_service.STALE_JOB_RECORD_SECONDS
     return any(r.get("status") in ("running", "queued") and (r.get("updated_at") or 0) >= cutoff
                for r in db.list_job_records())
 
@@ -138,14 +138,14 @@ def _job_id_running(job_id: str) -> bool:
     job = background_jobs.get_status(job_id)
     if job and job.get("status") in ("running", "queued"):
         return True
-    cutoff = time.time() - drama_service._STALE_JOB_RECORD_SECONDS
+    cutoff = time.time() - drama_service.STALE_JOB_RECORD_SECONDS
     rec = db.get_job_record(job_id)
     return bool(rec and rec.get("status") in ("running", "queued")
                 and (rec.get("updated_at") or 0) >= cutoff)
 
 
 @contextlib.contextmanager
-def _maintenance(action: str):
+def maintenance(action: str):
     """Held around bulk delete / storage cleanup: refuses (Conflict) while a
     restore holds the library, or a backup/export is reading it, and keeps
     a restore from starting until the operation ends."""
@@ -163,7 +163,7 @@ def _maintenance(action: str):
         background_jobs.exit_maintenance()
 
 
-def _refuse_during_maintenance(label: str):
+def refuse_during_maintenance(label: str):
     """A backup/export must not read the library while a bulk delete or
     storage cleanup is changing it (_maintenance refuses the reverse)."""
     if background_jobs.maintenance_active():
@@ -178,9 +178,9 @@ def _refuse_duplicate(job_id: str, label: str):
 
 
 def _artifact_dir(kind: str, create: bool) -> str:
-    if kind not in _ARTIFACT_SUBDIRS:
+    if kind not in ARTIFACT_SUBDIRS:
         raise InvalidInputError("Unknown artifact kind.")
-    path = os.path.join(db.LIBRARY_DIR, *_ARTIFACT_SUBDIRS[kind])
+    path = os.path.join(db.LIBRARY_DIR, *ARTIFACT_SUBDIRS[kind])
     if create:
         os.makedirs(path, exist_ok=True)
     return path
@@ -249,8 +249,8 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
     single-drama delete uses); checked before anything is touched. A drama
     with a running/queued job is skipped with error "job_running"."""
     ids = _check_ids(drama_ids)
-    _require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting dramas")
-    with _maintenance("deleting dramas"):
+    require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting dramas")
+    with maintenance("deleting dramas"):
         results = []
         for did in ids:
             if db.get_drama(did) is None:
@@ -260,14 +260,14 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
                 results.append({"drama_id": did, "ok": False, "error": "job_running"})
                 continue
             try:
-                leftover = drama_service._hard_delete_drama(did)
+                leftover = drama_service.hard_delete_drama(did)
             except ServiceError as e:
                 results.append({"drama_id": did, "ok": False, "error": "delete_failed",
                                 "message": str(e)})
                 continue
             entry = {"drama_id": did, "ok": True}
             if leftover:
-                entry["warning"] = drama_service._LEFTOVER_FILES_MESSAGE
+                entry["warning"] = drama_service.LEFTOVER_FILES_MESSAGE
             results.append(entry)
         return {"results": results, "deleted": sum(r["ok"] for r in results)}
 
@@ -324,7 +324,7 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                          default_female_pronouns: bool = False) -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
-    dramas whose status is "aligned" (the same filter the tab applies) and
+    dramas whose status is "aligned" and
     that have no running or queued job.
     Keys, Ollama URL, monthly cap and Gemini free tier come from Settings
     server-side. expected_engines ({drama_id: engine}, from
@@ -454,7 +454,7 @@ def start_export_zip(drama_ids=None) -> dict:
     if not ids:
         raise InvalidInputError("No translated dramas to export.",
                                 details={"results": results} if results is not None else None)
-    _refuse_during_maintenance("library export")
+    refuse_during_maintenance("library export")
     _refuse_duplicate(EXPORT_JOB_ID, "library export")
     if not background_jobs.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids,
                                      description="Library export"):
@@ -491,48 +491,100 @@ def _backup_excluded_top_level() -> tuple:
     the current ones either way), the browser-extension token and the
     sources raw-content cache (rebuildable: a missing file is a cache miss)."""
     from sources import store as src_store
-    return wjs._restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
+    return wjs.restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
 
 
-def write_backup_zip(dest: str, include_media: bool = True, manifest=None):
+def _backup_files(library_dir: str, skip: set, excluded: tuple) -> list:
+    """(full path, archive name, size) for every media file a backup holds,
+    in the order the zip is written."""
+    found = []
+    for root, dirs, files in os.walk(library_dir, topdown=True):
+        if root == library_dir:
+            dirs[:] = [d for d in dirs if d not in excluded]
+            files = [f for f in files if f not in excluded]
+        for fname in files:
+            full = os.path.join(root, fname)
+            if full in skip or fname == ".env" or os.path.islink(full):
+                continue
+            try:
+                size = os.path.getsize(full)
+            except OSError:
+                size = 0
+            found.append((full, os.path.relpath(full, library_dir), size))
+    return found
+
+
+# Share of the progress bar the file copy uses; the rest is the database
+# snapshot and manifest, which are written last.
+_BACKUP_FILES_SHARE = 0.95
+_BACKUP_PROGRESS_INTERVAL = 0.25
+
+
+def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
+                     progress=None, should_cancel=None):
     """Writes a backup zip to `dest`: a sanitized library.db snapshot and,
     with include_media, every other library file except the excluded
     top-level entries (backups/, sign-ins, source profiles, extension
     token, source_cache/), the live database files, symlinks and any `.env`. `manifest`,
     if given, is called with the snapshot's path and returns bytes stored
-    as manifest.json (so it describes exactly the database in the zip)."""
+    as manifest.json (so it describes exactly the database in the zip).
+    `progress(fraction, message)`, if given, is called at most a few times a
+    second while files are written. `should_cancel()`, if given, is checked
+    between files; when true this raises background_jobs.JobCancelled (the
+    caller removes the partial file)."""
     library_dir = db.LIBRARY_DIR
     skip = {db.DB_PATH, db.DB_PATH + "-wal", db.DB_PATH + "-shm"}
     excluded = _backup_excluded_top_level()
+
+    def check_cancel():
+        if should_cancel is not None and should_cancel():
+            raise background_jobs.JobCancelled()
+
     with tempfile.TemporaryDirectory() as snapdir:
         snap = os.path.join(snapdir, "library.db")
+        check_cancel()
         _sanitized_snapshot(snap)
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             if include_media:
-                for root, dirs, files in os.walk(library_dir, topdown=True):
-                    if root == library_dir:
-                        dirs[:] = [d for d in dirs if d not in excluded]
-                        files = [f for f in files if f not in excluded]
-                    for fname in files:
-                        full = os.path.join(root, fname)
-                        if full in skip or fname == ".env" or os.path.islink(full):
-                            continue
-                        zf.write(full, os.path.relpath(full, library_dir))
+                if progress is not None:
+                    progress(0.0, "Counting files...")
+                files = _backup_files(library_dir, skip, excluded)
+                total_bytes = sum(size for _, _, size in files)
+                done_bytes = 0
+                last_report = 0.0
+                for n, (full, arcname, size) in enumerate(files, 1):
+                    check_cancel()
+                    zf.write(full, arcname)
+                    done_bytes += size
+                    now = time.monotonic()
+                    if progress is not None and now - last_report >= _BACKUP_PROGRESS_INTERVAL:
+                        last_report = now
+                        frac = done_bytes / total_bytes if total_bytes else n / len(files)
+                        progress(frac * _BACKUP_FILES_SHARE,
+                                 f"Backing up ({n} of {len(files)} files)")
+            check_cancel()
+            if progress is not None:
+                progress(_BACKUP_FILES_SHARE, "Writing database snapshot...")
             zf.write(snap, "library.db")
             if manifest is not None:
                 zf.writestr("manifest.json", manifest(snap))
 
 
 def _backup_job(job_id):
-    name, size = _write_artifact("backup", ".zip", "The backup could not be written.",
-                                 write_backup_zip)
+    background_jobs.update_progress(job_id, 0.0, "Copying the database...")
+    name, size = _write_artifact(
+        "backup", ".zip", "The backup could not be written.",
+        lambda dest: write_backup_zip(
+            dest,
+            progress=lambda frac, msg: background_jobs.update_progress(job_id, frac, msg),
+            should_cancel=lambda: background_jobs.is_cancel_requested(job_id)))
     background_jobs.set_result(job_id, {"name": name, "size": size})
     background_jobs.update_progress(job_id, 1.0, "Backup ready.")
 
 
 def start_backup() -> dict:
     """Job: full library backup zip (database snapshot + media)."""
-    _refuse_during_maintenance("backup")
+    refuse_during_maintenance("backup")
     _refuse_duplicate(BACKUP_JOB_ID, "backup")
     if not background_jobs.start_job(BACKUP_JOB_ID, _backup_job, BACKUP_JOB_ID,
                                      description="Library backup"):
@@ -548,10 +600,9 @@ def _database_backup_job(job_id):
 
 
 def start_database_backup() -> dict:
-    """Job: database-only backup (the tab's "Database-only backup (fast,
-    small)"): one consistent library.db snapshot, auth sessions removed,
+    """Job: database-only backup (fast, small): one consistent library.db snapshot, auth sessions removed,
     no media. Fetch it with admin_artifact_path("database")."""
-    _refuse_during_maintenance("database backup")
+    refuse_during_maintenance("database backup")
     _refuse_duplicate(DATABASE_BACKUP_JOB_ID, "database backup")
     if not background_jobs.start_job(DATABASE_BACKUP_JOB_ID, _database_backup_job,
                                      DATABASE_BACKUP_JOB_ID, description="Database backup"):
@@ -607,6 +658,7 @@ USER_BACKUP_TABLES = {
     "bulk_job_lines": ("empty", "belongs to bulk_jobs"),
     "voice_bank": ("empty", "household clips; the clip files are not copied either"),
     "job_records": ("empty", "this PC's job history"),
+    "speaker_merge_undos": ("empty", "short-lived undo records"),
     "job_checkpoints": ("empty", "this PC's job state"),
     "job_stage_timings": ("empty", "this PC's job history"),
     "gpu_lock": ("empty", "this PC's job state"),
@@ -827,7 +879,7 @@ def start_user_backup(user_id=None) -> dict:
             raise InvalidInputError("A user id is a positive whole number.")
         if db.auth_get_user(user_id) is None:
             raise NotFoundError("No such user.")
-    _refuse_during_maintenance("backup")
+    refuse_during_maintenance("backup")
     _refuse_duplicate(USER_BACKUP_JOB_ID, "backup")
     if not background_jobs.start_job(USER_BACKUP_JOB_ID, _user_backup_job, USER_BACKUP_JOB_ID,
                                      user_id, description="Backup of one person's items"):
@@ -844,14 +896,25 @@ _BUSY = ("A background job is running -- wait for it to finish or cancel it befo
          "restoring.")
 
 # Restore-specific limits for an uploaded (network) zip, tighter than
-# workspace_job_service's generous Step 25k guardrails: expanded total at
+# workspace_job_service's generous guardrails: expanded total at
 # most max(factor x upload size, 2 x current library size, 1 GiB), a
 # member-count cap, and enough free disk for the expanded total plus a
 # margin before anything is extracted.
-_RESTORE_MAX_MEMBERS = 100_000
+RESTORE_MAX_MEMBERS = 100_000
 _RESTORE_EXPANSION_FACTOR = 10
 _RESTORE_MIN_TOTAL_BYTES = 1024 ** 3
-_RESTORE_DISK_MARGIN_BYTES = 256 * 1024 ** 2
+RESTORE_DISK_MARGIN_BYTES = 256 * 1024 ** 2
+
+
+def has_disk_room(folder: str, need: int) -> bool:
+    """Whether `folder`'s drive has `need` bytes plus RESTORE_DISK_MARGIN_BYTES
+    free. True when the free space can't be read, so a drive that doesn't
+    report it never blocks a restore."""
+    try:
+        free = shutil.disk_usage(folder).free
+    except OSError:
+        return True
+    return free >= need + RESTORE_DISK_MARGIN_BYTES
 
 
 def _unsafe_member(info: zipfile.ZipInfo) -> bool:
@@ -894,7 +957,7 @@ def _restore_total_cap(upload_size: int) -> int:
 def validate_backup_zip(zip_bytes) -> None:
     """Every check restore runs before touching the library: a real zip,
     library.db present, no absolute/traversal/symlink/encrypted member,
-    within the Step 52 limits and the tighter restore limits above
+    within the upload limits and the tighter restore limits above
     (member count, expanded total, free disk), no corrupt member.
     Fixed-text InvalidInputError on failure (no member names or paths
     echoed). The library.db itself is checked with SQLite after extraction
@@ -925,12 +988,12 @@ def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True
     try:
         with zipfile.ZipFile(source) as zf:
             infos = zf.infolist()
-            if check_limits and len(infos) > min(wjs._MAX_RESTORE_MEMBERS, _RESTORE_MAX_MEMBERS):
+            if check_limits and len(infos) > min(wjs.MAX_RESTORE_MEMBERS, RESTORE_MAX_MEMBERS):
                 raise InvalidInputError("The backup has too many files; it looks corrupted "
                                         "or unsafe to extract.")
             if "library.db" not in zf.namelist():
                 raise InvalidInputError(_BAD_ZIP + " (no library.db inside).")
-            total_cap = (min(wjs._MAX_RESTORE_TOTAL_BYTES, _restore_total_cap(size))
+            total_cap = (min(wjs.MAX_RESTORE_TOTAL_BYTES, _restore_total_cap(size))
                          if check_limits else None)
             total = 0
             for info in infos:
@@ -938,20 +1001,16 @@ def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True
                     raise InvalidInputError("The backup contains an unsafe file path.")
                 if info.flag_bits & 0x1:
                     raise InvalidInputError("The backup contains an encrypted file.")
-                if check_limits and info.file_size > wjs._MAX_RESTORE_MEMBER_BYTES:
+                if check_limits and info.file_size > wjs.MAX_RESTORE_MEMBER_BYTES:
                     raise InvalidInputError("The backup contains a file that is too large; it "
                                             "looks corrupted or unsafe to extract.")
                 total += info.file_size
                 if check_limits and total > total_cap:
                     raise InvalidInputError("The backup would expand too large; it looks "
                                             "corrupted or unsafe to extract.")
-            if check_disk:
-                try:
-                    free = shutil.disk_usage(os.path.dirname(os.path.abspath(db.LIBRARY_DIR))).free
-                except OSError:
-                    free = None
-                if free is not None and free < total + _RESTORE_DISK_MARGIN_BYTES:
-                    raise InvalidInputError("Not enough free disk space to restore this backup.")
+            if check_disk and not has_disk_room(os.path.dirname(os.path.abspath(db.LIBRARY_DIR)),
+                                                 total):
+                raise InvalidInputError("Not enough free disk space to restore this backup.")
             if zf.testzip() is not None:
                 raise InvalidInputError("The backup zip is corrupted.")
     except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, ValueError, NotImplementedError,
@@ -978,25 +1037,29 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
     is written (attributed to actor_id, the signed-in user, if given).
     Returns {restored, sessions_revoked}."""
     from services import auth_service
-    _require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a backup")
+    require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a backup")
     if not background_jobs.acquire_exclusive("Library restore"):
         raise ConflictError(_BUSY)
     try:
-        if _any_job_running():
+        if any_job_running():
             raise ConflictError(_BUSY)
         validate_backup_zip(zip_bytes)
         revoked = _count_sessions()
 
         def _recheck():
-            if _any_job_running():
+            if any_job_running():
                 raise ConflictError(_BUSY)
+            # A finished job's thread can still be writing to the database
+            # that is about to be renamed aside.
+            if not background_jobs.wait_for_job_threads(10.0):
+                raise ConflictError("A background job is still finishing; try again in a moment.")
 
         try:
             wjs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR, before_swap=_recheck)
         except ServiceError:
             raise
         except (ValueError, zipfile.BadZipFile, RuntimeError, zlib.error) as e:
-            msg = str(e) if str(e) in (wjs._BAD_LIBRARY_DB, wjs._BAD_SOURCES_DB) else _BAD_ZIP
+            msg = str(e) if str(e) in (wjs.BAD_LIBRARY_DB, wjs.BAD_SOURCES_DB) else _BAD_ZIP
             raise InvalidInputError(msg) from None
         except OSError as e:
             log.exception("Library restore failed")
@@ -1047,8 +1110,8 @@ def storage_cleanup(preset: str, confirm=False, confirm_text="") -> dict:
     confirm=True and confirm_text "CLEAN". A drama with a running job is
     skipped. Returns per-drama freed bytes and the total."""
     cats = _check_preset(preset)
-    _require_confirm(confirm, confirm_text, CLEAN_CONFIRM_TEXT, "Cleaning storage")
-    with _maintenance("cleaning storage"):
+    require_confirm(confirm, confirm_text, CLEAN_CONFIRM_TEXT, "Cleaning storage")
+    with maintenance("cleaning storage"):
         results, freed = [], 0
         for d in db.list_dramas():
             did = d["id"]

@@ -17,12 +17,17 @@
 @media (pointer: coarse), (max-width: 640px) {
   .diag-folds > details.section > summary, .danger-zone details.section > summary { min-height: 44px; align-items: center; }
 }
+.diag-lab-link { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+.diag-lab-link > p { margin: 0; }
 @media (max-width: 640px) {
-  .diag-page { gap: var(--space-4); }
+  .diag-page { gap: var(--space-6); }
+  .diag-folds { gap: var(--space-5); }
+  .diag-lab-link { flex-direction: column; align-items: flex-start; gap: var(--space-2); }
 }
 
 .diag-stack { display: grid; gap: var(--space-2); min-width: 0; }
 .diag-stack > p { margin: 0; }
+/* Lists here reset padding with `!important` for the same reason: `.panel ul` out-ranks a single class (see index.css). */
 .diag-rows { list-style: none; padding: 0 !important; margin: 0; }
 .diag-rows li { padding: 2px 0; }
 
@@ -46,37 +51,18 @@
   .setup-list > li .setup-value { grid-column: 1 / -1; grid-row: 2; }
 }
 
-/* Support report preview: label / value rows. */
-.report-list { margin: 0; display: grid; }
-.report-row {
-  display: grid;
-  grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr);
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-  border-top: 1px solid var(--border);
-}
-.report-row:first-child { border-top: 0; }
-.report-row dt { font-weight: 600; }
-.report-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.report-items { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: 2px; }
-.report-items.mono { font-family: var(--font-mono); font-size: var(--text-sm); }
-.report-item-name { font-weight: 500; }
-@media (max-width: 640px) {
-  .report-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-}
-
 /* Package rows: name and purpose, then the Install…/Upgrade… button (own line on phones, index.css). */
 .pkg-list { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
 .pkg-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .pkg-list > li > span:first-child { flex: 1 1 16rem; min-width: 0; }
 /* Name + purpose, then "approx. size · Source ↗" and any caveat, stacked. */
 .pkg-text { display: grid; gap: 2px; overflow-wrap: anywhere; }
-.pkg-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--font-sm); }
+.pkg-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
 .pkg-meta .pkg-source { white-space: nowrap; }
-.pkg-text .warn { font-size: var(--font-sm); }
+.pkg-text .warn { font-size: var(--text-sm); }
 /* Installed version and the "Check for updates" result. */
-.pkg-version { font-size: var(--font-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
-.pkg-text .ok { font-size: var(--font-sm); color: var(--ok); }
+.pkg-version { font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.pkg-text .ok { font-size: var(--text-sm); color: var(--ok); }
 
 /* Packages: "Install by task" and "GPU PyTorch" as open panels inside the fold. */
 .diag-subcard {
@@ -99,16 +85,16 @@
 .gpu-torch code { overflow-wrap: anywhere; }
 .table-scroll .torch-table, .torch-table { min-width: 0; width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .torch-table th, .torch-table td { text-align: left; padding: var(--space-1) var(--space-2) var(--space-1) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
-.torch-table thead th { color: var(--muted); font-weight: 500; font-size: var(--text-xs); }
+.torch-table thead th { color: var(--muted); font-weight: 500; font-size: var(--text-sm); }
 .torch-table tbody th { font-weight: 600; }
 .torch-table th { overflow-wrap: normal; }
 .torch-table tr > :last-child { padding-right: 0; }
 .torch-table thead th:nth-child(1), .torch-table thead th:nth-child(3) { width: 36%; }
 
 /* Install by task: a group heading, then task rows like package rows. */
-.task-group { margin: var(--space-2) 0 0; font-size: var(--font-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.task-group { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .task-list > li { padding: var(--space-2) 0; border-top: 1px solid var(--border); }
-.task-pkgs { display: flex; flex-wrap: wrap; gap: var(--space-1); font-size: var(--font-sm); }
+.task-pkgs { display: flex; flex-wrap: wrap; gap: var(--space-1); font-size: var(--text-sm); }
 .task-pkg { padding: 0 var(--space-1); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .task-pkg.installed { color: var(--ok); border-color: transparent; }
 /* Role for the task: required stays solid, recommended/optional are lighter. */
@@ -117,7 +103,7 @@
 .task-pkg.role-optional { border-style: dotted; }
 .pkg-meta .ok { color: var(--ok); }
 
-/* Log, support report and install output. */
+/* Log and install output. */
 .diag-pre {
   margin: 0;
   padding: var(--space-3);
@@ -128,21 +114,10 @@
   overflow-wrap: anywhere;
   max-height: 60vh;
   overflow: auto;
-  font-size: var(--font-sm);
+  font-size: var(--text-sm);
 }
 
-/* Jobs as cards (phone). */
-.job-cards { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
-.job-cards > li { padding: var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); display: grid; gap: var(--space-1); }
-.job-cards p { margin: 0; }
-.job-cards .job-cancel { display: flex; justify-content: flex-end; }
-
-/* Job history entries. */
-.diag-history { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-1); }
-.diag-history summary { cursor: pointer; }
-.diag-history p { margin: var(--space-1) 0 0; }
-
-/* Job history > "Time by stage": name and time on one line, a share bar under it. */
+/* Jobs page > "Time by stage": name and time on one line, a share bar under it. */
 .stage-times { margin-top: var(--space-2); min-width: 0; }
 .stage-times-title { margin: 0 0 var(--space-1); font-size: var(--text-sm); font-weight: 600; }
 .stage-times ul { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
@@ -157,7 +132,7 @@
   background: var(--border); overflow: hidden;
 }
 .stage-times-bar > span { display: block; height: 100%; min-width: 2px; background: var(--info); border-radius: inherit; }
-.diag-history .stage-times-total { margin-top: var(--space-2); font-size: var(--text-sm); font-weight: 600; font-variant-numeric: tabular-nums; }
+.stage-times-total { margin-top: var(--space-2); font-size: var(--text-sm); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* Danger zone: last, set apart from everything above. */
 .danger-zone { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 2px solid var(--bad); }
@@ -172,15 +147,6 @@
 /* "Accept terms ↗" is a small inline link: give it a 44 px target on touch and phones. */
 @media (pointer: coarse), (max-width: 640px) {
   .hf-terms { display: inline-flex; align-items: center; min-height: 44px; padding-inline: var(--space-1); }
-}
-
-/* Bug reports (BugReportsSection) */
-.bug-report-list .bug-report-main { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
-/* Phones: keep Delete… beside Copy instead of on its own row (index.css
-   gives .confirm-button a full row under 640 px). */
-@media (max-width: 640px) {
-  .bug-report-list .actions { margin-left: auto; justify-content: flex-end; }
-  .bug-report-list .confirm-button { display: inline-flex; flex: 0 0 auto; }
 }
 
 /* Model cache rows with a delete button. */
@@ -199,6 +165,8 @@
 .model-note, .model-help { font-size: var(--text-sm); }
 .model-row.sev-3 .model-message { color: var(--bad); }
 .model-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
+.model-choose { display: grid; gap: var(--space-1); }
+.model-choose select { max-width: 100%; min-width: 0; }
 .model-checks { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: 2px; font-size: var(--text-sm); overflow-wrap: anywhere; }
 .model-checks > li.warn { color: var(--warn); }
 
@@ -213,3 +181,22 @@
 .audit-detail { overflow-wrap: anywhere; }
 .admin-user-list .admin-user-main { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
 .admin-user-list .actions { flex-wrap: wrap; }
+
+/* Setup > models: an engine row with its downloads indented under it. */
+.diag-rows.model-engines > li { display: block; }
+.diag-rows.model-engines .diag-cache { padding-left: var(--space-3) !important; }
+.diag-page h4 + .muted, .diag-page .section-body > h4 { margin-top: 0; }
+.section-body > h4 { margin-top: var(--space-2); }
+
+/* Install by task: a task's missing packages (size, source, extras) in a quiet fold, not a box. */
+.task-details { font-size: var(--text-sm); }
+.task-details > summary { cursor: pointer; color: var(--muted); }
+@media (pointer: coarse), (max-width: 640px) {
+  .task-details > summary { display: flex; align-items: center; min-height: 44px; }
+}
+
+@media (max-width: 640px) {
+  .diag-stack { gap: var(--space-3); }
+}
+.diag-jobs-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.diag-jobs-summary > p { margin: 0; }

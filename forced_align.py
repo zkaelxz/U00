@@ -29,8 +29,7 @@ FINAL, precise timestamps. Only the coarse pass's chunk boundaries survive
 into the output -- its per-character proportional-guess timestamps are
 discarded and replaced by the aligner's real ones.
 
-SETUP (not run inside this sandbox -- no GPU, no network; code is here to
-run locally):
+SETUP:
     pip install qwen-asr torch
 qwen-asr recommends a clean Python 3.12 environment. If you're on Python
 3.14 (as this project's own requirements-optional.txt already warns for
@@ -49,14 +48,11 @@ import re
 import tempfile
 
 from core import (
-    ModelDownloadError, _is_gpu_error, _is_network_error, diagnose_hostname,
-    _lines_from_char_times, align_transcript_to_timing,
-    extract_audio_slice as _extract_audio_slice,
+    ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname,
+    Line, lines_from_char_times, align_transcript_to_timing,
+    extract_audio_slice as _extract_audio_slice, LANGUAGE_NAMES,
 )
 
-# Qwen3-ForcedAligner's `language` parameter takes full capitalized names,
-# not the "zh"/"ja"/"ko" codes this project uses everywhere else.
-LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
 
 # The model's own documented cap is ~5 minutes (300s), but timing was
 # reported to drift out of sync after roughly 30s on long inputs, so chunks
@@ -65,10 +61,20 @@ LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
 MAX_CHUNK_SECONDS = 60.0
 HARD_CAP_SECONDS = 300.0
 
+# LANGUAGE_NAMES stays zh/ja/ko because asr_backend gates Qwen3-ASR on it; the
+# aligner also takes English (it is in qwen_asr's supported-language list).
+ALIGNER_LANGUAGE_NAMES = {**LANGUAGE_NAMES, "en": "English"}
+
+# Space-delimited languages: the aligner returns whole words, so word breaks
+# must survive into the text it is given (CJK is sent as one run of characters).
+_WORD_UNIT_LANGUAGES = {"English"}
+
+# Loaded models stay cached across calls; core.release_gpu_models() clears
+# this dict by name (it never imports this module), so keep the name.
 _aligner_model_cache = {}
 
 
-def load_qwen3_aligner(use_gpu: bool = False):
+def load_qwen3_aligner(use_gpu: bool = False, on_device=None, on_gpu_fallback=None):
     """Loads (and caches) the Qwen3-ForcedAligner model.
 
     Unlike faster-whisper/ctranslate2 (see core.load_whisper_model's
@@ -80,9 +86,15 @@ def load_qwen3_aligner(use_gpu: bool = False):
     Raises ModelDownloadError on a network failure, reusing core.py's
     own classification/messaging so this looks consistent with the
     Whisper download-failure UI. Anything else propagates as-is.
+
+    on_device("GPU"|"CPU") reports where the model actually runs (cached or
+    not); on_gpu_fallback(exc) is called first when a requested GPU load fell
+    back to the CPU.
     """
     cache_key = "gpu" if use_gpu else "cpu"
     if cache_key in _aligner_model_cache:
+        if on_device:
+            on_device("GPU" if use_gpu else "CPU")
         return _aligner_model_cache[cache_key]
 
     import torch
@@ -94,12 +106,15 @@ def load_qwen3_aligner(use_gpu: bool = False):
             "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16, device_map=device,
         )
     except Exception as exc:
-        if use_gpu and _is_gpu_error(exc):
+        if use_gpu and is_gpu_error(exc):
             model = Qwen3ForcedAligner.from_pretrained(
                 "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16, device_map="cpu",
             )
             cache_key = "cpu"
-        elif _is_network_error(exc):
+            use_gpu = False
+            if on_gpu_fallback:
+                on_gpu_fallback(exc)
+        elif is_network_error(exc):
             diag = diagnose_hostname("huggingface.co")
             if diag["status"] == "blocked":
                 raise ModelDownloadError(
@@ -115,7 +130,16 @@ def load_qwen3_aligner(use_gpu: bool = False):
             raise
 
     _aligner_model_cache[cache_key] = model
+    if on_device:
+        on_device("GPU" if use_gpu else "CPU")
     return model
+
+
+def _device_callbacks(on_device, on_gpu_fallback) -> dict:
+    """Only the callbacks that were given, so callers that don't listen load the
+    model exactly as before."""
+    return {k: v for k, v in (("on_device", on_device), ("on_gpu_fallback", on_gpu_fallback))
+            if v}
 
 
 def _bucket_into_chunks(coarse_lines, max_chunk_seconds: float = MAX_CHUNK_SECONDS):
@@ -152,7 +176,40 @@ def _bucket_into_chunks(coarse_lines, max_chunk_seconds: float = MAX_CHUNK_SECON
     return chunks
 
 
-def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_dir: str):
+def _repair_unit_spans(spans, lo: float, hi: float):
+    """Makes (start, end) spans monotonic, inside [lo, hi], and non-zero where
+    the neighbours leave room. The aligner can return items with start == end
+    (Qwen3-ASR issue #197), which collapse subtitle lines to zero length.
+    A run of zero-length spans is spread evenly over the gap between the
+    previous span's end and the next span's start (or lo/hi at the ends); if
+    that gap is itself empty the spans stay zero-length so _bad_line_timings
+    still sends the line to the coarse-timing fallback."""
+    fixed, prev_end = [], lo
+    for start, end in spans:
+        start = min(max(start, prev_end, lo), hi)
+        end = min(max(end, start), hi)
+        fixed.append([start, end])
+        prev_end = end
+    i = 0
+    while i < len(fixed):
+        if fixed[i][1] > fixed[i][0]:
+            i += 1
+            continue
+        j = i
+        while j < len(fixed) and fixed[j][1] <= fixed[j][0]:
+            j += 1
+        left = fixed[i - 1][1] if i > 0 else lo
+        right = fixed[j][0] if j < len(fixed) else hi
+        if right > left:
+            step = (right - left) / (j - i)
+            for k in range(i, j):
+                fixed[k] = [left + (k - i) * step, left + (k - i + 1) * step]
+        i = j
+    return [tuple(f) for f in fixed]
+
+
+def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_dir: str,
+                 repaired_lines=None):
     """Runs the aligner on one chunk's audio slice against the REAL text
     of the lines assigned to it, and returns {global_line_idx: [times]}.
 
@@ -161,14 +218,25 @@ def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_di
     docs) -- instead it walks each returned unit's own .text field over
     the concatenated input to find its position, so this works the same
     way whether a "unit" is one character or a whole word.
+
+    Indices of lines that had any unit's timing changed by the repair are
+    added to repaired_lines (a set) when one is given.
     """
+    word_units = language_name in _WORD_UNIT_LANGUAGES
     chars, line_of_char = [], []
     for ln in chunk_lines:
-        for ch in re.sub(r"\s+", "", ln.zh):
+        if word_units:
+            if chars and ln.zh.strip():
+                chars.append(" ")
+                line_of_char.append(None)
+            text = " ".join(ln.zh.split())
+        else:
+            text = re.sub(r"\s+", "", ln.zh)
+        for ch in text:
             chars.append(ch)
             line_of_char.append(ln.idx)
     concatenated = "".join(chars)
-    if not concatenated:
+    if not concatenated.strip():
         return {}
 
     chunk_start, chunk_end = chunk_lines[0].start, chunk_lines[-1].end
@@ -181,24 +249,44 @@ def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_di
             os.unlink(slice_path)
 
     units = results[0] if results else []
+    # The upper bound never cuts off a real unit that runs past the coarse
+    # chunk end; it only limits where a zero-length tail can be spread.
+    raw = [(u.start_time, u.end_time) for u in units]
+    spans = _repair_unit_spans(
+        raw, 0.0, max([chunk_end - chunk_start] + [e for _, e in raw]))
     per_line_times = {}
     pos = 0
-    for unit in units:
+    for unit, (unit_start, unit_end), orig in zip(units, spans, raw):
         unit_len = max(len(unit.text), 1)
+        if word_units:
+            # The aligner drops punctuation from its words ("world!" -> "world"),
+            # so find each word forward from the last one instead of counting.
+            found = concatenated.find(unit.text, pos) if unit.text else -1
+            if found >= 0:
+                pos = found
         for offset in range(unit_len):
             char_pos = pos + offset
             if char_pos >= len(line_of_char):
                 break
             li = line_of_char[char_pos]
+            if li is None:
+                continue
             per_line_times.setdefault(li, []).extend(
-                [chunk_start + unit.start_time, chunk_start + unit.end_time]
+                [chunk_start + unit_start, chunk_start + unit_end]
             )
+            if repaired_lines is not None and (unit_start, unit_end) != orig:
+                repaired_lines.add(li)
         pos += unit_len
     return per_line_times
 
 
 TIMING_FALLBACK_NOTE = ("Forced alignment returned zero-length or out-of-order timing for this "
                         "line, so it uses the approximate timing instead -- check it lines up.")
+
+
+TIMING_REPAIRED_NOTE = ("Forced alignment returned zero-length or out-of-order timing for part of "
+                        "this line; it was estimated from the neighbouring words -- check it "
+                        "lines up.")
 
 
 def _bad_line_timings(per_line_times) -> set:
@@ -215,17 +303,17 @@ def _bad_line_timings(per_line_times) -> set:
 
 
 def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: str,
-                      use_gpu: bool = False):
+                      use_gpu: bool = False, on_device=None, on_gpu_fallback=None):
     """Drop-in alternative to core.align_transcript_to_timing() -- same
     inputs, same Line-list output -- that refines timing with true forced
     alignment instead of a character-diff heuristic. See the module
     docstring for why this still needs whisper_segments (as a coarse
     first pass, not as the source of the final timestamps).
     """
-    if language not in LANGUAGE_NAMES:
+    if language not in ALIGNER_LANGUAGE_NAMES:
         raise ValueError(
             f"Qwen3-ForcedAligner doesn't cover language={language!r} in this project's "
-            f"usage (supported: {sorted(LANGUAGE_NAMES)}) -- use "
+            f"usage (supported: {sorted(ALIGNER_LANGUAGE_NAMES)}) -- use "
             f"core.align_transcript_to_timing() instead."
         )
     if not whisper_segments:
@@ -237,13 +325,14 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
 
     coarse_lines = align_transcript_to_timing(user_lines, whisper_segments)
     chunks = _bucket_into_chunks(coarse_lines)
-    model = load_qwen3_aligner(use_gpu=use_gpu)
-    language_name = LANGUAGE_NAMES[language]
+    model = load_qwen3_aligner(use_gpu=use_gpu, **_device_callbacks(on_device, on_gpu_fallback))
+    language_name = ALIGNER_LANGUAGE_NAMES[language]
 
-    per_line_times = {}
+    per_line_times, repaired = {}, set()
     with tempfile.TemporaryDirectory(prefix="baihe_forced_align_") as tmp_dir:
         for chunk in chunks:
-            per_line_times.update(_align_chunk(model, audio_path, chunk, language_name, tmp_dir))
+            per_line_times.update(_align_chunk(model, audio_path, chunk, language_name, tmp_dir,
+                                              repaired_lines=repaired))
 
     # Where the aligner's own output is broken, the coarse diff alignment
     # (already computed above) is the better answer -- flagged, so the
@@ -253,8 +342,71 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
         per_line_times[li] = [coarse_lines[li].start, coarse_lines[li].end]
 
     total_audio_end = whisper_segments[-1]["end"] if whisper_segments else 0.0
-    lines = _lines_from_char_times(user_lines, per_line_times, total_audio_end)
+    lines = lines_from_char_times(user_lines, per_line_times, total_audio_end)
     for ln in lines:
         if ln.idx in bad:
             ln.flag, ln.flag_note = "timing_uncertain", TIMING_FALLBACK_NOTE
+        elif ln.idx in repaired:
+            ln.flag, ln.flag_note = "timing_uncertain", TIMING_REPAIRED_NOTE
     return lines
+
+
+def refine_segment_timing(audio_path: str, groups, language: str, use_gpu: bool = False,
+                          cancel_check=None, progress_cb=None, on_device=None,
+                          on_gpu_fallback=None):
+    """Refines the line times inside each speech span with the forced aligner.
+
+    groups: one list per span of {"start", "end", "text"} dicts, in order; the
+    first start and last end of a group are the span's bounds, and the
+    aligner only sees that slice. Returns the flat segment list with refined
+    start/end. A line whose aligned times are unusable keeps its estimated
+    times and is flagged timing_uncertain (as are repaired ones), the same
+    repair rules as align_with_qwen3. Times stay inside their span and never
+    overlap. cancel_check() runs before each span and should raise to stop."""
+    if language not in ALIGNER_LANGUAGE_NAMES:
+        raise ValueError(
+            f"Qwen3-ForcedAligner doesn't cover language={language!r} in this project's "
+            f"usage (supported: {sorted(ALIGNER_LANGUAGE_NAMES)}).")
+    model = load_qwen3_aligner(use_gpu=use_gpu, **_device_callbacks(on_device, on_gpu_fallback))
+    language_name = ALIGNER_LANGUAGE_NAMES[language]
+    out = []
+    with tempfile.TemporaryDirectory(prefix="baihe_forced_align_") as tmp_dir:
+        for n, group in enumerate(groups):
+            if cancel_check:
+                cancel_check()
+            lines = [Line(idx=i, start=s["start"], end=s["end"], zh=s["text"])
+                     for i, s in enumerate(group)]
+            span_start, span_end = lines[0].start, lines[-1].end
+            repaired = set()
+            times = _align_chunk(model, audio_path, lines, language_name, tmp_dir,
+                                 repaired_lines=repaired)
+            bad = _bad_line_timings(times)
+            prev_end = span_start
+            for ln, seg in zip(lines, group):
+                new = dict(seg)
+                t = times.get(ln.idx)
+                if t and ln.idx not in bad:
+                    start = min(max(min(t), prev_end, span_start), span_end)
+                    end = min(max(max(t), start), span_end)
+                    if end > start:
+                        new["start"], new["end"] = start, end
+                        if ln.idx in repaired:
+                            new["flag"], new["flag_note"] = "timing_uncertain", TIMING_REPAIRED_NOTE
+                    else:
+                        bad.add(ln.idx)
+                else:
+                    bad.add(ln.idx)
+                if ln.idx in bad:
+                    if prev_end < new["end"]:
+                        new["start"] = max(new["start"], prev_end)
+                    elif out and out[-1]["start"] < new["start"] < out[-1]["end"]:
+                        # The previous line was aligned over this line's whole estimate.
+                        out[-1]["end"] = new["start"]
+                        out[-1]["flag"], out[-1]["flag_note"] = (
+                            "timing_uncertain", TIMING_REPAIRED_NOTE)
+                    new["flag"], new["flag_note"] = "timing_uncertain", TIMING_FALLBACK_NOTE
+                prev_end = max(prev_end, new["end"])
+                out.append(new)
+            if progress_cb:
+                progress_cb((n + 1) / len(groups))
+    return out

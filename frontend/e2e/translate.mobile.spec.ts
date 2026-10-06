@@ -1,11 +1,20 @@
 import { expect, test } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone: the Translate page stacks (result under the Translate button), has no
 // sideways scroll at 390 and 360 px, and its controls are >=44px tall.
 for (const width of [390, 360]) {
   test(`translate page fits a ${width}px phone`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 })
+    const engines = page.waitForResponse('**/api/translate/engines')
     await page.goto('/#/translate')
+    // The page has no engine until this answers; a click before that is "Pick an engine".
+    await engines
+    await expect(page.getByLabel('Engine', { exact: true })).toHaveValue('fake')
     await page.getByLabel('Text to translate').fill('你好')
     await page.getByRole('button', { name: 'Translate', exact: true }).click()
     await expect(page.getByTestId('translate-result')).not.toBeEmpty()
@@ -29,8 +38,7 @@ for (const width of [390, 360]) {
       page.getByLabel('Source language'),
     ]
     for (const t of targets) {
-      const box = await t.boundingBox()
-      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+      expect(await hitHeight(t)).toBeGreaterThanOrEqual(44)
     }
   })
 }

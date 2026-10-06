@@ -48,7 +48,7 @@ def _patch_get(monkeypatch, responses, calls=None):
         if calls is not None:
             calls.append((url, ip))
         return next(it)
-    monkeypatch.setattr(metadata_service, "_pinned_get", fake)
+    monkeypatch.setattr(metadata_service, "pinned_get", fake)
 
 
 @pytest.mark.parametrize("ip", [
@@ -189,3 +189,46 @@ def test_result_text_is_redacted(monkeypatch):
     body = ("<p>" + "filler text here. " * 30 + key + "</p>").encode()
     _patch_get(monkeypatch, [Resp(200, body)])
     assert key not in safe_fetch.fetch_public_text("http://ok.example/").text
+
+
+class _Dripping:
+    """Raw stream that hands back one byte per read, forever."""
+    def __init__(self, clock):
+        self.clock = clock
+        self.reads = 0
+
+    def read(self, n, decode_content=False):
+        self.reads += 1
+        self.clock["now"] += 5  # each drip takes 5 s of wall clock
+        return b"x"
+
+
+def _slow_clock(monkeypatch):
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(metadata_service.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(safe_fetch.time, "monotonic", lambda: clock["now"])
+    return clock
+
+
+def test_slow_drip_body_hits_the_wall_clock_deadline(monkeypatch):
+    clock = _slow_clock(monkeypatch)
+    _dns(monkeypatch)
+    resp = Resp()
+    resp.raw = _Dripping(clock)
+    _patch_get(monkeypatch, [resp])
+    with pytest.raises(DependencyUnavailableError):
+        safe_fetch.fetch_public_text("http://ok.example/")
+    assert resp.closed
+    assert resp.raw.reads <= metadata_service.FETCH_DEADLINE // 5 + 2
+
+
+def test_metadata_page_fetch_hits_the_wall_clock_deadline(monkeypatch):
+    clock = _slow_clock(monkeypatch)
+    _dns(monkeypatch)
+    resp = Resp()
+    resp.raw = _Dripping(clock)
+    _patch_get(monkeypatch, [resp])
+    with pytest.raises(DependencyUnavailableError):
+        metadata_service._fetch_page_text("http://ok.example/")
+    assert resp.closed
+    assert resp.raw.reads <= metadata_service.FETCH_DEADLINE // 5 + 2

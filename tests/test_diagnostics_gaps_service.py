@@ -53,15 +53,13 @@ def dirty_log(isolated_db):
 
 
 def test_describe_job_moved():
-    assert svc.describe_job("live_capture") == "🔴 Live capture"
     assert svc.describe_job("x_y") == "x_y"
 
 
 class TestDescribeJob:
     """describe_job() turns a raw job_id like 'emotion_42' into a
     human-readable line for the Running jobs panel (moved from
-    tests/test_diagnostics_and_export.py; the live_capture case was an
-    exact duplicate of test_describe_job_moved above)."""
+    tests/test_diagnostics_and_export.py)."""
 
     def test_known_prefix_includes_the_drama_title(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test Drama")
@@ -111,7 +109,7 @@ def test_model_cache_names_and_sizes_only(monkeypatch, tmp_path):
     sep = tmp_path / "sep"
     sep.mkdir()
     (sep / "vocals_mel_band_roformer.ckpt").write_bytes(b"x" * 20)
-    monkeypatch.setattr(audio_preprocess, "_MODEL_DIR", str(sep))
+    monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(sep))
     out = svc.get_model_cache(piper_voices_dir=str(tmp_path))
     assert out["hf_total_bytes"] == 100
     assert out["piper_voices"] == [{"voice": "en_US-voice", "size_bytes": 15}]
@@ -219,7 +217,7 @@ def test_log_tail_and_support_report_strip_ansi(isolated_db, monkeypatch):
 
 def _no_jobs(monkeypatch, running=False):
     from services import library_admin_service
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: running)
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: running)
 
 
 def _fake_pip(monkeypatch, returncode=0, timed_out=False, seen=None):
@@ -228,7 +226,7 @@ def _fake_pip(monkeypatch, returncode=0, timed_out=False, seen=None):
             seen.append((cmd, timeout))
         yield {"line": DIRTY}
         yield {"returncode": returncode, "timed_out": timed_out}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
 
 
 def test_log_keyword_filter_runs_on_redacted_text(dirty_log):
@@ -246,7 +244,7 @@ def test_log_keyword_filter_runs_on_redacted_text(dirty_log):
 ])
 def test_admin_requires_confirm(call, monkeypatch):
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     _no_jobs(monkeypatch)
     for bad in (False, None, "yes", 1):
         with pytest.raises(svc.AdminActionRefused):
@@ -256,7 +254,7 @@ def test_admin_requires_confirm(call, monkeypatch):
 def test_admin_refuses_while_jobs_run_here_or_elsewhere(monkeypatch):
     _no_jobs(monkeypatch, running=True)
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     with pytest.raises(svc.AdminActionJobsRunning):
         svc.reset_library(confirm=True)
     with pytest.raises(svc.AdminActionJobsRunning):
@@ -313,7 +311,7 @@ def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_fi
             contents["pins"] = f.read().split()
         contents["path"] = path
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
     assert svc.install_dependency("edge_tts", confirm=True)["ok"] is True
     assert contents["pins"] == ["torch==2.11.0+cpu", "torchaudio==2.11.0+cpu"]
     assert not os.path.exists(contents["path"])      # removed after the run
@@ -394,7 +392,7 @@ def test_pip_holds_the_library_exclusively(monkeypatch):
         seen["job_started"] = background_jobs.start_job("l7_probe", lambda: None)
         seen["maintenance"] = background_jobs.enter_maintenance()
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
     assert svc.install_dependency("edge_tts", confirm=True)["ok"] is True
     assert seen == {"exclusive": True, "job_started": False, "maintenance": False}
     assert background_jobs.exclusive_active() is False
@@ -416,7 +414,7 @@ def test_pip_releases_the_hold_when_it_fails(monkeypatch):
     def boom(cmd, timeout):
         raise OSError("no pip")
         yield  # noqa
-    monkeypatch.setattr(svc, "_stream_tree", boom)
+    monkeypatch.setattr(svc, "stream_tree", boom)
     with pytest.raises(OSError):
         svc.install_dependency("edge_tts", confirm=True)
     assert background_jobs.exclusive_active() is False
@@ -434,7 +432,7 @@ def test_stream_tree_kills_the_whole_tree_on_timeout(tmp_path):
               "print('started', flush=True)\n"
               "time.sleep(60)\n")
     t0 = _t.monotonic()
-    items = list(svc._stream_tree([sys.executable, "-c", script], timeout=1.0))
+    items = list(svc.stream_tree([sys.executable, "-c", script], timeout=1.0))
     assert _t.monotonic() - t0 < 30
     assert items[-1]["timed_out"] is True and items[0] == {"line": "started"}
     gpid = int(marker.read_text())
@@ -463,7 +461,7 @@ def test_reset_runs_when_confirmed(monkeypatch):
 def test_admin_refuses_during_exclusive_hold_or_maintenance(monkeypatch):
     _no_jobs(monkeypatch)
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     assert background_jobs.acquire_exclusive("Library restore")
     try:
         for call in (lambda: svc.reset_library(confirm=True, confirm_text="RESET"),
@@ -572,7 +570,7 @@ def test_stream_tree_drain_is_bounded_when_a_survivor_holds_the_pipe(tmp_path):
     marker = tmp_path / "gc.pid"
     try:
         t0 = _t.monotonic()
-        items = list(svc._stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 60)],
+        items = list(svc.stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 60)],
                                       timeout=1.0, drain_seconds=1.0))
         assert _t.monotonic() - t0 < 15
         assert items[0] == {"line": "started"} and items[-1]["timed_out"] is True
@@ -587,7 +585,7 @@ def test_stream_tree_returns_when_pip_exits_but_a_child_holds_the_pipe(tmp_path)
     marker = tmp_path / "gc.pid"
     try:
         t0 = _t.monotonic()
-        items = list(svc._stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 0)],
+        items = list(svc.stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 0)],
                                       timeout=60.0, drain_seconds=1.0))
         assert _t.monotonic() - t0 < 15
         assert items[-1] == {"returncode": 0, "timed_out": False}
@@ -603,10 +601,10 @@ def test_hold_released_when_a_hung_install_is_cut_off(monkeypatch, tmp_path):
         pytest.skip("POSIX sessions")
     _no_jobs(monkeypatch)
     marker = tmp_path / "gc.pid"
-    real = svc._stream_tree
+    real = svc.stream_tree
     monkeypatch.setattr(svc, "_install_commands", lambda n: [
         ([sys.executable, "-c", _pipe_holder_script(marker, 60)], 1.0)])
-    monkeypatch.setattr(svc, "_stream_tree",
+    monkeypatch.setattr(svc, "stream_tree",
                         lambda cmd, timeout: real(cmd, timeout, drain_seconds=1.0))
     try:
         out = svc.install_dependency("edge_tts", confirm=True)
@@ -619,8 +617,91 @@ def test_hold_released_when_a_hung_install_is_cut_off(monkeypatch, tmp_path):
 def test_pip_rechecks_other_process_jobs_under_the_hold(monkeypatch):
     from services import library_admin_service
     answers = iter([False, True])      # _guard: none; under the hold: one appeared
-    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: next(answers))
-    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: next(answers))
+    monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     with pytest.raises(svc.AdminActionJobsRunning):
         svc.install_dependency("edge_tts", confirm=True)
     assert background_jobs.exclusive_active() is False
+
+
+# --- qwen-asr: `sox` is an sdist-only dependency that fails to build in some environments ---
+
+SOX_FETCH = ["Collecting sox", "  Downloading sox-1.5.0.tar.gz (63 kB)"]
+# What pip printed in a real venv without setuptools and with --no-build-isolation.
+SOX_NO_SETUPTOOLS = SOX_FETCH + ["  Preparing metadata (pyproject.toml): started",
+                                 "ModuleNotFoundError: No module named 'setuptools'",
+                                 "ERROR: Exception:"]
+SOX_BUILT = SOX_FETCH + ["  Building wheel for sox (pyproject.toml): finished with status 'done'",
+                         "Successfully built sox"]
+
+
+def _scripted_pip(monkeypatch, outputs):
+    """stream_tree stand-in: each pip run takes the next (lines, returncode)."""
+    seen, runs = [], iter(outputs)
+
+    def fake(cmd, timeout, cwd=None, env=None):
+        seen.append(cmd)
+        lines, rc = next(runs)
+        for line in lines:
+            yield {"line": line}
+        yield {"returncode": rc, "timed_out": False}
+    monkeypatch.setattr(svc, "stream_tree", fake)
+    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines", lambda: [])
+    return seen
+
+
+def test_sox_watch_tells_a_sox_build_failure_from_other_failures():
+    def watch(lines):
+        w = diagnostics.SoxBuildWatch()
+        for line in lines:
+            w.feed(line)
+        return w.failed
+    assert watch(SOX_NO_SETUPTOOLS) is True
+    assert watch(SOX_BUILT + ["ERROR: Could not install torch"]) is False
+    assert watch(["Collecting torch", "ERROR: No matching distribution"]) is False
+
+
+def test_qwen_asr_fallback_deps_match_the_published_pins_minus_sox():
+    assert "sox" not in " ".join(diagnostics.QWEN_ASR_FALLBACK_DEPS)
+    assert {"transformers==4.57.6", "accelerate==1.12.0", "nagisa==0.2.11"} <= set(
+        diagnostics.QWEN_ASR_FALLBACK_DEPS)
+    assert diagnostics.KNOWN_EXACT_PINS["qwen-asr"]["transformers"] == "4.57.6"
+    assert diagnostics.qwen_asr_fallback_pip_args()[-1] == ["--no-deps", "qwen-asr"]
+
+
+def test_qwen_asr_install_is_plain_pip_when_it_works(monkeypatch):
+    _no_jobs(monkeypatch)
+    seen = _scripted_pip(monkeypatch, [(SOX_BUILT, 0)])
+    out = svc.install_dependency("qwen-asr", confirm=True)
+    assert out["ok"] is True and out["hint"] is None
+    assert [c[3:] for c in seen] == [["install", "--no-cache-dir", "--disable-pip-version-check",
+                                      "qwen-asr"]]
+
+
+def test_qwen_asr_sox_build_failure_falls_back_to_installing_without_sox(monkeypatch):
+    _no_jobs(monkeypatch)
+    seen = _scripted_pip(monkeypatch, [(SOX_NO_SETUPTOOLS, 1), (["Successfully installed x"], 0),
+                                       (["Successfully installed qwen-asr-0.0.6"], 0)])
+    out = svc.install_dependency("qwen-asr", confirm=True)
+    assert out["ok"] is True and out["package"] == "qwen-asr"
+    assert "without its `sox` dependency" in out["output_tail"][0]
+    assert len(seen) == 3
+    assert seen[1][-len(diagnostics.QWEN_ASR_FALLBACK_DEPS):] == list(
+        diagnostics.QWEN_ASR_FALLBACK_DEPS)
+    assert seen[2][-2:] == ["--no-deps", "qwen-asr"]
+    assert all("sox" not in " ".join(c[3:]) for c in seen[1:])
+
+
+def test_qwen_asr_fallback_failure_gives_the_plain_hint_without_leaking(monkeypatch):
+    _no_jobs(monkeypatch)
+    _scripted_pip(monkeypatch, [(SOX_NO_SETUPTOOLS, 1), ([DIRTY], 1)])
+    out = svc.install_dependency("qwen-asr", confirm=True)
+    assert out["ok"] is False and out["hint"] == diagnostics.SOX_BUILD_HINT
+    _assert_clean(out)
+
+
+def test_qwen_asr_other_failures_are_not_retried(monkeypatch):
+    _no_jobs(monkeypatch)
+    seen = _scripted_pip(monkeypatch, [(["Collecting torch", "ERROR: no matching distribution"], 1)])
+    out = svc.install_dependency("qwen-asr", confirm=True)
+    assert out["ok"] is False and out["hint"] is None and len(seen) == 1

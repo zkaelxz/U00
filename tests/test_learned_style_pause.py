@@ -62,7 +62,7 @@ def test_translate_run(isolated_db, monkeypatch, apply):
         return out
     monkeypatch.setattr(translate_run_service.translation_guide, "build_style_guidelines", spy)
     did = _drama(apply)
-    _wait(translate_run_service.start_translate_run(did, engine_name="test_offline")["job_id"])
+    _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
     assert seen and (PREF in seen[0]) is apply
 
 

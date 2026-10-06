@@ -1,14 +1,12 @@
 """
-api/routers/diagnostics_routes.py -- read-only Diagnostics endpoint
-(Migration Slice 5).
+api/routers/diagnostics_routes.py -- read-only Diagnostics endpoint.
 
 The full overview `services.diagnostics_service` builds, and the last
 remote-access health check (`services.remote_health_service`; the check
 itself runs on a schedule, never from this read).
 No admin action (install/upgrade/delete a cached model, etc.) is
-exposed here -- those stay Streamlit-only per
-docs/archive/migration-review.md's D5 (admin actions need explicit confirmation
-and, for now, stay PC-local).
+exposed here: those are PC-only routes in diagnostics_gaps_routes.py and
+diagnostics_installs_routes.py (`local_only()` plus confirm=true).
 
 The remote-access public-address check (`/remote-health/ip-check`) is PC
 only (`local_only()`): its status is a boolean; setting and clearing it
@@ -21,11 +19,11 @@ None of them ever returns the address.
 from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
 from api.auth import local_only, require_permission
-from api.routers.settings_routes import _read_body, _require_confirm, _require_local_admin
-from api.schemas import (DiagnosticsOverview, ErrorResponse, RemoteHealth,
+from api.routers.settings_routes import read_body, require_confirm, require_local_admin
+from api.schemas import (DiagnosticsOverview, ErrorResponse, PortsOverview, RemoteHealth,
                          RemoteIpCheckClearRequest, RemoteIpCheckSetRequest,
                          RemoteIpCheckStatus, RemoteIpCheckTestResult)
-from services import diagnostics_service, remote_health_service
+from services import diagnostics_service, remote_health_service, settings_service
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
@@ -49,6 +47,13 @@ def get_remote_health(request: Request):
     return status
 
 
+@router.get("/ports", dependencies=[local_only()], response_model=PortsOverview,
+            summary="PC only: the ports Baihe uses, whether each is active, and how to change it")
+def get_ports(request: Request):
+    settings = request.app.state.settings
+    return settings_service.baihe_ports(settings.port, settings.household_port, settings.public_url)
+
+
 @router.get("/remote-health/ip-check", dependencies=[local_only()],
             response_model=RemoteIpCheckStatus,
             summary="PC only: whether the public-address check is set (boolean only)")
@@ -62,9 +67,9 @@ def get_ip_check():
                      "(write-only; key writes must be on)",
              responses={422: {"model": ErrorResponse}})
 async def set_ip_check(request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, RemoteIpCheckSetRequest)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, RemoteIpCheckSetRequest)
+    require_confirm(body.confirm)
     # The DNS check and the .env rewrite block: off the event loop, which the
     # admin and household servers share.
     return await run_in_threadpool(remote_health_service.set_ip_check_url, body.value)
@@ -75,9 +80,9 @@ async def set_ip_check(request: Request):
              summary="PC only: remove the public-address check from .env",
              responses={422: {"model": ErrorResponse}})
 async def clear_ip_check(request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, RemoteIpCheckClearRequest)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, RemoteIpCheckClearRequest)
+    require_confirm(body.confirm)
     return await run_in_threadpool(remote_health_service.clear_ip_check_url)
 
 

@@ -2,9 +2,14 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
+import { installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the stronger-engine offer and its result
-// fit the width with 44px targets (Step 99). The try is mocked.
+// fit the width with 44px targets. The try is mocked.
 
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
@@ -47,7 +52,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 
 async function expectTouchTargets(page: Page, selector: string, min = 1) {
   const sizes = await page.locator(selector).evaluateAll((els) =>
-    els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => [e.getBoundingClientRect().height, e.outerHTML.slice(0, 80)] as const),
+    els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => [window.hitHeight(e), e.outerHTML.slice(0, 80)] as const),
   )
   expect(sizes.length).toBeGreaterThanOrEqual(min)
   for (const [h, html] of sizes) expect(h, html).toBeGreaterThanOrEqual(44)

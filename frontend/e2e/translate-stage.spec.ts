@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { withTranslateLines } from './stageLineMocks'
 
 // Mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
-const TRANSLATION_ONLY = ['deepl', 'google', 'nllb', 'libretranslate']
+const TRANSLATION_ONLY = ['nllb']
 
 // The run and job endpoints are mocked: nothing is translated. Config,
 // estimate, glossary and characters reads hit the real seeded API.
@@ -39,9 +39,9 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
   await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
-  await expect(run.getByLabel('Engine', { exact: true })).toBeVisible()
+  await expect(run.getByLabel('AI engine', { exact: true })).toBeVisible()
   // Options live in a collapsed Advanced section with a summary of non-default values.
-  await expect(run.getByText('defaults', { exact: true })).toBeVisible()
+  await expect(run.getByText('Defaults', { exact: true })).toBeVisible()
   await expect(run.getByLabel('Batch size', { exact: true })).toBeHidden()
 
   await run.getByRole('button', { name: 'Estimate cost' }).click()
@@ -67,7 +67,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
 
   await run.getByLabel(/I understand this replaces/).check()
   await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   expect(bodies[0]).toMatchObject({
     batch_size: 10,
     job_cost_cap_usd: 2.5,
@@ -77,10 +77,10 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   expect('line_ids' in bodies[0]).toBe(false)
 
   await page.getByRole('button', { name: 'Cancel job' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('cancelled')
+  await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 
-test('fallback engines: the rule is shown, only same-kind engines are offered, Reflect turns them off (B-06)', async ({ page }) => {
+test('fallback engines: the rule is shown, only same-kind engines are offered, Reflect turns them off', async ({ page }) => {
   const config = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
   const names: string[] = config.engines.map((e: { name: string }) => e.name)
   const main: string = config.translation_engine
@@ -104,7 +104,7 @@ test('fallback engines: the rule is shown, only same-kind engines are offered, R
   await slot.selectOption(sameKind[0])
 
   // Switching the main engine to the other kind flags the chosen fallback.
-  await run.getByLabel('Engine', { exact: true }).selectOption(otherKind!)
+  await run.getByLabel('AI engine', { exact: true }).selectOption(otherKind!)
   await expect(group.getByRole('alert')).toHaveText(/must be the same kind as the main engine/)
   await expect(slot.locator('option:checked')).toContainText("can't be used here")
   await group.getByRole('button', { name: 'Remove' }).click()
@@ -112,7 +112,7 @@ test('fallback engines: the rule is shown, only same-kind engines are offered, R
 
   // Back on an AI engine, Reflect turns the picker off and says why.
   if (!kind(main)) {
-    await run.getByLabel('Engine', { exact: true }).selectOption('')
+    await run.getByLabel('AI engine', { exact: true }).selectOption('')
     await group.getByRole('button', { name: 'Add fallback engine' }).click()
     await run.getByRole('switch', { name: 'Reflect' }).click()
     await expect(group).toContainText('Off while Reflect is on; remove these to run.')
@@ -154,8 +154,7 @@ test('with every line translated, the reason offers Re-translate in one tap', as
 
 test('glossary and characters panels load; a drama without a series is told it cannot hold terms (X09)', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
-  // Both panels are collapsed Sections with a count badge; open them to reach the body.
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  // Glossary starts open; Characters is a collapsed Section, open it to reach the body.
   await page.locator('details.section', { hasText: 'Characters' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await expect(glossary.getByLabel('Project instructions')).toBeVisible()
@@ -177,9 +176,8 @@ test('in a series, the term form checks required fields and shows a failed save'
       ? r.fulfill({ json: [] })
       : r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'That term already exists.' } } }))
   await page.goto('/#/drama/1/translate')
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
-  await glossary.getByRole('button', { name: 'Add term' }).click()
+  await glossary.getByRole('button', { name: 'Add a term' }).click()
   await glossary.getByRole('button', { name: 'Save term' }).click()
   await expect(glossary.getByRole('alert')).toContainText('required')
   await glossary.getByRole('textbox', { name: 'Original', exact: true }).fill('Wei')

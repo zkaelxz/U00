@@ -1,4 +1,7 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type Page } from '@playwright/test'
+
+import { expect, test } from './fixtures'
+import { openTranscribeOptions } from './sourceHelpers'
 
 // Offline paths only: the run/job endpoints are mocked, so nothing is
 // transcribed. Reads and the upload pre-check hit the real seeded API.
@@ -28,7 +31,8 @@ async function mockRun(page: Page, dramaId: number) {
 
 // Advanced options are collapsed by default (and remembered once opened).
 async function openAdvanced(page: Page) {
-  const details = page.locator('details.section').filter({ has: page.getByText('Advanced', { exact: true }) })
+  await openTranscribeOptions(page)
+  const details = page.locator('.section-title', { hasText: /^Advanced$/ }).locator('xpath=ancestor::details[1]')
   await expect(details).toBeVisible()
   if ((await details.getAttribute('open')) === null) await details.locator(':scope > summary').click()
   await expect(details).toHaveAttribute('open', '')
@@ -46,7 +50,7 @@ test('opens the workspace from the library and navigates stages', async ({ page 
   await expect(page.locator('.workspace-header .pill').first()).not.toHaveText(/_/)
   await expect(page.getByRole('link', { name: 'Back to Library' })).toHaveClass(/btn/)
   await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('media-status')).toContainText('limit')
+  await expect(page.getByTestId('media-status')).toContainText(/limit/i)
 
   await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Review' }).click()
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
@@ -69,8 +73,8 @@ test('opens on the reported stage and marks progress in the stepper (P16/P17)', 
   await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
   await expect(nav.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('data-state', 'done')
-  await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('title', 'Review: next step · 1 flagged')
-  await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('title', 'Translate: done · 2 left')
+  await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('title', 'Review: Next step · 1 flagged')
+  await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('title', 'Translate: Done · 2 left')
   await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toContainText('Translate· 2 left')
   await expect(nav.getByRole('link', { name: 'Dub', exact: true })).toHaveAttribute('data-state', 'optional')
   await expect(page.getByTestId('stage-counts')).toHaveText('12 lines')
@@ -112,17 +116,17 @@ test('starts a transcription with the right body, polls the job and cancels it',
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   await page.getByLabel('Extra names to expect', { exact: true }).fill('names: Wei')
-  await page.locator('details.section', { hasText: 'Speakers' }).first().locator(':scope > summary').click()
+  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
   await page.getByLabel('Expected speakers', { exact: true }).fill('2')
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
 
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   expect(run.bodies[0]).toMatchObject({ extra_names: 'names: Wei', expected_speakers: 2, run_diarize: false })
 
   await page.getByRole('button', { name: 'Cancel job' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('cancelled')
+  await expect(page.getByTestId('job-status')).toContainText('Cancelled')
   await expect(page.getByRole('button', { name: 'Cancel job' })).toHaveCount(0)
 })
 
@@ -168,19 +172,22 @@ test('switching dramas does not leak stage state', async ({ page }) => {
   await expect(page.getByTestId('job-panel')).toHaveCount(0)
 })
 
-test('source options offer turbo with a ja/ko hint, the Taiwan script label and a GPU note', async ({ page }) => {
+test('source options offer turbo with a Korean/Chinese note, the Taiwan script label and a GPU note', async ({ page }) => {
   await page.goto('/#/drama/1/source')
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   const size = page.getByLabel('Whisper model', { exact: true })
   await expect(size.locator('option[value="large-v3-turbo"]')).toHaveCount(1)
-  // The Edit details panel has its own "Source language" select (#348); scope to Transcribe.
+  await expect(size.locator('option[value="large-v3-turbo"]')).toHaveText('large-v3-turbo (default)')
+  // The Edit details panel has its own "Source language" select; scope to Transcribe.
   const language = page.getByRole('region', { name: 'Transcribe' }).getByLabel('Source language', { exact: true })
-  await language.selectOption('ja')
   await size.selectOption('large-v3-turbo')
-  await expect(page.getByRole('note')).toContainText('weaker on Japanese and Korean')
+  await language.selectOption('ko')
+  await expect(page.getByRole('note').filter({ hasText: 'half a point' })).toContainText('about twice as slow')
+  await language.selectOption('ja')
+  await expect(page.getByRole('note').filter({ hasText: 'our tests' })).toHaveCount(0)
   await language.selectOption('zh')
-  await expect(page.getByRole('note')).toHaveCount(0)
+  await expect(page.getByRole('note').filter({ hasText: 'tests disagree' })).toHaveCount(1)
   await expect(page.getByLabel('Chinese script', { exact: true }).locator('option', { hasText: 'Traditional (Taiwan, Hong Kong)' })).toHaveCount(1)
   await expect(page.getByTestId('gpu-note')).toContainText(/GPU: (on|off) - change in Settings/)
 })
@@ -196,7 +203,7 @@ test('form state and the running job survive a stage-tab switch', async ({ page 
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
   await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Source', exact: true }).click()
   await expect(page.getByLabel('Extra names to expect', { exact: true })).toHaveValue('keep me')
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   await expect(page.getByTestId('job-percent')).toHaveText('40%')
   await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeDisabled()
   await expect(page.getByText(/already running/)).toBeVisible()
@@ -215,7 +222,7 @@ test('a second run with the same job id shows the new run, not the stale done', 
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
-  await expect(page.getByTestId('job-status')).toContainText('done')
+  await expect(page.getByTestId('job-status')).toContainText('Done')
   await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
   await expect(page.getByTestId('job-status')).toContainText('second')
@@ -238,14 +245,15 @@ test('the primary action is Transcribe, options are collapsed and changed option
   await expect(page.getByTestId('settings-summary')).toContainText('Chinese')
   // Collapsed: the tuning fields are not visible until Advanced is opened.
   await expect(page.getByLabel('Beam size', { exact: true })).toBeHidden()
-  await expect(region.locator('details.section > summary').filter({ hasText: 'Advanced' }).first()).toContainText('defaults')
+  await openTranscribeOptions(page)
+  await expect(region.locator('details.section > summary').filter({ hasText: 'Advanced' }).first()).toContainText(/defaults/i)
   await openAdvanced(page)
   await page.getByLabel('Beam size', { exact: true }).fill('7')
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
 
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   expect(saves).toHaveLength(1)
   expect(saves[0]).toMatchObject({ beam_size: 7 })
   expect(run.bodies).toHaveLength(1)

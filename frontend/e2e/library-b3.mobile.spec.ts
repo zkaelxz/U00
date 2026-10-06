@@ -1,4 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone (390x844): the Library parity batch B3 additions (dashboard lines,
 // cost rows, series view, New drama summary) fit the width and keep 44px
@@ -22,16 +27,15 @@ test('dashboard, costs and series fit a phone', async ({ page }) => {
   await page.route('**/api/library/series', (r) => r.fulfill({
     json: { items: [{ id: 1, name: 'A series with a long name', character_count: 9, glossary_term_count: 20, dramas: [ref(1, 'A rather long drama title that wraps on a phone', 'audio_drama'), ref(2, 'Second', 'manhua')] }] },
   }))
-  await page.goto('/')
-  await expect(page.getByTestId('stats-breakdown')).toBeVisible()
+  await page.goto('/#/library-tools')
+  await expect(page.getByRole('heading', { name: 'Library tools' })).toBeVisible()
   const tools = page.getByRole('region', { name: 'Library tools' })
-  await tools.locator('summary', { hasText: 'Series' }).click()
   await tools.locator('summary', { hasText: 'Cost by drama' }).click()
   const open = tools.getByRole('link', { name: 'Open Second' })
   await expect(open).toBeVisible()
-  expect((await open.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(open))).toBeGreaterThanOrEqual(44)
   const cost = tools.getByRole('region', { name: 'Cost by drama' }).getByRole('link').first()
-  expect((await cost.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(cost))).toBeGreaterThanOrEqual(44)
   await expectNoHorizontalOverflow(page)
 })
 
@@ -42,8 +46,8 @@ test('New drama: Summary and Create and auto-fill fit a phone', async ({ page })
   await sheet.getByText('Credits, summary, series and preset').click()
   const summary = sheet.getByRole('textbox', { name: 'Summary' })
   await expect(summary).toBeVisible()
-  expect((await summary.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(summary))).toBeGreaterThanOrEqual(44)
   const autofill = sheet.getByRole('button', { name: 'Create and auto-fill' })
-  expect((await autofill.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(autofill))).toBeGreaterThanOrEqual(44)
   await expectNoHorizontalOverflow(page)
 })

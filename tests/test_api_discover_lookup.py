@@ -196,10 +196,12 @@ def test_navigation_help(client):
 
 
 def test_errors(client, monkeypatch):
-    assert client.get("/api/discover/bulk-extract/result").status_code == 404
-    assert client.get("/api/discover/navigation-help/result").status_code == 404
+    idle = {"job_id": "", "status": "idle", "progress": 0.0, "message": "", "result": None}
+    for path in ("bulk-extract", "navigation-help"):
+        r = client.get(f"/api/discover/{path}/result")
+        assert r.status_code == 200 and r.json() == idle, path
     for path, body in (
-            ("/api/discover/translate-query", {"q": "x", "engine": "deepl"}),
+            ("/api/discover/translate-query", {"q": "x", "engine": "nllb"}),
             ("/api/discover/translate-query", {"q": ""}),
             ("/api/discover/translate-query", {"q": "x", "api_key": KEY}),
             ("/api/discover/import-suggestion", {"url": "file:///etc/passwd"}),

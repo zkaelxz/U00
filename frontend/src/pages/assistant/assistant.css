@@ -17,7 +17,7 @@
   padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md);
   background: var(--surface-2); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0;
 }
-.assistant-by { margin: 0; font-size: var(--text-xs); }
+.assistant-by { margin: 0; font-size: var(--text-sm); }
 .assistant-response details.section { margin: 0; }
 .assistant-calls { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
 .assistant-calls > li { display: grid; gap: var(--space-1); min-width: 0; padding-block: var(--space-2); }
@@ -53,7 +53,7 @@
 .assistant-backlog > li + li { border-top: 1px solid var(--border); }
 .assistant-backlog-head { display: flex; align-items: center; gap: var(--space-2); flex: 0 0 auto; }
 .assistant-backlog-text { flex: 1 1 14rem; margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
-.assistant-date { font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.assistant-date { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .assistant-backlog-add, .assistant-changelog-form { display: grid; grid-template-columns: 10rem minmax(0, 1fr) auto; align-items: end; gap: var(--space-3); }
 .assistant-changelog-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
 .assistant-backlog-add select, .assistant-backlog-add input, .assistant-changelog-form input { width: 100%; }
@@ -72,7 +72,10 @@
 .assistant-tools > li { display: grid; gap: 2px; min-width: 0; }
 
 @media (max-width: 640px) {
-  .assistant-page { gap: var(--space-4); }
+  .assistant-page { gap: var(--space-5); }
+  .assistant-engine, .assistant-backlog-add, .assistant-changelog-form { gap: var(--space-4); }
+  .assistant-suggestions, .assistant-suggestion, .assistant-actions { gap: var(--space-3); }
+  .assistant-response, .assistant-turn { gap: var(--space-4); }
   .assistant-question { max-width: 100%; }
   .assistant-engine, .assistant-backlog-add, .assistant-changelog-form { grid-template-columns: minmax(0, 1fr); }
   .assistant-ask .btn-primary, .assistant-backlog-add .btn-primary, .assistant-changelog-form .btn-primary { width: 100%; }

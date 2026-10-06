@@ -1,8 +1,14 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { openMenu } from './settingsNav'
 import { mockAccess } from './sourcesAccessMocks'
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { SERIES_LINKS, mockSources, searchResult } from './sourcesMocks'
+import { hitHeight, installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the Sources page. Every Sources job and
 // write is mocked (sourcesMocks.ts).
@@ -21,10 +27,23 @@ async function tallTargets(page: Page) {
     const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="search"], input[type="number"], .segmented label, .source-on, .setting-list > .field-item, .source-adult .field-item, .sources-back'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
       .filter((x) => x.h < 44)
   })
   expect(small).toEqual([])
+}
+
+// Many rows: no ancestor of the chapter list (or the list itself) is a scroll area with hidden rows.
+async function noInnerScroll(page: Page) {
+  const bad = await page.locator('.sources-chapters').evaluate((list) => {
+    const out: string[] = []
+    for (let e: HTMLElement | null = list; e && e !== document.documentElement; e = e.parentElement) {
+      const oy = getComputedStyle(e).overflowY
+      if ((oy === 'auto' || oy === 'scroll') && e.scrollHeight > e.clientHeight) out.push(e.className || e.tagName)
+    }
+    return out
+  })
+  expect(bad, 'inner vertical scroll area').toEqual([])
 }
 
 test('phone: series replaces results, ‹ Results restores them, no sideways scroll', async ({ page }) => {
@@ -35,7 +54,6 @@ test('phone: series replaces results, ‹ Results restores them, no sideways scr
   await expect(page.getByText(/Searching…/)).toBeVisible()
   s.search = 'done'
   await expect(page.getByText('12 results', { exact: true })).toBeVisible()
-  await page.getByText('Search in').click()
   await noSideways(page)
   await tallTargets(page)
 
@@ -49,7 +67,7 @@ test('phone: series replaces results, ‹ Results restores them, no sideways scr
   await noSideways(page)
   await tallTargets(page)
   const more = panel.getByRole('button', { name: 'More' })
-  expect((await more.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect((await hitHeight(more))).toBeGreaterThanOrEqual(44)
   await more.click()
   await expect(panel.getByRole('button', { name: 'Less' })).toBeVisible()
 
@@ -72,7 +90,7 @@ test('phone: download links are 44 px tall and wrap without sideways scroll', as
   const links = page.getByRole('region', { name: 'Series' }).getByRole('group', { name: 'Download links' })
   await links.scrollIntoViewIfNeeded()
   for (const name of ['百度网盘 (Baidu Pan) ↗', '蓝奏云 (Lanzou) ↗']) {
-    expect((await links.getByRole('link', { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect((await hitHeight(links.getByRole('link', { name })))).toBeGreaterThanOrEqual(44)
   }
   await expect(links.getByText('roh1')).toBeVisible()
   await noSideways(page)
@@ -112,13 +130,14 @@ test('phone: a failing source shows its plain-language reason, raw type in the t
   expect(s.unmocked).toEqual([])
 })
 
-test('phone: every main nav link is inside the viewport at 360 and 390 px', async ({ page }) => {
+test('phone: every drawer link is inside the viewport at 360 and 390 px', async ({ page }) => {
   const s = await mockSources(page)
   for (const width of [360, 390]) {
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/#/sources')
+    await openMenu(page)
     const links = page.getByRole('navigation', { name: 'Main' }).getByRole('link')
-    await expect(links).toHaveCount(7)
+    await expect(links.first()).toBeVisible()
     for (const link of await links.all()) {
       const box = (await link.boundingBox())!
       expect(box.x, `${await link.textContent()} at ${width}`).toBeGreaterThanOrEqual(0)
@@ -126,6 +145,8 @@ test('phone: every main nav link is inside the viewport at 360 and 390 px', asyn
       expect(box.height).toBeGreaterThanOrEqual(44)
     }
     await noSideways(page)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Main menu' })).toBeHidden()
   }
   expect(s.unmocked).toEqual([])
 })
@@ -137,7 +158,7 @@ async function tallImportTargets(page: Page) {
     const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="url"], input[type="text"], .sources-pick label, .sources-select-all, .sources-preview a, .sources-outcomes a'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
       .filter((x) => x.h < 44)
   })
   expect(small).toEqual([])
@@ -195,4 +216,19 @@ test('phone: novel link preview and import, one column', async ({ page }) => {
   await expect(card.getByTestId('url-import-result')).toBeVisible({ timeout: 15_000 })
   await noSideways(page)
   expect(s.unmocked).toEqual([])
+})
+
+test('open series with many rows scrolls with the page, no inner scrollbar', async ({ page }) => {
+  const s = await mockSources(page, { searchBody: { ...searchResult(12), errors: {} }, series: 'done' })
+  await page.goto('/#/sources')
+  await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
+  await page.getByRole('searchbox', { name: 'Title' }).press('Enter')
+  await expect(page.getByText(/Searching…/)).toBeVisible()
+  s.search = 'done'
+  await page.getByRole('button', { name: 'Open on Alpha Comics' }).first().click()
+  const panel = page.getByRole('region', { name: 'Series' })
+  await panel.getByRole('button', { name: 'Show all 124' }).click()
+  await expect(panel.getByRole('heading', { level: 4, name: 'Extras' })).toBeVisible()
+  await noInnerScroll(page)
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(await page.evaluate(() => innerHeight))
 })

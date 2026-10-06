@@ -1,7 +1,7 @@
 """
-api/job_stage_schemas.py -- models for the Step 41 per-stage job timing
-route (api/routers/job_stage_routes.py). Kept out of api/schemas.py, which
-another batch owns. Stage names are fixed labels from Baihe's own code.
+api/job_stage_schemas.py -- models for the per-stage job timing
+route (api/routers/job_stage_routes.py). Stage names are fixed labels from
+Baihe's own code.
 """
 
 from typing import List

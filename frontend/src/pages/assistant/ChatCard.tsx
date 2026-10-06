@@ -41,6 +41,7 @@ import {
   tierLabel,
   type EscalationPlan,
 } from './escalation'
+import { AI_ENGINE_LABEL } from '../../helpText'
 
 type AddToBacklog = (kind: BacklogKind, text: string) => Promise<BacklogItem>
 
@@ -543,9 +544,9 @@ function EngineSection({ settings, engine, model, onEngine, onModel, onSettings 
   }
 
   return (
-    <Section title="Engine" summary={summary} storageKey="assistant.engine">
+    <Section title="Engine" defaultOpen summary={summary} storageKey="assistant.engine">
       <div className="assistant-engine">
-        <Field label="Engine" help="Which AI answers. The default, Ollama, runs on this PC; a cloud engine needs your OK to receive code and logs.">
+        <Field label={AI_ENGINE_LABEL} help="Which AI answers. The default, Ollama, runs on this PC; a cloud engine needs your OK to receive code and logs.">
           <select
             value={engine}
             onChange={(e) => {

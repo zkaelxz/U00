@@ -2,17 +2,15 @@
 services/blocked_retry_service.py -- re-translate ONE line that a
 translation engine refused on content-moderation grounds (flag
 "content_blocked"), usually with a different engine (parity item R10).
-Mirrors the Review tab's "Retry this line with <engine>" control in
-`tabs/workspace_tab.py` (Step 31 item 5).
 
-Synchronous, like the tab (a spinner, not a background job): one
+Synchronous (not a background job): one
 `engine.translate_batch([zh], ...)` call for one line. The line is addressed
 by permanent `Line.id`, the engine is told that id (`context["line_ids"]`),
 and the result is looked up by that id, never by position. The route caps
 how many of these run at once (api/llm_slots.py).
 
 Only the engine NAME comes from the caller. The model is the engine's own
-default (the tab passed none) and the Gemini free-tier flag is the saved
+default and the Gemini free-tier flag is the saved
 Settings value, so a caller can't point a local engine at an arbitrary
 model id or path.
 
@@ -30,22 +28,22 @@ is a ConflictError with nothing written:
 
 Keys are resolved server-side (never accepted or returned). An engine
 failure is a fixed message; the redacted detail goes to the app log only.
-The tab's context is kept: only the drama's source language is sent (no
-glossary or style guidelines), so this stays a one-line retry, not a new run.
+Only the drama's source language is sent (no glossary or style
+guidelines), so this stays a one-line retry, not a new run.
 
-No Streamlit or FastAPI import; plain dicts in and out.
+No FastAPI import; plain dicts in and out.
 """
 import background_jobs
 import db
 import translate_engines
 from services import settings_service, translate_service
-from services.review_lines_service import _line_dict
+from services.review_lines_service import line_dict
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError, ServiceError,
                                       UnsupportedOperationError)
 
 BLOCKED_FLAG = "content_blocked"
-DEFAULT_ENGINE = "ollama"   # the tab's default: local, no cloud moderation
+DEFAULT_ENGINE = "ollama"   # local, no cloud moderation
 MAX_REASON_CHARS = 300
 ENGINE_FAILED = "The engine call failed."
 # Jobs that write this drama's line text or flags.
@@ -73,7 +71,7 @@ def _load(drama_id: int, line_id: int):
 
 
 def _reload(drama_id: int, line_id: int) -> dict:
-    return _line_dict(_load(drama_id, line_id)[1])
+    return line_dict(_load(drama_id, line_id)[1])
 
 
 def _refuse_if_line_job_running(drama_id: int):
@@ -86,7 +84,7 @@ def _refuse_if_line_job_running(drama_id: int):
 
 def _build_engine(engine_name: str):
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
         raise DependencyUnavailableError(
@@ -117,12 +115,24 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
         raise UnsupportedOperationError("This line has no source text to translate.")
     engine_name = engine_name or DEFAULT_ENGINE
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     _refuse_if_line_job_running(drama_id)
+    seen = {"zh": line.zh, "en": line.en, "flag": line.flag, "flag_note": line.flag_note}
+    if translate_engines.is_english_line(line):
+        # Already English: nothing for an engine to refuse or translate.
+        if not db.update_line_fields_if(drama_id, line.id,
+                                        {"en": line.zh, "flag": None, "flag_note": ""}, seen):
+            raise ConflictError("This line changed while retrying; nothing was written.")
+        return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,
+                "model": None, "retried": True, "blocked": False, "reason": None,
+                "line": _reload(drama_id, line.id)}
     engine = _build_engine(engine_name)
     used_model = getattr(engine, "model", None)
-    seen = {"zh": line.zh, "en": line.en, "flag": line.flag, "flag_note": line.flag_note}
-    context = {"source_language": drama.get("source_language") or "zh", "line_ids": [line.id]}
+    title_language = drama.get("source_language") or "zh"
+    context = {"source_language": title_language, "line_ids": [line.id]}
+    line_languages = translate_engines.tagged_line_languages([line], title_language)
+    if line_languages:
+        context["line_languages"] = line_languages
     try:
         results = engine.translate_batch([line.zh], context)
     except translate_engines.ContentModerationBlocked as blocked:

@@ -1,4 +1,4 @@
-// Model re-evaluation (Step 40b; api/routers/model_reeval_routes.py,
+// Model re-evaluation (api/routers/model_reeval_routes.py,
 // api/model_reeval_schemas.py): the production model, the re-evaluation
 // schedule, candidate models with their recorded decisions, the latest
 // report and the decision history. Reads and the estimate need
@@ -70,7 +70,7 @@ export interface ReevalRow {
   avg_latency_seconds: number | null
 }
 
-export interface ReevalProductionRun {
+interface ReevalProductionRun {
   id: number
   status: string | null
   aggregate_score: number | null
@@ -128,7 +128,7 @@ export interface CandidateAddResult {
   already_registered: boolean
 }
 
-export interface PromoteResult {
+interface PromoteResult {
   production: ProductionModel
   previous: ProductionModel
   default_engine_changed: boolean

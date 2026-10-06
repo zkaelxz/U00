@@ -39,9 +39,9 @@ test('applying a saved preset fills the form and starts nothing', async ({ page 
   await apply.click()
   await expect(page.getByRole('status').filter({ hasText: 'Applied preset "Wuxia preset"' })).toBeVisible()
   expect(bodies).toEqual([{ preset_id: 7 }])
-  await expect(page.getByLabel('Engine', { exact: true })).toHaveValue('claude')
+  await expect(page.getByLabel('AI engine', { exact: true })).toHaveValue('claude')
   await expect(page.getByLabel('Style', { exact: true })).toHaveValue('subtitle')
-  await expect(page.getByLabel('Locale', { exact: true })).toHaveValue('en-GB')
+  await expect(page.getByLabel('English variant', { exact: true })).toHaveValue('en-GB')
   expect(runs).toBe(0)
 })
 
@@ -68,7 +68,7 @@ test('a preset and a voice can be renamed in the Library', async ({ page }) => {
     bodies.voice = r.request().postDataJSON()
     return r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'That name is taken.' } } })
   })
-  await page.goto('/')
+  await page.goto('/#/library-tools')
 
   await page.locator('summary', { hasText: 'Presets' }).click()
   await page.getByRole('button', { name: 'Rename Wuxia preset' }).click()

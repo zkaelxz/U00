@@ -38,7 +38,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "page_fetch.py",
     "page_server.py",
     "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
-    # Step 25d item 9: this list had drifted -- these were all real,
+    # This list had drifted -- these were all real,
     # hard-imported modules missing from it, which meant the missing-file
     # health check below could no longer actually catch one of them going
     # missing.
@@ -47,17 +47,17 @@ EXPECTED_TOP_LEVEL_FILES = [
     "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
     "sensevoice_tags.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
     "translation_memory.py", "action_tiers.py", "media_inspect.py",
-    "process_guard.py",   # Step 80b: the installed server's Job Object (python -m api imports it)
+    "vad_segments.py", "mixed_language.py", "process_guard.py",   # the installed server's Job Object (python -m api imports it)
 ]
 
 # name -> (import name, feature it powers, required vs optional)
 OPTIONAL_DEPENDENCIES = {
     "faster_whisper": ("faster_whisper", "audio alignment/timing", "feature"),
+    "ctranslate2": ("ctranslate2", "Whisper GPU detection (installed with faster-whisper)", "feature"),
     "cv2": ("cv2", "Scanlate bubble detection/inpainting", "feature"),
     "anthropic": ("anthropic", "Claude translation engine", "engine"),
     "openai": ("openai", "DeepSeek translation engine", "engine"),
-    "deepl": ("deepl", "DeepL translation engine", "engine"),
-    "requests": ("requests", "Google/LibreTranslate/metadata lookup/navigator", "engine"),
+    "requests": ("requests", "metadata lookup/navigator", "engine"),
     "bs4": ("bs4", "metadata lookup, navigator, bulk import", "feature"),
     "pyannote.audio": ("pyannote.audio", "speaker diarization", "feature"),
     "soundfile": ("soundfile", "speaker diarization, vocal separation chunking, word-level realignment", "feature"),
@@ -122,15 +122,13 @@ OPTIONAL_DEPENDENCIES = {
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
     "qwen-asr": ("qwen_asr", "Qwen3-ASR transcription engine and Qwen3 forced alignment "
                              "(line timing); best in its own Python 3.12 environment", "feature"),
-    # Step 104: not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
+    # Not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
     # and needs transformers>=5.6, which qwen-asr's transformers==4.57.6 pin rules out.
     "moss-transcribe-diarize": ("moss_transcribe_diarize",
                                 "experimental one-pass transcription + speaker labels "
                                 "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
                                 "can't share an install with Qwen3-ASR)", "experimental"),
-    "cryptography": ("cryptography", "mangaz.com adapter's session-scoped RSA+AES page "
-                                     "decryption (Sources tab); Google sign-in token checks",
-                     "feature"),
+    "cryptography": ("cryptography", "Google sign-in token checks", "feature"),
     "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
     "fastapi": ("fastapi", "the HTTP API the React frontend talks to (python -m api)",
                 "required"),
@@ -142,7 +140,7 @@ OPTIONAL_DEPENDENCIES = {
     "pytest": ("pytest", "running the test suite", "dev"),
     "httpx": ("httpx", "Google sign-in's HTTP client (with authlib); also the HTTP API's "
                        "tests (FastAPI TestClient)", "feature"),
-    # Step 115b: a separate program, not a library. GPL-3.0, so Baihe never
+    # A separate program, not a library. GPL-3.0, so Baihe never
     # imports or ships it: it only runs the user-installed `lncrawl` command
     # (services/lncrawl_service.py). Detected by EXTERNAL_PROGRAMS below,
     # never offered for one-click install (NOT_OFFERED_FOR_INSTALL).
@@ -196,7 +194,7 @@ def canonical_dist(name: str) -> str:
 # Packages in PULLS_TORCH also pull PyTorch when it isn't installed yet,
 # which is not counted here (torch is its own row).
 APPROX_DOWNLOAD_MB = {
-    "faster-whisper": 80, "opencv-python": 45, "anthropic": 2, "openai": 2, "deepl": 1,
+    "faster-whisper": 80, "ctranslate2": 40, "opencv-python": 45, "anthropic": 2, "openai": 2,
     "requests": 1, "beautifulsoup4": 1, "pyannote-audio": 20, "soundfile": 2,
     "edge-tts": 1, "pydub": 1, "f5-tts": 60, "omnivoice": 60, "chatterbox-tts": 60,
     "hume-tada": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "manga-ocr": 20,
@@ -297,7 +295,7 @@ def install_downgrade_warning(name: str):
 INSTALL_TASKS = [
     {"id": "transcribe", "group": "Audio", "label": "Transcribe speech (Whisper)",
      "help": "Turn a drama's audio into timed lines.",
-     "packages": ["faster_whisper", "soundfile", "numpy"]},
+     "packages": ["faster_whisper", "ctranslate2", "soundfile", "numpy"]},
     {"id": "music_removal", "group": "Audio", "label": "Remove background music",
      "help": "Clean the audio before transcribing so dialogue is easier to hear.",
      "packages": ["demucs", "audio-separator", "torch", "soundfile", "numpy"],
@@ -356,9 +354,9 @@ INSTALL_TASKS = [
      "recommended": ["ebooklib", "genanki"]},
     {"id": "web_sources", "group": "Novels & reader", "label": "Novel sources from websites",
      "help": "Read chapters from pasted URLs and JavaScript-heavy sites.",
-     "packages": ["bs4", "trafilatura", "playwright", "cryptography", "lightnovel-crawler"],
+     "packages": ["bs4", "trafilatura", "playwright", "lightnovel-crawler"],
      "recommended": ["trafilatura"],
-     "optional": ["playwright", "cryptography", "lightnovel-crawler"]},
+     "optional": ["playwright", "lightnovel-crawler"]},
     {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
      "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
      "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
@@ -369,10 +367,10 @@ INSTALL_TASKS = [
     {"id": "nllb", "group": "Translation", "label": "Free local translation (NLLB-200)",
      "help": "Translate offline on this PC.",
      "packages": ["transformers", "sentencepiece", "torch"]},
-    {"id": "paid_engines", "group": "Translation", "label": "Claude, DeepSeek and DeepL",
+    {"id": "paid_engines", "group": "Translation", "label": "Claude and DeepSeek",
      "help": "Client libraries for the paid translation engines (keys go in Settings).",
-     "packages": ["anthropic", "openai", "deepl"],
-     "recommended": ["anthropic", "openai", "deepl"]},
+     "packages": ["anthropic", "openai"],
+     "recommended": ["anthropic", "openai"]},
     {"id": "sign_in", "group": "App", "label": "Google sign-in for household access",
      "help": "Needed only when BAIHE_API_AUTH=on.",
      "packages": ["authlib", "httpx", "cryptography"]},
@@ -388,7 +386,7 @@ INSTALL_TASKS = [
 def check_python_version():
     import sys
     v = sys.version_info
-    return {"version": f"{v.major}.{v.minor}.{v.micro}", "ok": v.major == 3 and v.minor >= 9}
+    return {"version": f"{v.major}.{v.minor}.{v.micro}", "ok": v.major == 3 and v.minor >= 10}
 
 
 def check_ffmpeg():
@@ -423,11 +421,99 @@ def check_js_runtime():
     return {"found": False, "name": None, "path": None}
 
 
+YTDLP_STALE_DAYS = 90
+DENO_MIN_VERSION = (2, 3)
+PYANNOTE_MIN_VRAM_GB = 12
+# PyTorch reports a card's usable memory, a little under its label (a 12 GB
+# RTX 3080 Ti shows about 11.7-11.9), so the warning compares with a margin.
+PYANNOTE_VRAM_MARGIN_GB = 0.5
+
+
+def _ints(text: str, n: int):
+    m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", text or "")
+    return tuple(int(g or 0) for g in m.groups()[:n]) if m else None
+
+
+def _warn_ytdlp_old(today=None):
+    import datetime
+    parts = _ints(get_installed_version("yt-dlp"), 3)
+    if not parts:
+        return None
+    age = ((today or datetime.date.today()) - datetime.date(*parts)).days
+    if age > YTDLP_STALE_DAYS:
+        return ("yt-dlp is more than 3 months old, so video downloads may fail. "
+                "Upgrade it in the Packages list.")
+    return None
+
+
+def _warn_deno_old():
+    if not shutil.which("deno"):
+        return None
+    out = subprocess.run(["deno", "--version"], capture_output=True, text=True, timeout=5).stdout
+    ver = _ints(out, 2)
+    if ver and ver < DENO_MIN_VERSION:
+        return ("Deno is older than 2.3, which yt-dlp may not work with. "
+                "Reinstall Deno from deno.com.")
+    return None
+
+
+def _warn_qwen_transformers():
+    if not (get_installed_version("qwen-asr") and
+            (_ints(get_installed_version("transformers"), 1) or (0,))[0] >= 5):
+        return None
+    return ("Qwen3-ASR and transformers 5 or newer don't work together. "
+            "Uninstall Qwen3-ASR, or install transformers 4.57.6.")
+
+
+def _warn_qwen_nonascii_path():
+    if platform.system() != "Windows" or not get_installed_version("qwen-asr"):
+        return None
+    import portable
+    if portable.data_dir().isascii():
+        return None
+    return ("The data folder's name has non-English characters, which stops Qwen3-ASR "
+            "from loading. Move the data folder to a plain English path, or uninstall Qwen3-ASR.")
+
+
+def _warn_low_vram_pyannote():
+    pyannote = _ints(get_installed_version("pyannote.audio"), 1)
+    if not pyannote or pyannote[0] < 4:
+        return None
+    gpu = get_gpu_status()
+    total = gpu.get("vram_total_gb") if gpu.get("available") else None
+    if total is not None and total < PYANNOTE_MIN_VRAM_GB - PYANNOTE_VRAM_MARGIN_GB:
+        return ("This GPU has less than 12 GB of memory, so speaker detection may run out "
+                "and switch to the CPU, which is slower. No action needed unless it fails.")
+    return None
+
+
+def startup_warnings() -> list:
+    """Short, path-free warnings about risky dependency combinations. Each
+    check is local and cheap; one that fails for any reason adds nothing."""
+    out = []
+    for check in (_warn_ytdlp_old, _warn_deno_old, _warn_qwen_transformers,
+                  _warn_qwen_nonascii_path, _warn_low_vram_pyannote):
+        try:
+            msg = check()
+        except Exception:
+            msg = None
+        if msg:
+            out.append(msg)
+    return out
+
+
+def check_browser() -> dict:
+    """{found, name}: the browser used for JavaScript-only sites (see
+    page_fetch.browser_status). No path is returned."""
+    import page_fetch
+    return page_fetch.browser_status()
+
+
 def check_cuda() -> dict:
     """Whether a GPU is actually usable, for start.bat's own "print
-    anything missing in plain words" launcher check (Step 10) -- this is
+    anything missing in plain words" launcher check -- this is
     deliberately the minimal "is it there at all" answer, not the
-    driver/CUDA-build version-mismatch detail Step 18 adds to the
+    driver/CUDA-build version-mismatch detail a later check adds to the
     in-app GPU/VRAM display; that's a different, later check built for a
     different place (the Diagnostics tab, checked once you're already in
     the app), not a launcher-time one. Doesn't import torch at all if
@@ -504,7 +590,7 @@ def check_library_writable(library_dir: str):
 
 
 # ---------------------------------------------------------------------------
-# Step 9b.2: Hugging Face model-cache visibility & cleanup.
+# Hugging Face model-cache visibility & cleanup.
 #
 # Whisper/pyannote/Qwen3-ASR/ForcedAligner/F5-TTS weights live in
 # huggingface_hub's own cache (~/.cache/huggingface by default), entirely
@@ -561,8 +647,8 @@ def delete_hf_cache_revision(revision: str, cache_dir: str = None) -> bool:
 
 def scan_piper_voices(voices_dir: str = None) -> list:
     """[{"voice", "size_bytes"}, ...] for every downloaded Piper voice
-    model, largest first. Step 25d item 14: this panel only ever scanned
-    the Hugging Face model cache above -- Piper voices (Step 25c item 1's
+    model, largest first. This panel only ever scanned
+    the Hugging Face model cache above -- Piper voices (the
     offline-voice picker) download to `library/piper_voices` instead, so
     they were invisible here and to whatever cleanup/disk-usage view
     relies on this. [] if the directory doesn't exist yet -- never
@@ -620,7 +706,7 @@ def model_folder(kind: str) -> str:
         return os.path.join(os.path.expanduser(home), "hub", "checkpoints")
     if kind == "audio_separator":
         import audio_preprocess
-        return audio_preprocess._MODEL_DIR
+        return audio_preprocess.MODEL_DIR
     raise ValueError(f"Unknown model folder {kind!r}")
 
 
@@ -672,7 +758,7 @@ def delete_model_folder_entry(kind: str, name: str, folder: str = None) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Step 9b.2: model/engine version panel -- one row per AI model/engine
+# Model/engine version panel -- one row per AI model/engine
 # actually wired into the app today (not the roadmap's full aspirational
 # list; several named there, like PaddleOCR-VL-For-Manga, aren't
 # implemented yet and belong to later steps). No network call: this only
@@ -723,7 +809,7 @@ MODEL_ENGINE_REGISTRY = [
      "help": "A local voice-cloning engine that can also design a new voice from a text "
              "description, not just clone an existing sample."},
     {"name": "GPT-SoVITS", "kind": "service",
-     "note": "separate local server (not pip-installed)",
+     "note": "Separate local server (not pip-installed)",
      "url": "https://github.com/RVC-Boss/GPT-SoVITS",
      "help": "A separate local voice-cloning server you run yourself -- the app talks to it over "
              "its own local API rather than installing it as a package."},
@@ -755,9 +841,8 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
     nor a "service" entry has a real "not installed" state of its own, so
     both count as installed. "installed" is a real boolean computed here
     from the actual check, not a string match against "not installed" in
-    whatever renders it (Step 18 item 2 -- that match would silently break
-    if this literal ever changed). Makes no network call. "package" (Step
-    47) is the real pip/importlib.metadata distribution name for a
+    whatever renders it (that match would silently break
+    if this literal ever changed). Makes no network call. "package" is the real pip/importlib.metadata distribution name for a
     "package" kind entry, None otherwise -- the exact string a caller
     should pass to stream_dependency_install/stream_pip_install for that
     row's own Install button, straight from the registry rather than
@@ -795,7 +880,7 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Step 9b.2: proactive check for gated pyannote model access -- catches
+# Proactive check for gated pyannote model access -- catches
 # the exact real-world failure (a 403 on one gated model masking that the
 # OTHER one is also gated, since load_pipeline() tries community-1 first
 # and only surfaces 3.1's error) before it shows up as a runtime error on
@@ -829,7 +914,7 @@ def check_pyannote_gated_access(hf_token: str = None, api=None) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Step 97: pre-flight a translation engine's credentials/reachability
+# Pre-flight a translation engine's credentials/reachability
 # before a batch job starts, rather than discovering a dead API key or
 # an unreachable local server only after committing lines to a job.
 # ---------------------------------------------------------------------------
@@ -862,27 +947,19 @@ def check_engine_reachable(engine_name: str, api_key: str = None, model: str = N
                 "error": translate_engines.redact_secrets(str(e))}
 
 
-def doctor_report(engines: list) -> list:
-    """Runs check_engine_reachable for a list of
-    {"engine", "api_key"?, "model"?, "base_url"?} dicts -- the CLI
-    `doctor` command's own batch form, and reusable by any future UI
-    button that wants to check several configured engines at once."""
-    results = []
-    for spec in engines:
-        results.append(check_engine_reachable(
-            spec["engine"], spec.get("api_key"), spec.get("model"), spec.get("base_url")))
-    return results
-
-
 # ---------------------------------------------------------------------------
-# Step 9b.2: "Copy diagnostics for support" -- the existing key/token
+# "Copy diagnostics for support" -- the existing key/token
 # redaction (translate_engines.redact_secrets) plus stripping local file
 # paths and the OS username, since a raw library path or a home directory
 # can leak the machine's username into a support conversation.
 # ---------------------------------------------------------------------------
 
-_PATH_PATTERN = re.compile(
-    r'(?:[A-Za-z]:)?[\\/](?:[^\s\\/:*?"<>|]+[\\/])+([^\s\\/:*?"<>|]+)')
+# Middle segments may contain single spaces ("My Documents") so folder-name
+# fragments aren't left behind; they can't start or end with one, which keeps
+# a path from swallowing the prose around it.
+PATH_PATTERN = re.compile(
+    r'(?:[A-Za-z]:)?[\\/](?:[^\s\\/:*?"<>|]+(?: [^\s\\/:*?"<>|]+)*[\\/])+'
+    r'([^\s\\/:*?"<>|]+)')
 
 # ANSI escape sequences (CSI: colours, cursor moves), e.g. yt-dlp's
 # "\x1b[0;31mERROR:\x1b[0m" -- unreadable noise in a report or log view.
@@ -903,7 +980,7 @@ def redact_for_support(text: str) -> str:
     username = getpass.getuser()
     if username:
         text = re.sub(re.escape(username), "[USER]", text, flags=re.IGNORECASE)
-    text = _PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
+    text = PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
     return text
 
 
@@ -958,7 +1035,7 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 
 
 # ---------------------------------------------------------------------------
-# Step 18c: in-app "Install" buttons for optional dependencies, run against
+# In-app "Install" buttons for optional dependencies, run against
 # the CURRENTLY RUNNING interpreter (sys.executable) -- when this app was
 # launched via start.bat/portable.py's own venv activation, that's already
 # the venv's own python, never a bare system `pip`.
@@ -967,7 +1044,7 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 # Only these two tiers ever get a generic Install button -- "required" is
 # already installed by definition (the app wouldn't be running otherwise)
 # and "dev" (pytest) has nothing to do with a running app session.
-# "experimental" (Step 104's MOSS) is listed but never installed from here:
+# "experimental" (the MOSS backend) is listed but never installed from here:
 # it isn't on PyPI.
 INSTALLABLE_TIERS = ("feature", "engine")
 
@@ -991,6 +1068,57 @@ def pip_cache_permission_hint(lines) -> str:
         if "permission denied" in low and ("pip\\cache" in low or "cache\\pip" in low):
             return PIP_CACHE_PERMISSION_HINT
     return None
+
+
+# qwen-asr 0.0.6 declares exactly these runtime dependencies besides `sox`
+# (its pyproject.toml), and the app's Qwen3 paths run without `sox`: nothing
+# in qwen_asr, librosa (uses `soxr`) or transformers imports it, and it needs
+# no SoX program either. `sox` is the only dependency pip must build from
+# source (sdist only), so it is the one that breaks in environments with a
+# missing, old or unreachable setuptools. Kept here, in one place, for the
+# fallback install; bump together with requirements-optional.txt's qwen-asr.
+QWEN_ASR_FALLBACK_DEPS = (
+    "transformers==4.57.6", "accelerate==1.12.0", "nagisa==0.2.11", "soynlp==0.0.493",
+    "qwen-omni-utils", "librosa", "soundfile", "gradio", "flask", "pytz",
+)
+
+SOX_BUILD_HINT = (
+    "pip couldn't build the small `sox` helper that Qwen3-ASR lists as a dependency "
+    "(Baihe doesn't use it). Usually Python's build tools are too old or can't be "
+    "downloaded: update them with `python -m pip install --upgrade pip setuptools wheel`, "
+    "check your internet connection or proxy, then try again.")
+
+_SOX_SDIST_RE = re.compile(r"\bsox-\d[\w.]*\.tar\.gz", re.IGNORECASE)
+_SOX_BUILT_RE = re.compile(r"Successfully built sox\b|Building wheel for sox .*status 'done'",
+                           re.IGNORECASE)
+
+
+class SoxBuildWatch:
+    """Feed it pip's output lines; `failed` is True when pip fetched the `sox`
+    source package (the only reason it does) and never reported building it,
+    so a failed run that shows this is the sox build failure. Judged on pip's
+    own output because the failure text varies (a traceback, a missing
+    setuptools or distutils, or build dependencies that couldn't be
+    downloaded)."""
+
+    def __init__(self):
+        self._fetched = self._built = False
+
+    def feed(self, line: str):
+        line = line or ""
+        self._fetched = self._fetched or bool(_SOX_SDIST_RE.search(line))
+        self._built = self._built or bool(_SOX_BUILT_RE.search(line))
+
+    @property
+    def failed(self) -> bool:
+        return self._fetched and not self._built
+
+
+def qwen_asr_fallback_pip_args() -> list:
+    """pip args, in order, for installing qwen-asr without its `sox`
+    dependency: its other dependencies first, then qwen-asr itself with
+    --no-deps, so a failure part-way leaves no half-working qwen-asr."""
+    return [list(QWEN_ASR_FALLBACK_DEPS), ["--no-deps", "qwen-asr"]]
 
 
 def stream_pip_install(pip_args: list, python_executable: str = None):
@@ -1024,7 +1152,7 @@ def stream_pip_uninstall(pip_args: list, python_executable: str = None):
 
 
 # ---------------------------------------------------------------------------
-# Step 62: install a whole requirements tier, and a real Deno install
+# Install a whole requirements tier, and a real Deno install
 # action -- both real subprocess actions triggered only from an explicit
 # button click, matching stream_pip_install's own "never swallow the real
 # error" discipline.
@@ -1048,28 +1176,7 @@ def parse_requirements_file(path: str) -> list:
     return specs
 
 
-def stream_bulk_install(requirements_path: str, python_executable: str = None):
-    """Installs every package in `requirements_path` one at a time --
-    never a single `pip install -r`, which aborts the entire batch on the
-    first failure (exactly the problem Step 61's audio-separator/
-    diffq-fixed case would cause for everyone else in the same file).
-    Yields {"package", "line"} per output line, {"package", "done", "ok"}
-    per package, then a final {"bulk_done": True, "results": {package:
-    ok}} once every package has been attempted, failures included."""
-    specs = parse_requirements_file(requirements_path)
-    results = {}
-    for spec in specs:
-        yield {"package": spec, "start": True}
-        for item in stream_pip_install([spec], python_executable):
-            if item.get("done"):
-                results[spec] = item["ok"]
-                yield {"package": spec, "done": True, "ok": item["ok"]}
-            else:
-                yield {"package": spec, "line": item["line"]}
-    yield {"bulk_done": True, "results": results}
-
-
-def _deno_default_install_path() -> str:
+def deno_default_install_path() -> str:
     """Where Deno's own official installer puts the binary, regardless of
     whether the CURRENT process's PATH has picked it up yet -- used to
     tell "installed, but this process hasn't seen it yet" apart from
@@ -1079,40 +1186,8 @@ def _deno_default_install_path() -> str:
     return os.path.join(home, ".deno", "bin", name)
 
 
-def stream_deno_install():
-    """Installs Deno, a system tool rather than a pip package, so it needs
-    its own mechanism distinct from stream_pip_install: winget on Windows
-    when it's on PATH (the officially documented package-manager route),
-    otherwise Deno's own official install script -- PowerShell's on
-    Windows, the shell one everywhere else. Yields {"line"} per output
-    line, then {"done", "ok", "on_path", "needs_restart"} -- installing a
-    binary doesn't guarantee this same process's PATH picks it up without
-    a restart, so "ok but needs_restart" is a real, distinct outcome from
-    a plain "ok"."""
-    if shutil.which("deno"):
-        yield {"line": "deno is already on PATH -- nothing to do."}
-        yield {"done": True, "ok": True, "on_path": True, "needs_restart": False}
-        return
-    system = platform.system()
-    if system == "Windows" and shutil.which("winget"):
-        cmd = ["winget", "install", "-e", "--id", "DenoLand.Deno"]
-    elif system == "Windows":
-        cmd = ["powershell", "-NoProfile", "-Command", "irm https://deno.land/install.ps1 | iex"]
-    else:
-        cmd = ["sh", "-c", "curl -fsSL https://deno.land/install.sh | sh"]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
-    for line in proc.stdout:
-        yield {"line": line.rstrip("\n")}
-    returncode = proc.wait()
-    on_path = bool(shutil.which("deno"))
-    installed = on_path or os.path.exists(_deno_default_install_path())
-    ok = returncode == 0 and installed
-    yield {"done": True, "ok": ok, "on_path": on_path, "needs_restart": ok and not on_path}
-
-
 # ---------------------------------------------------------------------------
-# Step 27: "is this dependency outdated?" + an Upgrade action. Like
+# "Is this dependency outdated?" + an Upgrade action. Like
 # check_pyannote_gated_access above, this reaches the network (PyPI's own
 # public JSON API, a plain unauthenticated GET) -- so it must only ever run
 # from an explicit button click, never automatically on page load, and the
@@ -1142,10 +1217,15 @@ def get_latest_pypi_version(pip_name: str, timeout: float = 10.0):
     explicit button and cache the result (see check_dependency_versions)."""
     import requests
     try:
-        resp = requests.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout)
+        from services import capped_body
+        resp = requests.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout,
+                            stream=True, allow_redirects=False)
         if resp.status_code != 200:
+            resp.close()
             return None
-        return (resp.json().get("info") or {}).get("version") or None
+        body = capped_body.read_capped(resp, PYPI_JSON_MAX_BYTES, timeout * 3,
+                                       lambda: ValueError("PyPI response too large"))
+        return (json.loads(body).get("info") or {}).get("version") or None
     except Exception:
         return None
 
@@ -1220,70 +1300,21 @@ def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Step 47 item 4: warn (never block) before installing a heavy local
-# voice-cloning/TTS backend when a functionally-equivalent one is already
-# installed -- e.g. Chatterbox is already there and someone clicks Install
-# on OmniVoice. Both an Install button covering the same four packages
-# exist today (Dependencies' own per-tier buttons, and the Model & engine
-# versions panel's own row buttons above), so this is shared by both
-# rather than checked twice. "Hume" the user separately asked about isn't
-# a distinct engine this app wires into anything -- "hume-tada" (TADA) is
-# already the one Hume Labs engine here, so it's the only Hume-related
-# entry in this group; nothing else to add without a real, separate
-# candidate to evaluate.
-# ---------------------------------------------------------------------------
-
-REDUNDANT_LOCAL_TTS_PACKAGES = {"f5-tts", "omnivoice", "chatterbox-tts", "hume-tada"}
-_REDUNDANT_LOCAL_TTS_LABELS = {
-    "f5-tts": "F5-TTS", "omnivoice": "OmniVoice",
-    "chatterbox-tts": "Chatterbox", "hume-tada": "TADA",
-}
-
-
-def redundant_tts_install_warning(package: str, installed_packages) -> str:
-    """None unless `package` is one of the heavy local voice-cloning/TTS
-    backends above AND at least one of the other three is already
-    installed (per `installed_packages`, an iterable of pip/distribution
-    names -- accepts either OPTIONAL_DEPENDENCIES's own keys, like
-    "f5_tts", or MODEL_ENGINE_REGISTRY's, like "f5-tts"; both spellings
-    normalize the same way pip itself treats "_"/"-" as equivalent).
-    Otherwise a plain-English confirmation message naming what's already
-    installed, for an Install button's own confirm-before-a-large-
-    redundant-download step. Never a reason to block outright -- Step 38's
-    Model Arena wants more than one installed to compare."""
-    key = package.replace("_", "-").lower()
-    if key not in REDUNDANT_LOCAL_TTS_PACKAGES:
-        return None
-    installed_norm = {p.replace("_", "-").lower() for p in installed_packages}
-    already = [_REDUNDANT_LOCAL_TTS_LABELS[p] for p in sorted(REDUNDANT_LOCAL_TTS_PACKAGES)
-               if p != key and p in installed_norm]
-    if not already:
-        return None
-    names = " and ".join(already)
-    return (f"{names} already installed and covers this -- also install "
-            f"{_REDUNDANT_LOCAL_TTS_LABELS[key]}? It's a large download and won't replace "
-            f"{names}; both stay available.")
-
-
-# ---------------------------------------------------------------------------
-# Step 47 item 5: when an "Upgrade" action can't actually reach the latest
-# release for a real, known reason (a constraints.txt cap, or a package
-# with no published wheel for the running Python version), say so instead
-# of silently offering an upgrade that would fail, or offering nothing
-# with no explanation. Seeded with the one real, already-confirmed case
-# (Step 61's audio-separator/diffq-fixed/Python-3.14 finding) rather than
-# a hypothetical one -- add to this dict as more real cases turn up, the
-# same way OPTIONAL_DEPENDENCIES itself grows.
+# When an "Upgrade" action can't actually reach the latest release for a
+# real, known reason (a constraints.txt cap, or a package with no published
+# wheel for the running Python version), say so instead of silently
+# offering an upgrade that would fail, or offering nothing with no
+# explanation. Only confirmed cases go here, not hypothetical ones.
 # ---------------------------------------------------------------------------
 
 KNOWN_UPGRADE_LIMITATIONS = {
     "audio-separator": {
         "python_version": (3, 14),
         "reason": "its diffq-fixed sub-dependency has wheels only through cp313, and its "
-                  "sdist build also fails independently (Step 61); Demucs, this app's "
+                  "sdist build also fails independently; Demucs, this app's "
                   "default vocal-separation backend, is unaffected.",
     },
-    # Step 66: reproduced for real -- with huggingface_hub 2.0.0 installed
+    # Reproduced for real -- with huggingface_hub 2.0.0 installed
     # next to transformers 5.17.0, `import transformers` raises
     # "ImportError: huggingface-hub>=1.5.0,<2.0 is required ... but found
     # huggingface-hub==2.0.0", taking NLLB translation and Scanlate's ML
@@ -1327,7 +1358,7 @@ def _known_python_version_limitation(pip_name: str):
     """The KNOWN_UPGRADE_LIMITATIONS entry for `pip_name`, if one exists AND
     this process is actually running the affected Python version -- shared
     by upgrade_blocked_reason (an installed package that can't go further)
-    and known_install_limitation_reason (Step 61: the same package failing
+    and known_install_limitation_reason (the same package failing
     to install in the first place, same root cause, different moment)."""
     known = KNOWN_UPGRADE_LIMITATIONS.get(pip_name.replace("_", "-").lower())
     if known and "python_version" in known and sys.version_info[:2] == known["python_version"]:
@@ -1372,7 +1403,7 @@ def _known_dependent_limitation(pip_name: str, latest_version: str):
 
 def known_install_limitation_reason(pip_name: str) -> str:
     """None, or a short, plain-English reason `pip_name` is known to fail
-    to install at all on this Python version (Step 61) -- shown next to a
+    to install at all on this Python version -- shown next to a
     "not installed" row before the user ever clicks Install, and again if
     they click it anyway and it fails, so a raw pip/Cython traceback is
     never the only signal. Also covers NOT_OFFERED_FOR_INSTALL (a package
@@ -1392,7 +1423,7 @@ def upgrade_blocked_reason(pip_name: str, latest_version: str = None,
     """None if a normal "Upgrade" should be offered for `pip_name`.
     Otherwise a short, plain-English reason the row should show INSTEAD
     of the button, so a known-doomed upgrade never just looks like a real
-    option with no explanation (Step 47 item 5)."""
+    option with no explanation."""
     known = _known_python_version_limitation(pip_name)
     if known:
         py = ".".join(str(p) for p in known["python_version"])
@@ -1407,7 +1438,7 @@ def upgrade_blocked_reason(pip_name: str, latest_version: str = None,
 
 
 # ---------------------------------------------------------------------------
-# Step 66: "if I upgrade this, will it break the app?" -- answered by
+# "If I upgrade this, will it break the app?" -- answered by
 # actually trying it, not by guessing from version numbers: install the
 # candidate into a throwaway venv that otherwise sees this environment's
 # own packages, run this app's own test suite there, and re-run anything
@@ -1543,6 +1574,41 @@ def _dist_version_in(venv_py: str, pip_name: str):
     return out.stdout.strip() if out.returncode == 0 else None
 
 
+def _ensure_pytest(venv_py: str, python_executable: str, timeout: float):
+    """Yields {"line"} items, then {"ok"}. The throwaway environment only sees
+    the real one's packages, and pytest is an optional install there, so it
+    is added to the throwaway environment itself when it can't be imported."""
+    has = _can_import(venv_py, "pytest")
+    if not has:
+        yield {"line": "pytest isn't installed in your environment; adding it to the throwaway one..."}
+        end = None
+        for item in _stream_process([python_executable, "-m", "pip", "--python", venv_py,
+                                     "install", "pytest>=7.4"], timeout):
+            if "line" in item:
+                yield item
+            else:
+                end = item
+        if end["returncode"] != 0 or end["timed_out"]:
+            yield {"ok": False}
+            return
+    # pytest-xdist only makes the run faster, so a failed install is not an error.
+    if not _can_import(venv_py, "xdist"):
+        yield {"line": "Adding pytest-xdist so the tests can run on every CPU core..."}
+        for item in _stream_process([python_executable, "-m", "pip", "--python", venv_py,
+                                     "install", "pytest-xdist"], timeout):
+            if "line" in item:
+                yield item
+    yield {"ok": True}
+
+
+def _can_import(venv_py: str, module: str) -> bool:
+    try:
+        return subprocess.run([venv_py, "-c", f"import {module}"], capture_output=True,
+                              timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def _flag_conflicts(result: dict) -> dict:
     """A "safe" test result that pip itself reports conflicts for becomes
     "conflict" -- tests passing doesn't outweigh an installed package
@@ -1586,7 +1652,10 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
               "conflicts": []}
 
     def _pytest(venv_py, args):
-        cmd = [venv_py, "-m", "pytest", "-o", "addopts=", "-q", "-rfE", "-p", "no:cacheprovider"] + args
+        cmd = [venv_py, "-m", "pytest", "-o", "addopts=", "-q", "-rfE", "-p", "no:cacheprovider"]
+        if args == test_args and _can_import(venv_py, "xdist"):
+            cmd += ["-n", "auto"]
+        cmd += args
         return _stream_process(cmd, test_timeout, cwd=project_root, env=test_env)
 
     work = tempfile.mkdtemp(prefix="baihe_upgrade_check_")
@@ -1627,6 +1696,17 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
         result["version"] = installed
         result["conflicts"] = _parse_pip_conflicts(pip_lines)
 
+        pytest_ok = True
+        for item in _ensure_pytest(trial_py, python_executable, pip_timeout):
+            if "line" in item:
+                yield item
+            else:
+                pytest_ok = item["ok"]
+        if not pytest_ok:
+            result["reason"] = "pytest couldn't be added to the throwaway environment (no network?)"
+            yield result
+            return
+
         yield {"line": f"Running this app's test suite against {pip_name} {installed}..."}
         test_lines, end = [], None
         for item in _pytest(trial_py, test_args):
@@ -1660,6 +1740,18 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
             result["new_failures"] = failures
             yield result
             return
+        pytest_ok = True
+        for item in _ensure_pytest(base_py, python_executable, pip_timeout):
+            if "line" in item:
+                yield item
+            else:
+                pytest_ok = item["ok"]
+        if not pytest_ok:
+            result["reason"] = "pytest couldn't be added to the throwaway environment (no network?)"
+            result["new_failures"] = failures
+            yield result
+            return
+
         base_lines, end = [], None
         for item in _pytest(base_py, failures):
             if "line" in item:
@@ -1691,8 +1783,7 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
 
 
 def get_gpu_status() -> dict:
-    """A live GPU/VRAM readout for Diagnostics' routine view (Step 18 item
-    3) -- {"available": bool, "name", "vram_used_gb", "vram_total_gb",
+    """A live GPU/VRAM readout for Diagnostics' routine view -- {"available": bool, "name", "vram_used_gb", "vram_total_gb",
     "torch_cuda_version", "message"}. "available" is False, with a plain
     "message" (never an exception), for every case that isn't a real,
     torch-visible CUDA device: torch not installed, torch installed but
@@ -1705,7 +1796,7 @@ def get_gpu_status() -> dict:
     torch is installed, even when no GPU is available, since it's useful
     context either way. Never imports torch if it isn't installed."""
     if not check_dependency("torch"):
-        return {"available": False, "message": "torch isn't installed -- GPU info unavailable."}
+        return {"available": False, "message": "PyTorch isn't installed -- GPU info unavailable."}
     try:
         import torch
     except Exception:
@@ -1741,11 +1832,11 @@ def get_gpu_status() -> dict:
 def gpu_torch_mismatch() -> bool:
     """True only when a real NVIDIA GPU is on this machine (nvidia-smi on
     PATH) but the installed torch build can't see it -- the exact
-    CPU-only-wheel footgun Step 18 item 7 traces to a bare `pip install
+    CPU-only-wheel footgun traced to a bare `pip install
     torch` always resolving to PyPI's default (non-CUDA) wheel. A
     minimal, self-contained version of the same nvidia-smi-on-PATH
-    detection Step 18 item 3's fuller GPU/VRAM display will also use --
-    that display doesn't exist yet, but this button (item 6) needs the
+    detection a fuller GPU/VRAM display will also use --
+    that display doesn't exist yet, but this button needs the
     same signal regardless of which of the two lands first."""
     if not shutil.which("nvidia-smi"):
         return False
@@ -1753,9 +1844,9 @@ def gpu_torch_mismatch() -> bool:
     return bool(cuda["torch_installed"]) and cuda["cuda_available"] is False
 
 
-# Step 26d: how busy the GPU actually is, straight from the driver --
+# How busy the GPU actually is, straight from the driver --
 # independent of anything Baihe itself is tracking. background_jobs.py's
-# in-process guard and db.py's cross-process gpu_lock (Step 25w) both only
+# in-process guard and db.py's cross-process gpu_lock both only
 # know about GPU-touching work Baihe itself started; neither can see a
 # completely different application (Jellyfin doing hardware-accelerated
 # transcoding on the same card, say) using the same physical GPU. This is
@@ -1844,11 +1935,11 @@ def stream_gpu_torch_reinstall(python_executable: str = None, project_root: str 
 def stream_dependency_install(name: str, python_executable: str = None,
                               project_root: str = None):
     """Same shape as stream_pip_install, for Diagnostics' generic
-    per-dependency "Install" button (Step 18c). Routes `torch` specifically
+    per-dependency "Install" button. Routes `torch` specifically
     through the same GPU-aware CUDA-index reinstall stream_gpu_torch_reinstall
     already uses for the dedicated "Install GPU PyTorch" action, whenever a
     real NVIDIA GPU is present -- a bare `pip install torch` always resolves
-    to the CPU-only PyPI wheel (Step 18 item 7's install-time footgun), and
+    to the CPU-only PyPI wheel (the install-time footgun), and
     the generic Install button would otherwise reproduce that exact gap
     through a second path. Every other dependency, and torch on a
     non-NVIDIA machine, installs exactly as stream_pip_install always did."""
@@ -2140,20 +2231,16 @@ def pypi_release_versions(dist: str, timeout: float = PYPI_JSON_TIMEOUT):
     import requests
     version_mod, _s, _r = _packaging()
     try:
+        from services import capped_body
         resp = requests.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json",
                             timeout=timeout, headers={"Accept": "application/json"},
                             stream=True, allow_redirects=False)
-        try:
-            if resp.status_code != 200:
-                return None
-            body = bytearray()
-            for chunk in resp.iter_content(65536):
-                body += chunk
-                if len(body) > PYPI_JSON_MAX_BYTES:
-                    return None
-        finally:
+        if resp.status_code != 200:
             resp.close()
-        releases = json.loads(bytes(body)).get("releases") or {}
+            return None
+        body = capped_body.read_capped(resp, PYPI_JSON_MAX_BYTES, timeout * 3,
+                                       lambda: ValueError("PyPI response too large"))
+        releases = json.loads(body).get("releases") or {}
     except Exception:
         return None
     out = []

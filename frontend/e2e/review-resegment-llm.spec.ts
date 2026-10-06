@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { PREVIEW, clearLines, mockAiResegment, openAiStructure, seedLines } from './resegmentLlmMocks'
+import { openFoldFor } from './reviewFolds'
 
 // Parity R47: the LLM re-segmentation as a preview in the Review stage's
 // Structure section. Lines are real (seeded); the preview job, its GET, the
@@ -18,15 +19,15 @@ test('previews with AI, shows before → after, and Apply needs the typed confir
     'A paid AI call, counted toward the monthly spending cap. Spent this month: $1.25 of $20.00.',
   )
   await group.locator('summary', { hasText: 'Advanced' }).click()
-  const engine = group.getByRole('combobox', { name: 'Engine' })
+  const engine = group.getByRole('combobox', { name: 'AI engine' })
   await expect(engine.locator('option').first()).toHaveText('Default (Claude)')
-  await expect(engine.locator('option', { hasText: 'DeepL' })).toHaveCount(0)
+  await expect(engine.locator('option', { hasText: 'NLLB' })).toHaveCount(0)
   await engine.selectOption('gemini')
   await group.getByRole('combobox', { name: 'Model' }).selectOption('flash')
 
   await group.getByRole('button', { name: 'Preview with AI' }).click()
   await expect.poll(() => calls.previewStarts).toEqual([{ engine: 'gemini', model: 'flash' }])
-  await expect(page.getByTestId('job-status')).toContainText('done')
+  await expect(page.getByTestId('job-status')).toContainText('Done')
 
   const shown = page.getByTestId('resegment-ai-preview')
   await expect(shown).toContainText('3 → 5 lines · 2 lines split · by Gemini')
@@ -47,7 +48,7 @@ test('previews with AI, shows before → after, and Apply needs the typed confir
   await expect.poll(() => calls.applies).toEqual([{ expected_line_ids: [101, 102, 103], use_preview: true, confirm: true }])
   // The apply job finishes: the preview clears.
   await expect(page.getByTestId('resegment-ai-preview')).toHaveCount(0)
-  await expect(page.getByTestId('job-status')).toContainText('done')
+  await expect(page.getByTestId('job-status')).toContainText('Done')
 })
 
 test('Discard drops the preview without writing anything', async ({ page }) => {
@@ -105,6 +106,7 @@ test('with Use AI off the rules preview still runs as before', async ({ page }) 
   }))
   await page.goto('/#/drama/3/review')
   await page.locator('.review-line:not(.review-skeleton)').first().waitFor()
+  await openFoldFor(page, 'Structure')
   const group = page.getByRole('group', { name: 'Structure' })
   await group.locator('summary', { hasText: 'Structure' }).click()
   await group.getByRole('button', { name: 'Preview re-segmentation' }).click()

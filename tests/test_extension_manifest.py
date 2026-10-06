@@ -63,10 +63,10 @@ class TestTheManifest:
         for name in named:
             assert os.path.exists(os.path.join(EXTENSION_DIR, name)), name
 
-    def test_it_can_only_reach_loopback(self, manifest):
-        """A host permission wider than loopback would let this extension
-        talk to anything on the internet with the person's cookies."""
-        assert manifest["host_permissions"] == ["http://127.0.0.1/*"]
+    def test_it_can_only_reach_the_bridge_port(self, manifest):
+        """The bridge's port is fixed, and a loopback pattern without it
+        would also cover the API on 8600 and every other local listener."""
+        assert manifest["host_permissions"] == [f"http://127.0.0.1:{page_server.DEFAULT_PORT}/*"]
 
     def test_it_has_no_standing_access_to_any_site(self, manifest):
         """No `content_scripts` block: the content script is injected on a
@@ -112,8 +112,18 @@ class TestTheTokenStaysInTheServiceWorker:
 
 class TestItAgreesWithTheServer:
     def test_the_default_port_matches(self):
-        assert f"DEFAULT_PORT = {page_server.DEFAULT_PORT}" in _code("background.js")
-        assert f'value="{page_server.DEFAULT_PORT}"' in _read("options.html")
+        assert f"BRIDGE_PORT = {page_server.DEFAULT_PORT}" in _code("background.js")
+
+    def test_the_port_is_not_a_setting(self):
+        """page_server always binds DEFAULT_PORT, so a port field would
+        only let someone type a value that can never connect."""
+        assert 'id="port"' not in _read("options.html")
+        for name in ("background.js", "options.js"):
+            assert 'get(["token", "port"' not in _code(name)
+            assert "stored.port" not in _code(name)
+
+    def test_an_old_stored_port_is_dropped_on_update(self):
+        assert 'storage.local.remove("port")' in _code("background.js")
 
     def test_it_targets_loopback_by_address_not_by_name(self):
         """`localhost` can resolve to an IPv6 address the server isn't
@@ -153,3 +163,12 @@ class TestTextCaptureStaysWithinTheSameModel:
             source = _code(name).lower()
             for site in known_sites:
                 assert site not in source, f"{name} references {site}"
+
+
+class TestImageHashWorksOnPlainHttpPages:
+    def test_a_page_without_crypto_subtle_still_gets_a_key(self):
+        """crypto.subtle only exists on secure contexts; a plain-http reader
+        would otherwise fail every capture."""
+        code = _code("content.js")
+        assert "crypto.subtle" in code and "weakHash(buffer)" in code
+        assert code.index("weakHash(buffer)") < code.index("crypto.subtle.digest")

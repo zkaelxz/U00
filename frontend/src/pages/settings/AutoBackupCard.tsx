@@ -1,5 +1,5 @@
 /*
- * Settings > Automatic backups (roadmap Step 43): an opt-in scheduled backup
+ * Settings > Automatic backups : an opt-in scheduled backup
  * that keeps rotating copies (one a day for the last 2 days, plus the first
  * of each of the last 2 weeks), plus "Back up now", which adds a copy. The copies are listed newest first; restoring a
  * drama from one, or deleting one, is in Library tools (SnapshotBlock).
@@ -214,7 +214,7 @@ function AutoBackupControls() {
           </div>
 
           <form
-            className="folder-form"
+            className="settings-form"
             onSubmit={(e) => {
               e.preventDefault()
               saveFolder()
@@ -239,9 +239,11 @@ function AutoBackupControls() {
               />
             </Field>
             {folderDirty && (
-              <button type="submit" className={buttonClass('secondary')}>
-                Save folder
-              </button>
+              <div className="settings-actions">
+                <button type="submit" className={buttonClass('secondary')}>
+                  Save folder
+                </button>
+              </div>
             )}
           </form>
           {folderNote && (

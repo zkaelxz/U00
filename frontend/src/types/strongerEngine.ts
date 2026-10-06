@@ -1,8 +1,5 @@
-// Step 99 "Try with a stronger engine" in Review (api/stronger_engine_schemas.py).
+// "Try with a stronger engine" in Review (api/stronger_engine_schemas.py).
 // Engine names, reasons and costs only; never a key, URL or path.
-
-/** Why the stronger engine is suggested for a line. */
-export type StrongerReason = 'qc_flag' | 'glossary_conflict' | 'ambiguous_term'
 
 export interface StrongerLineSuggestion {
   line_id: number

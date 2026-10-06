@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
 
-import { rememberSeriesCharacter } from '../../../api/characters'
+import { mergeSpeakers, rememberSeriesCharacter, renameSpeaker, undoMergeSpeakers, undoRenameSpeaker } from '../../../api/characters'
 import { applyVoiceBankEntry, getCharacters, getCloneEngines, getVoiceBank, saveCharacter } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { buttonClass } from '../../../components/uiClasses'
 import { Section } from '../../../components/Section'
 import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
-import type { RememberResult } from '../../../types/characters'
+import type { MergeResult, RememberResult, RenameResult, RenameUndo } from '../../../types/characters'
 import type { CharacterEntry, CloneEngines, VoiceBankEntry } from '../../../types/translateStage'
-import { useStage } from '../StageContext'
+import { useStage, useStageFocus } from '../StageContext'
 import { SeriesCast } from './SeriesCast'
 import { VoiceSuggestions } from './VoiceSuggestions'
 import {
@@ -23,17 +24,24 @@ import {
   unsetPronounsLabel,
   type CharacterForm,
 } from './characterForm'
+import { VOICE_CLIP_NOTE, leavesVoiceClip, mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, undoIdSurvives, type MergeChoice, type MergeUndoHandle } from './mergeSpeakers'
+import { readRenameUndo, renameProblem, saveRenameUndo, takenNames } from './renameSpeaker'
 import './characters.css'
 
 const COLUMNS = 7
 
-function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
+function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip, onSaved, onRemembered, onRenamed, onMerged }: {
   entry: CharacterEntry
   engines: CloneEngines | null
   bank: VoiceBankEntry[]
   hasSeries: boolean
+  taken: string[]
+  mergeTargets: MergeChoice[]
+  leavesClip: (target: string) => boolean
   onSaved: (e: CharacterEntry) => void
   onRemembered: (r: RememberResult) => void
+  onRenamed: (r: RenameResult) => void
+  onMerged: (r: MergeResult, sourceLabel: string, targetLabel: string) => void
 }) {
   const { dramaId } = useStage()
   const [form, setForm] = useState<CharacterForm>(() => toCharacterForm(entry))
@@ -48,6 +56,9 @@ function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  // '' is the form open with no speaker picked yet.
+  const [mergeInto, setMergeInto] = useState<string | null>(null)
   const set = <K extends keyof CharacterForm>(k: K, v: CharacterForm[K]) => setForm((f) => ({ ...f, [k]: v }))
   const label = entry.speaker_label
 
@@ -88,19 +99,38 @@ function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
     }, fail)
   }
 
+  const renameProblemText = renaming === null ? null : renameProblem(label, renaming, taken)
+  const rename = () => {
+    if (renaming === null || renameProblemText) return
+    setBusy(true)
+    renameSpeaker(dramaId, label, renaming.trim()).then((r) => {
+      setBusy(false)
+      onRenamed(r)
+    }, fail)
+  }
+
+  const merge = () => {
+    if (!mergeInto) return
+    setBusy(true)
+    mergeSpeakers(dramaId, label, mergeInto).then((r) => {
+      setBusy(false)
+      onMerged(r, label, mergeInto)
+    }, fail)
+  }
+
   const samples = sampleCaption(entry)
   const nameEdited = form.character_name !== entry.character_name
   const engineIds = engines?.engines.map((e) => e.id) ?? []
   const reference = entry.has_ref_audio
-    ? `reference audio set${entry.ref_text_present ? ', transcript set' : ''}`
-    : 'no reference audio'
+    ? `Reference audio set${entry.ref_text_present ? ', transcript set' : ''}`
+    : 'No reference audio'
 
   return (
     <>
-      <tr>
-        <td>{label}</td>
-        <td><input aria-label={`Name for ${label}`} value={form.character_name} onChange={(e) => set('character_name', e.target.value)} /></td>
-        <td>
+      <tr role="row" className="card-main">
+        <td role="cell" data-label="Speaker" className="card-title">{label}</td>
+        <td role="cell" data-label="Name" className="card-wide"><input aria-label={`Name for ${label}`} value={form.character_name} onChange={(e) => set('character_name', e.target.value)} /></td>
+        <td role="cell" data-label="Gender" className="card-half">
           <div className="character-pronouns">
             <select aria-label={`Gender for ${label}`} value={form.pronoun_choice} onChange={(e) => set('pronoun_choice', e.target.value)}>
               <option value="">{unsetPronounsLabel(entry)}</option>
@@ -118,17 +148,17 @@ function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
             )}
           </div>
         </td>
-        <td><input aria-label={`Voice for ${label}`} value={form.tts_voice} onChange={(e) => set('tts_voice', e.target.value)} /></td>
-        <td>{entry.line_count}</td>
-        <td>{reference}</td>
-        <td>
-          <button type="button" disabled={!dirty || busy} title={dirty ? undefined : 'No changes to save.'} onClick={save}>Save</button>
+        <td role="cell" data-label="Voice" className="card-half"><input aria-label={`Voice for ${label}`} value={form.tts_voice} onChange={(e) => set('tts_voice', e.target.value)} /></td>
+        <td role="cell" data-label="Lines" className="card-meta">{entry.line_count}</td>
+        <td role="cell" data-label="Reference" className="card-meta">{reference}</td>
+        <td role="cell" className="card-action">
+          <button type="button" className={buttonClass('secondary', 'sm')} disabled={!dirty || busy} title={dirty ? undefined : 'No changes to save.'} onClick={save}>Save</button>
           {problem && <p className="error" role="alert">{problem}</p>}
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </td>
       </tr>
-      <tr>
-        <td colSpan={COLUMNS}>
+      <tr role="row" className="card-extra">
+        <td role="cell" colSpan={COLUMNS}>
           {(samples || entry.series_character_id || canRemember(entry, hasSeries)) && (
             <div className="character-extras" data-testid={`character-extras-${label}`}>
               {samples && <p className="muted character-samples">{samples}</p>}
@@ -140,6 +170,7 @@ function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
               {canRemember(entry, hasSeries) && (
                 <button
                   type="button"
+                  className={buttonClass('ghost', 'sm')}
                   disabled={busy || nameEdited}
                   title={nameEdited ? 'Save the name first.' : 'Adds this name to the series cast so later dramas can pick it.'}
                   onClick={remember}
@@ -149,6 +180,51 @@ function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
               )}
             </div>
           )}
+          <div className="character-extras">
+            {renaming === null ? (
+              <button type="button" disabled={busy || Boolean(entry.series_character_id)}
+                title={entry.series_character_id
+                  ? 'This speaker is linked to a series character; unlink it first or rename the series character.'
+                  : 'Gives this speaker a name on every one of its lines and in translation.'}
+                onClick={() => setRenaming(entry.character_name || '')}>
+                Rename speaker
+              </button>
+            ) : (
+              <form className="character-rename" onSubmit={(e) => { e.preventDefault(); rename() }}>
+                <input aria-label={`New name for ${label}`} value={renaming} autoFocus
+                  onChange={(e) => setRenaming(e.target.value)} />
+                <button type="submit" disabled={busy || renameProblemText !== null} title={renameProblemText ?? undefined}>
+                  {entry.line_count ? `Rename on all ${entry.line_count} lines` : 'Rename'}
+                </button>
+                <button type="button" disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
+              </form>
+            )}
+            {mergeInto === null ? (
+              <button type="button" disabled={busy || mergeTargets.length === 0}
+                title={mergeTargets.length === 0 ? 'There is no other speaker to merge into.'
+                  : 'Moves this speaker\'s lines to another speaker, for when one person got two labels.'}
+                onClick={() => setMergeInto('')}>
+                Merge into…
+              </button>
+            ) : (
+              <form className="character-merge" onSubmit={(e) => { e.preventDefault(); merge() }}>
+                <select aria-label={`Merge ${label} into`} value={mergeInto} autoFocus
+                  onChange={(e) => setMergeInto(e.target.value)}>
+                  <option value="">Choose a speaker</option>
+                  {mergeTargets.map((t) => (
+                    <option key={t.label} value={t.label} disabled={t.blocked !== null}>
+                      {t.text}{t.blocked ? ` (${t.blocked})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {mergeInto && <p className="character-merge-confirm">{mergeSummary(entry, mergeInto)}{leavesClip(mergeInto) && ` ${VOICE_CLIP_NOTE}`}</p>}
+                <button type="submit" disabled={busy || !mergeInto}>
+                  {mergeInto ? `Merge ${entry.line_count} ${entry.line_count === 1 ? 'line' : 'lines'}` : 'Merge'}
+                </button>
+                <button type="button" disabled={busy} onClick={() => setMergeInto(null)}>Cancel</button>
+              </form>
+            )}
+          </div>
           <details className="voice-details">
             <summary>Voice settings for {label}{form.clone_engine ? ` (${form.clone_engine})` : ''}</summary>
             <div className="voice-grid">
@@ -191,7 +267,7 @@ function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
                       {bankId && (
                         <VoiceBankPlayButton key={bankId} entryId={Number(bankId)} name={bank.find((b) => String(b.id) === bankId)?.name ?? 'voice'} />
                       )}
-                      <button type="button" disabled={!bankId || busy} title={bankId ? undefined : 'Choose a voice first.'} onClick={apply}>
+                      <button type="button" className={buttonClass('secondary', 'sm')} disabled={!bankId || busy} title={bankId ? undefined : 'Choose a voice first.'} onClick={apply}>
                         Apply
                       </button>
                     </div>
@@ -206,8 +282,9 @@ function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
   )
 }
 
-export function CharactersPanel() {
+export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
   const { dramaId, drama } = useStage()
+  const focusSignal = useStageFocus('characters', 'translate-characters', focusReady)
   const [entries, setEntries] = useState<CharacterEntry[] | null>(null)
   const [engines, setEngines] = useState<CloneEngines | null>(null)
   const [bank, setBank] = useState<VoiceBankEntry[]>([])
@@ -217,15 +294,89 @@ export function CharactersPanel() {
   // series cast (someone was remembered).
   const [suggestRefresh, setSuggestRefresh] = useState(0)
   const [castRefresh, setCastRefresh] = useState(0)
+  const [undo, setUndo] = useState<RenameUndo | null>(() => readRenameUndo(dramaId))
+  const [undoBusy, setUndoBusy] = useState(false)
+  // Only the server's opaque undo id and the two labels; the rows stay on the server.
+  const [mergeUndo, setMergeUndo] = useState<MergeUndoHandle | null>(() => readMergeUndo(dramaId))
+  const forgetMergeUndo = () => {
+    setMergeUndo(null)
+    saveMergeUndo(dramaId, null)
+  }
 
   // Replace by speaker label, never by position.
-  const replace = (saved: CharacterEntry) =>
+  const replace = (saved: CharacterEntry) => {
     setEntries((cur) => cur && cur.map((x) => (x.speaker_label === saved.speaker_label ? saved : x)))
+    // The undo would put the target back as it was, so editing the target ends it.
+    if (mergeUndo && saved.speaker_label === mergeUndo.target) forgetMergeUndo()
+  }
   const remembered = (r: RememberResult) => {
     setNotice(r.created
       ? `Added ${r.series_character.character_name} to the series cast.`
       : `Linked ${r.character.speaker_label} to ${r.series_character.character_name} in the series cast.`)
     setCastRefresh((n) => n + 1)
+  }
+
+  const renamed = (r: RenameResult) => {
+    setEntries(r.characters)
+    forgetMergeUndo()
+    setUndo(r.undo)
+    saveRenameUndo(dramaId, r.undo)
+    setNotice(r.undo ? `Renamed ${r.undo.previous_label} to ${r.undo.speaker_label} on ${r.renamed} lines.` : null)
+    setSuggestRefresh((n) => n + 1)
+  }
+  const merged = (r: MergeResult, sourceLabel: string, targetLabel: string) => {
+    setEntries(r.characters)
+    const handle = r.undo
+      ? { id: r.undo.undo_id, source: sourceLabel, target: targetLabel, expiresAt: Date.now() + r.undo.expires_in * 1000 }
+      : null
+    setMergeUndo(handle)
+    saveMergeUndo(dramaId, handle)
+    // A rename's undo names labels that may be gone now.
+    setUndo(null)
+    saveRenameUndo(dramaId, null)
+    setNotice(`Merged ${sourceLabel} into ${targetLabel}: ${r.moved} ${r.moved === 1 ? 'line' : 'lines'} moved.`)
+    setSuggestRefresh((n) => n + 1)
+  }
+  const runUndoMerge = () => {
+    if (!mergeUndo) return
+    setUndoBusy(true)
+    undoMergeSpeakers(dramaId, mergeUndo.id).then(
+      (r) => {
+        setUndoBusy(false)
+        setEntries(r.characters)
+        setNotice(`Put ${mergeUndo.source} back on ${r.moved} ${r.moved === 1 ? 'line' : 'lines'}.`)
+        forgetMergeUndo()
+        setSuggestRefresh((n) => n + 1)
+      },
+      (e: unknown) => {
+        setUndoBusy(false)
+        setError(e)
+        // Refused, spent or expired: retrying won't work. A busy job or a lost
+        // connection leaves the id with the server, so the button stays.
+        if (!undoIdSurvives(e)) forgetMergeUndo()
+      },
+    )
+  }
+  const runUndo = () => {
+    if (!undo) return
+    setUndoBusy(true)
+    undoRenameSpeaker(dramaId, undo).then(
+      (r) => {
+        setUndoBusy(false)
+        setEntries(r.characters)
+        setUndo(null)
+        saveRenameUndo(dramaId, null)
+        setNotice(`Put ${undo.previous_label} back on ${r.renamed} lines.`)
+        setSuggestRefresh((n) => n + 1)
+      },
+      (e: unknown) => {
+        setUndoBusy(false)
+        setError(e)
+        // A refused undo (renamed again, label reused) won't work later either.
+        setUndo(null)
+        saveRenameUndo(dramaId, null)
+      },
+    )
   }
 
   useEffect(() => {
@@ -245,20 +396,21 @@ export function CharactersPanel() {
   return (
     <Section
       storageKey="translate.characters"
+      openSignal={focusSignal}
       title="Characters"
       count={entries?.length}
       summary={entries ? (entries.length ? 'names, pronouns and voices' : 'no speakers yet') : undefined}
     >
-      <div role="region" aria-label="Characters">
+      <div id="translate-characters" role="region" aria-label="Characters">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {entries && entries.length === 0 && <p className="muted">No speakers yet. They appear after transcription.</p>}
       {entries && entries.length > 0 && drama.series_id ? (
         <VoiceSuggestions dramaId={dramaId} refresh={suggestRefresh} onAccepted={replace} />
       ) : null}
       {entries && entries.length > 0 && (
-        <div className="table-scroll"><table>
+        <div className="table-scroll"><table role="table" className="card-table">
           <thead>
-            <tr><th>Speaker</th><th>Name</th><th>Gender</th><th>Voice</th><th>Lines</th><th>Reference</th><th /></tr>
+            <tr role="row"><th role="columnheader">Speaker</th><th role="columnheader">Name</th><th role="columnheader">Gender</th><th role="columnheader">Voice</th><th role="columnheader">Lines</th><th role="columnheader">Reference</th><th role="columnheader"><span className="visually-hidden">Save</span></th></tr>
           </thead>
           <tbody>
             {entries.map((e) => (
@@ -268,17 +420,28 @@ export function CharactersPanel() {
                 engines={engines}
                 bank={bank}
                 hasSeries={Boolean(drama.series_id)}
+                taken={takenNames(entries, e.speaker_label)}
+                mergeTargets={mergeChoices(entries, e)}
+                leavesClip={(t) => leavesVoiceClip(e, entries.find((x) => x.speaker_label === t))}
                 onSaved={(saved) => {
                   replace(saved)
                   setSuggestRefresh((n) => n + 1)
                 }}
                 onRemembered={remembered}
+                onRenamed={renamed}
+                onMerged={merged}
               />
             ))}
           </tbody>
         </table></div>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {(notice || undo || mergeUndo) && (
+        <p role="status" className="character-notice">
+          {notice}
+          {undo && <button type="button" disabled={undoBusy} onClick={runUndo}>Undo rename</button>}
+          {mergeUndo && <button type="button" disabled={undoBusy} onClick={runUndoMerge}>Undo merge</button>}
+        </p>
+      )}
       {drama.series_id ? <SeriesCast key={drama.series_id} seriesId={drama.series_id} refresh={castRefresh} /> : null}
       </div>
     </Section>

@@ -1,6 +1,6 @@
 """
 api/routers/characters_routes.py -- per-drama characters and voice config
-(Phase 6, Migration Slice 42).
+(Phase 6).
 
 Speaker labels can contain spaces, unicode or slashes, so they travel in
 JSON bodies, never path segments. Only fields the client actually sets
@@ -9,16 +9,18 @@ are forwarded to the service (omitted = leave alone, "" = clear).
 Also here: recurring-voice suggestions (C02: list, accept, reject) and
 "remember as a known series character" (C08).
 
-Out of scope: reference-audio upload / auto-extract (needs multipart),
-series-character rename/delete, and Dub generation itself.
+Reference clips and voice-bank save: voice_clone_routes.py. Dub generation:
+dub_routes.py.
 """
 
 from typing import List
 
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Path, Request
 from api.auth import require_permission
 from api.schemas import (CharactersCloneEngines, CharactersEntry, CharactersRememberRequest,
-                         CharactersRememberResult, CharactersSeriesEntry,
+                         CharactersRememberResult, CharactersRenameRequest,
+                         CharactersMergeRequest, CharactersMergeResult, CharactersMergeUndoRequest,
+                         CharactersRenameResult, CharactersRenameUndoRequest, CharactersSeriesEntry,
                          CharactersUpdateRequest, CharactersVoiceBankApply,
                          CharactersVoiceBankEntry, CharactersVoiceSuggestion,
                          CharactersVoiceSuggestionRequest, CharactersVoiceSuggestionResult,
@@ -104,3 +106,47 @@ def post_voice_suggestion_reject(payload: CharactersVoiceSuggestionRequest, dram
                         422: {"model": ErrorResponse}})
 def post_remember_series_character(payload: CharactersRememberRequest, drama_id: int = Path(ge=1)):
     return characters_service.remember_series_character(drama_id, payload.speaker_label)
+
+
+@router.post("/dramas/{drama_id}/rename-speaker", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersRenameResult,
+             summary="Name a speaker once: every one of its lines and its Characters row",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_rename_speaker(payload: CharactersRenameRequest, drama_id: int = Path(ge=1)):
+    return characters_service.rename_speaker(drama_id, payload.speaker_label, payload.new_name)
+
+
+@router.post("/dramas/{drama_id}/rename-speaker/undo", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersRenameResult,
+             summary="Undo a speaker rename from the undo it returned",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_undo_rename_speaker(payload: CharactersRenameUndoRequest, drama_id: int = Path(ge=1)):
+    return characters_service.undo_rename_speaker(drama_id, payload.undo.model_dump())
+
+
+def _user_id(request: Request):
+    return (getattr(request.state, "principal", None) or {}).get("user_id")
+
+
+@router.post("/dramas/{drama_id}/merge-speakers", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersMergeResult,
+             summary="Merge one speaker into another: its lines and its Characters row",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_merge_speakers(payload: CharactersMergeRequest, request: Request,
+                        drama_id: int = Path(ge=1)):
+    return characters_service.merge_speakers(drama_id, payload.source_label, payload.target_label,
+                                             user_id=_user_id(request))
+
+
+@router.post("/dramas/{drama_id}/merge-speakers/undo", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersMergeResult,
+             summary="Undo a speaker merge from the undo id it returned (once, before it expires)",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_undo_merge_speakers(payload: CharactersMergeUndoRequest, request: Request,
+                             drama_id: int = Path(ge=1)):
+    return characters_service.undo_merge_speakers(drama_id, payload.undo_id,
+                                                  user_id=_user_id(request))

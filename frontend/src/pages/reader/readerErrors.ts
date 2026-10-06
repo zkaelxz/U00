@@ -1,4 +1,4 @@
-// Reader-specific error copy (UX spec, Reader page "Errors"). Everything
+// Reader-specific error copy. Everything
 // else goes through the shared describeError, which never shows paths or keys.
 
 import { describeError, safeDetail } from '../../components/errorMessages'
@@ -7,7 +7,7 @@ export const BUSY_TEXT = 'The AI is busy with another request. Try again in a mo
 export const PAID_TEXT = "This lookup uses a paid engine, which this account can't use."
 export const FORBIDDEN_TEXT = 'Not allowed from this device or account.'
 
-export interface ReaderErrorText {
+interface ReaderErrorText {
   title: string
   detail: string | null
   // Offer "Try again": the request was refused only because the AI was busy.

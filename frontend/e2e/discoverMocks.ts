@@ -7,7 +7,7 @@ import { ME } from './authMocks'
 // engine, and every spec shares one seeded library); a guard aborts and
 // records anything under /api/discover that nothing mocks.
 
-export const TITLES = [
+const TITLES = [
   {
     id: 1, title_original: '女将军和长公主', title_en: 'The General and the Princess', author: 'Mo Xi',
     tags: 'baihe, historical', summary_en: 'A general and a princess.', summary_original: '', source_name: 'manual',
@@ -19,13 +19,13 @@ export const TITLES = [
   },
 ]
 
-export const ENGINES = [
+const ENGINES = [
   { name: 'claude', label: 'Claude', free: false, models: null, key_configured: true },
-  { name: 'deepl', label: 'DeepL', free: false, models: null, key_configured: true },
+  { name: 'nllb', label: 'NLLB', free: false, models: null, key_configured: true },
   { name: 'ollama', label: 'Ollama', free: true, models: null, key_configured: true },
 ]
 
-export const BULK_RESULT = {
+const BULK_RESULT = {
   entries: [
     { entry_id: 'r-0', title: '长公主', author: 'A', tags: 'gl', source_url: 'https://www.jjwxc.net/tag.php', has_audio_drama: true },
     { entry_id: 'r-1', title: '青梅', author: 'B', tags: '', source_url: 'https://www.jjwxc.net/tag.php', has_audio_drama: false },
@@ -38,14 +38,14 @@ export const BULK_RESULT = {
   source_label: 'jjwxc_baihe_tag',
 }
 
-export interface Call {
+interface Call {
   method: string
   path: string
   body: unknown
   headers: Record<string, string>
 }
 
-export interface DiscoverMock {
+interface DiscoverMock {
   titles: typeof TITLES
   engines: typeof ENGINES
   local: boolean
@@ -55,6 +55,9 @@ export interface DiscoverMock {
   calls: Call[]
   unmocked: string[]
 }
+
+// What the server answers when the job has not run in this API process.
+const IDLE = { job_id: '', status: 'idle', progress: 0, message: '', result: null }
 
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
@@ -174,7 +177,7 @@ export async function mockDiscover(page: Page, over: Partial<DiscoverMock> = {})
   })
   await page.route(/\/api\/discover\/bulk-extract\/result$/, (route) => {
     record(route)
-    if (s.bulk === 'none') return json(route, { error: { code: 'not_found', message: 'No such job.' } }, 404)
+    if (s.bulk === 'none') return json(route, IDLE)
     if (s.bulk === 'running') {
       return json(route, { job_id: 'discover_bulk_extract', status: 'running', progress: 0.5, message: 'Read 1 of 2 pages', result: null })
     }
@@ -192,7 +195,7 @@ export async function mockDiscover(page: Page, over: Partial<DiscoverMock> = {})
   })
   await page.route(/\/api\/discover\/navigation-help\/result$/, (route) => {
     record(route)
-    if (s.nav === 'none') return json(route, { error: { code: 'not_found', message: 'No such job.' } }, 404)
+    if (s.nav === 'none') return json(route, IDLE)
     return json(route, {
       job_id: 'discover_navigation_help', status: 'done', progress: 1, message: 'Done',
       result: {
@@ -207,3 +210,7 @@ export async function mockDiscover(page: Page, over: Partial<DiscoverMock> = {})
 
 export const posts = (s: DiscoverMock, suffix: string) =>
   s.calls.filter((c) => c.method === 'POST' && c.path.endsWith(suffix))
+
+// The Discover page's task tabs: Catalogue (default), Find a title, Add titles.
+export const openTab = (page: Page, name: 'Catalogue' | 'Find a title' | 'Add titles') =>
+  page.getByRole('tab', { name, exact: true }).click()

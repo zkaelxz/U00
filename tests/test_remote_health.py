@@ -32,7 +32,7 @@ CHECK_URL = "https://ip.example.net/?token=SECRET-DDNS-TOKEN"
 def env(tmp_path, monkeypatch, isolated_db):
     path = tmp_path / ".env"
     path.write_text("")
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(path))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
     for name in (rhs.IP_CHECK_ENV, ns.DISABLED_ENV, *ns.ENV_VARS["discord"], *ns.ENV_VARS["ntfy"]):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(rhs, "_now", lambda: NOW)
@@ -273,7 +273,7 @@ def test_public_ip_read_is_pinned_capped_and_timed(env, monkeypatch):
             seen["closed"] = True
 
     monkeypatch.setattr(url_guard, "resolve_public", lambda url: "8.8.8.8")
-    monkeypatch.setattr(metadata_service, "_pinned_get",
+    monkeypatch.setattr(metadata_service, "pinned_get",
                         lambda url, ip, headers: seen.update(ip=ip) or Resp())
     assert rhs._current_public_ip(CHECK_URL) == ipaddress.ip_address("93.184.216.34")
     assert seen == {"ip": "8.8.8.8", "n": rhs.IP_CHECK_MAX_BYTES + 1, "closed": True}

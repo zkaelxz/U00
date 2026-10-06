@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openGroup } from './source-groups'
 
 // Parity P10 (the rest of Edit details), P11 ("+ New series…") and X09 (the
 // series picker in the glossary box). The drama read is the real seeded
@@ -43,6 +44,7 @@ test('Edit details shows and saves genre, status, counts, source URL and episode
     source_url: 'https://example.com/d/2', episode_summary: 'Before.',
   })
   await page.goto('/#/drama/2/source')
+  await openGroup(page, 'Details and credits')
   await page.locator('.section-title', { hasText: 'Edit details' }).click()
   await expect(page.getByLabel('Genre', { exact: true })).toHaveValue('xianxia')
   await expect(page.getByLabel('Chapter count', { exact: true })).toHaveValue('120')
@@ -74,6 +76,7 @@ test('Edit details shows and saves genre, status, counts, source URL and episode
 test('Edit details "+ New series…" sends the name and then shows the new series', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: null })
   await page.goto('/#/drama/2/source')
+  await openGroup(page, 'Details and credits')
   await page.locator('.section-title', { hasText: 'Edit details' }).click()
   const series = page.getByLabel('Series', { exact: true })
   await series.selectOption('new')
@@ -90,20 +93,18 @@ test('Edit details "+ New series…" sends the name and then shows the new serie
 test('the glossary box explains a drama without a series and creates one in one tap', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: null })
   await page.goto('/#/drama/2/translate')
-  await page.locator('.section-title', { hasText: 'Glossary' }).first().click()
   const box = page.getByTestId('series-assign')
   await expect(box).toContainText("isn't in a series, so it can't hold glossary terms")
   await expect(page.getByRole('button', { name: 'Add term' })).toBeDisabled()
   await box.getByRole('button', { name: /^Create series/ }).click()
   await expect.poll(() => bodies).toEqual([{ new_series_name: "Heaven Official's Blessing" }])
   await expect(page.getByTestId('series-assign-current')).toContainText('Saga')
-  await expect(page.getByRole('button', { name: 'Add term' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: /^Add (a )?term$/ })).toBeEnabled()
 })
 
 test('the glossary box can move the drama to another series', async ({ page }) => {
   const bodies = await stubDrama(page, { series_id: 41 })
   await page.goto('/#/drama/2/translate')
-  await page.locator('.section-title', { hasText: 'Glossary' }).first().click()
   const box = page.getByTestId('series-assign')
   await expect(box.getByLabel('Series', { exact: true })).toHaveValue('41')
   await box.getByLabel('Series', { exact: true }).selectOption('7')

@@ -1,5 +1,5 @@
 """
-api/routers/model_reeval_routes.py -- Step 40b: scheduled model
+api/routers/model_reeval_routes.py -- scheduled model
 re-evaluation and promotion. Thin: see services/model_reeval_service.py.
 
 - Reads (`admin.diagnostics`): the overview (production model, schedule,
@@ -20,7 +20,7 @@ from api.model_reeval_schemas import (CandidateAddRequest, CandidateAddResult, C
                                       ReevalDecisionList, ReevalEstimate, ReevalOverview,
                                       ReevalRunRequest, ReevalRunStarted, ReevalSettingsRequest,
                                       ReevalSettingsSaved)
-from api.routers.settings_routes import _require_confirm
+from api.routers.settings_routes import require_confirm
 from api.schemas import ErrorResponse
 from services import model_reeval_service as svc
 
@@ -83,7 +83,7 @@ def post_reopen(model_candidate_id: int = Path(ge=1)):
              response_model=PromoteResult, responses=_ERRS,
              summary="PC only: make a candidate the production model (confirm=true)")
 def post_promote(body: PromoteRequest, model_candidate_id: int = Path(ge=1)):
-    _require_confirm(body.confirm)
+    require_confirm(body.confirm)
     return svc.promote(model_candidate_id, confirm=True, reason=body.reason)
 
 
@@ -91,5 +91,5 @@ def post_promote(body: PromoteRequest, model_candidate_id: int = Path(ge=1)):
              responses=_ERRS,
              summary="PC only: re-evaluate production against every open candidate now (confirm=true)")
 def post_run(body: ReevalRunRequest):
-    _require_confirm(body.confirm)
+    require_confirm(body.confirm)
     return svc.run_now()

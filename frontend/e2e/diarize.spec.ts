@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { openTranscribeOptions } from './sourceHelpers'
 
-// Step 105: the "Detect speakers only" control sends a min/max speaker
+// The "Detect speakers only" control sends a min/max speaker
 // range. The run and job endpoints are mocked; reads hit the seeded API.
 
 test('detect speakers only sends a speaker range and catches a bad one', async ({ page }) => {
@@ -21,7 +22,8 @@ test('detect speakers only sends a speaker range and catches a bad one', async (
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
   // Speaker counts and "Detect speakers only" live in the Speakers section.
-  await page.locator('details.section', { hasText: 'Speakers' }).first().locator(':scope > summary').click()
+  await openTranscribeOptions(page)
+  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
   const detect = page.getByRole('button', { name: 'Detect speakers only' })
 
   // An inverted range is caught before anything is sent.
@@ -41,7 +43,7 @@ test('detect speakers only sends a speaker range and catches a bad one', async (
 
   await page.getByLabel('Expected speakers', { exact: true }).fill('')
   await detect.click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   expect(urls).toHaveLength(1)
   const sent = new URL(urls[0]).searchParams
   expect(sent.get('min_speakers')).toBe('2')
@@ -49,7 +51,7 @@ test('detect speakers only sends a speaker range and catches a bad one', async (
   expect(sent.get('expected_speakers')).toBeNull()
 })
 
-// Step 105 follow-up: the Min/Max range also goes with "Detect speakers
+// The Min/Max range also goes with "Detect speakers
 // after transcribing" (sent in the transcribe run body).
 test('transcribe with speaker detection sends the speaker range', async ({ page }) => {
   const bodies: Record<string, unknown>[] = []
@@ -68,9 +70,10 @@ test('transcribe with speaker detection sends the speaker range', async ({ page 
 
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
+  await openTranscribeOptions(page)
   const detectAfter = page.getByRole('switch', { name: 'Detect speakers after transcribing' })
   if (!(await detectAfter.isChecked())) await detectAfter.click()
-  await page.locator('details.section', { hasText: 'Speakers' }).first().locator(':scope > summary').click()
+  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
   await page.getByLabel('Expected speakers', { exact: true }).fill('')
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')

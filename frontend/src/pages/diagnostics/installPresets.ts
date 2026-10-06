@@ -1,7 +1,7 @@
 // Pure helpers for Packages > "By task" (install presets from
 // GET /api/diagnostics/install-presets). Sizes are the server's static
 // estimates, always shown as "approx.".
-import type { DiagnosticsInstallTask, DiagnosticsPackageInfo, TaskRole } from '../../types/diagnostics'
+import type { DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsPackageInfo, TaskRole } from '../../types/diagnostics'
 
 /** "approx. 45 MB", "approx. 2.5 GB", "under 1 MB"; null when unknown. */
 export function formatApproxMb(mb: number | null | undefined): string | null {
@@ -21,7 +21,7 @@ export function packageSizeText(p: Pick<DiagnosticsPackageInfo, 'approx_mb' | 'p
   return p.pulls_torch && !torchInstalled ? `${size} + PyTorch` : size
 }
 
-export type TaskGroup = { group: string; tasks: DiagnosticsInstallTask[] }
+type TaskGroup = { group: string; tasks: DiagnosticsInstallTask[] }
 
 /** Tasks grouped by `group`, groups and tasks in server order. */
 export function groupTasks(tasks: DiagnosticsInstallTask[]): TaskGroup[] {
@@ -59,6 +59,18 @@ export function taskTone(t: DiagnosticsInstallTask): 'ok' | 'warn' | 'neutral' {
 /** Ready tasks move last, so the ones that still need something come first. */
 export function sortTasksNeedingInstall(tasks: DiagnosticsInstallTask[]): DiagnosticsInstallTask[] {
   return [...tasks.filter((t) => !taskReady(t)), ...tasks.filter(taskReady)]
+}
+
+/** The closed group's one-liner: how many of its tasks still need something installed. */
+export function taskGroupSummary(tasks: DiagnosticsInstallTask[]): string {
+  const need = tasks.filter((t) => !taskReady(t)).length
+  return need ? `${need} still to set up` : 'All set up'
+}
+
+/** The "transcribe" task while Whisper itself is missing (null once it is installed, or without presets). */
+export function missingTranscription(presets: Pick<DiagnosticsInstallPresets, 'tasks' | 'packages'> | null): DiagnosticsInstallTask | null {
+  if (!presets || presets.packages.faster_whisper?.installed !== false) return null
+  return presets.tasks.find((t) => t.id === 'transcribe' && !taskReady(t)) ?? null
 }
 
 const ROLE_LABELS: Record<TaskRole, string> = { required: 'Required', recommended: 'Recommended', optional: 'Optional' }
@@ -101,7 +113,7 @@ export function taskNotes(t: DiagnosticsInstallTask, packages: Record<string, Di
   return notes
 }
 
-/** "Optional, not installed by this button: paddleocr" (install them from Missing packages). */
+/** "Optional, not installed by this button: paddleocr" (install them one at a time under "Still to install"). */
 export const optionalMissingText = (t: DiagnosticsInstallTask): string | null =>
   t.optional_missing?.length ? `Optional, not installed by this button: ${t.optional_missing.join(', ')}` : null
 

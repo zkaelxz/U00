@@ -34,6 +34,13 @@ import translate_engines
 import dub as dub_module
 from core import Line
 import cli
+from services import dub_service
+
+
+@pytest.fixture(autouse=True)
+def _tts_dependencies_present(monkeypatch):
+    # cmd_dub checks ffmpeg and the TTS package up front; CI has neither.
+    monkeypatch.setattr(dub_service, "_missing_engine_dependency", lambda engine: None)
 
 
 def _translate_args(**overrides):
@@ -44,6 +51,12 @@ def _translate_args(**overrides):
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
+
+
+def _offered_model(engine_name):
+    from services import translate_service
+    return next(e["models"][0] for e in translate_service.list_engines()
+                if e["name"] == engine_name)
 
 
 def _dub_args(**overrides):
@@ -513,6 +526,21 @@ class TestCmdAlignUsesDramaSettings:
             cli.cmd_align(self._args(id=did))
         assert seen["model_size"] == "large-v3"
 
+    def test_a_gpu_to_cpu_fallback_is_printed(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db)
+
+        def fake_transcribe(audio_path, model_size, on_gpu_fallback=None, **kw):
+            on_gpu_fallback(RuntimeError("cuDNN failed"))
+            return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+        monkeypatch.setattr(cli, "transcribe_for_timing", fake_transcribe)
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_align(self._args(id=did))
+        text = out.getvalue()
+        assert "WARNING: Transcription ran on the CPU because the GPU couldn't be used" in text
+        assert "cuDNN failed" in text and "slower" in text
+
     def test_an_explicit_flag_still_overrides_the_dramas_saved_size(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, whisper_size="large-v3")
         seen = {}
@@ -543,7 +571,7 @@ class TestCmdAlignUsesDramaSettings:
 
     def test_qwen3_forced_align_is_used_when_saved_on_the_drama(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
-        monkeypatch.setattr(cli.transcribe_service, "_require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature: None)
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         import forced_align
@@ -582,7 +610,7 @@ class TestCmdAlignUsesDramaSettings:
 
     def test_a_late_qwen3_import_error_still_fails_and_frees_the_gpu(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
-        monkeypatch.setattr(cli.transcribe_service, "_require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature: None)
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         import forced_align
@@ -620,7 +648,7 @@ class TestCmdAlignUsesDramaSettings:
 
     def test_qwen3_fallback_message_redacts_the_error(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
-        monkeypatch.setattr(cli.transcribe_service, "_require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature: None)
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         import forced_align
@@ -645,6 +673,72 @@ class TestCmdAlignUsesDramaSettings:
             cli.cmd_align(self._args(id=did))
         assert isolated_db.load_lines(did)[0]["zh"] == "你好"
         assert isolated_db.get_drama(did)["status"] == "aligned"
+
+
+class TestCmdAlignGroqAndEmptyResult(TestCmdAlignUsesDramaSettings):
+    # Reuses the drama/args helpers; the inherited tests are skipped below.
+    test_uses_the_dramas_own_saved_whisper_size = None
+    test_a_gpu_to_cpu_fallback_is_printed = None
+    test_an_explicit_flag_still_overrides_the_dramas_saved_size = None
+    test_glossary_terms_are_used_to_prime_recognition = None
+    test_qwen3_forced_align_is_used_when_saved_on_the_drama = None
+    test_missing_qwen3_fails_clearly_before_transcribing = None
+    test_a_late_qwen3_import_error_still_fails_and_frees_the_gpu = None
+    test_debug_traceback_and_failure_text_are_redacted = None
+    test_qwen3_fallback_message_redacts_the_error = None
+    test_default_whisper_diff_alignment_is_unaffected = None
+
+    def test_use_groq_transcribes_through_groq_not_local_whisper(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, use_groq=1)
+        seen = {}
+        monkeypatch.setattr(cli.settings_service, "resolve_key",
+                            lambda name: "groq-key" if name == "groq" else None)
+
+        def fake_groq(audio_path, language, key, **kw):
+            seen.update(language=language, key=key)
+            return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+        monkeypatch.setattr(cli.core_module, "transcribe_with_groq", fake_groq)
+        monkeypatch.setattr(cli, "transcribe_for_timing", lambda *a, **k: pytest.fail("local"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_align(self._args(id=did))
+        assert seen == {"language": "zh", "key": "groq-key"}
+        assert isolated_db.get_drama(did)["status"] == "aligned"
+
+    def test_use_groq_without_a_key_fails_before_transcribing(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, use_groq=1)
+        monkeypatch.setattr(cli.settings_service, "resolve_key", lambda name: None)
+        monkeypatch.setattr(cli, "transcribe_for_timing", lambda *a, **k: pytest.fail("local"))
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            cli.cmd_align(self._args(id=did))
+        assert "no Groq API key" in err.getvalue()
+        assert isolated_db.get_drama(did)["status"] == "not started"
+
+    def test_groq_error_is_redacted(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, use_groq=1)
+        monkeypatch.setattr(cli.settings_service, "resolve_key", lambda name: "gsk_abc123secret")
+
+        def boom(*a, **k):
+            raise cli.core_module.GroqTranscriptionError("bad key gsk_abc123secret")
+        monkeypatch.setattr(cli.core_module, "transcribe_with_groq", boom)
+        monkeypatch.setattr(translate_engines, "redact_secrets",
+                            lambda text: text.replace("gsk_abc123secret", "[redacted]"))
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            cli.cmd_align(self._args(id=did))
+        assert "Groq transcription failed" in err.getvalue()
+        assert "gsk_abc123secret" not in err.getvalue()
+
+    def test_no_speech_stops_and_keeps_existing_lines(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="旧")])
+        monkeypatch.setattr(cli, "transcribe_for_timing", lambda *a, **k: [])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_align(self._args(id=did))
+        assert "no speech was found" in out.getvalue()
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧"]
+        assert isolated_db.get_drama(did)["status"] == "not started"
 
 
 class TestCmdDubFlagPreservation:
@@ -1190,12 +1284,12 @@ class TestCmdDoctor:
 
     def test_prints_ok_and_exits_cleanly_on_success(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
-                            lambda *a, **k: {"engine": "test_offline", "ok": True, "error": None})
-        args = argparse.Namespace(engine="test_offline", api_key=None, model=None)
+                            lambda *a, **k: {"engine": "fake", "ok": True, "error": None})
+        args = argparse.Namespace(engine="fake", api_key=None, model=None)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             cli.cmd_doctor(args)
-        assert "OK: test_offline is reachable" in out.getvalue()
+        assert "OK: fake is reachable" in out.getvalue()
 
     def test_prints_the_error_and_exits_nonzero_on_failure(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
@@ -1457,8 +1551,9 @@ class TestCliServiceParity:
         assert "saved engine deepseek" in self.out and "sk-ant" not in self.out
 
     def test_a_bare_api_key_still_works_for_claude_dramas(self, isolated_db, monkeypatch):
-        engines, _ = self._translate(isolated_db, monkeypatch, {}, api_key="sk-ant", model="m")
-        assert engines == [("claude", "sk-ant", "m")]
+        model = _offered_model("claude")
+        engines, _ = self._translate(isolated_db, monkeypatch, {}, api_key="sk-ant", model=model)
+        assert engines == [("claude", "sk-ant", model)]
 
     def test_translate_without_api_key_uses_the_saved_claude_key(self, isolated_db, monkeypatch):
         engines, seen = self._translate(isolated_db, monkeypatch, {}, api_key=None, model=None)
@@ -1476,9 +1571,10 @@ class TestCliServiceParity:
         assert seen and seen.get("cost_cap_usd") is None
 
     def test_translate_explicit_engine_flag_still_wins(self, isolated_db, monkeypatch):
+        model = _offered_model("gemini")
         engines, _ = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
-                                     engine="gemini", api_key="g-key", model="gm")
-        assert engines == [("gemini", "g-key", "gm")]
+                                     engine="gemini", api_key="g-key", model=model)
+        assert engines == [("gemini", "g-key", model)]
 
     def test_translate_novel_drama_gets_10_6_30(self, isolated_db, monkeypatch):
         _, seen = self._translate(isolated_db, monkeypatch, {"content_mode": "novel_narration"})
@@ -1542,7 +1638,7 @@ class TestCliSavedSettingsFallbacks:
         err = io.StringIO()
         with contextlib.redirect_stderr(err), pytest.raises(SystemExit):
             cli.cmd_narrate_prep(argparse.Namespace(
-                id=did, engine="deepl", api_key="k", model=None, ollama_url=None))
+                id=did, engine="nllb", api_key="k", model=None, ollama_url=None))
         assert "cannot tag speakers" in err.getvalue()
 
     def test_narrate_prep_uses_saved_key_ollama_url_free_tier_and_logs_usage(
@@ -1608,7 +1704,7 @@ class TestCliSavedSettingsFallbacks:
         assert self._cap_run(isolated_db, monkeypatch, "claude").calls == 0
 
     def test_monthly_cap_skips_non_cap_engine(self, isolated_db, monkeypatch):
-        assert self._cap_run(isolated_db, monkeypatch, "test_offline").calls == 1
+        assert self._cap_run(isolated_db, monkeypatch, "fake").calls == 1
 
     def test_dub_falls_back_to_saved_gpt_sovits_url(self, isolated_db, monkeypatch):
         monkeypatch.setattr(cli.settings_service, "resolve_key",
@@ -1663,7 +1759,7 @@ class TestCmdTranslateFallback:
         seen, _ = self._run(monkeypatch, _translate_args(id=did))
         assert not isinstance(seen["engine"], translate_engines.FallbackEngine)
 
-    @pytest.mark.parametrize("value", ["deepl", "claude"])
+    @pytest.mark.parametrize("value", ["nllb", "claude"])
     def test_chain_rules_skip_the_drama(self, isolated_db, monkeypatch, value):
         did = self._drama(isolated_db)
         seen, out = self._run(monkeypatch, _translate_args(id=did, fallback=value))
@@ -1703,3 +1799,261 @@ def test_cli_and_translate_run_build_the_same_style_guidelines(isolated_db, monk
     _, expected, _ = workspace_job_service.build_run_style_context(
         did, d, lines, "audio_drama", include_genre_notes=False, default_female_pronouns=True)
     assert seen["style_guidelines"] == expected and "sad" in expected
+
+
+class TestExportVideoAtomic(TestExportVideoAss):
+    def _export(self, monkeypatch, did, render):
+        import video_export
+        monkeypatch.setattr(video_export, "burn_ass", lambda v, ass, out: render(out))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_export_video(argparse.Namespace(
+                id=did, style=None, mode=None, plain=False, no_speaker_colors=False,
+                subs="english"))
+
+    def test_failed_render_leaves_no_partial_file_and_keeps_the_old_export(self, isolated_db, monkeypatch):
+        import os
+        did = self._drama(isolated_db)
+        final = os.path.join(isolated_db.drama_dir(did), "subtitled_episode.mp4")
+        with open(final, "wb") as f:
+            f.write(b"old")
+
+        def render(out):
+            with open(out, "wb") as f:
+                f.write(b"half")
+            raise RuntimeError("ffmpeg died")
+        # _run_batch reports the failure; the export must not have touched the final file.
+        try:
+            self._export(monkeypatch, did, render)
+        except BaseException:
+            pass
+        assert open(final, "rb").read() == b"old"
+        assert [n for n in os.listdir(isolated_db.drama_dir(did)) if "partial" in n] == []
+
+    def test_successful_render_replaces_the_final_file(self, isolated_db, monkeypatch):
+        import os
+        did = self._drama(isolated_db)
+
+        def render(out):
+            assert "partial" in os.path.basename(out)
+            with open(out, "wb") as f:
+                f.write(b"new")
+        self._export(monkeypatch, did, render)
+        final = os.path.join(isolated_db.drama_dir(did), "subtitled_episode.mp4")
+        assert open(final, "rb").read() == b"new"
+        assert [n for n in os.listdir(isolated_db.drama_dir(did)) if "partial" in n] == []
+
+
+class TestLocaleParity:
+    """The English variants are defined once (settings_service.LOCALE_CHOICES);
+    the CLI, the translate-run service, the prompt and the frontend labels follow it."""
+
+    @pytest.mark.parametrize("command", ["translate", "run"])
+    def test_cli_locale_choices_are_the_settings_choices(self, monkeypatch, capsys, command):
+        from services import settings_service
+        monkeypatch.setattr(sys, "argv", ["cli.py", command, "--locale", "xx-XX"])
+        with pytest.raises(SystemExit):
+            cli.main()
+        err = capsys.readouterr().err
+        listed = tuple(part.strip("' ") for part in err.split("choose from")[1].strip().rstrip(")\n").split(","))
+        assert listed == tuple(settings_service.LOCALE_CHOICES)
+
+    def test_prompt_and_frontend_cover_every_locale(self):
+        import re
+        from pathlib import Path
+        from services import settings_service
+        names = {"en-US": "American English", "en-GB": "British English",
+                 "en-AU": "Australian English"}
+        assert set(names) == set(settings_service.LOCALE_CHOICES)
+        for loc, name in names.items():
+            assert name in translate_engines.build_llm_instructions("", {}, locale=loc)
+        src = (Path(__file__).resolve().parent.parent / "frontend" / "src"
+               / "labels.ts").read_text(encoding="utf-8")
+        block = src.split("export const LOCALE_LABELS", 1)[1].split("}", 1)[0]
+        # humanize() looks labels up lower-cased.
+        assert set(re.findall(r"'([a-z]{2}-[a-z]{2})':", block)) == {
+            c.lower() for c in settings_service.LOCALE_CHOICES}
+
+
+class TestCmdSetLanguage:
+    def _drama(self, db_, **kw):
+        did = db_.create_drama(title_en="Test", status="aligned")
+        db_.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="你好", speaker="A"),
+            Line(idx=1, start=1.0, end=2.0, zh="再见", speaker="B"),
+            Line(idx=2, start=2.0, end=3.0, zh="好的", speaker="A"),
+        ])
+        return did, [ln.id for ln in db_.load_line_objects(did)]
+
+    def _run(self, *argv):
+        old = sys.argv
+        sys.argv = ["cli.py", "set-language", *argv]
+        try:
+            cli.main()
+        finally:
+            sys.argv = old
+
+    def test_sets_by_ids_and_reports_skipped(self, isolated_db, capsys):
+        did, ids = self._drama(isolated_db)
+        self._run("--id", str(did), "--lines", f"{ids[0]},{ids[1]},99999", "--lang", "EN")
+        langs = [ln.lang for ln in isolated_db.load_line_objects(did)]
+        assert langs == ["en", "en", None]
+        out = capsys.readouterr().out
+        assert "2 line(s)" in out and "skipped 1" in out and "99999" in out
+
+    def test_sets_by_speaker(self, isolated_db):
+        did, _ = self._drama(isolated_db)
+        self._run("--id", str(did), "--speaker", "A", "--lang", "en")
+        assert [ln.lang for ln in isolated_db.load_line_objects(did)] == ["en", None, "en"]
+
+    @pytest.mark.parametrize("clear", ["default", "DEFAULT", ""])
+    def test_clears_to_title_language(self, isolated_db, clear):
+        did, ids = self._drama(isolated_db)
+        self._run("--id", str(did), "--lines", str(ids[0]), "--lang", "en")
+        self._run("--id", str(did), "--lines", str(ids[0]), "--lang", clear)
+        assert isolated_db.load_line_objects(did)[0].lang is None
+
+    def test_invalid_code_exits_nonzero_and_changes_nothing(self, isolated_db, capsys):
+        did, ids = self._drama(isolated_db)
+        with pytest.raises(SystemExit) as exc:
+            self._run("--id", str(did), "--lines", str(ids[0]), "--lang", "klingon")
+        assert exc.value.code == 1
+        assert "lang must be one of" in capsys.readouterr().out
+        assert all(ln.lang is None for ln in isolated_db.load_line_objects(did))
+
+    def test_unknown_drama_exits_nonzero(self, isolated_db, capsys):
+        with pytest.raises(SystemExit) as exc:
+            self._run("--id", "9999", "--lines", "1", "--lang", "en")
+        assert exc.value.code == 1
+        assert "No drama with id 9999" in capsys.readouterr().out
+
+    def test_other_dramas_line_ids_are_skipped(self, isolated_db, capsys):
+        did, _ = self._drama(isolated_db)
+        other, other_ids = self._drama(isolated_db)
+        self._run("--id", str(did), "--lines", str(other_ids[0]), "--lang", "en")
+        assert "0 line(s)" in capsys.readouterr().out
+        assert all(ln.lang is None for ln in isolated_db.load_line_objects(other))
+
+    def test_lines_and_speaker_are_mutually_exclusive(self, isolated_db):
+        with pytest.raises(SystemExit) as exc:
+            self._run("--id", "1", "--lines", "1", "--speaker", "A", "--lang", "en")
+        assert exc.value.code == 2
+
+    def test_inspect_line_shows_language(self, isolated_db, capsys):
+        did, ids = self._drama(isolated_db)
+        self._run("--id", str(did), "--lines", str(ids[0]), "--lang", "en")
+        cli.cmd_inspect_line(argparse.Namespace(id=did, line=1))
+        assert "Language: en" in capsys.readouterr().out
+
+    def test_resave_through_cli_path_keeps_lang(self, isolated_db):
+        did, ids = self._drama(isolated_db)
+        self._run("--id", str(did), "--lines", str(ids[0]), "--lang", "en")
+        lines = isolated_db.load_line_objects(did)
+        lines[0].en = "Hello"
+        isolated_db.save_lines(did, lines)
+        assert isolated_db.load_line_objects(did)[0].lang == "en"
+
+
+class TestCmdDubValidatesLikeTheService:
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        return did
+
+    @pytest.mark.parametrize("overrides", [
+        dict(max_speedup=2.5), dict(max_speedup=0.0), dict(max_slowdown=0.0),
+        dict(max_slowdown=1.5)])
+    def test_out_of_range_pacing_stops_before_any_drama_runs(
+            self, isolated_db, monkeypatch, overrides):
+        did = self._drama(isolated_db)
+        built = []
+        monkeypatch.setattr(dub_module, "build_dub_track",
+                            lambda *a, **k: built.append(1) or ("fake.wav", []))
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_dub(_dub_args(id=did, **overrides))
+        assert "Pacing limits are out of range." in str(exc.value)
+        assert not built
+
+    def test_missing_tts_dependency_fails_with_the_services_text(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        monkeypatch.setattr(dub_service, "_missing_engine_dependency",
+                            lambda engine: f"The {engine} package is not installed.")
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_dub(_dub_args(id=did, tts_engine="offline"))
+        assert "The offline package is not installed." in str(exc.value)
+
+
+class TestCmdTranslateValidatesLikeTheService:
+    def _run(self, isolated_db, monkeypatch, **overrides):
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        calls = []  # the episode-summary engine is built up front, so track the main one
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda name, *a, **k: calls.append(name) or object())
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_translate(_translate_args(id=did, **overrides))
+        assert overrides.get("engine", "claude") not in calls
+        return str(exc.value)
+
+    def test_batch_size_over_the_limit(self, isolated_db, monkeypatch):
+        assert "Batch size can't be more than 60" in self._run(
+            isolated_db, monkeypatch, batch_size=61)
+
+    def test_negative_context_window(self, isolated_db, monkeypatch):
+        assert "out of range" in self._run(isolated_db, monkeypatch, context_window=-1)
+
+    def test_negative_cost_cap(self, isolated_db, monkeypatch):
+        assert "can't be negative" in self._run(isolated_db, monkeypatch, cost_cap=-1.0)
+
+    def test_unknown_locale_and_style_preset(self, isolated_db, monkeypatch):
+        assert "Unknown English variant." in self._run(isolated_db, monkeypatch, locale="xx")
+        assert "Unknown style preset." in self._run(
+            isolated_db, monkeypatch, style_preset="nope")
+
+    def test_model_the_engine_does_not_offer(self, isolated_db, monkeypatch):
+        assert "isn't offered" in self._run(isolated_db, monkeypatch, model="not-a-model")
+
+    def test_gemini_free_tier_model_block(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(cli, "_gemini_free_tier", lambda name: name == "gemini")
+        model = sorted(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS)[0]
+        assert "free tier" in self._run(
+            isolated_db, monkeypatch, engine="gemini", model=model)
+
+
+class TestCmdTranslateMatchesServiceCapsAndRunningJob:
+    class _Engine:
+        name = "ollama"
+        model = "m"
+        supports_reference = False
+        last_usage = {}
+
+        def translate_batch(self, zh_lines, context):
+            return [f"EN:{z}" for z in zh_lines]
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def test_job_cap_is_not_applied_to_a_free_engine(self, isolated_db, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: self._Engine())
+        monkeypatch.setattr(
+            translate_engines, "translate_lines_with_engine",
+            lambda lines, engine, **k: seen.update(cap=k["cost_cap_usd"]) or ([], []))
+        did = self._drama(isolated_db)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did, engine="ollama", cost_cap=1.0))
+        assert seen["cap"] is None
+
+    def test_skips_a_title_the_app_is_already_translating(self, isolated_db, monkeypatch):
+        calls = []
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda name, *a, **k: calls.append(name) or self._Engine())
+        monkeypatch.setattr(cli.background_jobs, "is_running", lambda job_id: True)
+        did = self._drama(isolated_db)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_translate(_translate_args(id=did))
+        assert "already running" in out.getvalue()
+        assert "claude" not in calls
+        assert not any(r["en"] for r in isolated_db.load_lines(did))

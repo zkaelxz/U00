@@ -1,4 +1,4 @@
-// Structural line changes (/api/restructure/..., Migration Slice 45). Every
+// Structural line changes (/api/restructure/...). Every
 // write is refused (409) while a job runs on the drama or when the drama's
 // line ids differ from `expected_line_ids`.
 import type { ReviewLine, ReviewLinesPage } from '../types/review'
@@ -8,6 +8,9 @@ import type {
   ResegmentPreview,
   ResegmentStart,
   ResegmentStarted,
+  ReassignResult,
+  ResplitResult,
+  ResplitStart,
   RestoreVersionResult,
   RestructureAddLine,
   RestructureResult,
@@ -82,7 +85,7 @@ export const restoreSnapshot = (id: number, historyId: number, expectedLineIds: 
 
 // Interim until a line-index endpoint exists: every line of the drama, in
 // order, read through the Review list in pages of 200 (the route's maximum).
-export const ALL_LINES_PAGE_SIZE = 200
+const ALL_LINES_PAGE_SIZE = 200
 
 export async function listAllLines(id: number, f?: Fetch): Promise<ReviewLine[]> {
   const out: ReviewLine[] = []
@@ -95,3 +98,10 @@ export async function listAllLines(id: number, f?: Fetch): Promise<ReviewLine[]>
     if (r.lines.length === 0 || out.length >= r.total) return out
   }
 }
+
+export const resplitLines = (id: number, body: ResplitStart, f?: Fetch) =>
+  postJson<ResplitResult>(`${base(id)}/resplit`, body, f)
+
+// Relabels lines from the speaker detection already saved; runs nothing.
+export const reassignSpeakersFromSaved = (id: number, f?: Fetch) =>
+  postJson<ReassignResult>(`/api/diarization/dramas/${id}/reassign`, {}, f)

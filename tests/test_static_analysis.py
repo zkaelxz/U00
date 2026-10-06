@@ -71,9 +71,11 @@ class TestHttpCallsHaveTimeouts:
     leaves the job stuck at "running" with no way to notice."""
 
     def test_translate_engines(self):
-        problems = _find_requests_calls_missing_timeout(
-            os.path.join(PROJECT_ROOT, "translate_engines.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+        files = [os.path.join(PROJECT_ROOT, "translate_engines.py")] + _py_files_under("engine_backends")
+        problems = {os.path.relpath(f, PROJECT_ROOT): _find_requests_calls_missing_timeout(f)
+                    for f in files}
+        problems = {f: lines for f, lines in problems.items() if lines}
+        assert problems == {}, f"requests call(s) missing timeout= at line(s): {problems}"
 
     def test_qa(self):
         problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "qa.py"))
@@ -122,7 +124,8 @@ class TestHttpCallsHaveTimeouts:
         # Sources S-4/S-5 and the URL download: the modules those routes
         # reach outside services/ and api/.
         for name in ("video_download.py", "sources/pipeline.py", "sources/front_door.py",
-                     "sources/generic_import.py", "sources/store.py", "sources/adaptive.py"):
+                     "sources/generic_import.py", "sources/store.py", "sources/adaptive.py",
+                     "sources/domains.py"):
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 
@@ -225,6 +228,76 @@ class TestSignInHttpTimeouts:
                      "    h.get(u, timeout=5)\n"
                      "httpx.get(u)\n")
         assert _find_httpx_calls_missing_timeout(str(p)) == ([2, 3, 6], 5)
+
+
+def _find_socket_calls_missing_timeout(path):
+    """(lineno list, number checked) for `socket.create_connection(...)`
+    without `timeout=`, and for `socket.socket()` bound in a `with` whose
+    body never calls `.settimeout(`: a silent peer would otherwise block
+    the caller forever."""
+    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    problems, checked = [], 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "socket" \
+                and node.func.attr == "create_connection":
+            checked += 1
+            if not any(kw.arg == "timeout" for kw in node.keywords) and len(node.args) < 2:
+                problems.append(node.lineno)
+        if isinstance(node, ast.With):
+            for item in node.items:
+                c = item.context_expr
+                if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) \
+                        and isinstance(c.func.value, ast.Name) and c.func.value.id == "socket" \
+                        and c.func.attr == "socket":
+                    checked += 1
+                    if not any(isinstance(n, ast.Attribute) and n.attr == "settimeout"
+                               for b in node.body for n in ast.walk(b)):
+                        problems.append(node.lineno)
+    return sorted(problems), checked
+
+
+class TestInstallerAndRemoteHealthTimeouts:
+    def test_installer_launcher(self):
+        path = os.path.join(PROJECT_ROOT, "installer", "launcher.py")
+        assert _find_requests_calls_missing_timeout(path) == []
+        src = open(path, encoding="utf-8").read()
+        opens = re.findall(r"_OPENER\.open\([^)]*\)", src)
+        assert opens, "the check no longer sees the launcher's health call"
+        assert all("timeout=" in call for call in opens), opens
+        problems, checked = _find_socket_calls_missing_timeout(path)
+        assert checked >= 1, "the checker no longer sees the launcher's port probe"
+        assert problems == [], f"socket use without a timeout at line(s): {problems}"
+
+    def test_remote_health_service_sockets(self):
+        path = os.path.join(PROJECT_ROOT, "services", "remote_health_service.py")
+        problems, checked = _find_socket_calls_missing_timeout(path)
+        assert checked >= 2, "the checker no longer sees the TLS and listener connections"
+        assert problems == [], f"socket use without a timeout at line(s): {problems}"
+
+    def test_socket_checker_catches_missing_timeouts(self, tmp_path):
+        p = tmp_path / "mod.py"
+        p.write_text("import socket\n"
+                     "socket.create_connection((h, 1))\n"
+                     "socket.create_connection((h, 1), timeout=3)\n"
+                     "with socket.socket() as s:\n"
+                     "    s.connect_ex(a)\n"
+                     "with socket.socket() as s:\n"
+                     "    s.settimeout(1)\n")
+        assert _find_socket_calls_missing_timeout(str(p)) == ([2, 4], 4)
+
+    def test_httpx_calls_outside_oidc_service_have_timeouts(self):
+        problems = {}
+        for f in _project_py_files():
+            # The client-name heuristic would flag any `with ... as x` file,
+            # so only files that import httpx or Authlib are checked.
+            if not re.search(r"^\s*(import|from)\s+(httpx|authlib)\b",
+                             open(f, encoding="utf-8").read(), re.M):
+                continue
+            bad, _ = _find_httpx_calls_missing_timeout(f)
+            if bad:
+                problems[os.path.relpath(f, PROJECT_ROOT)] = bad
+        assert problems == {}, f"httpx/Authlib call(s) missing timeout=: {problems}"
 
 
 _SDK_CLIENTS = ("Anthropic", "AsyncAnthropic", "OpenAI", "AsyncOpenAI")
@@ -353,7 +426,7 @@ class TestConstraintsFile:
         constraints and both launchers' "already installed?" checks."""
         assert "urllib3>=2.6" in self._read_constraints()
         core = open(os.path.join(PROJECT_ROOT, "requirements-core.txt"), encoding="utf-8").read()
-        assert "urllib3>=2.6" in core
+        assert "urllib3>=2.8" in core
         for launcher in ("start.bat", "start.ps1"):
             text = open(os.path.join(PROJECT_ROOT, launcher), encoding="utf-8").read()
             assert ">= (2, 6)" in text, launcher
@@ -511,3 +584,57 @@ class TestLayering:
         found = [m for _l, m in _absolute_imports(str(p))]
         assert "db" in found and "db.save_lines" in found and "api.auth" in found
         assert "local" not in found and not any(m.startswith(".") for m in found)
+
+
+def _find_ffmpeg_runs_missing_timeout(source):
+    """Line numbers of subprocess.run/check_call/check_output calls that run
+    an ffmpeg/ffprobe argument list (a literal, a local variable assigned
+    from one, or a *_cmd(...) builder) without timeout=. Popen is left out:
+    live capture is a long-lived stream stopped by stop_capture, and the
+    cancellable job paths go through background_jobs.run_cancellable."""
+    def is_ffmpeg_list(n):
+        return (isinstance(n, (ast.List, ast.Tuple)) and n.elts
+                and isinstance(n.elts[0], ast.Constant) and n.elts[0].value in ("ffmpeg", "ffprobe"))
+
+    tree = ast.parse(source)
+    problems = set()
+    for scope in ast.walk(tree):
+        if not isinstance(scope, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        names = {t.id for a in ast.walk(scope) if isinstance(a, ast.Assign) and is_ffmpeg_list(a.value)
+                 for t in a.targets if isinstance(t, ast.Name)}
+        for call in ast.walk(scope):
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                    and call.func.attr in ("run", "check_call", "check_output")
+                    and isinstance(call.func.value, ast.Name) and call.func.value.id == "subprocess"
+                    and call.args):
+                continue
+            arg = call.args[0]
+            builder = isinstance(arg, ast.Call) and getattr(
+                arg.func, "id", getattr(arg.func, "attr", "")).endswith("_cmd")
+            if (is_ffmpeg_list(arg) or builder or (isinstance(arg, ast.Name) and arg.id in names)) \
+                    and not any(kw.arg == "timeout" for kw in call.keywords):
+                problems.add(call.lineno)
+    return sorted(problems)
+
+
+class TestFfmpegRunsHaveTimeouts:
+    def test_production_ffmpeg_runs_have_a_timeout(self):
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__"}
+        problems = {}
+        for root, dirs, files in os.walk(PROJECT_ROOT):
+            dirs[:] = [d for d in dirs if d not in skip]
+            for name in files:
+                if name.endswith(".py"):
+                    path = os.path.join(root, name)
+                    with open(path, encoding="utf-8") as f:
+                        found = _find_ffmpeg_runs_missing_timeout(f.read())
+                    if found:
+                        problems[os.path.relpath(path, PROJECT_ROOT)] = found
+        assert problems == {}, f"ffmpeg subprocess.run without timeout=: {problems}"
+
+    def test_checker_catches_a_missing_timeout(self):
+        bad = "import subprocess\ndef f():\n    cmd = ['ffmpeg', '-i', 'a']\n    subprocess.run(cmd, check=True)\n"
+        good = bad.replace("check=True", "check=True, timeout=5")
+        assert _find_ffmpeg_runs_missing_timeout(bad) == [4]
+        assert _find_ffmpeg_runs_missing_timeout(good) == []

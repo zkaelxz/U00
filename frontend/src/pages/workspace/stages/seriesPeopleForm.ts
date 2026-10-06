@@ -34,7 +34,7 @@ export function toPersonForm(c?: SeriesCharacter): PersonForm {
 }
 
 /** The pronoun text the form stands for. Custom with nothing typed keeps
- * `fallback` (the saved value), as the Streamlit picker does. */
+ * `fallback` (the saved value). */
 export function formPronouns(f: PersonForm, fallback = ''): string {
   if (f.pronoun_choice !== CUSTOM) return f.pronoun_choice
   return f.custom_pronouns.trim() || fallback
@@ -97,7 +97,7 @@ export function bulkPronounsProblem(selected: number, f: BulkPronounsForm): stri
 }
 
 /** The pronoun text to set ('' clears). */
-export const bulkPronouns = (f: BulkPronounsForm) =>
+const bulkPronouns = (f: BulkPronounsForm) =>
   f.choice === CUSTOM ? f.custom.trim() : f.choice === CLEAR_PRONOUNS ? '' : f.choice
 
 /** Who gets a request: people whose pronouns already match are skipped,

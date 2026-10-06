@@ -4,20 +4,20 @@
 import { ApiError } from '../api/client'
 import { humanize } from '../components/labels'
 import { ENDPOINTS } from './settings/preferences'
+import { KEY_WRITES_REFUSED } from '../components/errorMessages'
 
 // The engines the write endpoint accepts (services/settings_service.KEY_WRITE_ENGINES).
 // URL settings (ollama_url etc.) are not secrets and have no write endpoint.
-export const SECRET_ENGINES: { engine: string; label: string }[] = [
+const SECRET_ENGINES: { engine: string; label: string }[] = [
   { engine: 'claude', label: 'Claude' },
   { engine: 'deepseek', label: 'DeepSeek' },
   { engine: 'gemini', label: 'Gemini' },
-  { engine: 'deepl', label: 'DeepL' },
-  { engine: 'google', label: 'Google Translate' },
+  { engine: 'openai', label: 'OpenAI' },
   { engine: 'groq', label: 'Groq' },
   { engine: 'hf_token', label: 'Hugging Face' },
 ]
 
-export type KeyRow = { engine: string; label: string; writable: boolean }
+type KeyRow = { engine: string; label: string; writable: boolean }
 
 /** The rows to show: write-only secrets first, then any other key the API reports (not the server addresses, which have their own block). */
 export function keyRows(engineKeys: Record<string, boolean>): KeyRow[] {
@@ -27,9 +27,6 @@ export function keyRows(engineKeys: Record<string, boolean>): KeyRow[] {
     .map((name) => ({ engine: name, label: humanize('engine', name), writable: false }))
   return [...secrets, ...others]
 }
-
-export const KEY_WRITES_REFUSED =
-  'Keys can only be set on the Baihe PC itself. start.bat turns key writes on; if you started the API another way, set BAIHE_API_ALLOW_KEY_WRITES=1.'
 
 // Plain one-line messages; never the server's raw text and never the key.
 export function keyErrorMessage(err: unknown): string {

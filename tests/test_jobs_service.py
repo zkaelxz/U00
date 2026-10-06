@@ -28,6 +28,14 @@ class TestListJobs:
         jobs = jobs_service.list_jobs()
         assert "sk-ABCDEFGHIJKLMNOP12345" not in jobs[0]["error"]
 
+    def test_scrubs_urls_from_the_error_and_message_fields(self, isolated_db):
+        db.save_job_record("j1", status="error",
+                           error="GET https://internal.example/x?token=abc failed",
+                           message="fetching http://10.0.0.5/secret")
+        job = jobs_service.list_jobs()[0]
+        assert job["error"] == "GET [URL] failed"
+        assert job["message"] == "fetching [URL]"
+
     def test_done_job_without_result_is_ok(self, isolated_db):
         db.save_job_record("j1", status="done")
         job = jobs_service.list_jobs()[0]
@@ -92,7 +100,8 @@ class TestJobResults:
         assert d("running", None, None) == (None, None)
 
     def test_transcribe_warnings_are_partial(self):
-        for key in ("gpu_fallback", "word_align_error", "forced_align_error"):
+        for key in ("gpu_fallback", "word_align_error", "forced_align_error",
+                    "coverage_warning"):
             result = jobs_service.project_result({"line_count": 5, key: "boom"})
             assert result[key] == "boom"
             outcome, message = jobs_service.derive_outcome("done", None, result)
@@ -102,6 +111,9 @@ class TestJobResults:
             "done", None, {"flags_needing_recheck": [7]})
         assert outcome == "partial" and "recheck" in message
         assert jobs_service.derive_outcome("done", None, {"line_count": 5, "gpu_fallback": None})[0] == "ok"
+        notice = "Transcription ran on the CPU because the GPU couldn't be used (x). This was slower than on the GPU."
+        result = jobs_service.project_result({"line_count": 5, "gpu_fallback": "x", "device_notice": notice})
+        assert jobs_service.derive_outcome("done", None, result) == ("partial", notice)
 
     def test_cancelled_bulk_run_is_cancelled(self):
         assert jobs_service.derive_outcome("done", None, {"status": "cancelled"})[0] == "cancelled"
@@ -226,3 +238,116 @@ class TestGetJob:
     def test_raises_not_found_for_an_unknown_job(self, isolated_db):
         with pytest.raises(NotFoundError):
             jobs_service.get_job("nope")
+
+
+class TestDeleteJobs:
+    def test_deletes_finished_job_memory_and_row(self, isolated_db):
+        import background_jobs
+        _run_job_with_result("fin", {})
+        db.save_job_record("fin", status="done")
+        assert jobs_service.delete_job("fin", confirm=True) == {"job_id": "fin", "deleted": True}
+        assert db.get_job_record("fin") is None
+        assert background_jobs.get_status("fin") is None
+
+    @pytest.mark.parametrize("status", ["queued", "running"])
+    def test_active_job_refused(self, isolated_db, status):
+        from services.service_errors import ConflictError
+        db.save_job_record("act", status=status)
+        with pytest.raises(ConflictError):
+            jobs_service.delete_job("act", confirm=True)
+        assert db.get_job_record("act") is not None
+
+    def test_unknown_and_unconfirmed(self, isolated_db):
+        from services.service_errors import InvalidInputError
+        with pytest.raises(NotFoundError):
+            jobs_service.delete_job("nope", confirm=True)
+        db.save_job_record("f", status="error")
+        with pytest.raises(InvalidInputError):
+            jobs_service.delete_job("f")
+        assert db.get_job_record("f") is not None
+
+    def test_clear_finished_leaves_active(self, isolated_db):
+        for jid, st in (("a", "done"), ("b", "error"), ("c", "cancelled"),
+                        ("d", "running"), ("e", "queued")):
+            db.save_job_record(jid, status=st)
+        assert jobs_service.clear_finished_jobs(confirm=True) == {"deleted_count": 3}
+        assert {r["job_id"] for r in db.list_job_records()} == {"d", "e"}
+
+
+class TestJobKindAndDramaId:
+    def test_every_drama_prefix_has_a_kind(self):
+        import background_jobs
+        assert set(jobs_service.JOB_KIND_BY_PREFIX) == set(background_jobs.DRAMA_JOB_PREFIXES)
+
+    @pytest.mark.parametrize("prefix", sorted(jobs_service.JOB_KIND_BY_PREFIX))
+    def test_prefix_table(self, prefix):
+        expected = jobs_service.JOB_KIND_BY_PREFIX[prefix]
+        assert expected in ("transcribe", "translate", "align", "dub", "export",
+                            "review", "import", "other")
+        assert jobs_service.job_kind(f"{prefix}12") == expected
+
+    @pytest.mark.parametrize("job_id, kind", [
+        ("translate_5", "translate"), ("bulk_translate_5", "translate"),
+        ("retranscribe_5", "transcribe"), ("transcribe_5", "transcribe"),
+        ("fixflag_5", "review"), ("burned_video_5", "export"),
+        ("dubbed_video_5", "export"),
+        ("sourceimport_5", "import"), ("resplit_5", "align"),
+    ])
+    def test_known_ids(self, job_id, kind):
+        assert jobs_service.job_kind(job_id) == kind
+
+    @pytest.mark.parametrize("job_id", ["mystery_5", "translate_", "translate_x", "xtranslate_5",
+                                        "discover_bulk_extract", "", None])
+    def test_unknown_ids_are_other(self, job_id):
+        assert jobs_service.job_kind(job_id) == "other"
+
+    def test_record_carries_drama_id_and_kind(self, isolated_db):
+        db.save_job_record("translate_7", status="done")
+        db.save_job_record("mystery_7", status="done")
+        by_id = {j["job_id"]: j for j in jobs_service.list_jobs()}
+        assert (by_id["translate_7"]["drama_id"], by_id["translate_7"]["kind"]) == (7, "translate")
+        assert (by_id["mystery_7"]["drama_id"], by_id["mystery_7"]["kind"]) == (None, "other")
+
+    def test_schema_round_trip(self, isolated_db):
+        from api.schemas import JobRecord
+        db.save_job_record("dub_9", status="running")
+        data = JobRecord(**jobs_service.get_job("dub_9")).model_dump(mode="json")
+        assert (data["drama_id"], data["kind"]) == (9, "dub")
+        assert JobRecord(**data).model_dump(mode="json") == data
+        legacy = JobRecord(job_id="x", status="done", updated_at=1.0)
+        assert (legacy.drama_id, legacy.kind) == (None, "other")
+
+
+class TestJobPage:
+    @pytest.mark.parametrize("prefix", sorted(jobs_service.JOB_KIND_BY_PREFIX))
+    def test_every_drama_prefix_is_a_title_job(self, prefix):
+        assert jobs_service.job_page(f"{prefix}12") == "title"
+
+    @pytest.mark.parametrize("job_id, page", [
+        ("sources_search", "sources"), ("sources_series_nyaa", "sources"),
+        ("sources_url_preview", "sources"), ("sources_save", "sources"),
+        ("sources_signin_site", "sources"), ("sources_tiertest_site", "sources"),
+        ("sources_url_preflight", "sources"), ("sources_url_identify", "sources"),
+        ("sources_chapter_check", "sources"),
+        ("discover_bulk_extract", "discover"), ("discover_navigation_help", "discover"),
+        ("live_0123abcd", "live"),
+        ("library_backup", "settings"), ("library_db_backup", "settings"),
+        ("library_user_backup", "settings"), ("library_auto_backup", "settings"),
+        ("deno_install", "diagnostics"), ("upgrade_check", "diagnostics"),
+        ("benchmark_lab", None), ("bulk_series_translate", None),
+        ("library_export_zip", None), ("mystery_5", None), ("translate_x", None), ("", None),
+        (None, None),
+    ])
+    def test_ids(self, job_id, page):
+        assert jobs_service.job_page(job_id) == page
+
+    def test_record_and_schema_carry_page_only(self, isolated_db):
+        from api.schemas import JobRecord
+        db.save_job_record("sources_search", status="done")
+        db.save_job_record("translate_7", status="done")
+        by_id = {j["job_id"]: j for j in jobs_service.list_jobs()}
+        assert by_id["sources_search"]["page"] == "sources"
+        assert by_id["translate_7"]["page"] == "title"
+        data = JobRecord(**by_id["sources_search"]).model_dump(mode="json")
+        assert data["page"] == "sources" and JobRecord(**data).model_dump(mode="json") == data
+        assert JobRecord(job_id="x", status="done", updated_at=1.0).page is None

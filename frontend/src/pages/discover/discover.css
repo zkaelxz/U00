@@ -7,10 +7,8 @@
 .discover-head { display: grid; gap: var(--space-2); }
 .discover-head > * { margin: 0; }
 .discover-engine { max-width: 22rem; }
-.discover-page .card details.section { margin: 0; }
 @media (max-width: 640px) {
   .discover-page { gap: var(--space-4); }
-  .discover-page > .card { padding: var(--space-4); }
   .discover-engine { max-width: none; }
 }
 
@@ -28,8 +26,8 @@
 .discover-page .field-control > textarea { width: 100%; }
 .discover-ok { color: var(--ok); margin: 0; }
 .discover-empty { display: grid; gap: var(--space-2); justify-items: start; }
-.discover-open { display: inline-flex; align-items: center; min-height: 44px; }
 
+/* Lists here reset padding with `!important` for the same reason: `.panel ul` out-ranks a single class (see index.css). */
 ul.discover-list, ul.discover-review { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); }
 .discover-card {
   padding: var(--space-2) var(--space-3) !important;
@@ -55,3 +53,16 @@ ul.discover-links, ul.discover-labels { margin: 0; overflow-wrap: anywhere; }
 .discover-review label { display: flex; gap: var(--space-2); align-items: flex-start; min-height: 44px; overflow-wrap: anywhere; }
 .discover-review input[type='checkbox'] { margin-top: 0.25rem; flex: 0 0 auto; }
 .discover-sub > summary { cursor: pointer; }
+
+.discover-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.discover-tab {
+  flex: 1 1 0; min-height: 44px; padding: var(--space-2) var(--space-3);
+  background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  color: var(--muted); font-weight: var(--weight-medium); white-space: nowrap;
+}
+.discover-tab[aria-selected='true'] { color: var(--text); border-bottom-color: var(--accent); }
+.discover-tab:focus-visible { outline: 2px solid transparent; outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--focus); }
+.discover-panel { display: grid; gap: var(--space-5); min-width: 0; }
+.discover-panel[hidden] { display: none; }
+.discover-group { display: grid; gap: var(--space-3); min-width: 0; }
+.discover-group > h3 { margin: 0; font-size: var(--text-lg); font-weight: 600; }

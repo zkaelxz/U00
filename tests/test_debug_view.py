@@ -1,18 +1,13 @@
 """
-tests/test_debug_view.py -- Step 58's "what happened here?" view and bug
-record-and-replay.
+tests/test_debug_view.py -- Step 58's "what happened here?" view.
 
 Confirms the view surfaces real, currently-recorded data (glossary
 matches, flag reason, engine/model, translation notes, current
 neighbors) rather than placeholders, and explicitly marks the fields
 Step 41's not-yet-built reproducibility metadata would cover (the
 historical context window, per-line prompt/model version, per-stage job
-timing) as unavailable instead of fabricating them. Also confirms a
-saved bug bundle actually reproduces (or, when the engine changes, fails
-to reproduce) the same output on replay.
+timing) as unavailable instead of fabricating them.
 """
-import json
-
 import core
 import db
 import debug_view
@@ -23,7 +18,7 @@ Line = core.Line
 
 def _make_drama(isolated_db, **overrides):
     fields = {"title_en": "Test Drama", "source_language": "zh",
-              "translation_engine": "test_offline"}
+              "translation_engine": "fake"}
     fields.update(overrides)
     return isolated_db.create_drama(**fields)
 
@@ -51,8 +46,8 @@ class TestExplainLine:
         assert info["translation_notes"][0]["note"] == "A poetic given name."
         # Real data, not placeholders -- and every "we don't record this
         # yet" note names the actual gap rather than staying silent.
-        assert "Step 41" in info["glossary_matches_note"]
-        assert "Step 41" in info["context_window_note"]
+        assert "reproducibility metadata" in info["glossary_matches_note"]
+        assert "reproducibility metadata" in info["context_window_note"]
         assert "No per-line record" in info["prompt_version_note"]
         assert info["provenance"] is None
         assert info["context_window_used"] is None
@@ -116,85 +111,10 @@ class TestExplainJob:
             assert info["found"] is True
             assert info["duration_seconds"] == 42.5
             assert info["per_stage_breakdown"] is None
-            assert "Step 41" in info["per_stage_breakdown_note"]
+            assert "Per-stage timing" in info["per_stage_breakdown_note"]
         finally:
             background_jobs.clear_job(job_id)
 
     def test_unknown_job_reports_not_found_rather_than_guessing(self):
         info = debug_view.explain_job("translate_no_such_job")
         assert info == {"job_id": "translate_no_such_job", "found": False}
-
-
-class _ContextAwareEngine:
-    """A fake engine whose output depends on BOTH the source text and the
-    context it was given -- unlike TestOfflineEngine (deterministic from
-    zh alone), so a replay that silently dropped the recorded context
-    would produce a different, detectably wrong result."""
-    supports_reference = True
-    name = "context_aware_fake"
-
-    def __init__(self, api_key=None, model=None, mood="calm"):
-        self.mood = mood
-
-    def translate_batch(self, zh_lines, context):
-        n_ctx = len(context.get("recent_context") or [])
-        return [f"[{self.mood}|ctx={n_ctx}] {z}" for z in zh_lines]
-
-
-class TestBugBundle:
-    def test_save_and_replay_reproduces_the_same_output(self, isolated_db):
-        drama_id = _make_drama(isolated_db)
-        lines = [Line(idx=0, start=0, end=1, zh="第一句", en="translated first"),
-                 Line(idx=1, start=1, end=2, zh="第二句", en="")]
-        isolated_db.save_lines(drama_id, lines)
-        engine = _ContextAwareEngine(mood="calm")
-        lines[1].en = engine.translate_batch(
-            [lines[1].zh], {"recent_context": [(lines[0].zh, lines[0].en)]})[0]
-        assert lines[1].en == "[calm|ctx=1] 第二句"
-        isolated_db.save_lines(drama_id, lines)
-
-        report_id = debug_view.save_bug_bundle(
-            drama_id, lines[1], lines, "context_aware_fake", None,
-            glossary_terms=[], locale="en-US", context_window=6)
-
-        result = debug_view.replay_bug_bundle(report_id, _ContextAwareEngine(mood="calm"))
-
-        assert result["reproduced"] is True
-        assert result["replay_output"] == "[calm|ctx=1] 第二句"
-        assert result["original_output"] == result["replay_output"]
-
-        stored = isolated_db.get_bug_report(report_id)
-        assert stored["replayed"] == 1
-        assert stored["reproduced"] == 1
-
-    def test_replay_detects_when_the_engine_no_longer_reproduces_it(self, isolated_db):
-        drama_id = _make_drama(isolated_db)
-        lines = [Line(idx=0, start=0, end=1, zh="第一句", en="translated first"),
-                 Line(idx=1, start=1, end=2, zh="第二句", en="[calm|ctx=1] 第二句")]
-        isolated_db.save_lines(drama_id, lines)
-
-        report_id = debug_view.save_bug_bundle(
-            drama_id, lines[1], lines, "context_aware_fake", None,
-            glossary_terms=[], locale="en-US", context_window=6)
-
-        # A different engine "version" (different mood) stands in for
-        # the failure having since been fixed/changed.
-        result = debug_view.replay_bug_bundle(report_id, _ContextAwareEngine(mood="different"))
-
-        assert result["reproduced"] is False
-        assert result["original_output"] == "[calm|ctx=1] 第二句"
-        assert result["replay_output"] == "[different|ctx=1] 第二句"
-
-    def test_save_bundle_freezes_the_exact_context_window_used(self, isolated_db):
-        drama_id = _make_drama(isolated_db)
-        lines = [Line(idx=i, start=float(i), end=float(i + 1), zh=f"句{i}",
-                      en=f"en{i}" if i < 3 else "") for i in range(5)]
-        isolated_db.save_lines(drama_id, lines)
-
-        report_id = debug_view.save_bug_bundle(
-            drama_id, lines[3], lines, "context_aware_fake", None,
-            glossary_terms=[], locale="en-US", context_window=2, context_window_ahead=1)
-
-        snapshot = json.loads(isolated_db.get_bug_report(report_id)["input_json"])
-        assert snapshot["recent_context"] == [["句1", "en1"], ["句2", "en2"]]
-        assert snapshot["upcoming_lines"] == ["句4"]

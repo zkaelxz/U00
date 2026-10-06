@@ -3,9 +3,10 @@
 
 import type { StorageLike } from '../../components/sectionStorage'
 import { readPref, writePref } from '../../hooks/usePersistedState'
+import { parseRoute } from '../../router'
 import type { ComicRegion, ComicRegionsResponse } from '../../types/comic'
 
-export const COMIC_MEDIA_TYPES = ['manga', 'manhua', 'manhwa'] as const
+const COMIC_MEDIA_TYPES = ['manga', 'manhua', 'manhwa'] as const
 
 export function isComicType(mediaType: string | null | undefined): boolean {
   return !!mediaType && (COMIC_MEDIA_TYPES as readonly string[]).includes(mediaType.toLowerCase())
@@ -65,7 +66,7 @@ export function sanitizePrefs(raw: unknown, defaults: ComicPrefs): ComicPrefs {
 }
 
 // Remembered per drama in localStorage ("baihe.pref.comic.view.<id>").
-export const prefsKey = (dramaId: number) => `comic.view.${dramaId}`
+const prefsKey = (dramaId: number) => `comic.view.${dramaId}`
 
 export function loadComicPrefs(storage: StorageLike | null, dramaId: number, defaults: ComicPrefs): ComicPrefs {
   return sanitizePrefs(readPref<Record<string, unknown>>(storage, prefsKey(dramaId), {}), defaults)
@@ -77,6 +78,17 @@ export function saveComicPrefs(storage: StorageLike | null, dramaId: number, pre
 
 export function comicHref(dramaId: number, page: number | null): string {
   return `#/comic/${dramaId}${page ? `?page=${page}` : ''}`
+}
+
+/**
+ * True while the address bar still shows this comic's viewer. A late scroll
+ * or effect callback may only rewrite the hash then: after hashchange the
+ * router re-renders asynchronously, and a replace in that gap would pull the
+ * user back from the page they just left.
+ */
+export function hashIsComic(hash: string, dramaId: number): boolean {
+  const r = parseRoute(hash)
+  return r.name === 'comic' && r.id === dramaId
 }
 
 export function clampPage(n: number, count: number): number {
@@ -116,7 +128,7 @@ export function keyAction(combo: string, mode: ComicMode, rtl: boolean): ComicAc
   return null
 }
 
-export type TapAction = 'next' | 'prev' | 'chrome'
+type TapAction = 'next' | 'prev' | 'chrome'
 
 /** A tap at `fraction` (0..1) across the page: thirds; the middle shows or hides the bars. */
 export function tapAction(fraction: number, rtl: boolean): TapAction {

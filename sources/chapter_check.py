@@ -1,11 +1,12 @@
 """
 sources/chapter_check.py -- scheduled checks for new chapters on tracked
-series (Step 23 item 5), the same simple shape as Mihon's library update:
+series, the same simple shape as Mihon's library update:
 re-fetch each tracked title's chapter list, diff by chapter id against
 what's already known, and tell the person about anything new.
 
 It notifies; it does not download. Auto-queueing new chapters for import
-is a separate opt-in setting, off by default. Every check goes through
+is a separate opt-in setting, off by default, and so is saving a series'
+new chapters as CBZ files (per series, `save_cbz`), done within the cycle. Every check goes through
 the adapter's own paced client, so a check cycle hits a source no harder
 than a manual chapter-list fetch would.
 """
@@ -37,7 +38,7 @@ def check_series(adapter, row: dict) -> list:
     """Returns the ChapterInfo list of chapters that are new since the last
     check, and records them (known + a notification each).
 
-    Step 106: the chapter list is fetched as a conditional re-poll. When
+    The chapter list is fetched as a conditional re-poll. When
     the last poll was one plain GET that returned an ETag or Last-Modified,
     this poll sends them back; a 304 means nothing changed, so the list is
     neither downloaded nor parsed."""
@@ -85,11 +86,11 @@ def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = 
     """One pass over every tracked series. `adapter_factory(name)` is
     injectable for tests; defaults to the registry.
 
-    Safe to run from two processes (the API and Streamlit each run a
-    scheduler): the cycle is claimed first (store.claim_check_cycle), and a
-    cycle that can't claim returns {"skipped": True, ...} without checking
-    anything. A `scheduled` cycle is also skipped when another process
-    finished one within the interval since this one was found due.
+    Safe to run from two processes that each run a scheduler: the cycle
+    is claimed first (store.claim_check_cycle), and a cycle that can't
+    claim returns {"skipped": True, ...} without checking anything. A
+    `scheduled` cycle is also skipped when another process finished one
+    within the interval since this one was found due.
 
     `allow_browser=False` (a manual check from another device) keeps every
     adapter from launching a browser on this PC; scheduled cycles are local."""
@@ -131,7 +132,7 @@ def _link_owner_can_edit(row) -> bool:
 def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> dict:
     factory = adapter_factory or (lambda name: registry.get_adapter(name))
     rows = store.list_tracked_series()
-    summary = {"checked": 0, "new": 0, "errors": {}, "queued": []}
+    summary = {"checked": 0, "new": 0, "errors": {}, "queued": [], "saved": []}
     auto_queue = bool(store.get_setting("auto_queue_new_chapters"))
     for i, row in enumerate(rows, start=1):
         if job_id:
@@ -139,6 +140,10 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
                 break
             background_jobs.update_progress(job_id, (i - 1) / max(len(rows), 1),
                                             f"Checking {row['title']} ({i}/{len(rows)})")
+        if row["source"] in registry.REMOVED_SOURCES:
+            summary["errors"][row["title"]] = registry.SOURCE_REMOVED
+            store.mark_checked(row["source"], row["series_id"], error=registry.SOURCE_REMOVED)
+            continue
         if not registry.is_enabled(row["source"]):
             continue
         try:
@@ -155,6 +160,8 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
             continue
         summary["checked"] += 1
         summary["new"] += len(new)
+        if row.get("save_cbz"):
+            _save_new(adapter, row, new, summary)
         if new and auto_queue and row.get("drama_id"):
             from .pipeline import start_import
             if db.get_drama(row["drama_id"]) is None or not _link_owner_can_edit(row):
@@ -167,6 +174,31 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
     if job_id:
         background_jobs.set_result(job_id, summary)
     return summary
+
+
+def _save_new(adapter, row, new, summary):
+    """Saves a series' new chapters as CBZ files, plus the ones an earlier
+    check failed to save: the chapters are marked known before this runs,
+    so a failed save is kept in `save_pending` and retried each check until
+    it is saved (or the site no longer lists it). A failure is reported in
+    the summary like a check error; the chapters stay announced either way."""
+    from services.sources_save_service import save_series_chapters
+    ids = list(dict.fromkeys(store.save_pending_ids(row) + [str(c.chapter_id) for c in new]))
+    if not ids:
+        return
+    try:
+        rows, _ = save_series_chapters(adapter, row["source"], row["series_id"], ids)
+    except Exception as e:
+        store.set_save_pending(row["source"], row["series_id"], ids)
+        summary["errors"][row["title"]] = f"Saving as CBZ: {redact_for_storage(str(e))[:300]}"
+        return
+    failed = [r for r in rows if r["outcome"] in ("failed", "not_attempted")]
+    store.set_save_pending(row["source"], row["series_id"], [r["chapter_id"] for r in failed])
+    if any(r["outcome"] == "saved" for r in rows):
+        summary["saved"].append(row["title"])
+    if failed:
+        summary["errors"][row["title"]] = (f"Saving as CBZ: {len(failed)} chapter(s) not saved, "
+                                           f"retried next check ({failed[0].get('error') or 'failed'})")
 
 
 def check_due(now: float = None) -> bool:

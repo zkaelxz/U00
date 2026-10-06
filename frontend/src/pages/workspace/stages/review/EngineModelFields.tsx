@@ -1,6 +1,8 @@
 import { Field } from '../../../../components/Field'
 import { humanize } from '../../../../components/labels'
 import type { TranslateEngine } from '../../../../types/translate'
+import { modelOptionLabel } from '../../../../api/translate'
+import { AI_ENGINE_LABEL } from '../../../../helpText'
 
 // Engine and model pickers shared by the check jobs and fix-flagged. Paid
 // engines stay behind the server's engines.paid check; this only chooses.
@@ -26,7 +28,7 @@ export function EngineModelFields({
   }
   return (
     <>
-      <Field label="Engine" help={help}>
+      <Field label={AI_ENGINE_LABEL} help={help}>
         <select value={engine} onChange={(e) => onChange({ engine: e.target.value, model: '' })}>
           <option value="">Default{defaultEngine ? ` (${humanize('engine', defaultEngine)})` : ''}</option>
           {engines.map((e) => (
@@ -42,7 +44,7 @@ export function EngineModelFields({
             <option value="">Engine default</option>
             {models.map((m) => (
               <option key={m} value={m}>
-                {m}
+                {modelOptionLabel(engines.find((e) => e.name === (engine || defaultEngine)), m)}
               </option>
             ))}
           </select>

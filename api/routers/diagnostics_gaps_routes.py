@@ -1,7 +1,6 @@
 """
 api/routers/diagnostics_gaps_routes.py -- the Diagnostics features the
-read-only overview (diagnostics_routes.py) lacks (Streamlit retirement M1;
-API batch 1). Thin: see services/diagnostics_gaps_service.py.
+read-only overview (diagnostics_routes.py) lacks (API batch 1). Thin: see services/diagnostics_gaps_service.py.
 
 Reads are `admin.diagnostics`: setup checks (Q01), model cache (Q14, list
 only), pyannote readiness (Q15; `check_access=true` asks Hugging Face with
@@ -25,22 +24,21 @@ library reset (Q20, also `confirm_text` "RESET"). Each refuses while any
 background job runs (409). Deleting a cached model, Piper voice or model
 file (torch.hub checkpoints, audio-separator models) is also
 `local_only()` + `confirm=true`, refused while a job runs, and takes only a
-name the cache scan lists. The saved bug bundles are listed here
-(`admin.diagnostics`); their delete is in delete_routes.py. Bundle replay,
-benchmark and the App Assistant are not exposed.
+name the cache scan lists. The benchmark and the App Assistant are not
+exposed.
 """
 
-from typing import List, Literal
+from typing import Literal
 
 from fastapi import APIRouter, Path, Query
 
 from api.auth import local_only, require_permission
-from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsBugBundle,
+from api.schemas import (DiagnosticsAdminConfirm,
                          DiagnosticsCacheDeleteResult, DiagnosticsGpuTorchSetupRequest,
                          DiagnosticsGpuTorchSetupResult, DiagnosticsGpuTorchStatus,
                          DiagnosticsInstallPresets, DiagnosticsInstallResult,
                          DiagnosticsPackageUpdates, DiagnosticsUpgradeRequest,
-                         DiagnosticsJobHistoryItem, DiagnosticsLogTail, DiagnosticsModelCache,
+                         DiagnosticsLogTail, DiagnosticsModelCache,
                          DiagnosticsPyannoteReadiness, DiagnosticsResetRequest,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
                          DiagnosticsSupportReport, ErrorResponse)
@@ -73,13 +71,6 @@ def get_model_cache():
             summary="pyannote installed / HF token set / (check_access=true) gated models open")
 def get_pyannote(check_access: bool = Query(False)):
     return svc.get_pyannote_readiness(check_access=check_access)
-
-
-@router.get("/job-history", dependencies=[require_permission("admin.diagnostics")],
-            response_model=List[DiagnosticsJobHistoryItem],
-            summary="Finished jobs in this process, newest first, redacted")
-def get_job_history():
-    return svc.get_job_history()
 
 
 @router.get("/log", dependencies=[require_permission("admin.diagnostics")],
@@ -193,10 +184,3 @@ def post_delete_model_file(body: DiagnosticsAdminConfirm,
                            name: str = Path(min_length=1, max_length=200,
                                             pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")):
     return svc.delete_model_file(kind, name, confirm=body.confirm)
-
-
-@router.get("/bug-bundles", dependencies=[require_permission("admin.diagnostics")],
-            response_model=List[DiagnosticsBugBundle],
-            summary="Saved bug-reproduction bundles, newest first (no frozen input; redacted)")
-def get_bug_bundles():
-    return svc.list_bug_bundles()

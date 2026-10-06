@@ -173,7 +173,7 @@ test('video link: download into an audio drama (PC only), and the remote 403', a
   await expect.poll(() => posted(s, '/api/media/dramas/14/download-url')[0]?.body).toEqual({
     url: 'https://video.example/watch?v=1', audio_only: false, confirm_replace_audio: true,
   })
-  await expect(card.getByTestId('job-status')).toContainText('done')
+  await expect(card.getByTestId('job-status')).toContainText('Done')
   await expect(card.getByRole('link', { name: 'Open Stream VOD in the workspace' })).toHaveAttribute('href', '#/drama/14/source')
 
   // A 403 (not at the PC): plain message, then the link box turns into the PC-only note.
@@ -272,5 +272,31 @@ test('Track shows for a source without chapter import', async ({ page }) => {
   await panel.getByRole('button', { name: 'Track for new chapters' }).click()
   await expect.poll(() => posted(s, '/api/sources/tracked')[0]?.body).toEqual({ source: 'alpha', series_id: 'a0', tracked: true })
   await expect(panel.getByRole('button', { name: 'Track for new chapters' })).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
+test('save chosen chapters of a comic series as CBZ files, without a drama', async ({ page }) => {
+  const s = await mockSources(page)
+  await mockImports(page, s)
+  await page.goto('/#/sources')
+  await page.getByRole('radio', { name: 'Paste a link' }).check()
+  await page.getByRole('textbox', { name: 'Paste a link' }).fill('https://alpha.example/a/c2')
+  await page.getByRole('button', { name: 'Preview' }).click()
+  await page.getByRole('article', { name: 'Link preview' }).getByRole('button', { name: 'Open series' }).click()
+  const panel = page.getByRole('region', { name: 'Series' })
+  await expect(panel.getByRole('checkbox', { name: 'Chapter 2', exact: true })).toBeChecked()
+  await panel.getByRole('checkbox', { name: 'Chapter 2', exact: true }).uncheck()
+
+  const save = panel.getByTestId('save-cbz')
+  await expect(save.getByRole('button', { name: 'Save 0 chapters as CBZ' })).toBeDisabled()
+  await panel.getByRole('checkbox', { name: 'Chapter 1', exact: true }).check()
+  await panel.getByRole('checkbox', { name: 'Chapter 3', exact: true }).check()
+  // No drama is needed to save.
+  await save.getByRole('button', { name: 'Save 2 chapters as CBZ' }).click()
+  await expect.poll(() => posted(s, '/api/sources/alpha/save')[0]?.body).toEqual({ series_id: 'a0', chapter_ids: ['c1', 'c3'] })
+  const outcomes = panel.getByTestId('save-outcomes')
+  await expect(outcomes.getByText('1 saved · 1 already saved')).toBeVisible()
+  await expect(outcomes.getByText('Saved · 20 pages')).toBeVisible()
+  await expect(outcomes.getByText('Already saved', { exact: true })).toBeVisible()
   expect(s.unmocked).toEqual([])
 })

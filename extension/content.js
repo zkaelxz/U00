@@ -218,10 +218,30 @@
     return btoa(binary);
   }
 
+  // The hash only keys the page's own cache and de-duplicates images within a
+  // page; nothing on the server reads it. crypto.subtle exists only on secure
+  // contexts, and many readers are plain http, so there it falls back to a
+  // 53-bit non-cryptographic hash plus the byte length.
   async function sha256Hex(buffer) {
+    if (!(globalThis.crypto && crypto.subtle)) return weakHash(buffer);
     const digest = await crypto.subtle.digest("SHA-256", buffer);
     return Array.from(new Uint8Array(digest))
       .map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  // cyrb53 over the bytes. The "w" prefix keeps it from ever equalling a
+  // SHA-256 key for the same page.
+  function weakHash(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let i = 0; i < bytes.length; i++) {
+      h1 = Math.imul(h1 ^ bytes[i], 2654435761);
+      h2 = Math.imul(h2 ^ bytes[i], 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    const mixed = (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+    return `w${bytes.length.toString(16)}-${mixed}`;
   }
 
   // -- overlay ---------------------------------------------------------
@@ -392,7 +412,7 @@
     return state.overlaysVisible;
   }
 
-  // -- text capture (Step 96) ------------------------------------------
+  // -- text capture ----------------------------------------------------
   //
   // The same philosophy as the image mode applies to text-heavy pages:
   // the browser has already rendered the page, so this reads what's on

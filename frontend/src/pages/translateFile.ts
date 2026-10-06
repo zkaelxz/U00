@@ -1,27 +1,27 @@
 /*
  * Pure helpers for the Translate page's "Open a file" / "Download result".
- * Parity with tabs/translate_tab.py: it accepted .txt/.md/.epub, decoded text
- * as UTF-8 ignoring bad bytes, and offered the result as a plain .txt.
+ * Accepts .txt/.md/.epub, decodes text as UTF-8 ignoring bad bytes, and
+ * offers the result as a plain .txt.
  * .epub is unzipped in the browser and its chapter text extracted (see
- * translateEpub.ts); nothing is sent to the server. Size cap: the API has no
- * text limit; Streamlit's own upload cap (.streamlit/config.toml
- * maxUploadSize = 2048 MB) is the only limit the old tab enforced, so it is
- * reused for text files. An .epub is held and unzipped in memory, so it gets
- * the smaller MAX_EPUB_BYTES cap.
+ * translateEpub.ts); nothing is sent to the server. Size caps: 2 GB of bytes
+ * for text files (the largest file we accept), and the text that is read must
+ * also fit MAX_TRANSLATE_TEXT_CHARS, the API's limit. An .epub is held and
+ * unzipped in memory, so it gets the smaller MAX_EPUB_BYTES cap.
  */
+import { MAX_TRANSLATE_TEXT_CHARS } from '../api/translate'
 import { EpubError, MAX_EPUB_BYTES, extractEpubText, type HtmlToText } from './translateEpub'
 
-export const ACCEPTED_EXTENSIONS = ['.txt', '.md', '.epub'] as const
+const ACCEPTED_EXTENSIONS = ['.txt', '.md', '.epub'] as const
 export const ACCEPT_ATTR = ACCEPTED_EXTENSIONS.join(',')
 export const MAX_FILE_BYTES = 2048 * 1024 * 1024
 
-export interface FileLike {
+interface FileLike {
   name: string
   size: number
 }
 
 /** Reads a file's bytes; the browser default uses FileReader. */
-export type ReadBytes<F extends FileLike> = (file: F) => Promise<ArrayBuffer>
+type ReadBytes<F extends FileLike> = (file: F) => Promise<ArrayBuffer>
 
 export function fileReaderBytes(file: Blob): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
@@ -55,9 +55,22 @@ export function decodeText(buf: ArrayBuffer): string {
   return new TextDecoder('utf-8', { fatal: false }).decode(buf).replace(/\uFFFD/g, '')
 }
 
-export type ReadResult = { ok: true; text: string; name: string } | { ok: false; error: string }
+type ReadResult = { ok: true; text: string; name: string } | { ok: false; error: string }
 
 export async function readTranslateFile<F extends FileLike>(
+  file: F,
+  readBytes: ReadBytes<F>,
+  htmlToText?: HtmlToText,
+): Promise<ReadResult> {
+  const read = await readTranslateFileText(file, readBytes, htmlToText)
+  if (read.ok && read.text.length > MAX_TRANSLATE_TEXT_CHARS) {
+    const limit = MAX_TRANSLATE_TEXT_CHARS.toLocaleString('en-US')
+    return { ok: false, error: `"${file.name}" has more than the ${limit} characters that can be translated at once.` }
+  }
+  return read
+}
+
+async function readTranslateFileText<F extends FileLike>(
   file: F,
   readBytes: ReadBytes<F>,
   htmlToText?: HtmlToText,
@@ -139,6 +152,7 @@ export function downloadText(text: string, filename: string, deps: DownloadDeps 
   try {
     deps.click(url, filename)
   } finally {
+    // Revoke after the click task, not synchronously, so the browser can start the download first.
     setTimeout(() => deps.revokeObjectURL(url), 0)
   }
 }

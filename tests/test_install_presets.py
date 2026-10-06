@@ -16,7 +16,7 @@ FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
 # against pypi.org. Static on purpose: a new package must be added here
 # after checking its real distribution name.
 KNOWN_PYPI_DISTS = {
-    "faster-whisper", "opencv-python", "anthropic", "openai", "deepl", "requests",
+    "faster-whisper", "ctranslate2", "opencv-python", "anthropic", "openai", "requests",
     "beautifulsoup4", "pyannote-audio", "soundfile", "edge-tts", "pydub", "f5-tts",
     "omnivoice", "chatterbox-tts", "hume-tada", "pytesseract", "pillow", "paddleocr",
     "manga-ocr", "piper-tts", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
@@ -58,17 +58,6 @@ def test_stream_pip_install_disables_cache_and_version_check(monkeypatch):
     assert seen == [["/py", "-m", "pip", "install", *FLAGS, "jieba"]]
 
 
-def test_bulk_install_uses_the_same_flags(monkeypatch, tmp_path):
-    reqs = tmp_path / "r.txt"
-    reqs.write_text("sox\njieba>=0.42\n")
-    seen = []
-    monkeypatch.setattr(diagnostics.subprocess, "Popen",
-                        lambda cmd, **kw: seen.append(cmd) or _FakePopen([]))
-    list(diagnostics.stream_bulk_install(str(reqs), python_executable="/py"))
-    assert [c[3:] for c in seen] == [["install", *FLAGS, "sox"],
-                                     ["install", *FLAGS, "jieba>=0.42"]]
-
-
 def test_service_install_and_upgrade_commands_carry_the_flags(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
@@ -100,7 +89,7 @@ def test_failed_install_returns_the_hint_even_though_output_is_redacted(monkeypa
     def fake(cmd, timeout):
         yield {"line": WIN_LINE}
         yield {"returncode": 1, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
     out = svc._run_commands([(["pip"], 1)])
     assert out["ok"] is False and out["hint"] == diagnostics.PIP_CACHE_PERMISSION_HINT
     assert "kae" not in " ".join(out["output_tail"])
@@ -110,7 +99,7 @@ def test_success_has_no_hint(monkeypatch):
     def fake(cmd, timeout):
         yield {"line": WIN_LINE}
         yield {"returncode": 0, "timed_out": False}
-    monkeypatch.setattr(svc, "_stream_tree", fake)
+    monkeypatch.setattr(svc, "stream_tree", fake)
     assert svc._run_commands([(["pip"], 1)])["hint"] is None
 
 
@@ -171,8 +160,9 @@ def test_presets_report_installed_state_sizes_and_what_to_install(monkeypatch):
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda dist: None)
     out = svc.get_install_presets()
     t = next(t for t in out["tasks"] if t["id"] == "transcribe")
-    assert t["installed_count"] == 2 and t["to_install"] == ["faster_whisper"]
-    assert t["approx_mb"] == diagnostics.APPROX_DOWNLOAD_MB["faster-whisper"]
+    assert t["installed_count"] == 2 and t["to_install"] == ["faster_whisper", "ctranslate2"]
+    assert t["approx_mb"] == (diagnostics.APPROX_DOWNLOAD_MB["faster-whisper"]
+                              + diagnostics.APPROX_DOWNLOAD_MB["ctranslate2"])
     scan = next(t for t in out["tasks"] if t["id"] == "scanlate")
     assert "pypdf" in scan["packages"]
     assert "pypdf" in scan["to_install"]
@@ -207,7 +197,7 @@ def test_moss_is_not_offered_and_refused():
 
 
 def test_moss_install_is_refused_by_the_service(monkeypatch):
-    monkeypatch.setattr(svc, "_guard", lambda confirm: None)
+    monkeypatch.setattr(svc, "guard", lambda confirm: None)
     with pytest.raises(svc.AdminActionUnknownPackage):
         svc.install_dependency("moss_transcribe_diarize", confirm=True)
 
@@ -275,7 +265,7 @@ def test_required_min_versions_from_active_requirement_lines(tmp_path):
 
 def test_real_requirements_give_known_minimums():
     mins = diagnostics.required_min_versions()
-    assert mins["jieba"] == "0.42" and mins["opencv-python"] == "4.8"
+    assert mins["jieba"] == "0.42" and mins["opencv-python"] == "4.8.1.78"
     assert "paddleocr" not in mins               # commented out in requirements-optional.txt
 
 

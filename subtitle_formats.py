@@ -1,6 +1,6 @@
 """
 subtitle_formats.py -- WebVTT and ASS subtitle export, plus the checks
-shared by every export format (Step 6b):
+shared by every export format:
 
 - VTT: same cues as SRT, in WebVTT's header/timestamp format.
 - ASS: real styling -- font, size, bold/italic, fill and outline colour,
@@ -21,7 +21,7 @@ import copy
 import html
 import re
 
-from core import _notes_suffix, sfx_cue_text
+from core import notes_suffix, sfx_cue_text
 
 # ---------------------------------------------------------------- wrapping
 
@@ -111,7 +111,7 @@ def overlap_note(ln, next_start: float) -> str:
 def lines_for_clip(lines, start: float, end: float):
     """Copies of the lines overlapping [start, end), timeshifted so the
     clip's own timeline starts at 0 -- for burning subtitles onto a video
-    that's been trimmed to that same range (Step 6e's vertical export). A
+    that's been trimmed to that same range (the vertical export). A
     line only partially inside the window is clamped to it, not dropped or
     left running past the clip's own end. Renumbers .idx in order; the
     original `lines` are left untouched."""
@@ -219,7 +219,7 @@ def _cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=True, escape=Fals
         text = esc(text)
         if sfx:
             text = sfx_cue_text(text, italic_tags)
-    return text + esc(_notes_suffix(ln.idx, notes_by_idx))
+    return text + esc(notes_suffix(ln.idx, notes_by_idx))
 
 
 def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None) -> str:
@@ -262,7 +262,7 @@ ASS_PRESETS = {
                       "alignment": "bottom-center"},
 }
 
-# Step 12c: SFX/non-verbal cues get their own ASS style -- the export's
+# SFX/non-verbal cues get their own ASS style -- the export's
 # style in italics, in a muted colour, so "[door slams]" never reads as a
 # line someone said.
 SFX_STYLE_NAME = "SFX"
@@ -379,7 +379,7 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
             events.append(f"Dialogue: 0,{start},{end},"
                           f"{style_for.get(ln.speaker, 'Default')},{name if ln.speaker else ''},0,0,0,,{text}")
         if notes_as_separate_line:
-            note_text = _notes_suffix(ln.idx, notes_by_idx).lstrip("\n")
+            note_text = notes_suffix(ln.idx, notes_by_idx).lstrip("\n")
             if note_text:
                 events.append(f"Dialogue: 0,{start},{end},Notes,,0,0,0,,{_ass_escape(note_text)}")
     return "\n".join(header + events) + "\n"
@@ -397,39 +397,3 @@ def wrap_lines(lines, wrap_chars: dict):
         c.zh = wrap_text(ln.zh, wrap_chars.get("zh"))
         out.append(c)
     return out
-
-
-def _css_font(name: str) -> str:
-    return re.sub(r"[^\w \-]", "", name or "") or "Arial"
-
-
-def _css_color(hex_rgb: str) -> str:
-    return hex_rgb if re.fullmatch(r"#[0-9A-Fa-f]{6}", hex_rgb or "") else "#FFFFFF"
-
-
-def style_preview_html(text: str, style: dict, color: str = None, height: int = 216) -> str:
-    """A small dark 16:9 box with `text` drawn in `style` -- the live
-    preview next to the style controls. Everything user-controlled is
-    escaped/whitelisted: subtitle text is untrusted input going into HTML."""
-    scale = height / PLAY_RES[1]
-    width = int(height * 16 / 9)
-    outline = max(int(round(style.get("outline_width", 2) * scale)), 0)
-    oc = _css_color(style.get("outline"))
-    shadow = ", ".join(f"{dx}px {dy}px 0 {oc}" for dx in (-outline, 0, outline)
-                       for dy in (-outline, 0, outline) if dx or dy) or "none"
-    align = style.get("alignment", "bottom-center")
-    vertical = "flex-start" if align.startswith("top") else "flex-end"
-    horizontal = {"left": "flex-start", "right": "flex-end"}.get(align.split("-")[-1], "center")
-    body = "<br>".join(html.escape(part) for part in (text or " ").split("\n"))
-    return (
-        f'<div style="width:{width}px;max-width:100%;height:{height}px;background:#1b1f24;'
-        f'display:flex;align-items:{vertical};justify-content:{horizontal};padding:10px;'
-        f'box-sizing:border-box;border-radius:6px;">'
-        f'<span style="font-family:\'{_css_font(style.get("font"))}\',sans-serif;'
-        f'font-size:{style.get("size", 24) * scale:.0f}px;'
-        f'font-weight:{"bold" if style.get("bold") else "normal"};'
-        f'font-style:{"italic" if style.get("italic") else "normal"};'
-        f'color:{_css_color(color or style.get("primary"))};text-shadow:{shadow};'
-        f'text-align:{"left" if horizontal == "flex-start" else "right" if horizontal == "flex-end" else "center"};'
-        f'line-height:1.2;">{body}</span></div>'
-    )

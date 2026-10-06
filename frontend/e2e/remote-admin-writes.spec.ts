@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSettingsGroups } from './settingsNav'
 
 // A remote (household) admin holds no admin.library: no list of everyone's
 // items to flip and Cancel only on their own jobs (owned_by_me). Every /api
@@ -29,6 +30,7 @@ async function mock(page: Page, permissions: string[]) {
   await json('**/api/meta', { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false })
   await json('**/api/auth/me', me(permissions))
   await json('**/api/jobs', { items: [JOB, OWN_JOB], count: 2 })
+  await json('**/api/library/dramas', { items: [], count: 0 })
   await json('**/api/notifications', { items: [] })
   await json('**/api/sharing/share-by-default', { share_by_default: false })
   await json('**/api/sharing/items*', { items: [ITEM], total: 1 })
@@ -37,8 +39,8 @@ async function mock(page: Page, permissions: string[]) {
 
 test('remote admin: Cancel on their own job only, with a note', async ({ page }) => {
   await mock(page, ['library.read', 'jobs.cancel', 'admin.users.read'])
-  await page.goto('/#/diagnostics')
-  await expect(page.getByTestId('job-list')).toContainText('Translate Kae')
+  await page.goto('/#/jobs')
+  await expect(page.getByTestId('jobs-table')).toContainText('Translate Kae')
   await expect(page.getByRole('button', { name: /Cancel Translate Mine/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Cancel Translate Kae/ })).toHaveCount(0)
   await expect(page.getByTestId('remote-admin-jobs-note')).toBeVisible()
@@ -46,7 +48,7 @@ test('remote admin: Cancel on their own job only, with a note', async ({ page })
 
 test('PC admin still gets Cancel', async ({ page }) => {
   await mock(page, ['library.read', 'jobs.cancel', 'admin.library', 'admin.users.read'])
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/jobs')
   await expect(page.getByRole('button', { name: /Cancel Translate Kae/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Cancel Translate Mine/ })).toBeVisible()
   await expect(page.getByTestId('remote-admin-jobs-note')).toHaveCount(0)
@@ -55,6 +57,7 @@ test('PC admin still gets Cancel', async ({ page }) => {
 test('remote admin: no per-item sharing switches in Settings, with a note', async ({ page }) => {
   await mock(page, ['library.read', 'admin.users.read'])
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   await expect(page.getByTestId('remote-admin-sharing-note')).toBeVisible()
   await expect(page.getByTestId('sharing-drama:5')).toHaveCount(0)
 })
@@ -62,6 +65,7 @@ test('remote admin: no per-item sharing switches in Settings, with a note', asyn
 test('PC admin still gets every item with its switch', async ({ page }) => {
   await mock(page, ['library.read', 'admin.library'])
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   await expect(page.getByTestId('sharing-drama:5')).toBeVisible()
   await expect(page.getByTestId('remote-admin-sharing-note')).toHaveCount(0)
 })

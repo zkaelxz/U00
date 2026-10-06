@@ -7,14 +7,15 @@ usage: resolve_slice.py <service_stem> <router_stem>
 - api/server.py: take the base version and add this slice's router (import name + include_router).
 - FILE_ORGANIZATION.md: take the base version and append this slice's services/ and api/routers/ entries
   (extracted from this branch's own version) as the new last entries, fixing tree connectors.
-- api/schemas.py: keep BOTH sides of every conflict (base first, then branch).
+- api/schemas/*.py: in each conflicted domain module keep BOTH sides of every conflict (base first, then branch,
+  as before). A branch that still carries the old single api/schemas.py must be moved into the package by hand.
 Run from the repo root while a conflicted merge is in progress.
 """
 import re
 import subprocess
 import sys
 
-svc, router = sys.argv[1], sys.argv[2]
+svc = router = None  # set from argv in main
 COL = 34  # description text starts at this column in the FILE_ORGANIZATION.md tree
 
 
@@ -136,25 +137,31 @@ def fix_file_org():
             print("   ", ln)
 
 
-def merge_base():
-    return subprocess.run(["git", "merge-base", "HEAD", "origin/baihe-subtitler"],
-                          capture_output=True, text=True, check=True).stdout.strip()
+def conflicted_schema_modules():
+    out = subprocess.run(["git", "diff", "--name-only", "--diff-filter=U"],
+                         capture_output=True, text=True, check=True).stdout.split()
+    return [p for p in out if p.startswith("api/schemas/") and p.endswith(".py")]
 
 
 def fix_schemas():
-    base = git_show("origin/baihe-subtitler:api/schemas.py")
-    mb = git_show(merge_base() + ":api/schemas.py")
-    tip = git_show("HEAD:api/schemas.py")
-    cut = lambda t: t[t.index("API_VERSION ="):]  # ignore the import block (branches only widened imports)
-    rest_mb, rest_tip = cut(mb), cut(tip)
-    if not rest_tip.startswith(rest_mb):
-        raise SystemExit("schemas.py: branch did not purely append after the merge-base; resolve by hand")
-    add = rest_tip[len(rest_mb):].strip("\n")
-    out = base.rstrip("\n") + "\n\n\n" + add + "\n"
-    open("api/schemas.py", "w", encoding="utf-8").write(out)
-    print("api/schemas.py = base + branch appended block (%d lines)" % add.count("\n"))
+    # The old monolith is gone from base; a branch that edits it cannot be merged mechanically.
+    if subprocess.run(["git", "cat-file", "-e", "HEAD:api/schemas.py"], capture_output=True).returncode == 0:
+        raise SystemExit("api/schemas.py: this branch still edits the old single file; move its new models "
+                         "into the matching api/schemas/<module>.py by hand")
+    paths = conflicted_schema_modules()
+    for path in paths:
+        keep_both(path)
+    if not paths:
+        print("api/schemas/: no conflicted module")
 
 
-fix_server()
-fix_file_org()
-fix_schemas()
+def main():
+    global svc, router
+    svc, router = sys.argv[1], sys.argv[2]
+    fix_server()
+    fix_file_org()
+    fix_schemas()
+
+
+if __name__ == "__main__":
+    main()

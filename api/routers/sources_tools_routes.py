@@ -40,7 +40,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.auth import (is_local_request, local_only, require_engines_allowed,
                       require_permission)
-from api.routers.bug_report_routes import _BodyTooLarge, _capped
+from api.routers.bug_report_routes import BodyTooLarge, capped
 from api.schemas import DiscoverJobStarted, ErrorResponse, SourcesJobStarted
 from api.sources_tools_schemas import (DiscoverBulkPastedRequest, SourceExtraction,
                                        SourcesIdentifyMediaRequest, SourcesMediaResource,
@@ -77,8 +77,8 @@ async def _capped_json(request: Request, model, limit: int):
         except ValueError:
             raise InvalidInputError("The request has a bad Content-Length.") from None
     try:
-        raw = await _capped(request, limit).body()
-    except _BodyTooLarge:
+        raw = await capped(request, limit).body()
+    except BodyTooLarge:
         raise StarletteHTTPException(413, _TOO_LARGE) from None
     try:
         data = json.loads(raw or b"null")

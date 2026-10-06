@@ -1,6 +1,6 @@
 """
 services/sources_extraction_service.py -- the pasted-URL extraction extras
-for the API (Streamlit Sources parity SO09, SO10): the optional AI-assisted
+for the API (SO09, SO10): the optional AI-assisted
 fallback engine and the Review extraction step.
 
 SO09, the AI fallback. The extraction ladder (sources/adaptive.py) tries a
@@ -77,23 +77,20 @@ from services import page_import_limits as limits
 from services import settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
-from services.sources_registry_service import _scrub, safe_url
-from services.sources_search_service import _JobFailed
+from services.sources_registry_service import scrub, safe_url
+from services.sources_search_service import JobFailed
 from sources import adaptive, ai_extract, pipeline, profiles
 from sources import store as src_store
 
-# The offline test engine answers every prompt with canned text; it is not
-# offered (the Streamlit picker left it out too).
-_HIDDEN_ENGINES = ("test_offline",)
 _NO_ENGINE = "Pick an AI engine for the fallback."
 _ENGINE_FAILED = "The AI engine could not be set up."
 
 
 def ai_engines() -> list:
     """Engine names the AI fallback may use (those that take a reference
-    prompt, like the Streamlit picker)."""
+    prompt)."""
     return [e for e, cls in translate_engines.ENGINES.items()
-            if getattr(cls, "supports_reference", False) and e not in _HIDDEN_ENGINES]
+            if getattr(cls, "supports_reference", False)]
 
 
 def default_ai_engine() -> Optional[str]:
@@ -361,7 +358,7 @@ def _get(drama_id: int, revision=None, local: bool = True) -> _Review:
 
 def _require_drama(drama_id, principal):
     from services import sources_import_service as imp
-    return imp._require_drama(drama_id, principal)
+    return imp.require_drama(drama_id, principal)
 
 
 def drop_review(drama_id: int):
@@ -373,11 +370,11 @@ def display_url(url):
     """scheme+host+path, with credential-shaped path segments blanked (a
     signed CDN path is a credential, as for the AI prompt)."""
     shown = safe_url(url)
-    return ai_extract._SENSITIVE_PATH_SEGMENT.sub(r"\1[REDACTED]", shown) if shown else shown
+    return ai_extract.SENSITIVE_PATH_SEGMENT.sub(r"\1[REDACTED]", shown) if shown else shown
 
 
 def _label(text) -> str:
-    return (_scrub(str(text or "")) or "")[:MAX_LABEL]
+    return (scrub(str(text or "")) or "")[:MAX_LABEL]
 
 
 def _confidence_view(data: dict) -> dict:
@@ -404,10 +401,10 @@ def _report_view(report) -> dict:
                 "profile": "", "pending_profile": None}
     pending = getattr(report, "pending_profile", None)
     bucket = (((pending or {}).get("validation") or {}).get("overall") or {}).get("bucket")
-    return {"headline": _scrub(report.headline()),
-            "lines": [_scrub(x) for x in (report.access_lines + report.lines)][:40],
+    return {"headline": scrub(report.headline()),
+            "lines": [scrub(x) for x in (report.access_lines + report.lines)][:40],
             "llm_calls": int(report.llm_calls), "cache_hit": bool(report.cache_hit),
-            "profile": _scrub(adaptive.describe_profile(report.profile)),
+            "profile": scrub(adaptive.describe_profile(report.profile)),
             "pending_profile": {"bucket": bucket} if pending else None}
 
 
@@ -424,7 +421,7 @@ def _containers(rv: _Review) -> list:
             if len(sel) <= MAX_SELECTOR_LEN]
     base = _novel_base_rules(rv).get("content_selector")
     if base and len(base) <= MAX_SELECTOR_LEN and base not in [o[0] for o in opts]:
-        el = profiles._select_one(rv.page.soup, base)
+        el = profiles.select_one(rv.page.soup, base)
         text = el.get_text(" ", strip=True) if el is not None else ""
         opts.insert(0, (base, len(text), text[:80]))
     return opts
@@ -631,7 +628,7 @@ def rerun_novel(drama_id: int, revision: str, content_selector, exclude_selector
                                               number_from)
     new, why = profiles.apply_novel_rules(rv.page, rules)
     if new is None:
-        raise InvalidInputError(_scrub(why) or "Those choices found no chapter text.")
+        raise InvalidInputError(scrub(why) or "Those choices found no chapter text.")
     ai_extract.validate_novel(new, rv.page)
     if not (new.get("content") or "").strip():
         raise InvalidInputError("Those choices found no chapter text.")
@@ -706,7 +703,7 @@ def save_profile(drama_id: int, revision: str, principal=None) -> dict:
         v = profiles.save_version(profiles.domain_of(rv.url), rv.kind, rules, data,
                                   origin="correction", approved=True)
     except profiles.ProfileRejected as e:
-        raise InvalidInputError(_scrub(str(e))) from None
+        raise InvalidInputError(scrub(str(e))) from None
     return {"domain": profiles.domain_of(rv.url), "kind": rv.kind, "version": int(v["version"]),
             "replaces": v.get("replaces")}
 
@@ -726,7 +723,7 @@ def approve_profile(drama_id: int, revision: str, principal=None) -> dict:
     except profiles.ProfileRejected as e:
         with _LOCK:
             rv.report.pending_profile = pending
-        raise InvalidInputError(_scrub(str(e))) from None
+        raise InvalidInputError(scrub(str(e))) from None
     return {"domain": profiles.domain_of(rv.url), "kind": rv.kind, "version": int(v["version"]),
             "replaces": v.get("replaces")}
 
@@ -745,7 +742,7 @@ def _recovered_import(job_id: str, drama_id: int, text: str, heading: str, rv: _
         err = {"status": 500, "code": "import_failed", "message": error}
         background_jobs.set_result(job_id, {"kind": "review_import", "content_type": "novel",
                                             "error": err})
-        raise _JobFailed(error)
+        raise JobFailed(error)
     background_jobs.set_result(job_id, {"kind": "review_import", "content_type": "novel",
                                         "char_count": len(text), "pages_imported": 1})
 
@@ -841,9 +838,9 @@ def start_review_import(drama_id: int, revision: str, principal=None,
         if not kept:
             raise InvalidInputError("No image is marked as a page.")
         snapshot = kept
-    imp._require_idle(drama_id)
+    imp.require_idle(drama_id)
     job_id = imp.import_job_id(drama_id)
-    start = imp.start_comic_job if rv.kind == "comic" else imp._start
+    start = imp.start_comic_job if rv.kind == "comic" else imp.start_job
     # The review ends with its import: it can't be imported (appended) twice.
     # Taken out first so an expiry can't delete its images under the job.
     with _LOCK:

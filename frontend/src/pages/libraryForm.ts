@@ -1,6 +1,6 @@
 import type { DramaCreateRequest, DramaDeleteResult } from '../types/library'
 
-// Caps mirror api/schemas.py DramaCreateRequest.
+// Caps mirror api/schemas/library.py DramaCreateRequest.
 export const MAX_NAME_LEN = 300
 export const MAX_SUMMARY_LEN = 5000
 export const SOURCE_LANGUAGES = ['zh', 'ja', 'ko']
@@ -78,7 +78,7 @@ export const deleteNotice = (r: DramaDeleteResult): string | null => r.warning?.
 // an error keeps it visible so a failed load is not silently hidden.
 export const showFold = (count: number | undefined, error: unknown): boolean => !(count === 0 && !error)
 
-export interface HistoryGroup<T> {
+interface HistoryGroup<T> {
   entry: T // the most recent row of the run
   count: number
 }

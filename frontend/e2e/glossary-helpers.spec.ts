@@ -1,10 +1,11 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { suggestFrom } from './suggestTerms'
 
 import { ME } from './authMocks'
-import { withTranslateLines } from './stageLineMocks'
+import { withExportLines, withTranslateLines } from './stageLineMocks'
 
-// Glossary helpers: Glossary → From lines (parity X10), Review glossary
-// before translating (X28) and the novel glossary on the Source stage (T02).
+// Glossary helpers: Glossary → Suggest terms from the transcript (parity X10), Review glossary
+// before translating (X28) and the novel glossary in Translate (T02).
 // Drama reads hit the real seeded API (drama 1, reported as in series 7);
 // the extraction jobs, applies, translate run and job polls are mocked, so
 // no engine is ever called.
@@ -20,10 +21,13 @@ async function shot(page: Page, name: string) {
 }
 
 async function openSection(page: Page, title: string) {
-  await page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }).first().click()
+  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
-const notFound = (route: Route) => route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'none' } } })
+// What the server answers when no run is held in this app session.
+const idle = (route: Route) =>
+  route.fulfill({ json: { job_id: '', status: 'idle', progress: 0, message: '', proposals: null, run_id: null } })
 
 async function base(page: Page, { novel }: { novel: boolean }) {
   await page.route(/\/api\/auth\/me$/, (route) => route.fulfill({ json: ME.authOff }))
@@ -31,6 +35,7 @@ async function base(page: Page, { novel }: { novel: boolean }) {
     const resp = await route.fetch()
     await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
   })
+  await withExportLines(page)
   await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/novel/dramas/1/status', (route) =>
     route.fulfill({ json: { drama_id: 1, has_novel_text: novel, char_count: novel ? 900 : 0, chapters: novel ? 3 : 0, ocr_running: false } }),
@@ -41,7 +46,7 @@ const prop = (term: string, en: string, already = false) => ({
   term, suggested_translation: en, category: 'person_name', policy: 'keep_pinyin', reason: 'Recurring name', already_in_glossary: already,
 })
 
-// A mocked extraction route: 404 until started (or an earlier finished
+// A mocked extraction route: idle until started (or an earlier finished
 // run-0 when `earlier` is given), then each start is run-N: running for one
 // read, then done with the next entry of `runs` (the last one repeats).
 // Like the server, a new run's id is readable as soon as the start answers.
@@ -68,7 +73,7 @@ function mockRun(
         run.state = 'running'
         return route.fulfill({ json: kind === 'lines' ? { job_id: job, engine: 'claude', line_count: 12 } : { job_id: job, engine: 'claude', paired: false } })
       }
-      if (run.state === 'none') return notFound(route)
+      if (run.state === 'none') return idle(route)
       const json = body()
       if (run.state === 'running') run.state = 'done'
       return route.fulfill({ json })
@@ -111,10 +116,10 @@ test.describe('desktop', () => {
 
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From lines')
+    await suggestFrom(page, 'Transcript')
     const box = page.getByTestId('lines-glossary')
-    await expect(box).toContainText("this drama's source lines")
-    await box.getByRole('button', { name: 'Extract terms' }).click()
+    await expect(box).toContainText('Uses your translation engine. You review the suggestions before anything is added.')
+    await box.getByRole('button', { name: 'Suggest terms', exact: true }).click()
     const table = box.getByTestId('lines-glossary-proposals')
     await expect(table.locator('tbody tr')).toHaveCount(3)
     expect(starts).toEqual(['lines'])
@@ -165,7 +170,7 @@ test.describe('desktop', () => {
     await review.getByLabel('Select 蓝湛').uncheck()
     await shot(page, 'glossary-review-desktop')
     await review.getByRole('button', { name: 'Add 1 term and start translation' }).click()
-    await expect(page.getByTestId('job-status')).toContainText('running')
+    await expect(page.getByTestId('job-status')).toContainText('Running')
     expect(JSON.parse(applyBody)).toEqual({ terms: ['魏婴'], run_id: 'run-1' })
     expect(runs).toHaveLength(1)
     await expect(run.getByText('Glossary: Added 1.')).toBeVisible()
@@ -205,7 +210,7 @@ test.describe('desktop', () => {
         started = true
         return route.fulfill({ json: { job_id: 'lines_glossary_1', engine: 'claude', line_count: 12 } })
       }
-      if (!started) return notFound(route)
+      if (!started) return idle(route)
       return route.fulfill({ json: { job_id: 'lines_glossary_1', status: 'running', progress: 0.1, message: '', proposals: null, run_id: 'run-7' } })
     })
     const cancels: unknown[] = []
@@ -238,7 +243,7 @@ test.describe('desktop', () => {
     await page.route('**/api/glossary/dramas/1/from-lines', (route) =>
       route.request().method() === 'POST'
         ? route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } })
-        : notFound(route),
+        : idle(route),
     )
     const runs = await mockTranslateRun(page)
     await page.goto('/#/drama/1/translate')
@@ -301,9 +306,9 @@ test.describe('desktop', () => {
     await mockTranslateRun(page)
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From lines')
+    await suggestFrom(page, 'Transcript')
     const box = page.getByTestId('lines-glossary')
-    await box.getByRole('button', { name: 'Extract terms' }).click()
+    await box.getByRole('button', { name: 'Suggest terms', exact: true }).click()
     await expect(box.getByTestId('lines-glossary-proposals').locator('tbody tr')).toHaveCount(2)
     await box.getByLabel('Select 蓝湛').uncheck()
     await box.getByLabel('Policy for 魏婴').selectOption('hybrid')
@@ -345,9 +350,9 @@ test.describe('desktop', () => {
     })
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From lines')
+    await suggestFrom(page, 'Transcript')
     const box = page.getByTestId('lines-glossary')
-    await box.getByRole('button', { name: 'Extract terms' }).click()
+    await box.getByRole('button', { name: 'Suggest terms', exact: true }).click()
     await expect(box.getByTestId('lines-glossary-proposals').locator('tbody tr')).toHaveCount(2)
     await box.getByLabel('Select 蓝湛').uncheck()
     await box.getByLabel('Translation for 魏婴').fill('Wei Wuxian')
@@ -367,18 +372,18 @@ test.describe('desktop', () => {
     expect(starts).toEqual(['lines'])
   })
 
-  test('Source stage: novel glossary sits under the novel panel and extracts', async ({ page }) => {
+  test('Translate: the novel glossary extracts', async ({ page }) => {
     await base(page, { novel: true })
     const starts: string[] = []
     await mockRun(page, 'novel', [prop('魏婴', 'Wei Ying')], starts)
-    await page.goto('/#/drama/1/source')
-    const region = page.getByRole('region', { name: 'Glossary from novel' })
-    await region.locator('.section-title').click()
-    const box = region.getByTestId('novel-glossary')
-    await box.getByRole('button', { name: 'Extract terms' }).click()
+    await page.goto('/#/drama/1/translate')
+    await openSection(page, 'Glossary')
+    await suggestFrom(page, 'Novel')
+    const box = page.getByTestId('novel-glossary')
+    await box.getByRole('button', { name: 'Suggest terms', exact: true }).click()
     await expect(box.getByTestId('novel-glossary-proposals').locator('tbody tr')).toHaveCount(1)
     expect(starts).toEqual(['novel'])
-    await shot(page, 'source-novel-glossary-desktop')
+    await shot(page, 'translate-novel-glossary-desktop')
   })
 })
 
@@ -405,7 +410,7 @@ test.describe('phone 390px', () => {
     )
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
-    await openSection(page, 'From lines')
+    await suggestFrom(page, 'Transcript')
     const box = page.getByTestId('lines-glossary')
     await expect(box.locator('ul.novel-glossary-cards > li')).toHaveCount(3)
     await expect(box.getByLabel('Translation for 云深不知处')).toBeVisible()
@@ -416,7 +421,7 @@ test.describe('phone 390px', () => {
 
   test('Review glossary toggle row fits the phone width', async ({ page }) => {
     await base(page, { novel: false })
-    await page.route('**/api/glossary/dramas/1/from-lines', notFound)
+    await page.route('**/api/glossary/dramas/1/from-lines', idle)
     await page.goto('/#/drama/1/translate')
     const toggle = page.getByRole('region', { name: 'Translate run' }).getByRole('switch', { name: 'Review glossary before translating' })
     await expect(toggle).toHaveAttribute('aria-checked', 'false')
@@ -428,18 +433,18 @@ test.describe('phone 390px', () => {
     await shot(page, 'translate-review-toggle-phone')
   })
 
-  test('Source stage novel glossary fits the phone width', async ({ page }) => {
+  test('Translate novel glossary fits the phone width', async ({ page }) => {
     await base(page, { novel: true })
     await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
       route.fulfill({
         json: { job_id: 'novel_glossary_1', status: 'done', progress: 1, message: '', proposals: [prop('魏婴', 'Wei Ying')] },
       }),
     )
-    await page.goto('/#/drama/1/source')
-    const region = page.getByRole('region', { name: 'Glossary from novel' })
-    await region.locator('.section-title').click()
-    await expect(region.locator('ul.novel-glossary-cards > li')).toHaveCount(1)
+    await page.goto('/#/drama/1/translate')
+    await openSection(page, 'Glossary')
+    await suggestFrom(page, 'Novel')
+    await expect(page.getByTestId('novel-glossary').locator('ul.novel-glossary-cards > li')).toHaveCount(1)
     await noSideScroll(page)
-    await shot(page, 'source-novel-glossary-phone')
+    await shot(page, 'translate-novel-glossary-phone')
   })
 })

@@ -1,5 +1,5 @@
 """
-services/notification_service.py -- Step 44: push a short "job finished /
+services/notification_service.py -- push a short "job finished /
 job failed" message to a Discord webhook and/or an ntfy topic.
 
 UI-free. `background_jobs._notify_job_finished` calls
@@ -33,13 +33,12 @@ https://<host>/<topic>, and the host must resolve to public addresses only
 link-local, so no cloud metadata endpoint) is allowed only when
 `BAIHE_NTFY_ALLOW_LOCAL=1` is set in `.env` or the environment by hand --
 there is deliberately no API route that turns it on. Even then, a target
-on this PC (loopback) may not use one of Baihe's own ports (Streamlit 8501,
-the API 8600 or the configured BAIHE_API_PORT, the extension bridge 8756).
+on this PC (loopback) may not use one of Baihe's own ports (the API 8600 or the configured BAIHE_API_PORT, the extension bridge 8756).
 Every send connects to the address that was validated (no second DNS
 lookup), with no redirects, no proxy, a per-socket timeout and an overall
 SEND_DEADLINE; the reply body is never read (only the status code).
 
-In-app list (roadmap Step 44 item 5): every job that finishes or fails is
+In-app list: every job that finishes or fails is
 also kept in a short in-memory list (RECENT_KEEP events, at most RECENT_MAX
 shown to one viewer, lost on a restart), whether or not a channel is configured, for the header bell
 (`GET /api/notifications`). `list_recent(principal)` shows a job event only
@@ -183,7 +182,7 @@ def _effective_port(parts) -> int:
     return parts.port or (443 if parts.scheme == "https" else 80)
 
 
-def _clean_value(value) -> str:
+def clean_value(value) -> str:
     """Raises with a fixed message (never the value): the text can't carry
     another .env line, quotes or whitespace."""
     if not isinstance(value, str):
@@ -202,7 +201,7 @@ def validate_url(channel, value, allow_local=None) -> str:
     """Shape check for a channel URL (no DNS). Returns the cleaned value or
     raises InvalidInputError with a fixed message."""
     _check_channel(channel)
-    value = _clean_value(value)
+    value = clean_value(value)
     bad = _BAD_DISCORD if channel == "discord" else _BAD_NTFY
     try:
         parts = urlsplit(value)
@@ -300,12 +299,13 @@ def _drama_title(description, shared_only=False):
     return _tidy(title, _TITLE_MAX) if title else None
 
 
-def build_message(description, status, shared_only=False) -> str:
+def build_message(description, status, shared_only=False, with_errors=False) -> str:
     """"Finished: Translation - <drama title>" / "Failed: ...". Only the
     job kind (description up to its first "("), the drama title and the
     outcome."""
     from translate_engines import redact_secrets
-    outcome = "Finished" if status == "done" else "Failed"
+    outcome = ("Finished with errors" if with_errors else "Finished") if status == "done" \
+        else "Failed"
     kind = _tidy(re.split(r"\s*\(", description or "", maxsplit=1)[0], _KIND_MAX)
     text = f"{outcome}: {kind or 'Background job'}"
     title = _drama_title(description, shared_only)
@@ -613,7 +613,8 @@ def _chapter_count(job_id):
         return 0
 
 
-def notify_job_finished(description, status, job_id=None, owner_user_id=None):
+def notify_job_finished(description, status, job_id=None, owner_user_id=None,
+                        with_errors=False):
     """Record a job-ended event in the in-app list and queue a push for the
     configured channels. Never raises, never blocks on the network."""
     global _timer
@@ -628,11 +629,12 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None):
         else:
             category = "jobs"
             kind = "job_done" if status == "done" else "job_failed"
-            message = build_message(description, status)
+            message = build_message(description, status, with_errors=with_errors)
         _record(kind, message, job_id, owner_user_id)
         if category == "jobs":
             # The in-app list is filtered per viewer; a push channel is not.
-            message = build_message(description, status, shared_only=True)
+            message = build_message(description, status, shared_only=True,
+                                    with_errors=with_errors)
         if os.environ.get(DISABLED_ENV) == "1" or not get_categories()[category]:
             return
         if not configured_channels():

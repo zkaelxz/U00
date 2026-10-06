@@ -1,4 +1,7 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type Page } from '@playwright/test'
+import { openFoldFor } from './reviewFolds'
+
+import { expect, test } from './fixtures'
 
 import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 
@@ -14,6 +17,7 @@ const section = (page: Page, title: string) =>
   page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: new RegExp(`^${title}$`) }) })
 
 async function open(page: Page, title: string) {
+  await openFoldFor(page, title)
   const s = section(page, title)
   if ((await s.getAttribute('open')) === null) await s.locator(':scope > summary').click()
   await expect(s).toHaveAttribute('open', '')
@@ -122,7 +126,7 @@ test('Bulk is off and explained for an engine without a batch API', async ({ pag
 
   // Picking Claude under Check options makes Bulk available.
   const opts = await open(page, 'Check options')
-  await opts.getByRole('combobox', { name: 'Engine' }).selectOption('claude')
+  await opts.getByRole('combobox', { name: 'AI engine' }).selectOption('claude')
   await expect(ai.getByRole('switch', { name: 'Bulk: Flag lines for a second look' })).toBeEnabled()
   await expect(ai.getByText(/^Still needed for Bulk/)).toHaveCount(0)
 })

@@ -2,8 +2,13 @@ import { expect as baseExpect, test, type Page } from '@playwright/test'
 
 import { chapterImportResult, mockImports } from './sourcesImportMocks'
 import { mockSources, posted } from './sourcesMocks'
+import { installHitArea } from './hitArea'
 
-// Step 107, phone project (390x844, touch): the marked chapter picker and
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
+
+// Phone project (390x844, touch): the marked chapter picker and
 // "Retry failed chapters (N)" fit one column, keep 44 px targets, and Retry
 // sends exactly the retry set. Every call is mocked (sourcesImportMocks.ts).
 const expect = baseExpect.configure({ timeout: 15_000 })
@@ -26,7 +31,7 @@ async function tallTargets(page: Page) {
     const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, .sources-pick label, .sources-select-all'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.tagName).trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.tagName).trim().slice(0, 30) }))
       .filter((x) => x.h < 44)
   })
   expect(small).toEqual([])

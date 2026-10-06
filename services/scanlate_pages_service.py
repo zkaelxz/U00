@@ -19,7 +19,7 @@ tall strips sliced by default) and written ONLY through
 sources.pipeline.add_page_images (the one page writer: per-drama lock,
 exclusive index claim, exclusive file create). A bad file adds nothing.
 
-No FastAPI or Streamlit import. Plain dicts; errors from service_errors.
+No FastAPI import. Plain dicts; errors from service_errors.
 """
 import contextlib
 import importlib.util
@@ -45,7 +45,7 @@ DETECT_BACKENDS = ("auto", "cv", "ml")
 _OCR_MODULES = {"manga_ocr": "manga_ocr", "paddle": "paddleocr",
                 "paddle_vl_manga": "transformers", "tesseract": "pytesseract"}
 _CHUNK = 1024 * 1024
-_MAX_NOTES = 20
+MAX_NOTES = 20
 _MAX_NOTE_CHARS = 500
 
 _PNG = b"\x89PNG\r\n\x1a\n"
@@ -66,7 +66,7 @@ def pipeline_lock():
     bridge's own _PIPELINE_LOCK, so the bridge and the API jobs in this
     process queue behind each other instead of racing on first load."""
     import page_server
-    return page_server._PIPELINE_LOCK
+    return page_server.PIPELINE_LOCK
 
 
 _claims_lock = threading.Lock()
@@ -128,20 +128,20 @@ def clean_note(text) -> str:
 def notes_to_json(notes) -> str:
     """[(level, message) | (level, code, message)] -> stored run_notes JSON."""
     out = []
-    for n in list(notes or [])[:_MAX_NOTES]:
+    for n in list(notes or [])[:MAX_NOTES]:
         level, message = n[0], n[-1]
         out.append({"level": level if level in ("info", "warning", "error") else "warning",
                     "message": clean_note(message)})
     return json.dumps(out, ensure_ascii=False)
 
 
-def _parse_notes(raw) -> list:
+def parse_notes(raw) -> list:
     try:
         data = json.loads(raw or "[]")
     except (TypeError, ValueError):
         return []
     return [{"level": str(n.get("level", "warning")), "message": clean_note(n.get("message"))}
-            for n in data if isinstance(n, dict)][:_MAX_NOTES] if isinstance(data, list) else []
+            for n in data if isinstance(n, dict)][:MAX_NOTES] if isinstance(data, list) else []
 
 
 # --- S1: read -------------------------------------------------------------
@@ -245,7 +245,7 @@ def get_page_detail(drama_id: int, page_id: int) -> dict:
             "rev": int(page.get("rev") or 0),
             "has_rendered": bool(page.get("rendered_filename")),
             "regions": [_region_view(b) for b in db.load_bubbles(page_id)],
-            "run_notes": _parse_notes(page.get("run_notes"))}
+            "run_notes": parse_notes(page.get("run_notes"))}
 
 
 def list_run_notes(drama_id: int) -> dict:
@@ -253,7 +253,7 @@ def list_run_notes(drama_id: int) -> dict:
     require_drama(drama_id)
     out = []
     for i, p in enumerate(db.list_pages(drama_id)):
-        notes = _parse_notes(p.get("run_notes"))
+        notes = parse_notes(p.get("run_notes"))
         if notes:
             out.append({"page_id": p["id"], "ordinal": i + 1, "notes": notes})
     return {"drama_id": drama_id, "pages": out}

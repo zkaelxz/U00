@@ -1,6 +1,5 @@
 """
-services/discover_catalog_service.py -- the Discover "Known titles" catalog
-without the Streamlit tab (Migration Slice 55, spec slice D-1).
+services/discover_catalog_service.py -- the Discover "Known titles" catalog.
 
 UI-free, plain dicts, errors from `service_errors`. No network and no LLM:
 platform listing and search links are pure string building
@@ -10,12 +9,12 @@ path or a key.
 """
 
 import db
+from core import SOURCE_LANGUAGES
 import known_sites
 import title_library
 from services import drama_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
-LANGUAGES = ("zh", "ja", "ko")
 # The catalog also accepts "game" (schema comment) on top of the drama types.
 TITLE_MEDIA_TYPES = tuple(drama_service.MEDIA_TYPE_OPTIONS) + ("game",)
 SEARCH_LINK_FORMATS = ("audio_drama", "novel", "manhua", "manhwa", "manga")
@@ -48,9 +47,9 @@ def _check_query(name, value):
 def _check_language(value, allow_blank=True):
     if (value == "" or value is None) and allow_blank:
         return ""
-    if value not in LANGUAGES:
+    if value not in SOURCE_LANGUAGES:
         raise InvalidInputError("language must be one of zh, ja, ko.",
-                                details={"allowed": list(LANGUAGES)})
+                                details={"allowed": list(SOURCE_LANGUAGES)})
     return value
 
 
@@ -126,8 +125,8 @@ def seed_titles() -> dict:
 
 
 def _already_imported(t: dict):
-    """Id of the existing drama matching this title (the tab's dup rule:
-    same title_en, or same title_zh as the original), else None."""
+    """Id of the existing drama matching this title (same title_en, or
+    same title_zh as the original), else None."""
     for d in db.list_dramas(search=t["title_en"] or t["title_original"]):
         if (t["title_en"] and d.get("title_en") == t["title_en"]) or \
                 (t["title_original"] and d.get("title_zh") == t["title_original"]):

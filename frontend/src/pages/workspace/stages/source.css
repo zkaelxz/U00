@@ -19,18 +19,22 @@
    Native radios stay (arrow keys, radio semantics), visually hidden; the label is the segment. */
 .source-media-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .segmented { display: inline-flex; max-width: 100%; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
-.segmented label { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 4px 14px; border-radius: calc(var(--radius-md) - 2px); color: var(--muted); font-weight: var(--weight-medium); cursor: pointer; white-space: nowrap; transition: background var(--ease), color var(--ease); }
+.segmented label { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 4px 14px; border-radius: calc(var(--radius-md) - 2px); color: var(--muted); font-weight: var(--weight-medium); cursor: pointer; white-space: nowrap; transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease); }
 .segmented label:hover { color: var(--text); }
 .segmented label.segmented-on { background: var(--accent-soft); color: var(--accent-text); }
 .segmented input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
-.segmented label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.segmented label:has(input:focus-visible) { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 1px; }
 @media (pointer: coarse), (max-width: 640px) {
   .segmented { display: flex; }
   .segmented label { flex: 1 1 0; min-height: 44px; padding-inline: var(--space-2); }
 }
 
+/* Three long mode names don't fit one nowrap row at 390px, so let them wrap inside their segment. */
+.fill-in-modes label { min-width: 0; white-space: normal; text-align: center; }
+
 /* Transcribe's blocker line: the reason plus a one-tap fix (rule 22). */
-.source-needed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.source-needed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--warn); border-radius: var(--radius-md); background: var(--warn-soft); color: var(--text); overflow-wrap: anywhere; }
+.source-needed span { flex: 1 1 12rem; min-width: 0; }
 .source-panel .setting-list { margin: 0; }
 
 /* D06: keep or replace hand-corrected speakers (TranscribeStage Speakers section). */
@@ -38,3 +42,20 @@
 .source-manual .setting-list { margin: 0; }
 .source-manual .stage-ack { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; overflow-wrap: anywhere; }
 .source-manual p { margin: 0; }
+.source-subhead { margin: var(--space-2) 0 0; font-size: var(--text-sm); font-weight: 600; color: var(--muted); }
+/* One box per workflow: panels inside the Source stage are drawn flat, nested sections as dividers. */
+.stage-source details.section .panel,
+.stage-source section.panel[aria-label]:not([aria-label="Job"]) { border: 0; padding: 0; background: none; overflow: visible; }
+.stage-source details.section details.section { border: 0; border-top: 1px solid var(--border); border-radius: 0; padding-inline: 0; margin: 0; }
+.source-group { display: grid; gap: var(--space-3); min-width: 0; }
+
+/* Phone rhythm: 16px between fields, the Transcribe button on its own row (24px below the fields) with its hint
+   and blocker 8px under it. */
+@media (max-width: 640px) {
+  .stage-source { gap: var(--space-5); }
+  .source-panel { gap: var(--space-4); }
+  .source-grid { gap: var(--space-4); }
+  .source-panel > .actions { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-2); }
+  .source-panel > .actions + .source-needed { margin-top: calc(-1 * var(--space-2)); }
+  .source-file { gap: var(--space-2) var(--space-3); }
+}

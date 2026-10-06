@@ -6,6 +6,7 @@ import { Badge } from '../../../../components/Badge'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { humanize, humanizeValue } from '../../../../components/labels'
+import { capFirst, languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine, TmSuggestion } from '../../../../types/review'
@@ -15,7 +16,18 @@ import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
-import { buildPatch, CONFLICT_MESSAGE, formatTime, isToolMode, JOB_RUNNING_MESSAGE, type LineDraft, type PanelMode } from './reviewLogic'
+import {
+  buildPatch,
+  CONFLICT_MESSAGE,
+  formatTime,
+  isToolMode,
+  JOB_RUNNING_MESSAGE,
+  LINE_LANGUAGES,
+  lineLangChip,
+  titleDefaultLabel,
+  type LineDraft,
+  type PanelMode,
+} from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface NoteDraft {
@@ -53,6 +65,7 @@ export interface RowActions {
   setNote: (note: NoteDraft | null) => void
   saveNote: () => void
   openSheet: (id: number) => void
+  retranscribeFocused: () => void
   openStructure: (id: number, view: 'split' | 'merge') => void
   splitAtCursor: (id: number, field: 'zh' | 'en', utf16Offset: number) => void
   setAi: (id: number, mode: PanelMode | null) => void
@@ -66,12 +79,17 @@ export interface RowActions {
   reload: () => void
   // A search hit: leave the search and open the line on its page (R05).
   showOnPage: (id: number) => void
+  // A tick-box click; `range` (Shift) extends from the last ticked line.
+  select: (id: number, range: boolean) => void
 }
 
 interface Props {
   dramaId: number
   line: ReviewLine
+  // The drama's source_language: what a line with no lang of its own is spoken in.
+  sourceLanguage: string | null
   active: boolean
+  selected: boolean
   isPhone: boolean
   hasMedia: boolean
   jobRunning: boolean
@@ -81,7 +99,7 @@ interface Props {
   ai: PanelMode | null
   // A translation-memory suggestion for this line (R11), if any.
   tm: TmSuggestion | null
-  // Step 99: the stronger engine offered for this hard line, if any.
+  // The stronger engine offered for this hard line, if any.
   stronger?: StrongerOffer | null
   issue: RowIssue | null
   actions: RowActions
@@ -89,11 +107,13 @@ interface Props {
   searchHit?: boolean
   // Just jumped to from a search result: briefly highlighted.
   jumped?: boolean
+  // The line menu asked to land on "Re-transcribe this line".
+  focusRetranscribe?: boolean
 }
 
 // "content_blocked" + note -> "Content blocked · gemini: SAFETY"
 function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
-  return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${line.flag_note}` : ''}`
+  return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
 }
 
 const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
@@ -101,8 +121,9 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // One line: meta, source and translation. The active row (roving tabIndex)
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped }: Props) {
+function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
+  const langChip = lineLangChip(line.lang, sourceLanguage)
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
@@ -127,7 +148,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
     actions.activate(line.id)
   }
 
-  const className = ['review-line', active && 'is-active', draft && 'is-editing', jumped && 'is-jumped'].filter(Boolean).join(' ')
+  const className = ['review-line', active && 'is-active', draft && 'is-editing', jumped && 'is-jumped', selected && 'is-selected'].filter(Boolean).join(' ')
 
   return (
     <li
@@ -139,6 +160,18 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
       tabIndex={active ? 0 : -1}
       onClick={onRowClick}
     >
+      <label className="review-select">
+        <input
+          type="checkbox"
+          checked={selected}
+          aria-checked={selected}
+          aria-label={`Select line #${lineNumber(line.idx)}`}
+          tabIndex={active ? 0 : -1}
+          // onClick, not onChange: only a click event carries shiftKey.
+          onClick={(e) => actions.select(line.id, e.shiftKey)}
+          onChange={() => {}}
+        />
+      </label>
       <div className="review-line-meta">
         <span className="review-idx">#{lineNumber(line.idx)}</span>
         <span className="review-time">
@@ -146,8 +179,14 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           {!isPhone && <>–{formatTime(line.end)}</>}
         </span>
         {line.speaker && <span className="review-speaker">{line.speaker}</span>}
+        {langChip && (
+          <span data-testid="line-lang" title={`Spoken in ${languageLabel(line.lang)}`}>
+            <span aria-hidden="true"><Badge>{langChip}</Badge></span>
+            <span className="sr-only"> Spoken in {languageLabel(line.lang)}</span>
+          </span>
+        )}
         {line.sfx && <Badge>Sound cue</Badge>}
-        {line.dub_filename && !isPhone && <span>dub: {line.dub_filename}</span>}
+        {line.dub_filename && !isPhone && <span>Dub: {line.dub_filename}</span>}
         {line.flag && (
           <span className="review-flag" data-testid="line-flag">
             {isPhone ? (
@@ -207,7 +246,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             
             onClick={() => (isPhone && !active ? actions.activate(line.id) : actions.openEdit(line.id))}
           >
-            {line.en || <span className="muted review-untranslated">(not translated)</span>}
+            {line.en || <span className="muted review-untranslated">Not translated</span>}
           </button>
         )}
       </div>
@@ -324,6 +363,14 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             <Field label="Speaker">
               <input value={draft.speaker} onChange={(e) => actions.setDraft({ speaker: e.target.value })} />
             </Field>
+            <Field label="Spoken language">
+              <select value={draft.lang} onChange={(e) => actions.setDraft({ lang: e.target.value })}>
+                <option value="">{titleDefaultLabel(sourceLanguage)}</option>
+                {LINE_LANGUAGES.map((l) => (
+                  <option key={l} value={l}>{languageLabel(l)}</option>
+                ))}
+              </select>
+            </Field>
             <Field label="Start (s)">
               <input inputMode="decimal" value={draft.start} onChange={(e) => actions.setDraft({ start: e.target.value })} />
             </Field>
@@ -365,6 +412,8 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
               actions.applyLine({ ...line, zh: applied.zh }, buildPatch(edit.base, draft) === null)
             }
             onRestored={(saved) => actions.applyLine(saved, buildPatch(edit.base, draft) === null)}
+            focusRetranscribe={focusRetranscribe}
+            onRetranscribeFocused={actions.retranscribeFocused}
           />
         </div>
       )}

@@ -72,33 +72,31 @@ describe('translate form', () => {
   })
 
   it('offers only fallback engines of the main engine\'s kind, not already used', () => {
-    const all = ['claude', 'gemini', 'openai', 'deepl', 'google', 'nllb']
-    expect(isTranslationOnly('deepl')).toBe(true)
+    const all = ['claude', 'gemini', 'openai', 'nllb']
+    expect(isTranslationOnly('nllb')).toBe(true)
     expect(isTranslationOnly('claude')).toBe(false)
     expect(sameEngineKind('claude', 'openai')).toBe(true)
-    expect(sameEngineKind('claude', 'deepl')).toBe(false)
+    expect(sameEngineKind('claude', 'nllb')).toBe(false)
     // AI main engine: AI engines only, minus the main engine.
     expect(fallbackOptions(all, 'claude', [''], 0)).toEqual(['gemini', 'openai'])
     // A slot never offers an engine chosen in another slot, but keeps its own.
     expect(fallbackOptions(all, 'claude', ['gemini', 'openai'], 1)).toEqual(['openai'])
     expect(fallbackOptions(all, 'claude', ['gemini', 'openai'], 0)).toEqual(['gemini'])
     // Translation-only main engine: translation-only engines only.
-    expect(fallbackOptions(all, 'deepl', [], -1)).toEqual(['google', 'nllb'])
+    expect(fallbackOptions(all, 'nllb', [], -1)).toEqual([])
   })
 
   it('flags a fallback of a different kind from the main engine', () => {
     const base = initialForm(config)
     expect(fallbackKindMismatch('claude', ['gemini', ''])).toBe(false)
-    expect(fallbackKindMismatch('claude', ['deepl'])).toBe(true)
+    expect(fallbackKindMismatch('claude', ['nllb'])).toBe(true)
     expect(validateRun({ ...base, engine: 'claude', fallbacks: ['gemini'] }, 'x')).toBeNull()
-    expect(validateRun({ ...base, engine: 'deepl', fallbacks: ['google'] }, 'x')).toBeNull()
     // The main engine switched kind after the fallback was picked.
-    expect(validateRun({ ...base, engine: 'deepl', fallbacks: ['gemini'] }, 'x')).toBe(FALLBACK_KIND_MESSAGE)
+    expect(validateRun({ ...base, engine: 'nllb', fallbacks: ['gemini'] }, 'x')).toBe(FALLBACK_KIND_MESSAGE)
     // With no engine chosen, the drama's default engine decides the kind.
     expect(validateRun({ ...base, fallbacks: ['nllb'] }, 'claude')).toBe(FALLBACK_KIND_MESSAGE)
-    expect(validateRun({ ...base, fallbacks: ['nllb'] }, 'google')).toBeNull()
     // Reflect/Bulk are refused first, with their own reason.
-    expect(validateRun({ ...base, engine: 'claude', reflect: true, fallbacks: ['deepl'] }, 'x')).toMatch(/normal run/)
+    expect(validateRun({ ...base, engine: 'claude', reflect: true, fallbacks: ['nllb'] }, 'x')).toMatch(/normal run/)
   })
 
   it('builds the run body without line_ids and only sends force when confirmed', () => {
@@ -144,10 +142,10 @@ describe('translate form', () => {
   it('gates Reflect and bulk by engine and sends the flags', () => {
     const base = initialForm(config)
     const sup = ['claude', 'gemini', 'deepseek']
-    expect(reflectAvailable('deepl')).toBe(false)
+    expect(reflectAvailable('nllb')).toBe(false)
     expect(bulkAvailable('ollama', sup)).toBe(false)
     expect(bulkReflectAvailable('deepseek', sup)).toBe(false)
-    expect(validateRun({ ...base, engine: 'deepl', reflect: true }, 'x', sup)).toMatch(/Reflect/)
+    expect(validateRun({ ...base, engine: 'nllb', reflect: true }, 'x', sup)).toMatch(/Reflect/)
     expect(validateRun({ ...base, engine: 'ollama', bulk: true }, 'x', sup)).toMatch(/Bulk/)
     expect(validateRun({ ...base, engine: 'deepseek', bulk: true, reflect: true }, 'x', sup)).toMatch(/Bulk Reflect/)
     expect(validateRun({ ...base, engine: 'claude', bulk: true, fallbacks: ['gemini'] }, 'x', sup)).toMatch(/Fallback/)
@@ -244,11 +242,11 @@ describe('preset start values', () => {
 describe('workflow tiers (X02) and save as preset (X22)', () => {
   const withEngines = {
     ...config,
-    translation_engine: 'deepl',
+    translation_engine: 'nllb',
     engines: [
       { name: 'claude', models: ['claude-sonnet-5', 'claude-opus-4-8'] },
       { name: 'deepseek', models: null },
-      { name: 'deepl', models: null },
+      { name: 'nllb', models: null },
     ],
     bulk_supported_engines: ['claude', 'deepseek'],
   } as unknown as TranslateRunConfig
@@ -283,7 +281,7 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
   })
 
   it('after a tier, Default means the new engine for validation and presets', () => {
-    // The drama was on deepl (translation-only: no Reflect); Release saves claude.
+    // The drama was on nllb (translation-only: no Reflect); Release saves claude.
     const c = withSavedEngine(withEngines, release)
     expect(c.translation_engine).toBe('claude')
     expect(withSavedEngine(c, release)).toBe(c)
@@ -302,12 +300,12 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
 
   it('builds the preset body from the form', () => {
     const f = { ...initialForm(withEngines), style_preset: 'wuxia', locale: 'en-GB', female_pronouns: true, genre_notes: false }
-    expect(buildPresetBody(f, 'deepl', ' Mine ')).toEqual({
-      name: 'Mine', translation_engine: 'deepl', engine_model: null, style_preset: 'wuxia',
+    expect(buildPresetBody(f, 'nllb', ' Mine ')).toEqual({
+      name: 'Mine', translation_engine: 'nllb', engine_model: null, style_preset: 'wuxia',
       locale: 'en-GB', default_female_pronouns: true, include_genre_notes: false,
     })
     const g = { ...f, engine: 'claude', model: 'claude-sonnet-5' }
-    expect(buildPresetBody(g, 'deepl', 'Mine', true)).toMatchObject({
+    expect(buildPresetBody(g, 'nllb', 'Mine', true)).toMatchObject({
       translation_engine: 'claude', engine_model: 'claude-sonnet-5', overwrite: true,
     })
   })
@@ -316,11 +314,11 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
 describe('apply a saved preset (parity X03/X04)', () => {
   const c = {
     ...config,
-    translation_engine: 'deepl',
+    translation_engine: 'nllb',
     style_presets: [{ key: 'natural', label: 'Natural', guidance: 'Sound natural.' }, { key: 'wuxia', label: 'Wuxia' }],
     engines: [
       { name: 'claude', models: ['claude-a', 'claude-b'] },
-      { name: 'deepl', models: [] },
+      { name: 'nllb', models: [] },
     ],
     bulk_supported_engines: ['claude'],
   } as unknown as TranslateRunConfig
@@ -347,8 +345,8 @@ describe('apply a saved preset (parity X03/X04)', () => {
 
   it('drops Reflect/Bulk that the new engine cannot run', () => {
     const base = { ...initialForm(c), engine: 'claude', reflect: true, bulk: true }
-    const f = applyPresetToForm(base, preset({ translation_engine: 'deepl', engine_model: null }), c)
-    expect(f).toMatchObject({ engine: 'deepl', reflect: false, bulk: false })
+    const f = applyPresetToForm(base, preset({ translation_engine: 'nllb', engine_model: null }), c)
+    expect(f).toMatchObject({ engine: 'nllb', reflect: false, bulk: false })
   })
 
   it('moves the config default engine only when the preset has one', () => {

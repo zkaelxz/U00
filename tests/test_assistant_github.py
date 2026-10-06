@@ -31,8 +31,13 @@ class Resp:
     def __init__(self, status, body):
         self.status_code, self._body = status, body
 
-    def json(self):
-        return self._body
+    headers = {}
+
+    def iter_content(self, size):
+        yield json.dumps(self._body).encode()
+
+    def close(self):
+        pass
 
 
 class FakeGitHub:
@@ -42,7 +47,7 @@ class FakeGitHub:
         self.trees = []
 
     def request(self, method, url, headers=None, json=None, params=None, timeout=None,
-                allow_redirects=True):
+                allow_redirects=True, stream=False):
         assert timeout and not allow_redirects
         assert url.startswith("https://api.github.com/") and TOKEN not in url
         path = url[len("https://api.github.com"):]
@@ -79,7 +84,7 @@ class FakeGitHub:
 @pytest.fixture
 def env(isolated_db, tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(path))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
     monkeypatch.delenv("BAIHE_GITHUB_TOKEN", raising=False)
     return path
 
@@ -417,3 +422,25 @@ def test_failed_pr_names_the_branch_it_left(ready, monkeypatch):
         gh.deliver(PATCH, "Fix", sha256=prev["sha256"], confirm=True)
     assert "baihe-assistant/fix-" in e.value.message and "Draft pull requests" in e.value.message
     assert not any(m in ("PATCH", "PUT", "DELETE") for m, *_ in ready.calls)
+
+
+def test_an_oversized_github_response_is_refused(monkeypatch):
+    import requests
+    from services.service_errors import ServiceError
+
+    class Endless:
+        status_code = 200
+        headers = {}
+        closed = False
+
+        def iter_content(self, size):
+            while True:
+                yield b"x" * size
+
+        def close(self):
+            Endless.closed = True
+    monkeypatch.setattr(gh, "MAX_RESPONSE_BYTES", 1000)
+    monkeypatch.setattr(requests, "request", lambda *a, **k: Endless())
+    with pytest.raises(ServiceError, match="more data than expected"):
+        gh._call("tok", "GET", "/user")
+    assert Endless.closed

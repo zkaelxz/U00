@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { mockBackups } from './backupsMocks'
+import { openSettingsGroups } from './settingsNav'
 
 // Phone project (390x844, touch): the Settings "Automatic backups" Card and
 // restoring one drama from a backup copy in Library tools, on the stateful
@@ -27,6 +28,7 @@ async function tallEnough(scope: Locator, selector: string) {
 test('Settings card fits a phone with 44px targets', async ({ page }) => {
   await mockBackups(page)
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Automatic backups', exact: true })
   await expect(card.getByTestId('auto-backup-snapshot')).toContainText('Database only')
   await card.scrollIntoViewIfNeeded()
@@ -43,7 +45,7 @@ test('Settings card fits a phone with 44px targets', async ({ page }) => {
 
 test('restore one drama from the newest copy on a phone', async ({ page }) => {
   const state = await mockBackups(page)
-  await page.goto('/')
+  await page.goto('/#/library-tools')
   const summary = page.locator('summary', { hasText: 'Backup & storage' })
   const details = page.locator('details.section', { has: summary })
   if ((await details.getAttribute('open')) === null) await summary.click()
@@ -87,7 +89,7 @@ test('restore one drama from the newest copy on a phone', async ({ page }) => {
 
 test('import from a backup file fits a phone with 44px targets', async ({ page }) => {
   await mockBackups(page)
-  await page.goto('/')
+  await page.goto('/#/library-tools')
   const summary = page.locator('summary', { hasText: 'Backup & storage' })
   const details = page.locator('details.section', { has: summary })
   if ((await details.getAttribute('open')) === null) await summary.click()

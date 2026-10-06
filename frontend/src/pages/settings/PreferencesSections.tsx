@@ -12,8 +12,9 @@
  */
 import { useState, type ReactNode } from 'react'
 
-import { clearEndpointUrl, setEndpointUrl, updatePreferences } from '../../api/settings'
+import { clearEndpointUrl, resetMonthCounter, setEndpointUrl, undoMonthCounterReset, updatePreferences } from '../../api/settings'
 import { Card } from '../../components/Card'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { humanize, humanizeValue } from '../../components/labels'
@@ -29,10 +30,10 @@ import {
   checkPath,
   cookiesSummary,
   ENDPOINTS,
-  LOCALE_LABELS,
   OCR_LABELS,
   parseCap,
   parseNumCtx,
+  SAVED_ON_PC_NOTE,
   type Parsed,
 } from './preferences'
 
@@ -53,44 +54,25 @@ export function DefaultsCard(props: Props) {
     <PrefsSection
       {...common}
       as="card"
-      title="Defaults for new dramas"
-      storageKey="settings.defaults"
-      summary={`${humanize('engine', p.default_engine)} · ${LOCALE_LABELS[p.default_locale] ?? p.default_locale}${p.default_style_note ? ' · style note' : ''}`}
+      title="Translation style"
+      summary={`${humanize('locale', p.default_locale)}${p.default_style_note ? ' · style note' : ''}`}
       fromPrefs={(x) => ({
-        default_engine: x.default_engine,
         default_locale: x.default_locale,
         default_style_note: x.default_style_note,
-        episode_summary_engine: x.episode_summary_engine,
       })}
       toPatch={(d) => ({ ok: true, value: d as Partial<SettingsPreferences> })}
     >
       {(d, set) => (
         <>
-          <div className="field-row">
-            <Field label="Translation engine" help="Saved on each new drama, and used for a drama that has no engine saved.">
-              <select value={String(d.default_engine)} onChange={(e) => set('default_engine', e.target.value)}>
-                {c.engines.map((e) => (
-                  <option key={e} value={e}>{humanize('engine', e)}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="English variant" help="The Translate form starts with this.">
-              <select value={String(d.default_locale)} onChange={(e) => set('default_locale', e.target.value)}>
-                {c.locales.map((l) => (
-                  <option key={l} value={l}>{LOCALE_LABELS[l] ?? l}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <Field label="Style note" help="The Translate form's style note starts with this text.">
-            <textarea rows={2} maxLength={2000} value={String(d.default_style_note)} onChange={(e) => set('default_style_note', e.target.value)} />
-          </Field>
-          <Field label="Episode summary engine" help="After an episode is translated, one extra call writes a short summary that is passed to the next episode of the series. Local Ollama costs nothing; a cloud engine needs its key.">
-            <select value={String(d.episode_summary_engine)} onChange={(e) => set('episode_summary_engine', e.target.value)}>
-              {c.summary_engines.map((e) => (
-                <option key={e} value={e}>{humanize('engine', e)}</option>
+          <Field label="English variant" help="Spelling for new translations. The Translate form starts with this.">
+            <select value={String(d.default_locale)} onChange={(e) => set('default_locale', e.target.value)}>
+              {c.locales.map((l) => (
+                <option key={l} value={l}>{humanize('locale', l)}</option>
               ))}
             </select>
+          </Field>
+          <Field label="Style note" help="The Translate form's style note starts with this text.">
+            <textarea rows={2} maxLength={2000} value={String(d.default_style_note)} onChange={(e) => set('default_style_note', e.target.value)} />
           </Field>
         </>
       )}
@@ -107,7 +89,6 @@ export function SpendingCard(props: Props) {
       {...common}
       as="card"
       title="Spending"
-      storageKey="settings.spending"
       summary={capSummary(p.monthly_cap_usd, settings.monthly_cap_env_usd)}
       fromPrefs={(x) => ({ monthly_cap_usd: x.monthly_cap_usd === null ? '' : String(x.monthly_cap_usd) })}
       toPatch={(d) => {
@@ -122,16 +103,76 @@ export function SpendingCard(props: Props) {
             unit="USD"
             help="Checked against the estimated spend logged this calendar month (UTC). A translation won't start once it is used up, and a running one stops cleanly, keeping finished lines. 0 means no cap; blank uses BAIHE_MONTHLY_CAP_USD from .env."
           >
-            <input type="text" inputMode="decimal" value={String(d.monthly_cap_usd)} onChange={(e) => set('monthly_cap_usd', e.target.value)} placeholder={settings.monthly_cap_env_usd ? String(settings.monthly_cap_env_usd) : 'none'} />
+            <input type="text" inputMode="decimal" value={String(d.monthly_cap_usd)} onChange={(e) => set('monthly_cap_usd', e.target.value)} placeholder={settings.monthly_cap_env_usd ? String(settings.monthly_cap_env_usd) : 'None'} />
           </Field>
           <p className="muted" data-testid="cap-effective">
             {settings.effective_monthly_cap_usd > 0
               ? `Cap in effect: $${settings.effective_monthly_cap_usd.toFixed(2)} a month.`
               : 'No monthly cap in effect.'}
           </p>
+          <MonthCounter {...props} remote={common.remote} />
         </>
       )}
     </PrefsSection>
+  )
+}
+
+// Outside the preferences form: the reset is its own PC-only action, not a saved field.
+function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolean }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const cap = settings.effective_monthly_cap_usd
+  const run = (work: typeof resetMonthCounter) => {
+    setBusy(true)
+    setError(null)
+    work().then(
+      (r) => {
+        onSettings({ ...settings, ...r.after })
+        setBusy(false)
+      },
+      (e: unknown) => {
+        setError(e)
+        setBusy(false)
+      },
+    )
+  }
+  const resetAt = settings.month_spend_reset_at
+  return (
+    <div data-testid="month-counter">
+      <p data-testid="month-spend">
+        This month: ${settings.month_spend_usd.toFixed(2)}
+        {resetAt ? `, counted toward the cap since reset: $${settings.month_spend_counted_usd.toFixed(2)}` : ''}
+      </p>
+      {resetAt ? (
+        <p className="muted" data-testid="month-reset-at">
+          Counter reset on {new Date(resetAt + 'Z').toLocaleString()}.
+        </p>
+      ) : null}
+      {error ? <ErrorBanner error={error} /> : null}
+      {remote ? null : (
+        <div className="actions">
+          <ConfirmButton
+            name="this month's counter"
+            label="Reset this month's counter…"
+            verb="reset"
+            tone="primary"
+            busy={busy}
+            onConfirm={() => run(resetMonthCounter)}
+          />
+          {resetAt ? (
+            <button type="button" className="link" disabled={busy} onClick={() => run(undoMonthCounterReset)}>
+              Undo reset
+            </button>
+          ) : null}
+        </div>
+      )}
+      {remote ? null : (
+        <p className="muted">
+          Keeps your history, starts counting from now.{' '}
+          {cap > 0 ? `The cap stays at $${cap.toFixed(2)}.` : 'No cap is set.'}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -145,7 +186,6 @@ export function AdvancedCard(props: Props) {
       <PrefsSection
         {...common}
         title="OCR"
-        storageKey="settings.ocr"
         summary={OCR_LABELS[p.ocr_backend] ?? humanizeValue(p.ocr_backend)}
         fromPrefs={(x) => ({
           ocr_backend: x.ocr_backend,
@@ -177,7 +217,6 @@ export function AdvancedCard(props: Props) {
       <PrefsSection
         {...common}
         title="Offline and performance"
-        storageKey="settings.offline"
         summary={[
           p.whisper_model_path ? 'Whisper folder set' : 'Whisper downloads',
           p.ollama_num_ctx_override ? `num_ctx ${p.ollama_num_ctx_override}` : 'num_ctx auto',
@@ -199,7 +238,7 @@ export function AdvancedCard(props: Props) {
               <input type="text" spellCheck={false} value={String(d.whisper_model_path)} onChange={(e) => set('whisper_model_path', e.target.value)} />
             </Field>
             <Field label="Ollama context window" unit="tokens" help="Blank or 0 sizes it from each prompt (recommended). A value here can only raise the window above that estimate, never lower it.">
-              <input type="text" inputMode="numeric" value={String(d.ollama_num_ctx_override)} onChange={(e) => set('ollama_num_ctx_override', e.target.value)} placeholder="auto" />
+              <input type="text" inputMode="numeric" value={String(d.ollama_num_ctx_override)} onChange={(e) => set('ollama_num_ctx_override', e.target.value)} placeholder="Auto" />
             </Field>
           </>
         )}
@@ -207,7 +246,6 @@ export function AdvancedCard(props: Props) {
       <PrefsSection
         {...common}
         title="Downloads"
-        storageKey="settings.downloads"
         summary={`Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file)}`}
         fromPrefs={(x) => ({ cookies_browser: x.cookies_browser ?? '', cookies_file: x.cookies_file, lncrawl_cmd: x.lncrawl_cmd })}
         toPatch={(d) => {
@@ -224,7 +262,7 @@ export function AdvancedCard(props: Props) {
               login for video downloads from a URL and for Live capture started on this PC. Other
               devices never get these cookies.
             </p>
-            <Field label="Cookies from browser" help="yt-dlp reads this browser's cookies on the Baihe PC.">
+            <Field label="Cookies from browser" help="The downloader (yt-dlp) reads this browser's cookies on the Baihe PC.">
               <select value={String(d.cookies_browser)} onChange={(e) => set('cookies_browser', e.target.value)}>
                 <option value="">None</option>
                 {c.cookie_browsers.map((b) => (
@@ -232,10 +270,10 @@ export function AdvancedCard(props: Props) {
                 ))}
               </select>
             </Field>
-            <Field label="cookies.txt file" help="The path to a cookies.txt file on the Baihe PC (export one with a browser add-on such as Get cookies.txt). Used instead of the browser above when set. Only the path is saved here, never the file's contents.">
+            <Field label="Cookie file (cookies.txt)" help="The path to a cookies.txt file on the Baihe PC (export one with a browser add-on such as Get cookies.txt). Used instead of the browser above when set. Only the path is saved here, never the file's contents.">
               <input type="text" spellCheck={false} value={String(d.cookies_file)} onChange={(e) => set('cookies_file', e.target.value)} />
             </Field>
-            <Field label="lightnovel-crawler program" help="Only needed if you installed lightnovel-crawler (a separate program you install yourself) and it isn't on PATH. The full path to lncrawl on the Baihe PC; the file must be named lncrawl or lightnovel-crawler. Blank to find it on PATH.">
+            <Field label="Novel downloader (lightnovel-crawler)" help="Only needed if you installed lightnovel-crawler (a separate program you install yourself) and it isn't on PATH. The full path to lncrawl on the Baihe PC; the file must be named lncrawl or lightnovel-crawler. Blank to find it on PATH.">
               <input type="text" spellCheck={false} value={String(d.lncrawl_cmd)} onChange={(e) => set('lncrawl_cmd', e.target.value)} placeholder="C:\Users\you\.local\bin\lncrawl.exe" />
             </Field>
           </>
@@ -262,7 +300,6 @@ type Draft = Record<string, string | boolean | number | null>
 type PrefsSectionProps = {
   as?: 'card' | 'section'
   title: string
-  storageKey: string
   summary: string
   prefs: SettingsPreferences
   remote: boolean
@@ -272,7 +309,7 @@ type PrefsSectionProps = {
   children: (d: Draft, set: (key: string, value: string | boolean) => void) => ReactNode
 }
 
-function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
+function PrefsSection({ as = 'section', title, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
   const [draft, setDraft] = useState<Draft>(() => fromPrefs(prefs))
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -281,7 +318,7 @@ function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remot
 
   if (remote) {
     return (
-      <Block as={as} title={title} summary={PC_ONLY_SUMMARY} storageKey={storageKey}>
+      <Block as={as} title={title} summary={PC_ONLY_SUMMARY}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Block>
     )
@@ -323,7 +360,7 @@ function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remot
   }
 
   return (
-    <Block as={as} title={title} summary={summary} storageKey={storageKey}>
+    <Block as={as} title={title} summary={summary}>
       <div style={grid}>
         <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
         {children(draft, set)}
@@ -346,7 +383,7 @@ function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remot
 }
 
 // A Card (always open; the summary is its meta line) or a Section fold.
-function Block({ as, title, summary, storageKey, children }: { as: 'card' | 'section'; title: string; summary: string; storageKey: string; children: ReactNode }) {
+function Block({ as, title, summary, children }: { as: 'card' | 'section'; title: string; summary: string; children: ReactNode }) {
   if (as === 'card')
     return (
       <Card title={title} meta={summary} aria-label={title}>
@@ -354,7 +391,7 @@ function Block({ as, title, summary, storageKey, children }: { as: 'card' | 'sec
       </Card>
     )
   return (
-    <Section title={title} summary={summary} storageKey={storageKey}>
+    <Section title={title} summary={summary}>
       {children}
     </Section>
   )
@@ -367,18 +404,16 @@ function EndpointsSection({ settings, remote, onSettings }: { settings: Settings
     // Away from the PC the addresses aren't sent, but whether each is set is (engine_keys).
     const configured = ENDPOINTS.filter((e) => settings.engine_keys[e.name]).length
     return (
-      <Section title={title} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`} storageKey="settings.endpoints">
+      <Section title={title} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`}>
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )
   }
   return (
-    <Section title={title} summary={`${set} of ${ENDPOINTS.length} set`} storageKey="settings.endpoints">
+    <Section title={title} summary={`${set} of ${ENDPOINTS.length} set`}>
       <div style={grid}>
         <p className="settings-note">
-          Addresses of local servers Baihe talks to. Saved to .env on the Baihe PC, like keys, so
-          changing them works only on that PC (on when started with start.bat; otherwise set
-          BAIHE_API_ALLOW_KEY_WRITES=1).
+          Addresses of local servers Baihe talks to. {SAVED_ON_PC_NOTE}
         </p>
         {ENDPOINTS.map((e) => (
           <EndpointForm

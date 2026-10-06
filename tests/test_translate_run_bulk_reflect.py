@@ -80,7 +80,7 @@ def _env(monkeypatch):
     FakeProvider.submitted, FakeProvider.cancelled, FakeProvider._jobs = [], [], {}
     monkeypatch.setattr(bt, "POLL_INTERVAL_SECONDS", 0.02)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "sk-fake")
-    monkeypatch.setattr(svc, "_summary_engine", lambda *a, **k: (None, None))
+    monkeypatch.setattr(svc, "pick_summary_engine", lambda *a, **k: (None, None))
     yield
     background_jobs.clear_all_jobs()
 
@@ -171,7 +171,7 @@ def test_mode_validation(isolated_db, monkeypatch):
     with pytest.raises(InvalidInputError):
         svc.start_translate_run(did, bulk=True, line_ids=[db.load_lines(did)[0]["id"]])
     with pytest.raises(UnsupportedOperationError):
-        svc.start_translate_run(did, engine_name="deepl", reflect=True)
+        svc.start_translate_run(did, engine_name="nllb", reflect=True)
     with pytest.raises(UnsupportedOperationError):
         svc.start_translate_run(did, engine_name="ollama", bulk=True)
     with pytest.raises(UnsupportedOperationError):
@@ -184,11 +184,11 @@ def test_reflect_live_run_uses_reflect_helper_and_saves_notes(isolated_db, monke
     did = _seed([("你好", ""), ("再见", "keep")])
     seen = []
 
-    def fake_reflect(engine, zh_lines, context, usage_cb=None, max_retries=1):
+    def fake_reflect(engine, zh_lines, context, usage_cb=None, max_retries=1, pass_cb=None):
         seen.append(list(context["line_ids"]))
         return [f"R:{z}" for z in zh_lines], ["crit" for _ in zh_lines]
-    monkeypatch.setattr(te, "reflect_translate_batch", fake_reflect)
-    out = svc.start_translate_run(did, engine_name="test_offline", reflect=True)
+    monkeypatch.setattr("engine_backends.translate_pipeline.reflect_translate_batch", fake_reflect)
+    out = svc.start_translate_run(did, engine_name="fake", reflect=True)
     assert out["reflect"] and not out["bulk"] and out["job_id"] == f"translate_{did}"
     assert _wait(out["job_id"])["status"] == "done"
     ens = {r["zh"]: r["en"] for r in db.load_lines(did)}
@@ -203,7 +203,7 @@ def test_api_reflect_and_bulk_codes(isolated_db, monkeypatch):
     _fake_engines(monkeypatch)
     client = TestClient(create_app(), headers={"X-Baihe-Local": "1"})
     r = client.post(f"/api/translate-run/dramas/{did}/run",
-                    json={"engine": "deepl", "reflect": True})
+                    json={"engine": "nllb", "reflect": True})
     assert r.status_code == 400
     r = client.post(f"/api/translate-run/dramas/{did}/run",
                     json={"bulk": True, "fallback_chain": [{"engine": "gemini"}]})

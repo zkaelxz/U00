@@ -13,13 +13,16 @@ so the React client (and later the browser extension) can branch on
 |------|-------------------------|---------------------------------------------|
 | 422  | validation_error        | FastAPI request validation, `InvalidInputError` |
 | 401  | unauthenticated         | `UnauthenticatedError` (auth on, no session) |
-| 403  | forbidden               | `ForbiddenError` (missing permission/CSRF)  |
+| 403  | forbidden               | `ForbiddenError` (missing permission)       |
+| 403  | csrf_failed             | `CsrfFailedError` (missing CSRF token)      |
 | 429  | rate_limited            | `RateLimitedError`                          |
 | 404  | not_found               | `NotFoundError`, unknown route              |
 | 400  | unsupported_operation   | `UnsupportedOperationError`                 |
+| 405  | unsupported_operation   | a method the route does not allow           |
 | 409  | conflict                | `ConflictError`                             |
 | 413  | too_large               | an over-cap request body (HTTPException)    |
 | 503  | dependency_unavailable  | `DependencyUnavailableError`                |
+| 503  | sources_db_busy         | sources.db stayed locked past its timeout   |
 | 500  | application_error       | any other `ServiceError`                    |
 | 500  | internal_error          | anything unexpected (a bug)                 |
 
@@ -27,7 +30,7 @@ What never reaches a client: a traceback, an exception's raw text for
 an unexpected error (it can carry a path or a key), or the offending
 input value on a validation error. Unexpected errors are logged in full
 to the app's own log file (`applog`) instead, where they already go for
-the Streamlit UI. Known messages are still passed through
+the other surfaces. Known messages are still passed through
 `translate_engines.redact_secrets` in case a service slipped one in.
 """
 
@@ -76,6 +79,10 @@ async def _service_error(request: Request, exc: ServiceError):
                         content=error_body(exc.code, _redact(exc.message), exc.details))
 
 
+async def _sources_db_busy(request: Request, exc):
+    return JSONResponse(status_code=503, content=error_body("sources_db_busy", _redact(str(exc))))
+
+
 async def _validation_error(request: Request, exc: RequestValidationError):
     # Only where and what -- never the rejected input itself, which could
     # be anything a caller pasted (including a key).
@@ -103,6 +110,8 @@ async def _unexpected_error(request: Request, exc: Exception):
 
 
 def install_error_handlers(app: FastAPI):
+    from sources.store import SourcesDatabaseBusy
+    app.add_exception_handler(SourcesDatabaseBusy, _sources_db_busy)
     app.add_exception_handler(ServiceError, _service_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.add_exception_handler(StarletteHTTPException, _http_error)

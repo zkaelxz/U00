@@ -1,7 +1,12 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the Benchmark Lab with a golden set and two
-// finished runs of the free "Offline test" engine, seeded through the real API
+// finished runs of the fake engine, seeded through the real API
 // (nothing is spent). Checks run cards, the Arena stacked one run per row,
 // 44px targets and no sideways scroll. BENCH_SHOTS_DIR=<dir> saves a screenshot.
 // Named lab-* on purpose: a run leaves a finished "benchmark_lab" job on the
@@ -22,7 +27,7 @@ async function noSideways(page: Page) {
 async function smallTargets(page: Page) {
   return page.locator('.bench-page button:not(.link):not(.field-help-btn):not(.toggle), .bench-page summary, .bench-page select, .bench-page input:not([type=checkbox]), .bench-page a.btn').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
 }
 
@@ -33,7 +38,7 @@ async function waitForJob(request: APIRequestContext) {
 async function seedRun(request: APIRequestContext, setName: string, label: string) {
   const resp = await request.post('/api/benchmark/runs', {
     headers: LOCAL,
-    data: { stage: 'translation', configs: [{ engine: 'test_offline' }], set_name: setName, label, prompt_version: label, confirm: true },
+    data: { stage: 'translation', configs: [{ engine: 'fake' }], set_name: setName, label, prompt_version: label, confirm: true },
   })
   expect(resp.status()).toBe(200)
   await waitForJob(request)
@@ -64,7 +69,6 @@ test('Benchmark Lab on a phone: run cards, stacked Arena, 44px targets, no sidew
   const sets = page.getByRole('region', { name: 'Golden sets' })
   await sets.getByRole('button', { name: `Show cases in ${setName} (Application)` }).click()
   await expect(sets.getByRole('region', { name: `Cases in ${setName}` }).locator('li')).toHaveCount(2)
-  await sets.locator('summary', { hasText: 'Import golden set' }).click()
   await noSideways(page)
 
   // Tick both runs by tapping their row labels, compare.

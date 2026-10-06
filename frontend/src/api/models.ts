@@ -1,8 +1,8 @@
-// Model health (Step 40; api/routers/model_registry_routes.py,
+// Model health (api/routers/model_registry_routes.py,
 // api/model_registry_schemas.py): is a model this app is set up to use
 // deprecated, retired or no longer listed by its provider? The status read
 // needs admin.diagnostics and never calls out. The provider check and the
-// preset switch are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403
+// preset switch and model overrides are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403
 // marks the tab remote). Nothing is ever switched automatically, and no key
 // is ever returned.
 import { getJson, postJson } from './client'
@@ -31,6 +31,12 @@ export interface ModelStatusItem {
   // 0 (current/unknown) to 3 (retired/not listed).
   severity: number
   can_switch: boolean
+  // Defaults and tiers only: the engine or tier key, the built-in model, whether
+  // the user replaced it, and the models they could choose instead.
+  key?: string | null
+  builtin_model?: string | null
+  is_override?: boolean
+  candidates?: string[]
 }
 
 export interface EngineCheck {
@@ -46,9 +52,13 @@ export interface ModelStatus {
   checked_at: string | null
   engines_checked: Record<string, EngineCheck>
   registry_updated: string | null
+  // The opt-in to offer models the providers list that the app doesn't know yet,
+  // and the ones it adds right now (engine -> ids).
+  offer_provider_models?: boolean
+  extra_models?: Record<string, string[]>
 }
 
-export interface PresetModelSwitchResult {
+interface PresetModelSwitchResult {
   preset_id: number
   engine: string | null
   from_model: string
@@ -68,3 +78,29 @@ export const switchPresetModel = (presetId: number, fromModel: string, toModel: 
     { from_model: fromModel, to_model: toModel, confirm: true },
     pcOnlyFetch(f),
   )
+
+export interface ModelOverrideResult {
+  kind: string
+  key: string
+  engine: string
+  model?: string | null
+  from_model?: string | null
+  to_model?: string | null
+  builtin_model?: string | null
+}
+
+// PC only: use another model instead of a built-in default or tier model; 409 when the model changed since it was read.
+export const setModelOverride = (kind: 'default' | 'tier', key: string, fromModel: string, toModel: string, f?: Fetch) =>
+  postJson<ModelOverrideResult>(
+    `${BASE}/overrides`,
+    { kind, key, from_model: fromModel, to_model: toModel, confirm: true },
+    pcOnlyFetch(f),
+  )
+
+// PC only: go back to the built-in model.
+export const clearModelOverride = (kind: 'default' | 'tier', key: string, f?: Fetch) =>
+  postJson<ModelOverrideResult>(`${BASE}/overrides/clear`, { kind, key, confirm: true }, pcOnlyFetch(f))
+
+// PC only (POST /api/settings is local_only): turn the "offer models the providers list" opt-in on or off.
+export const setOfferProviderModels = (on: boolean, f?: Fetch) =>
+  postJson<unknown>('/api/settings', { offer_provider_models: on === true }, pcOnlyFetch(f))

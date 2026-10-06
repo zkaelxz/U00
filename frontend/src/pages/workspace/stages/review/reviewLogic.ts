@@ -1,6 +1,7 @@
 import { ApiError } from '../../../../api/client'
+import type { SpeakerTimeSummary } from '../../../../types/workspace'
 import type { JobRecord } from '../../../../types/jobs'
-import type { ResegmentPreview } from '../../../../types/restructure'
+import type { ResegmentPreview, ResplitResult } from '../../../../types/restructure'
 import type { TranslateEngine } from '../../../../types/translate'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { humanize } from '../../../../components/labels'
@@ -8,6 +9,7 @@ import { reflectAvailable } from '../../translateForm'
 import { spendText } from './reviewResults'
 import type { LineFilter, LinePatch, ReviewLine, ReviewMatch } from '../../../../types/review'
 import { lineNumber } from '../../../../lineNumber'
+import { languageLabel } from '../../../../labels'
 
 export interface LineDraft {
   zh: string
@@ -16,6 +18,31 @@ export interface LineDraft {
   start: string
   end: string
   sfx: boolean
+  // '' = the drama's source language.
+  lang: string
+}
+
+// What one line's spoken language may be (core.LINE_LANGUAGES).
+export const LINE_LANGUAGES = ['zh', 'ja', 'ko', 'en'] as const
+
+// The row chip ("KO"): only for a line spoken in another language than the
+// drama's, so a single-language drama shows nothing new.
+export function lineLangChip(lang: string | null | undefined, sourceLanguage: string | null | undefined): string | null {
+  if (!lang || lang === (sourceLanguage || 'zh')) return null
+  return lang.toUpperCase()
+}
+
+// "Set language" in the line sheet: just this line, or every line of its speaker.
+export type LanguageScope = 'line' | 'speaker'
+
+export function languageSetText(updated: number, lang: string, sourceLanguage: string | null | undefined): string {
+  const label = lang ? languageLabel(lang) : `the title default (${languageLabel(sourceLanguage || 'zh')})`
+  if (updated === 0) return `Nothing changed: already ${label}.`
+  return `Set ${updated} line${updated === 1 ? '' : 's'} to ${label}.`
+}
+
+export function titleDefaultLabel(sourceLanguage: string | null | undefined): string {
+  return `Title default (${languageLabel(sourceLanguage || 'zh')})`
 }
 
 export const PAGE_SIZE = 40
@@ -28,6 +55,7 @@ export function draftFromLine(line: ReviewLine): LineDraft {
     start: String(line.start),
     end: String(line.end),
     sfx: line.sfx,
+    lang: line.lang ?? '',
   }
 }
 
@@ -50,6 +78,10 @@ export function buildPatch(line: ReviewLine, draft: LineDraft): LinePatch | stri
   if (draft.sfx !== line.sfx) {
     patch.sfx = draft.sfx
     expected.sfx = line.sfx
+  }
+  if (draft.lang !== (line.lang ?? '')) {
+    patch.lang = draft.lang
+    expected.lang = line.lang ?? ''
   }
   for (const key of ['start', 'end'] as const) {
     if (draft[key].trim() === '' || Number.isNaN(Number(draft[key]))) return `Enter a number for ${key}.`
@@ -137,7 +169,7 @@ export function initialActiveId(lines: ReviewLine[]): number | null {
   return pick ? pick.id : null
 }
 
-export type Step = { id: number } | { page: 'next' | 'prev' } | null
+type Step = { id: number } | { page: 'next' | 'prev' } | null
 
 /** The line `delta` rows away from `activeId`, or a page change at an edge. */
 export function stepFrom(lines: ReviewLine[], activeId: number | null, delta: 1 | -1, canPage: { next: boolean; prev: boolean }): Step {
@@ -301,6 +333,34 @@ export function resegmentSummary(p: ResegmentPreview): string {
   return `${p.line_count_before} → ${p.line_count_after} lines; ${p.changed.length} change; ${p.translated} translated, ${p.flagged} flagged, ${notes} would be split`
 }
 
+/** "Split 31 lines into 118; speakers re-assigned" from a re-split summary. */
+export function resplitSummary(r: ResplitResult): string {
+  const n = r.split_lines ?? 0
+  if (n === 0) return r.note || 'No line is over the length limits. Nothing changed.'
+  const pieces = (r.line_count ?? 0) - (r.lines_before ?? 0) + n
+  const parts = [`Split ${n} line${n === 1 ? '' : 's'} into ${pieces}`]
+  if (r.timing === 'aligned') parts.push(`${r.aligned_lines ?? 0} timed from the audio`)
+  if (r.speakers_reassigned) parts.push('speakers re-assigned')
+  if (r.cleared_translations) parts.push(`${r.cleared_translations} translation${r.cleared_translations === 1 ? '' : 's'} cleared`)
+  return parts.join('; ') + '.' + (r.note ? ` ${r.note}` : '')
+}
+
+/** One line per speaker, e.g. "Anna  3:40 · 62% · 41 turns", biggest first. */
+export function speakerTimeLines(s: SpeakerTimeSummary): string[] {
+  return s.speakers.map((x) => `${x.label}  ${formatDuration(x.seconds)} · ${x.percent}% · ${x.turns} turn${x.turns === 1 ? '' : 's'}`)
+}
+
+/** Footer for the speaker time list: total speech and audio no turn covers. */
+export function speakerTimeFooter(s: SpeakerTimeSummary): string {
+  const gap = s.uncovered_seconds === null ? '' : `; ${formatDuration(s.uncovered_seconds)} of the audio has no speaker turn`
+  return `${formatDuration(s.total_speech_seconds)} of speech in the saved detection${gap}.`
+}
+
+/** The server asks for confirm=true when a long line already has English. */
+export function resplitNeedsConfirm(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 422 && /confirm/i.test(e.message)
+}
+
 // Lines someone edited while the version switch ran keep their own English.
 export function keptNote(n: number): string {
   if (n <= 0) return ''
@@ -356,12 +416,12 @@ export function llmPreviewSummary(p: ResegmentPreview & { engine: string }): str
   return `${p.line_count_before} → ${p.line_count_after} lines · ${n} line${n === 1 ? '' : 's'} split · by ${humanize('engine', p.engine)}`
 }
 
-export const RESEGMENT_CONFIRM_MESSAGE =
+const RESEGMENT_CONFIRM_MESSAGE =
   'Lines being split now carry translations, flags or notes, which would be dropped. Type the word to apply anyway.'
 export const RESEGMENT_PREVIEW_AGAIN = 'The lines changed since this preview. Preview again.'
-export const RESEGMENT_PREVIEW_GONE = 'This preview is no longer on the server. Preview again.'
+const RESEGMENT_PREVIEW_GONE = 'This preview is no longer on the server. Preview again.'
 
-export type LlmApplyProblem = 'confirm' | 'changed' | 'gone' | 'job'
+type LlmApplyProblem = 'confirm' | 'changed' | 'gone' | 'job'
 
 /**
  * Why applying the AI preview was refused, from the start request's error or

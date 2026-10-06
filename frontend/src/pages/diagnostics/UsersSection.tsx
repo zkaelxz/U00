@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { listAdminUsers, revokeUserSessions, setUserActive } from '../../api/adminUsers'
+import { listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive } from '../../api/adminUsers'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -9,16 +9,19 @@ import type { PcMode } from '../../hooks/usePcOnly'
 import { useSession } from '../../hooks/useSession'
 import type { AdminUser } from '../../types/adminUsers'
 import {
-  canChangeUsers, canViewUsers, CHANGES_AT_PC, rowBlocks, sessionsText, userName,
+  canChangeUsers, canViewUsers, CHANGES_AT_PC, revokeAdminBlock, rowBlocks, sessionsText, showRevokeAdmin,
+  userName,
 } from './adminUsers'
 import { useDetailsOpen } from './diagnosticsAdmin'
 
-type Busy = { id: number; what: 'active' | 'revoke' } | null
+type Action = 'active' | 'revoke' | 'admin'
+type Busy = { id: number; what: Action } | null
 
 /**
  * "Users": the household's accounts. An admin can deactivate or activate
- * one and end its sessions, each after a confirm step. Admin accounts can
- * only be changed on the PC (off elsewhere, with the reason). Adding people
+ * one, end its sessions, or (on the PC only; not shown elsewhere) remove an
+ * admin's rights, each after a confirm step. Admin accounts can only be
+ * changed on the PC (off elsewhere, with the reason). Adding people
  * and changing permissions stay on the PC (python -m api). Loaded when
  * opened; hidden from anyone without admin.users.read, and read-only (no
  * buttons) without admin.users, as for an admin on the household address.
@@ -46,12 +49,15 @@ function UsersBody({ signInOff, pc, canChange }: { signInOff: boolean; pc: PcMod
     if (open) load()
   }, [open, load])
 
-  const run = async (user: AdminUser, what: 'active' | 'revoke') => {
+  const run = async (user: AdminUser, what: Action) => {
     setBusy({ id: user.id, what })
     setNote('')
     setError(null)
     try {
-      if (what === 'revoke') {
+      if (what === 'admin') {
+        const r = await revokeUserAdmin(user.id)
+        setNote(`${r.email} is no longer an admin and was signed out.`)
+      } else if (what === 'revoke') {
         const r = await revokeUserSessions(user.id)
         setNote(`${user.email}: ended ${r.revoked} ${r.revoked === 1 ? 'session' : 'sessions'}.`)
       } else {
@@ -99,11 +105,15 @@ function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
   pc: PcMode
   busy: Busy
   canChange: boolean
-  onRun: (what: 'active' | 'revoke') => void
+  onRun: (what: Action) => void
 }) {
   const { deactivate: offBlock, revoke: sessBlock, activate: onBlock } = rowBlocks(u, users, pc)
+  const demote = canChange && showRevokeAdmin(u, pc)
+  const adminBlock = demote ? revokeAdminBlock(u, users) : null
   const mine = busy?.id === u.id
-  const why = canChange ? [...new Set([offBlock, sessBlock, onBlock].filter(Boolean))].join(' ') : ''
+  const why = canChange
+    ? [...new Set([offBlock, sessBlock, onBlock, adminBlock].filter(Boolean))].join(' ')
+    : ''
   const whyId = `admin-user-why-${u.id}`
   return (
     <li>
@@ -113,7 +123,7 @@ function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
         {!u.is_active && <Badge tone="warn">Deactivated</Badge>}{' '}
         {u.is_self && <Badge>You</Badge>}
         <div className="muted">
-          {[sessionsText(u.active_sessions), u.has_google_binding ? 'Google account linked' : 'has not signed in yet']
+          {[sessionsText(u.active_sessions), u.has_google_binding ? 'Google account linked' : 'Has not signed in yet']
             .join(' · ')}
         </div>
         {why && <div className="muted" id={whyId}>{why}</div>}
@@ -130,6 +140,11 @@ function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
           <ConfirmButton name={u.email} label="Activate…" verb="activate" tone="primary"
             busy={mine && busy?.what === 'active'} disabled={busy !== null || !!onBlock}
             describedBy={onBlock ? whyId : undefined} onConfirm={() => onRun('active')} />
+        )}
+        {demote && (
+          <ConfirmButton name={u.email} label="Remove admin…" verb="remove admin rights from"
+            busy={mine && busy?.what === 'admin'} disabled={busy !== null || !!adminBlock}
+            describedBy={adminBlock ? whyId : undefined} onConfirm={() => onRun('admin')} />
         )}
       </div>}
     </li>

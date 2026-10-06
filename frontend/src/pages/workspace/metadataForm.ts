@@ -76,17 +76,17 @@ export function analysisDetails(a: MediaAnalysis): [string, string][] {
   const tracks = a.subtitle_tracks ?? []
   return [
     ['Duration', formatDuration(a.duration_seconds)],
-    ['Resolution', !a.has_video ? 'audio only' : a.width && a.height ? `${a.width}×${a.height}` : 'unknown'],
+    ['Resolution', !a.has_video ? 'Audio only' : a.width && a.height ? `${a.width}×${a.height}` : 'Unknown'],
     ['Frame rate', a.fps ? `${a.fps.toFixed(2)} fps` : '—'],
-    ['Audio', a.has_audio ? 'yes' : 'no'],
+    ['Audio', a.has_audio ? 'Yes' : 'No'],
     ['Audio tracks', String(a.audio_track_count)],
-    ['Sample rate', a.sample_rate ? `${a.sample_rate} Hz` : 'unknown'],
-    ['Subtitle tracks', tracks.length ? subtitleTrackList(a) : 'none'],
+    ['Sample rate', a.sample_rate ? `${a.sample_rate} Hz` : 'Unknown'],
+    ['Subtitle tracks', tracks.length ? subtitleTrackList(a) : 'None'],
   ]
 }
 
 // "2 (Chinese ASS, unknown language SubRip)" style list of embedded subtitles.
-export function subtitleTrackList(a: MediaAnalysis): string {
+function subtitleTrackList(a: MediaAnalysis): string {
   const tracks = a.subtitle_tracks ?? []
   return `${tracks.length} (${tracks.map(trackName).join(', ')})`
 }

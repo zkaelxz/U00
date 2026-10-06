@@ -1,7 +1,7 @@
 """
 services/url_media_service.py -- download a drama's audio/video from a URL
-with yt-dlp (the Workspace Source stage's "From a URL", Streamlit
-`tabs/workspace_tab.py` "Video URL"; Sources S-5 video). The route is
+with yt-dlp (the Workspace Source stage's "From a URL"; Sources S-5
+video). The route is
 `local_only()` for now (docs/remote-access-decision.md).
 
 Checks in the request, before any job or fetch: the pasted URL is public
@@ -30,23 +30,24 @@ audio is extracted with ffmpeg inside the temp folder first, then the
 video becomes `source<ext>` and the audio `audio.wav`. The one DB write is
 field-scoped: audio_filename, [source_video_filename], source_url and,
 only when both titles are empty (re-read just before writing), title_zh.
-Audio-only leaves an older source_video_filename as is (Streamlit parity).
+Audio-only leaves an older source_video_filename as is.
 
 Errors are fixed strings: never the URL, a path or yt-dlp's raw text.
 """
 
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from urllib.parse import urljoin, urlsplit
 
 import background_jobs
 import db
+import storage
 from services import drama_service, media_upload_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -63,6 +64,9 @@ _FAILED = ("Couldn't download from that link. It may be private, region-locked o
            "supported, or yt-dlp may need an update.")
 _REJECTED = "That link is a live stream, a playlist or longer than 6 hours, so it was not downloaded."
 _TOO_LARGE = "The download is larger than the upload limit, so it was stopped."
+_DISK_NEARLY_FULL = "The drive is almost full, so the download was stopped."
+MIN_FREE_BYTES = 2 * 1024 ** 3
+SPACE_CHECK_SECONDS = 2.0
 _TOO_SLOW = "The download took longer than 2 hours, so it was stopped."
 _EXTRACT_FAILED = "Could not read audio from the downloaded video."
 _start_lock = threading.Lock()
@@ -102,14 +106,27 @@ def _has_audio(drama: dict, drama_id: int) -> bool:
 
 
 class _Caps:
-    """The progress hook and match filter for one download: byte cap, wall
-    clock cap and cancel (raise video_download.DownloadAborted), and the
-    live/playlist/duration filter (remembers that it rejected)."""
+    """The progress hook and match filter for one download: wall clock cap,
+    a free-disk-space floor and cancel (raise video_download.DownloadAborted),
+    and the live/playlist/duration filter (remembers that it rejected). There
+    is no size cap: a long video is allowed, but never to the point of filling
+    the drive."""
 
-    def __init__(self, job_id: str, limit_bytes: int, clock=time.monotonic):
-        self.job_id, self.limit, self.clock = job_id, limit_bytes, clock
+    def __init__(self, job_id: str, tmp_dir: str, clock=time.monotonic):
+        self.job_id, self.tmp_dir, self.clock = job_id, tmp_dir, clock
         self.started = clock()
         self.rejected = False
+        self._space_checked = float("-inf")
+
+    def _drive_nearly_full(self) -> bool:
+        now = self.clock()
+        if now - self._space_checked < SPACE_CHECK_SECONDS:
+            return False
+        self._space_checked = now
+        try:
+            return shutil.disk_usage(self.tmp_dir).free < MIN_FREE_BYTES
+        except OSError:
+            return False
 
     def hook(self, d):
         import video_download
@@ -117,10 +134,10 @@ class _Caps:
             raise video_download.DownloadAborted("cancelled")
         if self.clock() - self.started > MAX_WALL_SECONDS:
             raise video_download.DownloadAborted("time")
+        if self._drive_nearly_full():
+            raise video_download.DownloadAborted("space")
         got = d.get("downloaded_bytes") or 0
         total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-        if got > self.limit or total > self.limit:
-            raise video_download.DownloadAborted("size")
         if d.get("status") == "downloading":
             frac = min(got / total, 1.0) if total else 0.0
             background_jobs.update_progress(self.job_id, 0.05 + 0.8 * frac, "Downloading...")
@@ -144,7 +161,6 @@ def ydl_options(tmp_dir: str, caps: _Caps) -> dict:
         "noplaylist": True,
         "playlistend": 1,
         "match_filter": caps.match_filter,
-        "max_filesize": caps.limit,
         "progress_hooks": [caps.hook],
         "socket_timeout": SOCKET_TIMEOUT,
         "retries": 3,
@@ -193,8 +209,8 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
     current = url
     for _ in range(MAX_DIRECT_REDIRECTS + 1):
         try:
-            ip = ms._check_public_url(current)
-            resp = ms._pinned_get(current, ip, _DIRECT_HEADERS)
+            ip = ms.check_public_url(current)
+            resp = ms.pinned_get(current, ip, _DIRECT_HEADERS)
         except Exception:
             raise RuntimeError(_FAILED) from None
         try:
@@ -264,9 +280,45 @@ def _extract_audio(job_id: str, src: str, wav: str, cwd: str):
         raise RuntimeError(_EXTRACT_FAILED) from None
 
 
+# yt-dlp's message pattern -> a fixed sentence. Only these sentences are ever
+# shown, so no yt-dlp text, link, id or local path can reach the screen.
+_FAILURE_REASONS = (
+    (r"sign in|confirm you.re not a bot|login required|log in",
+     "The site asked to sign in, or is treating this PC as a bot."),
+    (r"members[- ]only|join this channel|premium",
+     "The video is members-only."),
+    (r"age[- ]restrict|confirm your age|inappropriate for some users",
+     "The video is age-restricted."),
+    (r"not available in your country|geo[- ]?restrict|blocked it in your country|region",
+     "The video isn't available in this region."),
+    (r"requested format is not available|no video formats|no formats|javascript runtime|"
+     r"challenge solving|n.?sig",
+     "No downloadable format was found: yt-dlp may need an update or a JavaScript runtime."),
+    (r"http error 429|too many requests|rate[- ]?limit",
+     "The site is rate-limiting this PC. Wait a while and try again."),
+    (r"http error 40[13]|forbidden",
+     "The site refused the download."),
+    (r"unsupported url|no suitable extractor",
+     "yt-dlp doesn't support that site."),
+    (r"private video|video unavailable|removed|has been terminated|copyright|"
+     r"no longer available|does not exist",
+     "The video is private or unavailable."),
+)
+_FAILURE_RES = tuple((re.compile(pattern, re.I), text) for pattern, text in _FAILURE_REASONS)
+
+
+def _failure_reason(exc: BaseException) -> str:
+    """A fixed sentence for a recognised yt-dlp failure, else ''."""
+    haystack = " ".join(str(e) for e in (exc.__cause__, exc) if e is not None)
+    for rx, text in _FAILURE_RES:
+        if rx.search(haystack):
+            return text
+    return ""
+
+
 def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
     import video_download
-    caps = _Caps(job_id, media_upload_service.max_upload_bytes())
+    caps = _Caps(job_id, tmp)
     fetched = {}
     try:
         path = video_download.download(
@@ -277,24 +329,25 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
         reason = str(e)
         if reason == "cancelled":
             raise background_jobs.JobCancelled(job_id) from None
-        raise RuntimeError(_TOO_LARGE if reason == "size" else _TOO_SLOW) from None
+        raise RuntimeError(_DISK_NEARLY_FULL if reason == "space" else _TOO_SLOW) from None
     except ImportError:
         raise RuntimeError(_NO_YTDLP) from None
-    except Exception:
-        raise RuntimeError(_REJECTED if caps.rejected else _FAILED) from None
+    except Exception as e:
+        if caps.rejected:
+            raise RuntimeError(_REJECTED) from None
+        reason = _failure_reason(e)
+        raise RuntimeError(f"{reason} {_FAILED}" if reason else _FAILED) from None
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
     real = os.path.realpath(path)
     if not real.startswith(os.path.realpath(tmp) + os.sep) or not os.path.isfile(real):
         raise RuntimeError(_FAILED)
-    if os.path.getsize(real) > caps.limit:
-        raise RuntimeError(_TOO_LARGE)
     return real, fetched.get("title")
 
 
 def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
     ddir = db.drama_dir(drama_id)
-    tmp = tempfile.mkdtemp(dir=ddir, prefix=".urldl_")
+    tmp = storage.new_workdir(job_id)
     try:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
         direct_ext = direct_media_ext(url)
@@ -345,17 +398,17 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
-    if (drama.get("content_mode") or "audio_drama") not in media_upload_service._UPLOAD_CONTENT_MODES:
-        raise InvalidInputError(media_upload_service._NO_UPLOAD_MODE)
+    if (drama.get("content_mode") or "audio_drama") not in media_upload_service.UPLOAD_CONTENT_MODES:
+        raise InvalidInputError(media_upload_service.NO_UPLOAD_MODE)
     if _has_audio(drama, drama_id) and not confirm_replace_audio:
         raise InvalidInputError("This drama already has audio. Confirm replacing it first.",
                                 details={"reason": "confirm_replace_audio"})
     if direct_media_ext(url) is None and not _yt_dlp_installed():
         raise DependencyUnavailableError(_NO_YTDLP)
-    with media_upload_service._claims_lock:
-        if drama_id in media_upload_service._claimed:
+    with media_upload_service.claims_lock:
+        if drama_id in media_upload_service.claimed:
             raise ConflictError("Another upload is in progress for this drama.")
-        media_upload_service._claimed.add(drama_id)
+        media_upload_service.claimed.add(drama_id)
     try:
         with _start_lock:
             if drama_service.job_running_for_drama(drama_id):
@@ -370,5 +423,5 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
                 raise ConflictError(_BUSY)
         return {"job_id": job_id}
     finally:
-        with media_upload_service._claims_lock:
-            media_upload_service._claimed.discard(drama_id)
+        with media_upload_service.claims_lock:
+            media_upload_service.claimed.discard(drama_id)

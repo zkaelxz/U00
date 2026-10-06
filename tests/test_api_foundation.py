@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
+import core
 from core import Line
 
 
@@ -283,8 +284,8 @@ class TestReaderEndpoint:
 
         def boom(*a, **k):
             raise AssertionError("the reader endpoint made a live dictionary lookup call")
-        import dictionary
-        monkeypatch.setattr(dictionary, "build_word_definitions", boom)
+        from services import reader_service
+        monkeypatch.setattr(reader_service, "_define_words_llm", boom)
         resp = client.get(f"/api/reader/dramas/{did}/page")
         assert resp.status_code == 200
 
@@ -333,6 +334,24 @@ class TestJobsEndpoint:
         body = client.get("/api/jobs/j1").json()
         assert body["status"] == "done"
 
+    def test_running_job_without_recent_progress_is_flagged_stalled(self, client, isolated_db):
+        import time
+        import background_jobs
+        isolated_db.save_job_record("stall1", status="running", progress=0.2, message="Transcribing")
+        old = time.time() - background_jobs.JOB_STALL_SECONDS - 60
+        background_jobs._jobs["stall1"] = {
+            "status": "running", "progress": 0.2, "message": "Transcribing", "error": None,
+            "started_at": old, "progress_at": old, "cancel_requested": False, "result": None}
+        try:
+            body = client.get("/api/jobs/stall1").json()
+            assert body["status"] == "running" and body["stalled"] is True
+            assert "may be stalled" in body["message"]
+            background_jobs._jobs["stall1"]["progress_at"] = time.time()
+            body = client.get("/api/jobs/stall1").json()
+            assert body["stalled"] is False and "stalled" not in body["message"]
+        finally:
+            background_jobs.clear_job("stall1")
+
     def test_unknown_job_is_404(self, client, isolated_db):
         resp = client.get("/api/jobs/nope")
         assert resp.status_code == 404
@@ -352,9 +371,10 @@ class TestSettingsEndpoint:
 
     def test_overview_contract_shape(self, client, isolated_db):
         body = client.get("/api/settings").json()
-        assert set(body) == {"engine_keys", "gpu_limit_enabled", "notify_on_completion",
-                             "use_gpu", "gemini_free_tier", "bulk_auto_resume", "preferences", "endpoints",
-                             "monthly_cap_env_usd", "effective_monthly_cap_usd", "choices"}
+        assert set(body) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "notify_on_completion",
+                             "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "preferences", "endpoints",
+                             "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
+                             "month_spend_counted_usd", "month_spend_reset_at", "choices"}
         assert isinstance(body["engine_keys"], dict)
         assert "claude" in body["engine_keys"]
         assert "monthly_cap_usd" not in body["engine_keys"]
@@ -384,10 +404,15 @@ class TestTranslateEndpoints:
         body = client.get("/api/translate/engines").json()
         names = {e["name"] for e in body["items"]}
         assert "claude" in names
-        assert "test_offline" in names
         for e in body["items"]:
             assert isinstance(e["free"], bool)
             assert isinstance(e["key_configured"], bool)
+
+    def test_engines_name_settings_default_engine(self, client, isolated_db):
+        from services import settings_service
+        body = client.get("/api/translate/engines").json()
+        assert body["default_engine"] == settings_service.get_default_engine()
+        assert body["default_engine"] in {e["name"] for e in body["items"]}
 
     def test_engines_never_leak_a_key_value(self, client, isolated_db, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
@@ -399,14 +424,14 @@ class TestTranslateEndpoints:
         assert body == {"items": []}
 
     def test_history_reflects_saved_translations(self, client, isolated_db):
-        isolated_db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        isolated_db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         body = client.get("/api/translate/history").json()
         assert len(body["items"]) == 1
         assert body["items"][0]["source_text"] == "你好"
 
     def test_translate_with_test_offline_engine(self, client, isolated_db):
         resp = client.post("/api/translate", json={
-            "text": "你好", "engine": "test_offline",
+            "text": "你好", "engine": "fake",
             "source_language": "zh", "target_language": "en",
         })
         assert resp.status_code == 200
@@ -416,7 +441,7 @@ class TestTranslateEndpoints:
 
     def test_translate_never_accepts_or_leaks_a_key_field(self, client, isolated_db):
         resp = client.post("/api/translate", json={
-            "text": "你好", "engine": "test_offline",
+            "text": "你好", "engine": "fake",
             "source_language": "zh", "target_language": "en",
             "api_key": "sk-should-be-ignored",
         })
@@ -441,9 +466,12 @@ class TestTranslateEndpoints:
         assert resp.status_code == 503
         assert _error(resp)["code"] == "dependency_unavailable"
 
-    def test_translate_unsupported_direction_is_400(self, client, isolated_db):
+    def test_translate_unsupported_direction_is_400(self, client, isolated_db, monkeypatch):
+        import translate_engines
+        monkeypatch.setattr(translate_engines, "standalone_direction_support",
+                            lambda *a: (False, "Not supported."))
         resp = client.post("/api/translate", json={
-            "text": "hello", "engine": "libretranslate",
+            "text": "hello", "engine": "nllb",
             "source_language": "en", "target_language": "zh",
         })
         assert resp.status_code == 400
@@ -461,7 +489,7 @@ class TestExportReadinessEndpoint:
         body = client.get(f"/api/export/dramas/{did}/readiness").json()
         assert body == {
             "drama_id": did, "total_lines": 1, "zh_filled": 1, "en_filled": 1,
-            "fully_translated": True, "test_mode_output": False,
+            "fully_translated": True,
             "overlap_count": 0, "auto_qc_issue_count": 0, "dense_line_count": 0,
         }
 
@@ -583,7 +611,7 @@ class TestDiarizationEndpoints:
             "drama_id": did, "hf_token_configured": False,
             "expected_speakers": None, "min_speakers": None, "max_speakers": None,
             "last_device": None, "audio_available": False,
-            "manual_speaker_count": 0,
+            "manual_speaker_count": 0, "speaker_summary": None,
         }
 
     def test_config_unknown_drama_is_404(self, client, isolated_db):
@@ -646,14 +674,14 @@ class TestTranslateHistoryClearEndpoint:
     docstring for the reasoning."""
 
     def test_clear_without_confirm_is_422(self, client, isolated_db):
-        isolated_db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        isolated_db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         resp = client.delete("/api/translate/history")
         assert resp.status_code == 422
         history = client.get("/api/translate/history").json()["items"]
         assert len(history) == 1
 
     def test_clear_with_confirm_actually_clears(self, client, isolated_db):
-        isolated_db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        isolated_db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         resp = client.delete("/api/translate/history?confirm=true")
         assert resp.status_code == 200
         assert resp.json() == {"cleared": True}
@@ -766,13 +794,16 @@ class TestTranscribeConfigEndpoints:
     docstring for the scope decision and what's deliberately out."""
 
     def test_get_config_contract_shape(self, client, isolated_db):
+        from services import transcribe_service
         did = isolated_db.create_drama(title_en="D")
         body = client.get(f"/api/transcribe/dramas/{did}/config").json()
         assert body == {
             "drama_id": did, "transcript_mode": "have_transcript", "has_audio_pipeline": True,
             "audio_available": False, "alignment_method": "whisper_diff",
-            "asr_backend_choice": "whisper", "whisper_size": "large-v3",
-            "whisper_model_cached": body["whisper_model_cached"],
+            "asr_backend_choice": "whisper", "whisper_size": core.DEFAULT_WHISPER_SIZE,
+            "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None, "measured_speed_runs": 0,
+            "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
+            "whisper_installed": body["whisper_installed"],
             "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5,
             "separate_vocals_first": False, "separation_backend": "auto",
             "realign_long_segments": False, "whisper_fast_mode": False, "use_groq": False,
@@ -841,7 +872,7 @@ class TestTranscribeConfigEndpoints:
         background_jobs.clear_job(job_id)
 
     def test_run_already_running_is_409(self, client, isolated_db, monkeypatch):
-        # start_job spawning a real thread makes "still running" a race to
+        # start_process_job spawning a real process makes "still running" a race to
         # assert on directly (the real transcribe_for_timing would run and
         # the job could finish before the second request lands) -- mocked
         # here the same way TestStartTranscribeRun mocks it at the service
@@ -851,8 +882,22 @@ class TestTranscribeConfigEndpoints:
         os.makedirs(ddir, exist_ok=True)
         open(os.path.join(ddir, "audio.wav"), "wb").close()
         isolated_db.update_drama(did, audio_filename="audio.wav")
-        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        monkeypatch.setattr(background_jobs, "start_process_job", lambda *a, **k: False)
 
         resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})
         assert resp.status_code == 409
 
+
+def test_auth_module_imports_no_router():
+    """api.auth holds the loopback helpers itself; importing a router from it
+    (even lazily, inside a function) brings back the settings_routes <->
+    api.auth import cycle."""
+    import ast
+    import api.auth
+    import api.routers.settings_routes as settings_routes
+    with open(api.auth.__file__, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    imported = [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
+    imported += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
+    assert not [m for m in imported if m and m.startswith("api.routers")]
+    assert settings_routes.is_loopback_peer is api.auth.is_loopback_peer

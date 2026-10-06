@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
 import {
-  upsertJob,
-  describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobDetail, jobStatusLine, splitDependencies,
+  upsertJob, isFinished, jobsSummary, orderJobs,
+  describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobDetail, splitDependencies,
 } from './diagnosticsFormat'
 
 const job = (o: Partial<JobRecord>): JobRecord => ({
@@ -32,11 +32,9 @@ describe('diagnosticsFormat', () => {
     expect(formatDuration(job({}), 100 + 185)).toBe('3m 05s')
     expect(formatDuration(job({}), 100 + 3720)).toBe('1h 02m')
   })
-  it('formats plain seconds and a job card line', () => {
+  it('formats plain seconds', () => {
     expect(formatSeconds(-3)).toBe('0s')
     expect(formatSeconds(65.7)).toBe('1m 05s')
-    expect(jobStatusLine(job({ status: 'running', progress: 0.4 }), 100 + 185)).toBe('Running 40% · 3m 05s')
-    expect(jobStatusLine(job({ status: 'error', progress: 0.4, finished_at: 110 }), 999)).toBe('Failed · 10s')
   })
   it('shows progress text only while a job runs, and the error when it failed', () => {
     expect(jobDetail(job({ status: 'running', message: 'Transcribing... 40%' }))).toBe('Transcribing... 40%')
@@ -44,6 +42,7 @@ describe('diagnosticsFormat', () => {
     expect(jobDetail(job({ status: 'running', message: '' }))).toBeNull()
     expect(jobDetail(job({ status: 'done', message: 'Transcribing... 99%' }))).toBeNull()
     expect(jobDetail(job({ status: 'cancelled', message: 'Batch 2 of 5' }))).toBeNull()
+    expect(jobDetail(job({ status: 'cancelled', message: 'Starting...', error: 'Interrupted: Baihe restarted while this was running.' }))).toBe('Interrupted: Baihe restarted while this was running.')
     expect(jobDetail(job({ status: 'error', message: 'Batch 2 of 5', error: 'Timed out' }))).toBe('Timed out')
     expect(jobDetail(job({ status: 'error', message: 'Batch 2 of 5', error: null }))).toBe('Batch 2 of 5')
   })
@@ -63,5 +62,18 @@ describe('upsertJob', () => {
     expect(upsertJob(list, j('b', 'done')).map((x) => `${x.job_id}:${x.status}`)).toEqual(['a:running', 'b:done'])
     expect(upsertJob(list, j('c')).map((x) => x.job_id)).toEqual(['c', 'a', 'b'])
     expect(list.map((x) => x.status)).toEqual(['running', 'running'])
+  })
+  it('orders active jobs first, keeping the order within each group', () => {
+    const jobs = [job({ job_id: 'a' }), job({ job_id: 'b', status: 'running' }), job({ job_id: 'c', status: 'error' }), job({ job_id: 'd', status: 'queued' })]
+    expect(orderJobs(jobs).map((j) => j.job_id)).toEqual(['b', 'd', 'a', 'c'])
+  })
+  it('summarises counts', () => {
+    expect(jobsSummary([job({}), job({ status: 'cancelled' })])).toBe('None running')
+    expect(jobsSummary([job({ status: 'running' }), job({ status: 'running' }), job({ status: 'error' })])).toBe('2 running, 1 failed')
+    expect(jobsSummary([job({ status: 'queued' })])).toBe('None running, 1 queued')
+  })
+  it('knows finished statuses', () => {
+    expect(['done', 'error', 'cancelled'].every(isFinished)).toBe(true)
+    expect(isFinished('running') || isFinished('queued')).toBe(false)
   })
 })

@@ -4,9 +4,9 @@ import { applyResearch, getResearchBudget, researchMetadata } from '../../../api
 import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
-import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
+import { capFirst } from '../../../labels'
 import type { ResearchBudget, ResearchChoice, ResearchMode, ResearchResult } from '../../../types/research'
 import {
   budgetLine, choicesFor, confidenceLabel, costLine, defaultChoices, effectiveChoices, fieldLabel, googleSearchUrl, isPaidLookup,
@@ -49,7 +49,7 @@ function Choice({ name, label, value, options, onChange }: {
   )
 }
 
-// "Research online" (roadmap Step 37): Gemini with Google Search grounding.
+// "Research online": Gemini with Google Search grounding.
 // A lookup writes nothing; each field shows its own sources, and a value that
 // differs from the saved one is only written if the user picks Replace.
 export function ResearchPanel() {
@@ -115,12 +115,6 @@ export function ResearchPanel() {
   const blocked = !budget || !budget.key_configured || (needsPaid && (!allowPaid || budget.free_tier_key))
 
   return (
-    <section className="panel" aria-label="Research online">
-      <Section
-        storageKey="source.research"
-        title="Research online"
-        summary={budget ? budgetLine(budget) : 'Gemini search with cited sources'}
-      >
         <div className="source-panel research-panel">
           <p className="muted">
             Looks the title up with Google Search through your Gemini key and shows where each value came from.
@@ -128,7 +122,7 @@ export function ResearchPanel() {
           </p>
           {budgetFailed && <p className="muted">Couldn't load the search allowance. Reload the page to try again.</p>}
           {budget && !budget.key_configured && (
-            <p className="muted">Add a Gemini key in Settings to use this.</p>
+            <p className="muted">Still needed: a Gemini key. <a href="#/settings">Add one in Settings</a>.</p>
           )}
           <Field label="Depth" help={MODE_HELP[mode]}>
             <select value={mode} onChange={(e) => setMode(e.target.value as ResearchMode)}>
@@ -149,6 +143,7 @@ export function ResearchPanel() {
               <Toggle checked={allowPaid} onChange={setAllowPaid} />
             </Field>
           )}
+          {budget && <p className="muted">{budgetLine(budget)}</p>}
           {budget && <p className="muted" data-testid="research-cost">{costLine(budget, mode, model, allowPaid)}</p>}
           <div>
             <button type="button" className={buttonClass('primary')} disabled={busy || blocked} onClick={() => run()}>
@@ -178,7 +173,7 @@ export function ResearchPanel() {
                         <Badge tone={f.status === 'conflict' ? 'warn' : f.status === 'same' ? 'ok' : 'neutral'}>
                           {f.status === 'conflict' ? 'Differs' : f.status === 'same' ? 'Matches' : 'New'}
                         </Badge>
-                        <span className="muted">{confidenceLabel(f.confidence)}</span>
+                        <span className="muted">{capFirst(confidenceLabel(f.confidence))}</span>
                       </div>
                       <p className="research-value">{f.value}</p>
                       {f.status === 'conflict' && <p className="muted">Existing: {f.current}</p>}
@@ -245,7 +240,5 @@ export function ResearchPanel() {
           <ProvenanceNote dramaId={dramaId} reloadKey={notice} />
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </div>
-      </Section>
-    </section>
   )
 }

@@ -123,7 +123,7 @@ describe('Run now', () => {
 
   it('missing keys: production and open candidates only', () => {
     const o = overview({ candidates: [cand(), cand({ id: 3, engine: 'gemini', status: 'rejected' })] })
-    const engines = [engine('claude', false), engine('deepseek', false), engine('gemini', false), engine('libretranslate')]
+    const engines = [engine('claude', false), engine('deepseek', false), engine('gemini', false), engine('nllb')]
     expect(reevalMissingKeys(o, engines).map((e) => e.name)).toEqual(['claude', 'deepseek'])
   })
 
@@ -195,8 +195,7 @@ describe('candidates', () => {
     })
   })
 
-  it('the offline test engine is never offered as a candidate', () => {
-    expect(candidateEngines([engine('test_offline'), engine('gemini')]).map((e) => e.name)).toEqual(['gemini'])
+  it('lists usable engines first', () => {
     expect(candidateEngines([engine('claude', false), engine('ollama')]).map((e) => e.name)).toEqual(['ollama', 'claude'])
   })
 
@@ -219,12 +218,12 @@ describe('candidates', () => {
   })
 
   it('production source: from Settings, or promoted with the decision date', () => {
-    expect(productionSource(overview())).toBe('from Settings')
+    expect(productionSource(overview())).toBe('From Settings')
     const promoted = cand({ status: 'promoted', last_decision: decision({ decision: 'promoted', decided_at: '2026-09-20T08:00:00' }) })
     const o = overview({ production: { engine: 'deepseek', model: 'deepseek-v4-flash', source: 'promoted' }, candidates: [promoted] })
-    expect(productionSource(o)).toBe('promoted 2026-09-20')
-    expect(productionSource({ ...o, candidates: [] })).toBe('promoted')
-    expect(productionSource({ ...o, production: { ...o.production, promoted_at: '2026-09-25T10:00:00' } })).toBe('promoted 2026-09-25')
+    expect(productionSource(o)).toBe('Promoted 2026-09-20')
+    expect(productionSource({ ...o, candidates: [] })).toBe('Promoted')
+    expect(productionSource({ ...o, production: { ...o.production, promoted_at: '2026-09-25T10:00:00' } })).toBe('Promoted 2026-09-25')
   })
 
   it('promote is offered for an open candidate with a finished report row', () => {

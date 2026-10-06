@@ -34,10 +34,10 @@ sudachipy/kiwipiepy, already built for Reader ruby-text) rather than
 raw text, matching torchaudio's own documented MMS_FA usage pattern of
 aligning a pre-split word list, not inferring boundaries itself.
 
-EXPERIMENTAL, off by default: written against torchaudio's documented
-MMS_FA API and uroman's documented Python API, but NOT run against real
-Chinese/Japanese/Korean speech in this environment (no GPU, no real
-audio, no network for the ~1.1GB model download). There IS a confirmed
+Experimental and opt-in per drama (realign_long_segments, off by
+default): written against torchaudio's documented MMS_FA API and uroman's
+documented Python API rather than tuned on real Chinese/Japanese/Korean
+speech. There IS a confirmed
 real GitHub issue (m-bain/whisperX#84) of a DIFFERENT but related CTC
 aligner failing outright on some Japanese text ("no characters in this
 segment found in model dictionary") -- so realign_long_segment() fails
@@ -82,7 +82,7 @@ def _check_dependencies():
 class _LoadedAligner:
     """The MMS_FA model plus its tokenizer/aligner/uromanizer, loaded once
     and reused across every oversized segment in one realignment run
-    (Step 102) -- reloading the model per segment was real, avoidable
+    -- reloading the model per segment was real, avoidable
     latency and memory churn on audio with several long segments."""
 
     def __init__(self, bundle, model, tokenizer, aligner, uromanizer, device):
@@ -120,7 +120,7 @@ def align_words(audio_path: str, words: list, device: str = "cpu",
     ORIGINAL (un-romanized) input, just with timing attached.
 
     Reads audio_path via soundfile, not torchaudio.load() -- the same
-    Step 4c fix diarize() already needed: torchaudio>=2.9 routes
+    fix diarize() already needed: torchaudio>=2.9 routes
     load()/save() through torchcodec by default, which can fail (no
     compiled-per-FFmpeg-version DLLs) for a plain WAV read that never
     needed torchcodec's decode path at all. MMS_FA itself is still the
@@ -209,12 +209,18 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
     that line or crash a whole transcription job over it. The real
     exception is logged (applog) before falling back, though -- silently
     swallowing it made a real, confirmed break in align_words() itself
-    (a torchcodec-routing failure, the same class Step 4c already fixed
+    (a torchcodec-routing failure, the same class already fixed
     for diarize()) invisible: every segment just quietly stayed unsplit
     with no error shown anywhere.
     """
     import segment as segment_module
+    from core import SOURCE_LANGUAGES
 
+    # A mixed-language title's segment carries its own language; the CJK
+    # segmenters would mangle an English one, so it stays unsplit.
+    language = segment.get("lang") or language
+    if language not in SOURCE_LANGUAGES:
+        return [segment]
     words = [w for w, _ in segment_module.segment_and_annotate(
         segment["text"], language, chinese_script=chinese_script) if w.strip()]
     if len(words) < 2:
@@ -240,13 +246,22 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
             os.remove(slice_path)
 
     lines = _group_aligned_words_into_lines(aligned, segment["start"], min_pause_seconds)
+    if segment.get("lang"):
+        for line in lines:
+            line["lang"] = segment["lang"]
     return lines or [segment]
+
+
+def _is_oversized(seg, min_duration_to_realign: float) -> bool:
+    return (seg["end"] - seg["start"] >= min_duration_to_realign
+            and bool((seg.get("text") or "").strip()))
 
 
 def realign_oversized_segments(segments, audio_path: str, language: str,
                                 chinese_script: str = "simplified",
                                 min_duration_to_realign: float = 12.0,
-                                min_pause_seconds: float = 0.6, device: str = "cpu"):
+                                min_pause_seconds: float = 0.6, device: str = "cpu",
+                                progress_cb=None, cancel_check=None):
     """
     Re-splits every segment longer than min_duration_to_realign using
     realign_long_segment(); shorter segments are returned unchanged --
@@ -258,15 +273,24 @@ def realign_oversized_segments(segments, audio_path: str, language: str,
     Raises WordAlignError immediately (not per-segment) if the
     dependencies aren't installed at all -- so the caller sees one clear
     message instead of every segment silently, invisibly no-op'ing.
+
+    progress_cb(done, total) is called after each oversized segment, so a
+    long CPU run can show real progress. cancel_check() is polled before
+    each oversized segment; when it returns true the loop stops and the
+    result keeps the segments already split plus every remaining one
+    unchanged, so a cancel never costs the transcript.
     """
     _check_dependencies()
+    total = sum(1 for seg in segments if _is_oversized(seg, min_duration_to_realign))
+    done = 0
     out = []
-    loaded = None  # loaded lazily on the first oversized segment, then reused (Step 102)
+    loaded = None  # loaded lazily on the first oversized segment, then reused
     load_failed = False
-    for seg in segments:
-        duration = seg["end"] - seg["start"]
-        if (not load_failed and duration >= min_duration_to_realign
-                and (seg.get("text") or "").strip()):
+    for i, seg in enumerate(segments):
+        if not load_failed and _is_oversized(seg, min_duration_to_realign):
+            if cancel_check is not None and cancel_check():
+                out.extend(segments[i:])
+                break
             if loaded is None:
                 try:
                     loaded = load_aligner(device)
@@ -281,6 +305,9 @@ def realign_oversized_segments(segments, audio_path: str, language: str,
             out.extend(realign_long_segment(
                 audio_path, seg, language, chinese_script=chinese_script,
                 min_pause_seconds=min_pause_seconds, device=device, aligner=loaded))
+            done += 1
+            if progress_cb is not None:
+                progress_cb(done, total)
         else:
             out.append(seg)
     return out

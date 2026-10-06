@@ -1,7 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { TRACKED, mockAccess } from './sourcesAccessMocks'
+import { TRACKED, mockAccess, openProxy } from './sourcesAccessMocks'
 import { mockSources } from './sourcesMocks'
+import { installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): New chapters with Check now and the
 // auto-import drama, a source's sign-in and tier tests, and the proxy field.
@@ -19,7 +24,7 @@ async function tallTargets(page: Page, root: string) {
     const sel = 'button:not(.field-help-btn), select, input[type="url"], .sources-autoimport'
     return els.flatMap((el) => [...el.querySelectorAll<HTMLElement>(sel)])
       .filter((e) => e.offsetParent !== null)
-      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
+      .map((e) => ({ h: window.hitHeight(e), text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
       .filter((x) => x.h < 44)
   })
   expect(small).toEqual([])
@@ -53,7 +58,9 @@ test('phone: sign-in, tier tests and proxy in the source card', async ({ page })
   await expect(access.getByText('Static: works.')).toBeVisible({ timeout: 15_000 })
   await noSideways(page)
   await tallTargets(page, '.source-access')
+  await openProxy(page)
   await tallTargets(page, '.sources-proxy')
+  await noSideways(page)
   await page.screenshot({ path: 'test-results/sources-access-phone.png', fullPage: true })
   expect(s.unmocked).toEqual([])
 })

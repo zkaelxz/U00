@@ -127,6 +127,56 @@ class TestCheckUpgradeCandidate:
         assert not work.exists()
 
 
+class TestEnsurePytest:
+    def _run(self, monkeypatch, importable, pip_returncode=0):
+        calls = []
+
+        class Proc:
+            returncode = 0 if importable else 1
+
+        monkeypatch.setattr(diagnostics.subprocess, "run", lambda *a, **k: Proc())
+
+        def fake_stream(cmd, timeout, **kw):
+            calls.append(cmd)
+            yield {"line": "Successfully installed pytest"}
+            yield {"returncode": pip_returncode, "timed_out": False}
+
+        monkeypatch.setattr(diagnostics, "_stream_process", fake_stream)
+        items = list(diagnostics._ensure_pytest("/venv/python", "/real/python", 60))
+        return items, calls
+
+    def test_nothing_is_installed_when_pytest_is_already_importable(self, monkeypatch):
+        items, calls = self._run(monkeypatch, importable=True)
+        assert items == [{"ok": True}] and calls == []
+
+    def test_a_missing_pytest_is_added_to_the_throwaway_environment_only(self, monkeypatch):
+        items, calls = self._run(monkeypatch, importable=False)
+        assert items[-1] == {"ok": True}
+        assert len(calls) == 2
+        assert all(c[:5] == ["/real/python", "-m", "pip", "--python", "/venv/python"] for c in calls)
+        assert "pytest>=7.4" in calls[0] and "pytest-xdist" in calls[1]
+
+    def test_a_failed_pytest_install_is_reported_not_ok(self, monkeypatch):
+        items, _ = self._run(monkeypatch, importable=False, pip_returncode=1)
+        assert items[-1] == {"ok": False}
+
+    def test_a_failed_xdist_install_does_not_fail_the_run(self, monkeypatch):
+        state = {"n": 0}
+
+        class Proc:
+            returncode = 1
+
+        monkeypatch.setattr(diagnostics.subprocess, "run", lambda *a, **k: Proc())
+
+        def fake_stream(cmd, timeout, **kw):
+            state["n"] += 1
+            yield {"returncode": 0 if state["n"] == 1 else 1, "timed_out": False}
+
+        monkeypatch.setattr(diagnostics, "_stream_process", fake_stream)
+        items = list(diagnostics._ensure_pytest("/venv/python", "/real/python", 60))
+        assert items[-1] == {"ok": True} and state["n"] == 2
+
+
 class TestPipConflicts:
     """The real huggingface_hub 2.0.0 manual check passed every (mocked)
     test, yet `import transformers` then fails outright -- only pip's own

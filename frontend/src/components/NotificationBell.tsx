@@ -1,5 +1,5 @@
 /*
- * The header bell (Step 44): recent finished/failed jobs and new-chapter
+ * The header bell: recent finished/failed jobs and new-chapter
  * finds from GET /api/notifications (library.read, so household users away
  * from the PC see it too). The list lives in the server's memory and is
  * lost when the app restarts.
@@ -34,6 +34,7 @@ import {
   unreadCount,
   writeSeen,
 } from './notificationBellState'
+import { capFirst } from '../labels'
 import './notificationBell.css'
 
 const HIDE_ON = [401, 403, 404]
@@ -204,7 +205,7 @@ export function NotificationBell() {
                   <li key={i.id} className={isNew ? 'notify-item is-new' : 'notify-item'}>
                     <div className="notify-item-meta">
                       <Badge tone={b.tone}>{b.label}</Badge>
-                      <time dateTime={isoTime(i.at)}>{shortAgo(i.at)}</time>
+                      <time dateTime={isoTime(i.at)}>{capFirst(shortAgo(i.at))}</time>
                       {isNew && <span className="notify-new">New</span>}
                     </div>
                     <p className="notify-text">{i.text}</p>

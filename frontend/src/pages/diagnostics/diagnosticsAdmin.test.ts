@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../api/client'
 import type { DiagnosticsSetupChecks, GpuStatus, ModelEngineVersion } from '../../types/diagnostics'
 import {
-  LOST_CONTACT_INSTALL, adminErrorText, bugBundleReplayText, bugBundleTitle, busyLine, copyFallbackText,
+  LOST_CONTACT_INSTALL, adminErrorText, busyLine, copyFallbackText,
   extensionEngineNote, extensionSummary, extensionToggleNote,
-  headerBadges, historySummary, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
-  isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, resetBlockedReason,
+  headerBadges, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
+  isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, reconcileModels, resetBlockedReason,
   setupRows, setupSummary,
 } from './diagnosticsAdmin'
 
@@ -25,10 +25,18 @@ const gpu: GpuStatus = {
 const err = (status: number, code: string, message: string) => new ApiError(status, { code, message })
 
 describe('setup rows', () => {
+  it('adds a browser row only when the server reports one', () => {
+    expect(setupRows(checks(), gpu).map((r) => r.key)).not.toContain('browser')
+    const ok = setupRows(checks({ browser: { found: true, name: 'Chrome' } }), gpu).find((r) => r.key === 'browser')
+    expect(ok?.text).toBe('Browser for JavaScript-only sites: found (Chrome)')
+    const bad = setupRows(checks({ browser: { found: false, name: null } }), gpu).find((r) => r.key === 'browser')
+    expect(bad?.problem).toBe(true)
+  })
+
   it('reads "Label: value" when everything is fine', () => {
     const rows = setupRows(checks(), gpu)
     expect(rows.map((r) => r.text)).toEqual([
-      'Python: 3.11.9', 'ffmpeg: 6.1', 'JS runtime: deno', 'GPU: No GPU.', 'App files: all present',
+      'Python: 3.11.9', 'FFmpeg: 6.1', 'JS runtime: deno', 'GPU: No GPU.', 'App files: all present',
       'Library folder: writable',
     ])
     expect(rows[0]).toMatchObject({ label: 'Python', value: '3.11.9', problem: false })
@@ -47,35 +55,24 @@ describe('setup rows', () => {
     expect(rows.every((r) => r.problem)).toBe(true)
     expect(rows.map((r) => r.text)).toEqual([
       'Problem: Python 3.9.1 is too old',
-      'Problem: ffmpeg not found',
+      'Problem: FFmpeg not found',
       'Problem: no JS runtime (some video sites lose formats)',
       "Problem: PyTorch can't see the GPU",
       'Problem: 3 missing',
       "Problem: can't be written to",
     ])
-    expect(rows[1]).toMatchObject({ label: 'ffmpeg', value: 'ffmpeg not found' })
-    expect(setupSummary(rows.slice(1, 3))).toBe('2 problems: ffmpeg, JS runtime')
-    expect(setupSummary(rows.slice(1, 2))).toBe('1 problem: ffmpeg')
+    expect(rows[1]).toMatchObject({ label: 'FFmpeg', value: 'FFmpeg not found' })
+    expect(setupSummary(rows.slice(1, 3))).toBe('2 problems: FFmpeg, JS runtime')
+    expect(setupSummary(rows.slice(1, 2))).toBe('1 problem: FFmpeg')
   })
 
   it('checks ffmpeg for libass', () => {
     const withLibass = setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: true } }), gpu)
-    expect(withLibass[1]).toMatchObject({ text: 'ffmpeg: 6.1 (with libass)', problem: false })
+    expect(withLibass[1]).toMatchObject({ text: 'FFmpeg: 6.1 (with libass)', problem: false })
     const noLibass = setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: false } }), gpu)
     expect(noLibass[1]).toMatchObject({ problem: true, text: expect.stringContaining('no libass') })
     // Unknown (an older API or a failed version check) is not a problem.
     expect(setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: null } }), gpu)[1].problem).toBe(false)
-  })
-
-  it('titles bug bundles and describes their last replay', () => {
-    const b = { id: 4, label: 'Bad pronoun', drama_title: 'Signal', replayed: false, replay_output: null, reproduced: null }
-    expect(bugBundleTitle(b)).toBe('#4 Bad pronoun · Signal')
-    expect(bugBundleTitle({ ...b, label: '', drama_title: null })).toBe('#4 Untitled · (deleted drama)')
-    expect(bugBundleReplayText(b)).toBeNull()
-    expect(bugBundleReplayText({ ...b, replayed: true, replay_output: 'x', reproduced: true }))
-      .toBe('Still reproduces the same output. Last replay: x')
-    expect(bugBundleReplayText({ ...b, replayed: true, replay_output: 'y', reproduced: false }))
-      .toBe('No longer reproduces: the output changed. Last replay: y')
   })
 
   it('skips the GPU row until the overview has loaded', () => {
@@ -158,6 +155,34 @@ describe('packages', () => {
   })
 })
 
+describe('reconcileModels', () => {
+  const eng = (name: string, o: Partial<ModelEngineVersion> = {}): ModelEngineVersion =>
+    ({ name, version: '1.0', url: null, installed: true, package: name, help: null, ...o })
+  const hf = (repo_id: string, revision: string) => ({ repo_id, repo_type: 'model', revision, size_bytes: 1 })
+
+  it('puts each download under its engine and the rest in other', () => {
+    const engines = [
+      eng('Whisper (faster-whisper)'),
+      eng('pyannote diarization model', { package: null, version: 'pyannote/speaker-diarization-3.1, pyannote/segmentation-3.0' }),
+      eng('Qwen3-ASR', { installed: false, version: 'not installed' }),
+      eng('edge-tts'),
+    ]
+    const { rows, other } = reconcileModels(engines, [
+      hf('Systran/faster-whisper-large-v3', 'a'), hf('Systran/faster-whisper-small', 'b'),
+      hf('pyannote/speaker-diarization-3.1', 'c'), hf('someone/unknown', 'd'),
+    ])
+    expect(rows[0].cached.map((c) => c.revision)).toEqual(['a', 'b'])
+    expect(rows[1].cached.map((c) => c.revision)).toEqual(['c'])
+    expect(other.map((c) => c.revision)).toEqual(['d'])
+    expect(rows.map((r) => r.notDownloaded)).toEqual([false, false, false, false])
+  })
+
+  it('flags an installed weight-downloading engine with nothing cached', () => {
+    const { rows } = reconcileModels([eng('Whisper (faster-whisper)'), eng('Qwen3-ASR', { installed: false }), eng('edge-tts')], [])
+    expect(rows.map((r) => r.notDownloaded)).toEqual([true, false, false])
+  })
+})
+
 describe('other sections', () => {
   it('summarises speaker detection', () => {
     const base = { pyannote_installed: true, hf_token_configured: true, models: null, ready: true }
@@ -180,13 +205,6 @@ describe('other sections', () => {
       model_files: [{ folder: 'torch', name: 'htdemucs.th', size_bytes: 1 }],
       model_files_total_bytes: 84_000_000,
     })).toBe('84.0 MB · 1 model file')
-  })
-
-  it('summarises a history entry', () => {
-    expect(historySummary({
-      job_id: 'j', label: 'Translate', status: 'done', description: null, message: '', error: null,
-      gpu_touching: true, started_at: 1, finished_at: 186, duration_seconds: 185,
-    })).toBe('Translate · Done · 3m 05s · GPU')
   })
 
   it('log and copy copy', () => {
@@ -223,9 +241,11 @@ describe('browser extension', () => {
   })
 
   it('notes what a toggle did', () => {
-    expect(extensionToggleNote({ enabled: false, running: true, restart_needed: true })).toBe('Off. Restart Baihe to stop it now.')
+    expect(extensionToggleNote({ enabled: false, running: true, restart_needed: true }))
+      .toBe('Off, but it could not be stopped. Restart Baihe to stop it.')
     expect(extensionToggleNote({ enabled: true, running: false, restart_needed: false })).toBe('On. It starts next time Baihe starts.')
     expect(extensionToggleNote({ enabled: true, running: true, restart_needed: false })).toBeNull()
-    expect(extensionToggleNote({ enabled: false, running: false, restart_needed: false })).toBeNull()
+    expect(extensionToggleNote({ enabled: false, running: false, restart_needed: false }))
+      .toBe("Off. The extension can't reach Baihe now.")
   })
 })

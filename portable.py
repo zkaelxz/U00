@@ -1,5 +1,5 @@
 """
-portable.py -- Step 10's "the whole app folder just works when copied
+portable.py -- "the whole app folder just works when copied
 elsewhere" mode.
 
 Off by default: model downloads (Whisper, pyannote, F5-TTS, the
@@ -25,12 +25,12 @@ caution the roadmap itself calls for.
 Must be activated (activate_portable_mode()) before any other module in
 this app is imported: huggingface_hub and torch each read their own
 cache-location environment variable once, at their own first import,
-not on every call -- app.py and cli.py both call this as their literal
-first lines for exactly that reason. A module that imports one of them
-at ITS OWN top level (audio_preprocess.py, torch-backed ASR/TTS/OCR
+not on every call -- api/__main__.py and cli.py both call this before
+their other imports for exactly that reason. A module that imports one of
+them at ITS OWN top level (audio_preprocess.py, torch-backed ASR/TTS/OCR
 backends) must not be imported anywhere before this runs either.
 
-Installed copies (Step 80b, the Windows installer) keep their data out of
+Installed copies (the Windows installer) keep their data out of
 the program folder: an INSTALLED marker file next to this one says so,
 and its first line names the per-user data folder (default
 %LOCALAPPDATA%\\Baihe Studio). data_dir() is where db.py puts library/,
@@ -42,15 +42,15 @@ as before. BAIHE_DATA_DIR overrides both.
 import os
 import sys
 
-_APP_DIR = os.path.dirname(os.path.abspath(__file__))
-_MARKER_PATH = os.path.join(_APP_DIR, "PORTABLE")
-_INSTALLED_MARKER_PATH = os.path.join(_APP_DIR, "INSTALLED")
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_MARKER_PATH = os.path.join(APP_DIR, "PORTABLE")
+_INSTALLED_MARKER_PATH = os.path.join(APP_DIR, "INSTALLED")
 DATA_DIR_ENV = "BAIHE_DATA_DIR"
 INSTALLED_DATA_DIR_NAME = "Baihe Studio"
 
 # Everything this mode redirects lives under one folder, so "copy this
 # whole app folder" really does carry every downloaded model with it.
-MODEL_CACHE_DIR = os.path.join(_APP_DIR, "model_cache")
+MODEL_CACHE_DIR = os.path.join(APP_DIR, "model_cache")
 
 # {env var this app's own code (or a library it calls) reads for a model
 # cache location: the subfolder under MODEL_CACHE_DIR it gets redirected
@@ -121,7 +121,7 @@ def data_dir() -> str:
         return os.path.abspath(override)
     if is_installed():
         return _marker_data_dir() or default_installed_data_dir()
-    return _APP_DIR
+    return APP_DIR
 
 
 def activate_portable_mode() -> bool:

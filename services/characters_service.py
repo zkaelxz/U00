@@ -1,19 +1,17 @@
 """
-services/characters_service.py -- per-drama characters / voice config
-(migration Slice 42), the UI-free half of the Translate tab's "People &
-pronouns" panel and "Section 6" per-character voice config in
-`tabs/workspace_tab.py`.
+services/characters_service.py -- per-drama characters / voice config:
+the "People & pronouns" panel and the per-character voice config.
 
 Covers: listing a drama's speakers with their character/voice settings
 (plus a couple of sample lines and the linked series character's
 pronoun default), a validated field-scoped partial update,
-series-character listing, the clone-engine picklist (Step 26c language
+series-character listing, the clone-engine picklist (language
 rule), the voice bank (list + apply), recurring-voice suggestions
 ("sounds like X": list, accept, reject) and "remember as a known series
 character".
 
-Speaker set: like the tab (`sorted({ln.speaker for ln in lines if
-ln.speaker})`), a speaker label is known for a drama when it appears on
+Speaker set (`sorted({ln.speaker for ln in lines if ln.speaker})`): a
+speaker label is known for a drama when it appears on
 one of that drama's lines OR already has a `characters` row for it.
 
 Every read and write is keyed by (drama_id, speaker_label); nothing here
@@ -32,9 +30,13 @@ Deliberately NOT here:
     series write here is "remember as a known series character").
   - Dub generation itself.
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
+import logging
 import os
+import secrets
+import time
+import unicodedata
 
 import db
 import dub
@@ -43,7 +45,10 @@ from db import (apply_voice_bank_entry as _db_apply_voice_bank_entry, drama_dir,
                 get_voice_bank_entry, list_characters_with_series_names,
                 list_series_characters as _db_list_series_characters,
                 list_voice_bank_entries, load_lines, upsert_character)
+from services import drama_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+
+log = logging.getLogger(__name__)
 
 MAX_NAME_LEN = 200
 MAX_PRONOUNS_LEN = 40
@@ -52,21 +57,21 @@ MAX_VOICE_DESIGN_LEN = 1000
 MAX_REF_TEXT_LEN = 5000
 MAX_ID = 2**31 - 1  # sqlite ints are 64-bit; anything larger is an OverflowError (500)
 MAX_SPEAKER_LABEL_LEN = 100  # only enforced where the label becomes a filename
-# C04: like the tab, the first line and the middle one; each clipped so
+# C04: the first line and the middle one; each clipped so
 # the list payload stays bounded however long a line is.
 MAX_SAMPLE_LINES = 2
 MAX_SAMPLE_CHARS = 160
 
 
-def _check_id(name: str, value):
+def check_id(name: str, value):
     if isinstance(value, bool) or not isinstance(value, int):
         raise InvalidInputError(f"{name} must be a whole number.")
     if value < 1 or value > MAX_ID:
         raise InvalidInputError(f"{name} is out of range.")
 
 
-def _require_drama(drama_id: int) -> dict:
-    _check_id("drama_id", drama_id)
+def require_drama(drama_id: int) -> dict:
+    check_id("drama_id", drama_id)
     drama = get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
@@ -83,7 +88,7 @@ def _clip_sample(text: str) -> str:
 
 
 def _samples(texts: list) -> list:
-    """The tab's pick: the speaker's first line and, when there's more
+    """The speaker's first line and, when there's more
     than one, the middle one (so the two usually come from different
     scenes)."""
     if not texts:
@@ -124,7 +129,7 @@ def list_characters(drama_id: int) -> list:
     up to MAX_SAMPLE_LINES of the speaker's non-blank source lines, each
     clipped to MAX_SAMPLE_CHARS. Raises NotFoundError for an unknown
     drama."""
-    _require_drama(drama_id)
+    require_drama(drama_id)
     counts, texts = {}, {}
     for ln in load_lines(drama_id):
         if ln.get("speaker"):
@@ -139,20 +144,20 @@ def list_characters(drama_id: int) -> list:
     return out
 
 
-def _known_speakers(drama_id: int) -> set:
+def known_speakers(drama_id: int) -> set:
     labels = {ln["speaker"] for ln in load_lines(drama_id) if ln.get("speaker")}
     labels |= {r["speaker_label"] for r in list_characters_with_series_names(drama_id)}
     return labels
 
 
-def _get_one(drama_id: int, speaker_label: str) -> dict:
+def get_one(drama_id: int, speaker_label: str) -> dict:
     for c in list_characters(drama_id):
         if c["speaker_label"] == speaker_label:
             return c
     raise NotFoundError("No such speaker in this drama.")
 
 
-def _check_len(name: str, value: str, cap: int):
+def check_len(name: str, value: str, cap: int):
     if not isinstance(value, str):
         raise InvalidInputError(f"{name} must be a string.")
     if len(value) > cap:
@@ -165,24 +170,23 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
                      ref_text: str = None) -> dict:
     """Field-scoped partial update of one speaker's character row. None
     = leave alone; "" = clear (except character_name, which must be
-    non-blank). pronouns: a preset or any custom text (the tab's picker
-    offers presets plus free-text "Custom..."), stripped and length
+    non-blank). pronouns: a preset or any custom text, stripped and length
     capped. clone_engine must be in dub.CLONE_ENGINES and support the
-    drama's source_language (Step 26c). Raises NotFoundError (unknown
+    drama's source_language. Raises NotFoundError (unknown
     drama or speaker), InvalidInputError. Returns the speaker's
     list_characters entry."""
-    drama = _require_drama(drama_id)
-    if speaker_label not in _known_speakers(drama_id):
+    drama = require_drama(drama_id)
+    if speaker_label not in known_speakers(drama_id):
         raise NotFoundError("No such speaker in this drama.")
 
     fields = {}
     if character_name is not None:
-        _check_len("character_name", character_name, MAX_NAME_LEN)
+        check_len("character_name", character_name, MAX_NAME_LEN)
         if not character_name.strip():
             raise InvalidInputError("character_name can't be blank.")
         fields["character_name"] = character_name.strip()
     if pronouns is not None:
-        _check_len("pronouns", pronouns, MAX_PRONOUNS_LEN)
+        check_len("pronouns", pronouns, MAX_PRONOUNS_LEN)
         fields["pronouns"] = pronouns.strip()
     for key, value, cap in (("voice_actor", voice_actor, MAX_NAME_LEN),
                             ("tts_voice", tts_voice, MAX_VOICE_LEN),
@@ -190,7 +194,7 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
                             ("voice_design", voice_design, MAX_VOICE_DESIGN_LEN),
                             ("ref_text", ref_text, MAX_REF_TEXT_LEN)):
         if value is not None:
-            _check_len(key, value, cap)
+            check_len(key, value, cap)
             fields[key] = value.strip()
     if clone_engine is not None:
         if clone_engine != "":
@@ -204,13 +208,14 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
 
     if fields:
         upsert_character(drama_id, speaker_label, **fields)
-    return _get_one(drama_id, speaker_label)
+        _sweep_merge_undos(drama_id, (speaker_label,))
+    return get_one(drama_id, speaker_label)
 
 
 def list_series_characters(series_id: int) -> list:
     """A series' characters (id, name, aliases, notes, pronouns). No
     fingerprint data. Empty list for an unknown series."""
-    _check_id("series_id", series_id)
+    check_id("series_id", series_id)
     return [{
         "id": r["id"],
         "character_name": r["character_name"],
@@ -221,10 +226,10 @@ def list_series_characters(series_id: int) -> list:
 
 
 def get_clone_engine_options(drama_id: int) -> dict:
-    """Clone engines usable for this drama's source language (Step 26c:
-    never offer an engine that can't speak it), with capability flags.
+    """Clone engines usable for this drama's source language (never
+    offer an engine that can't speak it), with capability flags.
     Raises NotFoundError for an unknown drama."""
-    lang = _source_language(_require_drama(drama_id))
+    lang = _source_language(require_drama(drama_id))
     engines = []
     for engine, label in dub.CLONE_ENGINES.items():
         if not dub.clone_engine_supports_language(engine, lang):
@@ -255,7 +260,7 @@ def list_voice_bank() -> list:
 
 
 def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int) -> dict:
-    """Mirrors the tab's apply: db.apply_voice_bank_entry copies the
+    """db.apply_voice_bank_entry copies the
     bank's clip into this drama's own folder and sets the speaker's
     ref audio / ref_text / clone_engine / voice_design (only this
     drama's row). Raises NotFoundError for an unknown drama, speaker, or
@@ -264,17 +269,15 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
     (db builds `voicebank_{id}_{label}{ext}` from it): a slash, backslash,
     "..", control character, or more than MAX_SPEAKER_LABEL_LEN chars.
 
-    Stricter than the Streamlit tab, by design: the tab applies a bank
-    entry with no language check, but here the entry's clone_engine must
-    support the drama's source language, exactly as update_character
-    requires (Step 26c). Returns the speaker's list_characters entry."""
-    drama = _require_drama(drama_id)
-    _check_id("voice_bank_id", voice_bank_id)
+    The entry's clone_engine must support the drama's source language, exactly as update_character
+    requires. Returns the speaker's list_characters entry."""
+    drama = require_drama(drama_id)
+    check_id("voice_bank_id", voice_bank_id)
     if (not isinstance(speaker_label, str) or len(speaker_label) > MAX_SPEAKER_LABEL_LEN
             or ".." in speaker_label or "/" in speaker_label or chr(92) in speaker_label
             or any(ord(ch) < 32 or ord(ch) == 127 for ch in speaker_label)):
         raise InvalidInputError("speaker_label can't be used for a voice bank apply.")
-    if speaker_label not in _known_speakers(drama_id):
+    if speaker_label not in known_speakers(drama_id):
         raise NotFoundError("No such speaker in this drama.")
     entry = get_voice_bank_entry(voice_bank_id)
     if entry is None:
@@ -288,7 +291,7 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
         raise InvalidInputError(
             "That voice bank entry's clone_engine doesn't support the drama's source language.")
     _db_apply_voice_bank_entry(voice_bank_id, drama_dir(drama_id), drama_id, speaker_label)
-    return _get_one(drama_id, speaker_label)
+    return get_one(drama_id, speaker_label)
 
 
 # --- C02: recurring-voice suggestions ("sounds like X") ------------------------
@@ -310,13 +313,16 @@ def _load_voice_embeddings(drama_id: int) -> dict:
 
 
 def _current_suggestions(drama_id: int, drama: dict):
-    """(suggestions, embeddings) as the tab computes them: only for a
+    """(suggestions, embeddings): only for a
     drama in a series with characters and stored embeddings; speakers
     that already have a name and dismissed pairs are skipped."""
     series_chars = _series_characters_of(drama)
     if not series_chars:
         return [], {}
-    embeddings = _load_voice_embeddings(drama_id)
+    # A renamed speaker leaves its old label in the saved embeddings; offering a
+    # match for it would re-create that label.
+    known = known_speakers(drama_id)
+    embeddings = {k: v for k, v in _load_voice_embeddings(drama_id).items() if k in known}
     if not embeddings:
         return [], {}
     try:
@@ -344,7 +350,7 @@ def list_voice_suggestions(drama_id: int) -> list:
     voice embeddings were stored by speaker detection. Nothing here names
     a speaker; accept/reject do that on an explicit request. Raises
     NotFoundError for an unknown drama."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     return _current_suggestions(drama_id, drama)[0]
 
 
@@ -352,18 +358,18 @@ def _check_suggestion_args(speaker_label, series_character_id):
     if (not isinstance(speaker_label, str) or not speaker_label
             or len(speaker_label) > MAX_SPEAKER_LABEL_LEN):
         raise InvalidInputError("speaker_label is missing or too long.")
-    _check_id("series_character_id", series_character_id)
+    check_id("series_character_id", series_character_id)
 
 
 def accept_voice_suggestion(drama_id: int, speaker_label: str, series_character_id: int) -> dict:
-    """Accept one CURRENTLY offered suggestion, as the tab does: name the
+    """Accept one CURRENTLY offered suggestion: name the
     speaker after the series character, link it (series_character_id)
     and blend this drama's embedding into that character's voice
     fingerprint. Only this drama's row and that one series character are
     written. A pair that isn't offered any more (already named,
     dismissed, below threshold, embeddings gone) is a NotFoundError.
     Returns {"character": list_characters entry, "suggestions": [...]}."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     _check_suggestion_args(speaker_label, series_character_id)
     suggestions, embeddings = _current_suggestions(drama_id, drama)
     match = next((s for s in suggestions if s["speaker_label"] == speaker_label
@@ -375,7 +381,7 @@ def accept_voice_suggestion(drama_id: int, speaker_label: str, series_character_
     if not db.accept_voice_link(drama_id, speaker_label, series_character_id,
                                 match["character_name"], embeddings[speaker_label]):
         raise NotFoundError("That voice suggestion isn't offered any more.")
-    return {"character": _get_one(drama_id, speaker_label),
+    return {"character": get_one(drama_id, speaker_label),
             "suggestions": _current_suggestions(drama_id, drama)[0]}
 
 
@@ -386,11 +392,11 @@ def reject_voice_suggestion(drama_id: int, speaker_label: str, series_character_
     surface. The series character must belong to the drama's series and
     the speaker must be known to this drama or its stored embeddings.
     Returns {"character": None, "suggestions": [...]}."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     _check_suggestion_args(speaker_label, series_character_id)
     if not any(sc["id"] == series_character_id for sc in _series_characters_of(drama)):
         raise NotFoundError("No such character in this drama's series.")
-    if (speaker_label not in _known_speakers(drama_id)
+    if (speaker_label not in known_speakers(drama_id)
             and speaker_label not in _load_voice_embeddings(drama_id)):
         raise NotFoundError("No such speaker in this drama.")
     db.dismiss_voice_suggestion(drama_id, speaker_label, series_character_id)
@@ -400,7 +406,7 @@ def reject_voice_suggestion(drama_id: int, speaker_label: str, series_character_
 # --- C08: remember as a known series character ----------------------------------
 
 def remember_series_character(drama_id: int, speaker_label: str) -> dict:
-    """The tab's opt-in "Remember <name> as a known character in this
+    """The opt-in "Remember <name> as a known character in this
     series": uses the speaker's SAVED name (never a half-typed one), adds
     it to the drama's series (db.upsert_series_character, with this
     drama's pronouns as the series default when set) and links the
@@ -421,13 +427,13 @@ def remember_series_character(drama_id: int, speaker_label: str) -> dict:
     ConflictError (the speaker is already linked to a series character).
     Returns {"character": entry, "series_character": series entry,
     "created": bool}."""
-    drama = _require_drama(drama_id)
-    if not isinstance(speaker_label, str) or speaker_label not in _known_speakers(drama_id):
+    drama = require_drama(drama_id)
+    if not isinstance(speaker_label, str) or speaker_label not in known_speakers(drama_id):
         raise NotFoundError("No such speaker in this drama.")
     series_id = drama.get("series_id")
     if not series_id:
         raise InvalidInputError("This drama isn't in a series, so there is no series cast to add to.")
-    entry = _get_one(drama_id, speaker_label)
+    entry = get_one(drama_id, speaker_label)
     if entry["series_character_id"]:
         raise ConflictError("This speaker is already linked to a character in this series.")
     name = entry["character_name"].strip()
@@ -444,5 +450,245 @@ def remember_series_character(drama_id: int, speaker_label: str) -> dict:
         raise ConflictError("This speaker was linked or renamed meanwhile; reload and try again.")
     sc_id, created = linked
     series_entry = next(sc for sc in list_series_characters(series_id) if sc["id"] == sc_id)
-    return {"character": _get_one(drama_id, speaker_label), "series_character": series_entry,
+    return {"character": get_one(drama_id, speaker_label), "series_character": series_entry,
             "created": created}
+
+
+# --- Rename a speaker once ----------------------------------------------------
+
+_RENAME_CONFLICT = ("Another speaker already has that name. Merging speakers isn't "
+                    "supported here; pick a different name.")
+_BUSY = ("A background job is still running for this drama -- wait for it "
+         "to finish or cancel it before {what}.")
+
+
+_BAD_CATEGORIES = ("Cc", "Cf", "Cs", "Cn", "Co", "Zl", "Zp")
+
+
+def _clean_label(field: str, value) -> str:
+    """Strip and check a speaker name by the voice-bank label rules (it can end
+    up in a filename): 1..MAX_SPEAKER_LABEL_LEN chars, no slashes or '..', and
+    no control, format (zero-width, bidi), surrogate, unassigned, private-use or
+    line/paragraph separator characters."""
+    if not isinstance(value, str):
+        raise InvalidInputError(f"{field} must be a string.")
+    v = value.strip()
+    if not v:
+        raise InvalidInputError("The name can't be blank.")
+    if len(v) > MAX_SPEAKER_LABEL_LEN:
+        raise InvalidInputError(f"{field} is too long (max {MAX_SPEAKER_LABEL_LEN} characters).")
+    if (".." in v or "/" in v or chr(92) in v
+            or any(unicodedata.category(ch) in _BAD_CATEGORIES for ch in v)):
+        raise InvalidInputError(f"{field} can't contain slashes, '..' or invisible/control characters.")
+    return v
+
+
+def _norm(name) -> str:
+    text = unicodedata.normalize("NFKC", name or "")
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    return " ".join(text.casefold().split())
+
+
+def _lines_with_label(drama_id: int, label: str) -> list:
+    return [ln for ln in db.load_line_objects(drama_id) if ln.speaker == label]
+
+
+def _check_target(drama_id: int, name: str, own_label: str) -> dict:
+    """Refuses a name that matches (normalised) another speaker's label or
+    shown name, series names included, and a speaker linked to a series
+    character. Returns the speaker's own characters row ({} if none)."""
+    rows = list_characters_with_series_names(drama_id)
+    taken = {_norm(x) for x in known_speakers(drama_id) if x != own_label}
+    for r in rows:
+        if r["speaker_label"] != own_label:
+            taken |= {_norm(r.get("character_name")), _norm(r.get("series_character_name"))} - {""}
+    if _norm(name) in taken:
+        raise ConflictError(_RENAME_CONFLICT)
+    row = next((r for r in rows if r["speaker_label"] == own_label), {})
+    if row.get("series_character_id"):
+        raise ConflictError("This speaker is linked to a series character; unlink it first "
+                            "or rename the series character.")
+    return row
+
+
+def _move(drama_id: int, old_label: str, new_label: str, character_name, updates: list) -> int:
+    result = db.rename_speaker_atomic(drama_id, old_label, new_label, character_name, updates)
+    if result == "changed":
+        raise ConflictError("Some lines changed meanwhile; nothing was changed. Try again.")
+    if result == "name_taken":
+        raise ConflictError(_RENAME_CONFLICT)
+    return result
+
+
+def rename_speaker(drama_id: int, speaker_label: str, new_name: str) -> dict:
+    """Names a speaker once: every line labelled speaker_label gets new_name as
+    its speaker, and the speaker's Characters row (voice, pronouns) moves to
+    new_name with it as character_name, so translation context sees the name.
+    The lines are marked set by hand, so re-assigning from saved turns keeps
+    the name. Lines and row change in one database transaction. A speaker with
+    no lines moves only its row. Raises NotFoundError (unknown drama or
+    speaker), InvalidInputError (bad, blank or unchanged name, or a current
+    label that undo could not restore), ConflictError (a job is running, the
+    name matches another speaker, the speaker is linked to a series character,
+    or a line changed meanwhile). On any failure nothing is changed. Returns
+    {"characters": list_characters, "renamed": n, "undo": {...}}; pass undo to
+    undo_rename_speaker."""
+    require_drama(drama_id)
+    if not isinstance(speaker_label, str) or speaker_label not in known_speakers(drama_id):
+        raise NotFoundError("No such speaker in this drama.")
+    if _clean_label("speaker_label", speaker_label) != speaker_label:
+        raise InvalidInputError("This speaker's current name has characters that can't be "
+                                "renamed here; fix it in the line editor first.")
+    name = _clean_label("new_name", new_name)
+    if name == speaker_label:
+        raise InvalidInputError("That is already this speaker's name.")
+    row = _check_target(drama_id, name, speaker_label)
+    if drama_service.job_running_for_drama(drama_id):
+        raise ConflictError(_BUSY.format(what="renaming a speaker"))
+    lines = _lines_with_label(drama_id, speaker_label)
+    previous = [{"id": ln.id, "speaker": speaker_label, "speaker_manual": bool(ln.speaker_manual)}
+                for ln in lines]
+    updates = [{"id": p["id"], "expect_speaker": speaker_label, "expect_manual": p["speaker_manual"],
+                "speaker": name, "manual": True} for p in previous]
+    n = _move(drama_id, speaker_label, name, name, updates)
+    _sweep_merge_undos(drama_id, (speaker_label, name))
+    undo = {"speaker_label": name, "previous_label": speaker_label,
+            "previous_character_name": row.get("character_name"), "previous": previous}
+    return {"characters": list_characters(drama_id), "renamed": n, "undo": undo}
+
+
+def undo_rename_speaker(drama_id: int, undo: dict) -> dict:
+    """Reverses rename_speaker from the undo it returned, under the same name,
+    uniqueness and series-link rules as a rename (undo is not a free rename).
+    The undo must cover exactly the lines that carry the new name now; if
+    lines were added, moved or edited since (a re-split, say) it is refused.
+    Lines get their previous label and manual flag back and the Characters row
+    moves back in one transaction. Raises NotFoundError (unknown drama, or the
+    name is no longer a speaker), InvalidInputError (bad undo data),
+    ConflictError (job running, clash, or the lines changed). Returns
+    {"characters": ..., "renamed": n, "undo": None}."""
+    require_drama(drama_id)
+    new_label, old_label = undo.get("speaker_label"), undo.get("previous_label")
+    previous, old_name = undo.get("previous"), undo.get("previous_character_name")
+    if not isinstance(new_label, str) or not isinstance(previous, list):
+        raise InvalidInputError("That undo isn't valid.")
+    old_label = _clean_label("previous_label", old_label)
+    if old_name is not None:
+        check_len("previous_character_name", old_name, MAX_NAME_LEN)
+    for p in previous:
+        if (not isinstance(p, dict) or isinstance(p.get("id"), bool)
+                or not isinstance(p.get("id"), int) or str(p.get("speaker")).strip() != old_label
+                or not isinstance(p.get("speaker_manual"), bool)):
+            raise InvalidInputError("That undo isn't valid.")
+    known = known_speakers(drama_id)
+    if new_label not in known:
+        raise NotFoundError("That speaker was renamed again or removed; nothing to undo.")
+    if old_label in known:
+        raise ConflictError("The old label is in use again, so the rename can't be undone.")
+    _check_target(drama_id, old_label, new_label)
+    if drama_service.job_running_for_drama(drama_id):
+        raise ConflictError(_BUSY.format(what="undoing"))
+    lines = _lines_with_label(drama_id, new_label)
+    by_id = {p["id"]: p for p in previous}
+    if {ln.id for ln in lines} != set(by_id) or len(by_id) != len(previous):
+        raise ConflictError("The lines changed since the rename, so it can't be undone.")
+    updates = [{"id": ln.id, "expect_speaker": new_label, "expect_manual": bool(ln.speaker_manual),
+                "speaker": old_label, "manual": by_id[ln.id]["speaker_manual"]} for ln in lines]
+    n = _move(drama_id, new_label, old_label, old_name, updates)
+    return {"characters": list_characters(drama_id), "renamed": n, "undo": None}
+
+
+# --- Merge two speakers -------------------------------------------------------
+
+_STALE_MERGE = ("The speakers changed since the merge (renamed, edited or re-split), "
+                "so it can't be undone.")
+
+
+def _sweep_merge_undos(drama_id=None, labels: tuple = ()):
+    """Best-effort bookkeeping after the edit it follows has committed: drops
+    expired undo records (all dramas; expiry has no timer of its own, so any
+    Characters write does it) and retires those of drama_id naming one of
+    labels, so an edit to those speakers answers the old undo id with 409.
+    Database rows only: no clip file is ever deleted here. A failure (a locked
+    database) must not turn the committed edit into an error, and an expired
+    id is refused on use anyway; a retire that fails is retried by the
+    undo's own stale checks."""
+    try:
+        db.drop_speaker_merge_undos(time.time())
+        if drama_id is not None and labels:
+            db.retire_speaker_merge_undos(drama_id, tuple(labels))
+    except Exception as exc:
+        log.warning("Speaker merge undo bookkeeping failed (%s)", type(exc).__name__)
+
+
+def _clip_exists(drama_id: int, rel: str) -> bool:
+    from services import voice_clone_service
+    return voice_clone_service._safe_file(drama_dir(drama_id), rel) is not None
+
+
+def merge_speakers(drama_id: int, source: str, target: str, *, user_id=None) -> dict:
+    """Merges speaker `source` into `target`: every line labelled source gets
+    target as its speaker (marked set by hand, like a rename), and the
+    source's Characters row is folded into the target's -- a blank target
+    field (name, voice, pronouns, series link...) takes the source's value, a
+    filled one is kept -- then removed, so no duplicate or orphaned row is
+    left. The reference voice (clip, its transcript, engine, designed voice)
+    moves as one group, and only when the target has neither a clip nor a
+    design. Only the speaker columns of lines change. One database
+    transaction; the rows and lines it merges are read inside it.
+
+    The undo is kept in the database, not returned: the result carries an
+    opaque, single-use undo id that expires, scoped to this drama and user.
+    Raises NotFoundError (unknown drama or speaker), InvalidInputError (same
+    speaker twice, or a label undo couldn't restore), ConflictError (job
+    running, or the two are linked to different series characters). Returns
+    {"characters": ..., "moved": n lines, "undo": {"undo_id", "expires_in"}}."""
+    require_drama(drama_id)
+    known = known_speakers(drama_id)
+    for label in (source, target):
+        if not isinstance(label, str) or label not in known:
+            raise NotFoundError("No such speaker in this drama.")
+    if source == target:
+        raise InvalidInputError("Pick two different speakers.")
+    if _clean_label("source", source) != source or _clean_label("target", target) != target:
+        raise InvalidInputError("A speaker name has characters that can't be merged here; "
+                                "fix it in the line editor first.")
+    if drama_service.job_running_for_drama(drama_id):
+        raise ConflictError(_BUSY.format(what="merging speakers"))
+    undo_id = secrets.token_urlsafe(24)
+    out = db.merge_speakers_atomic(drama_id, source, target, user_id, time.time(), undo_id)
+    if out == "link_conflict":
+        raise ConflictError("These speakers are linked to different series characters; "
+                            "unlink one of them first.")
+    _sweep_merge_undos()
+    return {"characters": list_characters(drama_id), "moved": out["moved"],
+            "undo": {"undo_id": undo_id, "expires_in": db.MERGE_UNDO_TTL_SECONDS}}
+
+
+def undo_merge_speakers(drama_id: int, undo_id: str, *, user_id=None) -> dict:
+    """Reverses merge_speakers from its undo id: the moved lines get their
+    label and manual flag back, the source's Characters row returns, the
+    target's fields go back to what they were and the dismissed voice matches
+    come back as they were. The id works once, within the time limit, for the
+    drama and user that merged. Refused (409, nothing written, the id spent)
+    when anything the merge left has changed since: the target row or its
+    dismissed matches, a moved line's speaker or flag, or the old label in
+    use again. No clip file is deleted. Raises
+    NotFoundError (unknown drama, or an id that is unknown, spent, expired or
+    someone else's), InvalidInputError, ConflictError. Returns {"characters": ..., "moved": n, "undo": None}."""
+    require_drama(drama_id)
+    if not isinstance(undo_id, str) or not 20 <= len(undo_id) <= 64:
+        raise InvalidInputError("That undo isn't valid.")
+    if drama_service.job_running_for_drama(drama_id):
+        # The id is kept in this case, so the UI keeps its undo button.
+        raise ConflictError(_BUSY.format(what="undoing"), details={"reason": "job_running"})
+    _sweep_merge_undos()
+    out = db.undo_merge_speakers_atomic(drama_id, undo_id, user_id, None,
+                                        lambda rel: _clip_exists(drama_id, rel))
+    if out["status"] == "missing":
+        raise NotFoundError("There is nothing to undo; the undo was used or has expired.")
+    if out["status"] == "clip_missing":
+        raise ConflictError("The voice clip is gone, so the merge can't be undone.")
+    if out["status"] == "stale":
+        raise ConflictError(_STALE_MERGE)
+    return {"characters": list_characters(drama_id), "moved": out["moved"], "undo": None}

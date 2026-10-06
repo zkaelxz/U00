@@ -5,18 +5,15 @@
  */
 import type { EndpointName, PreferenceKey, SettingsPreferences } from '../../types/settings'
 
+// The one note under every key, address or token: where it goes, and that it stays hidden.
+export const SAVED_ON_PC_NOTE = 'Saved on the Baihe PC and never shown again.'
+
 export const ENDPOINTS: { name: EndpointName; label: string; placeholder: string; help: string }[] = [
   {
     name: 'ollama_url',
     label: 'Ollama URL',
     placeholder: 'http://127.0.0.1:11434',
     help: 'Where the local Ollama server runs. Blank uses Ollama’s default on this PC.',
-  },
-  {
-    name: 'libretranslate_url',
-    label: 'LibreTranslate URL',
-    placeholder: 'http://127.0.0.1:5000',
-    help: 'A LibreTranslate or LTEngine server.',
   },
   {
     name: 'gpt_sovits_url',
@@ -32,12 +29,6 @@ export const OCR_LABELS: Record<string, string> = {
   paddle: 'PaddleOCR (Chinese, Korean)',
   paddle_vl_manga: 'PaddleOCR-VL for manga (Japanese)',
   tesseract: 'Tesseract',
-}
-
-export const LOCALE_LABELS: Record<string, string> = {
-  'en-US': 'English (US)',
-  'en-GB': 'English (UK)',
-  'en-AU': 'English (Australia)',
 }
 
 /** The fields of `draft` whose value differs from `saved`. */
@@ -64,7 +55,7 @@ export function parseCap(raw: string): Parsed<number | null> {
   return { ok: true, value: n }
 }
 
-export const MAX_NUM_CTX = 1_048_576
+const MAX_NUM_CTX = 1_048_576
 
 /** Ollama num_ctx override: blank or 0 means automatic. */
 export function parseNumCtx(raw: string): Parsed<number> {
@@ -76,7 +67,7 @@ export function parseNumCtx(raw: string): Parsed<number> {
   return { ok: true, value: n }
 }
 
-export const MAX_PATH = 1024
+const MAX_PATH = 1024
 
 /** A file or folder path on the Baihe PC: one line, not too long. */
 export function checkPath(raw: string): string | null {

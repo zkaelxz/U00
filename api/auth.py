@@ -1,5 +1,5 @@
 """
-api/auth.py -- the deny-by-default permission layer (Step 133; see
+api/auth.py -- the deny-by-default permission layer (see
 docs/remote-access-decision.md, which holds the route -> permission table).
 
 Every route in `api/routers/*.py` (and the frontend catch-all in
@@ -85,7 +85,7 @@ class CsrfFailedError(ForbiddenError):
     code = "csrf_failed"
 
 
-def _auth_enabled(app) -> bool:
+def is_auth_enabled(app) -> bool:
     """Fail closed: an app built without settings is treated as auth on."""
     settings = getattr(app.state, "settings", None)
     return bool(getattr(settings, "auth_enabled", True))
@@ -155,7 +155,7 @@ def require_permission(permission: str):
                          "services/auth_service.py PERMISSIONS first")
 
     def dependency(request: Request):
-        if not _auth_enabled(request.app):
+        if not is_auth_enabled(request.app):
             request.state.principal = local_owner_principal()
             return request.state.principal
         principal = _authenticate(request)
@@ -200,7 +200,7 @@ def authenticated():
     keeps it under /api/auth/.
     With auth off, the caller is the local owner as usual."""
     def dependency(request: Request):
-        if not _auth_enabled(request.app):
+        if not is_auth_enabled(request.app):
             request.state.principal = local_owner_principal()
             return request.state.principal
         request.state.principal = _authenticate(request)
@@ -248,7 +248,7 @@ def local_only():
     def dependency(request: Request):
         if _never_local(request.app):
             raise ForbiddenError(_GENERIC_403)
-        if _auth_enabled(request.app) and not is_local_request(request):
+        if is_auth_enabled(request.app) and not is_local_request(request):
             raise ForbiddenError(_GENERIC_403)
         if not _cross_site_safe(request):
             raise ForbiddenError(_GENERIC_403)
@@ -258,18 +258,35 @@ def local_only():
     return _marked(dependency, "local_only")
 
 
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
+PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded",
+                  "x-real-ip", "tailscale-user-login", "cf-connecting-ip", "cf-ray", "via")
+
+
+def host_name(netloc: str) -> str:
+    """Host part of a Host header / URL netloc, port removed, lower-cased."""
+    netloc = (netloc or "").strip().lower()
+    if netloc.startswith("["):
+        end = netloc.find("]")
+        return netloc[:end + 1] if end != -1 else netloc
+    return netloc.rsplit(":", 1)[0] if netloc.count(":") == 1 else netloc
+
+
+def is_loopback_peer(host) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except (ValueError, TypeError):
+        return False
+
+
 def _is_local_scope(client_host, headers) -> bool:
-    """Reuses the loopback helpers from settings_routes (imported lazily:
-    that module imports this one). `headers` is any case-insensitive
-    mapping (Starlette Headers)."""
-    from api.routers.settings_routes import (_LOOPBACK_HOSTS, _PROXY_HEADERS, _host_name,
-                                             _is_loopback_peer)
-    if not _is_loopback_peer(client_host):
+    """`headers` is any case-insensitive mapping (Starlette Headers)."""
+    if not is_loopback_peer(client_host):
         return False
     host_header = headers.get("host", "")
-    if "@" in host_header or _host_name(host_header) not in _LOOPBACK_HOSTS:
+    if "@" in host_header or host_name(host_header) not in LOOPBACK_HOSTS:
         return False
-    if any(h in headers for h in _PROXY_HEADERS):
+    if any(h in headers for h in PROXY_HEADERS):
         return False
     origin = headers.get("origin")
     if origin is not None:
@@ -279,7 +296,7 @@ def _is_local_scope(client_host, headers) -> bool:
             return False
         if "@" in origin or not hostname:
             return False
-        if (f"[{hostname}]" if ":" in hostname else hostname) not in _LOOPBACK_HOSTS:
+        if (f"[{hostname}]" if ":" in hostname else hostname) not in LOOPBACK_HOSTS:
             return False
     return True
 
@@ -296,7 +313,7 @@ def require_engines_allowed(request: Request, *engine_names):
     """Raises 403 unless the caller holds `engines.paid` or every named
     engine is in `translate_engines.FREE_ENGINES`. A missing name (None:
     "use the configured default") counts as possibly paid."""
-    if _holds(request, "engines.paid"):
+    if holds(request, "engines.paid"):
         return
     from translate_engines import FREE_ENGINES
     if any(not name or name not in FREE_ENGINES for name in engine_names):
@@ -306,17 +323,17 @@ def require_engines_allowed(request: Request, *engine_names):
 def require_paid_engines(request: Request):
     """Raises 403 unless the caller holds `engines.paid` (for a cloud
     service that isn't a translate engine, e.g. Groq transcription)."""
-    if not _holds(request, "engines.paid"):
+    if not holds(request, "engines.paid"):
         raise ForbiddenError(_GENERIC_403)
 
 
 def holds_paid_engines(request: Request) -> bool:
     """Whether the caller holds `engines.paid` (always, with auth off), for
     a route that skips a paid extra step rather than refusing the request."""
-    return _holds(request, "engines.paid")
+    return holds(request, "engines.paid")
 
 
-def _holds(request: Request, permission: str) -> bool:
+def holds(request: Request, permission: str) -> bool:
     principal = getattr(request.state, "principal", None) or {}
     return permission in principal.get("permissions", ())
 
@@ -380,9 +397,8 @@ def client_ip(request: Request) -> str:
     rightmost `X-Forwarded-For` entry (the one Caddy itself appends; a client
     can only add entries to the left of it) is used instead -- but only when
     the peer is loopback, so a remote client can't pick its own bucket."""
-    from api.routers.settings_routes import _is_loopback_peer
     peer = request.client.host if request.client else ""
-    if not _is_loopback_peer(peer):
+    if not is_loopback_peer(peer):
         return peer or "unknown"
     entries = [e.strip() for h in request.headers.getlist("x-forwarded-for")
                for e in h.split(",") if e.strip()]
@@ -462,7 +478,7 @@ class LocalOnlyCrossSiteGate:
     With auth OFF (all_api=True) the rule covers every POST/PUT/PATCH under
     /api, not just local_only routes: off mode grants owner rights with no
     CSRF token, and the loopback Origin check ignores the port, so without
-    this a page on another local port (Streamlit, a dev server) could start
+    this a page on another local port (a dev server) could start
     a paid LLM run or cancel a job with a no-preflight simple POST. With
     auth on, every non-GET already needs the session's CSRF header (itself
     a custom header that forces a preflight), so only local_only routes are
@@ -578,10 +594,12 @@ _HOST_NAME_RE = re.compile(r"[a-z0-9._-]+")
 # this policy and runs inline scripts and handlers, and plays audio and shows
 # images from data: URIs; index.html has one inline theme script. So scripts
 # can't be limited to 'self' until the Reader page is served from a URL.
+# frame-src is only for the Live page's optional stream video (YouTube, Twitch).
 HOUSEHOLD_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
                  "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
                  "media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
                  "object-src 'none'; base-uri 'self'; form-action 'self'; "
+                 "frame-src https://www.youtube-nocookie.com https://player.twitch.tv; "
                  "frame-ancestors 'none'")
 HOUSEHOLD_SECURITY_HEADERS = (
     ("Content-Security-Policy", HOUSEHOLD_CSP),

@@ -4,6 +4,10 @@ import { ApiError } from '../../../../api/client'
 import type { ReviewLine } from '../../../../types/review'
 import {
   adjacentRun,
+  resplitNeedsConfirm,
+  resplitSummary,
+  speakerTimeFooter,
+  speakerTimeLines,
   buildPatch,
   canResegmentWith,
   droppedText,
@@ -35,11 +39,44 @@ import {
   splitPieces,
   stepFrom,
   structureErrorText,
+  languageSetText,
+  LINE_LANGUAGES,
+  lineLangChip,
+  titleDefaultLabel,
 } from './reviewLogic'
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id, start: id, end: id + 1, zh: `句${id}`, en: `Line ${id}`, speaker: null,
-  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, ...over,
+  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, ...over,
+})
+
+describe('spoken language', () => {
+  it('shows a chip only for a line in another language than the title', () => {
+    expect(lineLangChip(null, 'ja')).toBeNull()
+    expect(lineLangChip('ja', 'ja')).toBeNull()
+    expect(lineLangChip('ko', 'ja')).toBe('KO')
+    expect(lineLangChip('en', 'zh')).toBe('EN')
+    // A drama without a stored source language is Chinese, as on the server.
+    expect(lineLangChip('zh', null)).toBeNull()
+  })
+  it('offers the server-side list and names the title default', () => {
+    expect([...LINE_LANGUAGES]).toEqual(['zh', 'ja', 'ko', 'en'])
+    expect(titleDefaultLabel('ja')).toBe('Title default (Japanese)')
+    expect(titleDefaultLabel(null)).toBe('Title default (Chinese)')
+  })
+  it('drafts and patches lang, with "" as the title default', () => {
+    const line = mk(1, { lang: 'ko' })
+    expect(draftFromLine(line).lang).toBe('ko')
+    expect(draftFromLine(mk(2)).lang).toBe('')
+    expect(buildPatch(line, draftFromLine(line))).toBeNull()
+    expect(buildPatch(line, { ...draftFromLine(line), lang: '' })).toEqual({ lang: '', expected: { lang: 'ko' } })
+    expect(buildPatch(mk(2), { ...draftFromLine(mk(2)), lang: 'en' })).toEqual({ lang: 'en', expected: { lang: '' } })
+  })
+  it('describes a bulk set in sentence case', () => {
+    expect(languageSetText(1, 'ko', 'ja')).toBe('Set 1 line to Korean.')
+    expect(languageSetText(3, '', 'ja')).toBe('Set 3 lines to the title default (Japanese).')
+    expect(languageSetText(0, 'en', 'ja')).toBe('Nothing changed: already English.')
+  })
 })
 
 describe('drafts', () => {
@@ -180,15 +217,15 @@ describe('keptNote', () => {
 describe('AI re-segmentation preview (R47)', () => {
   const eng = (name: string, free = false) => ({ name, label: name.toUpperCase(), free, models: null, key_configured: true })
   const config = {
-    engines: [eng('claude'), eng('ollama', true), eng('deepl'), eng('gemini')],
+    engines: [eng('claude'), eng('ollama', true), eng('nllb'), eng('gemini')],
     month_spend: 1.5,
     monthly_cap_usd: 10,
-    cap_applies_by_engine: { claude: true, ollama: false, deepl: true, gemini: false },
+    cap_applies_by_engine: { claude: true, ollama: false, nllb: true, gemini: false },
   }
 
   it('leaves translation-only engines out of the picker', () => {
     expect(resegmentEngines(config.engines).map((e) => e.name)).toEqual(['claude', 'ollama', 'gemini'])
-    expect(canResegmentWith('deepl')).toBe(false)
+    expect(canResegmentWith('nllb')).toBe(false)
     expect(canResegmentWith('')).toBe(true)
   })
 
@@ -235,5 +272,41 @@ describe('AI re-segmentation preview (R47)', () => {
       expect(text).not.toMatch(/confirm=|use_preview|_/)
     }
     expect(llmApplyProblemText('job')).toBe(JOB_RUNNING_MESSAGE)
+  })
+})
+
+describe('re-split summary', () => {
+  const base = { split_lines: 31, lines_before: 260, line_count: 347, timing: 'proportional', speakers_reassigned: true }
+  it('says how many lines became how many pieces', () => {
+    expect(resplitSummary(base)).toBe('Split 31 lines into 118; speakers re-assigned.')
+    expect(resplitSummary({ ...base, split_lines: 1, line_count: 262, speakers_reassigned: false })).toBe('Split 1 line into 3.')
+  })
+  it('adds aligned, cleared and note parts', () => {
+    expect(resplitSummary({ ...base, timing: 'aligned', aligned_lines: 30, cleared_translations: 1, note: 'x' })).toBe(
+      'Split 31 lines into 118; 30 timed from the audio; speakers re-assigned; 1 translation cleared. x',
+    )
+  })
+  it('reports nothing to split', () => {
+    expect(resplitSummary({ split_lines: 0 })).toMatch(/Nothing changed/)
+  })
+  it('spots the confirm refusal only', () => {
+    const e = (s: number, m: string) => new ApiError(s, { code: 'x', message: m })
+    expect(resplitNeedsConfirm(e(422, 'pass confirm=true.'))).toBe(true)
+    expect(resplitNeedsConfirm(e(409, 'pass confirm=true.'))).toBe(false)
+    expect(resplitNeedsConfirm(new Error('confirm'))).toBe(false)
+  })
+})
+
+describe('speaker time summary', () => {
+  const sum = {
+    speakers: [{ label: 'Anna', seconds: 220, percent: 84.6, turns: 41 }, { label: 'Bo', seconds: 40, percent: 15.4, turns: 1 }],
+    total_speech_seconds: 260, uncovered_seconds: 3700,
+  }
+  it('lists each speaker', () => {
+    expect(speakerTimeLines(sum)).toEqual(['Anna  3:40 · 84.6% · 41 turns', 'Bo  0:40 · 15.4% · 1 turn'])
+  })
+  it('footer mentions the uncovered audio only when known', () => {
+    expect(speakerTimeFooter(sum)).toBe('4:20 of speech in the saved detection; 1:01:40 of the audio has no speaker turn.')
+    expect(speakerTimeFooter({ ...sum, uncovered_seconds: null })).toBe('4:20 of speech in the saved detection.')
   })
 })

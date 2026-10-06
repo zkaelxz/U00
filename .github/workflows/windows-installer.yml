@@ -38,16 +38,20 @@ permissions:
 
 jobs:
   # Real observed duration (run 36667149394, 2026-09-30): 2m20s for the
-  # whole job, cold npm cache included. 20 minutes leaves room for slower
-  # runner provisioning and downloads without letting a hung step bill the
-  # 2x Windows rate for long.
+  # whole job, cold npm cache included. The 40-minute cap leaves room for
+  # slower runner provisioning and downloads without letting a hung step
+  # bill the 2x Windows rate indefinitely.
   installer:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       INNO_VERSION: "6.7.3"
       INNO_URL: "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe"
       INNO_SHA256: "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
+      # Builds the bundled Caddy (installer/build_installer.py CADDY_GO_VERSION);
+      # the hash is go.dev's published one for this zip.
+      GO_URL: "https://go.dev/dl/go1.26.8.windows-amd64.zip"
+      GO_SHA256: "b92c3b2adae85a11ba71fe7216daf0d84e82af4c8ab6c5625807f28622043a59"
     steps:
       # Actions pinned by commit (tag in the comment; each runs on Node 24).
       # No token left on disk: npm ci runs package install scripts.
@@ -80,6 +84,20 @@ jobs:
           if ($p.ExitCode -ne 0) { Write-Error "Inno Setup install exited $($p.ExitCode)"; exit 1 }
           "ISCC=$dir\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      - name: Install Go (pinned)
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "go.zip"
+          Invoke-WebRequest -Uri $env:GO_URL -OutFile $zip -TimeoutSec 300
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:GO_SHA256) { Write-Error "Go hash $hash != $env:GO_SHA256"; exit 1 }
+          $dir = Join-Path $env:RUNNER_TEMP "go-dist"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          # Windows' own tar: much faster than Expand-Archive on Go's many files.
+          tar -xf $zip -C $dir
+          if ($LASTEXITCODE -ne 0) { Write-Error "couldn't unpack Go"; exit 1 }
+          "GO_EXE=$dir\go\bin\go.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Pick the version
         shell: pwsh
         env:
@@ -98,7 +116,7 @@ jobs:
 
       - name: Build the installer
         shell: pwsh
-        run: python installer/build_installer.py --version "$env:APP_VERSION" --iscc "$env:ISCC"
+        run: python installer/build_installer.py --version "$env:APP_VERSION" --iscc "$env:ISCC" --go "$env:GO_EXE"
 
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
@@ -260,6 +278,13 @@ jobs:
           if ($failure -notmatch 'RESTART') { Write-Error "no restart on failure: $failure"; exit 1 }
           $svc = Get-Service BaiheStudio
           if ($svc.Status -ne 'Running' -or $svc.StartType -ne 'Automatic') { Write-Error "BaiheStudio is $($svc.Status), start $($svc.StartType)"; exit 1 }
+          # Caddy is installed but off: its own account, stopped, never starts at boot.
+          $caddy = Get-Service BaiheCaddy
+          if ($caddy.Status -ne 'Stopped' -or $caddy.StartType -ne 'Disabled') { Write-Error "BaiheCaddy is $($caddy.Status), start $($caddy.StartType)"; exit 1 }
+          $caddyAccount = (Get-CimInstance Win32_Service -Filter "Name='BaiheCaddy'").StartName
+          if ($caddyAccount -ne 'NT SERVICE\BaiheCaddy') { Write-Error "BaiheCaddy runs as '$caddyAccount'"; exit 1 }
+          $caddyPrivs = (sc.exe qprivs BaiheCaddy 4096) | Out-String
+          if ($caddyPrivs -match 'SeImpersonatePrivilege') { Write-Error "BaiheCaddy privileges: $caddyPrivs"; exit 1 }
           $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
           if ($health.StatusCode -ne 200) { Write-Error "/api/health answered $($health.StatusCode)"; exit 1 }
           Invoke-WebRequest -Uri http://127.0.0.1:8600/api/library/dramas -UseBasicParsing -TimeoutSec 30 | Out-Null
@@ -306,6 +331,116 @@ jobs:
           if ($health.StatusCode -ne 200) { Write-Error "/api/health answered $($health.StatusCode)"; exit 1 }
           Write-Host "The update kept the data folder and the running service."
 
+      # Setup passes the user's BAIHE_API_PORT to service.py on every run, but
+      # only a fresh install takes it: an update keeps the stored port, so a
+      # variable set (or left) for the launcher never moves the service.
+      # 8611 is neither the household default nor one of Baihe's own ports.
+      - name: Service -- an update with BAIHE_API_PORT set keeps the stored port
+        shell: pwsh
+        run: |
+          $admin = Join-Path $env:ProgramW6432 "Baihe Studio Services"
+          $setup = Get-ChildItem build/installer/output/BaiheStudio-Setup-*.exe | Select-Object -First 1
+          $log5 = Join-Path $env:RUNNER_TEMP "setup5.log"
+          $env:BAIHE_API_PORT = "8611"
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$env:APP_DIR3`"","/LOG=`"$log5`"" -Wait -PassThru
+          Remove-Item Env:BAIHE_API_PORT
+          if ($p.ExitCode -ne 0) { Write-Error "Setup (update, BAIHE_API_PORT=8611) exited $($p.ExitCode)"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health on 8600 answered $($health.StatusCode)"; exit 1 }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8611 -ErrorAction SilentlyContinue) { Write-Error "port 8611 is listening: the update moved the service"; exit 1 }
+          $status = (& "$admin\helper\python\python.exe" -I -S "$admin\helper\lib\installer\service.py" status) | Out-String
+          if ($status -notmatch '127\.0\.0\.1:8600' -or $status -match '127\.0\.0\.1:8611') { Write-Error "status doesn't show port 8600: $status"; exit 1 }
+          if ((Get-Content "$admin\service.log" -Raw) -notmatch 'Kept the stored port 8600; use set-port') { Write-Error "service.log doesn't note the ignored --port"; exit 1 }
+          Write-Host "The update with BAIHE_API_PORT=8611 kept the service on its stored port 8600."
+
+      # Once the service is installed, set-port is the way to move it, and the
+      # launcher follows the stored port whatever BAIHE_API_PORT says. The
+      # Start-menu service menu is checked through its non-interactive -Status
+      # (the menu itself and its elevation prompt can't run here). Moved back
+      # to the default afterwards for the steps below. First, while Setup's
+      # mutex exists (held here, never waited on), set-port is refused and
+      # changes nothing; once it is released set-port works.
+      - name: Service -- set-port moves it, the launcher follows, and back
+        shell: pwsh
+        run: |
+          $admin = Join-Path $env:ProgramW6432 "Baihe Studio Services"
+          $py = "$admin\helper\python\python.exe"
+          $svcpy = "$admin\helper\lib\installer\service.py"
+          $mutex = [System.Threading.Mutex]::new($false, 'Global\BaiheStudioSetupMutex')
+          try {
+            $p = Start-Process -FilePath $py -ArgumentList '-I','-S',"`"$svcpy`"",'set-port','8712' -NoNewWindow -PassThru
+            $null = $p.Handle
+            if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Error "set-port with Setup's mutex held didn't finish in 120 s"; exit 1 }
+            if ($p.ExitCode -ne 2) { Write-Error "set-port with Setup's mutex held exited $($p.ExitCode), expected 2 (refused)"; exit 1 }
+          } finally {
+            $mutex.Dispose()
+          }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8712 -ErrorAction SilentlyContinue) { Write-Error "a refused set-port moved the service to 8712"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health on 8600 answered $($health.StatusCode) after a refused set-port"; exit 1 }
+          & $py -I -S $svcpy set-port 8711
+          if ($LASTEXITCODE -ne 0) { Write-Error "set-port 8711 exited $LASTEXITCODE"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8711/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health on 8711 answered $($health.StatusCode)"; exit 1 }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8600 -ErrorAction SilentlyContinue) { Write-Error "port 8600 is still listening after set-port 8711"; exit 1 }
+          $env:BAIHE_API_PORT = "8600"
+          $out = (& "$env:APP_DIR3\python\python.exe" -s "$env:APP_DIR3\app\installer\launcher.py" --no-browser) | Out-String
+          $code = $LASTEXITCODE
+          Remove-Item Env:BAIHE_API_PORT
+          if ($code -ne 0 -or $out -notmatch '127\.0\.0\.1:8711') { Write-Error "the launcher didn't use the service's port 8711 (exit $code): $out"; exit 1 }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8600 -ErrorAction SilentlyContinue) { Write-Error "the launcher started a second server on 8600"; exit 1 }
+          $menu = "$admin\helper\lib\installer\service_menu.ps1"
+          $status = (powershell.exe -NoProfile -ExecutionPolicy Bypass -File $menu -Status) | Out-String
+          if ($LASTEXITCODE -ne 0 -or $status -notmatch 'Ports Baihe Studio uses' -or $status -notmatch '127\.0\.0\.1:8711') { Write-Error "the service menu's status: $status"; exit 1 }
+          $lnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Baihe Studio\Baihe Studio service.lnk"
+          if (-not (Test-Path $lnk)) { Write-Error "no Start-menu item $lnk"; exit 1 }
+          $lnkArgs = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).Arguments
+          if ($lnkArgs.IndexOf($menu, [StringComparison]::OrdinalIgnoreCase) -lt 0) { Write-Error "the Start-menu item runs '$lnkArgs', not the admin folder's menu"; exit 1 }
+          & $py -I -S $svcpy set-port 8600
+          if ($LASTEXITCODE -ne 0) { Write-Error "set-port 8600 exited $LASTEXITCODE"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health on 8600 answered $($health.StatusCode)"; exit 1 }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8711 -ErrorAction SilentlyContinue) { Write-Error "port 8711 is still listening after set-port 8600"; exit 1 }
+          Write-Host "set-port moved the service to 8711 and back; the launcher and the service menu followed it."
+
+      # Remote access is the owner's own step. Without its sign-in settings
+      # enable-remote refuses and changes nothing; nothing here runs it with
+      # settings, so no port opens, no certificate is requested and no
+      # firewall rule exists. The Caddyfile it would write is rendered from the
+      # shipped template and checked by the bundled Caddy (which must include
+      # rate_limit), without starting it.
+      - name: Service -- remote access refuses without settings; the Caddyfile validates
+        shell: pwsh
+        run: |
+          $admin = Join-Path $env:ProgramW6432 "Baihe Studio Services"
+          $py = "$admin\helper\python\python.exe"
+          & $py -I -S "$admin\helper\lib\installer\service.py" enable-remote
+          if ($LASTEXITCODE -ne 2) { Write-Error "enable-remote without settings exited $LASTEXITCODE, expected 2 (refused)"; exit 1 }
+          $caddy = Get-Service BaiheCaddy
+          if ($caddy.Status -ne 'Stopped' -or $caddy.StartType -ne 'Disabled') { Write-Error "a refused enable-remote changed Caddy"; exit 1 }
+          if (Test-Path "$admin\caddy\Caddyfile") { Write-Error "a refused enable-remote wrote a Caddyfile"; exit 1 }
+          if (Get-NetFirewallRule -DisplayName "*Baihe*" -ErrorAction SilentlyContinue) { Write-Error "a firewall rule exists"; exit 1 }
+          # Not port 80: the runner image already has a listener there.
+          if (Get-NetTCPConnection -State Listen -LocalPort 443 -ErrorAction SilentlyContinue) { Write-Error "port 443 is listening"; exit 1 }
+          $test = Join-Path $env:RUNNER_TEMP "caddy-validate"
+          New-Item -ItemType Directory -Force -Path $test | Out-Null
+          $script = Join-Path $test "render.py"
+          @'
+          import pathlib, sys
+          sys.path.insert(0, sys.argv[1])
+          import service
+          if service.port_answers(service.DEFAULT_HOUSEHOLD_PORT):
+              sys.exit("the household port is listening")
+          text = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+          pathlib.Path(sys.argv[3]).write_text(service.render_caddyfile(text, "baihe.example.com", service.DEFAULT_HOUSEHOLD_PORT, sys.argv[4]), encoding="utf-8")
+          '@ | Set-Content -Path $script -Encoding utf8
+          & $py -I -S $script "$admin\helper\lib\installer" "$admin\helper\lib\deploy\caddy\Caddyfile.template" "$test\Caddyfile" $test
+          if ($LASTEXITCODE -ne 0) { Write-Error "couldn't render the Caddyfile"; exit 1 }
+          $env:XDG_DATA_HOME = $test; $env:XDG_CONFIG_HOME = $test
+          & "$admin\caddy\caddy.exe" validate --config "$test\Caddyfile" --adapter caddyfile
+          if ($LASTEXITCODE -ne 0) { Write-Error "caddy validate exited $LASTEXITCODE"; exit 1 }
+          Write-Host "enable-remote refused without settings; the rendered Caddyfile validates; nothing is listening or allowed through the firewall."
+
       - name: Service -- uninstall removes it and keeps the data
         shell: pwsh
         run: |
@@ -313,7 +448,9 @@ jobs:
           $p = Start-Process -FilePath "$env:APP_DIR3\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
           for ($i = 0; $i -lt 120 -and ((Test-Path "$env:APP_DIR3\unins000.exe") -or (Test-Path $admin)); $i++) { Start-Sleep -Seconds 1 }
-          if (Get-Service BaiheStudio -ErrorAction SilentlyContinue) { Write-Error "the BaiheStudio service is still installed"; exit 1 }
+          foreach ($name in @("BaiheStudio", "BaiheCaddy")) {
+            if (Get-Service $name -ErrorAction SilentlyContinue) { Write-Error "the $name service is still installed"; exit 1 }
+          }
           if (Test-Path $admin) {
             Write-Host "--- admin folder"; Get-Item -Force $admin | Format-List FullName, Attributes, LastWriteTime
             Get-ChildItem -Force -Recurse $admin -ErrorAction SilentlyContinue | Select-Object -First 30 FullName | Format-Table -AutoSize | Out-String | Write-Host
@@ -334,7 +471,7 @@ jobs:
         if: failure() || cancelled()
         shell: pwsh
         run: |
-          foreach ($f in @("$env:RUNNER_TEMP\setup.log", "$env:DATA_DIR\launcher\install.log", "$env:DATA_DIR\launcher\server.log", "$env:DATA_DIR\library\logs\app.log", "$env:RUNNER_TEMP\setup2.log", "$env:DATA_DIR2\launcher\install.log", "$env:DATA_DIR2\launcher\server.log", "$env:RUNNER_TEMP\setup3.log", "$env:RUNNER_TEMP\setup4.log", "$env:DATA_DIR3\launcher\install.log", "$env:DATA_DIR3\library\logs\app.log", "$env:ProgramW6432\Baihe Studio Services\service.log")) {
+          foreach ($f in @("$env:RUNNER_TEMP\setup.log", "$env:DATA_DIR\launcher\install.log", "$env:DATA_DIR\launcher\server.log", "$env:DATA_DIR\library\logs\app.log", "$env:RUNNER_TEMP\setup2.log", "$env:DATA_DIR2\launcher\install.log", "$env:DATA_DIR2\launcher\server.log", "$env:RUNNER_TEMP\setup3.log", "$env:RUNNER_TEMP\setup4.log", "$env:RUNNER_TEMP\setup5.log", "$env:RUNNER_TEMP\setup6.log","$env:DATA_DIR3\launcher\install.log", "$env:DATA_DIR3\library\logs\app.log", "$env:ProgramW6432\Baihe Studio Services\service.log")) {
             if ($f -and (Test-Path $f)) { Write-Host "===== $f"; Get-Content $f -Tail 200 }
           }
           if ($env:DATA_DIR3 -and (Test-Path "$env:DATA_DIR3\library\logs\service")) {

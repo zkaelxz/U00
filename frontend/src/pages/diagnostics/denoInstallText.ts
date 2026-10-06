@@ -4,7 +4,7 @@ import type { DiagnosticsDenoStatus } from '../../types/diagnosticsInstalls'
 import { jobRunning } from './jobPoll'
 
 // Approximate: the official release zip (winget downloads the same build).
-export const DENO_SIZE = 'about 45 MB'
+const DENO_SIZE = 'about 45 MB'
 export const DENO_CONFIRM = `Confirm install Deno (${DENO_SIZE})`
 
 /** Show the block: no JS runtime, a job running, or a result to report. */
@@ -25,7 +25,7 @@ export function denoNote(s: DiagnosticsDenoStatus): string | null {
   return null
 }
 
-export type DenoResultLine = { text: string; tone: 'ok' | 'warn' | 'error' }
+type DenoResultLine = { text: string; tone: 'ok' | 'warn' | 'error' }
 
 /** The last install's outcome, or null. */
 export function denoResultLine(s: DiagnosticsDenoStatus): DenoResultLine | null {

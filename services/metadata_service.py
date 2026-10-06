@@ -1,6 +1,6 @@
 """
 services/metadata_service.py -- Media analysis and metadata auto-fill for one
-drama (Migration Slice 37), the API counterpart of the New-drama form's
+drama, the API counterpart of the New-drama form's
 "Analyze a media file" and "Auto-fill from a public listing page" expanders.
 
   - analyze_media: ffprobe read of the drama's stored media. Numbers and
@@ -23,10 +23,11 @@ timeout=, keys are resolved server-side and never sent by clients, and
 exception text is never echoed (fixed messages only), so no secret can reach
 an error.
 
-No Streamlit or FastAPI import: plain dicts in, plain dicts out.
+No FastAPI import: plain dicts in, plain dicts out.
 """
 import math
 import os
+import time
 import socket  # noqa: F401  (tests patch metadata_service.socket.getaddrinfo)
 from typing import Optional
 from urllib.parse import urljoin, urlsplit
@@ -46,13 +47,16 @@ MAX_PAGE_TEXT_CHARS = 200_000
 MAX_FETCH_BYTES = 2_000_000
 MAX_REDIRECTS = 3
 FETCH_TIMEOUT = 20
+# Wall-clock limit for reading a page body; the per-read timeout alone
+# restarts on every byte a slow server drips.
+FETCH_DEADLINE = 30
 DEFAULT_ENGINE = "claude"
 
 _FETCH_FAILED = "The page could not be fetched. Paste the page text instead."
 _BAD_URL = "url must be a valid http:// or https:// address."
 
 
-def _require_drama(drama_id) -> dict:
+def require_drama(drama_id) -> dict:
     drama = None
     if isinstance(drama_id, int) and not isinstance(drama_id, bool) \
             and 0 < drama_id <= drama_service.MAX_ID:
@@ -79,7 +83,7 @@ def _stored_media_path(drama_id, drama) -> Optional[str]:
 def analyze_media(drama_id: int) -> dict:
     """NotFoundError unknown drama; InvalidInputError no stored media;
     DependencyUnavailableError if ffprobe is missing or cannot read it."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     path = _stored_media_path(drama_id, drama)
     if path is None:
         raise InvalidInputError("This drama has no media file yet.")
@@ -108,7 +112,7 @@ def analyze_media(drama_id: int) -> dict:
         except (TypeError, ValueError):
             sample_rate = None
     # Parity P05: resolution, subtitle tracks and the suggested (never
-    # applied) pipeline, as the tab's media analysis shows them.
+    # applied) pipeline.
     try:
         info = media_inspect.analysis_from_probe(probe, os.path.basename(path))
     except (TypeError, ValueError, AttributeError):
@@ -134,7 +138,7 @@ def _positive_int(value):
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
-def _check_public_url(url: str) -> str:
+def check_public_url(url: str) -> str:
     """http(s) only, with a host whose every resolved address is public
     (the rule itself lives in services.url_guard, shared with sources/http).
 
@@ -152,7 +156,7 @@ def _check_public_url(url: str) -> str:
         raise InvalidInputError(_BAD_URL) from None
 
 
-def _pinned_get(url: str, ip: str, headers: dict):
+def pinned_get(url: str, ip: str, headers: dict, timeout: float = FETCH_TIMEOUT):
     """GET url connecting to the validated ip, not a fresh DNS lookup."""
     import requests
     from requests.adapters import HTTPAdapter
@@ -178,8 +182,25 @@ def _pinned_get(url: str, ip: str, headers: dict):
     session = requests.Session()
     session.trust_env = False  # a proxy would re-resolve the hostname itself
     session.mount(f"{parts.scheme}://", _PinnedAdapter())
-    return session.get(url, headers=headers, timeout=FETCH_TIMEOUT,
+    return session.get(url, headers=headers, timeout=timeout,
                        allow_redirects=False, stream=True)
+
+
+def _read_body(resp, max_bytes: int, deadline: float = None) -> bytes:
+    """At most max_bytes of the body, stopping at the wall-clock deadline
+    (FETCH_DEADLINE seconds from now by default)."""
+    if deadline is None:
+        deadline = time.monotonic() + FETCH_DEADLINE
+    chunks, total = [], 0
+    while total < max_bytes:
+        if time.monotonic() > deadline:
+            raise DependencyUnavailableError(_FETCH_FAILED)
+        chunk = resp.raw.read(min(65_536, max_bytes - total), decode_content=True)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    return b"".join(chunks)
 
 
 def _fetch_page_text(url: str) -> str:
@@ -191,10 +212,13 @@ def _fetch_page_text(url: str) -> str:
                                          "installed.") from e
     headers = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"}
     current = url
+    deadline = time.monotonic() + FETCH_DEADLINE
     try:
         for _ in range(MAX_REDIRECTS + 1):
-            ip = _check_public_url(current)
-            resp = _pinned_get(current, ip, headers)
+            if time.monotonic() > deadline:
+                raise DependencyUnavailableError(_FETCH_FAILED)
+            ip = check_public_url(current)
+            resp = pinned_get(current, ip, headers)
             try:
                 if resp.status_code in (301, 302, 303, 307, 308):
                     location = resp.headers.get("Location")
@@ -203,7 +227,7 @@ def _fetch_page_text(url: str) -> str:
                     current = urljoin(current, location)
                     continue
                 resp.raise_for_status()
-                raw = resp.raw.read(MAX_FETCH_BYTES + 1, decode_content=True)
+                raw = _read_body(resp, MAX_FETCH_BYTES + 1, deadline)
                 encoding = resp.encoding or "utf-8"
             finally:
                 resp.close()
@@ -233,7 +257,7 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
     "found": bool}; writes nothing. Exactly one of `url` / `page_text`.
     Unknown drama 404; bad input 422; no key / fetch failure / LLM failure
     503 (fixed text)."""
-    _require_drama(drama_id)
+    require_drama(drama_id)
     if bool(url) == bool(page_text and page_text.strip()):
         raise InvalidInputError("Pass exactly one of url or page_text.")
     engine_name = engine_name or DEFAULT_ENGINE
@@ -243,7 +267,7 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
         raise InvalidInputError("That engine cannot extract metadata.",
                                 details={"allowed": supported})
     if url:
-        _check_public_url(url)
+        check_public_url(url)
     api_key = _api_key(engine_name)
     if not api_key:
         raise DependencyUnavailableError(
@@ -273,7 +297,7 @@ def romanize_engine_name(drama_id: int, engine_name: Optional[str] = None) -> st
     """The engine a romanize call will use: the one asked for, else the
     drama's translation engine, else the default (so the route can check
     engines.paid against the engine that really runs)."""
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     return engine_name or drama.get("translation_engine") or DEFAULT_ENGINE
 
 
@@ -285,7 +309,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
     `updated` is False when the engine gave nothing usable (nothing is
     written then). No credits 422; no key / engine failure 503 (fixed text)."""
     import translation_guide
-    drama = _require_drama(drama_id)
+    drama = require_drama(drama_id)
     engine_name = engine_name or drama.get("translation_engine") or DEFAULT_ENGINE
     supported = [e for e, cls in translate_engines.ENGINES.items()
                  if getattr(cls, "supports_reference", False)]
@@ -317,7 +341,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
     romanized = {k: v.strip()[:drama_service.MAX_NAME_LEN] for k, v in (found or {}).items()
                  if k in CREDIT_FIELDS and credits.get(k) and isinstance(v, str) and v.strip()}
     if romanized:
-        # All four, as the Streamlit button did: a credit not returned (e.g.
+        # All four: a credit not returned (e.g.
         # one since removed) loses its stale romanized form.
         db.update_drama(drama_id, **{f"{k}_romanized": romanized.get(k) for k in CREDIT_FIELDS})
     return {"drama_id": drama_id, "romanized": romanized, "updated": bool(romanized)}
@@ -326,7 +350,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
 def apply_autofill(drama_id: int, fields: dict) -> dict:
     """Writes only APPLY_FIELDS through update_drama_metadata; returns the
     drama detail. Unknown keys or an empty set are InvalidInputError."""
-    _require_drama(drama_id)
+    require_drama(drama_id)
     if any(k not in APPLY_FIELDS for k in fields):
         raise InvalidInputError("Only autofill suggestion fields can be applied.",
                                 details={"allowed": list(APPLY_FIELDS)})

@@ -1,4 +1,9 @@
 import { expect, test } from '@playwright/test'
+import { installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Phone project (390x844, touch): the bulk batches panel fits the width,
 // uses the stacked list, and its buttons are at least 44px tall.
@@ -27,7 +32,7 @@ test('bulk batches panel on a phone', async ({ page }) => {
   }))
   expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
   const heights = await panel.locator('button').evaluateAll((els) =>
-    els.map((e) => ({ h: e.getBoundingClientRect().height, t: (e.textContent ?? '').trim() })))
+    els.map((e) => ({ h: window.hitHeight(e), t: (e.textContent ?? '').trim() })))
   expect(heights.length).toBeGreaterThan(3)
   for (const { h, t } of heights) expect(h, t).toBeGreaterThanOrEqual(44)
 

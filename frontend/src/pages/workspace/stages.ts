@@ -1,7 +1,7 @@
 import { DEFAULT_STAGE } from '../../router'
 
-// Pipeline stages of the Workspace. Streamlit's Transcript and Diarize tabs
-// live inside 'source' here. To add a stage: an id here, a label, and one
+// Pipeline stages of the Workspace. Transcript and Diarize live inside
+// 'source'. To add a stage: an id here, a label, and one
 // line in stageRegistry.ts.
 export const STAGE_IDS = ['source', 'translate', 'review', 'dub', 'export'] as const
 export type StageId = (typeof STAGE_IDS)[number]
@@ -38,11 +38,11 @@ export function startStage(
 // P16: plain words for a stage's state in the stepper (the link's title,
 // which is also its accessible description). Unknown states read as nothing.
 export const STAGE_STATE_WORDS: Record<string, string> = {
-  done: 'done',
-  current: 'next step',
-  pending: 'not done yet',
-  optional: 'optional',
-  blocked: 'needs lines first',
+  done: 'Done',
+  current: 'Next step',
+  pending: 'Not done yet',
+  optional: 'Optional',
+  blocked: 'Needs lines first',
 }
 
 export function stageStates(stages: { key: string; state: string }[] | undefined): Partial<Record<StageId, string>> {
@@ -61,4 +61,28 @@ export function stageCount(
   if (stage === 'translate' && progress.untranslated_count > 0) return `${progress.untranslated_count} left`
   if (stage === 'review' && progress.flagged_count > 0) return `${progress.flagged_count} flagged`
   return null
+}
+
+// The one "Next" step offered once the open stage is done: the following stage
+// that isn't blocked, worded from the progress counts only ("Translate 32 lines",
+// "Review 12 flagged"). null when the open stage isn't done or nothing follows.
+export interface NextAction {
+  stage: StageId
+  label: string
+}
+
+export function nextAction(
+  active: StageId | null,
+  progress: { untranslated_count: number; flagged_count: number; stages: { key: string; state: string }[] } | null,
+): NextAction | null {
+  if (!active || !progress) return null
+  const states = stageStates(progress.stages)
+  if (states[active] !== 'done') return null
+  const next = STAGE_IDS.slice(STAGE_IDS.indexOf(active) + 1).find((s) => states[s] !== 'blocked')
+  if (!next) return null
+  const n = progress.untranslated_count
+  const f = progress.flagged_count
+  if (next === 'translate' && n > 0) return { stage: next, label: `Translate ${n} line${n === 1 ? '' : 's'}` }
+  if (next === 'review' && f > 0) return { stage: next, label: `Review ${f} flagged` }
+  return { stage: next, label: STAGE_LABELS[next] }
 }

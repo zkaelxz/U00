@@ -6,15 +6,15 @@ import { safeDetail } from '../../components/errorMessages'
 import type { DramaCreateRequest } from '../../types/library'
 import type { SeriesChapter } from '../../types/sources'
 import type {
-  ChapterImportResult, ChapterImportRow, ImportState, UrlImportResult, UrlPreview,
+  ChapterImportResult, ChapterImportRow, ChapterSaveResult, ChapterSaveRow, ImportState, UrlImportResult, UrlPreview,
 } from '../../types/sourcesImport'
 
-// Remote viewers may not import from sources yet (docs/remote-access-decision.md:
-// S-3..S-6 stay off non-local clients), same as searching (SEARCH_REMOTE_ALLOWED).
+// While false, other devices cannot import or track from the UI (PC only),
+// same as searching (SEARCH_REMOTE_ALLOWED); see docs/remote-access-decision.md.
 export const IMPORT_REMOTE_ALLOWED = false
 
 export const MAX_URL_LEN = 2000
-// R3 accepts 1..200 chapter ids per request.
+// The chapter import route accepts 1..200 chapter ids per request.
 export const MAX_CHAPTERS = 200
 
 // ---------------------------------------------------------------- links
@@ -56,7 +56,7 @@ export function previewFacts(p: UrlPreview): string[] {
   return out
 }
 
-export type PreviewAction = 'series' | 'novel' | 'video' | 'comic' | 'unknown'
+type PreviewAction = 'series' | 'novel' | 'video' | 'comic' | 'unknown'
 
 /** Which actions the preview card offers. A series or chapter link opens the series browser. */
 export function previewAction(p: UrlPreview): PreviewAction {
@@ -80,7 +80,7 @@ export const PREVIEW_NOTES: Record<'unknown', string> = {
 export const dramaLabel = (d: Pick<DramaSummary, 'id' | 'title_en' | 'title_zh'>) =>
   d.title_en?.trim() || d.title_zh?.trim() || `Drama ${d.id}`
 
-export const COMIC_MEDIA_TYPES = ['manhua', 'manga', 'manhwa']
+const COMIC_MEDIA_TYPES = ['manhua', 'manga', 'manhwa']
 
 /** Dramas a chapter import may write into: comic types for page sources, novels for text sources. */
 export function chapterImportDramas(dramas: DramaSummary[], comic: boolean): DramaSummary[] {
@@ -88,7 +88,7 @@ export function chapterImportDramas(dramas: DramaSummary[], comic: boolean): Dra
 }
 
 // Mirrors services/media_upload_service._UPLOAD_CONTENT_MODES (null = audio_drama).
-export const URL_MEDIA_CONTENT_MODES = ['audio_drama', 'streamer_vod']
+const URL_MEDIA_CONTENT_MODES = ['audio_drama', 'streamer_vod']
 
 export const canTakeMedia = (contentMode: string | null | undefined) =>
   URL_MEDIA_CONTENT_MODES.includes(contentMode || 'audio_drama')
@@ -179,7 +179,7 @@ export const outcomeTone = (outcome: string) =>
     : outcome === 'failed' ? 'bad'
       : outcome === 'not_found' || outcome === 'not_attempted' || outcome === 'needs_ai' ? 'warn' : 'muted'
 
-/** Comic imports: pages are stored, but React has no page viewer yet. */
+/** Comic imports: the note shown after pages are stored. */
 export function comicNote(r: ChapterImportResult): string | null {
   const pages = r.chapters.reduce((n, c) => n + (c.outcome === 'imported' && typeof c.pages === 'number' ? c.pages : 0), 0)
   if (!pages) return null
@@ -197,7 +197,7 @@ export function urlImportText(r: UrlImportResult): string {
   return `Added ${plural(r.char_count, 'character')} to the drama’s novel text.`
 }
 
-// ---------------------------------------------------------------- import state (Step 107)
+// ---------------------------------------------------------------- import state
 
 export type ChapterMark = { label: string; tone: 'ok' | 'bad' | 'warn'; note: string | null }
 
@@ -260,3 +260,34 @@ export function downloadReason(url: string, hasAudio: boolean, confirmReplace: b
   if (hasAudio && !confirmReplace) return 'Still needed: tick “Replace the current audio”.'
   return null
 }
+
+// ---------------------------------------------------------------- save as CBZ
+
+export const saveLabel = (n: number) => `Save ${plural(n, 'chapter')} as CBZ`
+
+/** Why Save as CBZ is disabled, or null when it can run. */
+export function saveReason(count: number): string | null {
+  if (count === 0) return 'Still needed: at least one chapter.'
+  if (count > MAX_CHAPTERS) return `Save at most ${MAX_CHAPTERS} chapters at a time.`
+  return null
+}
+
+export function saveSummary(r: ChapterSaveResult): string {
+  const parts = [`${r.saved_count} saved`]
+  if (r.skipped_count) parts.push(`${r.skipped_count} already saved`)
+  if (r.failed_count) parts.push(`${r.failed_count} failed`)
+  if (r.not_found_count) parts.push(`${r.not_found_count} not found`)
+  if (r.not_attempted_count) parts.push(`${r.not_attempted_count} not attempted`)
+  return (r.cancelled ? 'Stopped. ' : '') + parts.join(' · ')
+}
+
+export function saveOutcomeText(c: ChapterSaveRow): string {
+  if (c.outcome === 'saved') return typeof c.pages === 'number' ? `Saved · ${plural(c.pages, 'page')}` : 'Saved'
+  if (c.outcome === 'skipped') return 'Already saved'
+  if (c.outcome === 'not_found') return 'No longer on the site'
+  if (c.outcome === 'not_attempted') return 'Not attempted'
+  const why = c.error ? safeDetail(c.error) : null
+  return why ? `Failed: ${why}` : 'Failed'
+}
+
+export const saveOutcomeTone = (outcome: string) => (outcome === 'saved' ? 'ok' : outcomeTone(outcome))

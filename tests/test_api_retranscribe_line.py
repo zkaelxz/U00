@@ -139,12 +139,18 @@ class TestStart:
         assert "whisper_size" in logged and planted not in logged
 
     @pytest.mark.parametrize("stored,expected", [
-        (None, core.DEFAULT_WHISPER_SIZE), ("", core.DEFAULT_WHISPER_SIZE),
-        ("small", "small"), ("../models/x", core.DEFAULT_WHISPER_SIZE),
-        ("org/model", core.DEFAULT_WHISPER_SIZE)])
+        (None, "large-v3-turbo"), ("", "large-v3-turbo"),
+        ("small", "small"), ("../models/x", "large-v3-turbo"),
+        ("org/model", "large-v3-turbo"), ("medium", "medium"), ("large-v3", "large-v3")])
     def test_stored_whisper_size(self, isolated_db, stored, expected):
         assert transcribe_service.stored_whisper_size(
             {"id": 1, "whisper_size": stored}) == expected
+
+    def test_default_is_turbo_on_cpu_and_gpu_and_saved_choice_never_changes(self, isolated_db, monkeypatch):
+        for gpu in (True, False):
+            monkeypatch.setattr(transcribe_service.settings_service, "get_use_gpu", lambda gpu=gpu: gpu)
+            assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": ""}) == "large-v3-turbo"
+            assert transcribe_service.stored_whisper_size({"id": 1, "whisper_size": "medium"}) == "medium"
 
     def test_explicit_prompt_overrides(self, isolated_db, captured):
         did, ids = _drama(isolated_db)
@@ -229,6 +235,17 @@ class TestJobBody:
         assert t["initial_prompt"] == "苏杉。" and t["language"] == "zh"
         assert fake_asr["released"] == 1
         assert not [f for f in os.listdir(isolated_db.drama_dir(did)) if "slice" in f]
+
+    def test_line_language_wins_over_title_language(self, isolated_db, captured, fake_asr):
+        did, ids = _drama(isolated_db)
+        lines = isolated_db.load_line_objects(did)
+        lines[0].lang = "en"
+        isolated_db.save_lines(did, lines, fields=("lang",))
+        transcribe_service.start_retranscribe_line(did, ids[0])
+        _run_with_result(captured)
+        transcribe_service.start_retranscribe_line(did, ids[1])
+        _run_with_result(captured)
+        assert [t["language"] for t in fake_asr["transcribe"]] == ["en", "zh"]
 
     def test_empty_proposes_nothing(self, isolated_db, captured, fake_asr):
         fake_asr["text"] = "  "

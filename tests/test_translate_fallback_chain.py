@@ -42,7 +42,7 @@ class Fake:
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch):
     slept = []
-    monkeypatch.setattr(translate_engines, "_fallback_sleep", slept.append)
+    monkeypatch.setattr("engine_backends.fallback._fallback_sleep", slept.append)
     return slept
 
 
@@ -53,11 +53,11 @@ def _make(name):
 @pytest.fixture
 def engines(monkeypatch):
     background_jobs.clear_all_jobs()
-    made = {n: _make(n) for n in ("claude", "deepseek", "deepl", "google")}
+    made = {n: _make(n) for n in ("claude", "deepseek", "nllb", "ollama")}
     for n, cls in made.items():
         monkeypatch.setitem(translate_engines.ENGINES, n, cls)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda n: "k")
-    monkeypatch.setattr(svc, "_summary_engine", lambda *a, **k: (None, None))
+    monkeypatch.setattr(svc, "pick_summary_engine", lambda *a, **k: (None, None))
     yield made
     background_jobs.clear_all_jobs()
 
@@ -104,7 +104,7 @@ def test_falls_back_on_rate_limit_and_stays_on_fallback(isolated_db, engines):
 
 
 def test_no_fallback_on_generic_error(isolated_db, engines, monkeypatch):
-    monkeypatch.setattr(translate_engines, "time", SimpleNamespace(sleep=lambda s: None))
+    monkeypatch.setattr("engine_backends.shared.time", SimpleNamespace(sleep=lambda s: None))
     engines["claude"].fail = RuntimeError("real bug")
     did = _seed(1)
     out = svc.start_translate_run(did, engine_name="claude",
@@ -115,7 +115,7 @@ def test_no_fallback_on_generic_error(isolated_db, engines, monkeypatch):
 
 
 def test_no_fallback_on_content_moderation(isolated_db, engines, monkeypatch):
-    monkeypatch.setattr(translate_engines, "time", SimpleNamespace(sleep=lambda s: None))
+    monkeypatch.setattr("engine_backends.shared.time", SimpleNamespace(sleep=lambda s: None))
     engines["claude"].fail = translate_engines.ContentModerationBlocked("claude", "policy")
     did = _seed(1)
     _wait(svc.start_translate_run(did, engine_name="claude",
@@ -127,21 +127,24 @@ def test_no_fallback_on_content_moderation(isolated_db, engines, monkeypatch):
 def test_chain_must_not_cross_engine_class_or_repeat(isolated_db, engines):
     did = _seed(1)
     with pytest.raises(InvalidInputError):
-        svc.start_translate_run(did, engine_name="claude", fallback_chain=[{"engine": "deepl"}])
+        svc.start_translate_run(did, engine_name="claude", fallback_chain=[{"engine": "nllb"}])
     with pytest.raises(InvalidInputError):
-        svc.start_translate_run(did, engine_name="deepl", fallback_chain=[{"engine": "claude"}])
+        svc.start_translate_run(did, engine_name="nllb", fallback_chain=[{"engine": "claude"}])
     with pytest.raises(InvalidInputError):
         svc.start_translate_run(did, engine_name="claude", fallback_chain=[{"engine": "claude"}])
     with pytest.raises(InvalidInputError):
         svc.start_translate_run(did, engine_name="claude", fallback_chain=[{"engine": "nope"}])
 
 
-def test_translation_only_chain_allowed(isolated_db, engines):
-    engines["deepl"].fail = AuthError("401")
+def test_translation_only_chain_allowed(isolated_db, engines, monkeypatch):
+    # nllb is the only real translation-only engine, so a second one is faked.
+    monkeypatch.setattr(translate_engines, "TRANSLATION_ONLY_ENGINES", {"nllb", "ollama"})
+    monkeypatch.setattr("engine_backends.fallback.TRANSLATION_ONLY_ENGINES", {"nllb", "ollama"})
+    engines["nllb"].fail = AuthError("401")
     did = _seed(1)
-    _wait(svc.start_translate_run(did, engine_name="deepl",
-                                  fallback_chain=[{"engine": "google"}])["job_id"])
-    assert db.load_lines(did)[0]["en"] == "google:z0"
+    _wait(svc.start_translate_run(did, engine_name="nllb",
+                                  fallback_chain=[{"engine": "ollama"}])["job_id"])
+    assert db.load_lines(did)[0]["en"] == "ollama:z0"
 
 
 def test_each_engine_has_its_own_cap_and_spend(isolated_db, engines):
@@ -172,7 +175,7 @@ def test_api_accepts_fallback_chain_and_rejects_bad_shape(isolated_db, engines):
     assert client.post(url, json={"engine": "claude", "fallback_chain": [
         {"engine": "deepseek", "key": "x"}]}).status_code == 422
     assert client.post(url, json={"engine": "claude", "fallback_chain": [
-        {"engine": "deepl"}]}).status_code == 422
+        {"engine": "nllb"}]}).status_code == 422
     r = client.post(url, json={"engine": "claude", "fallback_chain": [{"engine": "deepseek"}]})
     assert r.status_code == 200 and r.json()["fallback_engines"] == ["deepseek"]
     _wait(r.json()["job_id"])
@@ -228,7 +231,7 @@ def test_retry_budget_resets_for_next_engine(_no_sleep):
 
 
 def test_backoff_is_capped(monkeypatch, _no_sleep):
-    monkeypatch.setattr(translate_engines, "FALLBACK_TRANSIENT_RETRIES", 6)
+    monkeypatch.setattr("engine_backends.fallback.FALLBACK_TRANSIENT_RETRIES", 6)
     a = _Flaky(RateLimitError("429"), 6)
     fe = translate_engines.FallbackEngine([a], ["claude"])
     fe.translate_batch(["z"], {})
@@ -284,7 +287,7 @@ def test_translate_run_logs_failed_attempt_usage(isolated_db, engines):
 
 
 def test_failed_attempt_does_not_recount_previous_batch_usage(isolated_db, engines):
-    """An engine that sets last_usage only on success (DeepL/Google) keeps
+    """An engine that sets last_usage only on success (a single-call MT engine) keeps
     the previous batch's usage when it fails; that must not count again."""
     a = engines["claude"](model="claude-sonnet-5")
     b = engines["deepseek"](model="deepseek-v4-flash")

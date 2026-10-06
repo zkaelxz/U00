@@ -8,7 +8,7 @@ tables are generated: edit `docs/source-status.json` whenever a new site
 is vetted, then run `python scripts/source_status.py` (CI runs the check).
 Update a row's status and date the next time it's re-verified rather than
 trusting an old date forever — sites change, break, and get throttled
-(mangaz, manhuaku). `python scripts/source_probe.py` checks by hand which
+(manhuaku). `python scripts/source_probe.py` checks by hand which
 hosts still answer.
 
 **Status key:** ✅ confirmed live · ⚠️ confirmed but with a real caveat ·
@@ -37,13 +37,13 @@ Site, language, type, hosts and flags come from the adapter itself; status, date
 | 快看漫画 Kuaikan Manhua | `kuaikan` | zh | manhua | `kuaikanmanhua.com` |  | ✅ | unverified date | Was completely broken (shared `requests` cookie bug); fixed in `sources/http.py`, benefits every source. |
 | 漫画库 Manhuaku | `manhuaku` | zh | manhua | `manhuaku.net` |  | ⚠️ | 2026-09-26 | Both content paths (baozimh-aggregated + native `blob:`) confirmed working 2026-09-26 with real page bytes. `search()` unsupported (real endpoint, empty for every query tried). `robots.txt` inaccessible (403), not reviewed for ToS. **2026-09-27: two consecutive live end-to-end runs hung — one past 120s, a retry past 240s. The second produced no output at all, not even the first progress marker printed before any network call, suggesting the stall (or a background-capture buffering issue) may sit earlier than the actual site request. Not re-confirmed working today; cause still unknown (site slowdown, a regression, or an artifact of this environment). Stopped at two attempts deliberately, not retried further.** |
 | ゼロサムオンライン Zero-Sum Online | `zerosumonline` | ja | manga | `zerosumonline.com` |  | ✅ | unverified date | Own protobuf reader for the real API. |
-| マンガ図書館Z Manga Toshokan Z | `mangaz` | ja | manga | `mangaz.com` |  | ⚠️ | unverified date | search/series/chapters ✅. Page capture proven (real descrambled page, real `blob:` capture) but a full uninterrupted book (43/43 pages) is unproven — throttling-limited, not a code gap. |
 | ranobes.net | `ranobes` | en | novel | `ranobes.net` |  | ❔ no status recorded | — |  |
 | 猫耳FM MissEvan | `missevan` | zh | audio_drama | `missevan.com` | sign-in optional | ❔ no status recorded | — |  |
 | 饭角 Fanjiao | `fanjiao` | zh | audio_drama | `fanjiao.co` |  | ❔ no status recorded | — |  |
 | 轻之国度 (lightnovel.fun) | `lightnovel_fun` | zh | novel | `www.lightnovel.fun` |  | ✅ | 2026-09-30 | Search, series, chapters (across volumes) and chapter text confirmed live 2026-09-30. Public `/book` and `/reader` pages only; locked 轻币 chapters are reported, never unlocked; EPUB/file-locker links never followed. `lightnovel.us` returned 503. |
 | 小説家になろう (Syosetu) | `syosetu` | ja | novel | `ncode.syosetu.com` |  | ⚠️ | 2026-09-30 | Page structure read live 2026-09-30 and the adapter run offline against saved pages; no import run through the app. **Terms: the ToS (第14条 23) forbid automated access except via the official API** (recorded, not enforced; shipped by owner decision 2026-09-30). 18+ works (`novel18.syosetu.com`) unsupported; 18+/login/removed-work handling unverified live. |
 | 飘天文学 (Piaotian) | `piaotian` | zh | novel | `www.piaotia.com`, `ptwxz.com` |  | ⚠️ | 2026-09-30 | Page structure read live 2026-09-30 (book page, whole-book list, chapter, 404 and 200 error pages, search) and the adapter run offline against those saved pages; no chapter imported through the app. Search page 2, login/age interstitials and the site's own search throttle unverified live. No terms page found (UNKNOWN, not permitted); the site hosts reposted copyrighted fiction. |
+| MangaK | `mangak` | en | manga, manhwa, manhua | `mangak.io`, `api.mangak.io` |  | ⚠️ | 2026-10-03 | Search, series, the full chapter list, page list and an image download run live against mangak.io 2026-10-03; no import run through the app. **Terms: the ToS (section 4) forbid "automated tools, bots, or scrapers"** (recorded, not enforced; shipped by owner decision 2026-10-03). The site says it hosts content "sourced from third-party providers". |
 
 ## Generic paste-a-URL (no adapter) — confirmed on real, specific sites
 

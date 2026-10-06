@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { checkModelProviders, getModelStatus, switchPresetModel } from './models'
+import { checkModelProviders, clearModelOverride, getModelStatus, setModelOverride, setOfferProviderModels, switchPresetModel } from './models'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
 function reply(status: number, body: unknown) {
@@ -42,6 +42,23 @@ describe('models api', () => {
     expect(JSON.parse(String(init.body))).toEqual({ from_model: 'claude-sonnet-4-6', to_model: 'claude-sonnet-5', confirm: true })
   })
 
+  it('the override calls are PC only and carry the model seen and confirm', async () => {
+    const setReply = reply(200, { kind: 'default', key: 'deepseek', engine: 'deepseek' })
+    await setModelOverride('default', 'deepseek', 'deepseek-v4-flash', 'deepseek-v4-pro', setReply.f)
+    const [url, init] = setReply.mock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/models/overrides')
+    expect(localHeader(init)).toBe('1')
+    expect(JSON.parse(String(init.body))).toEqual({
+      kind: 'default', key: 'deepseek', from_model: 'deepseek-v4-flash', to_model: 'deepseek-v4-pro', confirm: true,
+    })
+    const clear = reply(200, { kind: 'tier', key: 'standard', engine: 'claude' })
+    await clearModelOverride('tier', 'standard', clear.f)
+    const [url2, init2] = clear.mock.mock.calls[0] as [string, RequestInit]
+    expect(url2).toBe('/api/models/overrides/clear')
+    expect(localHeader(init2)).toBe('1')
+    expect(JSON.parse(String(init2.body))).toEqual({ kind: 'tier', key: 'standard', confirm: true })
+  })
+
   it('a 429 and a 409 surface as ApiErrors with their codes', async () => {
     const tooSoon = reply(429, { error: { code: 'rate_limited', message: 'Models were checked less than a minute ago.' } })
     await expect(checkModelProviders(tooSoon.f)).rejects.toMatchObject({ status: 429, code: 'rate_limited' })
@@ -54,5 +71,18 @@ describe('models api', () => {
     const { f } = reply(403, { error: { code: 'forbidden', message: 'PC only.' } })
     await expect(checkModelProviders(f)).rejects.toMatchObject({ status: 403 })
     expect(getPcMode()).toBe('remote')
+  })
+})
+
+describe('setOfferProviderModels', () => {
+  afterEach(() => resetPcModeForTests())
+
+  it('posts the one boolean to /api/settings as a PC-only write', async () => {
+    const { mock, f } = reply(200, {})
+    await setOfferProviderModels(true, f)
+    const [url, init] = mock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/settings')
+    expect(JSON.parse(init.body as string)).toEqual({ offer_provider_models: true })
+    expect(localHeader(init)).toBe('1')
   })
 })

@@ -2,19 +2,13 @@
 services/review_lines_service.py -- the Review stage's READ-ONLY line views
 (migration slice R1a): filtered/paginated line list, transcript search,
 find-and-replace PREVIEW, coverage check, pacing check, "What happened
-here?" provenance, and original-transcript-text lookup. Mirrors the
-matching blocks of `with tab_review:` in `tabs/workspace_tab.py`, but reads
-the database by permanent `Line.id` instead of the browser session list.
+here?" provenance, and original-transcript-text lookup. Reads the
+database by permanent `Line.id`, never a browser session list.
 
 Also read-only, added later: the nearest flagged line across pages and
 the page it is on (review parity R08).
 
-Explicitly OUT OF SCOPE for this slice (each its own later slice): every
-write (applying a replace, editing, flagging, restoring original text), the
-media player / burned preview / pronunciation, translation-memory
-suggestions, LLM tools, bulk modes, and history/versions/notes reads.
-
-Nothing here writes to the database or disk. No Streamlit/FastAPI import:
+Nothing here writes to the database or disk. No FastAPI import:
 plain dicts in and out. Identity is always `Line.id`; `idx` is returned for
 display only and never accepted as an identifier.
 """
@@ -47,12 +41,12 @@ def _load_drama_and_lines(drama_id: int):
     return drama, lines
 
 
-def _line_dict(ln) -> dict:
+def line_dict(ln) -> dict:
     return {
         "id": ln.id, "idx": ln.idx, "start": ln.start, "end": ln.end,
         "zh": ln.zh, "en": ln.en, "speaker": ln.speaker,
         "speaker_manual": bool(ln.speaker_manual), "sfx": bool(ln.sfx),
-        "flag": ln.flag, "flag_note": ln.flag_note,
+        "flag": ln.flag, "flag_note": ln.flag_note, "lang": ln.lang,
         # bare filename only, never the relative folder layout (D2)
         "dub_filename": os.path.basename(ln.dub_filename) if ln.dub_filename else None,
     }
@@ -80,8 +74,8 @@ def _check_len(name: str, value: str):
 
 def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
                       only: str = "all") -> dict:
-    """One page of lines, optionally only flagged or only untranslated
-    (same definitions and totals as the Review tab). The two counts are
+    """One page of lines, optionally only flagged or only untranslated.
+    The two counts are
     always over the whole drama, not the filtered view. An out-of-range
     page returns an empty `lines` list rather than an error."""
     if only not in _ONLY_VALUES:
@@ -98,7 +92,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     visible = _visible(lines, only)
     start = (page - 1) * page_size
     return {
-        "lines": [_line_dict(ln) for ln in visible[start:start + page_size]],
+        "lines": [line_dict(ln) for ln in visible[start:start + page_size]],
         "page": page, "page_size": page_size, "total": len(visible),
         "flagged_count": flagged, "untranslated_count": untranslated,
     }
@@ -118,7 +112,7 @@ def search_lines(drama_id: int, term: str, limit: int = 50) -> list:
         return []
     hits = [ln for ln in lines
             if term in (ln.zh or "").lower() or term in (ln.en or "").lower()]
-    return [_line_dict(ln) for ln in hits[:limit]]
+    return [line_dict(ln) for ln in hits[:limit]]
 
 
 def _has_nested_quantifier(pattern: str) -> bool:
@@ -269,37 +263,10 @@ def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int = None,
 
 def adjacent_flagged_idx(all_lines, ref_idx, forward):
     """The nearest flagged line's idx strictly after (forward=True) or
-    before (forward=False) ref_idx, or None if there isn't one. Step 20's
+    before (forward=False) ref_idx, or None if there isn't one. The
     next/previous-flagged navigation -- there was previously no way to
     step through flagged lines one at a time, only the "Show flagged
     lines only" filter."""
     if forward:
         return next((ln.idx for ln in all_lines if ln.flag and ln.idx > ref_idx), None)
     return next((ln.idx for ln in reversed(all_lines) if ln.flag and ln.idx < ref_idx), None)
-
-
-def unsaved_line_count(drama_id, lines):
-    """Step 21: how many of Review & edit's lines differ from what's
-    actually in the database -- not from st.session_state.lines, which the
-    page's splice-back updates on every rerun whether or not Save was
-    clicked. Timing is compared at the 2 decimals the start/end boxes
-    show, so a stored 1.2345 doesn't read as an edit of the box's 1.23.
-    A line with no id yet, or a saved line missing from `lines`, counts
-    as unsaved too."""
-    saved = {r["id"]: r for r in db.load_lines(drama_id)}
-    n = 0
-    seen = set()
-    for ln in lines:
-        row = saved.get(ln.id)
-        if row is None:
-            n += 1
-            continue
-        seen.add(ln.id)
-        if (round(ln.start, 2) != round(row["start"], 2)
-                or round(ln.end, 2) != round(row["end"], 2)
-                or (ln.zh or "") != (row["zh"] or "")
-                or (ln.en or "") != (row["en"] or "")
-                or (ln.speaker or "") != (row["speaker"] or "")
-                or bool(ln.sfx) != bool(row.get("sfx"))):
-            n += 1
-    return n + len(saved.keys() - seen)

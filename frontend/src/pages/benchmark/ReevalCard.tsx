@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkSet } from '../../api/benchmark'
+import { modelOptionLabel } from '../../api/translate'
 import {
   addReevalCandidate, estimateReeval, getReevalDecisions, getReevalOverview, promoteReevalCandidate,
   rejectReevalCandidate, reopenReevalCandidate, saveReevalSettings, startReevalRun,
@@ -53,7 +54,7 @@ type Props = {
 type Msg = { tone: 'ok' | 'known' | 'error'; text: string }
 
 /**
- * "Model re-evaluation" (Step 40b): is a newer model better than the one in
+ * "Model re-evaluation": is a newer model better than the one in
  * production? Candidates run against production through the Benchmark Lab,
  * on "Run now" or an opt-in schedule; nothing is promoted without the
  * explicit second press. Writes are PC only.
@@ -220,7 +221,7 @@ function CandidatesBlock({ overview, options, remote, onChanged }: {
               <div className="reeval-item-head">
                 <strong>{modelLabel(c)}</strong>
                 <Badge tone={candidateStatusTone(c.status)}>{candidateStatusLabel(c.status)}</Badge>
-                <span className="muted num">added {formatWhen(c.created_at)}</span>
+                <span className="muted num">Added {formatWhen(c.created_at)}</span>
               </div>
               {c.note && <p className="muted">{c.note}</p>}
               {c.status !== 'candidate' && c.last_decision && <p className="reeval-summary">{c.last_decision.summary}</p>}
@@ -340,7 +341,7 @@ function AddCandidate({ options, openCount, onAdded }: { options: BenchmarkOptio
             <select value={modelValue} onChange={(e) => setModel(e.target.value)}>
               <option value="">Default</option>
               {engine.models.map((m) => (
-                <option key={m} value={m}>{m}</option>
+                <option key={m} value={m}>{modelOptionLabel(engine, m)}</option>
               ))}
             </select>
           </Field>

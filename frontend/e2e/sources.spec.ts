@@ -1,10 +1,23 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { mockAccess } from './sourcesAccessMocks'
 import { SERIES_LINKS, SETTINGS, mockSources, posted, searchResult } from './sourcesMocks'
 
 // Sources page (#/sources), desktop. Every search/series/job/settings write
 // is mocked (sourcesMocks.ts); nothing here reaches a real site.
+
+// Many rows: no ancestor of the chapter list (or the list itself) is a scroll area with hidden rows.
+async function noInnerScroll(page: Page) {
+  const bad = await page.locator('.sources-chapters').evaluate((list) => {
+    const out: string[] = []
+    for (let e: HTMLElement | null = list; e && e !== document.documentElement; e = e.parentElement) {
+      const oy = getComputedStyle(e).overflowY
+      if ((oy === 'auto' || oy === 'scroll') && e.scrollHeight > e.clientHeight) out.push(e.className || e.tagName)
+    }
+    return out
+  })
+  expect(bad, 'inner vertical scroll area').toEqual([])
+}
 
 test('nav, header, empty-state and disabled reasons', async ({ page }) => {
   const s = await mockSources(page)
@@ -32,7 +45,6 @@ test('nav, header, empty-state and disabled reasons', async ({ page }) => {
 
   // Search in: untick both searchable sources.
   await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
-  await page.getByText('Search in').click()
   await page.getByRole('switch', { name: 'Alpha Comics' }).click()
   await page.getByRole('switch', { name: 'Beta Novels' }).click()
   await expect(page.getByRole('switch', { name: 'Beta Novels' })).not.toBeChecked()
@@ -145,8 +157,8 @@ test('a 409 on start reattaches; a done job survives a reload; Clear empties', a
 })
 
 test('new chapters: dismiss and two-step stop tracking', async ({ page }) => {
-  const tracked = [{ source: 'alpha', series_id: 'a0', title: 'Heaven Book 1', url: '', drama_id: null, last_checked: 1, last_check_error: null },
-    { source: 'beta', series_id: 'b0', title: 'Old Book', url: '', drama_id: null, last_checked: 1, last_check_error: 'Timed out.' }]
+  const tracked = [{ source: 'alpha', series_id: 'a0', title: 'Heaven Book 1', url: '', drama_id: null, last_checked: 1, last_check_error: null, save_cbz: false },
+    { source: 'beta', series_id: 'b0', title: 'Old Book', url: '', drama_id: null, last_checked: 1, last_check_error: 'Timed out.', save_cbz: false }]
   const s = await mockSources(page, {
     tracked,
     notifications: [{ id: 7, source: 'alpha', series_id: 'a0', chapter_id: 'c125', title: 'Chapter 125', created_at: Date.now() / 1000 - 7200, dismissed: false }],
@@ -173,6 +185,18 @@ test('new chapters: dismiss and two-step stop tracking', async ({ page }) => {
   await panel.getByRole('button', { name: 'Close' }).click()
   await expect(panel).toHaveCount(0)
   await expect(openBtn).toBeFocused()
+
+  // Saving new chapters as CBZ: comic sources only.
+  await page.route(/\/api\/sources\/tracked\/save-cbz$/, (route) => {
+    const body = route.request().postDataJSON()
+    s.calls.push({ method: 'POST', path: '/api/sources/tracked/save-cbz', body })
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ ...tracked[0], save_cbz: body.save_cbz }, tracked[1]]) })
+  })
+  const saveCbz = box.getByRole('checkbox', { name: 'Save new chapters as CBZ' })
+  await expect(saveCbz).toHaveCount(1)
+  await saveCbz.click()
+  await expect(saveCbz).toBeChecked()
+  expect(posted(s, '/api/sources/tracked/save-cbz')[0].body).toEqual({ source: 'alpha', series_id: 'a0', save_cbz: true })
 
   await box.getByRole('button', { name: 'Dismiss' }).click()
   await expect(box.getByText('Chapter 125 · Alpha Comics')).toHaveCount(0)
@@ -399,4 +423,19 @@ test('source settings: health text, On rollback, save only changes, 422, clear c
     expect(await panel.locator('.btn-primary:visible:not(:disabled)').count()).toBeLessThanOrEqual(1)
   }
   expect(s.unmocked).toEqual([])
+})
+
+test('open series with many rows scrolls with the page, no inner scrollbar', async ({ page }) => {
+  const s = await mockSources(page, { searchBody: { ...searchResult(12), errors: {} }, series: 'done' })
+  await page.goto('/#/sources')
+  await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
+  await page.getByRole('searchbox', { name: 'Title' }).press('Enter')
+  await expect(page.getByText(/Searching…/)).toBeVisible()
+  s.search = 'done'
+  await page.getByRole('button', { name: 'Open on Alpha Comics' }).first().click()
+  const panel = page.getByRole('region', { name: 'Series' })
+  await panel.getByRole('button', { name: 'Show all 124' }).click()
+  await expect(panel.getByRole('heading', { level: 4, name: 'Extras' })).toBeVisible()
+  await noInnerScroll(page)
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(await page.evaluate(() => innerHeight))
 })

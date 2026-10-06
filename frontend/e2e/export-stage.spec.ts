@@ -11,7 +11,8 @@ const job = (status: string, extra: object = {}) => ({
   gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1, ...extra,
 })
 
-const openMore = (page: Page) => page.getByText('More export', { exact: true }).click()
+const openGroup = (page: Page, name: string) => page.getByText(name, { exact: true }).click()
+const openMedia = (page: Page) => openGroup(page, 'Video and audio')
 
 async function mockJob(page: Page, startPath: string, finalStatus: 'done' | 'cancelled') {
   const bodies: unknown[] = []
@@ -68,18 +69,14 @@ test('bad ASS settings are explained before any request', async ({ page }) => {
   await expect(page.getByRole('alert').filter({ hasText: '#RRGGBB' })).toBeVisible()
 })
 
-test('flag actions run only on click and report the result', async ({ page }) => {
-  let posts = 0
-  page.on('request', (r) => r.method() === 'POST' && r.url().includes('/flag-') && posts++)
+test('the readiness warning links to Review checks instead of hosting flag buttons', async ({ page }) => {
+  await page.route('**/api/export/dramas/1/readiness', (route) =>
+    route.fulfill({ json: { drama_id: 1, total_lines: 10, zh_filled: 10, en_filled: 10, fully_translated: true, overlap_count: 2, auto_qc_issue_count: 0, dense_line_count: 1 } }))
   await page.goto('/#/drama/1/export')
-  await expect(page.getByTestId('readiness')).toBeVisible()
-  expect(posts).toBe(0)
-  await openMore(page)
-  await page.getByRole('button', { name: 'Flag overlapping lines' }).click()
-  await expect(page.getByTestId('flag-result-overlaps')).toHaveText('Flagged 0 lines.')
-  await page.getByRole('button', { name: 'Run auto-QC and flag' }).click()
-  await expect(page.getByTestId('flag-result-qc')).toContainText('Checked 0 lines')
-  expect(posts).toBe(2)
+  await expect(page.getByTestId('readiness-warnings')).toContainText('2 overlapping lines, 1 dense line.')
+  await expect(page.getByRole('button', { name: 'Flag overlapping lines' })).toHaveCount(0)
+  await page.getByRole('link', { name: 'Open Review checks' }).click()
+  await expect(page).toHaveURL(/#\/drama\/1\/review$/)
 })
 
 test('the ASS style shows at the top only when ASS is chosen', async ({ page }) => {
@@ -99,11 +96,11 @@ test('a drama that is not novel narration has no EPUB section', async ({ page })
 test('audiobook job can be cancelled', async ({ page }) => {
   await mockJob(page, '/api/export/dramas/1/audiobook', 'cancelled')
   await page.goto('/#/drama/1/export')
-  await openMore(page)
+  await openMedia(page)
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   await page.getByRole('button', { name: 'Cancel job' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('cancelled')
+  await expect(page.getByTestId('job-status')).toContainText('Cancelled')
 })
 
 test('burned-in video sends the style and offers the artifact on done', async ({ page }) => {
@@ -112,12 +109,12 @@ test('burned-in video sends the style and offers the artifact on done', async ({
     route.fulfill({ json: { name: 'burned_video_1.mp4', size: 3 * 1024 * 1024, kind: 'video' } }),
   )
   await page.goto('/#/drama/1/export')
-  // With SRT chosen, the ASS style sits under More export, beside the burned-in video.
-  await openMore(page)
+  // With SRT chosen, the ASS style sits under Video and audio, beside the burned-in video.
+  await openMedia(page)
   await page.getByText('ASS style', { exact: true }).click()
   await page.getByLabel(/^Font size/).fill('48')
   await page.getByRole('button', { name: 'Start burned-in video export' }).click()
-  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByTestId('job-status')).toContainText('Running')
   finish()
   const link = page.getByTestId('artifact-video').getByRole('link')
   await expect(link).toHaveText('Download burned_video_1.mp4')
@@ -130,7 +127,7 @@ test('a 422 from a job start is shown as a banner', async ({ page }) => {
     route.fulfill({ status: 422, json: { error: { code: 'invalid_input', message: 'No narration audio yet.' } } }),
   )
   await page.goto('/#/drama/1/export')
-  await openMore(page)
+  await openMedia(page)
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'not valid' })).toBeVisible()
 })
@@ -141,11 +138,11 @@ test('subtitle-track video sends the chosen subtitles and offers the artifact', 
     route.fulfill({ json: { name: 'softsub_video_1.mkv', size: 1024, kind: 'softsub_video' } }),
   )
   await page.goto('/#/drama/1/export')
-  await openMore(page)
+  await openMedia(page)
   const group = page.getByRole('group', { name: 'Video with a subtitle track' })
   await group.getByLabel('Subtitles').selectOption('bilingual')
   await group.getByRole('button', { name: 'Start subtitle-track video export' }).click()
-  await expect(group.getByTestId('job-status')).toContainText('running')
+  await expect(group.getByTestId('job-status')).toContainText('Running')
   finish()
   const link = page.getByTestId('artifact-softsub').getByRole('link')
   await expect(link).toHaveText('Download softsub_video_1.mkv')
@@ -159,7 +156,7 @@ test('dubbed video sends the mix choice and offers its own artifact', async ({ p
     route.fulfill({ json: { name: 'dubbed_video_1.mp4', size: 2048, kind: 'dubbed_video' } }),
   )
   await page.goto('/#/drama/1/export')
-  await openMore(page)
+  await openMedia(page)
   const group = page.getByRole('group', { name: 'Video with the dub audio' })
   await group.getByRole('switch', { name: 'Mix the original audio in quietly underneath' }).click()
   await group.getByRole('button', { name: 'Start dubbed video export' }).click()
@@ -192,6 +189,9 @@ async function exportAss(page: Page, noCopy: boolean) {
   await withExportLines(page)
   await page.goto('/#/drama/1/export')
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
+  // The style options arrive after the page paints; Export before then is refused.
+  await expect(page.getByText('ASS style', { exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   await expect(page.getByTestId('export-text')).toContainText('[Script Info]')
 }

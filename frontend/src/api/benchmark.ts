@@ -1,4 +1,4 @@
-// Benchmark Lab (Step 38; api/routers/benchmark_routes.py, api/benchmark_schemas.py):
+// Benchmark Lab (api/routers/benchmark_routes.py, api/benchmark_schemas.py):
 // golden sets, persistent per-run results and the Model Arena. Reads and the
 // estimate need admin.diagnostics; adding, importing and deleting cases and
 // starting a run are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403
@@ -20,6 +20,7 @@ export interface BenchmarkEngineOption {
   label: string
   free: boolean
   models: string[] | null
+  model_labels?: Record<string, string>
   key_configured: boolean
 }
 
@@ -58,7 +59,7 @@ export interface BenchmarkSet {
   with_reference: number
 }
 
-export interface BenchmarkCaseCreate {
+interface BenchmarkCaseCreate {
   label: string
   source_text: string
   reference_text?: string
@@ -67,7 +68,7 @@ export interface BenchmarkCaseCreate {
   set_name?: string
 }
 
-export interface BenchmarkImportRequest {
+interface BenchmarkImportRequest {
   set_name: string
   text: string
   format: ImportFormat
@@ -75,7 +76,7 @@ export interface BenchmarkImportRequest {
   source_language: SourceLanguage
 }
 
-export interface BenchmarkImportResult {
+interface BenchmarkImportResult {
   set_name: string
   tier: string
   added: number
@@ -162,7 +163,7 @@ export interface BenchmarkResult {
   error: string | null
 }
 
-export interface BenchmarkRunDetail {
+interface BenchmarkRunDetail {
   run: BenchmarkRun
   results: BenchmarkResult[]
 }

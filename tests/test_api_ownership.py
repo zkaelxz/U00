@@ -51,7 +51,6 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "package": "a Python package name (PC-only)",
     "preset_id": "presets: household-wide (decision 6)",
     "entry_id": "voice bank: household-wide (decision 6)",
-    "bundle_id": "bug bundle (PC-only)",
     "report_id": "bug report (admin.diagnostics / PC-only)",
     "channel": "notification channel (PC-only)",
     "revision": "a Hugging Face model-cache revision, not an item (PC-only delete)",
@@ -71,6 +70,7 @@ OWNERSHIP_EXEMPT_PARAMS = {
 JOB_ROUTES = {
     ("GET", "/api/jobs/{job_id}"): "jobs_service.get_job -> can_see_job",
     ("POST", "/api/jobs/{job_id}/cancel"): "jobs_service.cancel_job -> can_see_job",
+    ("POST", "/api/jobs/{job_id}/delete"): "jobs_service.delete_job -> can_see_job",
     ("GET", "/api/jobs/{job_id}/stages"): "jobs_service.get_job_stages -> can_see_job",
     ("GET", "/api/sources/jobs/{job_id}/result"):
         "sources_search_service.get_job_result -> can_see_job",
@@ -587,14 +587,14 @@ class TestDramaIdsInBodies:
         from services.service_errors import NotFoundError
         b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
         with pytest.raises(NotFoundError):
-            svc._require_drama(world["private"], b)
-        assert svc._require_drama(world["shared"], b)["id"] == world["shared"]
-        assert svc._require_drama(world["private"], None)["id"] == world["private"]
+            svc.require_drama(world["private"], b)
+        assert svc.require_drama(world["shared"], b)["id"] == world["shared"]
+        assert svc.require_drama(world["private"], None)["id"] == world["private"]
 
     def test_tracking_into_invisible_drama_404(self, world, monkeypatch):
         from services import sources_registry_service as reg
         from services.service_errors import ConflictError, NotFoundError
-        monkeypatch.setattr(reg, "_require_source", lambda name: None)
+        monkeypatch.setattr(reg, "require_source", lambda name: None)
         b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
         with pytest.raises(NotFoundError, match="No drama"):
             reg.set_tracked("x", "s1", True, drama_id=world["private"], principal=b)
@@ -666,6 +666,26 @@ class TestDramaIdsInBodies:
                                      json={"source": "manhuagui", "series_id": "1",
                                            "drama_id": world["private"]})
         assert r.status_code == 200 and r.json()[0]["drama_id"] == world["private"], r.text
+
+    def test_tracked_save_cbz_follows_the_link_too(self, world):
+        # Turning on auto-save for a series linked to a drama B can't edit
+        # is refused like relinking it: 404, nothing changed.
+        from sources import store
+        store.track_series("manhuagui", "1", "One", drama_id=world["private"])
+        client = _client(_app())
+
+        def save(who, on=True):
+            return client.post("/api/sources/tracked/save-cbz", headers=world[who],
+                               json={"source": "manhuagui", "series_id": "1", "save_cbz": on})
+
+        r = save("b")
+        assert r.status_code == 404, r.text
+        assert r.json()["error"]["message"] == "That series isn't tracked."
+        assert [t["save_cbz"] for t in store.list_tracked_series()] == [0]
+        r = save("a")
+        assert r.status_code == 200 and r.json()[0]["save_cbz"] is True, r.text
+        assert save("b", on=False).status_code == 404
+        assert [t["save_cbz"] for t in store.list_tracked_series()] == [1]
 
     def test_link_to_a_deleted_drama_blocks_nobody(self, world):
         from services import sources_tracking_service as tracking
@@ -838,6 +858,20 @@ class TestJobs:
         off = _local(_app("off")).get("/api/jobs").json()["items"]
         assert {j["job_id"] for j in off} >= set(jobs.values())
 
+    def test_drama_id_and_kind_only_where_visible(self, world, jobs):
+        client = _client(_app())
+        member = {j["job_id"]: j for j in client.get("/api/jobs", headers=world["b"]).json()["items"]}
+        assert set(member) == {jobs["shared"], jobs["b_fixed"]}
+        assert (member[jobs["shared"]]["drama_id"], member[jobs["shared"]]["kind"]) == (
+            world["shared"], "translate")
+        assert (member[jobs["b_fixed"]]["drama_id"], member[jobs["b_fixed"]]["kind"]) == (None, "other")
+        # The private title's id appears nowhere in the member's responses.
+        assert f'"drama_id":{world["private"]}' not in client.get(
+            "/api/jobs", headers=world["b"]).text.replace(" ", "")
+        assert client.get(f"/api/jobs/{jobs['priv']}", headers=world["b"]).status_code == 404
+        owner = client.get(f"/api/jobs/{jobs['priv']}", headers=world["a"]).json()
+        assert (owner["drama_id"], owner["kind"]) == (world["private"], "translate")
+
     def test_owned_by_me_agrees_with_cancel(self, world, jobs):
         # owned_by_me: the caller started the job or owns its drama. Where it
         # is true, cancel is allowed; where false, it is someone else's job
@@ -915,9 +949,19 @@ class TestJobs:
         urls = ["/api/discover/bulk-extract/result", "/api/discover/navigation-help/result",
                 "/api/sources/jobs/sources_search/result", f"/api/live/sessions/{sid}"]
         for url in urls:
-            assert client.get(url, headers=world["b"]).status_code == 404, url
+            hidden = client.get(url, headers=world["b"])
+            if url.startswith("/api/live/"):
+                assert hidden.status_code == 404, url
+            else:
+                # A shared fixed id nobody may see answers like "nothing ran":
+                # 200 idle, with none of A's result or message.
+                assert hidden.status_code == 200, url
+                assert hidden.json() == {**hidden.json(), "job_id": "", "status": "idle",
+                                         "progress": 0.0, "message": "", "result": None}, url
             assert client.get(url, headers=world["a"]).status_code == 200, url
             assert client.get(url, headers=world["admin"]).status_code == 200, url
+            if not url.startswith("/api/live/"):
+                assert client.get(url, headers=world["a"]).json()["status"] == "done", url
         assert client.post(f"/api/live/sessions/{sid}/stop",
                            headers=world["b"]).status_code == 404
         listed = client.get("/api/live/sessions", headers=world["b"]).json()
@@ -941,7 +985,15 @@ class TestJobs:
         for method, path in JOB_ROUTES:
             url = path.replace("{job_id}", "sources_search").replace("{session_id}", sid)
             r = client.request(method, url, headers=world["b"])
-            assert r.status_code == 404, (method, url, r.status_code)
+            # PC-only: refused for any remote caller before the owner check.
+            expected = 403 if path.endswith("/delete") else 404
+            if path == "/api/sources/jobs/{job_id}/result":
+                # Another user's run of a shared id reads as "nothing ran".
+                assert r.status_code == 200, (method, url, r.status_code)
+                assert r.json()["status"] == "idle" and r.json()["result"] is None
+                assert client.get(url, headers=world["a"]).json()["status"] == "done"
+                continue
+            assert r.status_code == expected, (method, url, r.status_code)
             if method == "GET":
                 assert client.get(url, headers=world["a"]).status_code == 200, url
 

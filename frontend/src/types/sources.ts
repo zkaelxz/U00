@@ -1,5 +1,5 @@
-// Mirrors api/schemas.py: the Sources registry (Slice 56) and the Sources
-// search/series jobs (API batch 1, spec S-3). No proxy URL, path, key or
+// Mirrors api/schemas/sources.py: the Sources registry and the Sources
+// search/series jobs. No proxy URL, path, key or
 // query string is ever part of these shapes.
 
 export interface SourceSupports {
@@ -153,6 +153,8 @@ export interface TrackedSeries {
   drama_id: number | null
   last_checked: number | null
   last_check_error: string | null
+  // New chapters are saved as CBZ files by the check (comic sources).
+  save_cbz: boolean
 }
 
 export interface SourceNotification {
@@ -177,7 +179,7 @@ export interface SourceErrorView {
   details?: Record<string, unknown> | null
 }
 
-export interface SearchEntry {
+interface SearchEntry {
   source: string
   series_id: string
   title: string
@@ -240,6 +242,7 @@ export interface SeriesResult {
 
 export interface SourcesJobResult<R = Record<string, unknown>> {
   job_id: string
+  // 'idle': no such job has run in this API process (job_id is '').
   status: string | null
   progress: number | null
   message: string | null
@@ -262,6 +265,8 @@ export interface CheckResult {
   new: number
   errors: Record<string, string>
   queued: string[]
+  // Series whose new chapters were saved as CBZ files.
+  saved?: string[]
   skipped?: boolean
 }
 

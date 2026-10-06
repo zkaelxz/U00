@@ -63,7 +63,7 @@ def _wait(cond, timeout=5.0):
 
 
 def _start(**kw):
-    args = dict(url="https://www.youtube.com/watch?v=abc", engine="test_offline")
+    args = dict(url="https://www.youtube.com/watch?v=abc", engine="fake")
     args.update(kw)
     return live_service.start_session(**args)["session_id"]
 
@@ -79,7 +79,7 @@ def _terminal(sid):
                                  "javascript:alert(1)", "", "https://user:pw@example.com/"])
 def test_bad_urls_rejected(live, url):
     with pytest.raises(InvalidInputError):
-        live_service.start_session(url, engine="test_offline")
+        live_service.start_session(url, engine="fake")
     assert live_service._sessions == {}
 
 
@@ -89,7 +89,7 @@ def test_private_hosts_rejected(live, monkeypatch, ip):
     monkeypatch.setattr(socket, "getaddrinfo",
                         lambda *a, **k: [(fam, socket.SOCK_STREAM, 6, "", (ip, 443))])
     with pytest.raises(InvalidInputError):
-        live_service.start_session("https://internal.example/", engine="test_offline")
+        live_service.start_session("https://internal.example/", engine="fake")
 
 
 def test_url_check_does_not_fetch(live, monkeypatch):
@@ -120,13 +120,6 @@ def test_numbers_clamped(live, monkeypatch):
     assert seen["a"][3] == 60
     assert seen["k"]["overlap_seconds"] == 8
     assert seen["k"]["max_seconds"] == live_service.MAX_MINUTES_RANGE[1] * 60
-
-
-def test_paid_engine_flag():
-    assert live_service.is_paid_engine("claude")
-    assert live_service.is_paid_engine("gemini")
-    assert not live_service.is_paid_engine("test_offline")
-    assert not live_service.is_paid_engine("ollama")
 
 
 # --- sessions, temp dirs, use_gpu -------------------------------------------
@@ -212,7 +205,7 @@ def test_dir_removed_on_cancel_while_running(live):
 def test_dir_removed_on_cancel_while_queued(live, monkeypatch):
     monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: True)
     monkeypatch.setattr(background_jobs, "_gpu_slot_available_locked", lambda *a: False)
-    sid = _start()
+    sid = _start(use_gpu=True)
     out_dir = live_service._sessions[sid]["dir"]
     assert background_jobs.get_status(sid)["status"] == "queued"
     live_service.stop_session(sid)
@@ -237,9 +230,13 @@ def test_use_gpu_reaches_pipeline(live, monkeypatch, tmp_path):
     live_service.stop_session(sid)
 
 
-def test_job_is_gpu_touching(live):
-    sid = _start()
+def test_job_is_gpu_touching_only_when_gpu_is_on(live):
+    sid = _start(use_gpu=True)
     assert background_jobs.get_status(sid)["gpu_touching"] is True
+    live_service.stop_session(sid)
+    assert _terminal(sid)
+    sid = _start()
+    assert background_jobs.get_status(sid)["gpu_touching"] is False
 
 
 # --- live_translate fixes ---------------------------------------------------
@@ -275,6 +272,9 @@ def test_max_minutes_stops_job(live, monkeypatch):
 
 def test_stop_bumps_generation_before_cancel(live, monkeypatch):
     sid = _start()
+    # run_live_job bumps first thing in its worker thread; let that land so
+    # only stop_session's bump is recorded.
+    assert _wait(lambda: live_service.get_session(sid)["message"] != "Starting...")
     order = []
     real_bump = live_translate.bump_generation
     monkeypatch.setattr(live_translate, "bump_generation",

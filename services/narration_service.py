@@ -1,12 +1,10 @@
 """
 services/narration_service.py -- the novel-narration "Chunk & tag speakers"
-action for one drama (Streamlit: `tabs/workspace_tab.py`'s `run_prep and
-content_mode == "novel_narration"` branch; CLI: `cli.cmd_narrate_prep`).
+action for one drama (CLI: `cli.cmd_narrate_prep`).
 
-Migration Slice 33, the `chunk_and_tag` path Slice 20 deferred. Today it
-is fully synchronous; here it becomes a background job that does the WHOLE
+The `chunk_and_tag` path runs as a background job that does the WHOLE
 pipeline (chunk, LLM speaker tagging, history snapshot, DB write, status),
-same "job does everything" decision as Slice 20. Poll GET /api/jobs/{id};
+the same "job does everything" decision as the other narration jobs. Poll GET /api/jobs/{id};
 background_jobs' own runner redacts secrets from a failed job's error.
 
 Input is the drama's attached novel text (`dub.NOVEL_SOURCE_FILENAME` in
@@ -15,11 +13,11 @@ server-side and never returned (D2). Speakers come from
 `tag_speakers_by_id`, which returns {chunk idx: label}; the job looks each
 chunk's label up by its idx (missing -> "Narrator"), never by list position.
 
-Writes replace the drama's lines wholesale, exactly as Streamlit and the
-CLI do (the lines are brand new), but only after a "before chunk & tag
+Writes replace the drama's lines wholesale, exactly as the CLI does (the
+lines are brand new), but only after a "before chunk & tag
 speakers" history snapshot of whatever lines existed.
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 import os
 from typing import Optional
@@ -36,7 +34,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 
 DEFAULT_ENGINE = "claude"
 # LLM-capable engines that can tag speakers (pure MT engines cannot).
-TAG_ENGINES = ["claude", "deepseek", "gemini", "ollama"]
+TAG_ENGINES = ["claude", "deepseek", "gemini", "openai", "ollama"]
 MAX_CHUNK_CHARS = 200  # core.chunk_novel_text's own default
 
 
@@ -88,7 +86,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     not configured, ConflictError if a run is already active.
 
     A re-run over the same text, engine, model and known characters
-    resumes after the batches an interrupted run already tagged (Step 41);
+    resumes after the batches an interrupted run already tagged;
     fresh=True drops those and tags everything again."""
     _require_drama(drama_id)
     engine_name = engine_name or DEFAULT_ENGINE
@@ -114,7 +112,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
 
 def tagging_checkpoint(drama_id, text, engine_name, model, known, fresh=False,
                        max_chunk_chars=MAX_CHUNK_CHARS):
-    """Step 41: (done {idx: label}, on_batch) for tag_speakers_by_id, shared
+    """(done {idx: label}, on_batch) for tag_speakers_by_id, shared
     with `cli.py narrate-prep`. A re-run over the same text, engine, model,
     known characters and prompt version skips the batches an interrupted
     run already tagged (and paid for); fresh=True drops them first.
@@ -149,6 +147,11 @@ def finish_tagging_checkpoint(drama_id):
         pass
 
 
+def _raise_if_cancelled(job_id):
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+
+
 def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False):
     job_timing_service.mark_stage(job_id, "Chunk")
     background_jobs.update_progress(job_id, 0.05, "Chunking novel text...")
@@ -176,7 +179,9 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_name, getattr(engine, "model", engine_name), "tag_speakers",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-        done=done, on_batch=_checkpoint)
+        done=done, on_batch=_checkpoint,
+        cancel_check=lambda: _raise_if_cancelled(job_id))
+    _raise_if_cancelled(job_id)
     for ln in lines:
         ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
 
@@ -188,6 +193,8 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     existing = db.load_line_objects(drama_id)
     if existing:
         db.save_line_history_snapshot(drama_id, existing, "before chunk & tag speakers")
+    # Full sync on purpose: these brand-new lines replace the drama's lines.
+    # Line jobs were cancelled and the old lines snapshotted just above.
     db.save_lines(drama_id, lines)
     db.update_drama(drama_id, status="aligned")
     finish_tagging_checkpoint(drama_id)

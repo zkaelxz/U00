@@ -1,9 +1,9 @@
 """
 api/routers/reader_routes.py -- the Reader's API (prefix /api/reader).
 
-Migration Slice 4 added the page HTML (GET .../page), served for a
+The page HTML route was added later (GET .../page), served for a
 sandboxed iframe from cached definitions only. Route batch 2B (M4) adds
-everything else the Reader tab renders, over `services/reader_service.py`
+the rest of the Reader, over `services/reader_service.py`
 (its module docstring holds the permission contract, decided by the user
 on 2026-09-29):
 
@@ -41,7 +41,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Path, Query, Request, Response
 from api import llm_slots
 from api.auth import require_engines_allowed, require_permission
-from api.llm_slots import LLM_MAX_IN_FLIGHT, _ACTIVE_CALLERS, _ACTIVE_LOCK, _SLOTS  # noqa: F401 -- re-exported for tests
+from api.llm_slots import LLM_MAX_IN_FLIGHT, ACTIVE_CALLERS, ACTIVE_LOCK, SLOTS  # noqa: F401 -- re-exported for tests
 from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderExplainRequest,
                          ReaderLookupRequest, ReaderLookupResult, ReaderMediaAvailability,
                          ReaderNotes, ReaderNotesRequest, ReaderOverview, ReaderPageResponse,

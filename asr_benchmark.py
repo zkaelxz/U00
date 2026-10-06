@@ -15,9 +15,8 @@ Deliberately standalone -- it doesn't touch the drama library/database
 (db.py), because a benchmark clip usually isn't a drama you've imported
 yet. Point it at any audio/video file directly.
 
-Not run inside this sandbox (no GPU, no models, no real audio to analyze)
--- this is real code, written to run on your machine against your own
-test clip.
+Runs on your machine against your own test clip (it needs the models and
+real audio).
 
 Usage:
     # Transcription-only comparison (Whisper vs Qwen3-ASR text, same
@@ -39,8 +38,10 @@ import json
 import time
 from dataclasses import asdict, dataclass, field
 
+from core import SOURCE_LANGUAGES
 
-def _peak_vram_mb():
+
+def read_peak_vram_mb():
     """Peak CUDA memory allocated since the last reset, in MB, or None if
     torch/CUDA isn't available -- so the report says "N/A" on a CPU-only
     run instead of crashing."""
@@ -53,7 +54,7 @@ def _peak_vram_mb():
         return None
 
 
-def _reset_vram_counter():
+def reset_vram_counter():
     try:
         import torch
         if torch.cuda.is_available():
@@ -76,15 +77,15 @@ def _run_stage(name, fn):
     """Times one stage and isolates its failure -- mirrors cli.py's
     per-drama isolation (_run_batch): one backend crashing shouldn't stop
     the rest of the comparison from reporting whatever it did get."""
-    _reset_vram_counter()
+    reset_vram_counter()
     start = time.perf_counter()
     try:
         data = fn()
         return StageResult(name=name, ok=True, seconds=time.perf_counter() - start,
-                            peak_vram_mb=_peak_vram_mb(), data=data)
+                            peak_vram_mb=read_peak_vram_mb(), data=data)
     except Exception as exc:
         return StageResult(name=name, ok=False, seconds=time.perf_counter() - start,
-                            peak_vram_mb=_peak_vram_mb(), error=f"{type(exc).__name__}: {exc}")
+                            peak_vram_mb=read_peak_vram_mb(), error=f"{type(exc).__name__}: {exc}")
 
 
 def _similarity(a: str, b: str) -> float:
@@ -179,7 +180,7 @@ def main():
     p = argparse.ArgumentParser(
         description="Compare Whisper vs Qwen3-ASR/Qwen3-ForcedAligner on one clip")
     p.add_argument("--audio", required=True, help="Path to a short (5-10 min) representative clip")
-    p.add_argument("--language", required=True, choices=["zh", "ja", "ko"])
+    p.add_argument("--language", required=True, choices=list(SOURCE_LANGUAGES))
     p.add_argument("--transcript", default=None,
                    help="Optional reference transcript (.txt) -- enables the forced-alignment "
                         "comparison and a rough text-similarity check for both ASR backends")

@@ -1,5 +1,5 @@
 """
-services/line_provenance_service.py -- Step 41 item 4: what produced each
+services/line_provenance_service.py -- what produced each
 line's current translation (engine, model, prompt version, glossary
 version, a hash of the run's settings, of the source text and of the
 translation it produced, and the Baihe version). UI-free; rows live in db.py's `line_provenance`, one per
@@ -182,8 +182,14 @@ def tracker(drama_id, lines, engine_info, prompt_version, glossary_terms, settin
                     changed[line_id] = (ln.zh, en)
             engine_name, model = engine_info()
             record(drama_id, changed, engine_name, model, prompt_version, g_hash, settings)
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                import applog
+                from translate_engines import redact_secrets
+                applog.get_logger().warning("Line provenance record failed for drama %s: %s",
+                                            drama_id, redact_secrets(str(exc)))
+            except Exception:
+                pass
     return on_save
 
 

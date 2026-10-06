@@ -40,21 +40,34 @@ import cv2
 import numpy as np
 
 import ocr as ocr_module
+import storage
 
 
-def extract_frames(video_path: str, out_dir: str, interval_sec: float = 1.0):
+# Frame sampling decodes the whole video once; generous for a multi-hour file.
+EXTRACT_FRAMES_TIMEOUT_SECONDS = 4 * 3600
+
+
+def extract_frames(video_path: str, out_dir: str, interval_sec: float = 1.0,
+                   job_id: str = None):
     """
     Samples one frame every `interval_sec` seconds via ffmpeg's own fps
     filter (which decodes once, straight through -- far faster than
     seeking frame-by-frame from Python for a multi-hour file), saved as
     numbered PNGs in out_dir. Returns [(timestamp_seconds, path), ...] in
-    order.
+    order. With job_id, the ffmpeg run is killed when that job's cancel is
+    requested (JobCancelled); either way it is killed after
+    EXTRACT_FRAMES_TIMEOUT_SECONDS.
     """
     os.makedirs(out_dir, exist_ok=True)
     pattern = os.path.join(out_dir, "frame_%06d.png")
     cmd = ["ffmpeg", "-y", "-i", video_path, "-vf", f"fps=1/{interval_sec}",
            "-q:v", "2", pattern]
-    subprocess.run(cmd, check=True, capture_output=True)
+    if job_id:
+        import background_jobs
+        background_jobs.run_cancellable(job_id, cmd, timeout=EXTRACT_FRAMES_TIMEOUT_SECONDS)
+    else:
+        subprocess.run(cmd, check=True, capture_output=True,
+                       timeout=EXTRACT_FRAMES_TIMEOUT_SECONDS)
     frames = sorted(f for f in os.listdir(out_dir) if f.startswith("frame_"))
     return [(i * interval_sec, os.path.join(out_dir, f)) for i, f in enumerate(frames)]
 
@@ -247,7 +260,8 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                                ocr_backend: str = "tesseract",
                                chinese_script: str = "simplified",
                                progress_cb=None, tmp_dir=None, tesseract_cmd: str = None,
-                               min_consecutive_samples: int = 2):
+                               min_consecutive_samples: int = 2, job_id: str = None,
+                               cancel_check=None):
     """
     Full pipeline: sample frames, auto-detect the caption band, OCR each
     sampled frame in that band, collapse the results into timed cues.
@@ -266,8 +280,8 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
     dropping genuinely short captions because of it.
     """
     lang = ocr_module.resolve_tesseract_lang(language, chinese_script)
-    with tempfile.TemporaryDirectory(dir=tmp_dir) as frame_dir:
-        frames = extract_frames(video_path, frame_dir, interval_sec=sample_interval)
+    with storage.job_workdir(job_id, dir=tmp_dir) as frame_dir:
+        frames = extract_frames(video_path, frame_dir, interval_sec=sample_interval, job_id=job_id)
         if not frames:
             return []
 
@@ -278,6 +292,8 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
         timed_texts = []
         total = len(frames)
         for i, (ts, path) in enumerate(frames):
+            if cancel_check:
+                cancel_check()
             text = _ocr_frame_region(path, band, lang, ocr_backend, tesseract_cmd=tesseract_cmd)
             timed_texts.append((ts, text))
             if progress_cb:

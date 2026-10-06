@@ -18,6 +18,7 @@ import background_jobs
 import bulk_translate as bt
 import translate_engines as te
 from core import Line
+from tests.http_fakes import StreamedBody
 
 
 # ---------------------------------------------------------------------------
@@ -434,7 +435,7 @@ class TestRestartCancelAuth:
 # Gemini provider
 # ---------------------------------------------------------------------------
 
-class _Resp:
+class _Resp(StreamedBody):
     def __init__(self, data, status=200):
         self._data = data
         self.status_code = status
@@ -454,7 +455,7 @@ class TestGeminiProvider:
     def test_submission_shape_and_key_in_header(self, isolated_db, monkeypatch):
         sent = {}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, stream=None):
             sent.update(url=url, headers=headers, json=json, timeout=timeout)
             return _Resp({"name": "batches/abc123"})
         monkeypatch.setattr("requests.post", fake_post)
@@ -471,7 +472,7 @@ class TestGeminiProvider:
 
     def test_results_are_matched_by_metadata_key_not_position(self, isolated_db, monkeypatch):
         submitted = {}
-        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None:
+        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None, stream=None:
                             submitted.update(json=json) or _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=4)
         lines = isolated_db.load_line_objects(did)
@@ -487,7 +488,7 @@ class TestGeminiProvider:
         done = {"name": "batches/abc", "done": True,
                 "metadata": {"state": "BATCH_STATE_SUCCEEDED"},
                 "response": {"inlinedResponses": {"inlinedResponses": list(reversed(responses))}}}
-        monkeypatch.setattr("requests.get", lambda url, headers=None, timeout=None: _Resp(done))
+        monkeypatch.setattr("requests.get", lambda url, headers=None, timeout=None, stream=None: _Resp(done))
         assert bt.check_once(bulk_id, bt.make_provider("gemini", self._engine())) == "applied"
         assert all(r["en"] == f"G[{r['zh']}]" for r in isolated_db.load_lines(did))
 
@@ -526,7 +527,7 @@ class TestGeminiProvider:
 
     def test_cancel_posts_to_the_cancel_endpoint(self, isolated_db, monkeypatch):
         calls = []
-        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None:
+        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None, stream=None:
                             calls.append(url) or _Resp({"name": "batches/abc"}))
         did = _drama(isolated_db, n=1)
         bulk_id = bt.submit_bulk_translation(did, isolated_db.load_line_objects(did), self._engine(),
@@ -823,7 +824,7 @@ class TestBulkReflectPipeline:
         status1 = self._drive_stage(isolated_db, engine, jid1, lambda lid: f"draft-{lid}")
         assert status1 == "applied"
 
-        stage2 = bt._sibling_stage_job(job1["pipeline_id"], "reflect")
+        stage2 = bt.sibling_stage_job(job1["pipeline_id"], "reflect")
         assert stage2 is not None and stage2["status"] == "submitted"
         assert len(isolated_db.list_bulk_jobs(did)) == 2
         # Stage 2's own prompt embeds stage 1's actual saved draft, not a
@@ -838,7 +839,7 @@ class TestBulkReflectPipeline:
             lambda lid: "needs polish" if lid == ids[0] else None)
         assert status2 == "applied"
 
-        stage3 = bt._sibling_stage_job(job1["pipeline_id"], "expressive")
+        stage3 = bt.sibling_stage_job(job1["pipeline_id"], "expressive")
         assert stage3 is not None and stage3["status"] == "submitted"
         assert len(isolated_db.list_bulk_jobs(did)) == 3
         stage3_prompt = engine.client.messages.batches.created[0]["params"]["messages"][0]["content"]
@@ -864,14 +865,14 @@ class TestBulkReflectPipeline:
         lines = isolated_db.load_line_objects(did)
         jid1 = bt.submit_reflect_pipeline(did, lines, engine, "claude", {"locale": "en-US"})
         self._drive_stage(isolated_db, engine, jid1, lambda i: "draft")
-        stage2 = bt._sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "reflect")
+        stage2 = bt.sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "reflect")
         self._drive_stage(isolated_db, engine, stage2["id"], lambda i: None)
 
         mutated = isolated_db.load_line_objects(did)
         mutated[0].en = "my own edit"
         isolated_db.save_lines(did, mutated, fields=("en",))
 
-        stage3 = bt._sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "expressive")
+        stage3 = bt.sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "expressive")
         self._drive_stage(isolated_db, engine, stage3["id"], lambda i: "FINAL")
         assert isolated_db.get_bulk_job(stage3["id"])["result_summary"]["kept_your_edit"] == 1
         assert isolated_db.load_line_objects(did)[0].en == "my own edit"
@@ -1083,3 +1084,122 @@ class TestFinishTranslationRunEpisodeSummary:
                                   glossary_terms=None, errors=[], summary_engine=engine)
 
         assert isolated_db.get_drama(did)["episode_summary"] == "Earlier good summary."
+
+
+class _ListLogger:
+    def __init__(self):
+        self.records = []
+
+    def warning(self, msg, *args):
+        self.records.append(msg % args if args else msg)
+
+
+def test_failed_next_reflect_stage_submit_is_logged_and_redacted(isolated_db, monkeypatch):
+    import applog
+    log = _ListLogger()
+    monkeypatch.setattr(applog, "get_logger", lambda: log)
+    monkeypatch.setattr(bt, "make_provider", lambda choice, engine: object())
+
+    def boom(*a, **k):
+        raise RuntimeError("no row created key=sk-ant-abcdefghijklmnopqrstuvwxyz0123")
+    monkeypatch.setattr(bt, "submit_reflect_stage", boom)
+    did = _drama(isolated_db, n=2)
+    ids = [ln.id for ln in isolated_db.load_line_objects(did)]
+    job = {"drama_id": did, "engine": "claude", "model": "m", "pipeline_id": "p"}
+    bt._advance_to_reflection_stage(job, ids, {i: "d" for i in ids}, {i: "" for i in ids}, NS(model="m"))
+    assert len(log.records) == 1 and "reflect" in log.records[0]
+    assert "sk-ant-abcdefghijklmnopqrstuvwxyz0123" not in log.records[0]
+
+
+# ---------------------------------------------------------------------------
+# Per-line spoken language
+# ---------------------------------------------------------------------------
+
+def _mixed_drama(isolated_db):
+    did = isolated_db.create_drama(title_en="Mixed", status="aligned", translation_engine="claude",
+                                   source_language="ja")
+    isolated_db.save_lines(did, [
+        Line(idx=0, start=0, end=1, zh="こんにちは"),
+        Line(idx=1, start=1, end=2, zh="안녕", lang="ko"),
+        Line(idx=2, start=2, end=3, zh="hello there", lang="en"),
+    ])
+    return did
+
+
+def _request_text(engine, i=-1):
+    return engine.client.messages.batches.created[i]["params"]["messages"][0]["content"]
+
+
+class TestSpokenLanguage:
+    def test_bulk_tags_other_languages_and_skips_english(self, isolated_db):
+        engine = _claude_engine()
+        did = _mixed_drama(isolated_db)
+        _submit(isolated_db, did, engine, batch_size=10)
+        # The English line may still appear as look-ahead context, never as a line to translate.
+        text = _request_text(engine).split("Translate these lines:\n\n", 1)[1]
+        assert "(spoken in Korean) 안녕" in text and "こんにちは" in text
+        assert "hello there" not in text
+        rows = {r["zh"]: r for r in isolated_db.load_lines(did)}
+        assert rows["hello there"]["en"] == "hello there"
+        assert rows["안녕"]["en"] == "" and rows["안녕"]["lang"] == "ko"
+
+    def test_bulk_does_not_track_the_copied_english_line(self, isolated_db):
+        engine = _claude_engine()
+        did = _mixed_drama(isolated_db)
+        bulk_id = _submit(isolated_db, did, engine, batch_size=10)
+        assert len(isolated_db.list_bulk_job_lines(bulk_id)) == 2
+
+    def test_single_language_bulk_prompt_has_no_tag(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db)
+        _submit(isolated_db, did, engine, batch_size=10)
+        assert "spoken in" not in _request_text(engine)
+
+    def test_bulk_with_only_english_lines_copies_then_reports_nothing_to_send(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2, lang="en")
+        with pytest.raises(ValueError, match="Nothing to translate"):
+            _submit(isolated_db, did, engine)
+        assert [r["en"] for r in isolated_db.load_lines(did)] == ["第0句", "第1句"]
+        assert engine.client.messages.batches.created is None
+
+    def test_reflect_stages_tag_the_source(self, isolated_db):
+        engine = _claude_engine()
+        did = _mixed_drama(isolated_db)
+        lines = isolated_db.load_line_objects(did)
+        jid = bt.submit_reflect_pipeline(did, lines, engine, "claude", {"locale": "en-US"})
+        batches = engine.client.messages.batches
+        first = batches.created[-1]["params"]["messages"][0]["content"]
+        assert "(spoken in Korean) 안녕" in first
+        assert "hello there" not in first.split("Lines:\n", 1)[1]
+        key = batches.created[-1]["custom_id"]
+        ids = [r["line_id"] for r in isolated_db.list_bulk_job_lines(jid)]
+        batches.results_list = [_succeeded(key, {str(i): f"draft-{i}" for i in ids})]
+        batches.status = "ended"
+        assert bt.check_once(jid, bt.ClaudeBatchProvider(engine), engine=engine) == "applied"
+        second = batches.created[-1]["params"]["messages"][0]["content"]
+        assert "(spoken in Korean) 안녕" in second
+
+    def test_single_language_reflect_prompt_has_no_tag(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2)
+        bt.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude", {})
+        assert "spoken in" not in _request_text(engine)
+
+    def test_offpeak_run_tags_and_skips_english(self, isolated_db):
+        did = _mixed_drama(isolated_db)
+        lines = isolated_db.load_line_objects(did)
+        jid = bt.schedule_offpeak_translation(did, lines, "deepseek", "m", {})
+        seen = []
+
+        class Engine:
+            model = "m"
+
+            def translate_batch(self, zh_lines, context):
+                seen.append((list(zh_lines), context.get("line_languages")))
+                return [f"EN:{z}" for z in zh_lines]
+
+        bt.run_scheduled_job(jid, Engine())
+        assert seen == [(["こんにちは", "안녕"], [None, "ko"])]
+        rows = {r["zh"]: r["en"] for r in isolated_db.load_lines(did)}
+        assert rows["hello there"] == "hello there" and rows["안녕"] == "EN:안녕"

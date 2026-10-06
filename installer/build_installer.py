@@ -1,13 +1,14 @@
 """
 installer/build_installer.py -- assembles the Windows installer's payload
 and, where Inno Setup is available, compiles BaiheStudio-Setup-<version>.exe
-(Step 80b; design: docs/windows-installer-design.md).
+(design: docs/windows-installer-design.md).
 
     python installer/build_installer.py --version 0.1.0
         [--skip-frontend-build]   # frontend/dist is already built
         [--python-zip PATH]       # a local copy of the embeddable zip
         [--no-compile]            # stop after the payload (no ISCC)
         [--iscc PATH]             # ISCC.exe if it isn't in the usual place
+        [--go PATH]               # the Go that builds the bundled Caddy
     python installer/build_installer.py --update-lock
                                       # regenerate installer/wheels.lock.txt
                                       # (Windows, Python 3.12; see the design doc)
@@ -19,10 +20,14 @@ Payload (build/installer/payload/):
                     exclusions below), frontend/dist, and the two runtime
                     installer scripts (app/installer/launcher.py, postinstall.py)
     service/        the boot service's files: helper/ (a second copy of the
-                    interpreter with no site-packages, and installer/service.py)
+                    interpreter with no site-packages, installer/service.py and
+                    the Start-menu service menu, installer/service_menu.ps1)
                     and wrapper/ (WinSW, pinned by SHA-256, as BaiheStudio.exe
-                    with its licence). service.py copies both into an
-                    admin-only folder; nothing elevated runs from app/ or python/.
+                    with its licence), and caddy/ (WinSW as BaiheCaddy.exe and
+                    caddy.exe built from installer/caddy, with the licence files
+                    of everything compiled into it). service.py copies them into
+                    an admin-only folder; nothing elevated runs from app/ or
+                    python/. Caddy stays off until the owner enables remote access.
     wheels/         the wheels pinned in installer/wheels.lock.txt (SHA-256
                     hashes; requirements-core.txt plus pip and every
                     transitive dependency) and a copy of that lock, so the
@@ -38,7 +43,8 @@ check_payload() re-checks the staged tree before anything is compiled.
 Wheels must be downloaded on Windows: `pip download --platform` still
 evaluates environment markers for the machine it runs on, so a Linux
 download silently drops Windows-only dependencies (colorama, tzdata, ...).
-The GitHub Actions workflow runs this on windows-latest.
+The GitHub Actions workflow runs this on windows-latest. Building Caddy
+needs Go (CADDY_GO_VERSION; the workflow installs it, pinned by hash).
 
 Standard library only.
 """
@@ -53,6 +59,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -85,6 +92,25 @@ WINSW_URL = f"https://github.com/winsw/winsw/releases/download/v{WINSW_VERSION}/
 WINSW_SHA256 = "b5066b7bbdfba1293e5d15cda3caaea88fbeab35bd5b38c41c913d492aadfc4f"
 WINSW_LICENSE = INSTALLER_DIR / "licenses" / "WinSW-LICENSE.txt"
 
+# The embeddable Python zip is about 11 MB and WinSW under 1 MB.
+DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
+DOWNLOAD_DEADLINE_SECONDS = 600
+
+# Caddy, the only internet-facing part: stock Caddy plus the rate_limit module
+# deploy/caddy/Caddyfile.template needs, built from installer/caddy, where
+# go.mod and go.sum pin every module by hash. The build is reproducible only
+# from the same bytes: installer/caddy/main.go with CRLF line endings builds a
+# different binary, which is why .gitattributes forces LF there (a Windows
+# checkout otherwise converts it). Changing go.mod, go.sum, main.go or the Go
+# version changes CADDY_SHA256.
+CADDY_SOURCE_DIR = INSTALLER_DIR / "caddy"
+CADDY_MODULE = "baihe.local/caddy"
+CADDY_VERSION = "2.11.4"
+CADDY_GO_VERSION = "go1.26.8"
+CADDY_SHA256 = "e09cc7eb846934a7fd870b90c53a5b51527cda2fcaabced1490ea7f9478aa150"
+CADDY_TEMPLATE = REPO_ROOT / "deploy" / "caddy" / "Caddyfile.template"
+_LICENSE_FILE_RE = re.compile(r"(?i)(licen[cs]e|notice|copying|patents)([._-].*)?")
+
 # Excluded wherever they appear.
 EXCLUDED_DIR_NAMES = frozenset({
     ".git", "__pycache__", "node_modules", ".pytest_cache", ".mypy_cache", ".ruff_cache",
@@ -93,7 +119,7 @@ EXCLUDED_DIR_NAMES = frozenset({
 # Excluded at the repo root only (frontend/dist is staged on its own).
 EXCLUDED_TOP_LEVEL = frozenset({
     "tests", "docs", "scripts", "installer", "frontend", "build", "dist", "env",
-    ".github", ".claude", ".streamlit",
+    ".github", ".claude",
 })
 EXCLUDED_FILE_NAMES = frozenset({
     # Per-copy state and markers that must never ship.
@@ -253,11 +279,31 @@ def sha256_of(path) -> str:
     return h.hexdigest()
 
 
-def download(url: str, dest: Path) -> Path:
+def download(url: str, dest: Path, max_bytes: int = DOWNLOAD_MAX_BYTES,
+             deadline_seconds: float = DOWNLOAD_DEADLINE_SECONDS, clock=time.monotonic) -> Path:
+    """Fetches `url` to `dest`, refusing more than `max_bytes` (declared or
+    actual) or a transfer slower than `deadline_seconds` in all. Standard
+    library only, like the rest of installer/, so services.capped_body isn't
+    used; the caller checks the pinned hash afterwards."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
-    with urllib.request.urlopen(url, timeout=120) as resp, open(tmp, "wb") as f:
-        shutil.copyfileobj(resp, f)
+    started = clock()
+    try:
+        with urllib.request.urlopen(url, timeout=120) as resp, open(tmp, "wb") as f:
+            declared = (resp.headers.get("Content-Length") or "").strip()
+            if declared.isascii() and declared.isdigit() and int(declared) > max_bytes:
+                raise BuildError(f"{dest.name} is larger than {max_bytes} bytes.")
+            total = 0
+            for chunk in iter(lambda: resp.read(1 << 20), b""):
+                total += len(chunk)
+                if total > max_bytes:
+                    raise BuildError(f"{dest.name} is larger than {max_bytes} bytes.")
+                if clock() - started > deadline_seconds:
+                    raise BuildError(f"Downloading {dest.name} took over {deadline_seconds} seconds.")
+                f.write(chunk)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     os.replace(tmp, dest)
     return dest
 
@@ -466,15 +512,94 @@ def numeric_version(version: str) -> str:
     return ".".join((nums + ["0", "0", "0", "0"])[:4])
 
 
-def stage_service(payload_dir, python_zip, winsw_exe) -> None:
+def caddy_build_env(base=None) -> dict:
+    """Windows x64, no cgo, only the pinned modules (-mod=readonly: go.sum
+    must already hold every hash), and exactly CADDY_GO_VERSION (Go fetches
+    that toolchain, checksum-verified, if the installed one differs)."""
+    env = dict(os.environ if base is None else base)
+    env.update({"GOOS": "windows", "GOARCH": "amd64", "GOAMD64": "v1", "CGO_ENABLED": "0",
+                "GOFLAGS": "-mod=readonly", "GOTOOLCHAIN": CADDY_GO_VERSION})
+    return env
+
+
+def caddy_build_command(go, output) -> list:
+    # -trimpath and -buildvcs=false keep the build folder and this repo's
+    # version-control state out of the binary.
+    return [go, "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w", "-o", str(output), "."]
+
+
+def caddy_modules_command(go) -> list:
+    return [go, "list", "-deps", "-f", "{{with .Module}}{{.Path}}\t{{.Dir}}{{end}}", "."]
+
+
+def collect_licenses(listing: str, goroot, dest) -> int:
+    """Copies the licence and notice files of every module compiled into
+    Caddy (`go list -deps` output: module path, tab, its folder in the
+    checksum-verified module cache), and Go's own, into `dest`. Returns how
+    many."""
+    dest = Path(dest)
+    if dest.exists():
+        shutil.rmtree(dest)
+    sources = [("go", Path(goroot))] if goroot else []
+    seen = set()
+    for line in listing.splitlines():
+        path, _, folder = line.strip().partition("\t")
+        if path and folder and path != CADDY_MODULE and path not in seen:
+            seen.add(path)
+            sources.append((path, Path(folder)))
+    count = 0
+    for name, folder in sources:
+        if not folder.is_dir():
+            continue
+        for f in sorted(folder.iterdir()):
+            if f.is_file() and _LICENSE_FILE_RE.fullmatch(f.name):
+                _copy(f, dest / name.replace("/", "_") / f.name)
+                count += 1
+    return count
+
+
+def build_caddy(out_dir, go="go", run=subprocess.run) -> tuple:
+    """Builds caddy.exe into `out_dir` and checks it against CADDY_SHA256;
+    returns (caddy.exe, the licences folder)."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    exe = (out_dir / "caddy.exe").resolve()
+    env = caddy_build_env()
+    result = run(caddy_build_command(go, exe), cwd=str(CADDY_SOURCE_DIR), env=env, timeout=1800)
+    if result.returncode != 0:
+        raise BuildError(f"Building Caddy failed (exit code {result.returncode}). It needs Go "
+                         f"({CADDY_GO_VERSION}) and network access to the Go module proxy.")
+    actual = sha256_of(exe)
+    if actual != CADDY_SHA256:
+        raise BuildError(f"The Caddy build's SHA-256 is {actual}, not the pinned {CADDY_SHA256}. "
+                         "If installer/caddy or CADDY_GO_VERSION changed on purpose, update "
+                         "CADDY_SHA256; otherwise check that installer/caddy has LF line endings "
+                         "and that the Go version matches.")
+    listing = run(caddy_modules_command(go), cwd=str(CADDY_SOURCE_DIR), env=env, timeout=600,
+                  capture_output=True, text=True)
+    goroot = run([go, "env", "GOROOT"], cwd=str(CADDY_SOURCE_DIR), env=env, timeout=600,
+                 capture_output=True, text=True)
+    if listing.returncode != 0 or goroot.returncode != 0:
+        raise BuildError("Listing the modules compiled into Caddy failed.")
+    licenses = out_dir / "licenses"
+    count = collect_licenses(listing.stdout, goroot.stdout.strip(), licenses)
+    print(f"Built caddy.exe (SHA-256 matches); collected {count} licence files.")
+    return exe, licenses
+
+
+def stage_service(payload_dir, python_zip, winsw_exe, caddy_exe, caddy_licenses) -> None:
     """payload/service/: the files service.py copies into its admin-only
     folder. helper/python is the embeddable interpreter again with a ._pth
     that has no site-packages, no `import site` and no ../app, so the
     elevated script imports nothing a user-writable folder could supply;
-    wrapper/ is WinSW under the service's name, checked against its pin."""
-    actual = sha256_of(winsw_exe)
-    if actual != WINSW_SHA256:
-        raise BuildError(f"{Path(winsw_exe).name}: SHA-256 {actual}, expected {WINSW_SHA256}.")
+    wrapper/ is WinSW under the service's name and caddy/ is WinSW under
+    Caddy's name beside caddy.exe, each checked against its pin. The Caddy
+    template is copied into helper/ because service.py reads it while
+    elevated, and app/ is writable by the user."""
+    for path, expected in ((winsw_exe, WINSW_SHA256), (caddy_exe, CADDY_SHA256)):
+        actual = sha256_of(path)
+        if actual != expected:
+            raise BuildError(f"{Path(path).name}: SHA-256 {actual}, expected {expected}.")
     service = Path(payload_dir) / "service"
     if service.exists():
         shutil.rmtree(service)
@@ -484,15 +609,24 @@ def stage_service(payload_dir, python_zip, winsw_exe) -> None:
                                                    newline="\r\n")
     shutil.rmtree(helper_python / "Lib")
     _copy(INSTALLER_DIR / "service.py", service / "helper" / "lib" / "installer" / "service.py")
+    # The Start-menu "Baihe Studio service" menu runs elevated, so it is
+    # run only from the admin folder's copy.
+    _copy(INSTALLER_DIR / "service_menu.ps1",
+          service / "helper" / "lib" / "installer" / "service_menu.ps1")
     _copy(winsw_exe, service / "wrapper" / "BaiheStudio.exe")
+    _copy(CADDY_TEMPLATE, service / "helper" / "lib" / "deploy" / "caddy" / "Caddyfile.template")
     _copy(WINSW_LICENSE, service / "wrapper" / "licenses" / "WinSW-LICENSE.txt")
+    _copy(winsw_exe, service / "caddy" / "BaiheCaddy.exe")
+    _copy(caddy_exe, service / "caddy" / "caddy.exe")
+    _copy(WINSW_LICENSE, service / "caddy" / "licenses" / "WinSW-LICENSE.txt")
+    shutil.copytree(caddy_licenses, service / "caddy" / "licenses", dirs_exist_ok=True)
 
 
 def write_manifest(payload_dir, version, python_version=PYTHON_VERSION,
                    python_sha256=PYTHON_EMBED_SHA256) -> Path:
     """What this payload contains, for the upgrade logic the design keeps
-    (docs/windows-installer-design.md, update manifest). Installed as
-    <install dir>\\manifest.json."""
+    (docs/windows-installer-design.md, "7. Upgrade", the per-component
+    manifest). Installed as <install dir>\\manifest.json."""
     payload_dir = Path(payload_dir)
     wheels_dir = payload_dir / "wheels"
     wheels = [{"file": p.name, "sha256": sha256_of(p), "bytes": p.stat().st_size}
@@ -507,7 +641,10 @@ def write_manifest(payload_dir, version, python_version=PYTHON_VERSION,
         "requirements": "requirements-core.txt",
         "wheels": wheels,
         "installed_size_estimate_bytes": installed_size_estimate(wheels_dir),
-        "services": {"winsw": {"version": WINSW_VERSION, "sha256": WINSW_SHA256}},
+        "services": {
+            "winsw": {"version": WINSW_VERSION, "sha256": WINSW_SHA256},
+            "caddy": {"version": CADDY_VERSION, "go": CADDY_GO_VERSION, "sha256": CADDY_SHA256},
+        },
     }
     path = payload_dir / "manifest.json"
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -545,7 +682,7 @@ def iscc_command(iscc, payload_dir, output_dir, version, extra_disk_bytes) -> li
 
 
 def build(version, out_dir=DEFAULT_OUT, skip_frontend_build=False, python_zip=None,
-          compile_exe=True, iscc=None) -> Path:
+          compile_exe=True, iscc=None, go="go") -> Path:
     out_dir = Path(out_dir)
     payload = out_dir / "payload"
     payload.mkdir(parents=True, exist_ok=True)
@@ -567,7 +704,8 @@ def build(version, out_dir=DEFAULT_OUT, skip_frontend_build=False, python_zip=No
     if not winsw.is_file() or sha256_of(winsw) != WINSW_SHA256:
         print(f"Downloading {WINSW_URL} ...")
         download(WINSW_URL, winsw)
-    stage_service(payload, python_zip, winsw)
+    caddy_exe, caddy_licenses = build_caddy(out_dir / "caddy-build", go=go)
+    stage_service(payload, python_zip, winsw, caddy_exe, caddy_licenses)
     manifest = write_manifest(payload, version)
     extra = json.loads(manifest.read_text(encoding="utf-8"))["installed_size_estimate_bytes"]
     if not compile_exe:
@@ -600,6 +738,7 @@ def main(argv=None) -> int:
     parser.add_argument("--python-zip", help="a local copy of the embeddable Python zip")
     parser.add_argument("--no-compile", action="store_true", help="assemble the payload only")
     parser.add_argument("--iscc", help="path to Inno Setup's ISCC.exe")
+    parser.add_argument("--go", default="go", help="the Go that builds the bundled Caddy")
     args = parser.parse_args(argv)
     if args.update_lock:
         try:
@@ -614,7 +753,8 @@ def main(argv=None) -> int:
         return 2
     try:
         build(args.version, out_dir=args.out, skip_frontend_build=args.skip_frontend_build,
-              python_zip=args.python_zip, compile_exe=not args.no_compile, iscc=args.iscc)
+              python_zip=args.python_zip, compile_exe=not args.no_compile, iscc=args.iscc,
+              go=args.go)
     except BuildError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1

@@ -1,6 +1,5 @@
 """
-sources/adapters/manhuaku.py -- 漫画库 manhuaku.net (zh manhua), roadmap
-Step 23j.
+sources/adapters/manhuaku.py -- 漫画库 manhuaku.net (zh manhua).
 
 **Confirmed platform**: a real, stock MCCMS (`chshcms/mccms`) deployment
 (the page itself carries an explicit "Mccms core JS build, must be
@@ -218,13 +217,13 @@ class ManhuakuSource(SourceAdapter):
         for c in candidates:
             if c.url.startswith("blob:"):
                 c.content = blob_bytes[c.url]
-                generic_import._measure(c)
+                generic_import.measure(c)
                 continue
             try:
                 resp = self.client.get(c.url, classify_body=False, headers={"Referer": chapter.url},
                                        action=f"Checking image {c.order + 1}/{len(candidates)}")
                 c.content = resp.content
-                generic_import._measure(c)
+                generic_import.measure(c)
             except SourceError as e:
                 c.reject_reason = f"couldn't download ({e.reason.value})"
         kept, _rejected = generic_import.filter_page_images(candidates, chapter.url)

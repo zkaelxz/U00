@@ -5,9 +5,8 @@ docs/specs/discover-sources-live-api-spec.md section 4, L-1, polling only).
 A session is one background job (`live_<uuid>`) running
 live_translate.run_live_job in its own tempfile.mkdtemp directory, which is
 removed when the job ends (done, error, cancel -- including a cancel while
-still queued). Unlike the Streamlit tab (fixed job id, fixed shared temp
-dir, use_gpu never passed), every start gets its own id and directory,
-use_gpu reaches the pipeline, and max_minutes is a hard stop.
+still queued). Every start gets its own id and directory, use_gpu reaches the
+pipeline, and max_minutes is a hard stop.
 
 Decisions (spec): any public http(s) URL yt-dlp can resolve is accepted
 (host checked by services.url_guard.resolve_public, no fetch here). The
@@ -16,13 +15,13 @@ so every connection they make afterwards (redirects, playlist variants,
 segments, keys) is checked and pinned to a public address too; no
 browser cookies over the API (a start at the PC uses the saved Settings
 cookies; see start_session); keys are resolved server-side, never taken
-from the caller. No Streamlit/FastAPI import.
+from the caller. No FastAPI import.
 
-Router contract: start/get are gated like media.import_url, and a paid
-engine (is_paid_engine) additionally needs the engines.paid capability;
-stop is gated like jobs.cancel.
+Router contract: start/get are gated like media.import_url, and an engine
+outside translate_engines.FREE_ENGINES (Gemini counts as paid: whether a key
+is free-tier isn't known server-side) additionally needs the engines.paid
+capability; stop is gated like jobs.cancel.
 """
-import os
 import re
 import shutil
 import tempfile
@@ -33,12 +32,12 @@ from typing import Optional
 import background_jobs
 import live_translate
 import translate_engines
+from core import SOURCE_LANGUAGES
 from services import (egress_proxy, ownership_service, settings_service, translate_service,
                       url_guard)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError)
 
-SOURCE_LANGUAGES = ("zh", "ja", "ko")
 WHISPER_SIZES = ("tiny", "base", "small", "medium")
 SEGMENT_RANGE = (10, 60)
 OVERLAP_RANGE = (0, 8)
@@ -46,7 +45,6 @@ MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
-STREAMLIT_JOB_ID = "live_capture"
 # ffmpeg input protocols for a resolved live stream (HLS over https needs
 # tcp, tls and crypto for encrypted segments, and httpproxy to tunnel
 # https through the egress proxy); no file, pipe, data, etc.
@@ -76,12 +74,6 @@ def _cue_text(text) -> str:
     return clean_message(text) if text.startswith("[translation failed") else text
 
 
-def is_paid_engine(engine_name: str) -> bool:
-    """True if a live session on this engine can spend money. Gemini is
-    treated as paid: whether a key is free-tier isn't known server-side."""
-    return engine_name not in translate_engines.FREE_ENGINES
-
-
 def _num(name, value, lo, hi, cast=float):
     if isinstance(value, bool):
         raise InvalidInputError(f"{name} must be a number.")
@@ -97,7 +89,7 @@ def _num(name, value, lo, hi, cast=float):
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
     engine_name = engine_name or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
         raise DependencyUnavailableError(
@@ -125,8 +117,7 @@ def _remove_dir(session_id: str):
 
 
 def _active_session_locked():
-    """The id of a session that is reserved, queued or running, or the
-    Streamlit tab's fixed `live_capture` job if it runs in this process;
+    """The id of a session that is reserved, queued or running,
     else None. Call with _lock held."""
     for sid, entry in _sessions.items():
         if not entry.get("dir"):
@@ -134,9 +125,6 @@ def _active_session_locked():
         job = background_jobs.get_status(sid)
         if job is None or job.get("status") in ("queued", "running"):
             return sid
-    legacy = background_jobs.get_status(STREAMLIT_JOB_ID)
-    if legacy and legacy.get("status") in ("queued", "running"):
-        return STREAMLIT_JOB_ID
     return None
 
 
@@ -151,7 +139,7 @@ def check_stream_url(stream_url) -> None:
 
 
 def _require_public(url, bad_message: str) -> None:
-    """url_guard.resolve_public, the one public-address policy (B-25),
+    """url_guard.resolve_public, the one public-address policy,
     mapped to service errors with fixed text."""
     try:
         url_guard.resolve_public(url)
@@ -228,7 +216,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     session_id = f"live_{uuid.uuid4().hex}"
     out_dir = tempfile.mkdtemp(prefix="baihe_live_")
     with _lock:
-        # One session at a time (the Streamlit tab allowed exactly one):
+        # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The
         # check and the reservation share one lock hold, so two starts
         # can't both pass.
@@ -254,7 +242,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url, protocol_whitelist=FFMPEG_PROTOCOL_WHITELIST,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
-            gpu_touching=True, description="Live capture (local Whisper)")
+            gpu_touching=bool(use_gpu), description="Live capture (local Whisper)")
     except Exception:
         _remove_dir(session_id)
         with _lock:

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsInstallTask, DiagnosticsPackageInfo } from '../../types/diagnostics'
 import {
-  belowMinText, firstHint, formatApproxMb, groupTasks, minVersionText, optionalMissingText, packageSizeText, roleLabel,
-  safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskNotes, taskOutput, taskReady, taskResultText, taskStatus, taskTone,
+  belowMinText, firstHint, formatApproxMb, groupTasks, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel,
+  safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskReady, taskResultText, taskStatus, taskTone,
   type TaskRunResult,
 } from './installPresets'
 
@@ -107,5 +107,24 @@ describe('install presets helpers', () => {
     expect(safeSourceUrl('javascript:alert(1)')).toBeNull()
     expect(safeSourceUrl('https://evil.example/project/x/')).toBeNull()
     expect(safeSourceUrl(null)).toBeNull()
+  })
+})
+
+describe('task group summary', () => {
+  it('counts the tasks that still need something, else says all set up', () => {
+    const ready = task({ id: 'r', installed_count: 3, to_install: [] })
+    expect(taskGroupSummary([task({ id: 'a' }), ready, task({ id: 'b' })])).toBe('2 still to set up')
+    expect(taskGroupSummary([ready])).toBe('All set up')
+  })
+})
+
+describe('missingTranscription', () => {
+  const t = task({ id: 'transcribe', packages: ['faster_whisper'], installed_count: 0, to_install: ['faster_whisper'] })
+  it('returns the transcribe task only while faster_whisper is missing', () => {
+    expect(missingTranscription({ tasks: [t], packages: { faster_whisper: pkg({ installed: false }) } })).toBe(t)
+    expect(missingTranscription({ tasks: [t], packages: { faster_whisper: pkg({ installed: true }) } })).toBeNull()
+    expect(missingTranscription({ tasks: [t], packages: {} })).toBeNull()
+    expect(missingTranscription({ tasks: [task()], packages: { faster_whisper: pkg() } })).toBeNull()
+    expect(missingTranscription(null)).toBeNull()
   })
 })

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { applyAutotune, getAutotune, startAutotune } from '../../../api/autotuneGlossary'
 import { ApiError } from '../../../api/client'
@@ -14,6 +14,8 @@ import { promptFields } from './transcribePrompt'
 import {
   autotuneApplyErrorText,
   autotuneBlocker,
+  autotuneEta,
+  formatElapsed,
   autotuneProgressText,
   isActiveStatus,
 } from './autotuneGlossary'
@@ -45,6 +47,22 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
   const [starting, setStarting] = useState(false)
 
   const active = isActiveStatus(status?.status)
+  // Seconds since this panel saw the run start; a reattached run counts from
+  // when it was found, so the clock is a lower bound.
+  const [elapsed, setElapsed] = useState(0)
+  // The estimate needs the true start: false when the run was already past its
+  // first candidate when this panel found it.
+  const [fromStart, setFromStart] = useState(true)
+  const firstMessage = useRef('')
+  firstMessage.current = status?.message ?? ''
+  useEffect(() => {
+    if (!active) return
+    const begun = Date.now()
+    setElapsed(0)
+    setFromStart(!/(\d+)\s+of\s+\d+/i.test(firstMessage.current) || /\b1\s+of\b/i.test(firstMessage.current))
+    const t = setInterval(() => setElapsed((Date.now() - begun) / 1000), 1000)
+    return () => clearInterval(t)
+  }, [active])
   const blocker = active ? null : autotuneBlocker(hasAudio, busy)
   const results = status?.status === 'done' ? status.results ?? [] : []
   const best = status?.best_candidate_ms ?? null
@@ -114,7 +132,13 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
         </p>
         {active && status ? (
           <p className="actions" role="status" data-testid="autotune-running">
-            <span>{autotuneProgressText(status.status, status.message)}</span>
+            <span>
+              {autotuneProgressText(status.status, status.message)}{' '}
+              <span className="muted" data-testid="autotune-elapsed">
+                {formatElapsed(elapsed)} elapsed
+                {status.status === 'running' && fromStart && autotuneEta(elapsed, status.message) && ` · ${autotuneEta(elapsed, status.message)}`}
+              </span>
+            </span>
             <button type="button" disabled={cancelSentFor === status} onClick={cancel}>
               Cancel
             </button>

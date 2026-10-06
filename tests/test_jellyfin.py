@@ -79,7 +79,7 @@ def lib(tmp_path):
 @pytest.fixture
 def setup(isolated_db, monkeypatch, lib, tmp_path):
     env = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(env))
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(env))
     monkeypatch.setattr(jf.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", ("192.168.1.20", port))])
     FakeSession.routes, FakeSession.calls = {}, []
@@ -368,6 +368,37 @@ def test_oversized_reply_is_refused(setup, monkeypatch):
     FakeSession.routes[("GET", "/System/Info")] = lambda p: Resp(200, raw=b"{" + b" " * 500 + b"}")
     with pytest.raises(DependencyUnavailableError):
         jf.test_connection()
+
+
+def test_slow_reply_hits_the_deadline_and_is_closed(monkeypatch):
+    from services import capped_body
+    ticks = iter([0.0, 1.0, jf.READ_DEADLINE + 1])
+    monkeypatch.setattr(capped_body.time, "monotonic", lambda: next(ticks))
+
+    class Slow(Resp):
+        closed = False
+
+        def close(self):
+            self.closed = True
+    resp = Slow(200, raw=b"x" * 200_000)
+    with pytest.raises(DependencyUnavailableError):
+        jf._read_capped(resp)
+    assert resp.closed
+
+
+def test_reply_declaring_more_than_the_cap_is_refused_unread(monkeypatch):
+    monkeypatch.setattr(jf, "MAX_RESPONSE_BYTES", 100)
+
+    class Big(Resp):
+        headers = {"Content-Length": "5000"}
+        read = False
+
+        def iter_content(self, size):
+            Big.read = True
+            return super().iter_content(size)
+    with pytest.raises(DependencyUnavailableError):
+        jf._read_capped(Big(200, raw=b"{}"))
+    assert Big.read is False
 
 
 def test_static_timeout():

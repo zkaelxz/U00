@@ -2,6 +2,11 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
+import { hitHeight, installHitArea } from './hitArea'
+
+test.beforeEach(async ({ page }) => {
+  await installHitArea(page)
+})
 
 // Reader page (#/read/<id>). The seeded API has dramas but no lines, so
 // before every test this writes 90 lines for drama 2 straight into the
@@ -120,7 +125,7 @@ test('the library detail panel links to the reader', async ({ page }) => {
 
 test('a Reading history name resumes reading', async ({ page }) => {
   python('db.save_progress(2, last_line_idx=45, last_page=2, percent_complete=51.1)')
-  await page.goto('/#/library')
+  await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
   await tools.locator('summary', { hasText: 'Reading history' }).click()
   const link = tools.getByRole('region', { name: 'Reading history' }).getByRole('link', { name: "Heaven Official's Blessing", exact: true })
@@ -255,6 +260,56 @@ test('sentence cards without media permission say audio was left out', async ({ 
   await expect(page.getByText('Audio left out (needs media playback permission).')).toBeVisible()
 })
 
+// ---- "Edit in Translate" links (the Reader's glossary and characters are read-only) ----
+
+const TERM = { id: 1, term_original: '谢怜', term_translation: 'Xie Lian', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] }
+
+async function mockEditLinks(page: Page, permissions: string[]) {
+  await page.route('**/api/translate/engines', engines([{ name: 'ollama', free: true }]))
+  await page.route('**/api/glossary/dramas/2/terms', (route) => route.fulfill({ json: [TERM] }))
+  await page.route('**/api/reader/dramas/2/story/relationships', (route) =>
+    route.fulfill({ json: { drama_id: 2, characters: [{ name: 'Xie Lian' }], relationships: [], truncated: false } }))
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({
+      json: {
+        auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'pc', permissions,
+        user: { id: 1, email: 'o@example.com', display_name: 'Owner', is_admin: false, is_local_owner: false },
+      },
+    }))
+}
+
+async function openMap(page: Page) {
+  await page.locator('summary', { hasText: 'Story tools' }).click()
+  await page.getByRole('button', { name: 'Map relationships' }).click()
+  await expect(page.getByRole('heading', { name: 'Characters', level: 4 })).toBeVisible()
+}
+
+test('Edit in Translate opens the title’s Glossary, then Characters, in the Translate stage', async ({ page }) => {
+  await mockEditLinks(page, ['library.read', 'lines.read', 'lines.edit'])
+  await page.goto('/#/read/2?page=1')
+  await page.locator('summary', { hasText: 'Glossary' }).click()
+  await page.getByRole('link', { name: 'Edit in Translate' }).click()
+  await expect(page).toHaveURL(/#\/drama\/2\/translate\?focus=glossary$/)
+  await expect(page.locator('#translate-glossary')).toBeInViewport()
+
+  await page.goto('/#/read/2?page=1')
+  await openMap(page)
+  // The Glossary section stays open from the first visit, so pick this link by its target.
+  await page.locator('a[href$="focus=characters"]').click()
+  await expect(page).toHaveURL(/#\/drama\/2\/translate\?focus=characters$/)
+  // Characters starts folded; the link opens it.
+  await expect(page.locator('#translate-characters')).toBeInViewport()
+})
+
+test('no Edit in Translate link without the lines.edit permission', async ({ page }) => {
+  await mockEditLinks(page, ['library.read', 'lines.read'])
+  await page.goto('/#/read/2?page=1')
+  await page.locator('summary', { hasText: 'Glossary' }).click()
+  await expect(page.getByText('Xie Lian')).toBeVisible()
+  await openMap(page)
+  await expect(page.getByRole('link', { name: 'Edit in Translate' })).toHaveCount(0)
+})
+
 // ---- phone layout (390x844, touch) ----
 
 test.describe('phone', () => {
@@ -267,8 +322,7 @@ test.describe('phone', () => {
     const list = page.getByRole('region', { name: 'Dramas' })
     await expect(list.locator('.drama-card-read')).toHaveCount(3)
     const read = list.getByRole('link', { name: "Read Heaven Official's Blessing", exact: true })
-    const box = await read.boundingBox()
-    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(read)).toBeGreaterThanOrEqual(44)
     await list.getByRole('button', { name: 'Select', exact: true }).tap()
     await expect(list.locator('.drama-card-read')).toHaveCount(0)
     await page.getByRole('region', { name: 'Selection' }).getByRole('button', { name: 'Done', exact: true }).tap()
@@ -303,7 +357,7 @@ test.describe('phone', () => {
     const small = await sheet.locator('select, input:not([type=checkbox]), button:not(.field-help-btn), label:has(> input[type=checkbox])').evaluateAll((els) =>
       els
         .filter((e) => (e as HTMLElement).offsetParent !== null)
-        .map((e) => ({ h: e.getBoundingClientRect().height, t: (e.textContent ?? '').trim() || e.getAttribute('aria-label') }))
+        .map((e) => ({ h: window.hitHeight(e), t: (e.textContent ?? '').trim() || e.getAttribute('aria-label') }))
         .filter(({ h }) => h < 44),
     )
     expect(small).toEqual([])
@@ -315,5 +369,14 @@ test.describe('phone', () => {
     await bar.getByRole('button', { name: 'Next page' }).tap()
     await expect(page).toHaveURL(/page=3$/)
     await expect(label(page)).toHaveText('Page 3 of 3')
+  })
+
+  test('Edit in Translate is reachable on a phone and lands on the Glossary', async ({ page }) => {
+    await mockEditLinks(page, ['library.read', 'lines.read', 'lines.edit'])
+    await page.goto('/#/read/2?page=1')
+    await page.locator('summary', { hasText: 'Glossary' }).click()
+    await page.getByRole('link', { name: 'Edit in Translate' }).tap()
+    await expect(page).toHaveURL(/#\/drama\/2\/translate\?focus=glossary$/)
+    await expect(page.locator('#translate-glossary')).toBeInViewport()
   })
 })

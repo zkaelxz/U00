@@ -3,6 +3,8 @@ tests/test_db.py -- tests for db.py, using the isolated_db fixture so
 nothing here ever touches your real library.
 """
 
+import contextlib
+import gc
 import shutil
 import sqlite3
 import subprocess
@@ -10,6 +12,7 @@ import sys
 import os
 import tempfile
 import threading
+import weakref
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db
@@ -736,11 +739,11 @@ class TestUsageByDrama:
     estimated_cost_usd > 0, which drops free engines entirely)."""
 
     def test_includes_translation_engine_and_call_count(self, isolated_db):
-        did = isolated_db.create_drama(title_en="Test", translation_engine="test_offline")
-        isolated_db.log_usage(did, "test_offline", "test_offline", "translate", 100, 50, 0.0)
-        isolated_db.log_usage(did, "test_offline", "test_offline", "translate", 200, 100, 0.0)
+        did = isolated_db.create_drama(title_en="Test", translation_engine="fake")
+        isolated_db.log_usage(did, "fake", "fake", "translate", 100, 50, 0.0)
+        isolated_db.log_usage(did, "fake", "fake", "translate", 200, 100, 0.0)
         row = next(r for r in isolated_db.get_usage_by_drama() if r["id"] == did)
-        assert row["translation_engine"] == "test_offline"
+        assert row["translation_engine"] == "fake"
         assert row["call_count"] == 2
         assert row["estimated_cost_usd"] == 0.0
 
@@ -1114,6 +1117,15 @@ class TestFullLibraryReset:
         assert isolated_db.list_series() == []
         assert not os.path.exists(ddir)
 
+    def test_reset_closes_a_connection_this_thread_left_open(self, isolated_db):
+        leftover = isolated_db.get_conn()
+        isolated_db.reset_library()
+        try:
+            leftover.execute("SELECT 1")
+        except sqlite3.ProgrammingError:
+            return
+        raise AssertionError("the leftover connection was still open")
+
     def test_schema_is_immediately_usable_after_reset(self, isolated_db):
         isolated_db.reset_library()
         did = isolated_db.create_drama(title_en="Fresh")
@@ -1426,6 +1438,57 @@ class TestGpuLock:
     def test_status_is_free_when_nothing_has_ever_held_it(self, isolated_db):
         assert isolated_db.gpu_lock_status() == (None, None)
 
+    def test_max_holders_allows_that_many_and_no_more(self, isolated_db):
+        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2) is True
+        assert isolated_db.try_acquire_gpu_lock("cli:1", "B", max_holders=2) is True
+        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is False
+        assert isolated_db.try_acquire_gpu_lock("ui:c", "C") is False  # a cap of 1 too
+        assert isolated_db.gpu_lock_holder_count() == 2
+        assert isolated_db.gpu_lock_holder_count(exclude_holder="ui:a") == 1
+        isolated_db.release_gpu_lock("ui:a")
+        assert isolated_db.gpu_lock_status() == ("cli:1", "B")  # only its own row went
+        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is True
+
+    def test_max_holders_is_capped_by_the_table(self, isolated_db):
+        for i in range(isolated_db.GPU_LOCK_MAX_SLOTS):
+            assert isolated_db.try_acquire_gpu_lock(f"ui:{i}", max_holders=99) is True
+        assert isolated_db.try_acquire_gpu_lock("ui:extra", max_holders=99) is False
+
+    def test_settle_seconds_refuses_joining_a_fresh_holder(self, isolated_db):
+        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2, settle_seconds=60) is True
+        assert isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2, settle_seconds=60) is False
+        conn = isolated_db.get_conn()
+        conn.execute("UPDATE gpu_lock SET acquired_at = acquired_at - 61")
+        conn.commit()
+        conn.close()
+        assert isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2, settle_seconds=60) is True
+
+    def test_a_stale_holder_does_not_count_and_heartbeat_is_per_holder(self, isolated_db):
+        isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2)
+        isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2)
+        conn = isolated_db.get_conn()
+        conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ?",
+                     (isolated_db.GPU_LOCK_STALE_SECONDS + 1,))
+        conn.commit()
+        conn.close()
+        isolated_db.heartbeat_gpu_lock("ui:b")
+        assert isolated_db.gpu_lock_holder_count() == 1
+        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is True  # took a's slot
+        assert isolated_db.try_acquire_gpu_lock("ui:d", "D", max_holders=2) is False
+
+    def test_old_single_row_table_is_migrated_keeping_the_holder(self, isolated_db):
+        conn = isolated_db.get_conn()
+        conn.execute("DROP TABLE gpu_lock")
+        conn.execute("""CREATE TABLE gpu_lock (id INTEGER PRIMARY KEY CHECK (id = 1),
+                        holder TEXT NOT NULL, description TEXT, acquired_at REAL NOT NULL,
+                        heartbeat_at REAL NOT NULL)""")
+        conn.commit()
+        conn.close()
+        assert isolated_db.try_acquire_gpu_lock("cli:1", "CLI") is True
+        isolated_db.init_db()
+        assert isolated_db.gpu_lock_status() == ("cli:1", "CLI")
+        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2) is True
+
 
 class TestImportTimeSafety:
     """Step 51: importing db.py alone must never touch a real library path
@@ -1500,6 +1563,41 @@ class TestImportTimeSafety:
         assert os.path.exists(os.path.join(tmp_path_str, "library.db"))
 
 
+def _is_tracked(db_module, conn):
+    return any(ref() is conn for refs in db_module._open_connections.values() for ref in refs)
+
+
+class TestNestedConnections:
+    """A helper that opens its own connection while its caller still holds
+    one on the same thread used to close the caller's connection, silently
+    rolling back the caller's uncommitted writes."""
+
+    def test_a_nested_get_conn_keeps_the_outer_transaction(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Before")
+        with contextlib.closing(isolated_db.get_conn()) as outer:
+            outer.execute("UPDATE dramas SET title_en = 'After' WHERE id = ?", (did,))
+            assert outer.in_transaction
+            isolated_db.list_dramas()   # opens and closes its own connection
+            assert outer.in_transaction
+            outer.commit()
+        assert isolated_db.get_drama(did)["title_en"] == "After"
+        assert len(isolated_db._open_connections) == 0
+
+    def test_a_connection_dropped_without_close_releases_the_write_lock(self, isolated_db):
+        did = isolated_db.create_drama(title_en="X")
+        conn = isolated_db.get_conn()
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("UPDATE dramas SET title_en = 'lost' WHERE id = ?", (did,))
+        # The registry must not keep it, and its write lock, alive. sqlite3's
+        # statement cache refers back to its connection, so the cycle
+        # collector is what frees a dropped one.
+        del conn
+        gc.collect()
+        isolated_db.update_drama(did, status="translated")
+        assert isolated_db.get_drama(did)["title_en"] == "X"
+        assert isolated_db.get_drama(did)["status"] == "translated"
+
+
 class TestLeakedConnectionCleanup:
     """Step 69: get_conn()'s own connection-tracking exists to catch a
     connection leaked by a mid-statement failure (get_conn() called, but
@@ -1532,7 +1630,7 @@ class TestLeakedConnectionCleanup:
         assert not t.is_alive()
 
         leaked_conn = leaked["conn"]
-        assert leaked_conn in isolated_db._open_connections.values()
+        assert _is_tracked(isolated_db, leaked_conn)
 
         # The dead worker thread can never touch its own connection again,
         # so the main thread's next get_conn() call should be able to
@@ -1544,7 +1642,7 @@ class TestLeakedConnectionCleanup:
 
         conn2 = isolated_db.get_conn()
         try:
-            assert leaked_conn not in isolated_db._open_connections.values()
+            assert not _is_tracked(isolated_db, leaked_conn)
             with pytest.raises(sqlite3.ProgrammingError):
                 leaked_conn.execute("SELECT 1")
         finally:
@@ -1566,7 +1664,8 @@ class TestLeakedConnectionCleanup:
         holder = {}
 
         def worker():
-            holder["conn"] = sqlite3.connect(isolated_db.DB_PATH)
+            holder["conn"] = sqlite3.connect(isolated_db.DB_PATH,
+                                             factory=isolated_db._TrackedConnection)
             holder["ident"] = threading.get_ident()
 
         t = threading.Thread(target=worker)
@@ -1575,7 +1674,7 @@ class TestLeakedConnectionCleanup:
         assert not t.is_alive()
 
         # Register it as if it were a leak left by that (now-dead) thread.
-        isolated_db._open_connections[holder["ident"]] = holder["conn"]
+        isolated_db._open_connections[holder["ident"]] = [weakref.ref(holder["conn"])]
 
         logged = []
 
@@ -1626,7 +1725,7 @@ class TestLeakedConnectionCleanup:
             # not treat that as a leak.
             conn2 = isolated_db.get_conn()
             try:
-                assert holder["conn"] in isolated_db._open_connections.values()
+                assert _is_tracked(isolated_db, holder["conn"])
             finally:
                 conn2.close()
         finally:
@@ -1837,3 +1936,203 @@ class TestAppSettings:
         assert db.get_app_setting("a_number") == 3.5
         assert db.get_app_setting("a_bool") is True
         assert db.get_app_setting("a_list") == [1, 2, 3]
+
+
+def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
+    did = isolated_db.create_drama(title_en="Old", translation_engine="test_offline")
+    other = isolated_db.create_drama(title_en="Kept", translation_engine="deepseek")
+    isolated_db.init_db()
+    assert isolated_db.get_drama(did)["translation_engine"] == "claude"
+    assert isolated_db.get_drama(other)["translation_engine"] == "deepseek"
+
+
+# Every column init_db() adds with `ALTER TABLE ... ADD COLUMN`, per table,
+# in the order it adds them. Dropping them gives a database shaped like one
+# created before those migrations existed. When you add a column migration to
+# db.py, add the column here too, or that migration is never run by a test
+# (test_every_added_column_is_listed fails otherwise).
+_INIT_DB_MIGRATED_COLUMNS = {
+    "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id"),
+    "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang"),
+    "dramas": (
+        "translation_engine", "content_mode", "narration_language", "source_video_filename",
+        "source_language", "chinese_script", "media_type", "series_id", "episode_number",
+        "episode_summary", "updated_at", "last_translate_errors", "author_romanized",
+        "studio_romanized", "voice_actors_romanized", "director_romanized",
+        "cover_art_filename", "genre", "publication_status", "chapter_count", "custom_tags",
+        "personal_notes", "source_url", "transcript_mode", "whisper_size",
+        "alignment_method", "asr_backend_choice", "min_silence_ms", "vad_threshold",
+        "beam_size", "separate_vocals_first", "separation_backend", "realign_long_segments",
+        "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
+        "project_instructions", "notion_page_id", "owner_user_id", "is_private"),
+    "series": ("instructions", "owner_user_id", "is_private"),
+    "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
+                   "voice_design", "offline_voice", "series_character_id", "pronouns"),
+    "glossary_terms": ("category", "policy", "enforce_exact", "aliases", "banned_translations"),
+    "series_characters": ("gender", "voice_fingerprint", "voice_fingerprint_samples"),
+    "usage_log": ("cache_read_tokens", "estimated_cost_usd_before_recost"),
+    "bubbles": ("font_category", "kind", "kind_confidence", "confidence", "language",
+                "orientation", "panel_id", "include_sfx"),
+    "pages": ("rev", "context_summary", "run_notes"),
+    "bulk_jobs": ("kind", "stage", "pipeline_id"),
+    "bulk_job_lines": ("result_text", "state_at_submit"),
+    "vocab_lookups": ("export_rich",),
+    "style_profile": ("history_json",),
+    "users": ("share_by_default",),
+    "translate_history": ("user_id",),
+    "auth_sessions": ("device_label",),
+    "benchmark_results": ("scorer",),
+    "benchmark_cases": ("tier", "set_name", "origin_drama_id", "origin_line_id"),
+}
+
+
+def _schema_shape(path):
+    """Every table's columns (name, type, not-null, default, pk) and every
+    index, ignoring column order and CREATE text, which an ALTER-upgraded
+    database legitimately differs from a fresh one in."""
+    conn = sqlite3.connect(path)
+    try:
+        master = conn.execute(
+            "SELECT type, name, tbl_name FROM sqlite_master "
+            "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").fetchall()
+        indexes = conn.execute(
+            "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'index' "
+            "ORDER BY name").fetchall()
+        columns = {
+            name: sorted(tuple(r[1:]) for r in conn.execute(f"PRAGMA table_info({name})"))
+            for kind, name, _ in master if kind == "table"}
+    finally:
+        conn.close()
+    return {"master": master, "indexes": indexes, "columns": columns}
+
+
+def _exact_snapshot(path):
+    """Everything init_db() leaves behind, byte for byte: sqlite_master,
+    each table's ordered columns and rows, and the persistent pragmas."""
+    conn = sqlite3.connect(path)
+    try:
+        master = conn.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name").fetchall()
+        tables = {}
+        for kind, name, _, _ in master:
+            if kind != "table":
+                continue
+            info = conn.execute(f"PRAGMA table_info({name})").fetchall()
+            rows = conn.execute(f"SELECT * FROM {name}").fetchall()
+            tables[name] = (info, sorted(rows, key=repr))
+        pragmas = {p: conn.execute(f"PRAGMA {p}").fetchone()[0]
+                   for p in ("user_version", "journal_mode", "auto_vacuum", "page_size")}
+    finally:
+        conn.close()
+    return {"master": master, "tables": tables, "pragmas": pragmas}
+
+
+def _make_old_shape(path, share_by_default_was_on=False):
+    """Turns a freshly initialised database into one from before every
+    init_db() column migration, holding the rows its data migrations act on:
+    a user, a session that still stores its raw user agent, a drama
+    predating every added column, and a preset on the removed test engine.
+    share_by_default_was_on: users.share_by_default exists with the old
+    default of 1 instead of being missing."""
+    conn = sqlite3.connect(path)
+    try:
+        for table, cols in _INIT_DB_MIGRATED_COLUMNS.items():
+            for col in reversed(cols):
+                conn.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
+        if share_by_default_was_on:
+            conn.execute("ALTER TABLE users ADD COLUMN share_by_default INTEGER DEFAULT 1")
+        conn.execute("INSERT INTO users (id, email, created_at) VALUES (1, 'a@example.com', 'x')")
+        conn.execute(
+            "INSERT INTO auth_sessions (id_hash, user_id, created_at, expires_at, last_seen_at, "
+            "user_agent_short, csrf_hash) VALUES ('h', 1, 0, 9e9, 0, "
+            "'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0', 'c')")
+        conn.execute("INSERT INTO dramas (id, title_en) VALUES (1, 'Old')")
+        conn.execute("INSERT INTO presets (name, translation_engine) VALUES ('p', 'test_offline')")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# Added inside data migrations that rebuild or back up tables (db.py's
+# line-id and profile migrations), so they can't be dropped by hand here.
+_ALTERS_WITH_OWN_MIGRATION = {("reading_history", "line_id"), ("reading_history", "profile_id")}
+
+
+def _alter_columns_in_db_py():
+    """Column names db.py adds to existing tables: every written-out
+    `ALTER TABLE t ADD COLUMN c` as (table, column), plus the loop-driven
+    ones, found as constant ("column", "TYPE ...") or ("table", "column",
+    "TYPE ...") tuples anywhere in db.py, as (None, column)."""
+    import ast
+    import re
+    src = open(os.path.join(os.path.dirname(db.__file__), "db.py"), encoding="utf-8").read()
+    found = {(t, c) for t, c in re.findall(r"ALTER TABLE (\w+) ADD COLUMN (\w+)\b", src)}
+    sql_type = re.compile(r"^(TEXT|INTEGER|REAL|BLOB|NUMERIC)\b")
+    for node in ast.walk(ast.parse(src)):
+        if not (isinstance(node, ast.Tuple) and node.elts
+                and all(isinstance(e, ast.Constant) and isinstance(e.value, str)
+                        for e in node.elts)):
+            continue
+        parts = [e.value for e in node.elts]
+        if len(parts) == 2 and sql_type.match(parts[1]):
+            found.add((None, parts[0]))
+        elif len(parts) == 3 and sql_type.match(parts[2]):
+            found.add((parts[0], parts[1]))
+    return found
+
+
+class TestInitDbSchema:
+    """init_db() runs on every user's existing database at startup: a fresh
+    database and an upgraded old one must end up with the same schema, and
+    running it again must change nothing."""
+
+    def test_running_init_db_again_changes_nothing(self, isolated_db):
+        before = _exact_snapshot(isolated_db.DB_PATH)
+        isolated_db.init_db()
+        assert _exact_snapshot(isolated_db.DB_PATH) == before
+
+    def test_every_added_column_is_listed(self):
+        listed = {(t, c) for t, cols in _INIT_DB_MIGRATED_COLUMNS.items() for c in cols}
+        listed_names = {c for _, c in listed}
+        missing = sorted(
+            (t, c) for t, c in _alter_columns_in_db_py()
+            if (t, c) not in listed and (t is not None or c not in listed_names)
+            and (t, c) not in _ALTERS_WITH_OWN_MIGRATION)
+        assert not missing, (
+            f"db.py adds these columns to existing tables but _INIT_DB_MIGRATED_COLUMNS in "
+            f"tests/test_db.py doesn't list them, so no test upgrades an old database "
+            f"through them: {missing}")
+
+    def test_old_database_upgrades_to_the_fresh_schema(self, isolated_db):
+        fresh = _schema_shape(isolated_db.DB_PATH)
+        _make_old_shape(isolated_db.DB_PATH)
+        old = _schema_shape(isolated_db.DB_PATH)
+        for table, cols in _INIT_DB_MIGRATED_COLUMNS.items():
+            names = {c[0] for c in old["columns"][table]}
+            assert not names & set(cols), table
+
+        isolated_db.init_db()
+
+        upgraded = _schema_shape(isolated_db.DB_PATH)
+        assert upgraded == fresh
+        upgraded_exact = _exact_snapshot(isolated_db.DB_PATH)
+        isolated_db.init_db()
+        assert _exact_snapshot(isolated_db.DB_PATH) == upgraded_exact
+
+    def test_old_database_data_migrations_run(self, isolated_db):
+        _make_old_shape(isolated_db.DB_PATH, share_by_default_was_on=True)
+        isolated_db.init_db()
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:
+            assert conn.execute("SELECT share_by_default FROM users").fetchone() == (0,)
+            assert conn.execute(
+                "SELECT value FROM app_settings WHERE key = 'migrations.share_by_default_off'"
+            ).fetchone() == ("true",)
+            agent, label = conn.execute(
+                "SELECT user_agent_short, device_label FROM auth_sessions").fetchone()
+            assert agent == "" and label
+            assert conn.execute("SELECT translation_engine FROM presets").fetchone() == ("claude",)
+            assert conn.execute(
+                "SELECT translation_engine, is_private FROM dramas").fetchone() == ("claude", 0)
+        finally:
+            conn.close()

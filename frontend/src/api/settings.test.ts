@@ -3,16 +3,22 @@ import { ApiError } from './client'
 import {
   TOGGLES,
   buildUpdate,
+  clampGpuMaxParallel,
   clearEndpointUrl,
   getSettings,
+  gpuMaxParallelHelp,
   setEndpointUrl,
+  updateGpuMaxParallel,
   updatePreferences,
   updateSetting,
+  resetMonthCounter,
+  undoMonthCounterReset,
 } from './settings'
 
 const overview = {
   engine_keys: { gemini: true },
   gpu_limit_enabled: false,
+  gpu_max_parallel: 1,
   notify_on_completion: true,
   use_gpu: false,
   gemini_free_tier: false,
@@ -26,7 +32,6 @@ describe('settings api', () => {
     expect(buildUpdate('use_gpu', true)).toEqual({ use_gpu: true })
     expect(TOGGLES.map((t) => t.key).sort()).toEqual([
       'bulk_auto_resume',
-      'gemini_free_tier',
       'gpu_limit_enabled',
       'notify_on_completion',
       'use_gpu',
@@ -40,6 +45,19 @@ describe('settings api', () => {
     await updateSetting('bulk_auto_resume', true, f)
     const [, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(JSON.parse(init.body)).toEqual({ bulk_auto_resume: true })
+  })
+
+  it('sends GPU jobs at once as one clamped whole number', async () => {
+    expect([0, 1, 2.6, 9, Number.NaN].map(clampGpuMaxParallel)).toEqual([1, 1, 3, 4, 1])
+    const f = ok({ ...overview, gpu_max_parallel: 4 })
+    await updateGpuMaxParallel(7, f)
+    const [, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(JSON.parse(init.body)).toEqual({ gpu_max_parallel: 4 })
+  })
+
+  it('mentions OLLAMA_NUM_PARALLEL only when more than one GPU job may run', () => {
+    expect(gpuMaxParallelHelp(1)).not.toContain('OLLAMA_NUM_PARALLEL')
+    expect(gpuMaxParallelHelp(2)).toContain('OLLAMA_NUM_PARALLEL')
   })
 
   it('POSTs that body and returns the overview', async () => {
@@ -77,5 +95,20 @@ describe('settings api', () => {
     const [url2, init2] = (g as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(url2).toBe('/api/settings/endpoints/ollama_url/clear')
     expect(JSON.parse(init2.body)).toEqual({ confirm: true })
+  })
+})
+
+describe('month counter reset API', () => {
+  it('posts reset and undo with the PC-only header', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const status = { month_spend_usd: 5, month_spend_counted_usd: 0, month_spend_reset_at: '2026-10-05T10:00:00' }
+    const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init })
+      return new Response(JSON.stringify({ before: status, after: status }), { status: 200 })
+    }) as typeof fetch
+    await resetMonthCounter(f)
+    await undoMonthCounterReset(f)
+    expect(calls.map((c) => c.url)).toEqual(['/api/settings/month-counter/reset', '/api/settings/month-counter/undo'])
+    expect(calls.every((c) => c.init?.method === 'POST')).toBe(true)
   })
 })

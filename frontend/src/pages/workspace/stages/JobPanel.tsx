@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { cancelJob } from '../../../api/jobs'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
+import { capFirst } from '../../../labels'
 import type { ApiError } from '../../../api/client'
 import type { JobRecord } from '../../../types/jobs'
+import { etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, type EtaSample } from './transcribeEstimate'
+import { formatElapsed } from './autotuneGlossary'
 import { TERMINAL_STATUSES, jobFailed, jobOutcomeText } from '../../../types/jobs'
 
 interface Props {
@@ -12,9 +15,61 @@ interface Props {
   pollError: ApiError | null
   // Optional muted line under the status message.
   note?: string | null
+  // Transcribe only: show elapsed time and, once the percent has moved for a
+  // while, "about N min left".
+  liveEta?: boolean
+  // Transcribe only: the run's expected seconds from this PC's recorded speed,
+  // shown as the ETA until the live readings settle.
+  expectedSeconds?: number | null
+  // False hides Cancel (a remote admin may stop only their own jobs); default true.
+  canCancel?: boolean
+  // Runs after a Cancel request succeeds, so a caller can refresh its job list.
+  onCancelled?: () => void
 }
 
-export function JobPanel({ job, pollError, note }: Props) {
+// Elapsed time and the ETA for a running job; null until the job exists.
+// Percent readings are kept per stage, so a new stage starts a fresh clock.
+function useLiveProgress(job: JobRecord | null, enabled: boolean, expectedSeconds?: number | null) {
+  const running = enabled && job !== null && !TERMINAL_STATUSES.includes(job.status)
+  const [now, setNow] = useState(() => Date.now() / 1000)
+  const [firstSeen, setFirstSeen] = useState<number | null>(null)
+  const [samples, setSamples] = useState<{ stage: string; list: EtaSample[] }>({ stage: '0', list: [] })
+  const progress = job?.progress ?? null
+  const message = job?.message ?? ''
+  useEffect(() => {
+    if (!running) {
+      setFirstSeen(null)
+      setSamples({ stage: '0', list: [] })
+      return
+    }
+    const t = Date.now() / 1000
+    setNow(t)
+    setFirstSeen((f) => f ?? t)
+    const id = setInterval(() => setNow(Date.now() / 1000), 1000)
+    return () => clearInterval(id)
+  }, [running])
+  useEffect(() => {
+    if (!running) return
+    const t = Date.now() / 1000
+    const stage = etaStage(message)
+    setSamples((cur) => {
+      const list = cur.stage === stage ? cur.list : []
+      if (progress === null || progress <= 0 || isNoPercentStage(message)) return { stage, list }
+      const last = list[list.length - 1]
+      if (last && last.p === progress && t - last.t < 5) return { stage, list }
+      return { stage, list: [...list, { t, p: progress }].slice(-60) }
+    })
+  }, [running, progress, message, now])
+  if (!running || !job) return { elapsed: null, left: null }
+  const started = job.started_at ?? firstSeen ?? now
+  const left = isNoPercentStage(message) || samples.stage !== etaStage(message)
+    ? null
+    : liveEtaSeconds(samples.list, now, expectedSeconds)
+  return { elapsed: Math.max(0, now - started), left }
+}
+
+export function JobPanel({ job, pollError, note, liveEta = false, expectedSeconds, canCancel = true, onCancelled }: Props) {
+  const { elapsed, left } = useLiveProgress(job, liveEta, expectedSeconds)
   const [cancelError, setCancelError] = useState<unknown>(null)
   const active = job !== null && !TERMINAL_STATUSES.includes(job.status)
   // Server text goes through safeDetail like job.error; if it is unsafe or
@@ -31,9 +86,15 @@ export function JobPanel({ job, pollError, note }: Props) {
       {job ? (
         <>
           <p data-testid="job-status">
-            {job.status}
+            {capFirst(job.status)}
             {job.message ? ` · ${job.message}` : ''}
           </p>
+          {elapsed !== null && !/\(elapsed /.test(job.message) && (
+            <p className="muted" role="note" data-testid="job-elapsed">
+              {formatElapsed(elapsed)} elapsed
+              {left !== null && ` · ${formatLeft(left)}${/step 1 of 2/i.test(job.message) ? ' in this step' : ''}`}
+            </p>
+          )}
           {note && <p className="muted" data-testid="job-note">{note}</p>}
           {job.progress !== null && (
             <p>
@@ -56,10 +117,13 @@ export function JobPanel({ job, pollError, note }: Props) {
               {outcomeText}
             </p>
           )}
-          {active && (
+          {active && canCancel && (
             <button
               type="button"
-              onClick={() => cancelJob(job.job_id).then(() => setCancelError(null), setCancelError)}
+              onClick={() => cancelJob(job.job_id).then(() => {
+                setCancelError(null)
+                onCancelled?.()
+              }, setCancelError)}
             >
               Cancel job
             </button>

@@ -4,8 +4,8 @@ import type { Page, Route } from '@playwright/test'
 
 import { ME, REMOTE_HEALTH_OFF } from './authMocks'
 
-// Shared page.route mocks for the comic viewer specs (routes C1-C5 under
-// /api/scanlate/dramas/{id}, built against the spec while the backend lands).
+// Shared page.route mocks for the comic viewer specs (routes under
+// /api/scanlate/dramas/{id}).
 // A catch-all aborts (and records) every /api call nothing here mocks, so no
 // request ever falls through to the seeded server. Page images are PNGs
 // generated here: a tinted page, a big page number and white speech bubbles
@@ -70,7 +70,7 @@ const DIGITS: Record<string, string[]> = {
 
 const HUES: RGB[] = [[214, 226, 245], [245, 222, 214], [220, 240, 222], [238, 226, 246], [246, 238, 210], [212, 236, 238]]
 
-export interface Box { x: number; y: number; w: number; h: number }
+interface Box { x: number; y: number; w: number; h: number }
 
 export function pagePng(n: number, w: number, h: number, boxes: Box[], typeset: boolean): Buffer {
   const px = new Uint8Array(w * h * 3)
@@ -145,7 +145,7 @@ export interface ComicMockState {
 
 export const pageIdOf = (id: number, ordinal: number) => id * 100 + ordinal + 1
 
-export function boxesFor(w: number, h: number): Box[] {
+function boxesFor(w: number, h: number): Box[] {
   return [
     { x: Math.round(w * 0.55), y: Math.round(h * 0.06), w: Math.round(w * 0.32), h: Math.round(h * 0.1) },
     { x: Math.round(w * 0.1), y: Math.round(h * 0.4), w: Math.round(w * 0.36), h: Math.round(h * 0.09) },
@@ -204,6 +204,8 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
     route.fulfill({ status: 429, json: { error: { code: 'rate_limited', message: 'No stream in this test.' } } }))
   // The header bell (every page) polls this; not part of the comic flow.
   await page.route(/\/api\/notifications$/, (route) => json(route, { items: [] }))
+  // The header Jobs button (every page) reads this; not part of the comic flow.
+  await page.route(/\/api\/jobs$/, (route) => json(route, { items: [] }))
   await page.route(new RegExp(`/api/library/dramas/${id}$`), (route) => {
     record(route)
     return json(route, {
@@ -279,5 +281,5 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
   return s
 }
 
-// Where the lead asked for screenshots; unset in CI, so those tests skip.
+// Set COMIC_SCREENS_DIR to also save screenshots; unset in CI, so those tests skip.
 export const SHOTS_DIR = process.env.COMIC_SCREENS_DIR ?? ''

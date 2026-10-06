@@ -1,3 +1,4 @@
+import { safeDetail } from '../../components/errorMessages'
 import type { TranscribeConfigUpdate } from '../../types/workspace'
 
 // Pure client-side checks for the Source/Transcribe stage. The server
@@ -44,14 +45,14 @@ export function parseExpectedSpeakers(raw: string): number | undefined | null {
   return Number.isInteger(n) && n >= 0 && n <= 20 ? n : null
 }
 
-export interface ParsedSpeakerHints {
+interface ParsedSpeakerHints {
   expected?: number
   min?: number
   max?: number
 }
 
 // Exact count (0-20, blank or 0 = auto) or a min/max range (each 1-20,
-// either may be blank), mirroring diarize.validate_speaker_hints (Step 105).
+// either may be blank), mirroring diarize.validate_speaker_hints.
 // Returns the parsed hints, or a plain-English problem string.
 export function parseSpeakerHints(expectedRaw: string, minRaw: string, maxRaw: string): ParsedSpeakerHints | string {
   const expected = parseExpectedSpeakers(expectedRaw)
@@ -71,23 +72,71 @@ export function parseSpeakerHints(expectedRaw: string, minRaw: string, maxRaw: s
   return { expected, min, max }
 }
 
-// Mirrors core.whisper_model_warning: large-v3-turbo is weaker on ja/ko.
+// A run option the server refuses, tied to the field to highlight.
+export type RunField = 'alignment_method' | 'asr_backend_choice' | 'speakers'
+export interface RunFieldProblem {
+  field: RunField
+  message: string
+}
+
+// Mirrors transcribe_service.validate_transcribe_options: option pairs the
+// server refuses for this drama's mode, caught before a round trip.
+export function runOptionProblem(
+  mode: string | undefined,
+  alignment: string,
+  asr: string,
+  mossEnabled: boolean,
+): RunFieldProblem | null {
+  if (mode === 'whisper' && alignment === 'qwen3_forced_align') {
+    return {
+      field: 'alignment_method',
+      message: 'Qwen3 forced alignment needs a transcript to align, but this drama transcribes with Whisper alone. Pick Whisper (diff) or supply a transcript.',
+    }
+  }
+  if (mode === 'whisper' && asr === 'moss_td' && !mossEnabled) {
+    return {
+      field: 'asr_backend_choice',
+      message: 'MOSS-Transcribe-Diarize is experimental and turned off. Turn it on in Settings, or pick another ASR backend.',
+    }
+  }
+  return null
+}
+
+// A 422 whose own sentence names an option: the field to highlight, with that
+// sentence (only fixed server sentences; anything path- or key-like is dropped).
+export function runProblemFromError(err: unknown): RunFieldProblem | null {
+  const e = err as { code?: string; message?: string } | null
+  if (!e || (e.code !== 'validation_error' && e.code !== 'invalid_input') || !e.message) return null
+  const message = safeDetail(e.message)
+  if (!message) return null
+  if (/forced alignment/i.test(message)) return { field: 'alignment_method', message }
+  if (/\bMOSS\b/.test(message)) return { field: 'asr_backend_choice', message }
+  if (/speakers?\b/i.test(message)) return { field: 'speakers', message }
+  return null
+}
+
+// What our benchmarks showed for turbo vs large-v3 (docs/asr-experiments.md):
+// Korean slightly favoured large-v3, Chinese was mixed, Japanese was a tie.
 export function whisperModelWarning(size: string, language: string): string {
-  if (size === 'large-v3-turbo' && (language === 'ja' || language === 'ko')) {
-    return 'large-v3-turbo is reported noticeably weaker on Japanese and Korean -- large-v3 (or medium) is the safer choice for this drama.'
+  if (size !== 'large-v3-turbo') return ''
+  if (language === 'ko') {
+    return 'On Korean speech in our tests, large-v3 made about half a point fewer character errors than turbo, and was about twice as slow.'
+  }
+  if (language === 'zh') {
+    return 'On Chinese our tests disagree: large-v3 was more accurate on clean speech, turbo on one drama clip.'
   }
   return ''
 }
 
 // Source-stage run options kept for the browser session, per drama, so a
 // stage-tab switch or navigation does not wipe them.
-export interface SourceFormState {
+interface SourceFormState {
   language: string
   script: string
   transcriptText: string
   runDiarize: boolean
   speakers: string
-  // Speaker-count range for "Detect speakers only" (Step 105).
+  // Speaker-count range for "Detect speakers only".
   minSpeakers?: string
   maxSpeakers?: string
   // Extra names added to the automatic Whisper prompt.
@@ -173,7 +222,7 @@ const OCR_BACKENDS: Record<string, string[]> = {
 }
 export const ocrBackendOptions = (language: string | null): string[] => OCR_BACKENDS[language ?? 'zh'] ?? ['tesseract']
 
-export const OCR_MAX_IMAGES = 200
+const OCR_MAX_IMAGES = 200
 const OCR_EXTENSIONS = ['.png', '.jpg', '.jpeg']
 
 export function checkOcrImages(names: string[]): string | null {

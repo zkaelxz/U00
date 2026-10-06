@@ -1,6 +1,6 @@
 """
 services/auth_service.py -- users, allowlist, permissions, server-side
-sessions and the audit log (Step 133; see docs/remote-access-decision.md).
+sessions and the audit log (see docs/remote-access-decision.md).
 
 UI-free: plain dicts in and out, errors from `service_errors`. Nothing
 here knows about HTTP; `api/auth.py` is the FastAPI layer on top.
@@ -229,7 +229,7 @@ def _admin_view(user: dict, actor_id, now: float) -> dict:
 
 
 ADMIN_AT_PC_ONLY = ("Admin accounts can only be changed at the PC. "
-                    "Use: python -m api deactivate/grant-admin <email>")
+                    "Use: python -m api revoke-admin/deactivate/grant-admin <email>")
 
 
 def _require_pc_for_admin(row, at_pc: bool):
@@ -266,6 +266,38 @@ def admin_revoke_sessions(user_id: int, actor_id=None, at_pc: bool = False) -> d
         raise ConflictError("To end your own sessions, use Sign out.")
     _require_pc_for_admin(row, at_pc)
     return {"user_id": user_id, "revoked": revoke_all_for_user(user_id, actor_id=actor_id)}
+
+
+_LAST_ADMIN_REVOKE = ("This is the last active admin. Baihe needs at least one, so their admin "
+                      "rights can't be removed.")
+
+
+def revoke_admin(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
+    """Makes an admin a normal member; returns the admin_list_users row.
+    The account stays active; with no member permissions stored it gets the
+    household defaults, so it isn't left empty. Their sessions end, so the
+    next request (and any open event stream) re-checks as a member.
+    Checks: 404, own account (409), away from the PC (403: admin accounts
+    are PC-only), not an admin (409), last active admin (409, one guarded
+    UPDATE, as for deactivate). The CLI passes at_pc=True."""
+    row = _require_user(user_id)
+    if actor_id is not None and user_id == actor_id:
+        raise ConflictError("You can't remove your own admin rights.")
+    _require_pc_for_admin(row, at_pc)
+    if not row["is_admin"]:
+        raise ConflictError("That user isn't an admin.")
+    if not db.auth_revoke_admin_keeping_an_admin(user_id):
+        if not (db.auth_get_user(user_id) or {}).get("is_admin"):   # demoted meanwhile
+            raise ConflictError("That user isn't an admin.")
+        raise ConflictError(_LAST_ADMIN_REVOKE)
+    if not [p for p in db.auth_get_permissions(user_id)
+            if p in PERMISSIONS and p not in ADMIN_PERMISSIONS]:
+        for p in HOUSEHOLD_DEFAULT_PERMISSIONS:
+            db.auth_grant_permission(user_id, p)
+    db.auth_delete_user_sessions(user_id)
+    _recheck_streams(user_id)
+    write_audit(actor_id, "user.revoke_admin", f"user {user_id}")
+    return _admin_view(get_user(user_id), actor_id, time.time())
 
 
 def grant_admin_local(email: str) -> dict:
@@ -370,7 +402,7 @@ def revoke_permission(user_id: int, permission: str, actor_id=None) -> dict:
 
 # --- sessions --------------------------------------------------------------
 
-def _parse_ip(ip):
+def parse_ip(ip):
     """An ip_address, IPv4-mapped IPv6 unwrapped to IPv4; None if unparseable."""
     try:
         addr = ipaddress.ip_address((ip or "").strip())
@@ -381,11 +413,11 @@ def _parse_ip(ip):
     return addr
 
 
-def _ip_prefix(ip: str) -> str:
+def ip_prefix(ip: str) -> str:
     """Coarse address only, for storage and audit: IPv4 /24 as its first three
     octets ("203.0.113"), IPv6 /48 as a network ("2001:db8:1::/48"). IPv4-mapped
     IPv6 counts as IPv4. Anything unparseable is stored as ""."""
-    addr = _parse_ip(ip)
+    addr = parse_ip(ip)
     if addr is None:
         return ""
     if addr.version == 4:
@@ -397,7 +429,7 @@ def rate_limit_key(ip: str) -> str:
     """The bucket a client address is rate-limited in: an IPv4 address on its
     own, an IPv6 address by its /64 (one host usually holds a whole /64, so
     per-address buckets would be unlimited). IPv4-mapped IPv6 counts as IPv4."""
-    addr = _parse_ip(ip)
+    addr = parse_ip(ip)
     if addr is None:
         return (ip or "").strip()[:64] or "unknown"
     if addr.version == 4:
@@ -458,7 +490,7 @@ def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float 
     token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     sid = db.auth_insert_session(
         _hash(token), user_id, now, now + ABSOLUTE_TIMEOUT_SECONDS,
-        device_label(user_agent), _ip_prefix(ip), _hash(csrf))
+        device_label(user_agent), ip_prefix(ip), _hash(csrf))
     write_audit(user_id, "session.create", f"session {sid}")
     return {"session_token": token, "csrf_token": csrf, "session_id": sid,
             "expires_at": now + ABSOLUTE_TIMEOUT_SECONDS}
@@ -602,7 +634,7 @@ def revoke_own_session(user_id: int, session_id: int, current_session_id: int,
     if not db.auth_delete_session(session_id, user_id):
         raise NotFoundError(_SESSION_NOT_FOUND)
     _recheck_streams(user_id)
-    write_audit(user_id, "session.revoke", f"session {session_id} ip {_ip_prefix(ip)}")
+    write_audit(user_id, "session.revoke", f"session {session_id} ip {ip_prefix(ip)}")
     return {"revoked": 1}
 
 
@@ -617,10 +649,10 @@ def revoke_other_sessions(user_id: int, current_session_id: int, ip: str = "", *
     n = db.auth_delete_user_sessions(user_id, except_id=current_session_id)
     token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     sid = db.auth_rotate_session(current_session_id, user_id, _hash(token), _hash(csrf),
-                                 now, _ip_prefix(ip))
+                                 now, ip_prefix(ip))
     _recheck_streams(user_id)
     if n:
-        write_audit(user_id, "session.revoke_others", f"user {user_id}: {n} ip {_ip_prefix(ip)}")
+        write_audit(user_id, "session.revoke_others", f"user {user_id}: {n} ip {ip_prefix(ip)}")
     if sid is None:   # this session was revoked meanwhile (sign-out elsewhere)
         raise UnauthenticatedError("Authentication required.")
     return {"revoked": n, "session_token": token, "csrf_token": csrf, "session_id": sid}

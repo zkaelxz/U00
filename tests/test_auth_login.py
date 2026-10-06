@@ -835,7 +835,7 @@ class TestSettings:
         from services import settings_service
         env = tmp_path / ".env"
         env.write_text(f'BAIHE_GOOGLE_CLIENT_SECRET="{SECRET}"\nBAIHE_PUBLIC_URL=https://a.example\n')
-        monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(env))
+        monkeypatch.setattr(settings_service, "default_env_path", lambda: str(env))
         monkeypatch.delenv("BAIHE_GOOGLE_CLIENT_SECRET", raising=False)
         assert load_settings().google_client_secret == SECRET
         assert load_settings({}).google_client_secret == ""
@@ -886,6 +886,66 @@ class TestRealProviderNoNetwork:
         assert SECRET not in str(post.url)
         assert [str(r.url) for r in seen] == [oidc_service.GOOGLE_TOKEN_URL,
                                               oidc_service.GOOGLE_JWKS_URL]
+
+    @staticmethod
+    def _authlib_httpx():
+        try:
+            from authlib.integrations.httpx_client._compat import httpx2 as authlib_httpx
+        except ImportError:
+            import httpx as authlib_httpx
+        return authlib_httpx
+
+    def _exchange(self, provider):
+        return provider.exchange_code(client_id=CLIENT_ID, client_secret=SECRET,
+                                      redirect_uri=PUBLIC + "/api/auth/callback",
+                                      code="the-code", code_verifier="v" * 64)
+
+    def test_oversized_token_reply_is_refused(self):
+        h = self._authlib_httpx()
+        big = b'{"id_token": "' + b"x" * oidc_service.GOOGLE_RESPONSE_MAX_BYTES + b'"}'
+        p = oidc_service.GoogleProvider(
+            transport=h.MockTransport(lambda request: h.Response(200, content=big)))
+        with pytest.raises(oidc_service.LoginError) as exc:
+            self._exchange(p)
+        assert exc.value.code == "provider_error" and exc.value.reason == "response_too_large"
+        assert SECRET not in str(exc.value)
+
+    def test_declared_oversized_token_reply_is_refused(self):
+        h = self._authlib_httpx()
+        size = str(oidc_service.GOOGLE_RESPONSE_MAX_BYTES + 1)
+        p = oidc_service.GoogleProvider(transport=h.MockTransport(
+            lambda request: h.Response(200, headers={"Content-Length": size}, content=b"{}")))
+        with pytest.raises(oidc_service.LoginError):
+            self._exchange(p)
+
+    def test_gzipped_token_reply_is_decoded_once(self):
+        import gzip
+        import json as _json
+        h = self._authlib_httpx()
+        body = gzip.compress(_json.dumps({"access_token": "a", "token_type": "Bearer",
+                                          "id_token": "x.y.z", "expires_in": 60}).encode())
+        p = oidc_service.GoogleProvider(transport=h.MockTransport(lambda request: h.Response(
+            200, headers={"Content-Encoding": "gzip"}, content=body)))
+        assert self._exchange(p)["id_token"] == "x.y.z"
+
+    def test_oversized_jwks_is_refused(self):
+        import httpx
+        big = b'{"keys": [], "pad": "' + b"x" * oidc_service.GOOGLE_RESPONSE_MAX_BYTES + b'"}'
+        p = oidc_service.GoogleProvider(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, content=big)))
+        with pytest.raises(oidc_service.LoginError):
+            p.fetch_jwks()
+
+    def test_oversized_jwks_keeps_the_cached_keys(self):
+        import httpx
+        big = b'{"keys": [], "pad": "' + b"x" * oidc_service.GOOGLE_RESPONSE_MAX_BYTES + b'"}'
+        now = [1000.0]
+        signin = oidc_service.SignIn(provider=oidc_service.GoogleProvider(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, content=big))),
+            clock=lambda: now[0])
+        signin._jwks, signin._jwks_at = {"keys": [{"kid": "old"}]}, now[0]
+        now[0] += oidc_service.JWKS_TTL_SECONDS + 1
+        assert signin._keys_for("old") == {"keys": [{"kid": "old"}]}
 
 
 class TestCli:

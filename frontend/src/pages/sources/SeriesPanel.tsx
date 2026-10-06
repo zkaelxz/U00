@@ -8,6 +8,7 @@ import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import type { OpenSeries, SeriesResult, SourceSummary, TrackedSeries } from '../../types/sources'
 import { ImportBar, ImportSetup, TrackRow } from './ChapterImport'
+import { ChapterSave } from './ChapterSave'
 import { useChapterImport } from './useChapterImport'
 import { SourceErrorLine } from './SearchPanel'
 import {
@@ -96,7 +97,7 @@ export function SeriesPanel({
   const importing = !!result && chapters.length > 0 && canImport
   // Tracking (R4) works for any source, not only those with import; same remote rule.
   const canTrack = !!result && !tracked && (!remote || IMPORT_REMOTE_ALLOWED)
-  // Step 107: chapters already in the chosen drama are marked and left out of Select all.
+  // Chapters already in the chosen drama are marked and left out of Select all.
   const selectable = selectableChapters(chapters, imp.importState.state)
 
   return (
@@ -276,6 +277,16 @@ export function SeriesPanel({
         </Section>
       )}
       {importing && <ImportBar imp={imp} chapters={chapters} selected={selected} phone={phone} />}
+      {importing && sourceInfo?.supports.get_pages && (
+        <ChapterSave
+          source={open.source}
+          seriesId={open.series_id}
+          display={display}
+          chapters={chapters}
+          selected={selected}
+          busy={imp.running}
+        />
+      )}
       {showBack && result && (
         <button type="button" className={buttonClass('ghost', 'md', 'sources-back')} onClick={onClose}>
           ‹ Results

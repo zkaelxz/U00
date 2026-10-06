@@ -47,7 +47,7 @@ permissions:
 # (see CLAUDE.md's GitHub Actions minutes section), so a superseded run
 # here is worth cancelling promptly.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -67,7 +67,7 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       # Built before start.bat so `python -m api` serves it. The Windows
       # build is what catches filename-case collisions (2026-09-29), and the

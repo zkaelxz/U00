@@ -14,7 +14,7 @@ const overview = {
     jieba: { installed: false, powers: 'Chinese word segmentation', tier: 'feature' },
     pypinyin: { installed: true, powers: 'Chinese pinyin', tier: 'feature' },
     cv2: { installed: false, powers: 'Scanlate bubble detection/inpainting', tier: 'feature' },
-    streamlit_drawable_canvas: { installed: false, powers: 'Scanlate manual erase/heal brush', tier: 'feature' },
+    pypdf: { installed: false, powers: 'Scanlate PDF import', tier: 'feature' },
     torch: { installed: false, powers: 'ML backends', tier: 'feature' },
     pandas: { installed: true, powers: 'tables', tier: 'required' },
     transformers: { installed: true, powers: 'local NLLB-200', tier: 'feature' },
@@ -51,8 +51,8 @@ const presets = {
     },
     {
       id: 'scanlate', group: 'Scanlate', label: 'Scanlate (manga/manhua pages)', help: 'Bubble detection.',
-      packages: ['cv2', 'torch', 'streamlit_drawable_canvas'], installed_count: 0,
-      roles: { cv2: 'required', torch: 'recommended', streamlit_drawable_canvas: 'optional' },
+      packages: ['cv2', 'torch', 'pypdf'], installed_count: 0,
+      roles: { cv2: 'required', torch: 'recommended', pypdf: 'optional' },
       required_missing: ['cv2'], optional_missing: [],
       to_install: ['cv2', 'torch'], approx_mb: 2545,
     },
@@ -78,9 +78,9 @@ const presets = {
     'opencc-python-reimplemented': pkg('opencc-python-reimplemented'),
     cv2: pkg('cv2', { dist: 'opencv-python', approx_mb: 45, source_url: 'https://pypi.org/project/opencv-python/' }),
     torch: pkg('torch', { approx_mb: 2500 }),
-    streamlit_drawable_canvas: pkg('streamlit_drawable_canvas', {
-      installable: false, approx_mb: 5, source_url: 'https://pypi.org/project/streamlit-drawable-canvas/',
-      not_offered_reason: 'not offered: it fails to set up with this app\'s pinned Streamlit.',
+    pypdf: pkg('pypdf', {
+      installable: false, approx_mb: 5, source_url: 'https://pypi.org/project/pypdf/',
+      not_offered_reason: 'not offered: it fails to set up with this app\'s pinned dependencies.',
     }),
     'qwen-asr': pkg('qwen-asr', {
       approx_mb: 30, pulls_torch: true,
@@ -170,7 +170,10 @@ async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string
   return { sent, unmocked }
 }
 
-const openSection = (page: Page, title: RegExp) => page.locator('summary', { hasText: title }).first().click()
+const openSection = async (page: Page, title: RegExp) => {
+  const summary = page.locator('summary', { hasText: title }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+}
 
 test('tasks list what they need, sizes, links, and install one package at a time', async ({ page }) => {
   const { sent, unmocked } = await mockPage(page)
@@ -178,11 +181,13 @@ test('tasks list what they need, sizes, links, and install one package at a time
   await openSection(page, /^Packages/)
 
   await expect(page.getByTestId('install-tasks').getByRole('heading', { name: 'Install by task' })).toBeVisible()
+  // The task groups start folded; open each to see its tasks.
+  for (const summary of await page.getByTestId('install-tasks').locator('summary').all()) await summary.click()
   const zh = page.getByTestId('task-reader_zh')
   await expect(zh.locator('.pill')).toHaveText('1 of 3 installed')
   await expect(zh).toContainText('approx. 21 MB to download')
   await expect(page.getByTestId('task-scanlate')).toContainText('approx. 2.5 GB to download')
-  await expect(page.getByTestId('task-scanlate')).toContainText('streamlit_drawable_canvas: not offered')
+  await expect(page.getByTestId('task-scanlate')).toContainText('pypdf: not offered')
   await expect(page.getByTestId('task-alt_asr')).toContainText('would downgrade transformers')
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/packages-by-task.png`, fullPage: true })
 
@@ -202,32 +207,34 @@ test('tasks list what they need, sizes, links, and install one package at a time
   expect(unmocked).toEqual([])
 })
 
-test('missing packages show size, a safe Source link, and no Install for a not-offered one', async ({ page }) => {
+test('a task lists its missing packages with size, a safe Source link, and no Install for a not-offered one', async ({ page }) => {
   const { unmocked } = await mockPage(page)
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Missing packages/)
-  const missing = page.getByRole('list', { name: 'Missing packages' })
-
-  const cv2 = missing.locator('li', { hasText: 'cv2' })
+  // The task groups only exist once the presets have loaded.
+  await expect(page.getByTestId('install-tasks').getByRole('heading', { name: 'Install by task' })).toBeVisible()
+  for (const summary of await page.getByTestId('install-tasks').locator('details.section > summary').all()) await summary.click()
+  const scan = page.getByTestId('task-details-scanlate')
+  await scan.locator('summary').click()
+  const cv2 = scan.locator('li', { hasText: 'cv2' })
   await expect(cv2).toContainText('approx. 45 MB')
   const link = cv2.getByRole('link', { name: /Source: opencv-python on PyPI/ })
   await expect(link).toHaveAttribute('href', 'https://pypi.org/project/opencv-python/')
   await expect(link).toHaveAttribute('target', '_blank')
   await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
-  await expect(cv2.getByRole('button', { name: 'Install cv2' })).toBeVisible()
-
-  const canvas = missing.locator('li', { hasText: 'streamlit_drawable_canvas' })
-  await expect(canvas.getByTestId('pkg-not-offered')).toContainText('not offered')
-  await expect(canvas.getByRole('button')).toHaveCount(0)
-
-  await expect(missing.locator('li', { hasText: 'torch' })).toContainText('approx. 2.5 GB')
+  // A required package is installed with its task, not one by one.
+  await expect(cv2.getByRole('button')).toHaveCount(0) // no one-by-one Install: the task installs it
+  await expect(scan.locator('li', { hasText: 'pypdf' }).getByRole('button')).toHaveCount(0)
+  await expect(scan.locator('li', { hasText: 'torch' })).toContainText('approx. 2.5 GB')
+  await expect(page.getByTestId('task-scanlate')).toContainText('pypdf: not offered')
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/packages-missing.png`, fullPage: true })
 
-  // A single-package failure shows the hint too.
-  await cv2.getByRole('button', { name: 'Install cv2' }).click()
-  await page.getByRole('button', { name: 'Confirm install cv2' }).click()
-  await expect(page.getByTestId('install-result')).toContainText('Installed cv2.')
+  // An optional extra is installed on its own, from its task.
+  const ocr = page.getByTestId('task-details-hardsub_ocr')
+  await ocr.locator('summary').click()
+  await ocr.getByRole('button', { name: 'Install paddleocr' }).click()
+  await page.getByRole('button', { name: 'Confirm install paddleocr' }).click()
+  await expect(page.getByTestId('install-result')).toContainText('Installed paddleocr.')
   await expect(page.getByTestId('install-hint')).toHaveCount(0)
   expect(unmocked).toEqual([])
 })
@@ -237,7 +244,9 @@ test('GPU PyTorch: shows the GPU, the mismatch, checks CUDA, and sets up the mat
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
   const panel = page.getByTestId('gpu-torch')
-  await expect(panel.getByRole('heading', { name: 'GPU PyTorch' })).toBeVisible() // open, no fold of its own
+  // A mismatch is a problem, so the fold is open by itself.
+  const gpuFold = page.locator('details.section', { has: page.locator('> summary', { hasText: /^GPU PyTorch/ }) })
+  await expect(gpuFold).toHaveJSProperty('open', true)
   await expect(panel.locator('.pill')).toHaveText("Versions don't match")
   await expect(panel.getByTestId('gpu-torch-state')).toContainText("don't match")
   await expect(panel.getByTestId('gpu-torch-driver')).toHaveText('NVIDIA GeForce RTX 3080 Ti, driver 581.42')
@@ -253,7 +262,7 @@ test('GPU PyTorch: shows the GPU, the mismatch, checks CUDA, and sets up the mat
     'Recommended: NVIDIA GPU (CUDA 12.8), from https://download.pytorch.org/whl/cu128')
 
   await panel.getByRole('button', { name: 'Check CUDA' }).click()
-  await expect(panel.getByTestId('gpu-torch-probe')).toHaveText('torch 2.11.0+cu128: CUDA works on NVIDIA GeForce RTX 3080 Ti.')
+  await expect(panel.getByTestId('gpu-torch-probe')).toHaveText('PyTorch 2.11.0+cu128: CUDA works on NVIDIA GeForce RTX 3080 Ti.')
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/packages-gpu-torch.png`, fullPage: true })
 
   await panel.getByRole('button', { name: 'Set up GPU PyTorch' }).click()
@@ -311,7 +320,7 @@ test('tasks label each package Required / Recommended / Optional with the app\'s
   await expect(scan.locator('.pill')).toHaveClass(/pill-warn/)
   await expect(scan.getByTestId('task-pkg-cv2')).toContainText('cv2 · Required')
   await expect(scan.getByTestId('task-pkg-torch')).toContainText('torch · Recommended')
-  await expect(scan.getByTestId('task-pkg-streamlit_drawable_canvas')).toContainText('· Optional')
+  await expect(scan.getByTestId('task-pkg-pypdf')).toContainText('· Optional')
 
   const ocr = page.getByTestId('task-hardsub_ocr')
   await expect(ocr).toContainText('Ready')

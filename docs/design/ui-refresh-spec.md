@@ -19,9 +19,9 @@ Claims marked **(inferred)** were not confirmed at runtime.
 
 The target is a dark-first reading app in the spirit of OpenNovel: calm surfaces, generous whitespace, content before controls.
 
-- **Layers.** Page background `--bg` → cards `--surface` → raised items (inputs, menus, setting rows, hover) `--surface-2`. Borders are 1px `--border`, and cards use `--shadow-1`. There are no nested boxes inside boxes: a Section inside a Card is drawn borderless (see `ws-translate-desktop.png`, where "Novel reference" is a box inside a box).
-- **Accent is rare.** Purple (`--accent`) is used only for the one primary button, the active nav or stage, focus rings, the current stage marker and "on" toggles. Everything else is neutral.
-- **Hierarchy.** Page title `--text-2xl`/600. Card title `--text-lg`/600. Body `--text-md` with line-height 1.5. Meta `--text-sm` `--muted`. Pills `--text-xs`. Numbers use `font-variant-numeric: tabular-nums`.
+- **Layers.** Page background `--bg` → cards `--surface` → raised items (inputs, menus, setting rows, hover) `--surface-2`. Borders are 1px `--border`, and cards, panels and sections are flat outlined surfaces with no shadow (`--shadow-1` is `none`; menus use `--shadow-pop`). There are no nested boxes inside boxes: a Section inside a Card is drawn borderless (see `ws-translate-desktop.png`, where "Novel reference" is a box inside a box).
+- **Accent is rare.** Indigo (`--accent`) is used only for the one primary button, the active nav or stage, focus rings, the current stage marker and "on" toggles. Everything else is neutral.
+- **Hierarchy.** Page title `--text-2xl`/600. Card title `--text-lg`/600. Body `--text-md` (15px) with line-height 1.5 (1.6 for CJK). Editable subtitle text and textareas `--text-edit` (17px). Meta `--text-sm` (14px) `--muted`. Pills `--text-xs` (12px, badges only). The font is the bundled Atkinson Hyperlegible, with per-language CJK system stacks. Numbers use `font-variant-numeric: tabular-nums`.
 - **Spacing.**
   - Card padding: `--space-4` on phone, `--space-4`/`--space-5` on desktop.
   - Gap between cards: `--space-4` on phone, `--space-5` on desktop.
@@ -30,7 +30,7 @@ The target is a dark-first reading app in the spirit of OpenNovel: calm surfaces
 - **Widths.** The app is capped at 1200px (existing `body`). Form pages (Translate, Settings, Diagnostics) use `.page-narrow` (860px). Reader text is capped at 72ch and centred.
 - **Page header pattern** (a CSS class, no new component): `header.page-head` holds the title, one muted meta line, and at most one primary action on the right. On phone the action wraps under the title at full width.
 - **Breakpoints** (these already exist in code): phone ≤640px (`useMediaQuery('(max-width: 640px)')`), tablet 641–1023, wide ≥1024 (`Sources.tsx:52`).
-- **Motion.** Only the kit's `--ease` transitions (150ms) on hover and toggle. The existing global `prefers-reduced-motion` rule in `index.css` removes them. No entrance animations.
+- **Motion.** Calm motion tokens: `--dur-1` 100ms, `--dur-2` 160ms (hover, toggle, button), `--dur-3` 240ms (Section open, sheets), `--ease` cubic-bezier(.2,0,0,1), and a 120ms opacity-only stage fade. The existing global `prefers-reduced-motion` rule in `index.css` removes them. No slides or bounces.
 
 ## 2. Tokens and component rules
 
@@ -38,18 +38,21 @@ The target is a dark-first reading app in the spirit of OpenNovel: calm surfaces
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `--bg` | #fcfcfd | #16161a | page |
-| `--surface` | #f4f4f7 | #202026 | Card, Section |
-| `--surface-2` | #ffffff | #28282f | raised: setting rows, `.btn-secondary`, menus |
-| `--border` | #e2e2e8 | #33333c | all 1px lines |
-| `--text` / `--muted` | #1f1f23 / #6b6b76 | #ececf1 / #9d9daa | body / meta |
-| `--accent` / `--accent-text` / `--accent-soft` | #7c5cbf / #6a48b0 / 14% mix | same / #b8a3ea / 14% mix | primary, links, pill-accent |
-| `--ok` `--warn` `--bad` `--info` + `-soft` | #1e7b3a #8a5a00 #b3261e #1d5fa8 | #8fd6a0 #f0c36d #f2b8b5 #9cc3f5 | Badge tones, inline errors |
+| `--bg` | #f4f5f9 | #12141d | page |
+| `--surface` | #ffffff | #1a1d29 | Card, Section |
+| `--surface-2` | #f8f9fc | #212536 | raised: setting rows, `.btn-secondary`, menus |
+| `--border` (alias `--line`) | #dcdfea | #2b3042 | all 1px lines |
+| `--text` (alias `--ink`) / `--muted` | #1a1d2b / #585e76 | #e7e9f3 / #9aa0b8 | body / meta |
+| `--accent` / `--accent-text` / `--accent-soft` | #3d4fa8 / same / 14% mix | #9aa7ee / same / 14% mix | primary, links, pill-accent; `--on-accent` (alias `--accent-ink`) is #ffffff / #10142c |
+| `--highlight` | #e8ebfa | #232845 | selected line tint |
+| `--ok` `--warn` `--bad` (alias `--err`) `--info` + `-soft` | #1f7a4d #9a5b00 #b3261e #2563a8 | #5fc08c #e0a24a #ef7b73 #7aa2ec | Badge tones, inline errors |
+| `--speaker-1..4-bg/-fg` | hsl(h 55% 90%) / hsl(h 65% 24%) | hsl(h 45% 24%) / hsl(h 80% 80%) | speaker chips; h = 230, 20, 80, 170 |
+| Sepia / OLED | bg #efe4cb, surface #ebe0c6, text #3b3220, muted #5f5238, line #cdbf9d, highlight #e2d3ae, light accent, `--warn` #7a4600, `--ok` #1b6b35 (the picked #1f7a4d was 4.2:1) / bg #000, surface #0b0b0b, text #ececec, muted #a0a0a0, line #262626, highlight #10161f, dark accent | | other themes |
 | `--space-1..8` | 4 8 12 16 24 32 48 64 | | spacing only from this scale |
-| `--radius-sm/md/lg/pill` | 6 / 6 / 14 / 999 | | inputs and buttons / same / Card / Badge, Toggle |
-| `--text-xs..2xl` | .75 .875 1 1.125 1.375 1.75rem | | type scale |
+| `--radius` / `-md` / `-lg` / `-sm` / `-pill` | 8 / 8 / 8 / 6 / 999 | | buttons, inputs, Card, Panel, Section / small chips / Badge, Toggle |
+| `--text-xs..2xl` | .8 .9333 1 1.2 1.4 1.8rem (root 15px: 12 14 15 18 21 27px) | | type scale; `--text-edit` 1.1333rem (17px) |
 
-The legacy tokens `--radius`, `--font-sm` and `--font-md` stay until their callers are migrated. New code must not use them.
+`--font-sm` and `--font-md` are removed (use `--text-sm`, `--text-md`). `--radius` is the one 8px radius. Focus is a soft glow (`box-shadow` 4px, accent 35%) with a transparent outline that shows as a system outline under forced colors.
 
 ### 2.2 Component usage rules (proposed as guideline rules 16–22)
 
@@ -83,10 +86,10 @@ The legacy tokens `--radius`, `--font-sm` and `--font-md` stay until their calle
 ### 2.3 Accessibility checks for the kit
 
 - `Toggle` is `role="switch"` with `aria-checked`, and its label comes from `Field`'s `<label htmlFor>`.
-  - Focus uses the global `:focus-visible` ring.
+  - Focus uses the global `:focus-visible` glow.
   - The off track (`--text` 18% on `--surface`) is about 2:1 against a dark card. That's acceptable only because the white thumb gives more than 3:1. **Verify** in both themes.
 - `a.btn` keeps link semantics: new tab and copy-link still work.
-- Primary contrast: white on #7c5cbf is about 5:1. Muted on surface is 4.8:1 (light) and about 5.9:1 (dark). Both pass AA.
+- Contrast is asserted at 4.5:1 or more for every theme in `src/themeContrast.test.ts`.
 
 ### 2.4 Revisions to existing guidelines
 
@@ -179,7 +182,7 @@ Evidence:
 - The stage always defaults to the default stage (`stages.ts:23`, `router.ts:32`).
 - On phone the stage tabs scroll sideways and cut "Export" to "Ex" (`ws-*-phone.png`).
 - Stage content starts at about y=428 on a 390×844 phone.
-- **`GET /api/workflow/dramas/{id}/progress` exists** (`api/routers/workflow_routes.py:16-21`, schema `api/schemas.py:1846-1864`: `stage`, per-stage `state` done/current/pending/optional/blocked, `untranslated_count`, `flagged_count`) but **no frontend code calls it**.
+- **`GET /api/workflow/dramas/{id}/progress` exists** (`api/routers/workflow_routes.py:16-21`, schema `api/schemas.py (before the package split):1846-1864`: `stage`, per-stage `state` done/current/pending/optional/blocked, `untranslated_count`, `flagged_count`) but **no frontend code calls it**.
 
 | Task | Current | Proposed |
 |---|---|---|

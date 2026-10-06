@@ -42,7 +42,7 @@ export function pagePath(id: number, p: ReaderPageParams): string {
   return `${root(id)}/page${query({ ...p })}`
 }
 
-export interface WikiScope {
+interface WikiScope {
   up_to_line_idx?: number
   entry_type?: string
 }
@@ -58,7 +58,7 @@ export const wikiMarkdownUrl = (id: number, scope: WikiScope = {}) =>
 export const dubTrackUrl = (id: number) => apiUrl(`/api/dub/dramas/${id}/track`)
 
 // The engine ids the server's own _llm_engine rejects (translation-only).
-const TRANSLATION_ONLY = new Set(['deepl', 'google', 'nllb', 'libretranslate'])
+const TRANSLATION_ONLY = new Set(['nllb'])
 
 // Engines that can answer Reader AI requests: configured, and not translation-only.
 export function readerEngines(all: TranslateEngine[]): TranslateEngine[] {

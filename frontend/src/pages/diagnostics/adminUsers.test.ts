@@ -4,7 +4,8 @@ import type { AuthMe } from '../../api/auth'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
-  auditTime, canChangeUsers, canViewUsers, deactivateBlock, revokeBlock, rowBlocks, sessionsText, userName,
+  auditTime, canChangeUsers, canViewUsers, deactivateBlock, revokeAdminBlock, revokeBlock, rowBlocks,
+  sessionsText, showRevokeAdmin, userName,
 } from './adminUsers'
 
 const user = (o: Partial<AdminUser> = {}): AdminUser => ({
@@ -85,6 +86,32 @@ describe('admin accounts are PC-only', () => {
   })
 })
 
+describe('remove admin', () => {
+  const self = user({ id: 1, is_admin: true, is_self: true })
+  const admin = user({ id: 2, is_admin: true })
+  const member = user({ id: 3 })
+
+  it('is shown only on admin rows, and only on the PC', () => {
+    expect(showRevokeAdmin(admin, 'local')).toBe(true)
+    expect(showRevokeAdmin(admin, 'remote')).toBe(false)
+    expect(showRevokeAdmin(admin, 'unknown')).toBe(false)
+    expect(showRevokeAdmin(member, 'local')).toBe(false)
+  })
+
+  it('refuses your own account and the last active admin', () => {
+    expect(revokeAdminBlock(self, [self, admin])).toMatch(/your own admin rights/)
+    expect(revokeAdminBlock(admin, [self, admin])).toBeNull()
+    expect(revokeAdminBlock(admin, [admin, member])).toMatch(/last active admin/)
+    const off = user({ id: 4, is_admin: true, is_active: false })
+    expect(revokeAdminBlock(admin, [admin, off])).toMatch(/last active admin/)
+    expect(revokeAdminBlock(off, [admin, off])).toBeNull()   // inactive: not counted, may go
+  })
+
+  it('labels the audit action', () => {
+    expect(auditActionLabel('user.revoke_admin')).toBe('Admin rights removed')
+  })
+})
+
 describe('labels', () => {
   it('names users and actors', () => {
     const u = user({ id: 5, display_name: 'Kid', email: 'kid@example.com' })
@@ -101,7 +128,7 @@ describe('labels', () => {
     expect(auditActionLabel('something.new')).toBe('something.new')
     expect(auditTime('2026-09-30T12:34:56Z')).toBe('2026-09-30 12:34 UTC')
     expect(auditTime('yesterday')).toBe('yesterday')
-    expect([0, 1, 3].map(sessionsText)).toEqual(['not signed in', 'signed in on 1 device', 'signed in on 3 devices'])
+    expect([0, 1, 3].map(sessionsText)).toEqual(['Not signed in', 'Signed in on 1 device', 'Signed in on 3 devices'])
   })
 
   it('appends an older page without repeating rows', () => {

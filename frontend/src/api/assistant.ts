@@ -1,4 +1,4 @@
-// The AI maintenance assistant (Step 42, api/routers/assistant_routes.py).
+// The AI maintenance assistant (api/routers/assistant_routes.py).
 // Every route is PC only: from another device they answer 403. Reads use a
 // plain fetch (the caller treats a 403 as "PC only" and hides the feature);
 // writes go through pcOnlyFetch like the other PC-only calls. Only the
@@ -30,7 +30,7 @@ const BASE = '/api/assistant'
 export const MAX_QUESTION = 4000
 export const MAX_HISTORY_TURNS = 20
 export const MAX_BACKLOG_TEXT = 1000
-export const MAX_EVIDENCE = 16000
+const MAX_EVIDENCE = 16000
 
 export const getAssistantSettings = (f?: Fetch) => getJson<AssistantSettings>(`${BASE}/settings`, f)
 

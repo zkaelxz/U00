@@ -1,0 +1,7 @@
+installer/caddy/* text eol=lf
+
+# Windows batch files need CRLF line endings: cmd.exe can fail to find a
+# label (goto :name) in a file with bare LF line endings, depending on where the
+# label falls in the file.
+*.bat text eol=crlf
+*.cmd text eol=crlf

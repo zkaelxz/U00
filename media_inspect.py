@@ -1,14 +1,14 @@
 """
-media_inspect.py -- Step 59: a lightweight "what is this file?" probe for a
-media file dropped before a drama/project even exists (tabs/workspace_tab.py's
-New Drama flow calls into this). Pure ffprobe + filename/duration heuristics,
-no model loading -- deliberately cheap enough to run on every file a user is
-just considering, not only ones they've already committed to.
+media_inspect.py -- a lightweight "what is this file?" probe for a
+media file dropped before a drama/project even exists (the services call
+into this). Pure ffprobe + filename/duration heuristics, no model
+loading -- deliberately cheap enough to run on every file a user is just
+considering, not only ones they've already committed to.
 
 The content-type guess and suggested pipeline are advisory only, shown to the
 user before anything is applied -- this module never writes to the database
-or touches session state; the caller (workspace_tab.py) decides what, if
-anything, to do with the result.
+or touches session state; the caller decides what, if anything, to do with
+the result.
 """
 import dataclasses
 import json
@@ -50,9 +50,9 @@ class MediaAnalysis:
 
 
 # Keyword heuristics only -- no visual/audio content analysis. Values must
-# stay in sync with tabs/workspace_tab.py's own MEDIA_TYPE_OPTIONS; this
-# module can't import that tab (workspace_tab is the caller here, not the
-# other way around), so the overlap is duplicated rather than shared.
+# stay in sync with services/drama_service.py's MEDIA_TYPE_OPTIONS; a root
+# module doesn't import from services/ (services sit above it), so the
+# overlap is duplicated rather than shared.
 _STREAMER_KEYWORDS = ("vtuber", "stream", "live", "vod", "broadcast")
 _ASMR_KEYWORDS = ("asmr", "binaural", "roleplay", " rp ", "-rp-")
 
@@ -150,9 +150,9 @@ def analysis_from_probe(probe: dict, filename: str) -> MediaAnalysis:
 
 def _guess_content_type(filename: str, has_video: bool, duration: float, audio_tracks: list) -> tuple:
     """Best-effort only -- filename keywords and coarse duration/track shape,
-    never visual/audio content analysis. Returns one of workspace_tab.py's
-    own MEDIA_TYPE_OPTIONS values, plus a one-line reason to show the user
-    (never applied silently -- see the caller in workspace_tab.py)."""
+    never visual/audio content analysis. Returns one of
+    services/drama_service.py's MEDIA_TYPE_OPTIONS values, plus a one-line
+    reason to show the user (never applied silently)."""
     name = f" {filename.lower()} "
     if any(kw in name for kw in _STREAMER_KEYWORDS):
         return "streamer_vod", "filename suggests a stream recording/VOD"
@@ -167,8 +167,7 @@ def _guess_content_type(filename: str, has_video: bool, duration: float, audio_t
 
 def _suggest_pipeline(content_type_guess: str, subtitle_tracks: list) -> list:
     """A suggested, not applied, pipeline -- matches this app's existing
-    'show the plan before executing' pattern (see e.g. sources_tab.py's
-    front-door preview, or workspace_tab.py's preview/apply pairs)."""
+    'show the plan before executing' pattern."""
     steps = []
     if subtitle_tracks:
         langs = ", ".join(t.language or "unknown" for t in subtitle_tracks)

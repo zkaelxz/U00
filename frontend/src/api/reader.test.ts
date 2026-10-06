@@ -115,7 +115,7 @@ describe('reader api', () => {
   })
 
   it('offers only configured engines that can answer questions', () => {
-    const all = [engine('ollama', true), engine('claude', false), engine('deepl', false), engine('nllb', true), engine('gemini', false, false)]
+    const all = [engine('ollama', true), engine('claude', false), engine('nllb', true), engine('gemini', false, false)]
     expect(readerEngines(all).map((e) => e.name)).toEqual(['ollama', 'claude'])
   })
 })

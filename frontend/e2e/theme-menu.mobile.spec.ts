@@ -25,9 +25,9 @@ test('phone header: theme button is 44px, on the title row, and picking sepia wo
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.height).toBeGreaterThanOrEqual(44)
   const title = (await page.getByRole('heading', { name: 'Baihe Studio', level: 1 }).boundingBox())!
-  const nav = (await page.getByRole('navigation', { name: 'Main' }).boundingBox())!
+  const menuBtn = (await page.getByRole('button', { name: 'Menu', exact: true }).boundingBox())!
   expect(box.y).toBeLessThan(title.y + title.height)
-  expect(box.y + box.height).toBeLessThanOrEqual(nav.y + 1)
+  expect(Math.abs(menuBtn.y - box.y)).toBeLessThanOrEqual(2)
   await noSideways(page)
 
   await btn.tap()
@@ -43,8 +43,20 @@ test('phone header: theme button is 44px, on the title row, and picking sepia wo
 
   await page.getByRole('menuitemradio', { name: 'Sepia', exact: true }).tap()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'sepia')
-  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(244, 236, 216)')
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(239, 228, 203)')
   await page.reload()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'sepia')
+  await noSideways(page)
+})
+
+test('phone: OLED black is true black, persists and does not scroll sideways', async ({ page }) => {
+  await page.goto('/#/library')
+  await button(page).tap()
+  await page.getByRole('menuitemradio', { name: 'OLED black', exact: true }).tap()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'oled')
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(0, 0, 0)')
+  await page.waitForFunction(() => localStorage.getItem('baihe.theme') === 'oled')
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'oled')
   await noSideways(page)
 })

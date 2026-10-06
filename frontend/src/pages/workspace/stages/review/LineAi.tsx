@@ -7,7 +7,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import type { LineExplanation, LineImprovement, ReviewLine } from '../../../../types/review'
 import { AI_STALE_MESSAGE, AI_UNAVAILABLE_MESSAGE, suggestionIsStale } from './reviewLogic'
 
-export type AiMode = 'improve' | 'explain'
+type AiMode = 'improve' | 'explain'
 
 interface Props {
   dramaId: number

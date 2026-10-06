@@ -1,8 +1,7 @@
 """
 services/voice_clone_service.py -- voice-clone setup for one drama's
 characters (parity audit deletion blocker #7; inventory C01, C03, C09,
-C13), the UI-free half of the Translate tab's "6. Name your characters &
-set up voice cloning" block in `tabs/workspace_tab.py`.
+C13): "Name your characters & set up voice cloning".
 
 Covers:
   - C09: upload a reference clip for a speaker, replace it, remove it.
@@ -24,15 +23,14 @@ filename or the speaker label. The candidate manifest
 Responses carry booleans and opaque candidate ids only: no path, filename
 or URL.
 
-Extraction differs from the tab in two deliberate ways: the tab picks one
-clip per speaker for every speaker at once and stores it immediately; here
-the job extracts up to `max_candidates` clips for the one speaker asked
-for and the user picks one (the audit asked for preview-then-pick). Source
-segments are the speaker's diarization turns when the drama has them (the
-tab's source), else the speaker's own transcript lines. Scoring is the
-same as `dub.extract_reference_clips` (3-12 s, closest to 6 s first); the
-transcript for a candidate is found the tab's way (a line of that speaker
-starting inside the segment). Clips are cut with ffmpeg (a timeout, and
+Extraction: the job extracts up to `max_candidates` clips for the one
+speaker asked for and the user picks one (preview-then-pick, rather than
+storing one clip per speaker for every speaker at once). Source segments
+are the speaker's diarization turns when the drama has them, else the
+speaker's own transcript lines. Scoring is the same as
+`dub.extract_reference_clips` (3-12 s, closest to 6 s first); the
+transcript for a candidate is a line of that speaker starting inside the
+segment. Clips are cut with ffmpeg (a timeout, and
 cancel kills it) instead of pydub.
 
 The job never writes the database (only files in voice_refs/); choosing a
@@ -44,12 +42,12 @@ if this module wrote it (`clone_ref_` or `clone_pick_`), and both refuse
 running or queued, since such a job holds absolute paths to the clips it
 was started with. Choosing a candidate (lines.edit, reachable remotely)
 repoints the speaker's field and deletes only the speaker's previous
-`clone_pick_` copy (never an upload, a voice-bank copy or a tab file),
+`clone_pick_` copy (never an upload, a voice-bank copy or an older clip),
 only if no other speaker points at it and no such job is active;
 otherwise the old clip stays on disk. So repeated remote choosing keeps
 at most one pick per speaker instead of growing the disk.
 
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 import json
 import os
@@ -57,6 +55,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 
@@ -64,6 +63,7 @@ import background_jobs
 import db
 import dub
 from services import characters_service, drama_service
+from services.media_upload_service import AUDIO_EXTENSIONS
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
@@ -79,8 +79,24 @@ _CLIP_READING_JOB_PREFIXES = ("dub_", "narration_", "audiobook_")
 _CLIP_IN_USE = ("A dub, narration or audiobook job is running for this drama and may be "
                 "using this clip. Wait for it to finish or cancel it first.")
 
-# Upload caps (C09). The tab accepts wav/mp3/m4a; flac/ogg are also plain audio.
-CLIP_EXTENSIONS = (".wav", ".mp3", ".m4a", ".flac", ".ogg")
+# One lock per title around "a clip file exists" + "a speaker row points at
+# it". Disk usage moves unreferenced clips to Trash, and a clip that was just
+# written or picked has no row yet, so without this its existence check and its
+# rename could both pass between the file appearing and the row being saved.
+# Order: a holder of a clip lock never waits for the library hold (these
+# routes don't take it), so Disk usage may take a clip lock while it holds the
+# library; the reverse would deadlock. Held only for the file check and DB
+# write, never across ffprobe, ffmpeg or an upload body.
+_CLIP_LOCKS = {}
+_CLIP_LOCKS_GUARD = threading.Lock()
+
+
+def clip_lock(drama_id: int) -> threading.Lock:
+    with _CLIP_LOCKS_GUARD:
+        return _CLIP_LOCKS.setdefault(drama_id, threading.Lock())
+
+
+# Upload caps (C09). wav/mp3/m4a, plus flac/ogg (also plain audio).
 MAX_CLIP_BYTES = 20 * 1024 * 1024
 MIN_CLIP_SECONDS = 1.0
 MAX_CLIP_SECONDS = 30.0
@@ -114,13 +130,13 @@ _NO_FFMPEG = "ffmpeg is not installed or not on PATH, which cutting clips needs.
 # --- shared helpers -----------------------------------------------------------
 
 def _require_drama(drama_id: int) -> dict:
-    return characters_service._require_drama(drama_id)
+    return characters_service.require_drama(drama_id)
 
 
 def _require_speaker(drama_id: int, speaker_label) -> str:
     if not isinstance(speaker_label, str) or not speaker_label or len(speaker_label) > 200:
         raise InvalidInputError("speaker_label is required.")
-    if speaker_label not in characters_service._known_speakers(drama_id):
+    if speaker_label not in characters_service.known_speakers(drama_id):
         raise NotFoundError("No such speaker in this drama.")
     return speaker_label
 
@@ -157,8 +173,8 @@ def _character_row(drama_id: int, speaker_label: str) -> dict:
 
 def _remove_owned_clip(drama_id: int, rel: str, keep_speaker: str):
     """Deletes a clip this module wrote (generated name only), unless
-    another speaker of this drama still points at it. Anything else (a
-    tab upload, a voice-bank copy) is left on disk, as the tab does."""
+    another speaker of this drama still points at it. Anything else (an
+    older upload, a voice-bank copy) is left on disk."""
     if not rel or not _OWNED_CLIP.match(rel):
         return
     for row in db.list_characters(drama_id):
@@ -178,7 +194,7 @@ def _clip_reading_job_active(drama_id: int) -> bool:
         job = background_jobs.get_status(job_id)
         if job and job.get("status") in ("running", "queued"):
             return True
-    cutoff = time.time() - drama_service._STALE_JOB_RECORD_SECONDS
+    cutoff = time.time() - drama_service.STALE_JOB_RECORD_SECONDS
     for job_id in job_ids:
         rec = db.get_job_record(job_id)
         if (rec and rec.get("status") in ("running", "queued")
@@ -199,7 +215,7 @@ def _clip_extension(client_filename) -> str:
     if any(ord(c) < 32 or ord(c) == 127 for c in name):
         raise InvalidInputError(_BAD_TYPE)
     ext = os.path.splitext(name)[1].lower()
-    if ext not in CLIP_EXTENSIONS:
+    if ext not in AUDIO_EXTENSIONS:
         raise InvalidInputError(_BAD_TYPE)
     return ext
 
@@ -234,8 +250,8 @@ def upload_reference_clip(drama_id: int, speaker_label, client_filename, fileobj
     any clip this module stored before. Only the extension of the client's
     name is used (whitelisted); the body is streamed to a temp file in
     voice_refs/ (capped at MAX_CLIP_BYTES), checked with ffprobe (an audio
-    stream, MIN..MAX_CLIP_SECONDS long), then renamed into place. The
-    tab keeps the uploaded format (no transcode), and so does this.
+    stream, MIN..MAX_CLIP_SECONDS long), then renamed into place, in the
+    uploaded format (no transcode).
     ref_text, when given, replaces the stored transcript. Returns the
     speaker's characters_service entry. ConflictError while a dub,
     narration or audiobook job for the drama is running or queued (the
@@ -245,7 +261,7 @@ def upload_reference_clip(drama_id: int, speaker_label, client_filename, fileobj
     ext = _clip_extension(client_filename)
     _require_no_clip_reading_job(drama_id)
     if ref_text is not None:
-        characters_service._check_len("ref_text", ref_text, characters_service.MAX_REF_TEXT_LEN)
+        characters_service.check_len("ref_text", ref_text, characters_service.MAX_REF_TEXT_LEN)
     refs = os.path.join(db.drama_dir(drama_id), REFS_DIR)
     os.makedirs(refs, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".clip_", suffix=ext, dir=refs)
@@ -269,17 +285,18 @@ def upload_reference_clip(drama_id: int, speaker_label, client_filename, fileobj
                 f"A reference clip must be {MIN_CLIP_SECONDS:g} to {MAX_CLIP_SECONDS:g} seconds long.")
         _require_no_clip_reading_job(drama_id)  # again: the probe can take a while
         rel = f"{REFS_DIR}/clone_ref_{uuid.uuid4().hex}{ext}"
-        os.replace(tmp, os.path.join(db.drama_dir(drama_id), rel))
+        with clip_lock(drama_id):
+            os.replace(tmp, os.path.join(db.drama_dir(drama_id), rel))
+            old = _character_row(drama_id, speaker_label).get("ref_audio_filename") or ""
+            db.upsert_character(drama_id, speaker_label, ref_audio_filename=rel,
+                                ref_text=None if ref_text is None else ref_text.strip())
+            if old != rel:
+                _remove_owned_clip(drama_id, old, speaker_label)
     except BaseException:
         if os.path.exists(tmp):
             os.remove(tmp)
         raise
-    old = _character_row(drama_id, speaker_label).get("ref_audio_filename") or ""
-    db.upsert_character(drama_id, speaker_label, ref_audio_filename=rel,
-                        ref_text=None if ref_text is None else ref_text.strip())
-    if old != rel:
-        _remove_owned_clip(drama_id, old, speaker_label)
-    return characters_service._get_one(drama_id, speaker_label)
+    return characters_service.get_one(drama_id, speaker_label)
 
 
 def remove_reference_clip(drama_id: int, speaker_label, confirm: bool = False) -> dict:
@@ -293,11 +310,12 @@ def remove_reference_clip(drama_id: int, speaker_label, confirm: bool = False) -
     if confirm is not True:
         raise InvalidInputError("Removing a reference clip needs confirm=true.")
     _require_no_clip_reading_job(drama_id)
-    old = _character_row(drama_id, speaker_label).get("ref_audio_filename") or ""
-    if old:
-        db.upsert_character(drama_id, speaker_label, ref_audio_filename="")
-        _remove_owned_clip(drama_id, old, speaker_label)
-    return characters_service._get_one(drama_id, speaker_label)
+    with clip_lock(drama_id):
+        old = _character_row(drama_id, speaker_label).get("ref_audio_filename") or ""
+        if old:
+            db.upsert_character(drama_id, speaker_label, ref_audio_filename="")
+            _remove_owned_clip(drama_id, old, speaker_label)
+    return characters_service.get_one(drama_id, speaker_label)
 
 
 # --- C01: extract candidates ----------------------------------------------------
@@ -337,8 +355,8 @@ def _save_manifest(drama_id: int, manifest: dict):
 
 
 def _speaker_segments(drama_id: int, speaker_label: str, lines: list) -> list:
-    """[(start, end)] for this speaker: diarization turns if stored (the
-    tab's source), else the speaker's own transcript lines."""
+    """[(start, end)] for this speaker: diarization turns if stored, else
+    the speaker's own transcript lines."""
     import diarize
     try:
         turns = diarize.load_turns(_drama_path(drama_id)) or []
@@ -378,7 +396,7 @@ def pick_segments(segments, max_candidates: int):
 
 
 def _match_line(lines, speaker_label, start, end):
-    """The tab's ref_text match: the first line of this speaker whose start
+    """The ref_text match: the first line of this speaker whose start
     falls inside the segment (+1 s)."""
     for ln in lines:
         if (ln.get("speaker") == speaker_label and (ln.get("zh") or "").strip()
@@ -473,7 +491,7 @@ def list_candidates(drama_id: int) -> dict:
     text, hence lines.read). Candidates whose file is gone are dropped.
     Speakers no longer in the drama are skipped."""
     _require_drama(drama_id)
-    known = characters_service._known_speakers(drama_id)
+    known = characters_service.known_speakers(drama_id)
     texts = {ln["id"]: ln.get("zh") or "" for ln in db.load_lines(drama_id)}
     speakers = []
     for label, entry in sorted(_load_manifest(drama_id).items()):
@@ -524,36 +542,41 @@ def candidate_audio_path(drama_id: int, candidate_id: str) -> str:
     return _find_candidate(drama_id, candidate_id)[2]
 
 
+def _ensure_pick_copy(root: str, rel: str, candidate_path: str):
+    """Copies the candidate to its clone_pick_ name unless that copy is
+    already there (candidate files never change under an id)."""
+    if _safe_file(root, rel) is not None:
+        return
+    fd, tmp = tempfile.mkstemp(prefix=".pick_", suffix=".tmp", dir=os.path.join(root, REFS_DIR))
+    os.close(fd)
+    try:
+        shutil.copyfile(candidate_path, tmp)
+        os.replace(tmp, os.path.join(root, rel))
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
 def choose_candidate(drama_id: int, candidate_id: str) -> dict:
     """Makes one candidate its speaker's clone reference: the wav is copied
     to `voice_refs/clone_pick_<candidate id>.wav` (so a later extraction
     can't pull it away; choosing the same candidate again reuses that copy,
     as candidate files never change under an id) and the matched line's
-    source text becomes ref_text, as the tab's auto-extract does; with no
+    source text becomes ref_text; with no
     matched line the stored ref_text is left alone. Field-scoped write of
     that one speaker's row.
     This route is reachable remotely, so it deletes only the speaker's
     previous `clone_pick_` copy (one it made itself), never an upload, a
-    voice-bank copy or a tab file, and only when no other speaker of the
+    voice-bank copy or an older clip, and only when no other speaker of the
     drama points at it and no dub/narration/audiobook job is active (such
     a job may hold its path); otherwise the old clip stays on disk."""
     _require_drama(drama_id)
     label, cand, path = _find_candidate(drama_id, candidate_id)
-    if label not in characters_service._known_speakers(drama_id):
+    if label not in characters_service.known_speakers(drama_id):
         raise NotFoundError("No such speaker in this drama.")
     root = db.drama_dir(drama_id)
     rel = f"{REFS_DIR}/clone_pick_{candidate_id}.wav"
-    if _safe_file(root, rel) is None:
-        fd, tmp = tempfile.mkstemp(prefix=".pick_", suffix=".tmp", dir=os.path.join(root, REFS_DIR))
-        os.close(fd)
-        try:
-            shutil.copyfile(path, tmp)
-            os.replace(tmp, os.path.join(root, rel))
-        except BaseException:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-            raise
-    old = _character_row(drama_id, label).get("ref_audio_filename") or ""
     ref_text = None
     line_id = cand.get("line_id")
     if line_id is not None:
@@ -561,26 +584,32 @@ def choose_candidate(drama_id: int, candidate_id: str) -> dict:
             if ln.get("id") == line_id and (ln.get("zh") or "").strip():
                 ref_text = ln["zh"].strip()
                 break
-    db.upsert_character(drama_id, label, ref_audio_filename=rel, ref_text=ref_text)
-    if old != rel and _PICKED_CLIP.match(old) and not _clip_reading_job_active(drama_id):
-        _remove_owned_clip(drama_id, old, label)
-    return characters_service._get_one(drama_id, label)
+    with clip_lock(drama_id):
+        _ensure_pick_copy(root, rel, path)
+        old = _character_row(drama_id, label).get("ref_audio_filename") or ""
+        db.upsert_character(drama_id, label, ref_audio_filename=rel, ref_text=ref_text)
+        # Checked again because the copy had no row pointing at it until
+        # just now; a file that vanished in that gap would leave a speaker
+        # pointing at nothing.
+        _ensure_pick_copy(root, rel, path)
+        if old != rel and _PICKED_CLIP.match(old) and not _clip_reading_job_active(drama_id):
+            _remove_owned_clip(drama_id, old, label)
+    return characters_service.get_one(drama_id, label)
 
 
 # --- C13: save to the voice bank ------------------------------------------------
 
 def save_to_voice_bank(drama_id: int, speaker_label, name, notes: str = "") -> dict:
     """Copies this speaker's clip into the library voice bank with its
-    transcript, clone engine (the default when unset, as the tab's picker
-    shows), voice design, the drama's source language, and provenance
+    transcript, clone engine (the default when unset), voice design, the drama's source language, and provenance
     text (drama title, character name). Raises InvalidInputError for a
     blank/long name or a speaker with no usable clip."""
     drama = _require_drama(drama_id)
     _require_speaker(drama_id, speaker_label)
     if not isinstance(name, str) or not name.strip():
         raise InvalidInputError("Type a name for this voice first.")
-    characters_service._check_len("name", name, MAX_BANK_NAME_LEN)
-    characters_service._check_len("notes", notes or "", MAX_NOTES_LEN)
+    characters_service.check_len("name", name, MAX_BANK_NAME_LEN)
+    characters_service.check_len("notes", notes or "", MAX_NOTES_LEN)
     row = _character_row(drama_id, speaker_label)
     clip = _safe_file(_drama_path(drama_id), row.get("ref_audio_filename") or "")
     if clip is None:
@@ -603,16 +632,16 @@ def save_to_voice_bank(drama_id: int, speaker_label, name, notes: str = "") -> d
 # --- C03: series character link -------------------------------------------------
 
 def link_series_character(drama_id: int, speaker_label, series_character_id) -> dict:
-    """Links a speaker to a character of the drama's own series (the tab's
-    "Known characters in this series" pick: sets series_character_id and
+    """Links a speaker to a character of the drama's own series ("Known
+    characters in this series": sets series_character_id and
     copies the series name into character_name), or unlinks it when
     series_character_id is None. A character of another series is a 404."""
     drama = _require_drama(drama_id)
     _require_speaker(drama_id, speaker_label)
     if series_character_id is None:
         db.clear_character_series_link(drama_id, speaker_label)
-        return characters_service._get_one(drama_id, speaker_label)
-    characters_service._check_id("series_character_id", series_character_id)
+        return characters_service.get_one(drama_id, speaker_label)
+    characters_service.check_id("series_character_id", series_character_id)
     series_id = drama.get("series_id")
     match = next((sc for sc in (db.list_series_characters(series_id) if series_id else [])
                   if sc["id"] == series_character_id), None)
@@ -620,4 +649,4 @@ def link_series_character(drama_id: int, speaker_label, series_character_id) -> 
         raise NotFoundError("No such character in this drama's series.")
     db.upsert_character(drama_id, speaker_label, character_name=match["character_name"],
                         series_character_id=match["id"])
-    return characters_service._get_one(drama_id, speaker_label)
+    return characters_service.get_one(drama_id, speaker_label)

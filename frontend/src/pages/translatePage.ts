@@ -24,11 +24,13 @@ export function orderEngines(engines: TranslateEngine[]): TranslateEngine[] {
 
 /**
  * The engine to show: the remembered one while the server still lists it
- * (a missing key then shows as a warning), else the first usable one, else ''.
+ * (a missing key then shows as a warning), else Settings' default engine when
+ * it can run, else the first usable one, else ''.
  */
-export function pickEngine(engines: TranslateEngine[], remembered: string): string {
+export function pickEngine(engines: TranslateEngine[], remembered: string, defaultEngine: string | null = null): string {
   if (remembered && engines.some((e) => e.name === remembered)) return remembered
-  return usableEngines(engines)[0]?.name ?? ''
+  const usable = usableEngines(engines)
+  return (usable.find((e) => e.name === defaultEngine) ?? usable[0])?.name ?? ''
 }
 
 /** The remembered model if the engine still offers it, else '' (the engine default). */
@@ -76,4 +78,10 @@ export function historyCount(count: number, limit: number): string {
 /** The rows to render: the first HISTORY_PREVIEW unless "Show all" is on. */
 export function visibleHistory<T>(items: T[], showAll: boolean): T[] {
   return showAll ? items : items.slice(0, HISTORY_PREVIEW)
+}
+
+/** True when Quick translate runs on Ollama only because no cloud engine has a key. */
+export function showLocalOnlyNote(engines: TranslateEngine[], selected: string): boolean {
+  const current = engines.find((e) => e.name === selected)
+  return current?.name === 'ollama' && current.key_configured && !engines.some((e) => !e.free && e.key_configured)
 }

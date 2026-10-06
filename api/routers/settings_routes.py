@@ -2,16 +2,15 @@
 api/routers/settings_routes.py -- Settings endpoints (Migration Slices 10, 23).
 
 GET: whether each engine key/endpoint is configured, plus the app_settings
-toggles. Never returns a key's value (D2). POST (Slice 23): non-secret
-boolean toggles only -- writing a secret to disk over HTTP is a
-separate, higher-risk slice of its own (see docs/archive/migration-review.md).
+toggles. Never returns a key's value (D2). POST takes non-secret toggles
+and preferences; secrets use the key/endpoint routes below.
 
 Settings parity: POST also takes the persisted preferences (defaults for
 new dramas, spending cap, Ollama num_ctx, offline Whisper folder, OCR
-defaults, yt-dlp cookies); `/endpoints/{name}` sets or clears the Ollama,
-LibreTranslate and GPT-SoVITS URLs in .env behind the same guard as keys.
+defaults, yt-dlp cookies); `/endpoints/{name}` sets or clears the Ollama
+and GPT-SoVITS URLs in .env behind the same guard as keys.
 
-Slice 24: write-only engine key endpoints (`POST /keys/{engine}` and
+Write-only engine key endpoints (`POST /keys/{engine}` and
 `/keys/{engine}/clear`). Off by default (BAIHE_API_ALLOW_KEY_WRITES=1) and
 guarded by `_require_local_admin`. The guard is a safeguard against
 proxied/remote/cross-site requests, NOT authentication; real isolation is
@@ -21,9 +20,11 @@ the separate admin listener (D5): on the household listener it always refuses.
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
-from api.auth import is_local_request, local_only, require_permission
+from api.auth import (LOOPBACK_HOSTS, PROXY_HEADERS, host_name, is_local_request,
+                      is_loopback_peer, local_only, require_permission)
 from api.schemas import (EndpointUrlResult, EndpointUrlSetRequest, EngineKeyClearRequest,
-                         EngineKeyResult, EngineKeySetRequest, SettingsOverview,
+                         EngineKeyResult, EngineKeySetRequest, MonthCounterResetResult,
+                         SettingsOverview,
                          SettingsUpdateRequest)
 from services import settings_service
 from services.service_errors import InvalidInputError
@@ -40,6 +41,9 @@ def get_overview(request: Request):
                             is_local_request(request))
 
 
+# PC-only: the preferences include paths the server itself uses (the
+# Tesseract program it runs, the Whisper folder, the cookies file); see
+# docs/remote-access-decision.md.
 @router.post("", dependencies=[local_only()], response_model=SettingsOverview,
              summary="Update non-secret toggles and preferences (never keys or endpoint URLs)")
 def update_settings(body: SettingsUpdateRequest):
@@ -59,29 +63,7 @@ def _with_path_flags(overview: dict, local: bool) -> dict:
     return overview
 
 
-_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
-_PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded",
-                  "x-real-ip", "tailscale-user-login", "cf-connecting-ip", "cf-ray", "via")
-
-
-def _host_name(netloc: str) -> str:
-    """Host part of a Host header / URL netloc, port removed, lower-cased."""
-    netloc = (netloc or "").strip().lower()
-    if netloc.startswith("["):
-        end = netloc.find("]")
-        return netloc[:end + 1] if end != -1 else netloc
-    return netloc.rsplit(":", 1)[0] if netloc.count(":") == 1 else netloc
-
-
-def _is_loopback_peer(host) -> bool:
-    import ipaddress
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except (ValueError, TypeError):
-        return False
-
-
-def _require_local_admin(request: Request):
+def require_local_admin(request: Request):
     """Every refusal is the same generic 403. Checks, in order: feature
     flag, loopback TCP peer, loopback Host header, no proxy/identity
     headers, Origin (if present) is loopback."""
@@ -94,12 +76,12 @@ def _require_local_admin(request: Request):
     if not is_local_request(request):   # also False on the household listener
         deny()
     peer = request.client.host if request.client else None
-    if not _is_loopback_peer(peer):
+    if not is_loopback_peer(peer):
         deny()
     host_header = request.headers.get("host", "")
-    if "@" in host_header or _host_name(host_header) not in _LOOPBACK_HOSTS:
+    if "@" in host_header or host_name(host_header) not in LOOPBACK_HOSTS:
         deny()
-    if any(h in request.headers for h in _PROXY_HEADERS):
+    if any(h in request.headers for h in PROXY_HEADERS):
         deny()
     origin = request.headers.get("origin")
     if origin is not None:
@@ -110,16 +92,16 @@ def _require_local_admin(request: Request):
             deny()
         if ("@" in origin or parts.scheme not in ("http", "https")
                 or not hostname
-                or (f"[{hostname}]" if ":" in hostname else hostname) not in _LOOPBACK_HOSTS):
+                or (f"[{hostname}]" if ":" in hostname else hostname) not in LOOPBACK_HOSTS):
             deny()
 
 
-def _require_confirm(confirm: bool):
+def require_confirm(confirm: bool):
     if confirm is not True:
         raise InvalidInputError("Confirmation required (confirm=true).")
 
 
-async def _read_body(request: Request, model):
+async def read_body(request: Request, model):
     """Parsed only AFTER the guard so a disallowed caller always gets the
     generic 403, never a body-validation 422. Errors never echo input."""
     try:
@@ -129,30 +111,42 @@ async def _read_body(request: Request, model):
         raise InvalidInputError("The request is invalid.")
 
 
+@router.post("/month-counter/reset", dependencies=[local_only()], response_model=MonthCounterResetResult,
+             summary="PC only: count the monthly cap from now (history is kept; Undo clears it)")
+def reset_month_counter():
+    return settings_service.reset_month_counter()
+
+
+@router.post("/month-counter/undo", dependencies=[local_only()], response_model=MonthCounterResetResult,
+             summary="PC only: undo the monthly counter reset")
+def undo_month_counter_reset():
+    return settings_service.undo_month_counter_reset()
+
+
 @router.post("/keys/{engine}", dependencies=[local_only()], response_model=EngineKeyResult,
              summary="Set an engine API key (write-only; disabled by default, local PC only)")
 async def set_engine_key(engine: str, request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, EngineKeySetRequest)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, EngineKeySetRequest)
+    require_confirm(body.confirm)
     return settings_service.set_engine_key(engine, body.value)
 
 
 @router.post("/keys/{engine}/clear", dependencies=[local_only()], response_model=EngineKeyResult,
              summary="Remove an engine API key from .env (disabled by default, local PC only)")
 async def clear_engine_key(engine: str, request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, EngineKeyClearRequest)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, EngineKeyClearRequest)
+    require_confirm(body.confirm)
     return settings_service.clear_engine_key(engine)
 
 
 @router.post("/endpoints/{name}", dependencies=[local_only()], response_model=EndpointUrlResult,
-             summary="Set the Ollama, LibreTranslate or GPT-SoVITS URL in .env (local PC only)")
+             summary="Set the Ollama or GPT-SoVITS URL in .env (local PC only)")
 async def set_endpoint_url(name: str, request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, EndpointUrlSetRequest)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, EndpointUrlSetRequest)
+    require_confirm(body.confirm)
     return settings_service.set_endpoint_url(name, body.url)
 
 
@@ -160,7 +154,7 @@ async def set_endpoint_url(name: str, request: Request):
              response_model=EndpointUrlResult,
              summary="Remove an endpoint URL from .env (local PC only)")
 async def clear_endpoint_url(name: str, request: Request):
-    _require_local_admin(request)
-    body = await _read_body(request, EngineKeyClearRequest)
-    _require_confirm(body.confirm)
+    require_local_admin(request)
+    body = await read_body(request, EngineKeyClearRequest)
+    require_confirm(body.confirm)
     return settings_service.clear_endpoint_url(name)

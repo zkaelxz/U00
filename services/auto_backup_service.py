@@ -1,8 +1,6 @@
 """
-services/auto_backup_service.py -- roadmap Step 43 as redefined by the user
-(2026-09-29): an opt-in automatic backup that keeps a few rotating copies,
-plus restoring a single drama from any of them. (The roadmap's original
-Step 43, universal soft-delete, was replaced by this.)
+services/auto_backup_service.py -- an opt-in automatic backup that keeps a
+few rotating copies, plus restoring a single drama from any of them.
 
 - Settings (app_settings): enabled (off by default), frequency
   (daily/weekly/monthly, daily by default), include_media (off: database
@@ -76,7 +74,7 @@ Step 43, universal soft-delete, was replaced by this.)
   one named by the caller and matched against the folder's listing, never
   used as a path), read from a read-only temp copy of its library.db, into
   the live library: the drama row and every child table it cascades to (see
-  _CHILD_TABLES), plus its series when that series is gone, plus its folder
+  CHILD_TABLES), plus its series when that series is gone, plus its folder
   when the copy has media. If the drama's id is still in use it comes back
   as a new drama (new id, title suffixed "(restored <date>)"); other dramas
   are never touched. The result names the copy it came from.
@@ -84,7 +82,7 @@ Step 43, universal soft-delete, was replaced by this.)
 No result or error message carries a filesystem path (copies are named by
 file name only), except the folder setting the owner typed themselves (all
 routes are local_only).
-No Streamlit or FastAPI import.
+No FastAPI import.
 """
 
 import contextlib
@@ -105,6 +103,7 @@ import zlib
 
 import background_jobs
 import db
+from db import fsync_dir as _fsync_dir
 from services import delete_service
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
@@ -150,7 +149,7 @@ _MANIFEST_MAX_BYTES = 8 * 1024 * 1024
 _MAX_FOLDER_LEN = 1024
 # What a single-drama restore extracts is capped per member (the whole-zip
 # upload caps don't apply to the app's own snapshot; see _verify_snapshot).
-_MAX_MEMBER_BYTES = wjs._MAX_RESTORE_MEMBER_BYTES
+_MAX_MEMBER_BYTES = wjs.MAX_RESTORE_MEMBER_BYTES
 # After a failed run the scheduled check waits this long before trying the
 # (possibly large) backup again.
 RETRY_AFTER_FAILURE = datetime.timedelta(days=1)
@@ -171,6 +170,7 @@ _UNMANAGED = ("That copy isn't managed by this library (another library's, one m
               "copies were tagged, or one that can't be read). Confirm deleting it "
               "explicitly.")
 _FAILED = "The backup could not be written; the existing copies were kept."
+_CHECK_FAILED = "The automatic backup check failed, so no backup was started."
 
 # Held while a copy is added, pruned, moved, deleted, or read for a restore,
 # so none of those see a half-written folder (and Windows never deletes or
@@ -222,7 +222,7 @@ def _check_folder(value, require_exists: bool = True) -> str:
             real == backups or real.startswith(backups + os.sep)):
         raise InvalidInputError("The backup folder can't be inside the library (it would be "
                                 "copied into its own backups). Pick a folder outside it.")
-    artifact_dirs = {os.path.join(lib, *sub) for sub in las._ARTIFACT_SUBDIRS.values()}
+    artifact_dirs = {os.path.join(lib, *sub) for sub in las.ARTIFACT_SUBDIRS.values()}
     if real in artifact_dirs:
         raise InvalidInputError("That folder holds the manual backups and exports; pick a "
                                 "folder of its own (the default is fine).")
@@ -260,8 +260,8 @@ def set_settings(enabled=None, frequency=None, include_media=None, folder=None) 
         # A folder move is refused while a whole-library restore, bulk
         # delete or storage cleanup holds the library, and holds off a
         # restore until it ends.
-        las._refuse_during_maintenance("backup folder change")
-        guard = las._maintenance("changing the backup folder")
+        las.refuse_during_maintenance("backup folder change")
+        guard = las.maintenance("changing the backup folder")
     # One hold for the read, the running-job check, a folder move and the
     # save: two concurrent saves can't drop each other's fields, and a
     # backup can't start in between and write to the old folder (_start
@@ -275,7 +275,7 @@ def set_settings(enabled=None, frequency=None, include_media=None, folder=None) 
         if folder is not None and folder != current["folder"]:
             if not moving:
                 raise ConflictError("The backup settings changed meanwhile; try again.")
-            if _job_running():
+            if job_running():
                 raise ConflictError("A backup is running -- change the folder when it "
                                     "finishes.")
             _move_copies(current["folder"], folder)
@@ -285,7 +285,7 @@ def set_settings(enabled=None, frequency=None, include_media=None, folder=None) 
     return settings_overview()
 
 
-def _folder_path(folder: str) -> str:
+def folder_path(folder: str) -> str:
     return folder or os.path.join(db.LIBRARY_DIR, *DEFAULT_SUBDIR)
 
 
@@ -298,7 +298,7 @@ def _move_copies(old_folder: str, new_folder: str):
     backup runs. On failure the copies already moved are moved back and the
     error is raised, so the setting is not changed and the copies stay
     together."""
-    src_dir, dest_dir = _folder_path(old_folder), _folder_path(new_folder)
+    src_dir, dest_dir = folder_path(old_folder), folder_path(new_folder)
     ident = _identity_info()
     copies = [c for c in _classify(src_dir, ident) if c["owner"] in _MANAGED]
     if not copies:
@@ -389,18 +389,6 @@ def _fsync_file(path: str):
     # r+b: Windows can't flush a handle opened read-only.
     with open(path, "r+b") as fh:
         os.fsync(fh.fileno())
-
-
-def _fsync_dir(folder: str):
-    """Makes a rename into `folder` durable. POSIX only: Windows can't open
-    a directory for this and commits the rename with the file."""
-    if os.name != "posix":
-        return
-    fd = os.open(folder, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
 
 
 def _get_state() -> dict:
@@ -588,7 +576,7 @@ def settings_overview() -> dict:
             "last_attempt_at": state.get("last_attempt_at"),
             "last_error": state.get("last_error"),
             "next_run_at": _iso(nxt) if nxt else None,
-            "running": _job_running(),
+            "running": job_running(),
             "copies": snapshot_info()["copies"]}
 
 
@@ -597,7 +585,7 @@ def settings_overview() -> dict:
 # --------------------------------------------------------------------------
 
 def _target_dir(create: bool) -> str:
-    path = _folder_path(get_settings()["folder"])
+    path = folder_path(get_settings()["folder"])
     if create:
         try:
             os.makedirs(path, exist_ok=True)
@@ -658,7 +646,7 @@ def _adopts_legacy(folder: str) -> bool:
     drive): nothing else writes there."""
     try:
         lib = os.path.realpath(db.LIBRARY_DIR)
-        default = os.path.realpath(_folder_path(""))
+        default = os.path.realpath(folder_path(""))
         return default.startswith(lib + os.sep) and os.path.realpath(folder) == default
     except (OSError, ValueError):
         return False
@@ -951,7 +939,7 @@ def _app_version() -> str:
 def _manifest_bytes(snap_path: str, include_media: bool, owner: tuple) -> bytes:
     """owner = (library id, sequence) from _identity: what makes the copy
     this library's (see _classify)."""
-    with contextlib.closing(sqlite3.connect(_ro_uri(snap_path), uri=True)) as conn:
+    with contextlib.closing(sqlite3.connect(ro_uri(snap_path), uri=True)) as conn:
         rows = conn.execute("SELECT id, title_en, title_zh, media_type FROM dramas "
                             "ORDER BY id").fetchall()
         counts = dict(conn.execute("SELECT drama_id, COUNT(*) FROM lines "
@@ -965,12 +953,12 @@ def _manifest_bytes(snap_path: str, include_media: bool, owner: tuple) -> bytes:
     return json.dumps(manifest, ensure_ascii=False).encode("utf-8")
 
 
-def _ro_uri(path: str) -> str:
+def ro_uri(path: str) -> str:
     from urllib.parse import quote
     return f"file:{quote(os.path.abspath(path))}?mode=ro"
 
 
-def _extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int = None,
+def extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int = None,
                 check: bool = True) -> str:
     """library.db from the snapshot into dest_dir, checked with SQLite
     (quick_check) before anything reads it. check=False copies it without
@@ -983,7 +971,7 @@ def _extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int = None,
     if not check:
         return dest
     try:
-        with contextlib.closing(sqlite3.connect(_ro_uri(dest), uri=True)) as conn:
+        with contextlib.closing(sqlite3.connect(ro_uri(dest), uri=True)) as conn:
             conn.execute("PRAGMA trusted_schema = OFF")
             ok = conn.execute("PRAGMA quick_check").fetchone()
             if not ok or ok[0] != "ok":
@@ -1001,8 +989,8 @@ def _verify_snapshot(path: str):
     las.validate_backup_file(path, check_disk=False, check_limits=False)
     with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory() as tmp:
         manifest = _read_manifest(zf)
-        dest = _extract_db(zf, tmp)
-        with contextlib.closing(sqlite3.connect(_ro_uri(dest), uri=True)) as conn:
+        dest = extract_db(zf, tmp)
+        with contextlib.closing(sqlite3.connect(ro_uri(dest), uri=True)) as conn:
             ids = [r[0] for r in conn.execute("SELECT id FROM dramas ORDER BY id")]
     if ids != [d.get("id") for d in manifest["dramas"]]:
         raise InvalidInputError(_BAD_SNAPSHOT)
@@ -1012,7 +1000,7 @@ def _verify_snapshot(path: str):
 # backup job
 # --------------------------------------------------------------------------
 
-def _job_running() -> bool:
+def job_running() -> bool:
     job = background_jobs.get_status(JOB_ID)
     return bool(job and job.get("status") in ("running", "queued"))
 
@@ -1145,10 +1133,10 @@ def start_now(replace: bool = False, include_media=None) -> dict:
         include_media = get_settings()["include_media"]
     elif not isinstance(include_media, bool):
         raise InvalidInputError("include_media must be true or false.")
-    las._refuse_during_maintenance("backup")
+    las.refuse_during_maintenance("backup")
     if background_jobs.exclusive_active():
         raise ConflictError("A restore is in progress; the backup can start when it finishes.")
-    if _job_running():
+    if job_running():
         raise ConflictError("A backup is already running.")
     if not _start(include_media):
         raise ConflictError("A backup is already running.")
@@ -1157,8 +1145,9 @@ def start_now(replace: bool = False, include_media=None) -> dict:
 
 def check_and_run(now=None) -> str:
     """The scheduled due-check. Returns "disabled", "not_due", "busy" (a job,
-    restore or maintenance is in progress; tried again at the next check)
-    or "started". Never raises."""
+    restore or maintenance is in progress; tried again at the next check),
+    "started" or "error" (the check itself failed; recorded as last_error
+    so the settings page shows it). Never raises."""
     try:
         settings = get_settings()
         if not settings["enabled"]:
@@ -1166,12 +1155,14 @@ def check_and_run(now=None) -> str:
         if not is_due(now=now, settings=settings):
             return "not_due"
         if (background_jobs.maintenance_active() or background_jobs.exclusive_active()
-                or las._any_job_running()):
+                or las.any_job_running()):
             return "busy"
         return "started" if _start(settings["include_media"]) else "busy"
     except Exception as exc:
         log.warning("Automatic backup check failed: %s", type(exc).__name__)
-        return "busy"
+        with contextlib.suppress(Exception):
+            _update_state(last_error=_CHECK_FAILED)
+        return "error"
 
 
 def periodic_tick(interval: float = None) -> bool:
@@ -1201,7 +1192,7 @@ def cleanup_stale_leftovers(max_age: float = STALE_LEFTOVER_SECONDS, now: float 
     raises."""
     now = time.time() if now is None else now
     removed = db.recover_media_imports(max_age, now)["settled"]
-    targets = [(_folder_path(get_settings()["folder"]), ".baihe_snapshot.partial-", False),
+    targets = [(folder_path(get_settings()["folder"]), ".baihe_snapshot.partial-", False),
                (db.DRAMAS_DIR, ".restoring-", True)]
     for folder, prefix, is_dir in targets:
         try:
@@ -1236,7 +1227,7 @@ def delete_snapshot(confirm=False, confirm_text="", snapshot=None, all_copies=Fa
     include_unmanaged=True: by name, or with all_copies as well. Needs
     confirm=True and confirm_text "DELETE". Returns {deleted, count,
     kept_unmanaged} (the unmanaged copies left in place)."""
-    las._require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting the snapshot")
+    las.require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting the snapshot")
     if not isinstance(all_copies, bool):
         raise InvalidInputError("all must be true or false.")
     if not isinstance(include_unmanaged, bool):
@@ -1246,12 +1237,12 @@ def delete_snapshot(confirm=False, confirm_text="", snapshot=None, all_copies=Fa
     if snapshot is not None and (not isinstance(snapshot, str) or not snapshot
                                  or len(snapshot) > _MAX_COPY_NAME_LEN):
         raise InvalidInputError("A backup copy is named by its file name.")
-    if _job_running():
+    if job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
     # Refused while a whole-library restore, bulk delete or storage cleanup
     # holds the library, and holds off a restore until it ends.
-    las._refuse_during_maintenance("deletion of backup copies")
-    with las._maintenance("deleting backup copies"), _snapshot_lock:
+    las.refuse_during_maintenance("deletion of backup copies")
+    with las.maintenance("deleting backup copies"), _snapshot_lock:
         entries = _classify(_target_dir(create=False))
         left = 0
         if snapshot is not None:
@@ -1286,16 +1277,18 @@ def delete_snapshot(confirm=False, confirm_text="", snapshot=None, all_copies=Fa
 # --------------------------------------------------------------------------
 
 # Every table with a drama_id foreign key to dramas(id), in insert order,
-# except the two in _SKIPPED_TABLES. tests/test_auto_backup_service.py
+# except those in _SKIPPED_TABLES. tests/test_auto_backup_service.py
 # checks this against the live schema, so a new child table fails a test
 # until it is listed in one or the other.
-_CHILD_TABLES = ("lines", "pages", "characters", "translation_notes", "line_emotions",
+CHILD_TABLES = ("lines", "pages", "characters", "translation_notes", "line_emotions",
                  "consistency_issues", "vocab_lookups", "line_history", "translation_versions",
                  "bug_reports", "wiki_entries", "edit_samples", "voice_suggestion_dismissals",
                  "progress", "personal_notes", "reading_history", "metadata_field_provenance")
 _SKIPPED_TABLES = {
     "usage_log": "ON DELETE SET NULL: the spending rows survive a delete, so restoring them "
                  "would count the cost twice",
+    "speaker_merge_undos": "short-lived, single-use undo records; a restored one would "
+                           "describe lines and rows that no longer match",
     "bulk_jobs": "provider batch jobs: a restored in-flight batch could be polled again and "
                  "write stale results over the restored lines",
     "metadata_research_results": "a short-lived research cache pruned by age, keyed by a "
@@ -1306,7 +1299,7 @@ _SKIPPED_TABLES = {
 _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
-_SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory")
+SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory")
 # Columns naming a file in the drama folder, with the one subfolder the app
 # writes that file in (None: the folder itself). Readers join these onto the
 # drama folder, so a backup from another library keeps one only when it is a
@@ -1341,11 +1334,11 @@ def list_snapshot_dramas(snapshot=None) -> dict:
             "kind": manifest["kind"], "dramas": out}
 
 
-def _columns(conn, table: str) -> list:
+def columns(conn, table: str) -> list:
     return [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]
 
 
-def _has_table(conn, table: str) -> bool:
+def has_table(conn, table: str) -> bool:
     return conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
                         (table,)).fetchone() is not None
 
@@ -1359,8 +1352,8 @@ def _insert(dst, table: str, row: dict, live_cols) -> int:
     return cur.lastrowid
 
 
-def _rows(src, table: str, where: str, args) -> list:
-    if not _has_table(src, table):
+def table_rows(src, table: str, where: str, args) -> list:
+    if not has_table(src, table):
         return []
     cur = src.execute(f'SELECT * FROM "{table}" WHERE {where}', args)
     names = [c[0] for c in cur.description]
@@ -1381,7 +1374,7 @@ def _import_file_ref(folder, value, subdir):
         base, name = os.path.join(folder, subdir), parts[1]
     else:
         return None
-    if delete_service._file_in_folder(base, name) is None:
+    if delete_service.file_in_folder(base, name) is None:
         return None
     return name if len(parts) == 1 else f"{subdir}/{name}"
 
@@ -1448,7 +1441,7 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts, import_as=N
     created new, owned by the importing user, once per source series."""
     if series_id is None:
         return None, {}, "none"
-    srows = _rows(src, "series", "id = ?", (series_id,))
+    srows = table_rows(src, "series", "id = ?", (series_id,))
     if not srows:
         return None, {}, "none"
     series = srows[0]
@@ -1483,13 +1476,13 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts, import_as=N
 def _insert_series(src, dst, series_id, row, counts) -> tuple:
     """Inserts the series row and its glossary, characters and memory;
     (live series id, {old series_character id: live id})."""
-    live_id = _insert(dst, "series", row, _columns(dst, "series"))
+    live_id = _insert(dst, "series", row, columns(dst, "series"))
     counts["series"] = 1
     char_map = {}
-    for table in _SERIES_CHILDREN:
-        live_cols = _columns(dst, table)
+    for table in SERIES_CHILDREN:
+        live_cols = columns(dst, table)
         n = 0
-        for child in _rows(src, table, "series_id = ?", (series_id,)):
+        for child in table_rows(src, table, "series_id = ?", (series_id,)):
             old = child.pop("id", None)
             child["series_id"] = live_id
             new = _insert(dst, table, child, live_cols)
@@ -1500,7 +1493,7 @@ def _insert_series(src, dst, series_id, row, counts) -> tuple:
     return live_id, char_map
 
 
-def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> tuple:
+def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> tuple:
     """Inserts the drama and its children into dst (inside the caller's
     transaction). new_id None = a fresh id. Returns (live id, counts,
     series outcome -- see _resolve_series).
@@ -1512,7 +1505,7 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> 
     reference (IMPORT_FILE_COLUMNS) is kept only when it names a file inside
     media_dir (the drama's imported files; None = none imported, so every
     reference is cleared)."""
-    drama = _rows(src, "dramas", "id = ?", (old_id,))
+    drama = table_rows(src, "dramas", "id = ?", (old_id,))
     if not drama:
         raise NotFoundError("That drama isn't in the snapshot.")
     drama = drama[0]
@@ -1540,19 +1533,19 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> 
         key = "title_en" if (row.get("title_en") or "").strip() else "title_zh"
         row[key] = f"{(row.get(key) or '').strip()} {title_suffix}".strip()
     row["updated_at"] = datetime.datetime.utcnow().isoformat()
-    live_id = _insert(dst, "dramas", row, _columns(dst, "dramas"))
+    live_id = _insert(dst, "dramas", row, columns(dst, "dramas"))
     counts["dramas"] = 1
 
     line_map, page_map = {}, {}
-    for table in _CHILD_TABLES:
-        if not _has_table(dst, table):
+    for table in CHILD_TABLES:
+        if not has_table(dst, table):
             continue
         if import_as is not None and table in _PROFILE_TABLES:
             counts[table] = 0
             continue
-        live_cols = _columns(dst, table)
+        live_cols = columns(dst, table)
         n = 0
-        for child in _rows(src, table, "drama_id = ?", (old_id,)):
+        for child in table_rows(src, table, "drama_id = ?", (old_id,)):
             old = child.pop("id", None)
             child["drama_id"] = live_id
             _sanitise_file_refs(table, child, import_as)
@@ -1577,11 +1570,11 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> 
                 page_map[old] = new
             n += 1
         counts[table] = n
-    if page_map and _has_table(src, "bubbles"):
-        live_cols = _columns(dst, "bubbles")
+    if page_map and has_table(src, "bubbles"):
+        live_cols = columns(dst, "bubbles")
         n = 0
         for old_page, new_page in page_map.items():
-            for bubble in _rows(src, "bubbles", "page_id = ?", (old_page,)):
+            for bubble in table_rows(src, "bubbles", "page_id = ?", (old_page,)):
                 bubble.pop("id", None)
                 bubble["page_id"] = new_page
                 _insert(dst, "bubbles", bubble, live_cols)
@@ -1590,7 +1583,7 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> 
     return live_id, counts, series_outcome
 
 
-def _stage_media(zf: zipfile.ZipFile, old_id: int, staging: str):
+def stage_media(zf: zipfile.ZipFile, old_id: int, staging: str):
     """Extracts dramas/<old_id>/... into a new folder inside `staging` (an
     import's db.new_media_staging folder); returns its path, or None when
     the snapshot has no files for this drama. Member names were already
@@ -1601,16 +1594,11 @@ def _stage_media(zf: zipfile.ZipFile, old_id: int, staging: str):
                if i.filename.replace("\\", "/").startswith(prefix) and not i.is_dir()]
     if not members:
         return None
-    if len(members) > las._RESTORE_MAX_MEMBERS or any(
+    if len(members) > las.RESTORE_MAX_MEMBERS or any(
             i.file_size > _MAX_MEMBER_BYTES for i in members):
         raise InvalidInputError("The drama's files in the snapshot look corrupted or unsafe "
                                 "to extract.")
-    need = sum(i.file_size for i in members)
-    try:
-        free = shutil.disk_usage(db.DRAMAS_DIR).free
-    except OSError:
-        free = None
-    if free is not None and free < need + las._RESTORE_DISK_MARGIN_BYTES:
+    if not las.has_disk_room(db.DRAMAS_DIR, sum(i.file_size for i in members)):
         raise InvalidInputError("Not enough free disk space to restore this drama's files.")
     folder = os.path.join(staging, f"drama-{int(old_id)}")
     os.makedirs(folder)
@@ -1630,7 +1618,7 @@ def _stage_media(zf: zipfile.ZipFile, old_id: int, staging: str):
     return folder
 
 
-def _claim_folder(drama_id: int, conflict: str):
+def claim_folder(drama_id: int, conflict: str):
     """dramas/<drama_id> must not exist for a drama being added: a leftover
     of an import that never committed is cleared, anything else is renamed
     aside (db.claim_new_drama_folder); 409 when that fails."""
@@ -1640,14 +1628,14 @@ def _claim_folder(drama_id: int, conflict: str):
         raise ConflictError(conflict) from None
 
 
-def _move_media_in(staging: str, folders: dict, conflict: str):
+def move_media_in(staging: str, folders: dict, conflict: str):
     """Call inside the transaction, with the new drama rows inserted:
     {new drama id: staged folder}. Refuses before moving anything when a
     new id's folder already exists, records the journal (db's media
     journal), then renames each staged folder to dramas/<id>. The caller
     commits next; on any failure it calls _end_media_staging."""
     for did in folders:
-        _claim_folder(did, conflict)
+        claim_folder(did, conflict)
     db.write_media_journal(staging, folders)
     for did, path in folders.items():
         if not db.move_staged_folder(staging, did, path):
@@ -1655,7 +1643,7 @@ def _move_media_in(staging: str, folders: dict, conflict: str):
     _fsync_dir(db.DRAMAS_DIR)
 
 
-def _end_media_staging(staging: str) -> bool:
+def end_media_staging(staging: str) -> bool:
     """Ends an import's staging (see db.finish_media_staging): after a
     commit only the markers, journal and staging folder go; otherwise the
     folders it moved into place go too. False when something was left in
@@ -1680,10 +1668,10 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
     series, counts, skipped_tables}."""
     if isinstance(drama_id, bool) or not isinstance(drama_id, int) or drama_id < 1:
         raise InvalidInputError("A drama id is a positive whole number.")
-    las._require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a drama")
-    if _job_running():
+    las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a drama")
+    if job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
-    with las._maintenance("restoring a drama"), tempfile.TemporaryDirectory() as tmp:
+    with las.maintenance("restoring a drama"), tempfile.TemporaryDirectory() as tmp:
         db.recover_media_imports()
         staging = staged = None
         with _snapshot_lock:
@@ -1696,24 +1684,24 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
                     if drama_id not in [d.get("id") for d in manifest["dramas"]
                                         if isinstance(d, dict)]:
                         raise NotFoundError("That drama isn't in the snapshot.")
-                    snap_db = _extract_db(zf, tmp)
+                    snap_db = extract_db(zf, tmp)
                     if manifest["kind"] == "full":
                         staging = db.new_media_staging()
-                        staged = _stage_media(zf, drama_id, staging)
+                        staged = stage_media(zf, drama_id, staging)
             except (OSError, zipfile.BadZipFile, NotImplementedError, EOFError, zlib.error):
                 if staging is not None:
-                    _end_media_staging(staging)
+                    end_media_staging(staging)
                 raise InvalidInputError(_BAD_SNAPSHOT) from None
             except BaseException:
                 if staging is not None:
-                    _end_media_staging(staging)
+                    end_media_staging(staging)
                 raise
         try:
             return _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id,
                                  copy["name"])
         finally:
             if staging is not None:
-                _end_media_staging(staging)
+                end_media_staging(staging)
 
 
 def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_name) -> dict:
@@ -1722,20 +1710,20 @@ def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_n
     suffix = None if keep_id else f"(restored {datetime.date.today().isoformat()})"
     conflict = ("A folder for the restored drama is already in the library's dramas folder "
                 "and could not be moved aside; nothing was restored.")
-    with contextlib.closing(sqlite3.connect(_ro_uri(snap_db), uri=True)) as src, \
+    with contextlib.closing(sqlite3.connect(ro_uri(snap_db), uri=True)) as src, \
             contextlib.closing(db.get_conn()) as dst:
         src.execute("PRAGMA trusted_schema = OFF")
         try:
             dst.execute("BEGIN IMMEDIATE")
-            live_id, counts, series_outcome = _copy_drama(src, dst, drama_id, drama_id if keep_id else None,
+            live_id, counts, series_outcome = copy_drama(src, dst, drama_id, drama_id if keep_id else None,
                                           suffix)
-            _claim_folder(live_id, conflict)   # never inherit a stray dramas/<new id>
+            claim_folder(live_id, conflict)   # never inherit a stray dramas/<new id>
             if staged is not None:
-                _move_media_in(staging, {live_id: staged}, conflict)
+                move_media_in(staging, {live_id: staged}, conflict)
             dst.commit()
         except BaseException as exc:
             dst.rollback()
-            if staging is not None and not _end_media_staging(staging):
+            if staging is not None and not end_media_staging(staging):
                 raise ServiceError("The drama was not restored, but some of its files could not "
                                    "be cleaned up and are still in the library's dramas folder; "
                                    "the app tries again at the next start.") from None

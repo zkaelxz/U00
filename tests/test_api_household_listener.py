@@ -650,6 +650,10 @@ class TestSecurityHeaders:
             csp = r.headers["content-security-policy"]
             assert "frame-ancestors 'none'" in csp and "object-src 'none'" in csp
             assert "default-src 'self'" in csp and "connect-src 'self'" in csp
+            # Only the two stream-video hosts may be framed; scripts stay as before.
+            assert "frame-src https://www.youtube-nocookie.com https://player.twitch.tv;" in csp
+            assert csp.count("frame-src") == 1
+            assert "script-src 'self' 'unsafe-inline';" in csp
             assert "strict-transport-security" not in r.headers   # plain http, no proxy word
 
     def test_route_set_header_kept(self):
@@ -838,7 +842,7 @@ class TestRunServers:
         for k in ("BAIHE_API_HOUSEHOLD_PORT", "BAIHE_API_PORT", "BAIHE_API_HOST",
                   "BAIHE_API_AUTH", "BAIHE_API_ENV", *SIGN_IN_ENV):
             monkeypatch.delenv(k, raising=False)
-        monkeypatch.setattr(settings_service, "_read_env_file", lambda *a, **k: {})
+        monkeypatch.setattr(settings_service, "read_env_file", lambda *a, **k: {})
         for k, v in env.items():
             monkeypatch.setenv(k, v)
         monkeypatch.setattr(process_guard, "contain_children", lambda: True)

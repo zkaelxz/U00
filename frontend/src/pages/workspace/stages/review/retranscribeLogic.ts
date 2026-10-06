@@ -9,6 +9,15 @@ export function canRetranscribe(
   return !!cfg && cfg.has_audio_pipeline && cfg.audio_available
 }
 
+export const NO_AUDIO_MESSAGE = 'Needs this drama’s audio or video.'
+
+// The sheet's "Re-transcribe…" item: same availability as the editor's button,
+// plus the job guard the sheet's other source-changing items use.
+export function retranscribeMenuState(canRun: boolean, jobMessage: string | null): { disabled: boolean; reason: string | null } {
+  const reason = jobMessage ?? (canRun ? null : NO_AUDIO_MESSAGE)
+  return { disabled: reason !== null, reason }
+}
+
 // The job id is per drama, so a record can belong to another line's run. The
 // job's result carries only line_id (never line text); a record that names a
 // different line is not ours. No line_id yet counts as ours: this editor
@@ -20,7 +29,7 @@ export function jobIsForLine(job: Pick<JobRecord, 'result'> | null, lineId: numb
 
 // A finished re-transcribe job: either the proposal is ready to fetch (GET
 // .../retranscribe), or a plain-words reason why there is none.
-export type RetranscribeOutcome = { kind: 'ready' } | { kind: 'none'; text: string }
+type RetranscribeOutcome = { kind: 'ready' } | { kind: 'none'; text: string }
 
 export function retranscribeOutcome(job: Pick<JobRecord, 'status' | 'outcome' | 'result'>): RetranscribeOutcome {
   const reason = job.result?.failed_reason

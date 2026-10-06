@@ -1,12 +1,9 @@
 """
-services/restructure_service.py -- Migration Slice 45: STRUCTURAL line
+services/restructure_service.py -- STRUCTURAL line
 changes for one drama (add, delete, merge, split, re-segmentation) and
-Version-history restore. Mirrors `tabs/workspace_tab.py`'s "Restructure
-lines" popover (Apply merge, Preview/Apply re-segmentation) and "Version
-history / undo" -> Restore; add/delete/split of a single line have no tab
-equivalent yet and follow the same rules.
+Version-history restore.
 
-Correctness rules (Steps 2, 6c, 6f, 25l, 25m):
+Correctness rules:
 - Every change loads the drama's lines FRESH from the database, checks the
   client's `expected_line_ids` (the drama's line ids, in order, as the
   client last saw them) against them -- any difference is a 409 with
@@ -25,11 +22,11 @@ Atomicity gap: the snapshot, the id-set re-check and `save_lines` are three
 separate transactions (db.py has no API to run them in one). Guarded by a
 per-drama lock held across load -> check -> snapshot -> save for every write
 in this module (including the re-segmentation job's apply step), and by
-re-reading the id set immediately before `save_lines`. Another process (the
-Streamlit app) can still full-sync between that re-check and the save; a
+re-reading the id set immediately before `save_lines`. Another process
+(e.g. the CLI) can still full-sync between that re-check and the save; a
 failure between snapshot and save leaves only an extra snapshot.
 
-No Streamlit/FastAPI import: plain dicts in and out. Messages never echo
+No FastAPI import: plain dicts in and out. Messages never echo
 line text, keys or paths.
 """
 import dataclasses
@@ -40,14 +37,16 @@ from typing import Optional
 import background_jobs
 import core as core_module
 import db
+import diarize
 import raw_transcript
 import resegment
 import translate_engines
-from services import drama_service, settings_service, translate_service
-from services.review_lines_service import _line_dict
+from services import (diarization_service, drama_service, settings_service, transcribe_service,
+                      translate_service)
+from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot
 from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, NotFoundError,
+                                      InvalidInputError, NotFoundError, ServiceError,
                                       UnsupportedOperationError)
 
 MAX_LINE_TEXT_CHARS = 2000
@@ -124,7 +123,7 @@ def _commit(drama_id: int, current, new_lines, label: str):
     db.save_lines(drama_id, new_lines)
 
 
-def _structural_write(drama_id: int, expected_line_ids, label: str, build):
+def structural_write(drama_id: int, expected_line_ids, label: str, build):
     """load fresh -> check ids -> build(current) -> snapshot -> save, under
     the drama lock. build returns (new_lines, result_line_objects)."""
     _require_drama(drama_id)
@@ -138,7 +137,7 @@ def _structural_write(drama_id: int, expected_line_ids, label: str, build):
         new_lines, touched = build(work)
         _commit(drama_id, current, new_lines, label)
     return {"line_ids": [ln.id for ln in new_lines],
-            "lines": [_line_dict(ln) for ln in touched]}
+            "lines": [line_dict(ln) for ln in touched]}
 
 
 def _index_of(lines, line_id) -> int:
@@ -169,26 +168,26 @@ def add_line(drama_id: int, expected_line_ids, *, after_line_id: Optional[int] =
         new = core_module.Line(idx=pos, start=start, end=end, zh=zh, en=en, speaker=speaker,
                                speaker_manual=speaker is not None)
         return lines[:pos] + [new] + lines[pos:], [new]
-    return _structural_write(drama_id, expected_line_ids, "before add line", build)
+    return structural_write(drama_id, expected_line_ids, "before add line", build)
 
 
 def delete_line(drama_id: int, line_id: int, expected_line_ids, confirm: bool = False) -> dict:
     """Deletes one line (its notes and emotion tag with it). Needs
-    confirm=True, like the tab's other destructive deletes."""
+    confirm=True, like the other destructive deletes."""
     if confirm is not True:
         raise InvalidInputError("Deleting a line needs confirm=true.")
 
     def build(lines):
         i = _index_of(lines, line_id)
         return lines[:i] + lines[i + 1:], []
-    return _structural_write(drama_id, expected_line_ids, "before delete line", build)
+    return structural_write(drama_id, expected_line_ids, "before delete line", build)
 
 
 def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
     """Merges 2+ ADJACENT lines (given in order) into the first: text joined
     as core.merge_adjacent_short_lines joins it, end = last line's end, the
     first line keeps its id/speaker; its flag, else the first merged line's
-    flag, is kept. The others' notes/emotions move onto it (the first
+    flag, is kept. Its lang stays only when every merged line shares it. The others' notes/emotions move onto it (the first
     line's own win on a conflict)."""
     line_ids = _id_list("line_ids", line_ids)
     if not 2 <= len(line_ids) <= MAX_MERGE_LINES:
@@ -207,16 +206,18 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             if not head.flag and ln.flag:
                 head.flag, head.flag_note = ln.flag, ln.flag_note
             head.merged_ids = list(head.merged_ids) + [ln.id]
+            if ln.lang != head.lang:
+                head.lang = None
         head.end = max(head.end, rest[-1].end)
         return lines[:first + 1] + lines[first + len(line_ids):], [head]
-    return _structural_write(drama_id, expected_line_ids, "before merge", build)
+    return structural_write(drama_id, expected_line_ids, "before merge", build)
 
 
 def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
                expected_zh: str, at_time=None, en_at_char: Optional[int] = None) -> dict:
     """Splits one line's source text at character offset `at_char`. The
     first piece keeps the line's id (so its flag, notes and emotion stay
-    on it); the second is a new line with the same speaker/sfx and no
+    on it); the second is a new line with the same speaker/sfx/lang and no
     flag. Its translation stays whole on the first piece unless
     `en_at_char` splits it too. The cut time is `at_time` (strictly inside
     the line) or proportional to piece length. `expected_zh` must equal
@@ -249,10 +250,10 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
             en_first, en_second = ln.en[:en_at_char].rstrip(), ln.en[en_at_char:].strip()
         second = core_module.Line(idx=0, start=cut, end=ln.end, zh=pieces[1], en=en_second,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                  sfx=ln.sfx)
+                                  sfx=ln.sfx, lang=ln.lang)
         ln.zh, ln.en, ln.end = pieces[0], en_first, cut
         return lines[:i + 1] + [second] + lines[i + 1:], [ln, second]
-    return _structural_write(drama_id, expected_line_ids, "before split", build)
+    return structural_write(drama_id, expected_line_ids, "before split", build)
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +271,7 @@ def _candidate_ids(lines, language: str) -> set:
     """Lines resegment_lines could split at all (longer than the cap) -- a
     superset of what any run (rules or LLM) actually changes."""
     cap = resegment.max_line_chars(language)
-    return {ln.id for ln in lines if resegment._length(ln.zh or "") > cap}
+    return {ln.id for ln in lines if resegment.length(ln.zh or "") > cap}
 
 
 _CONFIRM_NEEDED = ("Re-segmenting would clear translations, flags or notes on the lines being "
@@ -311,7 +312,7 @@ def preview_resegmentation(drama_id: int) -> dict:
 
 
 def _apply_resegmented(drama_id: int, new_lines, source_ids: list) -> dict:
-    """The job's write step: same guard as the tab's Apply (Step 6f)."""
+    """The job's write step: same guard as Apply."""
     with _drama_lock(drama_id):
         current = db.load_line_objects(drama_id)
         if [ln.id for ln in current] != source_ids:
@@ -352,7 +353,7 @@ def _make_on_done(drama_id, source_ids, engine_name, engine):
 def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str]):
     engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't suggest split points.")
@@ -373,7 +374,7 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
                          model: Optional[str] = None, use_preview: bool = False) -> dict:
     """Starts a `resegment_<drama_id>` job that re-segments AND saves (with
     a "before re-segment" snapshot). Split lines lose their translation,
-    flag, notes and emotion tag (Step 6c); confirm=true is required when
+    flag, notes and emotion tag; confirm=true is required when
     any line long enough to be split carries one. A local Ollama LLM pass
     runs in a subprocess (cancellable) and saves via on_done.
 
@@ -585,13 +586,13 @@ def _start_preview_apply(drama_id: int, expected_line_ids: list, confirm: bool) 
 def restore_version(drama_id: int, history_id: int, expected_line_ids) -> dict:
     """Restores a history snapshot over the current lines, after taking a
     "before restore" snapshot (so the restore itself can be undone). Lines
-    are matched by permanent id (core.restore_saved_lines / adopt_ids,
-    Step 25l): a line whose id still exists keeps its notes/emotion; flag,
+    are matched by permanent id (core.restore_saved_lines / adopt_ids):
+    a line whose id still exists keeps its notes/emotion; flag,
     flag note and SFX mark come from the snapshot (or, for a snapshot saved
     before those were recorded, stay as the line has them now); a line
     merged/deleted since gets a fresh id and nothing is reattached by
     position. Refused while a job
-    runs on the drama. No confirm field: the tab's Restore has none."""
+    runs on the drama. No confirm field."""
     get_line_history_snapshot(drama_id, history_id)  # 404 unless it's this drama's
     # the raw rows: the read above returns dub_filename as a bare basename
     rows = db.get_line_history_snapshot(history_id)
@@ -601,5 +602,218 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids) -> dict:
     def build(lines):
         restored = core_module.restore_saved_lines(rows, lines)
         return restored, []
-    out = _structural_write(drama_id, expected_line_ids, "before restore", build)
+    out = structural_write(drama_id, expected_line_ids, "before restore", build)
     return {"history_id": history_id, "line_ids": out["line_ids"]}
+
+
+# ---------------------------------------------------------------------------
+# Re-split over-long lines (no new transcription, no new speaker detection)
+# ---------------------------------------------------------------------------
+
+RESPLIT_JOB_PREFIX = "resplit_"  # in background_jobs.DRAMA_JOB_PREFIXES
+_RESPLIT_CONFIRM = ("Some long lines already have a translation. A split piece can't inherit "
+                    "it, so those lines would lose their English -- pass confirm=true.")
+
+
+def _resplit_plan(lines) -> dict:
+    """{line_id: [{"start","end","text"}, ...]} for each line the proportional
+    splitter cuts in two or more pieces (same limits as a fresh transcription)."""
+    plan = {}
+    for ln in lines:
+        if ln.sfx or ln.id is None or not (ln.zh or "").strip():
+            continue
+        pieces = core_module.split_long_segments(
+            [{"start": ln.start, "end": ln.end, "text": ln.zh}])
+        if len(pieces) >= 2:
+            plan[ln.id] = pieces
+    return plan
+
+
+def _resplit_snapshot(lines, plan) -> dict:
+    """{line_id: (start, end, zh, en)} of the planned lines, compared at commit
+    so a timing, text or translation edit made meanwhile is never overwritten."""
+    return {ln.id: (ln.start, ln.end, ln.zh, ln.en) for ln in lines if ln.id in plan}
+
+
+def _check_resplit_confirm(lines, plan, confirm):
+    if confirm is not True and any(ln.en.strip() for ln in lines if ln.id in plan):
+        raise InvalidInputError(_RESPLIT_CONFIRM)
+
+
+def _aligned_pieces(audio_path, ln, pieces, language, use_gpu):
+    """Real word-based boundaries for one line's pieces from the Qwen3 forced
+    aligner, or None when its timing is unusable (outside the line, backwards).
+    The aligner takes one language per run, so each line is aligned in its own
+    (title language when unset)."""
+    import forced_align
+    aligned = forced_align.align_with_qwen3(
+        audio_path, [p["text"] for p in pieces],
+        [{"start": ln.start, "end": ln.end, "text": ln.zh}],
+        language=ln.lang or language, use_gpu=use_gpu)
+    if len(aligned) != len(pieces):
+        return None
+    spans = [(max(a.start, ln.start), min(a.end, ln.end)) for a in aligned]
+    if any(e <= s for s, e in spans) or any(b[0] < a[1] - 1e-6 for a, b in zip(spans, spans[1:])):
+        return None
+    # The aligner's timing_uncertain flag (repaired or fallen-back spans) rides
+    # along so the saved piece carries it.
+    return [{**p, "start": s, "end": e,
+             **({"flag": a.flag, "flag_note": a.flag_note} if a.flag else {})}
+            for p, (s, e), a in zip(pieces, spans, aligned)]
+
+
+def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timing: str,
+                   note: str, expected: dict, own_job_id: Optional[str] = None) -> dict:
+    """Commit step shared by both modes: fresh lines, id check, plan check,
+    snapshot, one save, then speakers from the saved turns for the split
+    lines only. `expected` is _resplit_snapshot from when the split was asked."""
+    with _drama_lock(drama_id):
+        # Another job (e.g. a translation) started while aligning would write
+        # its per-line result onto the first piece, which keeps the parent's id.
+        if own_job_id and drama_service.job_running_for_drama(drama_id, own_job_id):
+            raise ConflictError("Another job started on this drama while the lines were being "
+                                "aligned -- nothing was changed; wait for it to finish and try "
+                                "again.")
+        current = db.load_line_objects(drama_id)
+        _check_expected(current, expected_line_ids)
+        plan = _resplit_plan(current)
+        if set(plan) != set(expected) or _resplit_snapshot(current, plan) != expected:
+            raise ConflictError("A line's text, timing or translation changed while splitting "
+                                "-- nothing was changed; reload and try again.")
+        _check_resplit_confirm(current, plan, confirm)
+        work = [dataclasses.replace(ln, orig=dict(ln.orig), merged_ids=[]) for ln in current]
+        new_lines, split_out, cleared, aligned = [], [], 0, 0
+        for ln in work:
+            pieces = timed.get(ln.id) or plan.get(ln.id)
+            if ln.id not in plan or not pieces:
+                new_lines.append(ln)
+                continue
+            if ln.en.strip():
+                cleared += 1
+            aligned += ln.id in timed
+            first, *rest = pieces
+            ln.start, ln.end, ln.zh, ln.en = first["start"], first["end"], first["text"], ""
+            if first.get("flag"):
+                ln.flag, ln.flag_note = first["flag"], first["flag_note"]
+            new_pieces = [core_module.Line(idx=0, start=p["start"], end=p["end"], zh=p["text"],
+                                           speaker=ln.speaker, speaker_manual=ln.speaker_manual,
+                                           sfx=ln.sfx, lang=ln.lang, flag=p.get("flag"),
+                                           flag_note=p.get("flag_note", ""))
+                          for p in rest]
+            new_lines.append(ln)
+            new_lines.extend(new_pieces)
+            split_out += [ln, *new_pieces]
+        split = sum(1 for ln in work if ln.id in plan)
+        if not split:
+            return {"split_lines": 0, "line_count": len(current), "lines_before": len(current),
+                    "timing": timing, "aligned_lines": 0, "cleared_translations": 0,
+                    "speakers_reassigned": False, "note": "No line is over the length limits."}
+        _commit(drama_id, current, new_lines, "before re-split")
+        reassigned = False
+        try:
+            if diarize.load_turns(db.drama_dir(drama_id)) is not None:
+                # save_lines wrote the new pieces' ids back onto them
+                diarization_service.relabel_from_saved_turns(
+                    drama_id, only_ids=[ln.id for ln in split_out])
+                reassigned = True
+        except Exception as exc:  # the split is saved: report it, never "nothing changed"
+            reason = (str(exc).rstrip(".") if isinstance(exc, ServiceError)
+                      else "the saved speaker detection couldn't be read")
+            note = f"Split saved; speakers were not re-assigned: {reason}. {note}".strip()
+    return {"split_lines": split, "line_count": len(new_lines), "lines_before": len(current),
+            "timing": timing, "aligned_lines": aligned, "cleared_translations": cleared,
+            "speakers_reassigned": reassigned, "note": note}
+
+
+def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, language, use_gpu):
+    lines = db.load_line_objects(drama_id)
+    plan = _resplit_plan(lines)
+    by_id = {ln.id: ln for ln in lines}
+    expected = _resplit_snapshot(lines, plan)
+    timed, notes, aligner_down = {}, [], None
+    try:
+        for n, (line_id, pieces) in enumerate(plan.items()):
+            if background_jobs.is_cancel_requested(job_id):
+                background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+                return
+            background_jobs.update_progress(
+                job_id, min(0.95, 0.05 + 0.9 * n / len(plan)),
+                f"Aligning line {n + 1} of {len(plan)} to the audio...")
+            if aligner_down:
+                break
+            try:
+                got = _aligned_pieces(audio_path, by_id[line_id], pieces, language, use_gpu)
+            except (ImportError, core_module.ModelDownloadError) as exc:
+                aligner_down = ("The Qwen3 forced aligner isn't available "
+                                f"({type(exc).__name__}; see Diagnostics)")
+                break
+            except Exception as exc:  # one bad line or a GPU error: that line stays proportional
+                got = None
+                if not isinstance(exc, ValueError):
+                    aligner_down = ("The audio alignment failed "
+                                    f"({type(exc).__name__})")
+                    break
+            if got:
+                timed[line_id] = got
+    finally:  # a cancelled or failed run must not leave the aligner holding VRAM
+        core_module.release_gpu_models()
+    if background_jobs.is_cancel_requested(job_id):
+        background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+        return
+    if aligner_down:
+        timed = {}
+        notes.append(aligner_down + "; lines were split with estimated timing.")
+    elif plan and len(timed) < len(plan):
+        notes.append(f"{len(plan) - len(timed)} line(s) had unusable alignment and use "
+                     "estimated timing.")
+    timing = "aligned" if timed else "proportional"
+    try:
+        result = _apply_resplit(drama_id, expected_line_ids, confirm, timed, timing,
+                                " ".join(notes), expected, own_job_id=job_id)
+    except (ConflictError, InvalidInputError) as exc:
+        background_jobs.set_result(job_id, {"failed_reason": "not_applied", "detail": str(exc)})
+        return
+    background_jobs.set_result(job_id, result)
+
+
+def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool = False,
+                       confirm: bool = False) -> dict:
+    """Cuts the drama's over-long lines (the limits of a fresh transcription)
+    at sentence/comma boundaries in place -- no transcription, no speaker
+    detection. The first piece keeps the line's id and flag; the pieces take
+    the parent's speaker, then saved diarization turns (if any) relabel the
+    split lines only, manual speakers kept. Translations can't be shared across pieces: a long
+    line that has one needs confirm=true, and its pieces start empty.
+
+    Timing is proportional to text length (instant, returned as the summary
+    {split_lines, lines_before, line_count, timing, aligned_lines,
+    cleared_translations, speakers_reassigned, note}), or with
+    align_to_audio a `resplit_<id>` job that uses the Qwen3 forced aligner on
+    the stored audio and returns {"job_id", "drama_id"}; its result carries
+    the same summary, and falls back to proportional with a note when the
+    aligner or audio is missing. History snapshot "before re-split" first.
+    Refused (409) while any job runs on the drama."""
+    drama = _require_drama(drama_id)
+    expected_line_ids = _id_list("expected_line_ids", expected_line_ids)
+    _refuse_if_job_running(drama_id)
+    lines = db.load_line_objects(drama_id)
+    _check_expected(lines, expected_line_ids)
+    plan = _resplit_plan(lines)
+    _check_resplit_confirm(lines, plan, confirm)
+    if not align_to_audio or not plan:
+        return _apply_resplit(drama_id, expected_line_ids, confirm, {}, "proportional", "",
+                              _resplit_snapshot(lines, plan))
+    audio_path = transcribe_service._drama_audio_path(drama_id, drama)
+    if audio_path is None:
+        return _apply_resplit(
+            drama_id, expected_line_ids, confirm, {}, "proportional",
+            "This drama has no stored audio, so the lines were split with estimated timing.",
+            _resplit_snapshot(lines, plan))
+    job_id = f"{RESPLIT_JOB_PREFIX}{drama_id}"
+    started = background_jobs.start_job(
+        job_id, _run_resplit_job, job_id, drama_id, expected_line_ids, confirm, audio_path,
+        drama.get("source_language") or "zh", settings_service.get_use_gpu(),
+        gpu_touching=True, description=f"Re-splitting lines (drama #{drama_id})")
+    if not started:
+        raise ConflictError("Lines are already being re-split for this drama.")
+    return {"job_id": job_id, "drama_id": drama_id}

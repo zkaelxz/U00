@@ -2,6 +2,7 @@
 .stage-dub .dub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-3); }
 .stage-dub .dub-actions { margin: var(--space-3) 0; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
 .stage-dub .dub-actions .muted, .stage-dub .dub-note { margin: 0; min-width: 0; }
+.stage-dub .dub-blocker { padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: var(--text-md); font-weight: var(--weight-medium); }
 .stage-dub .dub-reason { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .stage-dub .pacing-table { width: 100%; border-collapse: collapse; }
 .stage-dub .pacing-table th, .stage-dub .pacing-table td { text-align: left; padding: 0.2rem 0.5rem; }
@@ -9,11 +10,11 @@
 /* Voices and cloning (VoiceClonePanel): one card per speaker, stacked. */
 .stage-dub .voice-warning { margin: 0; color: var(--warn); }
 .voice-clone .voice-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
-.voice-clone .voice-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3); display: grid; gap: var(--space-2); min-width: 0; }
-.voice-clone .voice-card h4 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
-.voice-clone .voice-card h5 { margin: 0; font-size: var(--font-sm); }
+.voice-clone .voice-card { border-top: 1px solid var(--border); padding: var(--space-3) 0 0; display: grid; gap: var(--space-2); min-width: 0; }
+.voice-clone .voice-card h4 { margin: 0; font-size: var(--text-md); overflow-wrap: anywhere; }
+.voice-clone .voice-card h5 { margin: 0; font-size: var(--text-sm); }
 .voice-clone .voice-card p { margin: 0; }
-.voice-clone .voice-block { display: grid; gap: var(--space-2); border-top: 1px solid var(--border); padding-top: var(--space-2); }
+.voice-clone .voice-block { display: grid; gap: var(--space-2); padding-top: var(--space-2); }
 .voice-clone .voice-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-2); align-items: end; }
 .voice-clone .voice-row > button { justify-self: start; }
 .voice-clone .voice-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
@@ -27,3 +28,6 @@
 /* Narration: lines with no English yet (U01); the link wraps under the text on a phone. */
 .stage-dub .dub-untranslated { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .stage-dub .dub-untranslated > span { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
+
+/* Advanced sits inside the Dub panel: a divider, not a second box. */
+.stage-dub .panel > details.section { border: 0; border-top: 1px solid var(--border); border-radius: 0; padding-inline: 0; margin: 0; }

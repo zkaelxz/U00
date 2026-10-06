@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { TRACKED, mockAccess } from './sourcesAccessMocks'
+import { TRACKED, mockAccess, openProxy } from './sourcesAccessMocks'
 import { mockSources, posted } from './sourcesMocks'
 
 // Desktop: Check now and the tracked series' auto-import drama (New
@@ -63,6 +63,7 @@ test('proxy: saved write-only, then cleared', async ({ page }) => {
   await page.goto('/#/sources')
   const settings = page.getByRole('region', { name: 'Source settings' })
   await settings.getByText('Source settings').first().click()
+  await openProxy(page)
   const proxy = settings.getByTestId('sources-proxy')
   const box = proxy.getByRole('textbox', { name: 'Proxy (none)' })
   await box.fill('socks5://127.0.0.1:1080')
@@ -77,6 +78,24 @@ test('proxy: saved write-only, then cleared', async ({ page }) => {
     { url: 'http://user:pw@127.0.0.1:8080' },
     { url: '' },
   ])
+  expect(s.unmocked).toEqual([])
+})
+
+test('proxy section: closed by default showing none, open state remembered', async ({ page }) => {
+  const s = await mockSources(page)
+  await mockAccess(page, s)
+  await page.goto('/#/sources')
+  const settings = page.getByRole('region', { name: 'Source settings' })
+  await settings.getByText('Source settings').first().click()
+  const details = page.locator('details.section:has(> summary > .section-title:text-is("Proxy"))')
+  await expect(details).not.toHaveAttribute('open', '')
+  await expect(details.locator('summary')).toContainText(/none/i)
+  await details.locator('summary').click()
+  await expect(details).toHaveAttribute('open', '')
+  await page.waitForFunction(() => localStorage.getItem('baihe.section.sources.proxy') === '1')
+  await page.reload()
+  await settings.getByText('Source settings').first().click()
+  await expect(details).toHaveAttribute('open', '')
   expect(s.unmocked).toEqual([])
 })
 

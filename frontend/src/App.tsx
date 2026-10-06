@@ -1,12 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { AuthUser } from './api/auth'
 import { api } from './api/client'
-import type { MetaResponse } from './api/types'
+import { useMediaQuery } from './hooks/useMediaQuery'
+import { useDetailsMenu } from './hooks/useDetailsMenu'
+import { JobsProvider } from './hooks/JobsProvider'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
+import AdminPage from './pages/Admin'
 import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
+import { JobsMenu } from './components/JobsMenu'
 import { NotificationBell } from './components/NotificationBell'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
 import { ThemeMenu } from './components/ThemeMenu'
@@ -14,61 +18,51 @@ import ComicPage from './pages/Comic'
 import BenchmarkPage from './pages/Benchmark'
 import DiagnosticsPage from './pages/Diagnostics'
 import DiscoverPage from './pages/Discover'
+import JobsPage from './pages/Jobs'
 import LibraryPage from './pages/Library'
+import LibraryToolsPage from './pages/LibraryTools'
 import LivePage from './pages/Live'
 import LoginPage from './pages/Login'
 import ReaderPage from './pages/Reader'
+import SavedMangaPage from './pages/SavedManga'
+import SavedMangaReader from './pages/SavedMangaReader'
 import SettingsPage from './pages/Settings'
 import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
+import { CommandPalette } from './nav/CommandPalette'
+import { useHiddenNav } from './nav/hiddenNav'
+import { NavDrawer } from './nav/NavDrawer'
+import { SideNav } from './nav/SideNav'
+import { useRailCollapsed } from './nav/useRailCollapsed'
 import { ReportProblemButton } from './report/ReportProblem'
+import { usePcOnly } from './hooks/usePcOnly'
 import { routeHref, useRoute } from './router'
-import type { Route } from './router'
 
+// Shown only when the server can't be reached; the version lives in
+// Diagnostics and in problem reports, where it is useful.
 function ApiStatus() {
-  const [meta, setMeta] = useState<MetaResponse | null>(null)
   const [down, setDown] = useState(false)
 
   useEffect(() => {
-    api.meta().then(setMeta, () => setDown(true))
+    api.meta().catch(() => setDown(true))
   }, [])
 
-  if (down) return <span className="badge bad">API unreachable</span>
-  if (!meta) return <span className="badge">Connecting…</span>
+  if (!down) return null
   return (
-    <span className="badge ok" data-testid="api-status">
-      API v{meta.api_version}{meta.environment ? ` · ${meta.environment}` : ''}
+    <span className="badge bad" data-testid="api-status" title="Check that Baihe Studio is still running on this PC.">
+      Can't reach Baihe
     </span>
   )
 }
 
 // Signed in with auth on: the account and "Sign out". Absent with auth off.
 function UserMenu({ user }: { user: AuthUser }) {
-  const ref = useRef<HTMLDetailsElement>(null)
+  const ref = useDetailsMenu()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const label = user.email ?? user.display_name ?? 'Signed in'
-
-  // Close on a click elsewhere or Escape, like a menu.
-  useEffect(() => {
-    const close = (e: Event) => {
-      const el = ref.current
-      if (!el?.open) return
-      if (e instanceof KeyboardEvent) {
-        if (e.key !== 'Escape') return
-        el.open = false
-        el.querySelector('summary')?.focus()
-      } else if (!el.contains(e.target as Node)) el.open = false
-    }
-    document.addEventListener('pointerdown', close)
-    document.addEventListener('keydown', close)
-    return () => {
-      document.removeEventListener('pointerdown', close)
-      document.removeEventListener('keydown', close)
-    }
-  }, [])
 
   async function onSignOut() {
     setBusy(true)
@@ -102,24 +96,27 @@ function UserMenu({ user }: { user: AuthUser }) {
   )
 }
 
-// [label, target, route names that count as being on this page]
-const NAV: [string, Route, Route['name'][]][] = [
-  ['Library', { name: 'library' }, ['library', 'drama', 'read', 'comic']],
-  ['Translate', { name: 'translate' }, ['translate']],
-  ['Sources', { name: 'sources' }, ['sources']],
-  ['Discover', { name: 'discover' }, ['discover']],
-  ['Live', { name: 'live' }, ['live']],
-  ['Settings', { name: 'settings' }, ['settings']],
-  ['Diagnostics', { name: 'diagnostics' }, ['diagnostics', 'benchmark']],
-]
-// Shown only with Developer Mode on (Settings; PC only).
-const ASSISTANT_NAV: [string, Route, Route['name'][]] = ['Assistant', { name: 'assistant' }, ['assistant']]
+// List and card pages use the wider column; forms and reading pages keep the 1200px cap.
+const WIDE_ROUTES: ReadonlySet<string> = new Set([
+  'library',
+  'library-tools',
+  'jobs',
+  'sources',
+  'discover',
+  'diagnostics',
+  'manga',
+  'manga-series',
+])
 
 export default function App() {
   const route = useRoute()
   const session = useSession()
   const view = gateView(session)
   const developerMode = useDeveloperMode(view === 'app')
+  const pcMode = usePcOnly()
+  const [hidden] = useHiddenNav(session)
+  const wide = useMediaQuery('(min-width: 1024px)')
+  const [railCollapsed, toggleRail] = useRailCollapsed()
 
   if (view === 'connecting') {
     return (
@@ -132,38 +129,46 @@ export default function App() {
     return <LoginPage configured={session.status !== 'ready' || session.me.sign_in_configured} />
   }
   const user = menuUser(session)
+  const navContext = { session, pcMode, developerMode, hidden }
 
-  return (
+  const headerEnd = (
+    <div className="header-end">
+      <CommandPalette route={route} context={navContext} />
+      <JobsMenu />
+      <NotificationBell />
+      <ReportProblemButton />
+      <ThemeMenu />
+      <ApiStatus />
+      {user && <UserMenu user={user} />}
+    </div>
+  )
+
+  // Header and nav stay outside the boundary so a crashed page can still be left.
+  const content = (
     <>
-      <header className="app-header">
-        <h1>Baihe Studio</h1>
-        <nav aria-label="Main">
-          {(developerMode ? [...NAV, ASSISTANT_NAV] : NAV).map(([label, target, active]) => (
-            <a
-              key={label}
-              href={routeHref(target)}
-              aria-current={active.includes(route.name) ? 'page' : undefined}
-            >
-              {label}
-            </a>
-          ))}
-        </nav>
-        <div className="header-end">
-          <NotificationBell />
-          <ReportProblemButton />
-          <ThemeMenu />
-          <ApiStatus />
-          {user && <UserMenu user={user} />}
-        </div>
-      </header>
       <RemoteHealthBanner />
-      {/* Header and nav stay outside the boundary so a crashed page can still be left. */}
       <RouteErrorBoundary>
         {route.name === 'library' && <LibraryPage />}
+        {route.name === 'library-tools' && <LibraryToolsPage />}
         {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
         {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
         {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
+        {route.name === 'manga' && <SavedMangaPage />}
+        {route.name === 'manga-series' && (
+          <SavedMangaPage key={`${route.source}/${route.series}`} source={route.source} series={route.series} />
+        )}
+        {route.name === 'manga-read' && (
+          <SavedMangaReader
+            key={`${route.source}/${route.series}/${route.chapter}`}
+            source={route.source}
+            series={route.series}
+            chapter={route.chapter}
+            page={route.page}
+          />
+        )}
+        {route.name === 'jobs' && <JobsPage />}
         {route.name === 'settings' && <SettingsPage />}
+        {route.name === 'admin' && <AdminPage />}
         {route.name === 'translate' && <TranslatePage />}
         {route.name === 'sources' && <SourcesPage />}
         {route.name === 'discover' && <DiscoverPage />}
@@ -173,5 +178,30 @@ export default function App() {
         {route.name === 'benchmark' && <BenchmarkPage compare={route.compare} />}
       </RouteErrorBoundary>
     </>
+  )
+
+  // One tree at every width, so crossing 1024px keeps the open page (and a playing video) mounted.
+  return (
+    <JobsProvider>
+      <div className={wide ? 'app-shell has-rail' : 'app-shell'}>
+        {wide && <SideNav route={route} context={navContext} collapsed={railCollapsed} onToggle={toggleRail} />}
+        <div className="app-main" data-width={WIDE_ROUTES.has(route.name) ? 'wide' : undefined}>
+          {wide ? (
+            <header className="app-header">{headerEnd}</header>
+          ) : (
+            <header className="app-header">
+              <NavDrawer route={route} context={navContext} />
+              <h1>
+                <a href={routeHref({ name: 'library' })}>
+                  Baihe<span className="title-rest"> Studio</span>
+                </a>
+              </h1>
+              {headerEnd}
+            </header>
+          )}
+          {content}
+        </div>
+      </div>
+    </JobsProvider>
   )
 }

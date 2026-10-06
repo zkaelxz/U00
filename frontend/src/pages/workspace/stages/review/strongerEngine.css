@@ -1,7 +1,11 @@
 /* Step 99 "Try with a stronger engine" on a Review line (StrongerEngine.tsx). */
-.review-stronger { display: grid; gap: var(--space-1); margin-top: var(--space-1); padding: var(--space-1) var(--space-2); border-left: 3px solid var(--accent); font-size: var(--font-sm); min-width: 0; overflow-wrap: anywhere; }
+.review-stronger { display: grid; gap: var(--space-1); margin-top: var(--space-1); padding: var(--space-1) var(--space-2); border-left: 3px solid var(--accent); font-size: var(--text-sm); min-width: 0; overflow-wrap: anywhere; }
 .review-stronger-offer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-2); min-width: 0; }
 .review-stronger-offer > span { min-width: 0; }
 .review-stronger .review-actions { margin-top: 0; }
-.review-stronger .review-ai-compare { font-size: 0.95rem; color: var(--text); }
+.review-stronger .review-ai-compare { font-size: var(--text-md); color: var(--text); }
 .review-stronger p { margin: 0; }
+
+@media (max-width: 640px) {
+  .review-stronger, .review-stronger-offer { gap: var(--space-3); }
+}

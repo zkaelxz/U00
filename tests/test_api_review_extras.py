@@ -254,7 +254,7 @@ class TestLearnStyle:
 
     def test_translation_only_engine_refused(self, client, fake_engine):
         did, _ = _style_drama()
-        _error(client.post(f"{BASE}/{did}/style/learn", json={"engine": "deepl"}), 400,
+        _error(client.post(f"{BASE}/{did}/style/learn", json={"engine": "nllb"}), 400,
                "unsupported_operation")
 
     def test_apply_toggle_pauses_the_profile_everywhere(self, client, monkeypatch, fake_engine):
@@ -516,7 +516,7 @@ class TestSenseVoice:
         monkeypatch.setattr(workspace_job_service.core_module, "release_gpu_models", lambda: None)
         seen = {}
 
-        def tag_lines(audio_path, lines, use_gpu=False, progress_cb=None):
+        def tag_lines(audio_path, lines, use_gpu=False, progress_cb=None, cancel_check=None):
             seen["audio"] = os.path.basename(audio_path)
             progress_cb(1.0)
             return {ids[1]: {"emotion": "sad", "events": ["Cry", "Speech"]}}

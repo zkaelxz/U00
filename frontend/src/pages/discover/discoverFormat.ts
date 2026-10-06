@@ -8,7 +8,7 @@ import type { BulkEntry, KnownTitle, KnownTitleCreate } from '../../types/discov
 
 export const MAX_BULK_URLS = 10 // discover_lookup_service.MAX_BULK_URLS
 export const MAX_PAGINATE_PAGES = 50 // bulk_import.MAX_PAGINATE_PAGES
-export const MAX_COMMIT_ENTRIES = 500
+const MAX_COMMIT_ENTRIES = 500
 
 export const LANGUAGES = [
   { code: 'zh', label: 'Chinese' },
@@ -22,15 +22,11 @@ export const PLATFORM_TYPES = ['novel', 'manhwa', 'manga', 'manhua', 'audio_dram
 export const TARGET_LANGUAGES = ['English', 'Vietnamese', 'Chinese', 'Japanese', 'Korean']
 
 // Engines the server accepts here (translate_engines supports_reference).
-const DISCOVER_ENGINE_IDS = new Set(['claude', 'deepseek', 'gemini', 'ollama', 'test_offline'])
+const DISCOVER_ENGINE_IDS = new Set(['claude', 'deepseek', 'gemini', 'openai', 'ollama'])
 
 /** Picker entries: engines the Discover routes accept that have a key (or need none). */
 export function discoverEngines(all: TranslateEngine[]): TranslateEngine[] {
   return all.filter((e) => DISCOVER_ENGINE_IDS.has(e.name) && e.key_configured)
-}
-
-export function languageLabel(code: string | null | undefined): string {
-  return humanize('language', code) || '—'
 }
 
 export function mediaLabel(type: string | null | undefined): string {

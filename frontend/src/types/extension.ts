@@ -1,4 +1,4 @@
-// Mirrors api/schemas.py Extension* (/api/extension, PC only).
+// Mirrors api/schemas/system.py Extension* (/api/extension, PC only).
 import type { TranslateEngine } from './translate'
 
 // No port and no token, ever.
@@ -7,8 +7,8 @@ export interface ExtensionStatus {
   running: boolean
 }
 
-// restart_needed: turned off, but the running endpoint keeps serving
-// until Baihe restarts.
+// restart_needed: turned off, but the endpoint could not be stopped and
+// keeps serving until Baihe restarts. Normally false: off stops it at once.
 export interface ExtensionEnabledResult extends ExtensionStatus {
   restart_needed: boolean
 }

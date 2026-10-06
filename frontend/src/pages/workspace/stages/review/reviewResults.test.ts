@@ -21,7 +21,7 @@ import {
 
 const line = (id: number, idx: number): ReviewLine => ({
   id, idx, start: 0, end: 1, zh: 'z', en: 'e', speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null,
 })
 
 describe('AI check bodies (R50/R33)', () => {
@@ -83,7 +83,7 @@ describe('coverage and pacing findings', () => {
     expect(groups.map((g) => g.title)).toEqual(['Long lines', 'Large gaps', 'Not translated'])
     expect(groups.every((g) => g.hint.length > 0)).toBe(true)
     expect(groups[0].items[0]).toMatchObject({ lineId: 40, where: '#5', text: '14.3s for 3 characters' })
-    expect(groups[1].items[0]).toMatchObject({ lineId: 11, where: 'after #2', text: '5.0s silent' })
+    expect(groups[1].items[0]).toMatchObject({ lineId: 11, where: 'After #2', text: '5.0s silent' })
     expect(groups[2].items[0]).toMatchObject({ lineId: 10, where: '#1', text: '你好' })
   })
   it('keeps a finding whose line is gone, without a link', () => {

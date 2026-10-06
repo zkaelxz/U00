@@ -7,6 +7,21 @@
 .settings-page .setting-list { margin: 0; }
 .settings-note { margin: 0; color: var(--muted); font-size: var(--text-sm); }
 
+/* Folds: one collapsible group per topic. Cards inside lose their box so a
+   fold is not a box in a box; their titles become sub-headings. */
+.settings-jump { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.settings-jump-link { min-height: 32px; padding: var(--space-1) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.settings-jump-link:hover { border-color: var(--accent); }
+.settings-fold { scroll-margin-top: var(--space-4); min-width: 0; }
+.settings-fold > details.section { margin: 0; padding: var(--space-2) var(--space-4); background: var(--surface); border-radius: var(--radius-lg); }
+.settings-fold > details.section > summary { font-size: var(--text-lg); }
+.settings-fold > details.section > summary .section-title { font-weight: var(--weight-bold); }
+.settings-fold > details.section > .section-body { gap: var(--space-5); }
+.settings-fold .card { padding: 0; border: 0; box-shadow: none; background: none; }
+.settings-fold .card-title { font-size: var(--text-md); }
+.settings-fold .section-body > .card + .card, .settings-fold .section-body > details.section { border-top: 1px solid var(--border); padding-top: var(--space-4); }
+.settings-fold-single .card-head .card-title { display: none; }
+
 /* One row per key or channel: name, status badge, action on the right; the
    form for that row opens underneath it. */
 .settings-page .status-list { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
@@ -20,11 +35,20 @@
 .settings-subhead { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--muted); }
 .settings-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 
-/* "Which engine does what": two small lists (Tasks, Engines) in one Card. */
+/* "Which engine does what": Tasks, then one Engines and keys list, in one Card. */
 .routing-heading { font-size: var(--text-sm); font-weight: var(--weight-bold); }
 .routing-task-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--text-sm); }
 .routing-card .status-list .settings-note, .routing-error { overflow-wrap: anywhere; }
 .routing-error { margin: 0; font-size: var(--text-sm); }
+.routing-error-details { font-size: var(--text-sm); }
+.routing-error-details summary { cursor: pointer; }
+
+/* The merged engine list is plain rows with dividers, not another bordered box. */
+.settings-page .status-list.engine-list { border: 0; border-radius: 0; background: none; }
+.settings-page .status-list.engine-list > li { padding-inline: 0; }
+.settings-page .status-list.engine-list > li:first-child { border-top: 1px solid var(--border); }
+.engine-row { flex-wrap: wrap; }
+.engine-row .status-row-name { flex-basis: 8rem; }
 
 /* Sharing: a drama in a series sits indented under its series. */
 .sharing-meta { display: block; font-weight: normal; }
@@ -32,8 +56,21 @@
 .sharing-status { font-size: var(--text-sm); color: var(--muted); }
 .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-6); }
 
+@media (pointer: coarse), (max-width: 640px) {
+  .settings-jump-link, .settings-fold > details.section > summary { min-height: 44px; }
+  .settings-fold > details.section > summary { align-items: center; }
+}
 @media (max-width: 640px) {
-  .settings-page { gap: var(--space-4); }
+  .settings-fold > details.section { padding-inline: var(--space-3); }
+  .settings-page { gap: var(--space-5); }
   .settings-page .status-list > li { padding-inline: var(--space-3); }
   .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-5); }
 }
+
+/* Text fields and buttons stack in one grid with the same gap as the Preferences cards;
+   .setting-list is only for label-left, switch-right rows. */
+.settings-form { display: grid; gap: var(--space-3); min-width: 0; }
+.settings-form > * { margin: 0; }
+.backup-status { display: grid; gap: var(--space-1); min-width: 0; }
+.backup-status > p, .backup-copies { margin: 0; }
+.backup-copies { padding-left: var(--space-5); }

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openTranscribeOptions } from './sourceHelpers'
 
 // Parity D03 (Expected speakers defaults to the last run), D06 (ask before
 // replacing hand-corrected speakers) and D04 (time estimates). The
@@ -40,7 +41,8 @@ async function mockSpeakers(page: Page, config: Record<string, unknown>) {
 async function openSpeakers(page: Page) {
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
-  await page.locator('details.section', { hasText: 'Speakers' }).first().locator(':scope > summary').click()
+  await openTranscribeOptions(page)
+  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
 }
 
 test('Expected speakers starts at the last run\'s count; corrections are kept by default (D03, D06)', async ({ page }) => {
@@ -77,6 +79,6 @@ test('no corrections: no replace switch; the time estimates show next to both bu
   await openSpeakers(page)
   await expect(page.getByTestId('manual-speakers')).toHaveCount(0)
   await expect(page.getByTestId('diarize-estimate')).toHaveText('Takes approx. 10 min to 20 min.')
-  await expect(page.getByTestId('transcribe-estimate')).toContainText('Takes approx.')
-  await expect(page.getByTestId('transcribe-estimate')).toContainText('on the ')
+  await expect(page.getByTestId('transcribe-estimate')).toContainText('Rough estimate')
+  await expect(page.getByTestId('transcribe-estimate')).toContainText(' on ')
 })

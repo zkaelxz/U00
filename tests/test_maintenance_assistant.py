@@ -194,11 +194,11 @@ def test_backlog_add_list_delete_clear(isolated_db):
 def test_developer_mode_off_by_default_and_validated(isolated_db):
     s = svc.get_settings()
     assert s["developer_mode"] is False and "claude" in s["engine_choices"]
-    assert "deepl" not in s["engine_choices"]
+    assert "nllb" not in s["engine_choices"]
     with pytest.raises(svc.InvalidInputError):
         svc.set_settings({"developer_mode": "yes"})
     with pytest.raises(svc.InvalidInputError):
-        svc.set_settings({"engine": "deepl"})
+        svc.set_settings({"engine": "nllb"})
     with pytest.raises(svc.InvalidInputError):
         svc.set_settings({"developer_mode": True, "bogus": 1})
     assert svc.get_settings()["developer_mode"] is False  # a bad batch changes nothing
@@ -407,7 +407,7 @@ def real_build(monkeypatch):
     """The real build_engine, with the engine constructor and cap check faked."""
     from services import line_ai_service, reader_service
     built = []
-    monkeypatch.setattr(reader_service, "_llm_engine", lambda name, model: built.append(name) or object())
+    monkeypatch.setattr(reader_service, "llm_engine", lambda name, model: built.append(name) or object())
     monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", lambda *a: None)
     return built
 
@@ -417,7 +417,7 @@ def test_default_engine_is_local(dev_mode, real_build):
     assert out["engine"] == "ollama" and real_build == ["ollama"]
     s = svc.get_settings()
     assert s["default_engine"] == "ollama" and "ollama" in s["local_engines"]
-    assert s["cloud_consent"] == {"claude": False, "deepseek": False, "gemini": False}
+    assert all(s["cloud_consent"][e] is False for e in ("claude", "deepseek", "gemini"))
 
 
 def test_cloud_engine_needs_saved_consent_for_ask_and_changelog(dev_mode, real_build, monkeypatch):
@@ -438,7 +438,7 @@ def test_cloud_engine_needs_saved_consent_for_ask_and_changelog(dev_mode, real_b
 
 
 def test_cloud_consent_is_validated(isolated_db):
-    for bad in ({"test_offline": True}, {"deepl": True}, {"claude": "yes"}, ["claude"]):
+    for bad in ({"nllb": True}, {"claude": "yes"}, ["claude"]):
         with pytest.raises(svc.InvalidInputError):
             svc.set_settings({"cloud_consent": bad})
 
@@ -556,7 +556,7 @@ def test_remote_ollama_consent_is_saved_and_shown(isolated_db, monkeypatch):
 @pytest.fixture
 def keys(monkeypatch):
     """Which engines have a key; Ollama and the offline engine always do."""
-    have = {"ollama", "test_offline"}
+    have = {"ollama", "fake"}
     monkeypatch.setattr(svc, "_key_set", lambda name: name in have)
     return have
 
@@ -589,7 +589,7 @@ def test_saved_ladder_order_is_kept_and_skips_missing_keys(isolated_db, keys):
 
 
 @pytest.mark.parametrize("bad", [["ollama", "ollama"], ["ollama", "gemini", "claude", "deepseek"],
-                                 ["deepl"], [None], "ollama", [1]])
+                                 ["nllb"], [None], "ollama", [1]])
 def test_tier_order_is_validated(isolated_db, bad):
     with pytest.raises(svc.InvalidInputError):
         svc.set_settings({"tiers": bad})
@@ -692,7 +692,7 @@ def test_a_failed_tier_offers_the_next_without_calling_it(dev_mode, real_build, 
         engines.append(engine)
         raise raised
 
-    monkeypatch.setattr(qa, "_dispatch_chat", boom)
+    monkeypatch.setattr(qa, "dispatch_chat", boom)
     with pytest.raises(svc.ServiceError) as e:
         svc.ask("x")
     assert e.value.details == {"reason": reason, "engine": "ollama", "tier": 1,
@@ -719,7 +719,7 @@ def test_a_used_up_spending_cap_is_reported_and_nothing_is_sent(dev_mode, keys, 
     def capped(*a):
         raise svc.UnsupportedOperationError("This month's spending cap ($5.00) is already used up.")
 
-    monkeypatch.setattr(reader_service, "_llm_engine", lambda name, model: object())
+    monkeypatch.setattr(reader_service, "llm_engine", lambda name, model: object())
     monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", capped)
     chat = ScriptedChat("y")
     with pytest.raises(svc.UnsupportedOperationError) as e:
@@ -746,7 +746,7 @@ def test_api_escalation_consent_and_errors_carry_no_key(isolated_db, real_build,
     def rate_limited(*a, **k):
         raise RuntimeError(f"429 Too Many Requests {FAKE_KEY}")
 
-    monkeypatch.setattr(qa, "_dispatch_chat", rate_limited)
+    monkeypatch.setattr(qa, "dispatch_chat", rate_limited)
     r = c.post("/api/assistant/ask", json={"question": "x"})
     assert r.status_code == 500 and FAKE_KEY not in r.text
     assert r.json()["error"]["details"] == {"reason": "rate_limited", "engine": "ollama", "tier": 1,

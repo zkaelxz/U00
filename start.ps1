@@ -13,7 +13,7 @@
 #
 #   .\start.ps1              # normal launch
 #   .\start.ps1 -Portable    # also turns on portable mode for this run
-#   .\start.ps1 -BuildFrontend  # developers: build frontend\dist with npm
+#   .\start.ps1 -BuildFrontend  # developers: rebuild frontend\dist with npm
 #                            if it's missing (needs Node.js)
 #   .\start.ps1 -PythonVersion 3.12  # Step 79: pin the Python version
 #                            used to create the venv, via the `py`
@@ -111,7 +111,7 @@ if ($LASTEXITCODE -ne 0) {
     } elseif (-not (Get-Command python -ErrorAction SilentlyContinue)) {
         Write-Host "Python wasn't found on PATH."
         Write-Host ""
-        Write-Host "Install Python 3.9 or newer from https://python.org/downloads/"
+        Write-Host "Install Python 3.10 or newer from https://python.org/downloads/"
         Write-Host "and make sure to tick 'Add python.exe to PATH' during setup,"
         Write-Host "then run this again."
     } else {
@@ -164,7 +164,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 
 # The frontend ships prebuilt (docs/RELEASE.md); npm only runs with -BuildFrontend.
-if (-not (Test-Path "frontend\dist\index.html")) {
+if ($BuildFrontend -or -not (Test-Path "frontend\dist\index.html")) {
     if ($BuildFrontend) {
         if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
             Write-Host "-BuildFrontend needs Node.js and npm, and they weren't found on PATH."

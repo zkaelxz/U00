@@ -1,6 +1,6 @@
 """
 sources/http.py -- the one paced HTTP client every adapter and the
-generic importer go through (Step 23 items 2, 3, 3b, 4).
+generic importer go through.
 
 What it guarantees, structurally rather than by convention:
   * Human-paced: a random 1-3s gap (configurable) between requests to
@@ -22,7 +22,7 @@ What it guarantees, structurally rather than by convention:
   * The raw-content cache is consulted before the network.
   * Live counters (requests, cache hits, current action, current delay)
     for the Source Access status view.
-  * Conditional re-polls (Step 106): inside conditional_poll(), a GET of
+  * Conditional re-polls: inside conditional_poll(), a GET of
     the poll's one known URL carries If-None-Match / If-Modified-Since,
     and a 304 raises NotModified so the caller can skip the parse.
 """
@@ -44,6 +44,8 @@ from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REA
                      FailureReason, FetchFailed, SourceUnavailable)
 
 DEFAULT_TIMEOUT = 20
+# Cap on any one retry wait, a server's Retry-After included, so a single
+# wait can't stall a job for minutes.
 MAX_SINGLE_BACKOFF = 60.0
 
 # Body limits for the real transport (security review MED-1): the body is
@@ -87,7 +89,7 @@ def clean_validator(value) -> str:
 
 @dataclass
 class ConditionalPoll:
-    """One chapter-list re-poll (Step 106). `url`/`etag`/`last_modified`
+    """One chapter-list re-poll. `url`/`etag`/`last_modified`
     are the validators saved by the previous poll; while the poll is
     active, every request made on this thread (any SourceClient) is
     recorded, so validators are only kept for a poll that was exactly one
@@ -195,7 +197,7 @@ class Response:
     # Cookies the response actually set, read via requests' own cookiejar
     # rather than a plain `headers` lookup: a response can carry several
     # Set-Cookie lines, and plain-dict header merging (below) only keeps
-    # the last one -- mangaz.com's own login-ticket exchange (Step 23l)
+    # the last one -- mangaz.com's own login-ticket exchange
     # needs a specific cookie by name regardless of Set-Cookie order.
     cookies: dict = field(default_factory=dict)
 
@@ -321,7 +323,7 @@ class UnsafeRedirect(FetchFailed):
     """A request (or one of its redirect hops) targeted a non-public or
     non-http(s) address, or the redirect chain was too long. The message is
     fixed: no URL or IP is echoed. Never retried, and the access ladder
-    stops on it rather than trying a browser tier (B-25 review M3)."""
+    stops on it rather than trying a browser tier."""
 
     def __init__(self, message: str = "", reason: FailureReason = FailureReason.ACCESS_DENIED,
                  attempt=None):
@@ -367,7 +369,7 @@ class FetchLimits:
     clock: object = time.monotonic
 
 
-def _header(headers, name: str) -> str:
+def header(headers, name: str) -> str:
     for k, v in (headers or {}).items():
         if k.lower() == name:
             return str(v)
@@ -490,13 +492,13 @@ def _read_body(r, limits: FetchLimits, deadline_at: float) -> bytes:
     (BodyDecoder), checking cancel and the deadline between every raw
     piece and every decode step. Both the raw and the decoded bytes are
     counted against the cap, so a compressed bomb is capped too."""
-    ctype = _header(r.headers, "content-type").lower()
+    ctype = header(r.headers, "content-type").lower()
     cap = limits.max_image_bytes if ctype.startswith("image/") else limits.max_page_bytes
-    length = _header(r.headers, "content-length").strip()
+    length = header(r.headers, "content-length").strip()
     if length.isdigit() and int(length) > cap:
         raise ResponseTooLarge()
     check = lambda: _check_limits(limits, deadline_at)  # noqa: E731
-    decoder = BodyDecoder(_header(r.headers, "content-encoding"), cap, check)
+    decoder = BodyDecoder(header(r.headers, "content-encoding"), cap, check)
     chunks, raw_total = [], 0
     while True:
         check()
@@ -511,10 +513,10 @@ def _read_body(r, limits: FetchLimits, deadline_at: float) -> bytes:
     return b"".join(chunks)
 
 
-def _ascii_url(url: str) -> str:
+def ascii_url(url: str) -> str:
     """The URL with its host in the exact ASCII form requests will connect
     to (UTS46 IDNA, lowercased), so the name that is validated, pinned and
-    sent is one and the same (B-25 review H1: getaddrinfo's IDNA2003 maps
+    sent is one and the same (getaddrinfo's IDNA2003 maps
     'ß' to 'ss', requests' UTS46 keeps it -- two different hosts)."""
     try:
         parts = urlsplit(url)
@@ -539,7 +541,7 @@ def _ascii_url(url: str) -> str:
 
 
 def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits = None):
-    """One request, following redirects by hand (B-25): every hop -- the
+    """One request, following redirects by hand: every hop -- the
     first included -- must be http(s) with a host whose every resolved
     address is global (services.url_guard). Without a proxy the connection
     is pinned to the validated address (Host header, SNI and certificate
@@ -555,7 +557,7 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
     deadline_at = limits.clock() + float(limits.deadline)
 
     session = _thread_session()
-    # Step 98: route through a configured proxy, if one is set. Applied
+    # Route through a configured proxy, if one is set. Applied
     # here rather than baked into the session (session.proxies would
     # persist across a settings change within the same thread/process
     # lifetime) so a change takes effect on the very next request.
@@ -569,7 +571,7 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
         cur_headers["Accept-Encoding"] = ACCEPT_ENCODING
     for _ in range(MAX_REDIRECTS + 1):
         _check_limits(limits, deadline_at)
-        current = _ascii_url(current)
+        current = ascii_url(current)
         try:
             ip = url_guard.resolve_public(current)
         except url_guard.UnsafeURLError:
@@ -578,7 +580,7 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
             raise _resolve_error(e) from None
         host = (urlsplit(current).hostname or "").lower()
         # The adapter decides from the proxies requests actually uses
-        # whether to pin (B-25 review M1); it refuses on any host mismatch.
+        # whether to pin; it refuses on any host mismatch.
         _tls.pin = (host, ip)
         try:
             r = session.request(cur_method, current, headers=cur_headers, data=cur_data,
@@ -598,7 +600,7 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
         nxt = urljoin(current, location)
         # Conditional validators belong to the URL they were saved for (a
         # browser sends them only for its cached URL): never to a redirect
-        # target, which could answer 304 for something else (Step 106).
+        # target, which could answer 304 for something else.
         cur_headers = {k: v for k, v in cur_headers.items()
                        if k.lower() not in _CONDITIONAL_HEADERS}
         if _should_strip_auth(current, nxt):
@@ -710,6 +712,9 @@ def _pinning_adapter():
     return _PinningAdapter()
 
 
+# One requests.Session per thread: Session is not documented as thread-safe,
+# and fetches run on several threads at once (registry.multi_search's pool,
+# background jobs, the chapter-check scheduler).
 _tls = threading.local()
 
 
@@ -725,6 +730,16 @@ def _thread_session():
 def _is_timeout(exc) -> bool:
     name = type(exc).__name__.lower()
     return "timeout" in name
+
+
+def mirror_unreachable(exc) -> bool:
+    """True when a FetchFailed means "this mirror/domain can't be reached
+    right now" (network error, timeout, 5xx or 429 after retries), so the
+    next one may be tried. A 404, a refusal or a challenge is never this."""
+    return exc.reason in (FailureReason.HTTP_ERROR, FailureReason.SERVER_ERROR,
+                          FailureReason.TIMEOUT, FailureReason.RATE_LIMIT) and \
+        (exc.attempt is None or not exc.attempt.http_status
+         or exc.attempt.http_status >= 500 or exc.attempt.http_status == 429)
 
 
 def _is_connection_error(exc) -> bool:
@@ -1027,7 +1042,11 @@ class SourceClient:
                                                        at=time.time(), **ev))
                     if record_health:
                         health.record_success(self.source, latency)
-                    if cacheable:
+                    # Content a redirect fetched from another host, or over a
+                    # downgraded scheme, is never stored under the URL that
+                    # was asked for.
+                    if cacheable and _host_key(resp.url or url) == _host_key(url) \
+                            and urlsplit(resp.url or url).scheme == urlsplit(url).scheme:
                         self.cache.put(url, resp.content)
                     if is_page and method.upper() == "GET":
                         self.last_page = (resp.url or url, body)
@@ -1041,6 +1060,8 @@ class SourceClient:
                 reason = reasons[0] if reasons else FailureReason.HTTP_ERROR
                 attempt = AttemptRecord(tier=AccessTier.STATIC_HTTP.value, ok=False,
                                         reason=reason.value, at=time.time(), **ev)
+                # A challenge is never retried or routed around: it stops
+                # every automated request and goes to the person.
                 if reason in CHALLENGE_REASONS:
                     self.attempts.append(attempt)
                     if record_health:
@@ -1057,6 +1078,8 @@ class SourceClient:
                 backoff = min(self.policy.backoff_base * (2 ** attempt_no), MAX_SINGLE_BACKOFF)
                 retry_hdr = (resp.headers if resp is not None else {})
                 ra = {k.lower(): v for k, v in retry_hdr.items()}.get("retry-after")
+                # Retry-After can only lengthen the wait, never past the cap;
+                # only the delta-seconds form is read (an HTTP-date is ignored).
                 if ra and str(ra).strip().isdigit():
                     backoff = min(max(backoff, float(ra)), MAX_SINGLE_BACKOFF)
                 attempt_no += 1
@@ -1133,10 +1156,7 @@ class SourceClient:
                 st["good_mirror"] = base
                 raise
             except FetchFailed as e:
-                if e.reason in (FailureReason.HTTP_ERROR, FailureReason.SERVER_ERROR,
-                                FailureReason.TIMEOUT, FailureReason.RATE_LIMIT) and \
-                        (e.attempt is None or not e.attempt.http_status
-                         or e.attempt.http_status >= 500 or e.attempt.http_status == 429):
+                if mirror_unreachable(e):
                     errors.append(f"{base}: {e}")
                     continue
                 if e.reason != FailureReason.NOT_FOUND:

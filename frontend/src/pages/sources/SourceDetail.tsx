@@ -115,10 +115,13 @@ export function SourceDetail({ name, onHealth, onSignin }: Props) {
   )
 }
 
+const ATTEMPTS_SHOWN = 3
+
 /** "Recent attempts": fetched the first time it is opened. */
 function Attempts({ name }: { name: string }) {
   const [rows, setRows] = useState<SourceAttempt[] | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [showAll, setShowAll] = useState(false)
 
   function onToggle(open: boolean) {
     if (!open || rows) return
@@ -133,7 +136,7 @@ function Attempts({ name }: { name: string }) {
       {rows && !rows.length && <p className="muted">No attempts yet.</p>}
       {rows && rows.length > 0 && (
         <ul className="sources-attempts">
-          {rows.map((a, i) => (
+          {(showAll ? rows : rows.slice(0, ATTEMPTS_SHOWN)).map((a, i) => (
             <li key={`${a.created_at ?? 0}-${i}`}>
               {a.url} · {humanize(a.technical_status)} ·{' '}
               <time dateTime={isoTime(a.created_at)}>{ago(a.created_at)}</time>
@@ -150,6 +153,11 @@ function Attempts({ name }: { name: string }) {
             </li>
           ))}
         </ul>
+      )}
+      {rows && rows.length > ATTEMPTS_SHOWN && (
+        <button type="button" className="link" onClick={() => setShowAll((v) => !v)}>
+          {showAll ? 'Show fewer' : `Show all (${rows.length})`}
+        </button>
       )}
     </Section>
   )

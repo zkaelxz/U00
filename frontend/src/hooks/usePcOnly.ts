@@ -6,7 +6,7 @@
  *   const pc = usePcOnly()
  *   {pc === 'remote' ? <p className="muted">Deleting is PC only.</p> : <ConfirmButton ... />}
  *
- * Remote-mode rules (docs spec "Shared pieces"):
+ * Remote-mode rules:
  *   - a whole PC-only block keeps its Section title, summary "PC only", body
  *     "Run this on the main PC." (see PC_ONLY_SUMMARY / PC_ONLY_BODY);
  *   - per-row PC-only deletes are not rendered; show one muted line instead;
@@ -24,8 +24,8 @@ export type { PcMode }
 export const PC_ONLY_SUMMARY = 'PC only'
 export const PC_ONLY_BODY = 'Run this on the main PC.'
 export const PC_ONLY_DELETE_NOTE = 'Deleting is PC only.'
-export const PC_CHECKING = 'Checking whether this is the main PC…'
-export const PC_UNCONFIRMED = "Couldn't confirm this is the main PC."
+const PC_CHECKING = 'Checking whether this is the main PC…'
+const PC_UNCONFIRMED = "Couldn't confirm this is the main PC."
 
 export function usePcOnly(): PcMode {
   const mode = useSyncExternalStore(subscribePcMode, getPcMode, getPcMode)

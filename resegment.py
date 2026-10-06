@@ -1,5 +1,5 @@
 """
-resegment.py -- meaning-based subtitle re-segmentation (Step 6c, idea from
+resegment.py -- meaning-based subtitle re-segmentation (idea from
 VideoLingo's core/_3_1_split_nlp.py and _3_2_split_meaning.py).
 
 A transcribed line's boundaries come from Whisper's voice-activity
@@ -34,6 +34,7 @@ import json
 import re
 
 import subtitle_formats
+from core import LANGUAGE_NAMES
 
 # Split AFTER one of these (and after any run of closing punctuation,
 # quotes and spaces that follows it, so "……" or "。」" stay whole).
@@ -60,12 +61,13 @@ LLM_MAX_ATTEMPTS = 3
 
 
 def max_line_chars(language: str) -> int:
-    """A line longer than a two-line subtitle cue is "too long" -- the same
-    per-language line limits Step 6b's export wrapping uses, doubled."""
+    """A line longer than a two-line subtitle cue is "too long": twice the
+    per-language subtitle line limit (LINE_CHAR_LIMITS). Export wrapping takes
+    its own limits from the caller, so this is only the re-split threshold."""
     return 2 * subtitle_formats.line_char_limit(language)
 
 
-def _length(text: str) -> int:
+def length(text: str) -> int:
     return len(text.strip())
 
 
@@ -141,12 +143,12 @@ def rule_split_spans(text: str, language: str, max_chars: int, bounds=None) -> l
     min_chars = max(2, max_chars // 4)
 
     def split(s, e):
-        if _length(text[s:e]) <= max_chars:
+        if length(text[s:e]) <= max_chars:
             return [(s, e)]
         mid = (s + e) / 2
         for cuts in candidates:
             ok = [c for c in cuts if s < c < e
-                  and _length(text[s:c]) >= min_chars and _length(text[c:e]) >= min_chars]
+                  and length(text[s:c]) >= min_chars and length(text[c:e]) >= min_chars]
             if ok:
                 c = min(ok, key=lambda c: abs(c - mid))
                 return split(s, c) + split(c, e)
@@ -158,9 +160,9 @@ def rule_split_spans(text: str, language: str, max_chars: int, bounds=None) -> l
 # ---------------------------------------------------------------- LLM pass
 
 def _llm_prompt(text: str, language: str, max_chars: int) -> str:
-    lang = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(language, "Chinese")
+    lang = LANGUAGE_NAMES.get(language, "Chinese")
     return (
-        f"This {lang} subtitle line is too long to read in one go ({_length(text)} characters; "
+        f"This {lang} subtitle line is too long to read in one go ({length(text)} characters; "
         f"a subtitle should be at most about {max_chars}). Split it into two or more shorter "
         f"subtitles at natural meaning boundaries -- between clauses or ideas, never inside a "
         f"word or a name.\n\n"
@@ -257,7 +259,7 @@ def split_times(line, pieces, segments=None) -> list:
     there are any and they give a usable answer; otherwise splits the
     line's time in proportion to each piece's length."""
     start, end, n = line.start, line.end, len(pieces)
-    weights = [max(_length(p), 1) for p in pieces]
+    weights = [max(length(p), 1) for p in pieces]
     total = sum(weights)
     proportional = [start + (end - start) * sum(weights[:k]) / total for k in range(1, n)]
 
@@ -296,13 +298,13 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
     new_lines, changed = [], []
     for ln in lines:
         text = ln.zh or ""
-        if _length(text) <= max_chars:
+        if length(text) <= max_chars:
             new_lines.append(dataclasses.replace(ln, merged_ids=list(ln.merged_ids)))
             continue
         bounds = boundaries_fn(text, language, chinese_script)
         spans = []
         for s, e in rule_split_spans(text, language, max_chars, bounds):
-            if engine is not None and _length(text[s:e]) > max_chars:
+            if engine is not None and length(text[s:e]) > max_chars:
                 local = {b - s for b in bounds if s <= b <= e} if bounds is not None else None
                 sub = llm_split_spans(text[s:e], engine, language, max_chars, local, usage_cb)
                 if sub:
@@ -318,7 +320,7 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
         for k, piece in enumerate(pieces):
             new_lines.append(Line(idx=0, start=edges[k], end=edges[k + 1], zh=piece,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                  sfx=ln.sfx))
+                                  sfx=ln.sfx, lang=ln.lang))
         changed.append((ln, pieces))
     for i, ln in enumerate(new_lines):
         ln.idx = i
@@ -326,9 +328,9 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
 
 
 def resegment_subprocess_worker(lines, language, engine, segments, chinese_script, result_queue):
-    """Step 4e: entry point for running resegment_lines() in its own OS
+    """Entry point for running resegment_lines() in its own OS
     process via background_jobs.start_process_job(), so Cancel can
-    actually stop it. Confirmed the lowest-risk of the three Step 4e
+    actually stop it. Confirmed the lowest-risk of the three
     cases to hard-stop: resegment_lines is a pure in-memory computation
     -- no DB write, no file write, anywhere in it. Its result only ever
     reaches the caller as a preview; the actual DB save happens later,

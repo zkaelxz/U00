@@ -1,6 +1,5 @@
 """
-sources/adapters/kuaikan.py -- 快看漫画 Kuaikan Manhua (zh manhua),
-roadmap Step 23i.
+sources/adapters/kuaikan.py -- 快看漫画 Kuaikan Manhua (zh manhua).
 
 **No Keiyoushi/Mihon extension exists for this site** (its old one was
 removed as broken, confirmed via that repo's own issue #507) -- unlike
@@ -51,12 +50,13 @@ different -- and better -- picture:
     against the same pages evaluated with a real, sandboxed Node.js `vm`
     context used only for this research, confirming the parser's output is
     correct, not just plausible.
-  - **Net result: no browser-rendered tier is needed for this adapter at
-    all.** Series details, the full chapter list, and page images are all
-    recovered from one plain `STATIC_HTTP` GET per page plus this one
-    deterministic decode step -- simpler and more reliable than the
-    roadmap's own browser-tier plan, once you know to read the embedded
-    state instead of the rendered DOM.
+  - The adapter is therefore built as `STATIC_HTTP` only: series details,
+    the full chapter list, and page images come from one plain GET per
+    page plus this one deterministic decode step. That "no browser tier
+    needed" finding is NOT confirmed on a real user machine: an owner
+    report (2026-10) got an empty SPA shell from a plain fetch, and the
+    browser tier has not been run for this site. See the Kuaikan section
+    of docs/content-sources.md for the current status.
 
 **What could not be verified this pass, recorded honestly:** a real
 headless-browser render of this site could not be exercised in this

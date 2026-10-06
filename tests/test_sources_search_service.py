@@ -172,13 +172,13 @@ def test_second_start_conflicts_and_finished_is_cleared(fakes, monkeypatch):
     _wait("sources_search")
 
 
-def test_result_404_after_clear_and_for_foreign_ids(fakes):
+def test_result_idle_after_clear_and_404_for_foreign_ids(fakes):
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
     svc.start_search("abc")
     _wait("sources_search")
     background_jobs.clear_job("sources_search")
-    with pytest.raises(NotFoundError):
-        svc.get_job_result("sources_search")
+    assert svc.get_job_result("sources_search") == {
+        "job_id": "", "status": "idle", "progress": 0.0, "message": "", "result": None}
     with pytest.raises(NotFoundError):
         svc.get_job_result("translate_1")
 
@@ -209,7 +209,7 @@ def test_series_exception_mapping(fakes, exc, cls, status, check):
     with pytest.raises(cls) as ei:
         svc.get_job_result("sources_series_alpha")
     assert check(ei.value.details)
-    assert status == svc._error_view(exc, "alpha")["status"]
+    assert status == svc.error_view(exc, "alpha")["status"]
     assert SECRET not in json.dumps(ei.value.details) + ei.value.message
 
 
@@ -232,15 +232,15 @@ def test_failure_kinds_map_to_reason_codes(fakes, exc, cls, status, reason):
     with pytest.raises(cls) as ei:
         svc.get_job_result("sources_series_alpha")
     assert ei.value.details["reason"] == reason
-    assert svc._error_view(exc, None)["status"] == status
+    assert svc.error_view(exc, None)["status"] == status
 
 
 def test_layout_change_is_recorded_in_health_but_not_a_missing_page(fakes):
     from sources import health
-    svc._error_view(_Layout(), "alpha")
+    svc.error_view(_Layout(), "alpha")
     assert health.get("alpha")["last_error_type"] == "LAYOUT_CHANGED"
     assert health.get("alpha")["consecutive_failures"] == 1
-    svc._error_view(FetchFailed("gone", FailureReason.NOT_FOUND), "beta")
+    svc.error_view(FetchFailed("gone", FailureReason.NOT_FOUND), "beta")
     assert health.get("beta")["consecutive_failures"] == 0
 
 
@@ -348,7 +348,7 @@ def test_search_job_has_no_series_identity(fakes):
 def test_refused_response_with_an_unmapped_status_is_a_500_not_a_keyerror():
     exc = ResponseRefused("Refused.")
     exc.status = 418
-    view = svc._error_view(exc, "alpha")
+    view = svc.error_view(exc, "alpha")
     assert view["status"] == 500 and view["code"] == svc.ServiceError.code
 
 
@@ -372,7 +372,7 @@ def test_series_job_passes_local_as_allow_browser(fakes, local):
 
 
 def test_purchase_hidden_is_not_the_adult_toggle():
-    view = svc._error_view(ContentHidden("paid, open it in the app",
+    view = svc.error_view(ContentHidden("paid, open it in the app",
                                          FailureReason.PURCHASE_REQUIRED), "fanjiao")
     assert view["status"] == 400
     assert view["details"] == {"reason": "PURCHASE_REQUIRED"}

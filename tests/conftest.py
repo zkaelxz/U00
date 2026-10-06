@@ -151,6 +151,32 @@ def restore_real_modules() -> list:
     return restored
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _fake_engine_installed():
+    """The key-free fake engine every pipeline test translates with. It is
+    not part of the app (see tests/fake_engine.py)."""
+    from tests import fake_engine
+    fake_engine.install()
+    yield
+    fake_engine.uninstall()
+
+
+@pytest.fixture(autouse=True)
+def _private_separator_model_dir(tmp_path_factory):
+    """The vocal-separator model folder defaults to ~/.cache; the startup
+    sweep and the download guard list and delete files there, so no test
+    may see the developer's real one (or race another xdist worker on it).
+    Restores by hand: requesting `monkeypatch` here would make the test's
+    own patches (os.scandir, shutil.rmtree) outlive isolated_db's teardown."""
+    import audio_preprocess
+    saved = audio_preprocess.MODEL_DIR
+    audio_preprocess.MODEL_DIR = str(tmp_path_factory.mktemp("separator_models"))
+    try:
+        yield
+    finally:
+        audio_preprocess.MODEL_DIR = saved
+
+
 @pytest.fixture(autouse=True)
 def _keep_real_torch_importable():
     """Restores the real torch (and friends) after every test, so a fake
@@ -205,6 +231,7 @@ def _reset_background_jobs_memory():
         bg._jobs.clear()
         bg._gpu_queue.clear()
         bg._last_db_cancel_check.clear()
+        bg._db_cancel_check_failed.clear()
     bg.release_exclusive()
     bg._stopping = False
     while bg._maintenance_count:
