@@ -282,7 +282,7 @@ def test_a_dash_manifest_saved_as_mp4_opens_no_connection(tmp_path):
         assert listener.connections == 0
         assert b"Format not on whitelist" in result.stderr and result.returncode != 0
         # The control: the same command without the format whitelist connects.
-        subprocess.run(cmd[:at] + cmd[at + 2:], capture_output=True, timeout=30)
+        subprocess.run(cmd[:at] + cmd[at + 2:], capture_output=True, timeout=30, check=False)
         deadline = time.monotonic() + 5
         while listener.connections == 0 and time.monotonic() < deadline:
             time.sleep(0.02)

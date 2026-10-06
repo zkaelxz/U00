@@ -541,9 +541,9 @@ def test_a_late_deadline_timer_leaves_the_next_requests_sockets_alone():
             pump._expire(stale)  # the first request's timer, firing late
             ours.sendall(b"ok")
             assert theirs.recv(2) == b"ok"
-        with pytest.raises(live_fetch.StreamFetchError, match=live_fetch.STALLED):
-            with pump._deadline(time.monotonic() + 60):
-                pump._expire(pump._deadline_generation)  # this request's own timer
+        with pytest.raises(live_fetch.StreamFetchError, match=live_fetch.STALLED), \
+                pump._deadline(time.monotonic() + 60):
+            pump._expire(pump._deadline_generation)  # this request's own timer
         with pytest.raises(OSError):
             ours.sendall(b"x" * 1_000_000)
     finally:
