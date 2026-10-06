@@ -9,6 +9,7 @@ for_timing is mocked throughout, so no real model/GPU/audio is involved.
 """
 import functools
 import multiprocessing
+import json
 import os
 import subprocess
 import sys
@@ -625,6 +626,31 @@ class TestRunTranscribeAndApplyJob:
         assert os.path.exists(os.path.join(ddir, "raw_transcript.json"))
         assert [r["zh"] for r in isolated_db.load_lines(did)] == ["new"]
         assert len(isolated_db.list_line_history(did)) == 1
+        _clear(job_id)
+
+    def test_raw_transcript_saves_the_settings_the_run_started_with(self, isolated_db, monkeypatch):
+        import raw_transcript
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+
+        def edit_everything_mid_run(*a, **k):
+            isolated_db.update_drama(did, beam_size=99, min_silence_ms=9999)
+            background_jobs.set_gpu_max_parallel(4)
+            return [{"start": 0.0, "end": 1.0, "text": "new"}]
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", edit_everything_mid_run)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, 2,
+            initial_prompt="names")
+
+        s = raw_transcript.load_latest(ddir)["settings"]
+        assert set(s) == set(raw_transcript.SETTINGS_KEYS)
+        assert (s["whisper_size"], s["beam_size"], s["min_silence_ms"]) == ("medium", 5, 300)
+        assert s["gpu_max_parallel"] == 1
+        assert s["expected_speakers"] == 2 and s["language"] == "zh"
+        assert s["initial_prompt_chars"] == 5 and "names" not in json.dumps(s)
         _clear(job_id)
 
     def test_groq_path_uses_groq_and_reports_failure(self, isolated_db, monkeypatch):

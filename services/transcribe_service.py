@@ -1034,6 +1034,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     gpu_fallback_msg = []
     whisper_clock = {}
     stage_seconds = {}
+    # Frozen with the other arguments at job start, so the saved settings are
+    # what this run used even if the drama row or app settings change meanwhile.
+    app_gpu_settings = raw_transcript.current_gpu_app_settings()
     word_align_error = None
     forced_align_error = None
     coverage_msg = None
@@ -1429,7 +1432,20 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             "whisper_clock": whisper_clock, "stage_seconds": stage_seconds,
             "word_align_error": word_align_error,
             "forced_align_error": forced_align_error, "coverage_warning": coverage_msg,
-            "moss_run": moss_run, "moss_truncated": bool(moss_info.get("truncated"))}
+            "moss_run": moss_run, "moss_truncated": bool(moss_info.get("truncated")),
+            "run_config": {
+                "asr_backend": asr_backend_choice, "whisper_size": whisper_size,
+                "local_model_path": local_model_path, "language": source_language,
+                "transcript_mode": transcript_mode, "alignment_method": alignment_method,
+                "min_silence_ms": min_silence_ms, "vad_threshold": vad_threshold,
+                "beam_size": beam_size, "hallucination_silence_sec": hallucination_silence_sec,
+                "whisper_fast_mode": whisper_fast_mode, "use_groq": use_groq,
+                "separate_vocals_first": separate_vocals_first,
+                "separation_backend": separation_backend,
+                "realign_long_segments": realign_long_segments,
+                "mixed_languages": mixed_languages, "vad_refine_timing": vad_refine_timing,
+                "use_gpu": use_gpu, "initial_prompt": initial_prompt,
+                **app_gpu_settings}}
 
 
 def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_size, use_gpu,
@@ -1468,7 +1484,12 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     db.save_lines(drama_id, lines)
     raw_transcript.write_raw_transcript(
         db.drama_dir(drama_id), segments, lines, backend=outcome["raw_backend"],
-        model=outcome["raw_model"], language=source_language, mode=outcome["raw_mode"])
+        model=outcome["raw_model"], language=source_language, mode=outcome["raw_mode"],
+        settings=raw_transcript.build_run_settings(
+            **outcome["run_config"], expected_speakers=expected_speakers,
+            min_speakers=min_speakers, max_speakers=max_speakers,
+            gpu_fallback_msgs=gpu_fallback_msg, stage_seconds=outcome["stage_seconds"])
+        if outcome.get("run_config") else None)
     db.update_drama(drama_id, status="aligned")
 
     # MOSS already labelled speakers: record them as characters and don't
