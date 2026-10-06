@@ -64,7 +64,7 @@ def clean_message(text) -> str:
         return ""
     # Not jobs_service.scrub_text: its username redaction rewrites ordinary
     # words in transcripts and errors ("li" -> "[USER]kely").
-    text = jobs_service._URL_PATTERN.sub("[URL]", str(text))
+    text = jobs_service.URL_PATTERN.sub("[URL]", str(text))
     text = _PATH_RE.sub("<path>", translate_engines.redact_secrets(text))
     return text.splitlines()[0][:500] if text.strip() else ""
 
