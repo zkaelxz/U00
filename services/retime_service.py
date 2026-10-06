@@ -9,6 +9,8 @@ get_retime_result. apply_retime writes only `start` and `end`, per line as a
 compare-and-set against the text and times the aligner was given, after a
 history snapshot, so undo is the existing history restore.
 """
+import subprocess
+
 import background_jobs
 import core as core_module
 import db
@@ -24,6 +26,7 @@ MAX_LINES = compare.MAX_LINES
 _PAD_S = 3.0
 _BLOCKING_PREFIXES = transcribe_service._RETRANSCRIBE_BLOCKING_PREFIXES + ("comparetx_",)
 _MOVED_EPSILON_S = 0.01
+_MIN_LINE_S = 0.1
 _SNAPSHOT_LABEL = "before re-time apply"
 
 
@@ -81,6 +84,11 @@ def _groups(lines, wanted: set, default_language: str, errors: list) -> list:
         if not (ln.zh or "").strip():
             errors.append(f"line {ln.idx + 1}: no text to align, skipped")
             continue
+        if float(ln.end) - float(ln.start) > forced_align.MAX_CHUNK_SECONDS:
+            # A group always starts with its first line whatever its length,
+            # which would hand the aligner a slice past forced_align's own cap.
+            errors.append(f"line {ln.idx + 1}: too long to re-time in one go, skipped")
+            continue
         if groups:
             last_language, members = groups[-1]
             if (last_language == language and members[-1] == i - 1
@@ -105,6 +113,41 @@ def _segments(lines, members: list) -> list:
                 for i in members]
     segments[0]["start"], segments[-1]["end"] = window_start, window_end
     return segments
+
+
+def _make_consistent(proposals: list, lines, media_duration) -> list:
+    """Clamps each proposal against its neighbours (proposed times where the
+    neighbour has a proposal, stored times otherwise) and the media end, so
+    applying any subset of a run's proposals can't start with overlaps the run
+    itself created. A proposal that can't be made consistent is kept as
+    proposed but marked uncertain; apply re-checks it against live times."""
+    position = {ln.id: i for i, ln in enumerate(lines)}
+    by_index = {position[p["line_id"]]: p for p in proposals}
+
+    def times(i, key_new, key_old):
+        p = by_index.get(i)
+        return float(p[key_new] if p else getattr(lines[i], key_old))
+
+    kept = []
+    for i in sorted(by_index):
+        p = by_index[i]
+        start, end = p["new_start"], p["new_end"]
+        if i > 0:
+            start = max(start, times(i - 1, "new_end", "end"))
+        if i + 1 < len(lines):
+            end = min(end, times(i + 1, "new_start", "start"))
+        if media_duration:
+            end = min(end, media_duration)
+        if end - start >= _MIN_LINE_S:
+            p["new_start"], p["new_end"] = start, end
+        else:
+            p["uncertain"] = True
+        if (abs(p["new_start"] - p["start"]) < _MOVED_EPSILON_S
+                and abs(p["new_end"] - p["end"]) < _MOVED_EPSILON_S):
+            del by_index[i]
+            continue
+        kept.append(p)
+    return kept
 
 
 def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
@@ -142,6 +185,12 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
                 failed_reason = "dependency_missing"
                 detail = "The Qwen3 forced aligner needs qwen-asr and torch: pip install qwen-asr torch"
                 break
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+                # str() of these carries the ffmpeg argv with repr-escaped
+                # (doubled-backslash) Windows paths the scrubber can't recognise.
+                errors.append(f"lines {lines[members[0]].idx + 1}-{lines[members[-1]].idx + 1}: "
+                              "couldn't cut this part of the audio")
+                continue
             except Exception as exc:
                 errors.append(jobs_service.scrub_text(
                     f"lines {lines[members[0]].idx + 1}-{lines[members[-1]].idx + 1}: {exc}"))
@@ -164,6 +213,7 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
                     "uncertain": seg.get("flag_note") == forced_align.TIMING_REPAIRED_NOTE})
     finally:
         core_module.release_gpu_models()
+    proposals = _make_consistent(proposals, lines, transcribe_service._audio_duration_seconds(audio_path))
     result = {"proposals": proposals, "line_count": len(line_ids),
               "candidate_count": len(proposals), "errors": errors[:20],
               "partial": cancelled, "alignment_method": "qwen3_forced_align"}
@@ -196,10 +246,41 @@ def get_retime_result(drama_id: int) -> dict:
     NotFoundError when there is none (not run, running, failed, or the API
     restarted since)."""
     result = _finished_job(drama_id)["result"]
+
+    def scrub(text):
+        return jobs_service.scrub_text(str(text)) if text else None
     return {"job_id": retime_job_id(drama_id), "proposals": result["proposals"],
             "line_count": result.get("line_count", 0), "partial": bool(result.get("partial")),
-            "device": result.get("device"), "device_notice": result.get("device_notice"),
+            "device": scrub(result.get("device")),
+            "device_notice": scrub(result.get("device_notice")),
             "errors": [jobs_service.scrub_text(str(e)) for e in result.get("errors") or []]}
+
+
+def _overlapping_ids(lines, current: dict, writes: list) -> set:
+    """Ids whose new times would overlap a neighbour as it stands right now
+    (a neighbour in the same apply counts at its new times). Dropping one
+    changes what its neighbours are checked against, so it repeats to a fixed
+    point."""
+    matching = {lid: v for lid, v, expected in writes
+                if compare._still_matches(current.get(lid), expected)}
+    position = {ln.id: i for i, ln in enumerate(lines)}
+    dropped = set()
+    while True:
+        def at(i, col):
+            ln = lines[i]
+            chosen = matching.get(ln.id) if ln.id not in dropped else None
+            return float(chosen[col] if chosen else getattr(ln, col))
+        newly = set()
+        for lid, v in matching.items():
+            if lid in dropped:
+                continue
+            i = position[lid]
+            if ((i > 0 and v["start"] < at(i - 1, "end") - 1e-6)
+                    or (i + 1 < len(lines) and v["end"] > at(i + 1, "start") + 1e-6)):
+                newly.add(lid)
+        if not newly:
+            return dropped
+        dropped |= newly
 
 
 def apply_retime(drama_id: int, job_id, items) -> dict:
@@ -210,8 +291,9 @@ def apply_retime(drama_id: int, job_id, items) -> dict:
     line edited or moved since is skipped and reported, never overwritten.
     Writes only `start` and `end`. A history snapshot ('before re-time apply')
     is taken first when at least one item still matches, unless this run's
-    earlier apply already took the latest one. Returns {applied: [line_id],
-    skipped: [line_id]}.
+    earlier apply already took the latest one. A proposal that would now overlap a neighbouring
+    line's current times is skipped too, and listed in `overlapping`. Returns
+    {applied: [line_id], skipped: [line_id], overlapping: [line_id]}.
 
     InvalidInputError for malformed items or another drama's job id;
     NotFoundError with no finished run; ConflictError when an item isn't a
@@ -233,14 +315,19 @@ def apply_retime(drama_id: int, job_id, items) -> dict:
             raise ConflictError("These aren't the proposals you were shown. Re-time again.")
         writes.append((p["line_id"], {"start": p["new_start"], "end": p["new_end"]},
                        {"zh": p["base_zh"], "start": p["start"], "end": p["end"]}))
+    seen_order = [w[0] for w in writes]
     with compare._apply_lock:
         lines = db.load_line_objects(drama_id)
         current = {ln.id: ln for ln in lines}
+        overlapping = _overlapping_ids(lines, current, writes)
+        writes = [w for w in writes if w[0] not in overlapping]
         if not any(compare._still_matches(current.get(lid), expected)
                    for lid, _v, expected in writes):
-            return {"applied": [], "skipped": [lid for lid, _v, _e in writes]}
+            return {"applied": [], "skipped": seen_order,
+                    "overlapping": sorted(overlapping)}
         compare._snapshot_once_per_run(drama_id, (job_id, job.get("finished_at")), lines,
                                        _SNAPSHOT_LABEL)
         skipped = set(db.update_lines_fields_if_many(drama_id, writes))
     return {"applied": [lid for lid, _v, _e in writes if lid not in skipped],
-            "skipped": [lid for lid, _v, _e in writes if lid in skipped]}
+            "skipped": [lid for lid in seen_order if lid in skipped or lid in overlapping],
+            "overlapping": sorted(overlapping)}

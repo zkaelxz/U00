@@ -27,7 +27,7 @@ from api.auth import (is_local_request, require_engines_allowed, require_paid_en
 from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
                          AutotuneStatus, CompareApplyRequest, CompareApplyResult,
                          CompareEstimate, CompareEstimateRequest, CompareOptions,
-                         CompareResult, CompareRunRequest, CompareRunResult, ErrorResponse, RetimeApplyRequest,
+                         CompareResult, CompareRunRequest, CompareRunResult, ErrorResponse, RetimeApplyRequest, RetimeApplyResult,
                          RetimeResult, RetimeRunRequest, RetranscribeApplyRequest,
                          RetranscribeApplyResult, RetranscribeLineRequest,
                          RetranscribeLineResult, RetranscribeResult, TranscribeConfig, TranscribeConfigUpdate,
@@ -226,7 +226,7 @@ def get_retime_result(drama_id: int = Path(ge=1)):
 
 
 @router.post("/dramas/{drama_id}/retime/apply",
-             dependencies=[require_permission("lines.edit")], response_model=CompareApplyResult,
+             dependencies=[require_permission("lines.edit")], response_model=RetimeApplyResult,
              summary="Use chosen new times (compare-and-set per line, history snapshot first)",
              responses=_COMPARE_ERRORS)
 def post_retime_apply(payload: RetimeApplyRequest, drama_id: int = Path(ge=1)):

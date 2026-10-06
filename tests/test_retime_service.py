@@ -2,6 +2,7 @@
 /api/transcribe/dramas/{id}/retime. The aligner is faked: no model, GPU or audio."""
 
 import os
+import subprocess
 import time
 
 import pytest
@@ -129,12 +130,12 @@ class TestJob:
         _, job = _run(did, [ids[1], ids[2]])
         group = _env["groups"][0][0]
         # Line 1 starts at 6.0; the previous line ends at 4.0, so the 3 s reach
-        # back is cut to the gap. Line 2 ends at 14.0; the next starts at 16.0.
+        # back is cut to the gap (the fake aligner's 3.6 is clamped to it). Line 2 ends at 14.0; the next starts at 16.0.
         assert [g["text"] for g in group] == ["原1", "原2"]
         assert group[0]["start"] == 4.0 and group[-1]["end"] == 16.0
         res = svc.get_retime_result(did)
         assert [(p["number"], p["start"], p["new_start"]) for p in res["proposals"]] == [
-            (2, 6.0, pytest.approx(3.6)), (3, 11.0, pytest.approx(10.6))]
+            (2, 6.0, pytest.approx(4.0)), (3, 11.0, pytest.approx(10.6))]
         assert all(p["new_end"] > p["new_start"] and not p["uncertain"] for p in res["proposals"])
         assert res["device"] == "GPU"
         assert [(l.start, l.zh, l.en, l.flag) for l in db.load_line_objects(did)][1] == (
@@ -203,6 +204,84 @@ class TestJob:
         with pytest.raises(NotFoundError):
             svc.get_retime_result(did)
 
+    def test_audio_cut_failure_leaks_no_windows_path(self, monkeypatch, _env):
+        did, ids = _drama(2)
+        boom = subprocess.CalledProcessError(1, ["ffmpeg", "-i", r"C:\Users\x\a.wav"])
+        monkeypatch.setattr(forced_align, "refine_segment_timing",
+                            lambda *a, **k: (_ for _ in ()).throw(boom))
+        _, job = _run(did, ids)
+        res = svc.get_retime_result(did)
+        projected = str(jobs_service.project_result(job["result"]))
+        for text in (str(res), str(job["result"]), projected):
+            assert "Users" not in text and "a.wav" not in text
+        assert res["errors"] == ["lines 1-2: couldn't cut this part of the audio"]
+
+    def test_device_notice_is_scrubbed(self, monkeypatch, _env):
+        did, ids = _drama(2)
+        _env["fallback"] = True
+        monkeypatch.setattr(core, "gpu_fallback_notice",
+                            lambda feature, why: f"{feature} fell back: C:\\Users\\x\\m.bin")
+        _run(did, ids)
+        assert "Users" not in svc.get_retime_result(did)["device_notice"]
+
+    def test_line_longer_than_one_chunk_is_skipped(self, _env):
+        did, ids = _drama(2)
+        db.update_line_fields_if(did, ids[0], {"end": 1.0 + forced_align.MAX_CHUNK_SECONDS + 1}, {})
+        _run(did, [ids[0]])
+        res = svc.get_retime_result(did)
+        assert _env["groups"] == [] and res["proposals"] == []
+        assert any("line 1" in e and "too long" in e for e in res["errors"])
+
+    def test_unplaced_line_does_not_leave_its_predecessor_overlapping(self, monkeypatch, _env):
+        did, ids = _drama(2)
+
+        def widen(audio, groups, language, **kw):
+            a, b = (dict(s) for s in groups[0])
+            a["end"] = 9.0
+            b["flag"], b["flag_note"] = "timing_uncertain", forced_align.TIMING_FALLBACK_NOTE
+            return [a, b]
+        monkeypatch.setattr(forced_align, "refine_segment_timing", widen)
+        _run(did, ids)
+        (p,) = svc.get_retime_result(did)["proposals"]
+        # Line 2 keeps its stored start of 6.0, so line 1 can't run past it.
+        assert p["new_end"] == 6.0
+
+    def test_groups_widening_into_one_gap_are_clamped(self, monkeypatch, _env):
+        did, ids = _drama(2)
+        db.update_line_fields_if(did, ids[1], {"lang": "ja"}, {})
+
+        def meet(audio, groups, language, **kw):
+            seg = dict(groups[0][0])
+            if language == "zh":
+                seg["end"] = 5.5
+            else:
+                seg["start"] = 4.5
+            return [seg]
+        monkeypatch.setattr(forced_align, "refine_segment_timing", meet)
+        _run(did, ids)
+        a, b = svc.get_retime_result(did)["proposals"]
+        assert a["new_end"] <= b["new_start"]
+
+    def test_last_line_is_clamped_to_media_duration(self, monkeypatch, _env):
+        did, ids = _drama(2)
+        monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda path: 10.0)
+        monkeypatch.setattr(
+            forced_align, "refine_segment_timing",
+            lambda audio, groups, language, **kw: [{**groups[0][0], "end": 13.0}])
+        _run(did, [ids[1]])
+        (p,) = svc.get_retime_result(did)["proposals"]
+        assert p["new_end"] == 10.0
+
+    def test_unfixable_proposal_is_marked_uncertain(self, monkeypatch, _env):
+        did, ids = _drama(2)
+        monkeypatch.setattr(
+            forced_align, "refine_segment_timing",
+            lambda audio, groups, language, **kw: [{**groups[0][0], "start": 7.0, "end": 8.0}])
+        _run(did, [ids[0]])
+        (p,) = svc.get_retime_result(did)["proposals"]
+        # Line 2 starts at 6.0, so no clamp leaves a usable span.
+        assert p["uncertain"] is True
+
 
 class TestApply:
     def test_writes_only_times_snapshots_and_undo_restores(self):
@@ -211,7 +290,7 @@ class TestApply:
         res = svc.get_retime_result(did)
         before = [(l.start, l.end) for l in db.load_line_objects(did)]
         applied = svc.apply_retime(did, out["job_id"], [_item(p) for p in res["proposals"]])
-        assert applied == {"applied": ids, "skipped": []}
+        assert applied == {"applied": ids, "skipped": [], "overlapping": []}
         after = db.load_line_objects(did)
         assert [(l.zh, l.en, l.speaker, l.flag) for l in after] == [
             (f"原{i}", f"en{i}", "A", "check" if i == 1 else None) for i in range(4)]
@@ -280,7 +359,32 @@ class TestApi:
         applied = client.post(f"{base}/apply", json={"job_id": res["job_id"], "items": [
             {k: res["proposals"][0][v] for k, v in (("line_id", "line_id"),
              ("expected_new_start", "new_start"), ("expected_new_end", "new_end"))}]})
-        assert applied.json() == {"applied": [ids[0]], "skipped": []}
+        assert applied.json() == {"applied": [ids[0]], "skipped": [], "overlapping": []}
         job = client.get(f"/api/jobs/{started.json()['job_id']}").json()
         assert "proposals" not in (job.get("result") or {})
         assert ownership_service.drama_id_of_job(started.json()["job_id"]) == did
+
+    def test_apply_refuses_a_row_that_would_overlap_a_neighbour_as_it_stands(self, monkeypatch, _env):
+        did, ids = _drama(2)
+        monkeypatch.setattr(
+            forced_align, "refine_segment_timing",
+            lambda audio, groups, language, **kw: [
+                {**s, "start": s["start"] + 1.0, "end": s["end"] + 1.0} for s in groups[0]])
+        out, _ = _run(did, ids)
+        a, b = svc.get_retime_result(did)["proposals"]
+        # A alone would end at 5.0 while B still starts at 6.0: fine. Shift B's stored start back.
+        db.update_line_fields_if(did, ids[1], {"start": 4.5}, {})
+        res = svc.apply_retime(did, out["job_id"], [_item(a)])
+        assert res["applied"] == [] and res["skipped"] == [ids[0]] and res["overlapping"] == [ids[0]]
+        assert db.load_line_objects(did)[0].start == 1.0
+
+    def test_apply_together_checks_neighbours_at_their_new_times(self, monkeypatch, _env):
+        did, ids = _drama(2)
+        monkeypatch.setattr(
+            forced_align, "refine_segment_timing",
+            lambda audio, groups, language, **kw: [
+                {**s, "start": s["start"] + 1.0, "end": s["end"] + 1.0} for s in groups[0]])
+        out, _ = _run(did, ids)
+        ps = svc.get_retime_result(did)["proposals"]
+        res = svc.apply_retime(did, out["job_id"], [_item(p) for p in ps])
+        assert res == {"applied": ids, "skipped": [], "overlapping": []}

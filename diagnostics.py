@@ -964,7 +964,7 @@ def check_engine_reachable(engine_name: str, api_key: str = None, model: str = N
 # fragments aren't left behind; they can't start or end with one, which keeps
 # a path from swallowing the prose around it.
 PATH_PATTERN = re.compile(
-    r'(?:[A-Za-z]:)?[\\/](?:[^\s\\/:*?"<>|]+(?: [^\s\\/:*?"<>|]+)*[\\/])+'
+    r'(?:[A-Za-z]:)?[\\/]+(?:[^\s\\/:*?"<>|]+(?: [^\s\\/:*?"<>|]+)*[\\/]+)+'
     r'([^\s\\/:*?"<>|]+)')
 
 # ANSI escape sequences (CSI: colours, cursor moves), e.g. yt-dlp's

@@ -39,6 +39,7 @@ __all__ = [
     "RetimeResult",
     "RetimeApplyItem",
     "RetimeApplyRequest",
+    "RetimeApplyResult",
     "CompareSelection",
     "CompareBackendOption",
     "CompareOptions",
@@ -500,3 +501,7 @@ class RetimeApplyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     job_id: str = Field(..., min_length=1, max_length=100)
     items: List[RetimeApplyItem] = Field(..., min_length=1, max_length=200)
+
+
+class RetimeApplyResult(CompareApplyResult):
+    overlapping: List[int] = []

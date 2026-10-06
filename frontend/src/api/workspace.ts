@@ -8,6 +8,7 @@ import type {
   CompareRunRequest,
   CompareRunResult,
   RetimeApplyRequest,
+  RetimeApplyResult,
   RetimeResult,
   RetimeRunRequest,
   DiarizationConfig,
@@ -194,4 +195,4 @@ export const startRetime = (id: number, req: RetimeRunRequest, f?: Fetch) =>
 export const getRetimeResult = (id: number, f?: Fetch) => getJson<RetimeResult>(`${retimeBase(id)}/result`, f)
 
 export const applyRetime = (id: number, req: RetimeApplyRequest, f?: Fetch) =>
-  postJson<CompareApplyResult>(`${retimeBase(id)}/apply`, req, f)
+  postJson<RetimeApplyResult>(`${retimeBase(id)}/apply`, req, f)

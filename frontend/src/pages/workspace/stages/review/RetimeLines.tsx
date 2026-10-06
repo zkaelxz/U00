@@ -84,7 +84,12 @@ export function RetimeLines({
         setResult((cur) => (cur ? { ...cur, proposals: cur.proposals.filter((p) => !done.has(p.line_id)) } : cur))
         setNote(
           `Re-timed ${r.applied.length} line${r.applied.length === 1 ? '' : 's'}.` +
-            (r.skipped.length ? ` ${r.skipped.length} edited since the run, so left alone.` : '') +
+            (r.overlapping.length
+              ? ` ${r.overlapping.length} would overlap a neighbouring line, so left alone; apply the neighbour first or re-time again.`
+              : '') +
+            (r.skipped.length > r.overlapping.length
+              ? ` ${r.skipped.length - r.overlapping.length} edited since the run, so left alone.`
+              : '') +
             (r.applied.length ? ' Undo from Versions and history.' : ''),
         )
         onChanged()

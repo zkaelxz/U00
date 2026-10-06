@@ -430,3 +430,7 @@ export interface RetimeApplyRequest {
   job_id: string
   items: RetimeApplyItem[]
 }
+
+export interface RetimeApplyResult extends CompareApplyResult {
+  overlapping: number[]
+}
