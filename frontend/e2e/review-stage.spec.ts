@@ -725,13 +725,15 @@ test('with a source video, it shows by default with English subtitles drawn on i
   await expect(page.getByTestId('player-time')).toContainText('/ 0:06')
   await expect
     .poll(() => video.evaluate((v: HTMLVideoElement) => ({ mode: v.textTracks[0]?.mode, cues: v.textTracks[0]?.cues?.length ?? 0 })))
-    .toEqual({ mode: 'showing', cues: 3 })
+    .toEqual({ mode: 'hidden', cues: 3 })
   await expect(video.locator('track')).toHaveAttribute('src', /\/api\/reader\/dramas\/3\/captions\/English\?v=\d+$/)
   const player = page.getByRole('group', { name: 'Player' })
   await card.getByLabel('Jump to time').fill('0.5')
   await card.getByRole('button', { name: 'Jump' }).click()
   await card.getByLabel('Subtitles').selectOption({ label: 'English' })
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.textTracks[0]?.activeCues?.length ?? 0)).toBe(1)
+  // The browser's own drawing is off; the overlay over the picture shows the cue.
+  await expect(card.getByTestId('player-overlay')).toBeVisible()
   await page.screenshot({ path: 'test-results/review-player-desktop.png' })
   // Loop is an on/off switch in the player strip.
   const loop = player.getByRole('switch', { name: 'Loop line' })
