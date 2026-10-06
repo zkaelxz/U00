@@ -113,6 +113,30 @@ test('arrow keys nudge a focused edge; start never reaches end', async ({ page }
   await expect.poll(async () => (await lineTimes(page))[1][0]).toBe(3.9)
 })
 
+test('an edit queued behind a slow save goes to its own line after switching lines', async ({ page }) => {
+  const { ids } = await open(page)
+  let release!: () => void
+  const gate = new Promise<void>((r) => { release = r })
+  let first = true
+  await page.route('**/api/lines/dramas/3/lines/*', async (route) => {
+    if (route.request().method() === 'POST' && first && /"(start|end)"/.test(route.request().postData() ?? '')) {
+      first = false
+      await gate
+    }
+    await route.continue()
+  })
+  await page.getByTestId(`line-${ids[1]}`).click()
+  await page.getByTestId('wave-handle-end').focus()
+  await page.keyboard.press('ArrowRight')
+  await page.getByTestId(`line-${ids[2]}`).click()
+  await expect(page.getByRole('slider', { name: 'Line #3 start' })).toBeVisible()
+  await page.getByTestId('wave-handle-start').focus()
+  await page.keyboard.press('ArrowLeft')
+  release()
+  await expect.poll(async () => (await lineTimes(page))[2][0]).toBe(4.95)
+  expect((await lineTimes(page))[1]).toEqual([3, 4.05])
+})
+
 test('clicking the waveform seeks the player', async ({ page }) => {
   const { ids } = await open(page)
   await page.getByTestId(`line-${ids[1]}`).click()

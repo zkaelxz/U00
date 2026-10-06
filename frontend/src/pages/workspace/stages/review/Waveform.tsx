@@ -103,6 +103,9 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
             timer = setTimeout(() => fetchWindow(retries - 1), BUSY_RETRY_MS)
             return
           }
+          // A decode can outlive the retry budget (aborting a request doesn't
+          // stop it on the server), so a spent 429 budget is not a failure.
+          if (e instanceof ApiError && e.status === 429) return
           setPeaks(null)
           setUnavailable(true)
         },
@@ -161,7 +164,7 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
 
   // Held-down arrow keys outrun the save round trip: the newest value waits
   // for the one in flight, and `held` is where the next press builds on.
-  const wanted = useRef<{ edge: Edge; value: number } | null>(null)
+  const wanted = useRef<{ id: number; edge: Edge; value: number } | null>(null)
   const held = useRef<Partial<Record<Edge, number>>>({})
   // A save queued for the previous line would go out under its id and be refused.
   useEffect(() => {
@@ -171,7 +174,7 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
   const commit = async (edge: Edge, value: number) => {
     if (!active) return
     held.current[edge] = value
-    wanted.current = { edge, value }
+    wanted.current = { id: active.id, edge, value }
     if (busy.current) return
     busy.current = true
     setMessage(null)
@@ -179,7 +182,8 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
     while (wanted.current && ok) {
       const w = wanted.current
       wanted.current = null
-      ok = await onRetime(active.id, w.edge, w.value)
+      // The id is captured with the edit: `active` here is from the render that started the loop.
+      ok = await onRetime(w.id, w.edge, w.value)
     }
     busy.current = false
     held.current = {}

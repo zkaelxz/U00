@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import media_peaks_service as svc
-from services.service_errors import RateLimitedError
+from services.service_errors import DependencyUnavailableError, RateLimitedError
 
 
 def _pcm(*amps):
@@ -129,11 +129,22 @@ def test_bad_window_is_422(client, did, ffmpeg, q):
     assert not ffmpeg.calls
 
 
-def test_a_busy_server_answers_429_at_once(client, did, monkeypatch):
+def test_a_busy_server_answers_429_at_once(client, did, ffmpeg, monkeypatch):
     monkeypatch.setattr(svc, "_slots", threading.BoundedSemaphore(1))
     svc._slots.acquire()
     r = client.get(_url(did))
     assert r.status_code == 429 and r.json()["error"]["code"] == "rate_limited"
+
+
+def test_the_client_rounded_max_window_is_accepted(client, did, ffmpeg):
+    # 320.1 - 200.1 is 120.00000000000003 in floats.
+    assert client.get(_url(did, start=200.1, end=320.1)).status_code == 200
+
+
+def test_every_max_span_position_is_accepted(did, ffmpeg):
+    for i in range(0, 5000, 7):
+        start = round(i / 10 + 0.1, 3)
+        assert svc.get_peaks(did, start, round(start + 120, 3), 16)["end"] == round(start + 120, 3)
 
 
 def test_cached_window_needs_no_slot(client, did, ffmpeg, monkeypatch):
@@ -145,29 +156,44 @@ def test_cached_window_needs_no_slot(client, did, ffmpeg, monkeypatch):
 
 def test_one_decode_in_flight_per_caller(did, monkeypatch):
     svc._cache.clear()
-    started, release = threading.Event(), threading.Event()
+    release = threading.Event()
+
+    entered = threading.Semaphore(0)
 
     def slow(cmd, **kw):
-        started.set()
-        release.wait(5)
+        entered.release()
+        # Hold both decodes open until the second caller has also entered.
+        assert release.wait(5)
         return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
 
     monkeypatch.setattr(svc.subprocess, "run", slow)
     monkeypatch.setattr(svc.shutil, "which", lambda name: "/usr/bin/ffmpeg")
     first = threading.Thread(target=svc.get_peaks, args=(did, 10, 20, 16, "user:1"))
     first.start()
-    assert started.wait(5)
+    assert entered.acquire(timeout=5)
     try:
         with pytest.raises(RateLimitedError):
             svc.get_peaks(did, 11, 21, 16, "user:1")
         # Another caller still gets the second slot; and the slot is freed afterwards.
         other = threading.Thread(target=svc.get_peaks, args=(did, 12, 22, 16, "user:2"))
         other.start()
+        # user:2 got its own slot: both decodes are running at once.
+        assert entered.acquire(timeout=5)
     finally:
         release.set()
     first.join(5)
     other.join(5)
     assert svc.get_peaks(did, 13, 23, 16, "user:1")["buckets"] == 16
+
+
+def test_a_slot_is_freed_after_a_failing_decode(did, monkeypatch):
+    monkeypatch.setattr(svc, "_slots", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(svc.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(svc.subprocess, "run", FakeFfmpeg(error=OSError("boom")))
+    with pytest.raises(DependencyUnavailableError):
+        svc.get_peaks(did, 10, 20, 16, "user:1")
+    monkeypatch.setattr(svc.subprocess, "run", FakeFfmpeg(_pcm(1000)))
+    assert svc.get_peaks(did, 10, 20, 16, "user:1")["buckets"] == 16
 
 
 def test_no_audio_is_404(client, isolated_db, ffmpeg):

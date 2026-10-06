@@ -47,7 +47,9 @@ def _check_window(start, end, buckets):
         raise InvalidInputError("buckets must be a whole number.")
     if start < 0:
         raise InvalidInputError("start must not be negative.")
-    if not MIN_WINDOW_SECONDS <= end - start <= MAX_WINDOW_SECONDS:
+    # Float subtraction drifts (320.1 - 200.1 is 120.00000000000003), and the
+    # client sends millisecond-rounded values for a window of exactly the max.
+    if not MIN_WINDOW_SECONDS <= round(end - start, 3) <= MAX_WINDOW_SECONDS:
         raise InvalidInputError(
             f"The window must be {MIN_WINDOW_SECONDS:g} to {MAX_WINDOW_SECONDS:g} seconds long.")
     if not MIN_BUCKETS <= buckets <= MAX_BUCKETS:
@@ -81,14 +83,14 @@ def _decode(path: str, start: float, end: float) -> bytes:
            # Repeated as an output option so a file with odd timestamps can't emit more than the window.
            "-t", span, "-f", "s16le", "-"]
     try:
-        out = subprocess.run(cmd, check=True, capture_output=True,
-                             timeout=DECODE_TIMEOUT_SECONDS).stdout
+        out = subprocess.run(cmd, check=True, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, timeout=DECODE_TIMEOUT_SECONDS).stdout
     except subprocess.TimeoutExpired:
         raise DependencyUnavailableError("Reading the audio took too long.")
     except (subprocess.CalledProcessError, OSError):
         # str() of these carries the ffmpeg command line, i.e. absolute paths.
         raise DependencyUnavailableError("Couldn't read this audio for the waveform.")
-    # capture_output has no byte cap, so reject output beyond what the window can hold.
+    # stdout has no byte cap, so reject output beyond what the window can hold.
     if len(out) > (end - start + 1) * SAMPLE_RATE * BYTES_PER_SAMPLE:
         raise DependencyUnavailableError("Couldn't read this audio for the waveform.")
     return out
