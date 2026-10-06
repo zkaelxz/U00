@@ -28,7 +28,8 @@ from typing import List
 from fastapi import APIRouter, Path, Query, Request, Response
 from api.auth import is_auth_enabled, is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
-                         GlossaryCatalogues, GlossaryImportRequest,
+                         GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
+                         GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
                          GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
@@ -177,6 +178,36 @@ def _apply(apply_fn, drama_id: int, payload: GlossaryProposalsApplyRequest) -> d
                  for term, edit in payload.overrides.items()}
     return apply_fn(drama_id, payload.terms, overwrite_existing=payload.overwrite_existing,
                     overrides=overrides, run_id=payload.run_id)
+
+
+# --- Ignore list: proposals the user rejected, per series ---------------------
+# The same permission as the apply: ignoring a proposal edits what the
+# glossary workflow shows, like adding one does.
+
+@router.get("/dramas/{drama_id}/dismissals", dependencies=[require_permission("library.read")],
+            response_model=GlossaryDismissals,
+            summary="Glossary proposals ignored for this drama's series",
+            responses={404: {"model": ErrorResponse}})
+def get_glossary_dismissals(drama_id: int = Path(ge=1)):
+    return glossary_service.list_glossary_dismissals(drama_id)
+
+
+@router.post("/dramas/{drama_id}/dismissals", dependencies=[require_permission("lines.edit")],
+             response_model=GlossaryDismissResult,
+             summary="Ignore proposed terms so they are not proposed again",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_dismiss_glossary_proposals(payload: GlossaryDismissRequest, drama_id: int = Path(ge=1)):
+    return glossary_service.dismiss_glossary_proposals(drama_id, payload.terms)
+
+
+@router.post("/dramas/{drama_id}/dismissals/restore", dependencies=[require_permission("lines.edit")],
+             response_model=GlossaryDismissResult,
+             summary="Take terms off the ignore list",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_restore_glossary_proposals(payload: GlossaryDismissRequest, drama_id: int = Path(ge=1)):
+    return glossary_service.restore_glossary_proposals(drama_id, payload.terms)
 
 
 # --- Parity X10: glossary from the drama's source lines -----------------------

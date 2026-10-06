@@ -455,6 +455,17 @@ def _create_series_tables(conn):
             UNIQUE(drama_id, speaker_label, series_character_id)
         );
 
+        -- A glossary proposal the user rejected for this series: never
+        -- proposed again (by either extraction), until restored.
+        CREATE TABLE IF NOT EXISTS glossary_dismissals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_id INTEGER NOT NULL,
+            term_original TEXT NOT NULL,
+            created_at TEXT,
+            FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE,
+            UNIQUE(series_id, term_original)
+        );
+
         -- One undo for a speaker merge, kept here so the browser never holds
         -- the Characters rows (reference-clip names, transcripts). Single-use
         -- and short-lived; scoped to the drama and the user who merged.
@@ -1632,7 +1643,7 @@ def _migrate_step26e_profiles():
         if conn.execute("SELECT 1 FROM profiles LIMIT 1").fetchone():
             return
         conn.execute("BEGIN")
-        now = datetime.datetime.utcnow().isoformat()
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         cur = conn.execute("INSERT INTO profiles (name, color, created_at) VALUES (?, ?, ?)",
                            ("Me", None, now))
         default_id = cur.lastrowid
@@ -4307,6 +4318,30 @@ def list_glossary_terms(series_id: int):
         rows = conn.execute("SELECT * FROM glossary_terms WHERE series_id = ? ORDER BY term_original",
                              (series_id,)).fetchall()
     return [dict(r) for r in rows]
+
+
+def list_glossary_dismissals(series_id: int) -> list:
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute("SELECT term_original, created_at FROM glossary_dismissals "
+                            "WHERE series_id = ? ORDER BY term_original", (series_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_glossary_dismissals(series_id: int, terms) -> None:
+    now = datetime.datetime.utcnow().isoformat()
+    with contextlib.closing(get_conn()) as conn:
+        conn.executemany("INSERT OR IGNORE INTO glossary_dismissals "
+                         "(series_id, term_original, created_at) VALUES (?, ?, ?)",
+                         [(series_id, t, now) for t in terms])
+        conn.commit()
+
+
+def remove_glossary_dismissals(series_id: int, terms) -> int:
+    with contextlib.closing(get_conn()) as conn:
+        n = sum(conn.execute("DELETE FROM glossary_dismissals WHERE series_id = ? "
+                             "AND term_original = ?", (series_id, t)).rowcount for t in terms)
+        conn.commit()
+    return n
 
 
 def delete_glossary_term(term_id: int):
