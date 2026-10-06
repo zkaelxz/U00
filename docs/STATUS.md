@@ -22,7 +22,7 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
 
 Merged 2026-10-03 and 2026-10-04 (#661-#675):
 - Transcription says plainly when it isn't installed and how to install it (#661).
-- Transcribe splits long lines at sentence ends and re-assigns speakers from saved turns (#671).
+- Transcribe splits long lines at sentence ends and re-assigns speakers from saved turns (#671). Whisper's word timestamps are kept while the job runs (not stored): a line still too long after punctuation is cut at the real pauses between words (at least 0.25 s, nearest the middle among similar ones), timed by the first and last word of each piece. Whisper only, no new setting; checked with fake words only, not real audio or models.
 - Diarization jobs report real stages and progress (#669).
 - Transcription shows a time estimate and live elapsed/ETA, and no longer shows 100% before it is done (#668).
 - Live capture takes a GPU slot only when Use GPU is on (#667).
@@ -130,11 +130,10 @@ Merged since 175d617 (each checked against `git log origin/baihe-subtitler`; the
 Still open (PRs, none merged at the time of writing):
 - #836 re-time lines with the Qwen3 aligner; #838 English "Fix common errors" (Step 173); #843 waveform timeline (Step 164); #850 saved upload size limit; #851 re-split sensitivity.
 
-Next wave, after the open PRs land: 165 (after 161, which is merged; both touch `core.py`), 171, 162 and 158. Later or low value: 145, 146, 149, 152, 154, 156, 157, 160, 163, 167, 169, 170, 174, 175, 177, 178, 182. Dropped or decided no: 155, 172, 147 (skip), 168 (privacy), 179 (upload half), 180 (wait for remote access), 181 (minisign when distributing beyond the owner), 166 (decide after 165), 151 (only if the owner wants local models). Rows for steps now built are removed from the table below.
+Next wave, after the open PRs land: 171, 162 and 158. Later or low value: 145, 146, 149, 152, 154, 156, 157, 160, 163, 167, 169, 170, 174, 175, 177, 178, 182. Dropped or decided no: 155, 172, 147 (skip), 168 (privacy), 179 (upload half), 180 (wait for remote access), 181 (minisign when distributing beyond the owner), 166 (decide after 165), 151 (only if the owner wants local models). Rows for steps now built are removed from the table below.
 
 | Step | What | Status | Decision |
 |---|---|---|---|
-| 165 | Keep Whisper word timestamps | Next wave | Build after 161 (merged, #832); both touch `core.py` |
 | 171 | CBZ + full ComicInfo | Next wave | Build |
 | 162 | Text-mask fallback | Next wave | Build Otsu with light/dark polarity; defer the ML detector |
 | 158 | Manual timing shift | Next wave | Manual shift only; auto-sync waits for the re-time feature (#836, open) |
