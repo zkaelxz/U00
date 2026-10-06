@@ -39,7 +39,7 @@ export async function mockRetime(page: Page): Promise<RetimeSeen> {
   await page.route(`${base}/apply`, (r) => {
     const body = r.request().postDataJSON() as { items: { line_id: number }[] }
     seen.applies.push(body)
-    return r.fulfill({ json: { applied: body.items.map((i) => i.line_id), skipped: [] } })
+    return r.fulfill({ json: { applied: body.items.map((i) => i.line_id), skipped: [], overlapping: [] } })
   })
   return seen
 }
