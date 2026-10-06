@@ -78,3 +78,26 @@ test('pop out moves the player into the floating window and Return puts it back'
   await expect(page.locator('#pip-stub')).toHaveCount(0)
   await expect(popOut).toBeVisible()
 })
+
+test('the pop-out caption grows with the window and follows the Subtitle size control', async ({ page }) => {
+  await page.setViewportSize({ width: 2000, height: 1050 })
+  await page.addInitScript(STUB)
+  await page.goto('/#/drama/3/review')
+  await page.getByRole('button', { name: 'Pop out' }).click()
+  const frame = page.frameLocator('#pip-stub')
+  const caption = frame.getByTestId('player-caption')
+  const size = () => caption.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+  await expect.poll(size).toBeLessThan(20)
+
+  await page.evaluate(() => {
+    const f = document.getElementById('pip-stub') as HTMLIFrameElement
+    f.style.width = '1900px'
+    f.style.height = '900px'
+  })
+  await expect.poll(size).toBeGreaterThanOrEqual(40)
+  const normal = await size()
+  await frame.getByLabel('Subtitle size').selectOption('larger')
+  await expect.poll(size).toBeGreaterThan(normal)
+  // The video still fills the window above the caption and controls.
+  await expect(frame.locator('.review-player-panel')).toBeVisible()
+})
