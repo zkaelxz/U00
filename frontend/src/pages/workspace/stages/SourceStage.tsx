@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 
-import { ApiError } from '../../../api/client'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
+import { formatBytes } from '../../diskUsage/diskUsageModel'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
@@ -24,10 +24,15 @@ import { JobPanel } from './JobPanel'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
-import { mediaFileInputId } from './stageBlockers'
+import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
 
-const needsConfirm = (e: unknown) =>
-  e instanceof ApiError && e.status === 422 && (e.details as { reason?: unknown } | null)?.reason === 'confirm_replace_audio'
+// Nothing clears kept_media on its own, so say how much it holds wherever a
+// replace or remove would add to it or might be expected to free it.
+const keptMediaNote = (m: MediaStatus | null) =>
+  m && m.kept_media_files > 0
+    ? `Old copies kept in this title's folder: ${m.kept_media_files} file${m.kept_media_files === 1 ? '' : 's'}, ` +
+      `${formatBytes(m.kept_media_bytes)}. Removing audio/video doesn't delete them; clear them in Library tools → Disk usage.`
+    : null
 
 export default function SourceStage() {
   const { dramaId, drama, onJobDone } = useStage()
@@ -133,7 +138,7 @@ export default function SourceStage() {
         onJobDone()
       },
       (e: unknown) => {
-        if (needsConfirm(e)) setServerHasMedia(true)
+        if (needsReplaceConfirm(e)) setServerHasMedia(true)
         setError(e)
       },
     )
@@ -208,7 +213,7 @@ export default function SourceStage() {
           </button>
           {mustConfirm && (
             <label>
-              <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+              <input type="checkbox" id={replaceBoxId(dramaId)} checked={replace} onChange={(e) => setReplace(e.target.checked)} />
               Replace the current audio/video (the old file is kept in this title's folder)
             </label>
           )}
@@ -227,6 +232,9 @@ export default function SourceStage() {
         </div>
       )}
       {hasMedia && pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
+      {(mustConfirm || hasMedia) && keptMediaNote(media) && (
+        <p className="muted" data-testid="kept-media">{keptMediaNote(media)}</p>
+      )}
       <ErrorBanner error={removeError} describe={{ pcOnly: true }} onDismiss={() => setRemoveError(null)} />
       {fileProblem && <p className="error" role="alert">{fileProblem}</p>}
       {uploaded && <p role="status">{uploaded}</p>}
@@ -245,7 +253,8 @@ export default function SourceStage() {
       title="Transcribe audio or video"
       summary={hasMedia ? 'audio attached' : 'upload or download a file'}
     >
-      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} confirmReplace={confirmReplace} busy={busy}
+      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} confirmReplace={confirmReplace}
+        replaceUnconfirmed={mustConfirm && !replace} onReplaceRefused={() => setServerHasMedia(true)} busy={busy}
         onJobStarted={(id, expected) => {
           setExpectedSeconds(expected ?? null)
           setJobId(id)

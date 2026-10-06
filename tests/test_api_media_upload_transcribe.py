@@ -84,7 +84,8 @@ def test_status(client, monkeypatch):
     did = _drama()
     r = client.get(f"/api/media/dramas/{did}/status")
     assert r.json() == {"drama_id": did, "has_audio": False, "has_source_video": False,
-                        "upload_max_mb": 5}
+                        "upload_max_mb": 5,
+                        "kept_media_files": 0, "kept_media_bytes": 0}
     client.post(f"/api/media/dramas/{did}/upload", files={"file": ("a.wav", b"x")})
     assert client.get(f"/api/media/dramas/{did}/status").json()["has_audio"] is True
     assert client.get("/api/media/dramas/9999/status").status_code == 404
