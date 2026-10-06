@@ -152,6 +152,9 @@ python cli.py narrate-prep --engine claude --api-key $KEY     # novel-narration 
 python cli.py translate --status aligned --engine claude --api-key $KEY
 python cli.py dub --status translated
 python cli.py export-video --subs english
+python cli.py transcribe --id 3 --language zh --whisper-size large-v3 --diarize   # same service as the app; options are saved on the title
+python cli.py qc --id 3                                       # Auto QC: flags number/name/banned-term slips, no engine
+python cli.py glossary list --id 3                            # also add / remove / import FILE / export (the series glossary)
 ```
 Without `--transcript`, put the transcript at `library/dramas/<id>/transcript.txt` and the media at `library/dramas/<id>/source.<ext>`. For novel narration, put the text at `library/dramas/<id>/novel_narration_source.txt` and set `content_mode = 'novel_narration'` on the drama row (the app does all this for you).
 

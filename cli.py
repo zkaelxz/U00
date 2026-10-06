@@ -31,6 +31,19 @@ Examples:
   # --lang default puts them back to the title's language
   python cli.py set-language --id 12 --speaker SPEAKER_01 --lang en
 
+  # Transcribe a title's audio (options are saved on the title, as in the app)
+  python cli.py transcribe --id 12 --language zh --whisper-size large-v3 --diarize
+
+  # Run Auto QC (no engine, no cost) on one title or the whole library
+  python cli.py qc --id 12
+
+  # The series glossary of title 12
+  python cli.py glossary list --id 12
+  python cli.py glossary add --id 12 --original 沈清疑 --translation "Shen Qingyi"
+  python cli.py glossary import --id 12 terms.csv
+  python cli.py glossary export --id 12 --output terms.csv
+  python cli.py glossary remove --id 12 --term 沈清疑 --yes
+
   # List what's in the library and its status
   python cli.py list
 """
@@ -63,9 +76,10 @@ import bulk_translate
 import raw_transcript
 import dub as dub_module
 import background_jobs
-from services import (dub_service, engine_routing_service, glossary_retranslate_service,
-                      lines_service, line_provenance_service, narration_service, settings_service,
-                      transcribe_service, translate_service, workspace_job_service)
+from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
+                      glossary_service, jobs_service, lines_service, line_provenance_service,
+                      narration_service, settings_service, transcribe_service, translate_service,
+                      workspace_job_service)
 from services.narration_service import TAG_ENGINES
 from services.service_errors import DependencyUnavailableError, ServiceError
 from services.translate_run_service import (engine_cap_applies, get_translate_config_defaults,
@@ -1062,6 +1076,169 @@ def cmd_set_language(args):
     print(msg)
 
 
+_JOB_POLL_SECONDS = 1.0
+
+
+def _wait_for_job(job_id: str, label: str, poll_interval: float = _JOB_POLL_SECONDS):
+    """Blocks until a job this process started has ended, echoing its stage
+    text as it changes. Returns (outcome, message, result), the first two as
+    the app's job list derives them (jobs_service.derive_outcome)."""
+    last = None
+    while True:
+        job = background_jobs.get_status(job_id)
+        if job is None:
+            return "failed", "The job disappeared before it finished.", {}
+        status = job.get("status")
+        if status in ("done", "error", "cancelled"):
+            result = job.get("result")
+            outcome, message = jobs_service.derive_outcome(
+                status, job.get("error"), jobs_service.project_result(result))
+            return outcome, message, result if isinstance(result, dict) else {}
+        note = (job.get("message") or "").strip()
+        if note and note != last:
+            print(f"{label}: {translate_engines.redact_secrets(note)}", flush=True)
+            last = note
+        time.sleep(poll_interval)
+
+
+def cmd_transcribe(args):
+    """Transcribes (or aligns --transcript against) one title's stored audio
+    through the same service as the Workspace's Transcribe button. Tuning
+    options are saved on the title, as the app's own form saves them."""
+    tuning = dict(
+        whisper_size=args.whisper_size, asr_backend_choice=args.asr_backend,
+        beam_size=args.beam_size, min_silence_ms=args.min_silence_ms,
+        vad_threshold=args.vad_threshold, separation_backend=args.separation_backend,
+        separate_vocals_first=args.separate_vocals)
+    transcript_text = _read_transcript_option(args)
+    try:
+        if any(v is not None for v in tuning.values()):
+            transcribe_service.update_transcribe_config(args.id, **tuning)
+        job = transcribe_service.start_transcribe_run(
+            args.id, source_language=args.language, chinese_script=args.chinese_script,
+            transcript_text=transcript_text, run_diarize=args.diarize,
+            expected_speakers=args.num_speakers, min_speakers=args.min_speakers,
+            max_speakers=args.max_speakers, initial_prompt=args.initial_prompt or "",
+            extra_names=args.extra_names or "")
+    except ServiceError as e:
+        raise SystemExit(f"transcribe: {translate_engines.redact_secrets(e.message)}")
+    label = f"#{args.id}"
+    print(f"{label} transcribing (GPU setting: "
+          f"{'on' if settings_service.get_use_gpu() else 'off'})...", flush=True)
+    outcome, message, result = _wait_for_job(job["job_id"], label)
+    if result.get("device"):
+        print(f"{label} device: {result['device']}")
+    if result.get("device_notice"):
+        print(f"{label} NOTICE: {result['device_notice']}")
+    for key in ("coverage_warning", "word_align_error", "forced_align_error"):
+        if result.get(key):
+            print(f"{label} WARNING: {translate_engines.redact_secrets(str(result[key]))}")
+    if outcome not in ("ok", "partial"):
+        print(f"{label} {outcome}: {translate_engines.redact_secrets(message or '')}",
+              file=sys.stderr)
+        sys.exit(1)
+    print(f"{label} transcribed: {result.get('line_count', 0)} line(s).")
+    if result.get("diarize_started"):
+        d_outcome, d_message, _ = _wait_for_job(f"diarize_{args.id}", f"{label} speakers")
+        if d_outcome not in ("ok", "partial"):
+            print(f"{label} speaker detection {d_outcome}: "
+                  f"{translate_engines.redact_secrets(d_message or '')}", file=sys.stderr)
+            sys.exit(1)
+        print(f"{label} speaker detection done.")
+
+
+def cmd_qc(args):
+    """Auto QC's factual-detail check (numbers, names, banned terms), the same
+    service as the Workspace's "Run Auto QC". It updates review flags in place
+    and uses no engine, so it never spends anything."""
+    dramas = [db.get_drama(args.id)] if args.id else db.list_dramas()
+    if args.id and dramas[0] is None:
+        raise SystemExit(f"qc: No drama with id {args.id}.")
+
+    def step(d):
+        r = export_service.run_auto_qc_flagging(d["id"])
+        print(f"#{d['id']} checked {r['checked']} line(s): {r['flagged']} newly flagged, "
+              f"{r['already_flagged']} already flagged, {r['cleared']} cleared.")
+
+    _, failed = _run_batch(dramas, step, "qc")
+    if failed:
+        sys.exit(1)
+
+
+def _term_line(t: dict) -> str:
+    extras = [x for x in (t["category"], t["policy"], "exact" if t["enforce_exact"] else None) if x]
+    return (f"{t['id']}\t{t['term_original']}\t{t['term_translation']}"
+            + (f"\t[{', '.join(extras)}]" if extras else ""))
+
+
+def cmd_glossary(args):
+    """List, add, remove, import or export a title's series glossary through
+    glossary_service (the app's own validation). A glossary belongs to the
+    series, so any title in the series reaches the same terms."""
+    try:
+        _glossary_action(args)
+    except ServiceError as e:
+        raise SystemExit(f"glossary: {translate_engines.redact_secrets(e.message)}")
+
+
+def _glossary_action(args):
+    action = args.glossary_action
+    if action == "list":
+        terms = glossary_service.list_glossary_terms(args.id)
+        for t in terms:
+            print(_term_line(t))
+        print(f"{len(terms)} term(s).")
+    elif action == "add":
+        fields = {"term_original": args.original, "term_translation": args.translation}
+        for key, value in (("notes", args.notes), ("category", args.category),
+                           ("policy", args.policy), ("aliases", args.alias),
+                           ("banned_translations", args.banned)):
+            if value:
+                fields[key] = value
+        if args.enforce_exact:
+            fields["enforce_exact"] = True
+        print("Saved: " + _term_line(glossary_service.upsert_glossary_term(args.id, fields)))
+    elif action == "remove":
+        by_text = {t["term_original"]: t["id"] for t in glossary_service.list_glossary_terms(args.id)}
+        ids = list(args.term_id or [])
+        missing = [text for text in args.term or [] if text not in by_text]
+        ids += [by_text[text] for text in args.term or [] if text in by_text]
+        if missing:
+            raise SystemExit("glossary: no term with original text: " + ", ".join(missing))
+        if not ids:
+            raise SystemExit("glossary: name a term with --term TEXT or --term-id N.")
+        if not args.yes:
+            raise SystemExit(f"glossary: this deletes {len(ids)} term(s); add --yes to confirm.")
+        result = glossary_service.bulk_delete_glossary_terms(args.id, ids, confirm=True)
+        print(f"Deleted {len(result['deleted'])} term(s)"
+              + (f"; not found: {result['not_found']}" if result["not_found"] else "") + ".")
+    elif action == "import":
+        try:
+            with open(args.file, encoding="utf-8-sig") as f:
+                text = f.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            raise SystemExit(f"glossary: can't read the file: {getattr(exc, 'strerror', None) or exc}")
+        r = glossary_service.import_glossary_text(
+            args.id, text, filename=os.path.basename(args.file),
+            overwrite_existing=args.overwrite)
+        print(f"Imported: {len(r['added'])} added, {len(r['overwritten'])} overwritten, "
+              f"{len(r['skipped_existing'])} already there (use --overwrite to replace), "
+              f"{len(r['invalid'])} invalid.")
+        for w in r["warnings"]:
+            print(f"  warning: {w}")
+    elif action == "export":
+        csv_text = glossary_service.glossary_csv(args.id)
+        if args.output:
+            try:
+                with open(args.output, "w", encoding="utf-8-sig", newline="") as f:
+                    f.write(csv_text)
+            except OSError as exc:
+                raise SystemExit(f"glossary: can't write the file: {exc.strerror or exc}")
+            print(f"Wrote {args.output}")
+        else:
+            sys.stdout.write(csv_text)
+
+
 def cmd_run(args):
     """Align then translate a single drama in one shot."""
     cmd_align(args)
@@ -1259,6 +1436,67 @@ def main():
     p_dub.add_argument("--m4b", action="store_true",
                        help="For novel narration: also export an M4B audiobook with chapter markers")
     p_dub.set_defaults(func=cmd_dub)
+
+    p_transcribe = sub.add_parser("transcribe", help="Transcribe one title's audio (or align --transcript)")
+    p_transcribe.add_argument("--id", type=int, required=True)
+    p_transcribe.add_argument("--language", default=None,
+                              help="Spoken language code (default: the title's own).")
+    p_transcribe.add_argument("--chinese-script", default=None, choices=["simplified", "traditional"])
+    p_transcribe.add_argument("--whisper-size", default=None,
+                              help="Whisper model size, saved on the title.")
+    p_transcribe.add_argument("--asr-backend", default=None,
+                              choices=["whisper", "qwen3_asr", "qwen3_asr_vad", "moss_td"],
+                              help="Speech recognition backend, saved on the title.")
+    p_transcribe.add_argument("--beam-size", type=int, default=None, help="Whisper beam size (1-10).")
+    p_transcribe.add_argument("--min-silence-ms", type=int, default=None,
+                              help="VAD: silence that splits speech (300-3000).")
+    p_transcribe.add_argument("--vad-threshold", type=float, default=None,
+                              help="VAD speech threshold (0.1-0.9).")
+    p_transcribe.add_argument("--separate-vocals", action=argparse.BooleanOptionalAction, default=None,
+                              help="Separate vocals from music before recognising.")
+    p_transcribe.add_argument("--separation-backend", default=None,
+                              choices=["auto", "audio_separator", "demucs"])
+    p_transcribe.add_argument("--diarize", action="store_true",
+                              help="Detect speakers afterwards (needs a Hugging Face token in Settings).")
+    p_transcribe.add_argument("--num-speakers", type=int, default=None)
+    p_transcribe.add_argument("--min-speakers", type=int, default=None)
+    p_transcribe.add_argument("--max-speakers", type=int, default=None)
+    p_transcribe.add_argument("--transcript", default=None, metavar="FILE",
+                              help="Transcript to align (- for stdin); required when the title "
+                                   "is in have-a-transcript mode.")
+    p_transcribe.add_argument("--initial-prompt", default=None, help="Replace Whisper's automatic prompt.")
+    p_transcribe.add_argument("--extra-names", default=None, help="Extra names added to the automatic prompt.")
+    p_transcribe.set_defaults(func=cmd_transcribe)
+
+    p_qc = sub.add_parser("qc", help="Run Auto QC (numbers, names, banned terms) and flag lines")
+    p_qc.add_argument("--id", type=int, default=None, help="One title (default: the whole library).")
+    p_qc.set_defaults(func=cmd_qc)
+
+    p_gloss = sub.add_parser("glossary", help="List, add, remove, import or export a title's series glossary")
+    gsub = p_gloss.add_subparsers(dest="glossary_action", required=True)
+    g_list = gsub.add_parser("list")
+    g_add = gsub.add_parser("add", help="Add a term, or update the one with the same original text")
+    g_add.add_argument("--original", required=True)
+    g_add.add_argument("--translation", required=True)
+    g_add.add_argument("--notes", default=None)
+    g_add.add_argument("--category", default=None, choices=list(tguide.TERM_CATEGORIES))
+    g_add.add_argument("--policy", default=None, choices=list(tguide.TERM_POLICIES))
+    g_add.add_argument("--alias", action="append", default=None)
+    g_add.add_argument("--banned", action="append", default=None, help="A translation never to use.")
+    g_add.add_argument("--enforce-exact", action="store_true")
+    g_rm = gsub.add_parser("remove")
+    g_rm.add_argument("--term", action="append", help="Original text of a term (repeatable).")
+    g_rm.add_argument("--term-id", type=int, action="append", help="Term id from 'glossary list'.")
+    g_rm.add_argument("--yes", action="store_true", help="Confirm the deletion.")
+    g_imp = gsub.add_parser("import", help="Import a CSV, TSV or JSON glossary file")
+    g_imp.add_argument("file")
+    g_imp.add_argument("--overwrite", action="store_true", help="Replace terms already in the glossary.")
+    g_exp = gsub.add_parser("export", help="Export the glossary as CSV (stdout unless --output)")
+    g_exp.add_argument("--output", default=None, metavar="FILE")
+    for g in (g_list, g_add, g_rm, g_imp, g_exp):
+        g.add_argument("--id", type=int, required=True,
+                       help="A title in the series (the glossary is shared by the series).")
+    p_gloss.set_defaults(func=cmd_glossary)
 
     p_run = sub.add_parser("run")
     p_run.add_argument("--id", type=int, required=True)
