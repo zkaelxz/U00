@@ -73,6 +73,15 @@ export function capProblem(lineCount: number, maxLines: number): string | null {
     : null
 }
 
+// Same limit as the server's initial_prompt / extra_names fields.
+export const PROMPT_MAX_CHARS = 1000
+
+export function promptProblem(hint: string, names: string): string | null {
+  return hint.length > PROMPT_MAX_CHARS || names.length > PROMPT_MAX_CHARS
+    ? `The hint and the names are each limited to ${PROMPT_MAX_CHARS} characters.`
+    : null
+}
+
 export interface DiffPart {
   text: string
   changed: boolean
