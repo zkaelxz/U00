@@ -305,6 +305,7 @@ function VideoImport({ url, html, identify }: { url: string; html: string | null
           contentMode={drama.content_mode}
           hasAudio={media.has_audio}
           hasSourceVideo={media.has_source_video}
+          readsBurnedInSubtitles={media.reads_burned_in_subtitles}
           url={picked ?? url}
           busy={busy}
           onStarted={setJobId}

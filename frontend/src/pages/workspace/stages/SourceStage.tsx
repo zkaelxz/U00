@@ -23,6 +23,7 @@ import {
   sourceJobIds,
   UPLOAD_EXTENSIONS,
   UPLOAD_LIMIT_SETTINGS_HREF,
+  SWITCHES_FROM_BURNED_IN,
   UPLOAD_SETS_VIDEO_ASIDE,
 } from '../sourceForm'
 import { useStage } from '../StageContext'
@@ -195,6 +196,7 @@ export default function SourceStage() {
             contentMode={drama.content_mode}
             hasAudio={media.has_audio}
             hasSourceVideo={media.has_source_video}
+            readsBurnedInSubtitles={media.reads_burned_in_subtitles}
             busy={busy}
             onStarted={(id) => {
               setUploaded(null)
@@ -229,6 +231,7 @@ export default function SourceStage() {
           {mustConfirm && media?.has_source_video && !(file && isVideoFile(file.name)) && (
             <p className="muted" data-testid="replace-sets-video-aside">
               {UPLOAD_SETS_VIDEO_ASIDE}
+              {media.reads_burned_in_subtitles && SWITCHES_FROM_BURNED_IN}
             </p>
           )}
         </div>
@@ -285,6 +288,8 @@ export default function SourceStage() {
             setFile(null)
             setReplace(false)
             setServerHasMedia(false)
+            // An audio file is in place already, so the badges and notes are stale.
+            setReloads((n) => n + 1)
           }
           setExpectedSeconds(expected ?? null)
           setJobId(id)

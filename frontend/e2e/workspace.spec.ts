@@ -149,12 +149,47 @@ test('replacing a video with audio says the video is set aside, then shows no so
   await expect(note).toHaveCount(0)
   await input.setInputFiles({ name: 'dub.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
   await expect(note).toContainText('no source video for Review or video export')
+  await expect(note).not.toContainText('burned-in')
 
   await page.getByLabel(/Replace the current audio\/video/).check()
   await page.getByRole('button', { name: 'Upload', exact: true }).click()
   await expect(page.getByTestId('media-status')).toContainText('No source video')
   await expect(page.getByTestId('kept-media')).toContainText('2 files')
   await expect(note).toHaveCount(0)
+})
+
+test('a hardsub title replaced with audio says the mode changes', async ({ page }) => {
+  await page.route('**/api/media/dramas/1/status', (route) =>
+    route.fulfill({
+      json: { drama_id: 1, has_audio: true, has_source_video: true, reads_burned_in_subtitles: true, upload_max_mb: 500, kept_media_files: 0, kept_media_bytes: 0 },
+    }),
+  )
+  await page.goto('/#/drama/1/source')
+  await expect(page.getByTestId('media-status')).toContainText('Source video attached')
+  await page.getByLabel('Audio or video file').setInputFiles({ name: 'dub.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  await expect(page.getByTestId('replace-sets-video-aside')).toContainText('from reading burned-in subtitles to transcribing the audio')
+})
+
+test('upload-and-transcribe over a video drops the stale video badge while the run is still going', async ({ page }) => {
+  let video = true
+  await page.route('**/api/media/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_audio: true, has_source_video: video, upload_max_mb: 500, kept_media_files: 0, kept_media_bytes: 0 } }),
+  )
+  await page.route('**/api/media/dramas/1/upload-and-transcribe', async (route) => {
+    video = false
+    await route.fulfill({ json: { upload: { name: 'source.mp3', size: 3, kind: 'audio', job_id: null }, job_id: 'fake-job' } })
+  })
+  await page.route('**/api/jobs/fake-job', (route) => route.fulfill({ json: job('running', { progress: 0.3 }) }))
+  await page.goto('/#/drama/1/source')
+  await expect(page.getByTestId('media-status')).toContainText('Source video attached')
+  await page.getByLabel('Audio or video file').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  const transcript = page.getByLabel('Transcript text', { exact: true })
+  if (await transcript.count()) await transcript.fill('line one')
+  await page.getByLabel(/Replace the current audio\/video/).check()
+  await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
+  await expect(page.getByTestId('job-status')).toContainText('Running')
+  await expect(page.getByTestId('media-status')).toContainText('No source video')
+  await expect(page.getByTestId('replace-sets-video-aside')).toHaveCount(0)
 })
 
 test('upload-and-transcribe waits for the replace box, also after the server asks for it', async ({ page }) => {

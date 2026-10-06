@@ -359,6 +359,32 @@ class TestFrontDoor:
         assert path == os.path.join(isolated_db.drama_dir(drama_id), "source.wav")
         assert d["title_zh"] == "A stream title"
 
+    def test_an_audio_only_import_sets_the_old_video_aside_and_leaves_hardsub_mode(
+            self, isolated_db, monkeypatch):
+        # A .webm counts as audio here: an audio-only stream can arrive in that container.
+        import video_download
+
+        def fake_download(url, out_dir, **_kw):
+            path = os.path.join(out_dir, "stream.webm")
+            with open(path, "wb") as f:
+                f.write(b"audio")
+            return path
+        monkeypatch.setattr(video_download, "download", fake_download)
+        drama_id = isolated_db.create_drama(media_type="streamer_vod", transcript_mode="hardsub_ocr")
+        ddir = isolated_db.drama_dir(drama_id)
+        for name in ("source.mp4", "audio.wav"):
+            with open(os.path.join(ddir, name), "wb") as f:
+                f.write(b"old")
+        isolated_db.update_drama(drama_id, source_video_filename="source.mp4",
+                                 audio_filename="audio.wav")
+        front_door.import_video("https://www.youtube.com/watch?v=abc123def45", drama_id,
+                                audio_only=True, confirm_replace_audio=True)
+        d = isolated_db.get_drama(drama_id)
+        assert d["audio_filename"] == "source.webm" and d["source_video_filename"] is None
+        assert d["transcript_mode"] == "whisper"
+        assert len(os.listdir(os.path.join(ddir, "kept_media"))) == 2
+        assert not os.path.exists(os.path.join(ddir, "source.mp4"))
+
     def test_a_video_import_keeps_the_audio_it_replaces(self, isolated_db, monkeypatch):
         import core
         import video_download

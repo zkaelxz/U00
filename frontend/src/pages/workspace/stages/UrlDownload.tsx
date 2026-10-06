@@ -17,7 +17,7 @@ import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { MAX_URL_LEN, defaultAudioOnly, downloadReason } from '../../sources/urlImportFormat'
-import { URL_SETS_VIDEO_ASIDE } from '../sourceForm'
+import { SWITCHES_FROM_BURNED_IN, URL_SETS_VIDEO_ASIDE, isDirectAudioUrl } from '../sourceForm'
 import './urlDownload.css'
 
 export const URL_PC_ONLY = 'Downloading from a link is PC only for now.'
@@ -27,6 +27,7 @@ type Props = {
   contentMode: string | null | undefined
   hasAudio: boolean
   hasSourceVideo?: boolean
+  readsBurnedInSubtitles?: boolean
   // A fixed link (the Sources preview); without it a link field is shown.
   url?: string
   busy?: boolean
@@ -36,7 +37,7 @@ type Props = {
 const needsConfirm = (e: unknown) =>
   e instanceof ApiError && e.status === 422 && (e.details as { reason?: unknown } | null)?.reason === 'confirm_replace_audio'
 
-export function UrlDownload({ dramaId, contentMode, hasAudio, hasSourceVideo, url: fixedUrl, busy, onStarted }: Props) {
+export function UrlDownload({ dramaId, contentMode, hasAudio, hasSourceVideo, readsBurnedInSubtitles, url: fixedUrl, busy, onStarted }: Props) {
   const pc = usePcOnly()
   const [typed, setTyped] = useState('')
   const [audioOnly, setAudioOnly] = useState(() => defaultAudioOnly(contentMode))
@@ -52,6 +53,7 @@ export function UrlDownload({ dramaId, contentMode, hasAudio, hasSourceVideo, ur
   const url = fixedUrl ?? typed
   const audioThere = hasAudio || serverHasAudio
   const reason = downloadReason(url, audioThere, replace)
+  const audioOnlyResult = audioOnly || isDirectAudioUrl(url)
 
   const start = () => {
     if (reason || busy || starting) return
@@ -98,15 +100,16 @@ export function UrlDownload({ dramaId, contentMode, hasAudio, hasSourceVideo, ur
             <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
             Replace the current audio
           </label>
-          {audioOnly && hasSourceVideo && (
+          {audioOnlyResult && hasSourceVideo && (
             <p className="muted" data-testid="url-sets-video-aside">
               {URL_SETS_VIDEO_ASIDE}
+              {readsBurnedInSubtitles && SWITCHES_FROM_BURNED_IN}
             </p>
           )}
         </div>
       )}
       <p className="muted">
-        {audioOnly ? 'Keeps just the audio track.' : 'Keeps the video too and extracts its audio.'}
+        {audioOnlyResult ? 'Keeps just the audio track.' : 'Keeps the video too and extracts its audio.'}
       </p>
       <div className="actions">
         <button
