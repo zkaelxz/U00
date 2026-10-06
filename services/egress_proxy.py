@@ -17,9 +17,27 @@ Two request forms are served: `CONNECT host:port` (https, tunnelled
 unchanged, so TLS and SNI are the client's own) and an absolute-form
 `http://` request, forwarded once with `Connection: close` (so one
 client connection never carries a second request to another host).
-Anything else is refused. The listener binds 127.0.0.1 on a random port.
+Anything else is refused. The listener binds 127.0.0.1 on a random port
+and answers only requests carrying its per-proxy random secret (Basic
+`Proxy-Authorization`; clients take it from the userinfo of `proxy.url`),
+so another local process can't borrow it while a session runs. Ports a
+browser refuses to fetch from (the Fetch standard's "bad ports": SMTP,
+SSH, IRC and the like) are refused on every host; no media server uses
+them.
+
+Known gap (ffmpeg 6.1): ffmpeg's HLS and DASH demuxers accept any entry
+whose protocol name starts with "http", so an `httpproxy://host:port/dest`
+variant, segment or key URI in a playlist makes ffmpeg connect to
+host:port itself, bypassing this proxy. It sends one fixed
+`CONNECT dest HTTP/1.1` request (dest from the playlist, no CR/LF), and
+only a `200` reply lets bytes through, read as media. `httpproxy` can't
+leave the whitelist: ffmpeg tunnels https to a proxy only through it.
+
 Standard library only.
 """
+import base64
+import hmac
+import secrets
 import select
 import socket
 import threading
@@ -33,14 +51,23 @@ CONNECT_TIMEOUT = 15.0
 # A live HLS connection can sit idle between playlist refreshes.
 IDLE_TIMEOUT = 120.0
 _CHUNK = 65_536
+# https://fetch.spec.whatwg.org/#bad-port
+BLOCKED_PORTS = frozenset({
+    0, 1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87,
+    95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143,
+    161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556,
+    563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190,
+    5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080})
+_USER = "baihe"
 _HOP_HEADERS = {"connection", "keep-alive", "proxy-connection", "proxy-authorization",
                 "proxy-authenticate", "te", "trailer", "upgrade"}
 
 
 class _Refused(Exception):
-    def __init__(self, status: str):
+    def __init__(self, status: str, header: str = ""):
         super().__init__(status)
         self.status = status
+        self.header = header
 
 
 def _read_head(sock) -> tuple:
@@ -61,6 +88,8 @@ def _open_upstream(host: str, port: int):
     """A socket connected to the validated public address of host:port."""
     if not host or not 0 < port < 65536:
         raise _Refused("400 Bad Request")
+    if port in BLOCKED_PORTS:
+        raise _Refused("403 Forbidden")
     netloc = f"[{host}]" if ":" in host else host
     try:
         ip = url_guard.resolve_public(f"http://{netloc}:{port}/")
@@ -163,7 +192,18 @@ def _forward(client, method: str, target: str, version: str, header_lines, rest:
         upstream.close()
 
 
-def _handle(client, slots):
+def _authorized(header_lines, expected: bytes) -> bool:
+    for line in header_lines:
+        name, _, value = line.partition(":")
+        if name.strip().lower() == "proxy-authorization":
+            scheme, _, credentials = value.strip().partition(" ")
+            if scheme.lower() == "basic" and hmac.compare_digest(
+                    credentials.strip().encode("latin-1"), expected):
+                return True
+    return False
+
+
+def _handle(client, slots, expected_auth: bytes):
     try:
         client.settimeout(CONNECT_TIMEOUT)
         head, rest = _read_head(client)
@@ -171,6 +211,10 @@ def _handle(client, slots):
         request_line = lines[0].split(" ")
         if len(request_line) != 3:
             raise _Refused("400 Bad Request")
+        if not _authorized(lines[1:], expected_auth):
+            # ffmpeg sends credentials only after this challenge.
+            raise _Refused("407 Proxy Authentication Required",
+                           'Proxy-Authenticate: Basic realm="baihe"\r\n')
         method, target, version = request_line
         if method.upper() == "CONNECT":
             _connect(client, target, rest)
@@ -179,8 +223,8 @@ def _handle(client, slots):
     except _Refused as refusal:
         if refusal.status:
             try:
-                client.sendall(f"HTTP/1.1 {refusal.status}\r\nContent-Length: 0\r\n"
-                               "Connection: close\r\n\r\n".encode("latin-1"))
+                client.sendall(f"HTTP/1.1 {refusal.status}\r\n{refusal.header}"
+                               "Content-Length: 0\r\nConnection: close\r\n\r\n".encode("latin-1"))
             except OSError:
                 pass
     except (OSError, UnicodeError, ValueError):
@@ -193,18 +237,22 @@ def _handle(client, slots):
 class GuardedProxy:
     """`with GuardedProxy() as proxy:` serves on `proxy.url` until the block
     ends. Connections already open are ended when their client closes
-    them (ffmpeg is stopped before the proxy)."""
+    them (ffmpeg is stopped before the proxy). `proxy.url` carries the
+    secret in its userinfo: hand it only to the client process, never log
+    or store it (translate_engines.redact_secrets masks URL userinfo)."""
 
     def __init__(self):
         self._listener = None
         self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self._secret = secrets.token_urlsafe(24)
+        self._expected_auth = base64.b64encode(f"{_USER}:{self._secret}".encode())
         self.url = None
 
     def start(self) -> "GuardedProxy":
         self._listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._listener.bind(("127.0.0.1", 0))
         self._listener.listen(16)
-        self.url = f"http://127.0.0.1:{self._listener.getsockname()[1]}"
+        self.url = f"http://{_USER}:{self._secret}@127.0.0.1:{self._listener.getsockname()[1]}"
         threading.Thread(target=self._serve, args=(self._listener,), daemon=True,
                          name="egress-proxy").start()
         return self
@@ -218,8 +266,8 @@ class GuardedProxy:
             if not self._slots.acquire(blocking=False):
                 client.close()
                 continue
-            threading.Thread(target=_handle, args=(client, self._slots), daemon=True,
-                             name="egress-proxy-conn").start()
+            threading.Thread(target=_handle, args=(client, self._slots, self._expected_auth),
+                             daemon=True, name="egress-proxy-conn").start()
 
     def close(self):
         listener, self._listener = self._listener, None

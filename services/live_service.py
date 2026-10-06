@@ -33,8 +33,8 @@ import background_jobs
 import live_translate
 import translate_engines
 from core import SOURCE_LANGUAGES
-from services import (egress_proxy, ownership_service, settings_service, translate_service,
-                      url_guard)
+from services import (egress_proxy, jobs_service, ownership_service, settings_service,
+                      translate_service, url_guard)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError)
 
@@ -47,7 +47,9 @@ MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
 # ffmpeg input protocols for a resolved live stream (HLS over https needs
 # tcp, tls and crypto for encrypted segments, and httpproxy to tunnel
-# https through the egress proxy); no file, pipe, data, etc.
+# https through the egress proxy); no file, pipe, data, etc. ffmpeg opens
+# no tcp:// URL a stream names (tests/test_egress_proxy.py), but does open
+# httpproxy:// playlist entries directly (see services/egress_proxy.py).
 FFMPEG_PROTOCOL_WHITELIST = "http,https,tcp,tls,crypto,httpproxy"
 
 _lock = threading.Lock()
@@ -60,11 +62,11 @@ _PATH_RE = re.compile(r"""(?:(?<=^)|(?<=[\s'"(=]))(?:[A-Za-z]:[\\/]|\\\\|/)[^\s'
 
 
 def clean_message(text) -> str:
-    """Redacted, path-stripped, single-line text safe to return to a client."""
+    """Redacted, URL- and path-stripped, single-line text safe to return to
+    a client (a yt-dlp or proxy error can name the stream or proxy URL)."""
     if not text:
         return ""
-    text = translate_engines.redact_secrets(str(text))
-    text = _PATH_RE.sub("<path>", text)
+    text = jobs_service.scrub_text(_PATH_RE.sub("<path>", str(text)))
     return text.splitlines()[0][:500] if text.strip() else ""
 
 

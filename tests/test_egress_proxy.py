@@ -5,10 +5,12 @@ cannot reach a non-public address after the first URL check.
 Local servers only. "origin.test" stands for a public host (the resolver is
 faked to validate it and pin 127.0.0.1); every other host goes through the
 real url_guard, which refuses 127.0.0.1. The ffmpeg tests need a real
-ffmpeg binary and are skipped without one."""
+ffmpeg binary (and the https one openssl) and are skipped without one."""
+import base64
 import http.server
 import os
 import shutil
+import ssl
 import socket
 import subprocess
 import sys
@@ -20,9 +22,11 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import live_translate
+import translate_engines
 from services import egress_proxy, live_service, url_guard
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
+HAS_OPENSSL = shutil.which("openssl") is not None
 
 
 class _Server:
@@ -77,8 +81,17 @@ def proxy(monkeypatch):
         yield p
 
 
-def _raw(proxy, request: bytes, then: bytes = b"") -> bytes:
-    """Send one request to the proxy and return everything it answers."""
+def _auth_header(url: str) -> bytes:
+    userinfo = urlsplit(url).netloc.rpartition("@")[0]
+    return b"Proxy-Authorization: Basic " + base64.b64encode(userinfo.encode()) + b"\r\n"
+
+
+def _raw(proxy, request: bytes, then: bytes = b"", auth: bytes = None) -> bytes:
+    """Send one request to the proxy and return everything it answers.
+    auth: the Proxy-Authorization header line(s), default the proxy's own."""
+    line, sep, rest = request.partition(b"\r\n")
+    if sep:
+        request = line + sep + (_auth_header(proxy.url) if auth is None else auth) + rest
     port = int(proxy.url.rsplit(":", 1)[1])
     with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
         s.sendall(request)
@@ -164,6 +177,44 @@ def test_chunked_request_body_is_refused(proxy):
     assert resp.startswith(b"HTTP/1.1 501")
 
 
+@pytest.mark.parametrize("auth", [
+    b"",                                                          # none
+    b"Proxy-Authorization: Basic " + base64.b64encode(b"baihe:wrong") + b"\r\n",
+    b"Proxy-Authorization: Bearer x\r\n",
+])
+def test_request_without_the_proxy_secret_is_refused_without_connecting(proxy, auth):
+    origin = _Server()
+    try:
+        get = _raw(proxy, f"GET http://origin.test:{origin.port}/x HTTP/1.1\r\n"
+                          "Host: origin.test\r\n\r\n".encode(), auth=auth)
+        connect = _raw(proxy, f"CONNECT origin.test:{origin.port} HTTP/1.1\r\n\r\n".encode(),
+                       auth=auth)
+    finally:
+        origin.close()
+    for resp in (get, connect):
+        assert resp.startswith(b"HTTP/1.1 407")
+        assert b"Proxy-Authenticate: Basic" in resp
+    assert origin.hits == []
+
+
+def test_each_proxy_has_its_own_secret_and_redaction_hides_it():
+    with egress_proxy.GuardedProxy() as a, egress_proxy.GuardedProxy() as b:
+        secret = urlsplit(a.url).password
+        assert secret and secret != urlsplit(b.url).password
+        shown = translate_engines.redact_secrets(f"Unable to connect to proxy {a.url}")
+        assert secret not in shown
+        assert secret not in live_service.clean_message(f"ProxyError: {a.url} refused")
+
+
+@pytest.mark.parametrize("port", [22, 25, 6667])
+def test_browser_blocked_ports_are_refused_on_a_public_host(proxy, port):
+    for request in (f"CONNECT origin.test:{port} HTTP/1.1\r\n\r\n",
+                    f"GET http://origin.test:{port}/ HTTP/1.1\r\nHost: origin.test\r\n\r\n"):
+        assert _raw(proxy, request.encode()).startswith(b"HTTP/1.1 403")
+    # ordinary media ports are not on the list
+    assert not {80, 443, 1935, 8000, 8080, 8443} & egress_proxy.BLOCKED_PORTS
+
+
 def test_closed_proxy_refuses_new_connections():
     p = egress_proxy.GuardedProxy().start()
     port = int(p.url.rsplit(":", 1)[1])
@@ -245,3 +296,95 @@ def test_ffmpeg_reads_a_public_source_through_the_proxy(proxy, tmp_path):
         origin.close()
     assert origin.hits == ["/tone.wav"]
     assert os.listdir(tmp_path / "chunks")  # audio arrived and was segmented
+
+
+class _Sentinel:
+    """A raw TCP listener on loopback that records every connection."""
+
+    def __init__(self):
+        self.hits = []
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(8)
+        self.port = self.sock.getsockname()[1]
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            self.hits.append(1)
+            conn.close()
+
+    def close(self):
+        self.sock.close()
+
+
+def _hls(entry: str) -> bytes:
+    return ("#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\n"
+            f"{entry}\n#EXT-X-ENDLIST\n").encode()
+
+
+_TCP_ENTRIES = {
+    "hls_segment": lambda p: {"/s": (200, {}, _hls(f"tcp://127.0.0.1:{p}/seg.ts"))},
+    "hls_variant": lambda p: {"/s": (200, {}, (
+        f"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\ntcp://127.0.0.1:{p}/v.m3u8\n").encode())},
+    "hls_key": lambda p: {"/s": (200, {}, (
+        f'#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXT-X-KEY:METHOD=AES-128,URI="tcp://127.0.0.1:{p}/k"'
+        "\n#EXTINF:2,\n/seg.ts\n#EXT-X-ENDLIST\n").encode()),
+        "/seg.ts": (200, {}, b"\x47" * 1880)},
+    "hls_crypto_segment": lambda p: {"/s": (200, {}, _hls(f"crypto+tcp://127.0.0.1:{p}/seg.ts"))},
+    "dash_base_url": lambda p: {"/s": (200, {"Content-Type": "application/dash+xml"}, (
+        '<?xml version="1.0"?><MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" '
+        'mediaPresentationDuration="PT2S" minBufferTime="PT1S" '
+        'profiles="urn:mpeg:dash:profile:isoff-on-demand:2011"><Period>'
+        '<AdaptationSet mimeType="audio/mp4"><Representation id="a" bandwidth="1">'
+        f"<BaseURL>tcp://127.0.0.1:{p}/a.mp4</BaseURL></Representation></AdaptationSet>"
+        "</Period></MPD>").encode())},
+    "ffconcat": lambda p: {"/s": (200, {}, (
+        f"ffconcat version 1.0\nfile 'tcp://127.0.0.1:{p}/'\n").encode())},
+    "redirect": lambda p: {"/s": (302, {"Location": f"tcp://127.0.0.1:{p}/"}, b"")},
+}
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
+@pytest.mark.parametrize("kind", sorted(_TCP_ENTRIES))
+def test_ffmpeg_never_opens_a_tcp_url_a_stream_names(proxy, tmp_path, kind):
+    """tcp must stay whitelisted (http, tls and httpproxy run over it), so a
+    raw tcp:// URL would skip the proxy. ffmpeg's HLS and DASH demuxers only
+    open http(s) entries, concat refuses URLs in safe mode, and a redirect
+    reaches the proxy as an absolute-form non-http request, which it
+    refuses; this pins that for every place a stream can name one."""
+    sentinel = _Sentinel()
+    origin = _Server(_TCP_ENTRIES[kind](sentinel.port))
+    try:
+        _run_ffmpeg_through(proxy, f"http://origin.test:{origin.port}/s", tmp_path)
+    finally:
+        origin.close()
+        sentinel.close()
+    assert origin.hits[:1] == ["/s"]
+    assert sentinel.hits == []
+
+
+@pytest.mark.skipif(not (HAS_FFMPEG and HAS_OPENSSL), reason="needs real ffmpeg and openssl")
+def test_ffmpeg_reads_https_through_the_proxy_with_its_secret(proxy, tmp_path):
+    """https goes as an authenticated CONNECT (ffmpeg answers the 407
+    challenge with the userinfo of http_proxy)."""
+    key, cert, src = tmp_path / "k.pem", tmp_path / "c.pem", tmp_path / "tone.wav"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout",
+                    str(key), "-out", str(cert), "-days", "1", "-subj", "/CN=origin.test"],
+                   check=True, capture_output=True, timeout=60)
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=d=3",
+                    "-ac", "1", "-ar", "16000", str(src)], check=True, timeout=30)
+    origin = _Server({"/tone.wav": (200, {"Content-Type": "audio/wav"}, src.read_bytes())})
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(str(cert), str(key))
+    origin.httpd.socket = ctx.wrap_socket(origin.httpd.socket, server_side=True)
+    try:
+        _run_ffmpeg_through(proxy, f"https://origin.test:{origin.port}/tone.wav", tmp_path)
+    finally:
+        origin.close()
+    assert origin.hits == ["/tone.wav"]
+    assert os.listdir(tmp_path / "chunks")

@@ -1,6 +1,7 @@
 """Tests for services/live_service.py (Live capture L-1). Fully mocked:
 no ffmpeg, yt-dlp, Whisper or network."""
 import os
+import re
 import socket
 import time
 
@@ -152,7 +153,8 @@ def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live)
     sid = _start()
     assert _wait(lambda: "out_dir" in live)
     port = int(live["proxy"].rsplit(":", 1)[1])
-    assert live["proxy"] == f"http://127.0.0.1:{port}"
+    # A per-session secret in the userinfo, the proxy's only credential.
+    assert re.fullmatch(rf"http://baihe:[A-Za-z0-9_-]{{20,}}@127\.0\.0\.1:{port}", live["proxy"])
     # socket.socket, not create_connection: the fixture fakes getaddrinfo.
     with socket.socket() as s:
         s.connect(("127.0.0.1", port))  # serving
