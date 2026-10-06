@@ -43,7 +43,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     # health check below could no longer actually catch one of them going
     # missing.
     "applog.py", "audio_preprocess.py", "auto_qc.py", "benchmark.py",
-    "bulk_translate.py", "check_setup.py", "hardsub_ocr.py", "live_translate.py",
+    "bulk_translate.py", "check_setup.py", "hardsub_ocr.py", "live_translate.py", "live_fetch.py",
     "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
     "sensevoice_tags.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
     "translation_memory.py", "action_tiers.py", "media_inspect.py",
@@ -130,7 +130,8 @@ OPTIONAL_DEPENDENCIES = {
                                 "experimental one-pass transcription + speaker labels "
                                 "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
                                 "can't share an install with Qwen3-ASR)", "experimental"),
-    "cryptography": ("cryptography", "Google sign-in token checks", "feature"),
+    "cryptography": ("cryptography", "Google sign-in token checks, live capture of AES-128 "
+                                     "encrypted HLS streams", "feature"),
     "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
     "fastapi": ("fastapi", "the HTTP API the React frontend talks to (python -m api)",
                 "required"),
