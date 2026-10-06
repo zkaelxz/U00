@@ -4,7 +4,7 @@ import { ApiError } from '../../api/client'
 import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkRun, BenchmarkSet } from '../../api/benchmark'
 import {
   arenaGroups, arenaRunNames, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
-  formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
+  formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
   runRequestBody, selectionProblems, setOptions, startState, tierLabel, toggleCompare, type RunSelection,
 } from './benchmarkForm'
 
@@ -20,6 +20,7 @@ const options: BenchmarkOptions = {
   whisper_sizes: ['small', 'medium', 'large-v3'],
   ocr_backends: ['tesseract', 'paddle'],
   pass_threshold: 0.8,
+  chrf_pass_threshold: 0.5,
   max_configs: 4,
 }
 
@@ -77,7 +78,8 @@ describe('formatting', () => {
     expect(metricName('cer')).toBe('1 − CER')
     expect(metricName('wer')).toBe('1 − WER')
     expect(metricName('similarity')).toBe('similarity')
-    expect(metricNote('translation')).toMatch(/similarity/)
+    expect(metricName('chrf')).toBe('chrF')
+    expect(metricNote('translation')).toMatch(/chrF/)
     expect(metricNote('ocr')).toMatch(/CER/)
     expect(metricNote('ocr')).not.toMatch(/translation/i)
     expect(metricNote('transcription')).toMatch(/WER/)
@@ -273,5 +275,14 @@ describe('compare links (Model health -> Benchmark Lab)', () => {
     const p = comparePrefill(parseCompareParam('claude:sonnet,claude:haiku,nllb:small,ollama,claude'), { ...options, max_configs: 4 })
     expect(p.configs).toHaveLength(4)
     expect(p.notes).toEqual(['Claude was left out: at most 4 engines at once.'])
+  })
+})
+
+describe('mixedMetricNote', () => {
+  const cell = (metric: string) => ({ metric })
+  it('warns when chrF and the older similarity ratio meet in one case', () => {
+    expect(mixedMetricNote([{ results: [cell('chrf'), cell('similarity')] }])).toMatch(/chrF/)
+    expect(mixedMetricNote([{ results: [cell('chrf'), cell('chrf'), null] }])).toBe('')
+    expect(mixedMetricNote([{ results: [cell('cer'), cell('similarity')] }])).toBe('')
   })
 })

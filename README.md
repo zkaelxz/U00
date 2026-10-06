@@ -443,7 +443,7 @@ supply it.
 - **Run.** Pick a stage (translation, transcription or OCR), a set, and one to
   four engine/model configs; two or more run the same cases side by side
   (Model Arena). Press "Estimate cost" first: paid engines stop at the monthly cap.
-- **Scores.** Translation uses text similarity; transcription and OCR use
+- **Scores.** Translation uses chrF via `sacrebleu` when installed, else a text similarity ratio; transcription and OCR use
   1 - CER (1 - WER for space-delimited languages), via `jiwer` when installed,
   else a built-in scorer. Each result records its metric and scorer.
 - **Results.** Every run is saved (engine, model, score, latency, cost, peak VRAM,

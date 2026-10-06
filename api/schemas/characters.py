@@ -1,7 +1,7 @@
 """api/schemas/characters.py -- Characters, glossary and series-person shapes.
 """
 
-from typing import Annotated, Dict, List, Optional
+from typing import Annotated, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
@@ -27,7 +27,8 @@ __all__ = [
     "GlossaryCatalogues",
     "SeriesCharacterDeleteResult",
     "NovelGlossaryRunResult",
-    "NovelGlossaryProposal",
+    "NovelGlossaryProposal", "GlossaryDismissRequest", "GlossaryDismissal",
+    "GlossaryDismissals", "GlossaryDismissResult",
     "NovelGlossaryStatus",
     "NovelGlossaryApplyRequest",
     "NovelGlossaryApplyResult",
@@ -251,6 +252,9 @@ class NovelGlossaryProposal(BaseModel):
     policy: Optional[str] = None
     reason: str = ""
     already_in_glossary: bool
+    occurrences: int = 0
+    alternatives: List[str] = Field(default_factory=list)
+    confidence: Literal["high", "low"] = "low"
 
 
 class NovelGlossaryStatus(BaseModel):
@@ -433,6 +437,26 @@ class GlossaryProposalsApplyRequest(NovelGlossaryApplyRequest):
 class LinesGlossaryApplyRequest(GlossaryProposalsApplyRequest):
     """GlossaryProposalsApplyRequest with run_id required (from-lines)."""
     run_id: Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class GlossaryDismissRequest(BaseModel):
+    """Terms (by text) to ignore, or to restore, for the drama's series."""
+    model_config = ConfigDict(extra="forbid")
+    terms: List[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        min_length=1, max_length=1000)
+
+
+class GlossaryDismissal(BaseModel):
+    term: str
+    created_at: Optional[str] = None
+
+
+class GlossaryDismissals(BaseModel):
+    dismissals: List[GlossaryDismissal]
+
+
+class GlossaryDismissResult(BaseModel):
+    changed: int
 
 
 class GlossaryRunCancelRequest(BaseModel):

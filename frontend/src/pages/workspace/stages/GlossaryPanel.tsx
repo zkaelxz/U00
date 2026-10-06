@@ -117,7 +117,7 @@ function InstructionsEditor({ scope, initial }: { scope: 'project' | 'series'; i
   const [error, setError] = useState<unknown>(null)
   const label = scope === 'project' ? 'Project instructions' : 'Series instructions'
   return (
-    <div>
+    <div className="stack">
       <Field label={label}>
         <textarea
           rows={3}
@@ -128,19 +128,21 @@ function InstructionsEditor({ scope, initial }: { scope: 'project' | 'series'; i
           }}
         />
       </Field>
-      <button
-        type="button"
-        className={buttonClass('secondary', 'sm')}
-        onClick={() =>
-          saveInstructions(dramaId, scope, text).then(() => {
-            setError(null)
-            setSaved(true)
-          }, setError)
-        }
-      >
-        Save {scope} instructions
-      </button>
-      {saved && <span role="status"> Saved.</span>}
+      <div className="actions">
+        <button
+          type="button"
+          className={buttonClass('secondary', 'sm')}
+          onClick={() =>
+            saveInstructions(dramaId, scope, text).then(() => {
+              setError(null)
+              setSaved(true)
+            }, setError)
+          }
+        >
+          Save {scope} instructions
+        </button>
+        {saved && <span role="status">Saved.</span>}
+      </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </div>
   )
