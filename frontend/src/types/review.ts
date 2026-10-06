@@ -102,6 +102,22 @@ export interface HistoryItem {
   created_at: string | null
 }
 
+export interface HistorySnapshotLine {
+  id: number | null
+  idx: number | null
+  start: number | null
+  end: number | null
+  zh: string
+  en: string
+  speaker: string | null
+  speaker_manual: boolean
+  dub_filename: string | null
+}
+
+export interface HistorySnapshot extends HistoryItem {
+  lines: HistorySnapshotLine[]
+}
+
 export interface VersionItem {
   id: number
   drama_id: number

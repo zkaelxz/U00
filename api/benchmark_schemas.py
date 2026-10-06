@@ -167,8 +167,8 @@ class BenchmarkResult(BaseModel):
     output_text: str
     score: Optional[float] = None
     metric: Optional[str] = None
-    # "jiwer" or "builtin" for CER/WER; None on results from before it was recorded
-    # (those were scored by the built-in scorer).
+    # "jiwer" or "builtin" for CER/WER, "sacrebleu" or "builtin" for translation; None on
+    # results from before it was recorded (those were scored by the built-in scorer).
     scorer: Optional[str] = None
     passed: Optional[bool] = None
     duration_seconds: Optional[float] = None
@@ -213,4 +213,5 @@ class BenchmarkOptions(BaseModel):
     whisper_sizes: List[str]
     ocr_backends: List[str]
     pass_threshold: float
+    chrf_pass_threshold: float
     max_configs: int

@@ -14,6 +14,8 @@ import { Section } from '../../../../components/Section'
 import { Toggle } from '../../../../components/Toggle'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useLineSelectionContext } from './LineSelectionContext'
+import { loadSourceForm } from '../../sourceForm'
+import { promptFields } from '../transcribePrompt'
 import { TERMINAL_STATUSES } from '../../../../types/jobs'
 import type { CompareEstimate, CompareOptions, CompareProposal, CompareResult } from '../../../../types/workspace'
 import {
@@ -21,7 +23,9 @@ import {
   buildSelection,
   capProblem,
   compareOutcome,
+  PROMPT_MAX_CHARS,
   isSameText,
+  promptProblem,
   textDiff,
   type SelectionForm,
   type SelectionMode,
@@ -85,6 +89,10 @@ export function CompareTranscription({
   const [backend, setBackend] = useState('')
   const [translate, setTranslate] = useState(false)
   const [retranslate, setRetranslate] = useState(false)
+  // Prefilled with the names saved for this title on the Transcribe stage; the hint is per run.
+  const [extraNames, setExtraNames] = useState(() => loadSourceForm(dramaId).extraNames ?? '')
+  const [hint, setHint] = useState('')
+  const [usedPrompt, setUsedPrompt] = useState<{ hint: string; names: string } | null>(null)
   const [estimate, setEstimate] = useState<CompareEstimate | null>(null)
   const [estimateError, setEstimateError] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -176,6 +184,8 @@ export function CompareTranscription({
       ? 'Another job is running on this title. Try again when it finishes.'
       : 'problem' in built
         ? built.problem
+        : promptProblem(hint, extraNames)
+          ? promptProblem(hint, extraNames)
         : tooMany ?? estimateError ?? (estimate?.monthly_refusal ? 'This month’s spending cap is used up, so translation can’t run.' : null)
   const chosenBackend = options.backends.find((b) => b.id === backend)
 
@@ -192,8 +202,12 @@ export function CompareTranscription({
       asr_backend: backend,
       translate,
       retranslate_current: translate && retranslate,
+      ...promptFields(hint, extraNames),
     })
-      .then((r) => setJobId(r.job_id), setError)
+      .then((r) => {
+        setUsedPrompt({ hint: hint.trim(), names: hint.trim() ? '' : extraNames.trim() })
+        setJobId(r.job_id)
+      }, setError)
       .finally(() => setStarting(false))
   }
 
@@ -303,6 +317,24 @@ export function CompareTranscription({
         {chosenBackend && !chosenBackend.available && (
           <p className="error" role="alert">{chosenBackend.reason}</p>
         )}
+        <Field label="Hint for the model (names, terms)" help="Optional. Replaces the automatic Whisper prompt for this run; leave empty to use the glossary names plus the extra names below.">
+          <input
+            value={hint}
+            maxLength={PROMPT_MAX_CHARS}
+            placeholder="沈清疑、云隐宗"
+            onChange={(e) => setHint(e.target.value)}
+            disabled={busy}
+          />
+        </Field>
+        <Field label="Extra character names" help="Added to the automatic prompt. Separate names with 、 or commas. Ignored when a hint is given.">
+          <input
+            value={extraNames}
+            maxLength={PROMPT_MAX_CHARS}
+            placeholder="沈清疑、云隐宗"
+            onChange={(e) => setExtraNames(e.target.value)}
+            disabled={busy}
+          />
+        </Field>
         <p className="muted">
           Alignment stays “{options.saved_alignment_method}”: it decides timing, not the words heard, so it can’t change
           a candidate. One candidate per run.
@@ -343,6 +375,11 @@ export function CompareTranscription({
         {note && <p className="muted" role="status" data-testid="compare-note">{note}</p>}
         {result && (
           <div data-testid="compare-results">
+            {usedPrompt && (usedPrompt.hint || usedPrompt.names) && (
+              <p className="muted" data-testid="compare-prompt-used">
+                {usedPrompt.hint ? `Hint used: ${usedPrompt.hint}` : `Extra names used: ${usedPrompt.names}`}
+              </p>
+            )}
             {result.partial && (
               <p className="muted" role="status">
                 {result.cap_reached

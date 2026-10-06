@@ -89,7 +89,7 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
           <p className="page-meta pill-row">
             {options ? (
               <>
-                <Badge tone="neutral">Pass mark {Math.round(options.pass_threshold * 100)}%</Badge>
+                <Badge tone="neutral">Pass mark {Math.round(options.pass_threshold * 100)}% ({Math.round(options.chrf_pass_threshold * 100)}% for chrF)</Badge>
                 <Badge tone="neutral">Up to {options.max_configs} engines per run</Badge>
                 {pc === 'remote' && <Badge tone="warn">View only: runs start on the main PC</Badge>}
               </>

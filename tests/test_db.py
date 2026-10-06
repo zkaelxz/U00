@@ -1962,7 +1962,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "cover_art_filename", "genre", "publication_status", "chapter_count", "custom_tags",
         "personal_notes", "source_url", "transcript_mode", "whisper_size",
         "alignment_method", "asr_backend_choice", "min_silence_ms", "vad_threshold",
-        "beam_size", "separate_vocals_first", "separation_backend", "realign_long_segments",
+        "beam_size", "hallucination_silence_sec", "separate_vocals_first", "separation_backend", "realign_long_segments",
         "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
         "project_instructions", "notion_page_id", "owner_user_id", "is_private"),
     "series": ("instructions", "owner_user_id", "is_private"),
