@@ -1,6 +1,6 @@
 # Status
 
-What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (at 175d617, after #818) and the open PR list on 2026-10-05.
+What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (the "Where the app is" lists below stop at 175d617, after #818; later merges are under Backlog) and the open PR list on 2026-10-06.
 Each session replaces its own entry here when it finishes. Git and the PR list win over this file.
 
 ## Where the app is
@@ -72,12 +72,11 @@ Merged 2026-10-05 (#743-#818; the numbers between that this clone's history does
 
 ## In flight and queued
 Open (lead session merges once CI is green):
-- Open drafts at the time of writing: the roadmap-only drafts #640 and #660, and #819 (a breadcrumb inside titles, the reader, comic and nested pages). Referrer-aware Back and copy link (N8), palette titles and lines (N7) and folding the nav decisions into the guidelines (N9) are not built.
+- Open PRs at the time of writing (2026-10-06): #836 (re-time lines with the Qwen3 aligner), #838 (English cleanup, Step 173), #843 (waveform timeline, Step 164), #850 (saved upload size limit) and #851 (re-split sensitivity). The breadcrumb (#819) is merged; #640 and #660 (the roadmap-only planning branches) were closed and their content lives in the Backlog below. Referrer-aware Back and copy link (N8), palette titles and lines (N7) and folding the nav decisions into the guidelines (N9) are not built.
 - Follow-up sessions listed here earlier (the browser extension check, five docs pages, a `docs/specs/` sweep, the dependency canary and constraints check, Whisper labels from the benchmarks, the `qwen-asr` install check, a note in the merge confirm, a CLI command to set a line's language, a portable ffprobe test fixture) were not re-checked against the code at 175d617; check `git log` before relying on them. The navigation proposal, Qwen3 automatic language and the noisy-audio benchmark are merged (above). No public mixed-language benchmark appears in `docs/asr-experiments.md` (only the one clip comparison).
-- #589 is parked unmerged (see Live capture and SSRF below).
+- #589 (live capture through a guarded egress proxy) is merged (see Live capture and SSRF below).
 - WP5 is merged except the owner's real-PC checks and network steps: forward router port 443, a domain/DDNS name, the firewall rule `enable-remote` prints, and the Google client values plus `BAIHE_PUBLIC_URL` in `.env`.
 - Step 141 build (after its spec).
-- Started 2026-10-06, not yet merged: Steps 159, 161, 144a, 148, 164, 173, 176 and 150 (see Backlog below).
 
 Source browser-tier status (owner-reported 2026-10; static fetch returned an empty SPA shell, the browser tier was never run for these):
 - Miaoqumh, GoDaManhua/Baozimh (godamh.com), Kuaikan, Zero-Sum Online: browser-tier support unverified; the adapters' "no browser needed" notes were not confirmed against the live site.
@@ -96,9 +95,9 @@ Deferred until a need arises (owner decision 2026-09-30):
 - NFO/poster sidecars on Send to Jellyfin (option A, parked); design in docs/archive/media-server-metadata-design.md
 - A main server with an optional second-machine GPU worker (owner decision 2026-10-04): plan only, nothing built. See `docs/specs/gpu-worker-plan.md`; it reopens the parked M8+ job queue.
 
-Live capture and SSRF (owner decision 2026-09-30):
-- #589 (a guarded egress proxy) is parked unmerged. `media.import_url` will be granted to household members (allowlisted Google accounts) and the risk accepted.
-- Closing it is needed before granting it to anyone less trusted: ffmpeg whitelist `http,tcp,crypto` with the proxy doing TLS and rewriting playlists, or fetching in Python and piping to ffmpeg, or yt-dlp fetching through the proxy and piping.
+Live capture and SSRF (owner decision 2026-09-30, updated 2026-10-06):
+- #589 is merged: live capture fetches the stream in Python through a guarded egress proxy (`services/egress_proxy.py`) and pipes it to ffmpeg's stdin (`services/live_fetch.py`); ffmpeg no longer opens any URL. The residual risks and the grant conditions are in `docs/remote-access-decision.md` ("Live capture residual risk").
+- Owner decision 2026-10-06: do not grant `media.import_url` to household users until the follow-up hardening PR lands. Until then it stays off for them; starting live capture at the PC is unaffected. That PR is not in the open list above, so its scope is not recorded here (not verified). `docs/remote-access-decision.md` lists its own three conditions for granting; reconcile the two when the hardening PR is written.
 - Live capture ignores a Windows system proxy.
 
 Notes:
@@ -114,26 +113,35 @@ Parked import and export follow-ups (owner decision 2026-09-30, revisit only if 
 Resource for the deferred manual Scanlate canvas editor: tldraw (github.com/tldraw/tldraw), an infinite-canvas SDK with custom shapes, tools and drawing. The editor's requirements are in section 5 of `docs/specs/scanlate-api-spec.md`. Check it again if that feature resumes. The Scanlate-specific image editing tools would still need custom work, and its repository says production use requires a license key, so check the license terms first.
 
 ## Backlog (audited 2026-10-06)
-Roadmap Steps 144-182, checked against baihe-subtitler at 43ee3ec, with the owner's decisions. The planning docs for these steps sit on the roadmap-only drafts #640 and #660, which will be closed, so this table is the record.
+Roadmap Steps 144-182 with the owner's decisions, first checked against baihe-subtitler at 43ee3ec and updated at 43c4ac7. The planning docs for these steps sat on the roadmap-only drafts #640 and #660, which were closed; this section is the record.
+
+Merged since 175d617 (each checked against `git log origin/baihe-subtitler`; the behaviour notes were also grepped in the code):
+- Navigation and Review: a breadcrumb inside titles, the reader, comic and nested pages (#819); each line is heard in its own language when comparing and re-transcribing (#820); a hint and extra-names fields in Compare transcription (#835); preview a line-history snapshot before restoring (#831); playback speed and timing hotkeys (Step 159, #834); a cut-mark view in the split dialog (#852).
+- Transcription: Whisper hallucination guards for silence and music (Step 161, #832): a 2 s silence threshold, on by default; `hallucination_silence_sec` 0 turns it off (the service accepts 0 or 0.5 to 10). Qwen3 shows the device it runs on and reports GPU fallbacks (#823); a cancel stops Qwen3 forced alignment at its next check (#849).
+- Translate: batches start at scene breaks (Step 176, #833), on by default through the `scene_aware_batches` preference, read by the Workspace job and `cli.py translate`.
+- Glossary: less noisy proposals with counts, confidence and a per-series ignore list (Step 148, #841), with the ignore list capped (#845).
+- Media: re-uploading keeps the original, and a failed extraction keeps the upload (Step 144a, #842).
+- Benchmark: chrF translation similarity, via optional sacrebleu (Step 150, #840). Pop-out: the caption scales with the window and has a Subtitle size control (#839).
+- CLI: parity fixes in bulk translate, translate, dub and align (#825); new `transcribe`, `qc` and `glossary` commands (#837).
+- Security and hygiene: four low redaction and SSRF findings (#822); filenames with spaces are redacted in support paths (#827); `updatePreferences` goes through `pcOnlyFetch` so a remote 403 marks the tab remote (#828); npm audit fix, source-map-js 1.2.2 (#848); frontend cleanups (#821).
+- Live capture (#589): fetched in Python through a guarded egress proxy and piped to ffmpeg's stdin. `media.import_url` must not be granted to household users until the follow-up hardening PR lands (see Live capture and SSRF).
+- Tests, CI and docs: docs and hygiene fixes (#824), CI hardening (#826), phone e2e twins (#829), e2e condition waits (#844), and fixes for the phone-spacing (#846) and breadcrumb (#847) flakes.
+
+Still open (PRs, none merged at the time of writing):
+- #836 re-time lines with the Qwen3 aligner; #838 English "Fix common errors" (Step 173); #843 waveform timeline (Step 164); #850 saved upload size limit; #851 re-split sensitivity.
+
+Next wave, after the open PRs land: 165 (after 161, which is merged; both touch `core.py`), 171, 162 and 158. Later or low value: 145, 146, 149, 152, 154, 156, 157, 160, 163, 167, 169, 170, 174, 175, 177, 178, 182. Dropped or decided no: 155, 172, 147 (skip), 168 (privacy), 179 (upload half), 180 (wait for remote access), 181 (minisign when distributing beyond the owner), 166 (decide after 165), 151 (only if the owner wants local models). Rows for steps now built are removed from the table below.
 
 | Step | What | Status | Decision |
 |---|---|---|---|
-| 159 | Timing hotkeys + playback speed | In flight | Build |
-| 161 | Whisper hallucination guards | In flight | Build |
-| 144a | Keep originals on re-upload and failed extraction | In flight | Build |
-| 148 | Glossary proposals (counts, confidence, ignore list) | In flight | Build |
-| 164 | Waveform timeline | In flight | Build |
-| 173 | English fix-common-errors | In flight | Build |
-| 176 | Scene-break batches | In flight | Build |
-| 150 | chrF scoring | In flight | Build |
-| 165 | Keep Whisper word timestamps | Next | Build after 161 merges (both touch `core.py`) |
-| 171 | CBZ + full ComicInfo | Next | Build |
-| 162 | Text-mask fallback | Next | Build Otsu with light/dark polarity; defer the ML detector |
-| 158 | Manual timing shift | Next | Manual shift only; auto-sync waits for the re-time feature |
-| 145 | Source hashes | Later | After 144 |
+| 165 | Keep Whisper word timestamps | Next wave | Build after 161 (merged, #832); both touch `core.py` |
+| 171 | CBZ + full ComicInfo | Next wave | Build |
+| 162 | Text-mask fallback | Next wave | Build Otsu with light/dark polarity; defer the ML detector |
+| 158 | Manual timing shift | Next wave | Manual shift only; auto-sync waits for the re-time feature (#836, open) |
+| 145 | Source hashes | Later | After 144 (144a is merged, #842) |
 | 146 | OCR confidence | Later | Low value |
 | 149 | Line provenance history | Later | Low value |
-| 152 | Public benchmark sets | Later | After 147 and 150 |
+| 152 | Public benchmark sets | Later | 150 is merged (#840); 147 is not being built, so decide whether it still waits on 147 |
 | 154 | Trash | Later | Extend the existing `baihe_trash` in `services/disk_usage_service.py`, no second trash |
 | 156 | Timing/speaker benchmark | Later | Start with an offline scorer |
 | 157 | Import existing subtitles | Later | Low value |
@@ -147,15 +155,15 @@ Roadmap Steps 144-182, checked against baihe-subtitler at 43ee3ec, with the owne
 | 177 | Hardsub change detection | Later | Low value |
 | 178 | Two-page spreads | Later | Low value |
 | 182 | JASSUB | Later | Low value |
-| 153 | Late-file drift on long recordings | Re-check first | No diagnosis exists; re-measure after the Re-time-with-aligner feature lands |
-| 151 | Generic OpenAI-compatible engine | Partly existing | `engine_backends/openai_compat.py` holds only `DeepSeekEngine` and `OpenAIEngine`; no generic engine id (`ollama` alone takes a `base_url`). Build only if local models are wanted, and have Opus review it |
-| 147 | Offer-after-correction benchmark flow | Not building | Skip for now |
-| 155 | Finished-copy archive | Not building | Drop |
-| 166 | Force-align the ASR's own text | Not building | Decide after 165; overlaps the existing Qwen3 aligner (`services/transcribe_service.py`, `qwen3_forced_align`) |
+| 153 | Late-file drift on long recordings | Re-check first | No diagnosis exists; re-measure after the Re-time-with-aligner feature (#836) lands |
+| 151 | Generic OpenAI-compatible engine | Partly existing | `engine_backends/openai_compat.py` holds only `DeepSeekEngine` and `OpenAIEngine`; no generic engine id (`ollama` alone takes a `base_url`). Build only if the owner wants local models, and have Opus review it |
+| 147 | Offer-after-correction benchmark flow | Not building | Skip |
+| 155 | Finished-copy archive | Dropped | No |
+| 166 | Force-align the ASR's own text | Undecided | Decide after 165; overlaps the existing Qwen3 aligner (`services/transcribe_service.py`, `qwen3_forced_align`) |
 | 168 | Vision-LLM OCR | Not building | No: privacy |
-| 172 | Broadcast timing / shot snapping | Not building | Drop |
-| 179 | Jellyfin upload through the API | Not building | Skip unless the NAS has no shared folder |
-| 180 | OPDS | Not building | No; wait for remote access (Step 140) |
+| 172 | Broadcast timing / shot snapping | Dropped | No |
+| 179 | Jellyfin upload through the API | Not building | The upload half is decided no |
+| 180 | OPDS | Not building | Wait for remote access (Step 140) |
 | 181 | Signed updates | Not building | minisign when distributing beyond the owner; the SHA-256 check stays |
 
 ## Next
