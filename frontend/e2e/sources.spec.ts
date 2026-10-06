@@ -216,6 +216,7 @@ test('remote: search and settings are PC only, no settings request', async ({ pa
   await expect(page.getByRole('search')).toHaveCount(0)
   await page.getByText('Source settings').click()
   await expect(page.getByText('Run this on the main PC.')).toBeVisible()
+  // Proving a non-event: a settings request would come from a mount effect, so give it a window.
   await page.waitForTimeout(300)
   expect(s.calls.filter((c) => c.path.startsWith('/api/sources/settings'))).toEqual([])
   expect(s.unmocked).toEqual([])
@@ -290,6 +291,7 @@ test('on load, a finished job for another series is not shown under the remember
   const s = await mockSources(page, { series: 'done', seriesId: 'a0' })
   await page.goto('/#/sources')
   await expect.poll(() => s.calls.some((c) => c.path === '/api/sources/jobs/sources_series_alpha/result')).toBe(true)
+  // Proving a non-event: the other series' result must not render once the read has been answered.
   await page.waitForTimeout(500)
   await expect(page.getByRole('region', { name: 'Series' })).toHaveCount(0)
   await expect(page.getByText(/124 chapters/)).toHaveCount(0)
