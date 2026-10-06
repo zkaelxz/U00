@@ -50,6 +50,8 @@ export interface TranscribeConfig {
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
+  // Shortest silence between words at which a long line may be cut.
+  min_pause_sec: number
   // Seconds of silence inside a segment that make Whisper skip it; 0 = off.
   hallucination_silence_sec: number
   separate_vocals_first: boolean

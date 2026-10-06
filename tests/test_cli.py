@@ -2235,6 +2235,20 @@ class TestCmdTranscribe:
         out = capsys.readouterr().out
         assert "12 line(s)" in out and "GPU (cuda)" in out
 
+    def test_min_pause_flag_is_saved_on_the_title(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        self._start(monkeypatch)
+        self._fake_job(monkeypatch, {"status": "done", "result": {"line_count": 1}})
+        _run_main("transcribe", "--id", str(did), "--min-pause", "0.6")
+        assert isolated_db.get_drama(did)["min_pause_sec"] == 0.6
+
+    def test_out_of_range_min_pause_is_refused(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        calls = self._start(monkeypatch)
+        with pytest.raises(SystemExit) as exc:
+            _run_main("transcribe", "--id", str(did), "--min-pause", "2.5")
+        assert "min_pause_sec" in str(exc.value) and not calls
+
     def test_out_of_range_option_is_refused_by_the_services_validation(self, isolated_db, monkeypatch):
         did = self._drama(isolated_db)
         calls = self._start(monkeypatch)

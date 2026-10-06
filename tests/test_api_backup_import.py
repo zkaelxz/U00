@@ -461,7 +461,7 @@ COPIED = {
                "publication_status", "chapter_count", "custom_tags", "last_translate_errors",
                "personal_notes", "created_at", "chinese_script",
                "source_url", "transcript_mode", "whisper_size", "alignment_method",
-               "asr_backend_choice", "min_silence_ms", "vad_threshold", "beam_size", "hallucination_silence_sec",
+               "asr_backend_choice", "min_silence_ms", "vad_threshold", "beam_size", "hallucination_silence_sec", "min_pause_sec",
                "separate_vocals_first", "separation_backend", "realign_long_segments",
                "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
                "project_instructions", "reading_speed_mode"},
