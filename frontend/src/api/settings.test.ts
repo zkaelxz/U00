@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from './client'
+import { getPcMode, resetPcModeForTests } from './pcOnly'
 import {
   TOGGLES,
   buildUpdate,
@@ -82,6 +83,15 @@ describe('settings api', () => {
     const [url, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(url).toBe('/api/settings')
     expect(JSON.parse(init.body)).toEqual({ default_locale: 'en-GB', monthly_cap_usd: null })
+    expect(new Headers(init.headers).get('X-Baihe-Local')).toBe('1')
+  })
+
+  it('a 403 from updatePreferences marks the tab remote', async () => {
+    resetPcModeForTests()
+    const f = ok({ error: { code: 'local_only', message: 'PC only' } }, 403)
+    await expect(updatePreferences({ default_locale: 'en-GB' }, f)).rejects.toBeInstanceOf(ApiError)
+    expect(getPcMode()).toBe('remote')
+    resetPcModeForTests()
   })
 
   it('sets and clears an endpoint URL with confirm, the URL in the body only', async () => {

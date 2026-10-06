@@ -7,7 +7,6 @@ import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import { useLoad } from '../../hooks/useLoad'
-import { pcOnlyFetch } from '../../api/pcOnly'
 import type { PcMode } from '../../hooks/usePcOnly'
 import { GET_STARTED_STEPS, initialTranslator, translatorOptions } from './getStartedLogic'
 
@@ -27,7 +26,7 @@ export function GetStarted({ pc, onNew, onDismiss }: { pc: PcMode; onNew: () => 
   const save = () => {
     setBusy(true)
     setError(null)
-    updatePreferences({ default_engine: current }, pcOnlyFetch()).then(
+    updatePreferences({ default_engine: current }).then(
       () => { setBusy(false); setSaved(current) },
       (err: unknown) => { setBusy(false); setError(err) },
     )
