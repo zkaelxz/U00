@@ -1253,6 +1253,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             })
           }}
           onClose={() => setSheet(null)}
+          onPlayRange={(start, end) => sheetLine && player.current?.playLine({ id: sheetLine.id, idx: sheetLine.idx, start, end })}
           onPlay={() => closeSheetThen(() => sheetLine && player.current?.playLine(sheetLine))}
           onEditDetails={() => closeSheetThen(() => sheetLine && void ctl.openEdit(sheetLine.id, true))}
           canRetranscribe={canRetranscribeLine}

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { openFoldFor } from './reviewFolds'
 import { installHitArea } from './hitArea'
 
@@ -409,6 +409,50 @@ function captureBodies(page: Page, pattern: RegExp) {
   })
   return bodies
 }
+
+// The text before and after the cut bar, read from the shaded pieces.
+async function cutPieces(split: Locator, n = 0) {
+  const box = split.locator('.split-cut-text').nth(n)
+  return {
+    a: (await box.locator('.split-cut-a').allTextContents()).join(''),
+    b: (await box.locator('.split-cut-b').allTextContents()).join(''),
+  }
+}
+
+test('split cut marker follows the number', async ({ page }) => {
+  await open(page)
+  await rows(page).nth(1).getByRole('button', { name: 'More actions for line 2' }).click()
+  await page.getByRole('dialog', { name: 'Line #2' }).getByRole('button', { name: 'Split line…' }).click()
+  const split = page.getByRole('dialog', { name: 'Split line #2' })
+
+  await split.getByLabel('Break after (chars)').fill('1')
+  expect(await cutPieces(split)).toEqual({ a: '再', b: '见朋友' })
+  await split.getByRole('button', { name: 'Source: cut 1 char later' }).click()
+  await expect(split.getByLabel('Break after (chars)')).toHaveValue('2')
+  expect(await cutPieces(split)).toEqual({ a: '再见', b: '朋友' })
+  await expect(split.getByLabel('Source: previous punctuation or space')).toBeEnabled()
+})
+
+test('split with translation: suggests the English cut and sends the same payload', async ({ page }) => {
+  const bodies = captureBodies(page, /\/api\/restructure\//)
+  await open(page)
+  await rows(page).nth(2).getByRole('button', { name: 'More actions for line 3' }).click()
+  await page.getByRole('dialog', { name: 'Line #3' }).getByRole('button', { name: 'Split line…' }).click()
+  const split = page.getByRole('dialog', { name: 'Split line #3' })
+
+  await expect(split.getByTestId('split-no-en-note')).toHaveText('Translation stays on the first line; the new line will have none.')
+  await expect(split.getByText('Line stays', { exact: true })).toBeVisible()
+  await expect(split.getByText('New line', { exact: true })).toBeVisible()
+
+  await split.getByLabel('Also split the translation').click()
+  await expect(split.getByTestId('split-no-en-note')).toHaveCount(0)
+  // Half of the source -> half of 'Thanks, friend', snapped to the word break.
+  expect(await cutPieces(split, 1)).toEqual({ a: 'Thanks, ', b: 'friend' })
+  await split.getByRole('button', { name: 'Split line' }).click()
+
+  await expect(rows(page)).toHaveCount(4)
+  expect(bodies[0]).toMatchObject({ at_char: 1, en_at_char: 8 })
+})
 
 test('split a line from the sheet, then merge it back', async ({ page }) => {
   const bodies = captureBodies(page, /\/api\/restructure\//)
