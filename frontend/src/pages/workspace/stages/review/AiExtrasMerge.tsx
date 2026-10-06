@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { listAllLines, restoreSnapshot } from '../../../../api/restructure'
 import { applyMergeShort, previewMergeShort } from '../../../../api/reviewExtras'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
@@ -9,7 +10,8 @@ import { TypedConfirm } from '../../../../components/TypedConfirm'
 import { lineNumber } from '../../../../lineNumber'
 import type { MergeShortOptions, MergeShortPreview } from '../../../../types/reviewExtras'
 import { mergeFormDefaults, mergeSummary, parseMergeForm, type MergeForm } from './aiExtrasLogic'
-import { JOB_RUNNING_MESSAGE } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE, undoErrorText, undoHandleOf, UNDO_DONE_MESSAGE, type UndoHandle } from './reviewLogic'
+import { UndoNotice } from './UndoNotice'
 
 const SHOWN = 8
 
@@ -28,6 +30,7 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [done, setDone] = useState<string | null>(null)
+  const [undo, setUndo] = useState<UndoHandle | null>(null)
   const parsed = parseMergeForm(form)
 
   const set = (key: keyof MergeForm) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,6 +44,7 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
     setBusy(true)
     setError(null)
     setDone(null)
+    setUndo(null)
     previewMergeShort(dramaId, opts)
       .then((p) => setPreview({ p, opts }), setError)
       .finally(() => setBusy(false))
@@ -57,10 +61,32 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
     })
       .then((r) => {
         setPreview(null)
-        setDone(`Merged ${r.merged_groups} group${r.merged_groups === 1 ? '' : 's'}. The previous lines are in Records → Line history.`)
+        setDone(`Merged ${r.merged_groups} group${r.merged_groups === 1 ? '' : 's'}.${undoHandleOf(r) ? '' : ' The previous lines are in Records → Line history.'}`)
+        setUndo(undoHandleOf(r))
         onChanged()
       }, setError)
       .finally(() => setBusy(false))
+  }
+
+  const doUndo = async () => {
+    if (!undo) return
+    setBusy(true)
+    setError(null)
+    try {
+      const lines = await listAllLines(dramaId)
+      await restoreSnapshot(dramaId, undo.historyId, lines.map((l) => l.id), undo.fingerprint)
+      setUndo(null)
+      setDone(UNDO_DONE_MESSAGE)
+      onChanged()
+    } catch (e) {
+      const text = undoErrorText(e)
+      if (text) {
+        setUndo(null)
+        setDone(text)
+      } else setError(e)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -85,7 +111,8 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
         </button>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {done && (
+      {done && undo && <UndoNotice message={done} busy={busy} onUndo={() => void doUndo()} onDismiss={() => setUndo(null)} />}
+      {done && !undo && (
         <p role="status" className="muted">
           {done}
         </p>

@@ -372,6 +372,26 @@ export const MAX_MERGE_LINES = 50
 export const LINES_CHANGED_MESSAGE = 'Lines changed since this page loaded. Reload and try again.'
 export const JOB_RUNNING_MESSAGE = 'A job is running on this drama. Structure edits wait until it finishes.'
 
+/** What the server gave back to undo one structural change (the snapshot taken before it, and
+ *  a fingerprint of the lines it left, so an undo refuses if they were edited since). */
+export interface UndoHandle {
+  historyId: number
+  fingerprint: string
+}
+
+export function undoHandleOf(r: { history_id?: number | null; lines_fingerprint?: string | null }): UndoHandle | null {
+  return r.history_id && r.lines_fingerprint ? { historyId: r.history_id, fingerprint: r.lines_fingerprint } : null
+}
+
+export const UNDO_CHANGED_MESSAGE = 'The lines changed since. Restore from Records → Line history instead.'
+export const UNDO_DONE_MESSAGE = 'Undone. The lines are back as they were before.'
+
+/** Plain text for a refused undo, or null to show the generic banner. */
+export function undoErrorText(e: unknown): string | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null
+  return /job/i.test(e.message) ? JOB_RUNNING_MESSAGE : UNDO_CHANGED_MESSAGE
+}
+
 /** Plain text for a structure-edit failure, or null to show the generic banner. */
 export function structureErrorText(e: unknown): string | null {
   if (!(e instanceof ApiError) || e.status !== 409) return null

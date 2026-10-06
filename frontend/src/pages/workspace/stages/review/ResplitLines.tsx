@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getDiarizationConfig } from '../../../../api/workspace'
 import { ApiError } from '../../../../api/client'
-import { listAllLines, reassignSpeakersFromSaved, resplitLines } from '../../../../api/restructure'
+import { listAllLines, reassignSpeakersFromSaved, resplitLines, restoreSnapshot } from '../../../../api/restructure'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
@@ -25,7 +25,12 @@ import {
   speakerTimeFooter,
   speakerTimeLines,
   structureErrorText,
+  undoErrorText,
+  undoHandleOf,
+  UNDO_DONE_MESSAGE,
+  type UndoHandle,
 } from './reviewLogic'
+import { UndoNotice } from './UndoNotice'
 
 interface Props {
   dramaId: number
@@ -45,6 +50,9 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
   const [error, setError] = useState<unknown>(null)
   const [needsConfirm, setNeedsConfirm] = useState(false)
   const [summary, setSummary] = useState<string | null>(null)
+  const [undo, setUndo] = useState<UndoHandle | null>(null)
+  // A job finished after a reload is reattached, but its undo is not offered then.
+  const startedHere = useRef(false)
   const [speakers, setSpeakers] = useState<SpeakerTimeSummary | null>(null)
   const loadSpeakers = useCallback(
     () => getDiarizationConfig(dramaId).then((c) => setSpeakers(c.speaker_summary ?? null), () => {}),
@@ -62,7 +70,10 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
 
   function jobDone(j: JobRecord) {
     const r = (j.result ?? {}) as ResplitResult & { failed_reason?: string; detail?: string }
-    if (jobSucceeded(j) && !r.failed_reason) setSummary(resplitSummary(r))
+    if (jobSucceeded(j) && !r.failed_reason) {
+      setSummary(resplitSummary(r))
+      if (startedHere.current) setUndo(undoHandleOf(r))
+    }
     else if (r.failed_reason === 'not_applied') setSummary(`Nothing was changed. ${r.detail ?? ''}`.trim())
     onJobDone()
     onChanged()
@@ -73,6 +84,7 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
     setBusy(true)
     setError(null)
     setSummary(null)
+    setUndo(null)
     setNeedsConfirm(false)
     try {
       const lines = await listAllLines(dramaId)
@@ -81,9 +93,12 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
         sensitivity, max_seconds: cap, dry_run: dryRun,
       })
       if (dryRun) setSummary(resplitPreviewSummary(r))
-      else if (r.job_id) setJobId(r.job_id)
-      else {
+      else if (r.job_id) {
+        startedHere.current = true
+        setJobId(r.job_id)
+      } else {
         setSummary(resplitSummary(r))
+        setUndo(undoHandleOf(r))
         if (r.split_lines) onChanged()
         void loadSpeakers()
       }
@@ -95,10 +110,33 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
     }
   }
 
+  const doUndo = async () => {
+    if (!undo) return
+    setBusy(true)
+    setError(null)
+    try {
+      const lines = await listAllLines(dramaId)
+      await restoreSnapshot(dramaId, undo.historyId, lines.map((l) => l.id), undo.fingerprint)
+      setUndo(null)
+      setSummary(UNDO_DONE_MESSAGE)
+      onChanged()
+      void loadSpeakers()
+    } catch (e) {
+      const text = undoErrorText(e)
+      if (text) {
+        setUndo(null)
+        setSummary(text)
+      } else setError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const reassign = async () => {
     setBusy(true)
     setError(null)
     setSummary(null)
+    setUndo(null)
     try {
       const r = await reassignSpeakersFromSaved(dramaId)
       setSummary(`Speakers re-assigned from the saved detection: ${r.changed} changed${r.kept_manual ? `, ${r.kept_manual} kept as you set them` : ''}.`)
@@ -173,7 +211,8 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
             <button type="button" disabled={blocked} onClick={() => run(true)}>Split anyway</button>
           </div>
         )}
-        {summary && <p role="status" data-testid="resplit-summary">{summary}</p>}
+        {summary && undo && <UndoNotice message={summary} busy={blocked} onUndo={() => void doUndo()} onDismiss={() => setUndo(null)} testId="resplit-summary" />}
+        {summary && !undo && <p role="status" data-testid="resplit-summary">{summary}</p>}
         {structureErrorText(error) ? (
           <p className="error" role="alert">{structureErrorText(error)}</p>
         ) : (

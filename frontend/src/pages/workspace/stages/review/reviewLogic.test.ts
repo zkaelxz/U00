@@ -46,6 +46,9 @@ import {
   splitTranslationPieces,
   stepFrom,
   structureErrorText,
+  undoErrorText,
+  undoHandleOf,
+  UNDO_CHANGED_MESSAGE,
   languageSetText,
   LINE_LANGUAGES,
   lineLangChip,
@@ -410,5 +413,21 @@ describe('splitTranslationPieces', () => {
     expect(splitTranslationPieces('Thanks,  dear friends', 8)).toEqual(['Thanks,', 'dear friends'])
     expect(splitTranslationPieces(' Hi there ', 4)).toEqual([' Hi', 'there'])
     expect(splitPieces('Thanks,  dear friends', 8)).toEqual(['Thanks, ', ' dear friends'])
+  })
+})
+
+describe('undo of a structural edit', () => {
+  it('needs both the snapshot id and the fingerprint the server returned', () => {
+    expect(undoHandleOf({ history_id: 7, lines_fingerprint: 'abc' })).toEqual({ historyId: 7, fingerprint: 'abc' })
+    expect(undoHandleOf({ history_id: 7 })).toBeNull()
+    expect(undoHandleOf({ history_id: null, lines_fingerprint: 'abc' })).toBeNull()
+    expect(undoHandleOf({})).toBeNull()
+  })
+  it('explains a refused undo in plain text and points at Records', () => {
+    const changed = new ApiError(409, { code: 'conflict', message: 'The lines were edited since that change' })
+    expect(undoErrorText(changed)).toBe(UNDO_CHANGED_MESSAGE)
+    expect(UNDO_CHANGED_MESSAGE).toContain('Records → Line history')
+    expect(undoErrorText(new ApiError(409, { code: 'conflict', message: 'A background job is still running' }))).toBe(JOB_RUNNING_MESSAGE)
+    expect(undoErrorText(new ApiError(404, { code: 'not_found', message: 'x' }))).toBeNull()
   })
 })

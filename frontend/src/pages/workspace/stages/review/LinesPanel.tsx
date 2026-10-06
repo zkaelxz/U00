@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '../../../../api/client'
 import type { MediaKind } from '../../../../api/media'
 import { getTranscribeConfig } from '../../../../api/workspace'
-import { addLine, deleteLine, listAllLines, mergeLines, splitLine } from '../../../../api/restructure'
+import { addLine, deleteLine, listAllLines, mergeLines, restoreSnapshot, splitLine } from '../../../../api/restructure'
 import {
   acceptTm as acceptTmSuggestion,
   addNote,
@@ -57,10 +57,15 @@ import {
   stepFrom,
   structureErrorText,
   suggestionPatch,
+  undoErrorText,
+  undoHandleOf,
+  UNDO_DONE_MESSAGE,
   type LanguageScope,
   type LineDraft,
   type PanelMode,
+  type UndoHandle,
 } from './reviewLogic'
+import { UndoNotice } from './UndoNotice'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
 import { ShortcutSheet } from './ShortcutSheet'
@@ -97,6 +102,8 @@ const WIDE = '(min-width: 641px)'
 // How long a line opened from a search result stays highlighted.
 const JUMP_HIGHLIGHT_MS = 4000
 const ALL_LINES_ONLY = 'Merge and add work in the All lines view (no filter or search).'
+// Shown when the server did not return what an undo needs (an older server).
+const RECORDS_UNDO = ' Undo in Records → Line history.'
 const DRAFT_NOT_SAVED = 'Your edit to this line could not be saved, so nothing else was changed. Close this and check the line.'
 const SEARCH_DEBOUNCE_MS = 300
 const STATUS_MS = 8000
@@ -163,6 +170,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     }
   }, [dramaId])
   const [status, setStatus] = useState<string | null>(null)
+  // The last structural edit, while it can still be undone.
+  const [undo, setUndo] = useState<{ handle: UndoHandle; message: string } | null>(null)
+  useEffect(() => setUndo(null), [dramaId])
   const [keysOpen, setKeysOpen] = useState(false)
   // Row density is a per-viewer choice, remembered in localStorage.
   const [compact, setCompact] = usePersistedState('review.compact', false)
@@ -303,6 +313,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const ctl = useMemo(() => {
     const find = (id: number | null) => st.current.shown.find((l) => l.id === id) ?? null
     const replaceLine = (saved: ReviewLine) => {
+      // A saved edit changes what the undo would overwrite.
+      setUndo(null)
       setData((d) => (d ? { ...d, lines: d.lines.map((l) => (l.id === saved.id ? saved : l)) } : d))
       setFound((f) => (f ? f.map((l) => (l.id === saved.id ? saved : l)) : f))
       st.current.shown = st.current.shown.map((l) => (l.id === saved.id ? saved : l))
@@ -698,7 +710,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // ---- structure edits (sheet) ----
   const runStructure = async (
     call: (ids: number[]) => Promise<RestructureResult>,
-    after: (r: RestructureResult, ids: number[]) => { id: number | null; message: string },
+    after: (r: RestructureResult, ids: number[]) => { id: number | null; message: string; undoable?: boolean },
   ) => {
     // Claimed synchronously, before any await, so a double click sends one edit.
     if (busyRef.current) return
@@ -718,7 +730,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       const ids = (await listAllLines(dramaId)).map((l) => l.id)
       if (!pageStillMatches(ids, shown.map((l) => l.id), searching ? 'search' : filter, page)) throw mismatch()
       const r = await call(ids)
-      const { id, message } = after(r, ids)
+      const { id, message, undoable } = after(r, ids)
+      const handle = undoable ? undoHandleOf(r) : null
       setSheet(null)
       setEdit(null)
       setAi(null)
@@ -731,7 +744,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           if (pos !== -1) setPage(pageForPosition(pos))
         }
       }
-      setStatus(message)
+      setUndo(handle ? { handle, message } : null)
+      setStatus(handle ? null : message + (undoable ? RECORDS_UNDO : ''))
       onChanged()
     } catch (e) {
       setStructError(e)
@@ -741,7 +755,35 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     }
   }
 
-  const UNDO = ' Undo in Records → Line history.'
+  const doUndo = async () => {
+    if (!undo || busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    setStructError(null)
+    try {
+      // Saves an open draft first; a saved edit changes the lines, so the server then
+      // refuses the undo rather than overwrite it.
+      if (!(await ctl.leaveEdit())) return
+      const ids = (await listAllLines(dramaId)).map((l) => l.id)
+      await restoreSnapshot(dramaId, undo.handle.historyId, ids, undo.handle.fingerprint)
+      setUndo(null)
+      setSheet(null)
+      setEdit(null)
+      selection.clear()
+      setStatus(UNDO_DONE_MESSAGE)
+      onChanged()
+    } catch (e) {
+      const text = undoErrorText(e)
+      if (text) {
+        setUndo(null)
+        setStatus(text)
+      } else setStructError(e)
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
+
   const sheetLine = sheet ? (shown.find((l) => l.id === sheet.lineId) ?? null) : null
   const sheetRun = sheetLine ? shown.slice(shown.findIndex((l) => l.id === sheetLine.id)) : []
 
@@ -752,7 +794,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       (ids) => splitLine(dramaId, line.id, { expected_line_ids: ids, at_char: c.at_char, expected_zh: line.zh, at_time: c.at_time, en_at_char: c.en_at_char }),
       (r) => {
         const [a, b] = r.lines
-        return { id: b?.id ?? a?.id ?? null, message: a && b ? `Split #${lineNumber(a.idx)} into #${lineNumber(a.idx)}–#${lineNumber(b.idx)}.${UNDO}` : `Line split.${UNDO}` }
+        return { id: b?.id ?? a?.id ?? null, message: a && b ? `Split #${lineNumber(a.idx)} into #${lineNumber(a.idx)}–#${lineNumber(b.idx)}.` : 'Line split.', undoable: true }
       },
     )
   }
@@ -766,7 +808,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       },
       (r) => {
         const head = r.lines[0]
-        return { id: head?.id ?? lineIds[0], message: `Merged ${lineRange(chosen)}${head ? ` into #${lineNumber(head.idx)}` : ''}.${UNDO}` }
+        return { id: head?.id ?? lineIds[0], message: `Merged ${lineRange(chosen)}${head ? ` into #${lineNumber(head.idx)}` : ''}.`, undoable: true }
       },
     )
   }
@@ -785,7 +827,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       (r, before) => {
         const pos = before.indexOf(line.id)
         const id = r.line_ids[pos] ?? r.line_ids[pos - 1] ?? null
-        return { id, message: `Deleted #${lineNumber(line.idx)}.${UNDO}` }
+        return { id, message: `Deleted #${lineNumber(line.idx)}.`, undoable: true }
       },
     )
   }
@@ -1148,6 +1190,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         <p className="review-status" role="status">
           {status}
         </p>
+        {undo && <UndoNotice message={undo.message} busy={busy} onUndo={() => void doUndo()} onDismiss={() => setUndo(null)} />}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {hiddenEdit && (
           <div className="banner review-hidden-edit" role="alert" data-testid="hidden-edit">
