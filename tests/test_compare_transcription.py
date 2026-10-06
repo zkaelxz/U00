@@ -123,6 +123,51 @@ class TestSelection:
         assert len(svc.select_lines(did, {"kind": "range", "from_number": 1, "to_number": 4})) == 4
 
 
+class TestLineLanguage:
+    def _mixed(self):
+        did, ids = _drama(3)
+        lines = db.load_line_objects(did)
+        lines[1].lang = "en"
+        lines[2].lang = "zh"
+        db.save_lines(did, lines, fields=("lang",))
+        return did
+
+    def test_whisper_hears_each_line_in_its_own_language(self, _env):
+        did = self._mixed()
+        _run(did)
+        assert [t["language"] for t in _env["transcribe"]] == ["zh", "en", "zh"]
+
+    def test_single_language_title_is_unchanged(self, _env):
+        did, _ = _drama(3)
+        _run(did)
+        assert {t["language"] for t in _env["transcribe"]} == {"zh"}
+
+    def test_qwen3_vad_detects_an_english_line(self, monkeypatch):
+        did = self._mixed()
+        heard = []
+
+        class Fake:
+            def transcribe(self, path, language, **kw):
+                heard.append(language)
+                return [{"start": 0.0, "end": 1.0, "text": "x"}]
+
+        monkeypatch.setattr(svc, "_backend_problem", lambda c, l: None)
+        monkeypatch.setattr(svc.asr_backend, "get_backend", lambda name: Fake())
+        _run(did, asr_backend_choice="qwen3_asr_vad")
+        assert heard == ["zh", None, "zh"]
+
+    def test_plain_qwen3_skips_an_english_line_with_a_message(self, _env, monkeypatch):
+        did = self._mixed()
+        monkeypatch.setattr(svc, "_backend_problem", lambda c, l: None)
+        monkeypatch.setattr(svc.asr_backend, "get_backend", lambda name: type(
+            "F", (), {"transcribe": lambda self, p, lang, segs, **kw: segs})())
+        out = _run(did, asr_backend_choice="qwen3_asr")
+        result = background_jobs.get_status(out["job_id"])["result"]
+        assert [t["language"] for t in _env["transcribe"]] == ["zh", "zh"]
+        assert result["candidate_count"] == 2
+        assert any("line 2" in e and "skipped" in e for e in result["errors"])
+
+
 class TestRun:
     def test_candidate_settings_forwarded_and_saved_ones_are_defaults(self, _env):
         did, _ = _drama(2)

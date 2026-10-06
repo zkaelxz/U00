@@ -1648,7 +1648,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
     started = background_jobs.start_job(
         job_id, _run_retranscribe_line_job, job_id, drama_id, line_id, audio_path,
         float(line.start), float(line.end), line.zh,
-        drama.get("source_language") or "zh",
+        line.lang or drama.get("source_language") or "zh",
         stored_whisper_size(drama),
         drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
