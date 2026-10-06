@@ -574,7 +574,7 @@ baihe-subtitler/
 │       │                         + DELETE .../history?confirm=true (Migration Slice 17)
 │       ├── export_routes.py      /api/export/dramas/{id}/readiness (Migration Slice 12)
 │       │                         + .../subtitle (Migration Slice 14, SRT/VTT)
-│       │                         + POST .../flag-overlaps, .../flag-dense-lines, .../flag-auto-qc
+│       │                         + POST .../flag-overlaps, .../flag-dense-lines, .../reading-speed, .../clear-reading-speed-flags, .../flag-auto-qc
 │       │                         (Migration Slice 15)
 │       │                         + .../epub (Migration Slice 18, novel-narration only)
 │       │                         + POST .../audiobook, .../burned-video (Migration Slices 29+30)
