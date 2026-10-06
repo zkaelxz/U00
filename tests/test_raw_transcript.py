@@ -6,6 +6,7 @@ line's text can be compared against / restored from it.
 import argparse
 import contextlib
 import io
+import json
 import os
 
 import raw_transcript as rt
@@ -107,3 +108,12 @@ def test_cli_align_writes_the_raw_transcript_too(isolated_db, monkeypatch):
     raw = rt.load_latest(ddir)
     assert raw["model"] == "small" and raw["mode"] == "aligned_transcript"
     assert len(raw["lines"]) == len(isolated_db.load_lines(did))
+
+
+def test_word_timings_are_not_saved_with_the_raw_transcript(tmp_path):
+    segs = [{"start": 0.0, "end": 1.0, "text": "hi", "words": [{"start": 0, "end": 1, "word": "hi"}]}]
+    path = rt.write_raw_transcript(str(tmp_path), segs, [], backend="whisper")
+    with open(path, encoding="utf-8") as f:
+        saved = json.load(f)
+    assert saved["segments"] == [{"start": 0.0, "end": 1.0, "text": "hi"}]
+    assert "words" in segs[0]

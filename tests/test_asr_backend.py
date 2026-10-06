@@ -100,6 +100,20 @@ class TestQwen3ASRBackendTranscription:
         assert all(r["text"] == "qwen3 text" for r in result)
         assert calls == ["Japanese", "Japanese"]
 
+    def test_rewritten_text_drops_the_whisper_words_that_no_longer_match_it(self, monkeypatch):
+        import asr_backend as ab
+        self._stub_audio_slicing(monkeypatch, ab)
+        words = [{"start": 0.0, "end": 1.0, "word": "whisper"}]
+        whisper_segments = [{"start": 0.0, "end": 2.0, "text": "whisper", "words": words}]
+
+        class FakeModel:
+            def transcribe(self, audio, language):
+                return [FakeResult("qwen3 text")]
+
+        monkeypatch.setattr(ab, "load_qwen3_asr", lambda use_gpu=False, model_size="1.7B": FakeModel())
+        result = ab.Qwen3ASRBackend().transcribe("/fake.wav", "ja", whisper_segments=whisper_segments)
+        assert result == [{"start": 0.0, "end": 2.0, "text": "qwen3 text"}]
+
     def test_oversized_segment_falls_back_to_whisper_text_for_that_segment_only(self, monkeypatch):
         import asr_backend as ab
         self._stub_audio_slicing(monkeypatch, ab)

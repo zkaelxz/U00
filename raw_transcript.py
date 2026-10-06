@@ -33,7 +33,8 @@ def write_raw_transcript(drama_dir: str, segments, lines, backend: str, model: s
         "language": language or "",
         "mode": mode or "",
         "text": "\n".join((s.get("text") or "").strip() for s in segments),
-        "segments": list(segments),
+        # Word timings are for the split step only; they are not part of the saved transcript.
+        "segments": [{k: v for k, v in s.items() if k != "words"} for s in segments],
         "lines": [{"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start,
                    "end": ln.end, "text": ln.zh} for ln in lines],
     }
