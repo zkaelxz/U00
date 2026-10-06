@@ -676,7 +676,8 @@ def test_cli_translate_records_provenance(isolated_db, monkeypatch):
     assert captured["style_guidelines"]
     assert captured["locale"] == "en-GB"
     workspace_keys = {"locale", "style_preset", "reflect", "context_window",
-                      "context_window_ahead", "batch_size", "style_note", "style_guidelines"}
+                      "context_window_ahead", "batch_size", "style_note", "style_guidelines",
+                          "scene_aware_batches"}
     assert set(captured) == workspace_keys
     import inspect
     assert all(k in inspect.getsource(wjs.run_translate_job) for k in workspace_keys)

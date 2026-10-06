@@ -11,6 +11,7 @@ const PREFS = {
   default_engine: 'claude',
   default_locale: 'en-US',
   default_style_note: '',
+  scene_aware_batches: true,
   episode_summary_engine: 'ollama',
   monthly_cap_usd: null as number | null,
   ollama_num_ctx_override: 0,
