@@ -114,6 +114,7 @@ or `series` go when the parent goes.
 | `series_characters` | Characters shared across a series: `aliases`, `gender`, `voice_fingerprint(_samples)` | `characters_service`, `series_people_service` | `upsert_series_character`, `accept_voice_link`, fingerprint blend |
 | `glossary_terms` | Per-series glossary: `term_original`, `term_translation`, `policy`, `enforce_exact`, `aliases`, `banned_translations` | `glossary_service` | `upsert_glossary_term`, `insert_glossary_term_if_absent`, `update_glossary_term` |
 | `translation_memory` | Per-series source -> translation pairs with `use_count` | `lines_service` | `record_translation_memory` |
+| `glossary_dismissals` | Per-series proposals the user ignored (`term_original`); no extraction lists them again until restored | `glossary_service` | `add_glossary_dismissals`, `remove_glossary_dismissals` |
 | `voice_suggestion_dismissals` | Suggested voice links a user rejected (drama, label, series character) | `characters_service` | `dismiss_voice_suggestion` |
 | `speaker_merge_undos` | Single-use snapshot (`snapshot`, `stale`, `expires_at`) to undo a speaker merge | `characters_service` | written inside `merge_speakers_atomic`; consumed by `undo_merge_speakers_atomic`; `drop_speaker_merge_undos` expires old ones |
 | `pages`, `bubbles` | Comic pages and their text bubbles; `pages.rev` is bumped on bubble edits | `scanlate_*_service`, `scanlate.py` | `create_page`, `update_bubble_fields` (compare-and-set), `replace_bubbles_if_unchanged`, `save_bubbles` |

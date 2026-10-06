@@ -257,6 +257,7 @@ test('away from the PC: no install, reset or extension controls and no extension
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('PC only')
   await expect(ext).toContainText('Run this on the main PC.')
+  // Proving a non-event: an extension call would come from a mount effect, so give it a window.
   await page.waitForTimeout(300)
   expect(extensionCalls).toEqual([])
   expect(unmocked).toEqual([])
@@ -309,6 +310,7 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext).toContainText("Couldn't confirm this is the main PC.")
+  // Proving a non-event: an extension call would come from a mount effect, so give it a window.
   await page.waitForTimeout(300)
   expect(extensionCalls).toEqual([])
   expect(unmocked).toEqual([])
