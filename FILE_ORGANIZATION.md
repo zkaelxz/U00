@@ -924,7 +924,7 @@ baihe-subtitler/
 | `vad_segments.py` | pure VAD speech-span builder: Silero spans via faster-whisper, long spans cut at the quietest point (not yet wired into the pipeline) |
 | `forced_align.py` | Qwen3-ForcedAligner timing (alternative to `core.py`'s Whisper-diff alignment) |
 | `word_align.py` | word-level forced alignment of Whisper's own transcribed text |
-| `raw_transcript.py` | the untouched output of each transcription run, kept for reference |
+| `raw_transcript.py` | the untouched output of each transcription run, plus the settings it ran with, kept for reference |
 | `resegment.py` | meaning-based subtitle re-segmentation |
 | `sensevoice_tags.py` | optional audio-derived emotion and sound-event tags |
 | `diarize.py` | who's speaking when (pyannote) |
