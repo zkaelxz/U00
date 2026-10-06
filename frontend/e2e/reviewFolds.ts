@@ -6,6 +6,7 @@ const FOLD_OF: Record<string, string> = {
   Structure: 'Restructure lines',
   'Re-split long lines': 'Restructure lines',
   'Merge short lines': 'Restructure lines',
+  'Fix common errors': 'Restructure lines',
   'Shorten overlong': 'Restructure lines',
   Records: 'Versions and history',
   'Edit tendencies': 'Versions and history',

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  cleanupDone,
+  cleanupSummary,
   clipCaption,
   fmtSeconds,
   mergeFormDefaults,
@@ -24,6 +26,18 @@ describe('parseMergeForm', () => {
     expect(r.options).toBeNull()
     expect(Object.keys(r.errors).sort()).toEqual(['max_chars', 'max_gap', 'min_duration'])
     expect(r.errors.max_chars).toMatch(/whole number/)
+  })
+})
+
+describe('cleanup summaries', () => {
+  it('says so when nothing needs fixing', () => {
+    expect(cleanupSummary({ lines_scanned: 12, lines_changed: 0 })).toBe('No common errors found (12 lines checked).')
+    expect(cleanupSummary({ lines_scanned: 12, lines_changed: 3 })).toBe('3 of 12 lines would change.')
+  })
+
+  it('reports lines kept after a mid-save edit and points at the undo', () => {
+    expect(cleanupDone({ applied: 1, stale: 0, history_id: 9 })).toBe('Fixed 1 line. The previous text is in Records → Line history.')
+    expect(cleanupDone({ applied: 2, stale: 1, history_id: 9 })).toContain('1 edited meanwhile and kept')
   })
 })
 

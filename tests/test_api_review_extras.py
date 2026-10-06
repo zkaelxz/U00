@@ -165,6 +165,129 @@ class TestMergeShort:
 
 
 # ---------------------------------------------------------------------------
+# English cleanup: deterministic fix of common errors
+# ---------------------------------------------------------------------------
+
+def _messy(**drama):
+    did = db.create_drama(title_en="C", source_language="zh", **drama)
+    db.save_lines(did, [
+        Line(idx=0, start=0, end=1, zh="一", en="hello  , i think so", speaker="Ann", flag="check",
+             flag_note="why"),
+        Line(idx=1, start=1, end=2, zh="二", en="Already fine."),
+        Line(idx=2, start=2, end=3, zh="三", en="Go to the the store!!"),
+        Line(idx=3, start=3, end=4, zh="四", en="你好  ,i"),
+    ])
+    return did, [ln.id for ln in db.load_line_objects(did)]
+
+
+class TestEnCleanup:
+    def test_preview_counts_rules_caps_nothing_and_writes_nothing(self, client):
+        did, ids = _messy()
+        before = _snapshot(did)
+        r = client.get(f"{BASE}/{did}/en-cleanup/preview")
+        assert r.status_code == 200, r.text
+        p = r.json()
+        assert (p["lines_scanned"], p["lines_changed"], p["truncated"]) == (4, 2, False)
+        assert {x["rule"]: x["lines"] for x in p["rules"]} == {
+            "extra_space": 1, "space_before_punctuation": 1, "pronoun_i": 1, "doubled_word": 1}
+        assert [(c["line_id"], c["before"], c["after"]) for c in p["changes"]] == [
+            (ids[0], "hello  , i think so", "hello, I think so"),
+            (ids[2], "Go to the the store!!", "Go to the store!!")]
+        assert _snapshot(did) == before and db.list_line_history(did) == []
+
+    def test_preview_list_is_capped_but_counts_are_not(self, client, monkeypatch):
+        monkeypatch.setattr(svc, "CLEANUP_PREVIEW_CAP", 1)
+        did, _ = _messy()
+        p = client.get(f"{BASE}/{did}/en-cleanup/preview").json()
+        assert p["lines_changed"] == 2 and len(p["changes"]) == 1 and p["truncated"] is True
+
+    def test_apply_writes_only_en_snapshots_first_and_can_be_restored(self, client):
+        did, ids = _messy()
+        p = client.get(f"{BASE}/{did}/en-cleanup/preview").json()
+        r = client.post(f"{BASE}/{did}/en-cleanup/apply", json={"expected_plan_hash": p["plan_hash"]})
+        assert r.status_code == 200, r.text
+        assert (r.json()["applied"], r.json()["stale"]) == (2, 0)
+        after = db.load_line_objects(did)
+        assert [ln.en for ln in after] == ["hello, I think so", "Already fine.",
+                                           "Go to the store!!", "你好  ,i"]
+        assert (after[0].speaker, after[0].flag, after[0].flag_note, after[0].zh) == (
+            "Ann", "check", "why", "一")
+        hist = db.list_line_history(did)
+        assert [h["label"] for h in hist] == ["before English cleanup"]
+        assert r.json()["history_id"] == hist[0]["id"]
+        assert client.post(f"/api/restructure/dramas/{did}/history/{hist[0]['id']}/restore",
+                           json={"expected_line_ids": ids}).status_code == 200
+        assert db.load_line_objects(did)[0].en == "hello  , i think so"
+        # a second preview of the cleaned text finds nothing, and apply says so
+        client.post(f"{BASE}/{did}/en-cleanup/apply", json={"expected_plan_hash": p["plan_hash"]})
+        p2 = client.get(f"{BASE}/{did}/en-cleanup/preview").json()
+        assert p2["lines_changed"] == 0
+        _error(client.post(f"{BASE}/{did}/en-cleanup/apply",
+                           json={"expected_plan_hash": p2["plan_hash"]}), 422, "validation_error")
+
+    def test_apply_refuses_when_the_plan_changed(self, client):
+        did, ids = _messy()
+        p = client.get(f"{BASE}/{did}/en-cleanup/preview").json()
+        lines = db.load_line_objects(did)
+        lines[1].en = "also  bad"
+        db.save_lines(did, lines)
+        before = _snapshot(did)
+        _error(client.post(f"{BASE}/{did}/en-cleanup/apply",
+                           json={"expected_plan_hash": p["plan_hash"]}), 409, "conflict")
+        assert _snapshot(did) == before and db.list_line_history(did) == []
+
+    def test_apply_refused_while_a_job_runs(self, client, monkeypatch):
+        from services import drama_service
+        did, _ = _messy()
+        p = client.get(f"{BASE}/{did}/en-cleanup/preview").json()
+        monkeypatch.setattr(drama_service, "job_running_for_drama", lambda _d: True)
+        before = _snapshot(did)
+        _error(client.post(f"{BASE}/{did}/en-cleanup/apply",
+                           json={"expected_plan_hash": p["plan_hash"]}), 409, "conflict")
+        assert _snapshot(did) == before
+
+    def test_a_line_edited_during_the_write_keeps_its_edit(self, client, monkeypatch):
+        did, ids = _messy()
+        p = client.get(f"{BASE}/{did}/en-cleanup/preview").json()
+        real = db.save_line_history_snapshot
+
+        def snapshot_then_edit(*a, **kw):
+            out = real(*a, **kw)
+            lines = db.load_line_objects(did)
+            lines[0].en = "someone else's edit"
+            db.save_lines(did, lines, fields=("en",))
+            return out
+        monkeypatch.setattr(db, "save_line_history_snapshot", snapshot_then_edit)
+        r = client.post(f"{BASE}/{did}/en-cleanup/apply", json={"expected_plan_hash": p["plan_hash"]})
+        assert (r.json()["applied"], r.json()["stale"]) == (1, 1)
+        assert [ln.en for ln in db.load_line_objects(did)][:3] == [
+            "someone else's edit", "Already fine.", "Go to the store!!"]
+
+    def test_glossary_translations_are_protected(self, client):
+        sid = db.get_or_create_series("G")
+        db.upsert_glossary_term(sid, "狼王", "the wolf ,king")
+        did = db.create_drama(title_en="G", series_id=sid)
+        db.save_lines(did, [Line(idx=0, start=0, end=1, zh="狼王", en="Meet the wolf ,king  now")])
+        p = client.get(f"{BASE}/{did}/en-cleanup/preview").json()
+        assert p["changes"][0]["after"] == "Meet the wolf ,king now"
+
+    def test_follows_the_titles_quote_and_ellipsis_majority(self, client):
+        did = db.create_drama(title_en="Q")
+        db.save_lines(did, [Line(idx=0, start=0, end=1, zh="一", en="“One” and “two”…"),
+                            Line(idx=1, start=1, end=2, zh="二", en="“Three”…"),
+                            Line(idx=2, start=2, end=3, zh="三", en='He said "go"...')])
+        p = client.get(f"{BASE}/{did}/en-cleanup/preview").json()
+        assert [c["after"] for c in p["changes"]] == ['He said “go”…']
+
+    def test_unknown_drama_and_bad_hash(self, client):
+        _error(client.get(f"{BASE}/99999/en-cleanup/preview"), 404, "not_found")
+        did, _ = _messy()
+        _error(client.post(f"{BASE}/{did}/en-cleanup/apply", json={}), 422, "validation_error")
+        _error(client.post(f"{BASE}/{did}/en-cleanup/apply", json={"expected_plan_hash": "x"}),
+               409, "conflict")
+
+
+# ---------------------------------------------------------------------------
 # R37: learn my style
 # ---------------------------------------------------------------------------
 
