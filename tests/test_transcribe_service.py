@@ -643,15 +643,24 @@ class TestRunTranscribeAndApplyJob:
         transcribe_service._run_transcribe_and_apply_job(
             job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
             "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, 2,
-            initial_prompt="names")
+            initial_prompt="names", gpu_app_settings={"gpu_max_parallel": 1, "gpu_limit_enabled": True})
 
         s = raw_transcript.load_latest(ddir)["settings"]
         assert set(s) == set(raw_transcript.SETTINGS_KEYS)
         assert (s["whisper_size"], s["beam_size"], s["min_silence_ms"]) == ("medium", 5, 300)
-        assert s["gpu_max_parallel"] == 1
+        assert s["gpu_max_parallel"] == 1 and s["gpu_limit_enabled"] is True
         assert s["expected_speakers"] == 2 and s["language"] == "zh"
         assert s["initial_prompt_chars"] == 5 and "names" not in json.dumps(s)
         _clear(job_id)
+
+    def test_start_freezes_the_gpu_app_settings_for_the_apply_step(self, isolated_db, monkeypatch):
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        background_jobs.set_gpu_max_parallel(3)
+        captured = _capture_worker_start(monkeypatch)
+
+        transcribe_service.start_transcribe_run(did)
+
+        assert captured["gpu_app_settings"] == {"gpu_max_parallel": 3, "gpu_limit_enabled": True}
 
     def test_groq_path_uses_groq_and_reports_failure(self, isolated_db, monkeypatch):
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
