@@ -142,7 +142,7 @@ export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSpl
           <input inputMode="decimal" placeholder={`Blank ≈ ${estimate} s`} value={time} onChange={(e) => setTime(e.target.value)} />
         </Field>
       </div>
-      <p className="muted review-hint-text">Estimated from text length; use Play to find the real point. Blank uses the estimate.</p>
+      <p className="muted review-hint-text">Estimated from text length; use Play to find the real point. Blank uses the estimate, except on lines transcribed with word timings (new transcriptions only), which are cut at the next word’s real start.</p>
       {onPlayRange && (
         <div className="actions">
           <button

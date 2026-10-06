@@ -102,6 +102,7 @@ import zipfile
 import zlib
 
 import background_jobs
+import core
 import db
 from db import fsync_dir as _fsync_dir
 from services import delete_service
@@ -1344,6 +1345,12 @@ def has_table(conn, table: str) -> bool:
                         (table,)).fetchone() is not None
 
 
+def _storable_words(value) -> bool:
+    """A line's word timings come in only within the size a transcription
+    stores (a file may be hand-made); their content is checked again on use."""
+    return isinstance(value, str) and len(value) <= core.MAX_STORED_WORD_BYTES
+
+
 def _insert(dst, table: str, row: dict, live_cols) -> int:
     cols = [c for c in row if c in live_cols]
     names = ", ".join(f'"{c}"' for c in cols)
@@ -1566,6 +1573,8 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> t
             if table in _LINE_JSON:
                 col = _LINE_JSON[table]
                 child[col] = _remap_json_lines(child.get(col), line_map, import_as)
+            if table == "lines" and not _storable_words(child.get("word_timings")):
+                child.pop("word_timings", None)
             new = _insert(dst, table, child, live_cols)
             if table == "lines":
                 line_map[old] = new
