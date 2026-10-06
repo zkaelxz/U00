@@ -28,6 +28,8 @@ import { RENAME_MAX, groupHistory, showFold, validateRename } from './libraryFor
 import { costLabel, costMeta, countsLine, sharedLine, sharedSeries } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
 import { SERIES_HELP } from '../helpText'
+import { Breadcrumbs } from '../nav/BreadcrumbNav'
+import { routeCrumbs } from '../nav/breadcrumbs'
 
 const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
 
@@ -191,6 +193,7 @@ export default function LibraryToolsPage() {
   const totalCost = costs.data?.items.reduce((sum, c) => sum + c.estimated_cost_usd, 0)
   return (
     <main className="library-page library-tools-page">
+      <Breadcrumbs crumbs={routeCrumbs({ name: 'library-tools' })} />
       <header className="page-head">
         <div className="page-head-text">
           <h2 className="page-title">Library tools</h2>
