@@ -15,7 +15,7 @@ SRC = Path(__file__).resolve().parent.parent / "frontend" / "src"
 
 def _ts_number(path, name):
     text = (SRC / path).read_text(encoding="utf-8")
-    m = re.search(rf"export const {name} = ([0-9_ *]+)\n", text)
+    m = re.search(rf"export const {name} = ([0-9_. *]+)\n", text)
     assert m, f"{name} not found in {path}"
     return eval(m.group(1).replace("_", ""), {"__builtins__": {}})
 
@@ -30,6 +30,14 @@ def test_min_silence_bounds_match_core():
     import core
     assert _ts_number("pages/workspace/sourceForm.ts", "MIN_SILENCE_MS_MIN") == core.MIN_SILENCE_MS_MIN
     assert _ts_number("pages/workspace/sourceForm.ts", "MIN_SILENCE_MS_MAX") == core.MIN_SILENCE_MS_MAX
+
+
+def test_min_pause_bounds_and_default_match_core():
+    import core
+    ts = "pages/workspace/sourceForm.ts"
+    assert _ts_number(ts, "MIN_PAUSE_SEC_MIN") == core.MIN_WORD_GAP_SECONDS_MIN
+    assert _ts_number(ts, "MIN_PAUSE_SEC_MAX") == core.MIN_WORD_GAP_SECONDS_MAX
+    assert _ts_number(ts, "MIN_PAUSE_SEC_DEFAULT") == core.MIN_WORD_GAP_SECONDS
 
 
 def test_novel_epub_cap_matches_the_attach_service():

@@ -1147,6 +1147,7 @@ def cmd_transcribe(args):
     tuning = dict(
         whisper_size=args.whisper_size, asr_backend_choice=args.asr_backend,
         beam_size=args.beam_size, min_silence_ms=args.min_silence_ms,
+        min_pause_sec=args.min_pause,
         vad_threshold=args.vad_threshold, separation_backend=args.separation_backend,
         separate_vocals_first=args.separate_vocals)
     transcript_text = _read_transcript_option(args)
@@ -1495,6 +1496,10 @@ def main():
     p_transcribe.add_argument("--beam-size", type=int, default=None, help="Whisper beam size (1-10).")
     p_transcribe.add_argument("--min-silence-ms", type=int, default=None,
                               help="VAD: silence that splits speech (300-3000).")
+    p_transcribe.add_argument("--min-pause", type=float, default=None,
+                              help="Pause (seconds) a long line may be cut at, "
+                                   f"{core_module.MIN_WORD_GAP_SECONDS_MIN:g}-"
+                                   f"{core_module.MIN_WORD_GAP_SECONDS_MAX:g}; saved on the title.")
     p_transcribe.add_argument("--vad-threshold", type=float, default=None,
                               help="VAD speech threshold (0.1-0.9).")
     p_transcribe.add_argument("--separate-vocals", action=argparse.BooleanOptionalAction, default=None,

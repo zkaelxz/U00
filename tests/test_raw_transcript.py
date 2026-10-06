@@ -127,7 +127,7 @@ class TestRunSettings:
                   local_model_path="/models/whisper-small", language="zh",
                   transcript_mode="whisper", alignment_method="whisper_diff",
                   min_silence_ms=300, vad_threshold=0.5, beam_size=5,
-                  hallucination_silence_sec=2.0, use_gpu=True, gpu_max_parallel=2,
+                  hallucination_silence_sec=2.0, min_pause_sec=0.35, use_gpu=True, gpu_max_parallel=2,
                   gpu_limit_enabled=True, initial_prompt="secret names " + self.SECRETS[0],
                   stage_seconds={"load": 1.234}, expected_speakers=3)
         kw.update(over)
@@ -140,7 +140,7 @@ class TestRunSettings:
     def test_values_describe_the_run(self):
         s = self._settings(gpu_fallback_msgs=["cublas missing at C:\\x"])
         assert s["whisper_size"] == "small" and s["beam_size"] == 5 and s["expected_speakers"] == 3
-        assert s["local_model_path_set"] is True
+        assert s["local_model_path_set"] is True and s["min_pause_sec"] == 0.35
         assert s["gpu_requested"] is True and s["gpu_used"] is False and s["gpu_fell_back_to_cpu"] is True
         assert s["initial_prompt_used"] is True and s["initial_prompt_chars"] == len("secret names " + self.SECRETS[0])
         assert s["stage_seconds"] == {"load": 1.23}

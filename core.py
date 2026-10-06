@@ -732,8 +732,12 @@ MIN_PIECE_SECONDS = 0.8
 MIN_PIECE_CJK_CHARS = 4
 MIN_PIECE_WORDS = 2
 # A silence between two Whisper words at least this long is a place a line with no
-# punctuation may be cut; shorter ones are ordinary breathing inside a phrase.
-MIN_WORD_GAP_SECONDS = 0.25
+# punctuation may be cut; shorter ones are ordinary breathing inside a phrase. The
+# per-title "Pause that can split a long line" setting; keep the bounds in sync
+# with frontend/src/pages/workspace/sourceForm.ts.
+MIN_WORD_GAP_SECONDS = 0.35
+MIN_WORD_GAP_SECONDS_MIN = 0.1
+MIN_WORD_GAP_SECONDS_MAX = 2.0
 # Gaps this close to the largest candidate count as equally good, so the cut that
 # lands nearest the middle wins and a line is not peeled one stub at a time.
 _SIMILAR_GAP_RATIO = 0.75
@@ -831,7 +835,8 @@ def exceeds_limits(seg, rules: SplitRules) -> bool:
 
 def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
                         max_cjk_chars: int = SPLIT_MAX_CJK_CHARS, *,
-                        rules: Optional[SplitRules] = None) -> list:
+                        rules: Optional[SplitRules] = None,
+                        min_pause: float = MIN_WORD_GAP_SECONDS) -> list:
     """Cuts over-long segments ({"start","end","text",...}) at sentence-ending
     punctuation, then at commas, then at spaces next to CJK text, packing
     neighbouring pieces up to the limits.
@@ -851,7 +856,10 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
 
     `rules` (the re-split presets) replaces the two limits and also skips cuts
     inside quotes or after abbreviations, and folds pieces under the
-    MIN_PIECE_* floors into a neighbour; without it behaviour is unchanged."""
+    MIN_PIECE_* floors into a neighbour; without it behaviour is unchanged.
+
+    `min_pause`: the shortest silence between words a line with no punctuation
+    may be cut at."""
     out = []
     for seg in segments:
         text = seg.get("text") or ""
@@ -913,7 +921,8 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
                 words = index.word_range(at, at + len(piece))
                 return estimated_fits(piece) if words is None else fits_words(*words)
 
-            split = _split_on_words(seg, text, cut(fits_real), index, fits_words, rules)
+            split = _split_on_words(seg, text, cut(fits_real), index, fits_words, rules,
+                                    min_pause)
             if split is not None:
                 out.extend(split)
                 continue
@@ -1059,21 +1068,21 @@ class _WordIndex:
         return min(found, key=lambda k: abs((self.te[k - 1] + self.ts[k]) / 2 - middle),
                    default=None)
 
-    def gap_cuts(self, i: int, j: int, fits) -> list:
+    def gap_cuts(self, i: int, j: int, fits, min_pause: float = MIN_WORD_GAP_SECONDS) -> list:
         """Word ranges covering i..j-1 that fit, cut only at pauses of at least
-        MIN_WORD_GAP_SECONDS and never leaving a side under the MIN_PIECE_* floors.
+        `min_pause` and never leaving a side under the MIN_PIECE_* floors.
         A range with no admissible pause is returned as it is."""
         done, stack = [], [(i, j)]
         while stack:
             a, b = stack.pop()
-            k = None if fits(a, b) or b - a < 2 else self._pick_cut(a, b)
+            k = None if fits(a, b) or b - a < 2 else self._pick_cut(a, b, min_pause)
             if k is None:
                 done.append((a, b))
             else:
                 stack.extend(((k, b), (a, k)))
         return done
 
-    def _pick_cut(self, i: int, j: int):
+    def _pick_cut(self, i: int, j: int, min_pause: float):
         cjk = self.cjk[j] - self.cjk[i]
         if cjk:
             lo = bisect.bisect_left(self.cjk, self.cjk[i] + MIN_PIECE_CJK_CHARS)
@@ -1085,13 +1094,13 @@ class _WordIndex:
         if lo > hi:
             return None
         biggest = self._max_gap(lo, hi)
-        if biggest < MIN_WORD_GAP_SECONDS:
+        if biggest < min_pause:
             return None
-        return self._nearest_gap(i, j, lo, hi, max(MIN_WORD_GAP_SECONDS,
+        return self._nearest_gap(i, j, lo, hi, max(min_pause,
                                                    biggest * _SIMILAR_GAP_RATIO))
 
 
-def _split_on_words(seg, text, pieces, index, fits, rules):
+def _split_on_words(seg, text, pieces, index, fits, rules, min_pause=MIN_WORD_GAP_SECONDS):
     """Cuts `seg` where its punctuation pieces (strings that concatenate to
     `text`) and then the largest pauses between words say, with each piece timed
     by its own first and last word and its text sliced from `text`. Returns None
@@ -1117,7 +1126,7 @@ def _split_on_words(seg, text, pieces, index, fits, rules):
 
     cut = []
     for a, b, i, j in ranges:
-        parts = sorted(index.gap_cuts(i, j, fits))
+        parts = sorted(index.gap_cuts(i, j, fits, min_pause))
         for n, (pi, pj) in enumerate(parts):
             cut.append((a if n == 0 else index.cs[pi], b if n == len(parts) - 1 else index.cs[pj],
                         pi, pj))
@@ -1207,11 +1216,11 @@ def span_words(index: "_WordIndex", a: int, b: int, piece: str) -> Optional[str]
     return encode_line_words(piece, index.kept[found[0]:found[1]]) if found else None
 
 
-def pause_offsets(index: "_WordIndex") -> set:
+def pause_offsets(index: "_WordIndex", min_pause: float = MIN_WORD_GAP_SECONDS) -> set:
     """Character offsets where a word starts after a silence of at least
-    MIN_WORD_GAP_SECONDS: real pauses a line may be cut at."""
+    `min_pause`: real pauses a line may be cut at."""
     return {index.cs[k] for k in range(1, len(index.cs))
-            if index.ts[k] - index.te[k - 1] >= MIN_WORD_GAP_SECONDS}
+            if index.ts[k] - index.te[k - 1] >= min_pause}
 
 
 def word_cut_times(index: "_WordIndex", spans, start: float, end: float) -> Optional[list]:

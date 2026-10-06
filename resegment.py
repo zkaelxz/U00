@@ -313,7 +313,8 @@ def _piece_spans(text: str, pieces) -> list:
 
 def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
                     chinese_script: str = "simplified", max_chars: int = None,
-                    usage_cb=None, boundaries_fn=word_boundaries):
+                    usage_cb=None, boundaries_fn=word_boundaries,
+                    min_pause: float = core.MIN_WORD_GAP_SECONDS):
     """Returns (new_lines, changed).
 
     new_lines: fresh Line objects for the whole drama, renumbered in order.
@@ -339,7 +340,7 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
             continue
         bounds = boundaries_fn(text, language, chinese_script)
         index = _word_index(ln)
-        pauses = core.pause_offsets(index) if index is not None else None
+        pauses = core.pause_offsets(index, min_pause) if index is not None else None
         spans = []
         for s, e in rule_split_spans(text, language, max_chars, bounds, pauses):
             if engine is not None and length(text[s:e]) > max_chars:
@@ -367,7 +368,8 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
     return new_lines, changed
 
 
-def resegment_subprocess_worker(lines, language, engine, segments, chinese_script, result_queue):
+def resegment_subprocess_worker(lines, language, engine, segments, chinese_script, min_pause,
+                                result_queue):
     """Entry point for running resegment_lines() in its own OS
     process via background_jobs.start_process_job(), so Cancel can
     actually stop it. Confirmed the lowest-risk of the three
@@ -384,7 +386,7 @@ def resegment_subprocess_worker(lines, language, engine, segments, chinese_scrip
     try:
         new_lines, changed = resegment_lines(
             lines, language, engine=engine, segments=segments, chinese_script=chinese_script,
-            usage_cb=lambda inp, out: usage_calls.append((inp, out)))
+            min_pause=min_pause, usage_cb=lambda inp, out: usage_calls.append((inp, out)))
         result_queue.put(("ok", {
             "lines": new_lines,
             "changed": [(ln.id, ln.idx, ln.zh, pieces) for ln, pieces in changed],

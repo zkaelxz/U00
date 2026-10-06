@@ -56,10 +56,16 @@ export function checkUploadFile(name: string, sizeBytes: number, maxMb: number):
 export const MIN_SILENCE_MS_MIN = 100
 export const MIN_SILENCE_MS_MAX = 3000
 
+// Keep in sync with MIN_WORD_GAP_SECONDS (default) and its _MIN/_MAX in core.py.
+export const MIN_PAUSE_SEC_DEFAULT = 0.35
+export const MIN_PAUSE_SEC_MIN = 0.1
+export const MIN_PAUSE_SEC_MAX = 2.0
+
 // Labels match the Transcribe stage's fields.
 const RANGES = {
   beam_size: { label: 'Beam size', min: 1, max: 10, integer: true },
   min_silence_ms: { label: 'Min silence (ms)', min: MIN_SILENCE_MS_MIN, max: MIN_SILENCE_MS_MAX, integer: true },
+  min_pause_sec: { label: 'Pause that can split a long line (s)', min: MIN_PAUSE_SEC_MIN, max: MIN_PAUSE_SEC_MAX, integer: false },
   vad_threshold: { label: 'VAD threshold', min: 0.1, max: 0.9, integer: false },
   hardsub_interval_sec: { label: 'Hardsub interval (s)', min: 0.5, max: 3.0, integer: false },
 } as const
@@ -219,6 +225,7 @@ export function saveSourceForm(dramaId: number, state: SourceFormState): void {
 export interface AdvancedValues {
   beam_size: string
   min_silence_ms: string
+  min_pause_sec: string
   vad_threshold: string
   hallucination_silence_sec: string
   hardsub_interval_sec: string
@@ -236,6 +243,7 @@ export function advancedSummary(v: AdvancedValues): string {
   const parts: string[] = []
   if (Number(v.beam_size) !== 5) parts.push(`beam ${v.beam_size}`)
   if (Number(v.min_silence_ms) !== 300) parts.push(`min silence ${v.min_silence_ms} ms`)
+  if (Number(v.min_pause_sec) !== MIN_PAUSE_SEC_DEFAULT) parts.push(`split pause ${v.min_pause_sec} s`)
   if (Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
   if (Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
     parts.push(Number(v.hallucination_silence_sec) === 0 ? 'no hallucination guard' : `hallucination guard ${v.hallucination_silence_sec} s`)
