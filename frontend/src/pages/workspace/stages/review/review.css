@@ -145,6 +145,7 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 .review-flag { color: var(--warn); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
 .review-flag-toggle { display: block; max-width: 100%; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: inherit; }
 .review-flag-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.review-flag-note { margin: var(--space-1) 0 0; padding: 2px var(--space-2); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.4; color: var(--warn); background: var(--warn-soft); overflow-wrap: anywhere; white-space: normal; }
 .review-flag-open { margin: 2px 0 0; color: var(--warn); font-size: var(--text-sm); overflow-wrap: anywhere; white-space: normal; }
 .review-flag .pill { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 button.review-more { margin-left: auto; min-width: 36px; padding: 2px 10px; font-size: var(--text-lg); line-height: 1.2; border-color: transparent; background: none; color: var(--muted); font-weight: 700; }
