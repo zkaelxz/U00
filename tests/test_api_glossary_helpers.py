@@ -138,6 +138,16 @@ class TestLinesGlossaryService:
         assert status["status"] == "done" and len(status["result"]["proposals"]) == 3
         assert SECRET not in repr(status)
 
+    def test_model_supplied_renderings_are_not_alternatives(self, isolated_db, monkeypatch,
+                                                            fake_engine):
+        did, _ = _lines_drama(isolated_db)
+        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: [
+            {"term": "青云宗", "suggested_translation": "Qingyun Sect",
+             "renderings": ["Azure Sect"]}])
+        st = _wait(gs.start_lines_glossary_run(did)["job_id"])
+        (p,) = st["result"]["proposals"]
+        assert p["alternatives"] == []
+
     def test_engine_error_redacted(self, isolated_db, monkeypatch, fake_engine):
         did, _ = _lines_drama(isolated_db)
 

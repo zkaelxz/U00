@@ -660,6 +660,11 @@ _PROPOSAL_FIELDS = ("term", "suggested_translation", "category", "policy", "reas
                     "already_in_glossary", "occurrences", "alternatives", "confidence")
 
 
+# Bounds the ignore list a shared-series editor can grow, since every status
+# poll and list call reads it.
+MAX_DISMISSALS_PER_SERIES = 5000
+
+
 def _dismissals(drama: dict) -> list:
     sid = drama.get("series_id")
     return db.list_glossary_dismissals(sid) if sid else []
@@ -674,7 +679,10 @@ def _extraction_status(drama_id: int, job_id: str) -> dict:
     status = job.get("status")
     result = None
     if status == "done":
-        ignored = {d["term_original"] for d in _dismissals(drama)}
+        held = [p.get("term") for p in (job.get("result") or {}).get("proposals") or []
+                if isinstance(p, dict) and isinstance(p.get("term"), str)]
+        sid = drama.get("series_id")
+        ignored = db.list_dismissed_glossary_terms(sid, held) if sid else set()
         result = {"proposals": [{**{k: p.get(k) for k in _PROPOSAL_FIELDS},
                                  "occurrences": p.get("occurrences") or 0,
                                  "alternatives": p.get("alternatives") or [],
@@ -800,6 +808,10 @@ def dismiss_glossary_proposals(drama_id: int, terms: list) -> dict:
     sid = _series_id(_drama(drama_id), required=True)
     clean = _clean_dismiss_terms(terms)
     before = {d["term_original"] for d in db.list_glossary_dismissals(sid)}
+    if len(before | set(clean)) > MAX_DISMISSALS_PER_SERIES:
+        raise InvalidInputError(
+            f"A series can ignore at most {MAX_DISMISSALS_PER_SERIES} glossary terms; "
+            "restore some before ignoring more.")
     db.add_glossary_dismissals(sid, clean)
     return {"changed": len([t for t in clean if t not in before])}
 
@@ -860,6 +872,10 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
     # One LLM call can't be interrupted; a cancel during it drops the result.
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
+    # `renderings` is the novel path's cross-window tally; a single call has no
+    # windows, so a model-supplied one would be an unvetted alternatives source.
+    proposals = [{k: v for k, v in p.items() if k != "renderings"}
+                 for p in proposals if isinstance(p, dict)]
     background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms,
                                                                   "\n".join(source_lines)),
                                         "run_id": run_id})
