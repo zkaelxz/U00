@@ -116,7 +116,8 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
     <div role="group" aria-label="Re-split long lines">
       <Section storageKey="review.resplit" title="Re-split long lines" summary="Cut long blocks · re-assign speakers">
         <p className="muted">
-          Cuts over-long lines at sentence ends (then commas) using the text you already have. Only the split lines get speakers from
+          Cuts over-long lines at sentence ends (then commas) using the text you already have. Lines transcribed since word timings
+          are kept can also be cut at real pauses between words, with real times; older lines keep the estimate. Only the split lines get speakers from
           the saved detection; other lines keep theirs. Nothing is transcribed or detected again.
         </p>
         <div className="setting-list review-toggles">

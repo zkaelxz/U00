@@ -1111,6 +1111,11 @@ def _migrate_line_columns(conn):
         # The line's spoken language (core.Line.lang); NULL is the title's
         # source_language, so existing lines keep their meaning.
         _safe_alter(conn, "ALTER TABLE lines ADD COLUMN lang TEXT")
+    if "word_timings" not in existing_cols:
+        # core.encode_line_words' payload: the line's Whisper word times, kept
+        # so a later re-split cuts at real pauses. Never selected by load_lines
+        # unless asked for, so line lists don't read it.
+        _safe_alter(conn, "ALTER TABLE lines ADD COLUMN word_timings TEXT")
 
 
 def _migrate_drama_columns(conn):
@@ -2383,6 +2388,13 @@ def update_lines_fields_if_many(drama_id: int, items) -> list:
     return missed
 
 
+# SET clause dropping a line's stored words when its text really changes (SQLite
+# evaluates every SET against the old row, so `zh` here is the text before).
+# The fingerprint in the payload already makes stale words unusable; this keeps
+# them from lingering in the row.
+_CLEAR_STALE_WORDS = "word_timings = CASE WHEN zh IS ? THEN word_timings ELSE NULL END"
+
+
 def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     """(sql, params) for one line's conditional UPDATE; validates columns."""
     sets, args = [], []
@@ -2391,6 +2403,9 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
             raise ValueError(f"Unknown line column: {col}")
         sets.append(f"{col} = ?")
         args.append(val)
+    if "zh" in values:
+        sets.append(_CLEAR_STALE_WORDS)
+        args.append(values["zh"])
     conds, cargs = ["id = ?", "drama_id = ?"], [line_id, drama_id]
     for col, val in (expected or {}).items():
         if col in ("start", "end"):
@@ -2447,6 +2462,11 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
     database value must still equal this Line's own value -- the text the
     written fields were computed from (a flag from `en` and its timing).
 
+    Word timings (Line.word_timings) are written only by a full sync, and
+    only when the Line carries a value that differs from `orig`; None leaves
+    the column alone. Any save that changes a line's `zh` without new words
+    clears them, since they described the old text.
+
     Returns the ids only_if_unchanged left unwritten (an edit was kept);
     empty otherwise.
 
@@ -2465,16 +2485,29 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
         conn.execute("BEGIN IMMEDIATE")
         existing = {r["id"] for r in conn.execute(
             "SELECT id FROM lines WHERE drama_id = ?", (drama_id,)).fetchall()}
-        kept, unwritten = set(), set()
+        kept, unwritten, words_written, words_cleared = set(), set(), set(), set()
         for ln in lines:
             lid = getattr(ln, "id", None)
             orig = getattr(ln, "orig", None)
             if lid in existing and lid not in kept:
                 changed = [f for f in cols
                            if orig is None or line_value(ln, f) != orig.get(f)]
+                sets = [f + " = ?" for f in changed]
+                values = [line_value(ln, f) for f in changed]
+                words = getattr(ln, "word_timings", None)
+                if fields is None and words is not None and (
+                        orig is None or words != orig.get("word_timings")):
+                    sets.append("word_timings = ?")
+                    values.append(words)
+                    words_written.add(id(ln))
+                elif "zh" in changed:
+                    sets.append(_CLEAR_STALE_WORDS)
+                    values.append(line_value(ln, "zh"))
+                    words_cleared.add(id(ln))
                 if changed and only_if_unchanged:
                     if orig is None:
                         unwritten.add(lid)
+                        words_cleared.discard(id(ln))
                     else:
                         # Compare-and-set: NULL and "" are the same empty text
                         # to a Line, so a text field compares through COALESCE.
@@ -2485,25 +2518,26 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
                         guards = [f"COALESCE({f}, '') = ?" if isinstance(v, str)
                                   else f"{f} IS ?" for f, v in expected]
                         cur = conn.execute(
-                            f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
+                            f"UPDATE lines SET {', '.join(sets)} "
                             f"WHERE id = ? AND drama_id = ? AND {' AND '.join(guards)}",
-                            [line_value(ln, f) for f in changed] + [lid, drama_id]
-                            + [v for _f, v in expected])
+                            values + [lid, drama_id] + [v for _f, v in expected])
                         if cur.rowcount == 0:
                             unwritten.add(lid)
-                elif changed:
+                            words_cleared.discard(id(ln))
+                elif sets:
                     conn.execute(
-                        f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
-                        f"WHERE id = ? AND drama_id = ?",
-                        [line_value(ln, f) for f in changed] + [lid, drama_id])
+                        f"UPDATE lines SET {', '.join(sets)} WHERE id = ? AND drama_id = ?",
+                        values + [lid, drama_id])
                 kept.add(lid)
             elif fields is None:
                 cur = conn.execute(
-                    f"INSERT INTO lines (drama_id, {', '.join(_LINE_COLUMNS)}) "
-                    f"VALUES (?, {', '.join('?' for _ in _LINE_COLUMNS)})",
-                    [drama_id] + [line_value(ln, f) for f in _LINE_COLUMNS])
+                    f"INSERT INTO lines (drama_id, {', '.join(_LINE_COLUMNS)}, word_timings) "
+                    f"VALUES (?, {', '.join('?' for _ in _LINE_COLUMNS)}, ?)",
+                    [drama_id] + [line_value(ln, f) for f in _LINE_COLUMNS]
+                    + [getattr(ln, "word_timings", None)])
                 ln.id = cur.lastrowid
                 kept.add(ln.id)
+                words_written.add(id(ln))
             else:
                 # A field-scoped save never inserts: a job's stale copy of a
                 # line the user deleted or merged away must not resurrect it.
@@ -2529,6 +2563,12 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
         # What this caller last wrote/saw is now the baseline, so its next
         # save only writes what changes after this point.
         ln.orig = {**(ln.orig or {}), **{f: line_value(ln, f) for f in cols}}
+        if id(ln) in words_written:
+            ln.orig["word_timings"] = ln.word_timings
+        elif id(ln) in words_cleared:
+            # The row's words were for the old text; a later save mustn't put them back.
+            ln.word_timings = None
+            ln.orig.pop("word_timings", None)
         if fields is None:
             ln.merged_ids = []
     return unwritten
@@ -2552,21 +2592,23 @@ def _delete_line_refs(conn, line_id):
     conn.execute("UPDATE reading_history SET line_id = NULL WHERE line_id = ?", (line_id,))
 
 
-def load_lines(drama_id: int):
+def load_lines(drama_id: int, with_words: bool = False):
+    """with_words adds word_timings, which only the re-split paths need."""
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute(
             "SELECT id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, speaker_manual, "
-            "sfx, lang FROM lines WHERE drama_id = ? ORDER BY idx, id",
+            f"sfx, lang{', word_timings' if with_words else ''} FROM lines WHERE drama_id = ? "
+            "ORDER BY idx, id",
             (drama_id,)
         ).fetchall()
     return [dict(r) for r in rows]
 
 
-def load_line_objects(drama_id: int):
+def load_line_objects(drama_id: int, with_words: bool = False):
     """db.load_lines as core.Line objects (id and `orig` set) -- the shared
     loader every caller that edits and re-saves lines should use."""
     from core import lines_from_rows
-    return lines_from_rows(load_lines(drama_id))
+    return lines_from_rows(load_lines(drama_id, with_words))
 
 
 def load_line_ids(drama_id: int) -> set:

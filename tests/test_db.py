@@ -1955,7 +1955,8 @@ def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
 # (test_every_added_column_is_listed fails otherwise).
 _INIT_DB_MIGRATED_COLUMNS = {
     "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id"),
-    "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang"),
+    "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
+              "word_timings"),
     "dramas": (
         "translation_engine", "content_mode", "narration_language", "source_video_filename",
         "source_language", "chinese_script", "media_type", "series_id", "episode_number",

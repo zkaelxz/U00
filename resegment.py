@@ -33,6 +33,7 @@ import difflib
 import json
 import re
 
+import core
 import subtitle_formats
 from core import LANGUAGE_NAMES
 
@@ -132,14 +133,21 @@ def _connective_cuts(text, language, bounds):
 _TIERS = (_sentence_cuts, _clause_cuts, _connective_cuts)
 
 
-def rule_split_spans(text: str, language: str, max_chars: int, bounds=None) -> list:
+def rule_split_spans(text: str, language: str, max_chars: int, bounds=None,
+                     pauses=None) -> list:
     """(start, end) spans covering `text`, split by the rule tiers only.
     A span is split only if it's longer than max_chars, at the tier-1 cut
     nearest its middle (then tier 2, then 3) that leaves both sides at
     least a quarter of max_chars -- so no one- or two-character stubs --
     then each side is split the same way. A span no tier can split is
-    returned whole, however long."""
+    returned whole, however long.
+
+    pauses: offsets of real silences between the line's words
+    (core.pause_offsets), tried after the clause breaks: a measured pause is
+    better evidence of a boundary than a connective word."""
     candidates = [tier(text, language, bounds) for tier in _TIERS]
+    if pauses:
+        candidates.insert(2, set(pauses))
     min_chars = max(2, max_chars // 4)
 
     def split(s, e):
@@ -257,20 +265,48 @@ def split_times(line, pieces, segments=None) -> list:
     the same character-level alignment the Transcribe & Align step uses)
     against the stored transcription segments overlapping this line, when
     there are any and they give a usable answer; otherwise splits the
-    line's time in proportion to each piece's length."""
+    line's time in proportion to each piece's length.
+
+    A line with valid stored word timings (core.line_words) is cut at the
+    first word of each next piece instead, when every piece holds whole words."""
     start, end, n = line.start, line.end, len(pieces)
+    index = _word_index(line)
+    if index is not None:
+        spans = _piece_spans(line.zh, pieces)
+        cuts = spans and core.word_cut_times(index, spans, start, end)
+        if cuts:
+            return cuts
     weights = [max(length(p), 1) for p in pieces]
     total = sum(weights)
     proportional = [start + (end - start) * sum(weights[:k]) / total for k in range(1, n)]
 
     window = [s for s in (segments or []) if s.get("end", 0) > start and s.get("start", 0) < end]
     if window:
-        import core
         aligned = core.align_transcript_to_timing(pieces, window)
         cuts = [aligned[k].start for k in range(1, n)]
         if all(start < c < end for c in cuts) and all(a < b for a, b in zip(cuts, cuts[1:])):
             return cuts
     return proportional
+
+
+def _word_index(line):
+    """The line's word index, or None (also for a bare timing object with no text)."""
+    if getattr(line, "word_timings", None) is None or getattr(line, "zh", None) is None:
+        return None
+    return core.line_word_index(line)
+
+
+def _piece_spans(text: str, pieces) -> list:
+    """Each piece's (start, end) in `text`, found in order; empty when a piece
+    is not there (so a caller falls back rather than guesses)."""
+    spans, pos = [], 0
+    for p in pieces:
+        at = text.find(p, pos)
+        if at < 0:
+            return []
+        spans.append((at, at + len(p)))
+        pos = at + len(p)
+    return spans
 
 
 # ---------------------------------------------------------------- lines
@@ -302,8 +338,10 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
             new_lines.append(dataclasses.replace(ln, merged_ids=list(ln.merged_ids)))
             continue
         bounds = boundaries_fn(text, language, chinese_script)
+        index = _word_index(ln)
+        pauses = core.pause_offsets(index) if index is not None else None
         spans = []
-        for s, e in rule_split_spans(text, language, max_chars, bounds):
+        for s, e in rule_split_spans(text, language, max_chars, bounds, pauses):
             if engine is not None and length(text[s:e]) > max_chars:
                 local = {b - s for b in bounds if s <= b <= e} if bounds is not None else None
                 sub = llm_split_spans(text[s:e], engine, language, max_chars, local, usage_cb)
@@ -317,10 +355,12 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
             continue
         cuts = split_times(ln, pieces, segments)
         edges = [ln.start] + cuts + [ln.end]
+        piece_at = _piece_spans(text, pieces) if index is not None else []
         for k, piece in enumerate(pieces):
+            words = core.span_words(index, *piece_at[k], piece) if piece_at else None
             new_lines.append(Line(idx=0, start=edges[k], end=edges[k + 1], zh=piece,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                  sfx=ln.sfx, lang=ln.lang))
+                                  sfx=ln.sfx, lang=ln.lang, word_timings=words))
         changed.append((ln, pieces))
     for i, ln in enumerate(new_lines):
         ln.idx = i
