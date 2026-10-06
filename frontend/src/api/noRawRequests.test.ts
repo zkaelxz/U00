@@ -61,6 +61,20 @@ describe('no request bypasses api/client.ts', () => {
     })
   }
 
+  // A "PC only" call that skips pcOnlyFetch never reports a 403 to markRemote, so a remote
+  // user keeps seeing the PC-only buttons (how deleteJob and clearFinishedJobs slipped).
+  it('every mutating call commented "PC only" goes through pcOnlyFetch', () => {
+    const hits = Object.entries(sources)
+      .filter(([file]) => API_LAYER(file))
+      .flatMap(([file, src]) =>
+        [...src.matchAll(/((?:^\/\/[^\n]*\n)+)(export [^\n]*(?:\n(?!\/\/|export|\n)[^\n]*)*)/gm)]
+          .filter(([, comment, body]) => /\bPC[- ]only\b/i.test(comment) && /\b(postJson|postMultipart|putJson|patchJson|deleteJson)\b/.test(body) && !body.includes('pcOnlyFetch'))
+          .map(([, , body]) => `${file.slice(1)}: ${body.split('\n')[0].trim()}`),
+      )
+    // updatePreferences is the known gap, kept visible rather than fixed here.
+    expect(hits).toEqual(['src/api/settings.ts: export const updatePreferences = (patch: Partial<SettingsPreferences>, f?: Fetch) =>'])
+  })
+
   it('the rules catch what they should', () => {
     const t = (name: string, s: string) => RULES.find((r) => r.name === name)!.re.test(s)
     expect(t('direct fetch() call', "await fetch('/api/x', { method: 'POST' })")).toBe(true)

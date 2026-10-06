@@ -5,7 +5,7 @@ import type { SessionState } from '../hooks/useSession'
 import type { Route } from '../router'
 import { readSavedRailChoice } from './useRailCollapsed'
 import { PREF_KEY_PREFIX, readPref, writePref } from '../hooks/usePersistedState'
-import { NAV_ITEMS, RAIL_COLLAPSED_KEY, resolveRailCollapsed, visibleNavItems, visibleRailGroups, type NavContext } from './navItems'
+import { NAV_ITEMS, RAIL_COLLAPSED_KEY, resolveRailCollapsed, visibleNavItemsFor, visibleRailGroups, type NavContext } from './navItems'
 
 const owner = { id: 1, email: 'o@example.com', display_name: 'Owner', is_admin: true, is_local_owner: true }
 const meOf = (over: Partial<AuthMe>): SessionState => ({
@@ -39,38 +39,41 @@ const personas: Record<string, NavContext> = {
   },
 }
 
-const labels = (surface: 'header' | 'gear', ctx: NavContext) => visibleNavItems(surface, ctx).map((i) => i.label)
+const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-const HEADER = ['Library', 'Translate text', 'Sources', 'Discover', 'Live']
+const ALL = ['Library', 'Saved manga', 'Library tools', 'Translate text', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings']
 
-describe('nav registry shows what the header and gear showed before it existed', () => {
+describe('nav registry per persona', () => {
   it('owner at the PC', () => {
-    expect(labels('header', personas['owner at the PC'])).toEqual(HEADER)
-    expect(labels('gear', personas['owner at the PC'])).toEqual(['Jobs', 'Settings', 'Admin', 'Diagnostics'])
+    expect(labels(personas['owner at the PC'])).toEqual([...ALL, 'Admin', 'Diagnostics', 'Benchmark Lab'])
   })
 
   it('household member: no Admin, no Diagnostics', () => {
-    expect(labels('header', personas['household member'])).toEqual(HEADER)
-    expect(labels('gear', personas['household member'])).toEqual(['Jobs', 'Settings'])
+    expect(labels(personas['household member'])).toEqual(ALL)
   })
 
   it('member holding admin.diagnostics: Diagnostics without Admin', () => {
-    expect(labels('gear', personas['member with admin.diagnostics'])).toEqual(['Jobs', 'Settings', 'Diagnostics'])
+    expect(labels(personas['member with admin.diagnostics'])).toEqual([...ALL, 'Diagnostics', 'Benchmark Lab'])
   })
 
   it('remote admin: Admin, no Diagnostics (the household listener never reports admin.diagnostics), no Assistant', () => {
-    expect(labels('header', personas['remote admin'])).toEqual(HEADER)
-    expect(labels('gear', personas['remote admin'])).toEqual(['Jobs', 'Settings', 'Admin'])
+    expect(labels(personas['remote admin'])).toEqual([...ALL, 'Admin'])
   })
 
   it('auth unavailable: renders as before sign-in existed, Admin included', () => {
     const ctx: NavContext = { session: { status: 'unavailable' }, pcMode: 'local', developerMode: false }
-    expect(labels('gear', ctx)).toEqual(['Jobs', 'Settings', 'Admin', 'Diagnostics'])
+    expect(labels(ctx)).toEqual([...ALL, 'Admin', 'Diagnostics', 'Benchmark Lab'])
   })
 
   it('session still loading: no Admin or Diagnostics', () => {
     const ctx: NavContext = { session: { status: 'loading' }, pcMode: 'unknown', developerMode: false }
-    expect(labels('gear', ctx)).toEqual(['Jobs', 'Settings'])
+    expect(labels(ctx)).toEqual(ALL)
+  })
+
+  it('a hidden item drops out, but Library and Settings are locked in', () => {
+    const owner = personas['owner at the PC']
+    expect(labels({ ...owner, hidden: ['live', 'library', 'settings'] })).not.toContain('Live')
+    expect(labels({ ...owner, hidden: ['library', 'settings'] })).toEqual(expect.arrayContaining(['Library', 'Settings']))
   })
 })
 
@@ -78,12 +81,13 @@ describe('Assistant', () => {
   const base = personas['owner at the PC']
 
   it('needs Developer Mode on the PC', () => {
-    expect(labels('gear', { ...base, developerMode: true })).toEqual(['Jobs', 'Settings', 'Admin', 'Diagnostics', 'Assistant'])
+    expect(labels({ ...base, developerMode: true })).toContain('Assistant')
+    expect(labels(base)).not.toContain('Assistant')
   })
 
   it('waits for /api/meta: hidden while the PC check is unknown or remote', () => {
-    expect(labels('gear', { ...base, pcMode: 'unknown', developerMode: true })).not.toContain('Assistant')
-    expect(labels('gear', { ...base, pcMode: 'remote', developerMode: true })).not.toContain('Assistant')
+    expect(labels({ ...base, pcMode: 'unknown', developerMode: true })).not.toContain('Assistant')
+    expect(labels({ ...base, pcMode: 'remote', developerMode: true })).not.toContain('Assistant')
   })
 })
 
@@ -99,7 +103,6 @@ describe('registry data', () => {
     expect(by['Benchmark Lab'].requires).toBe('admin.diagnostics')
     expect(by['Diagnostics'].hideWithoutPermission).toBe(true)
     expect(by['Benchmark Lab'].hideWithoutPermission).toBe(true)
-    expect(by['Benchmark Lab'].surface).toBe('none')
   })
 })
 
