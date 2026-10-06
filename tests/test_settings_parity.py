@@ -59,7 +59,7 @@ def test_preference_defaults(isolated_db, env_file):
     assert prefs == {
         "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
         "scene_aware_batches": True, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
-        "ollama_num_ctx_override": 0, "whisper_model_path": "", "ocr_backend": "auto",
+        "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "whisper_model_path": "", "ocr_backend": "auto",
         "ocr_prefer_paddle_vl_manga": False, "tesseract_cmd": "", "lncrawl_cmd": "",
         "cookies_browser": None, "cookies_file": ""}
     assert settings_service.get_monthly_cap_usd() == 0.0
@@ -101,6 +101,8 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
     ("default_locale", "fr-FR"), ("episode_summary_engine", "nllb"),
     ("monthly_cap_usd", -1), ("monthly_cap_usd", True), ("monthly_cap_usd", "5"),
     ("ollama_num_ctx_override", 1.5), ("ollama_num_ctx_override", -1),
+    ("max_upload_mb", 99), ("max_upload_mb", 1_048_577), ("max_upload_mb", 0), ("max_upload_mb", -5),
+    ("max_upload_mb", 500.5), ("max_upload_mb", True), ("max_upload_mb", "2048"),
     ("ollama_num_ctx_override", True), ("ocr_backend", "easyocr"),
     ("ocr_prefer_paddle_vl_manga", "yes"), ("cookies_browser", "netscape"),
     ("tesseract_cmd", "a\x00b"), ("cookies_file", "x" * 1025),
