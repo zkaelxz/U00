@@ -4,6 +4,7 @@ audio is decoded. Isolated library."""
 import array
 import os
 import subprocess
+import threading
 
 import pytest
 
@@ -15,6 +16,7 @@ from fastapi.testclient import TestClient
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import media_peaks_service as svc
+from services.service_errors import RateLimitedError
 
 
 def _pcm(*amps):
@@ -75,6 +77,16 @@ def test_ffmpeg_gets_the_window_and_a_timeout_and_no_shell(client, did, ffmpeg):
     cmd, kw = ffmpeg.calls[0]
     assert cmd[cmd.index("-ss") + 1] == "12.500" and cmd[cmd.index("-t") + 1] == "7.500"
     assert kw["timeout"] == svc.DECODE_TIMEOUT_SECONDS and not kw.get("shell")
+    assert cmd[cmd.index("-protocol_whitelist") + 1] == "file"
+    assert cmd.index("-protocol_whitelist") < cmd.index("-i")
+    assert cmd.count("-t") == 2 and cmd.index("-t", cmd.index("-i")) > cmd.index("-i")
+
+
+def test_oversize_ffmpeg_output_is_503(client, did, monkeypatch):
+    monkeypatch.setattr(svc.subprocess, "run", FakeFfmpeg(b"\0" * (11 * svc.SAMPLE_RATE * 2 + 2)))
+    monkeypatch.setattr(svc.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    r = client.get(_url(did))
+    assert r.status_code == 503 and "source.mp3" not in r.text
 
 
 def test_result_is_cached_per_window(client, did, ffmpeg):
@@ -110,11 +122,52 @@ def test_silence_past_the_end(client, did, monkeypatch):
 
 @pytest.mark.parametrize("q", [
     {"start": -1}, {"end": 10, "start": 10}, {"start": 20, "end": 10},
-    {"start": 0, "end": 601}, {"start": 0, "end": 0.1}, {"buckets": 15}, {"buckets": 2001},
+    {"start": 0, "end": 121}, {"start": 0, "end": 0.1}, {"buckets": 15}, {"buckets": 2001},
     {"start": "nan"}, {"end": "inf"}])
 def test_bad_window_is_422(client, did, ffmpeg, q):
     assert client.get(_url(did, **q)).status_code == 422
     assert not ffmpeg.calls
+
+
+def test_a_busy_server_answers_429_at_once(client, did, monkeypatch):
+    monkeypatch.setattr(svc, "_slots", threading.BoundedSemaphore(1))
+    svc._slots.acquire()
+    r = client.get(_url(did))
+    assert r.status_code == 429 and r.json()["error"]["code"] == "rate_limited"
+
+
+def test_cached_window_needs_no_slot(client, did, ffmpeg, monkeypatch):
+    client.get(_url(did))
+    monkeypatch.setattr(svc, "_slots", threading.BoundedSemaphore(1))
+    svc._slots.acquire()
+    assert client.get(_url(did)).status_code == 200
+
+
+def test_one_decode_in_flight_per_caller(did, monkeypatch):
+    svc._cache.clear()
+    started, release = threading.Event(), threading.Event()
+
+    def slow(cmd, **kw):
+        started.set()
+        release.wait(5)
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(svc.subprocess, "run", slow)
+    monkeypatch.setattr(svc.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    first = threading.Thread(target=svc.get_peaks, args=(did, 10, 20, 16, "user:1"))
+    first.start()
+    assert started.wait(5)
+    try:
+        with pytest.raises(RateLimitedError):
+            svc.get_peaks(did, 11, 21, 16, "user:1")
+        # Another caller still gets the second slot; and the slot is freed afterwards.
+        other = threading.Thread(target=svc.get_peaks, args=(did, 12, 22, 16, "user:2"))
+        other.start()
+    finally:
+        release.set()
+    first.join(5)
+    other.join(5)
+    assert svc.get_peaks(did, 13, 23, 16, "user:1")["buckets"] == 16
 
 
 def test_no_audio_is_404(client, isolated_db, ffmpeg):

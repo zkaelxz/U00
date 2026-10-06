@@ -8,10 +8,11 @@ video, the job_id of the background audio extraction.
 import os
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, Path, Query, UploadFile
+from fastapi import APIRouter, File, Form, Path, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from api.auth import local_only, require_permission
+from api.llm_slots import caller_key
 from pydantic import ValidationError
 
 from api.schemas import (ErrorResponse, MediaPeaks, MediaStatus, MediaUploadResult, MediaUrlDownloadRequest,
@@ -112,13 +113,13 @@ def get_audio(drama_id: int = Path(ge=1)):
 
 @router.get("/dramas/{drama_id}/peaks", dependencies=_STREAM, response_model=MediaPeaks,
             summary="Downsampled loudness peaks of a time window of the audio (waveform timeline)",
-            description="Window of 0.5 to 600 seconds, 16 to 2000 buckets. A window past the "
+            description="Window of 0.5 to 120 seconds, 16 to 2000 buckets. A window past the "
                         "end of the audio reads as silence.",
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                       503: {"model": ErrorResponse}})
-def get_peaks(drama_id: int = Path(ge=1), start: float = Query(ge=0), end: float = Query(gt=0),
-              buckets: int = Query(500)):
-    return media_peaks_service.get_peaks(drama_id, start, end, buckets)
+                       429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def get_peaks(request: Request, drama_id: int = Path(ge=1), start: float = Query(ge=0),
+              end: float = Query(gt=0), buckets: int = Query(500)):
+    return media_peaks_service.get_peaks(drama_id, start, end, buckets, caller_key(request))
 
 
 @router.head("/dramas/{drama_id}/video", dependencies=_STREAM, include_in_schema=False)

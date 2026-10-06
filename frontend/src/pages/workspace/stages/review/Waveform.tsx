@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
 
+import { ApiError } from '../../../../api/client'
 import { getPeaks } from '../../../../api/media'
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
@@ -26,6 +27,8 @@ interface Props {
 
 const HEIGHT = 96
 const PEAK_CACHE = 24
+const BUSY_RETRY_MS = 400
+const BUSY_RETRIES = 5
 const UNAVAILABLE = 'The waveform isn’t available for this audio.'
 const EDITING = 'Save or cancel the open edit to drag this line’s edges.'
 const RETIME_FAILED = 'Couldn’t move that edge. The line may have changed: reload and try again.'
@@ -81,25 +84,33 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
       setUnavailable(false)
       return
     }
-    let cancelled = false
-    const timer = setTimeout(() => {
-      getPeaks(dramaId, start, end, buckets).then(
+    const ctl = new AbortController()
+    let timer: ReturnType<typeof setTimeout>
+    // A 429 means the server is still on an earlier window: keep what is
+    // drawn and ask again shortly instead of showing an error.
+    const fetchWindow = (retries: number) => {
+      getPeaks(dramaId, start, end, buckets, ctl.signal).then(
         (r) => {
-          if (cancelled) return
+          if (ctl.signal.aborted) return
           if (cache.current.size >= PEAK_CACHE) cache.current.delete(cache.current.keys().next().value as string)
           cache.current.set(key, r.peaks)
           setPeaks(r.peaks)
           setUnavailable(false)
         },
-        () => {
-          if (cancelled) return
+        (e) => {
+          if (ctl.signal.aborted) return
+          if (e instanceof ApiError && e.status === 429 && retries > 0) {
+            timer = setTimeout(() => fetchWindow(retries - 1), BUSY_RETRY_MS)
+            return
+          }
           setPeaks(null)
           setUnavailable(true)
         },
       )
-    }, 150)
+    }
+    timer = setTimeout(() => fetchWindow(BUSY_RETRIES), 150)
     return () => {
-      cancelled = true
+      ctl.abort()
       clearTimeout(timer)
     }
   }, [dramaId, view, width])
@@ -152,6 +163,11 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
   // for the one in flight, and `held` is where the next press builds on.
   const wanted = useRef<{ edge: Edge; value: number } | null>(null)
   const held = useRef<Partial<Record<Edge, number>>>({})
+  // A save queued for the previous line would go out under its id and be refused.
+  useEffect(() => {
+    wanted.current = null
+    held.current = {}
+  }, [activeId])
   const commit = async (edge: Edge, value: number) => {
     if (!active) return
     held.current[edge] = value

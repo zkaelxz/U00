@@ -22,7 +22,18 @@ export interface MediaPeaks {
 }
 
 // GET /api/media/dramas/{id}/peaks: peaks of a window of the audio for the
-// Review waveform (permission media.stream, like the stream itself).
-export function getPeaks(dramaId: number, start: number, end: number, buckets: number, f: typeof fetch = fetch): Promise<MediaPeaks> {
-  return getJson<MediaPeaks>(`/api/media/dramas/${dramaId}/peaks?start=${start}&end=${end}&buckets=${buckets}`, f)
+// Review waveform (permission media.stream, like the stream itself). The
+// signal lets a superseded pan or zoom drop its request.
+export function getPeaks(
+  dramaId: number,
+  start: number,
+  end: number,
+  buckets: number,
+  signal?: AbortSignal,
+  f: typeof fetch = fetch,
+): Promise<MediaPeaks> {
+  return getJson<MediaPeaks>(
+    `/api/media/dramas/${dramaId}/peaks?start=${start}&end=${end}&buckets=${buckets}`,
+    (input, init) => f(input, { ...init, signal }),
+  )
 }

@@ -28,11 +28,15 @@ db.save_lines(3, [Line(idx=0, start=1.0, end=2.0, zh='一', en='One'),
 `)
 })
 
-async function open(page: Page) {
+async function open(page: Page, busyFirst = 0) {
   const peakCalls: string[] = []
   await page.route('**/api/media/dramas/3/peaks*', async (route) => {
     const u = new URL(route.request().url())
     peakCalls.push(u.search)
+    if (peakCalls.length <= busyFirst) {
+      await route.fulfill({ status: 429, json: { error: { code: 'rate_limited', message: 'The waveform is busy. Try again in a moment.' } } })
+      return
+    }
     const n = Number(u.searchParams.get('buckets'))
     await route.fulfill({
       json: { start: Number(u.searchParams.get('start')), end: Number(u.searchParams.get('end')), buckets: n, peaks: Array.from({ length: n }, (_, i) => (i % 7) * 30) },
@@ -122,6 +126,12 @@ test('zoom changes the visible window', async ({ page }) => {
   const before = await page.getByTestId('wave-range').innerText()
   await page.getByRole('button', { name: 'Zoom in' }).click()
   await expect(page.getByTestId('wave-range')).not.toHaveText(before)
+})
+
+test('a busy server is retried without an error note', async ({ page }) => {
+  const { peakCalls } = await open(page, 2)
+  await expect.poll(() => peakCalls.length).toBeGreaterThanOrEqual(3)
+  await expect(page.getByText('The waveform isn’t available for this audio.')).toHaveCount(0)
 })
 
 test('can be hidden', async ({ page }) => {
