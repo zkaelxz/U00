@@ -116,8 +116,18 @@ function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
   return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
 }
 
-// The chip stays one clipped line; a button reveals the whole note so the
-// advice is readable on touch, where there is no hover.
+// Desktop shows the whole note under the meta line instead of in it: that
+// row never wraps, so a long note there would be clipped or squeeze the number.
+export function FlagNote({ text }: { text: string }) {
+  return (
+    <p className="review-flag-note" data-testid="line-flag" title={text}>
+      <span aria-hidden="true">⚑</span> {text}
+    </p>
+  )
+}
+
+// Phones keep a one-line chip; a button reveals the whole note there, where
+// there is no hover and no room to show it inline.
 export function FlagToggle({ text, open, onToggle, controls, children }: {
   text: string
   open: boolean
@@ -219,13 +229,6 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
         {line.dub_filename && !isPhone && <span>Dub: {line.dub_filename}</span>}
-        {line.flag && !isPhone && (
-          <span className="review-flag" data-testid="line-flag">
-            <FlagToggle text={flagText(line)} open={flagOpen} onToggle={setFlagOpen} controls={flagNoteId}>
-              <Badge tone="warn">⚑ {flagText(line)}</Badge>
-            </FlagToggle>
-          </span>
-        )}
         {line.flag && isPhone && (
           <span className="review-flag" data-testid="line-flag">
             <span aria-hidden="true">⚑</span>
@@ -242,6 +245,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
           {active && !isPhone ? 'More' : '⋯'}
         </button>
       </div>
+      {line.flag && !isPhone && <FlagNote text={flagText(line)} />}
       {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}
       {isPhone && active && line.flag && (
         <div className="review-flag review-flag-line">
