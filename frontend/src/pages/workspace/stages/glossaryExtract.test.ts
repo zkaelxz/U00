@@ -24,7 +24,7 @@ import {
 } from './glossaryExtract'
 
 const prop = (term: string, en: string, category: string | null = 'person_name', policy: string | null = 'keep_pinyin'): NovelGlossaryProposal => ({
-  term, suggested_translation: en, category, policy, reason: '', already_in_glossary: false,
+  term, suggested_translation: en, category, policy, reason: '', already_in_glossary: false, occurrences: 3, alternatives: [], confidence: 'high',
 })
 
 const WEI = prop('魏婴', 'Wei Ying')
