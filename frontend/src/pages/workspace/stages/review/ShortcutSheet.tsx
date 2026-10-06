@@ -16,6 +16,9 @@ const LIST: [string, string][] = [
   ['Space', 'Play or stop the line (with audio)'],
   ['Alt+Space', 'Play or pause'],
   ['L', 'Loop line on or off'],
+  ['S / T', 'Set the line’s start / end to the playhead (with audio)'],
+  ['Z / X', 'Nudge the start 0.1 s earlier / later (Shift: 0.5 s)'],
+  ['C / V', 'Nudge the end 0.1 s earlier / later (Shift: 0.5 s)'],
   ['?', 'This list'],
 ]
 
