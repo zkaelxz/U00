@@ -79,6 +79,8 @@ for (const size of sizes) {
     await page.setViewportSize(size)
     for (const url of [...routes, '/#/drama/3/translate']) {
       await load(page, url)
+      // A hash-only navigation keeps the previous page's scroll, and the sticky back button would then sit over this page's content.
+      await page.evaluate(() => window.scrollTo(0, 0))
       // Open the folds so their dense buttons are measured too.
       await page.evaluate(() => document.querySelectorAll('details.section').forEach((d) => ((d as HTMLDetailsElement).open = true)))
       const res = await page.evaluate(() => {
