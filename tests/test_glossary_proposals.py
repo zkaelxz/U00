@@ -112,6 +112,38 @@ class TestStatusAndIgnoreList:
         with pytest.raises(NotFoundError):
             gs.list_glossary_dismissals(999)
 
+    def test_ignore_list_is_capped_per_series(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(gs, "MAX_DISMISSALS_PER_SERIES", 3)
+        did, sid = _drama(isolated_db)
+        gs.dismiss_glossary_proposals(did, ["a", "b"])
+        with pytest.raises(InvalidInputError, match="at most 3"):
+            gs.dismiss_glossary_proposals(did, ["c", "d"])
+        assert len(gs.list_glossary_dismissals(did)["dismissals"]) == 2
+        # Re-ignoring known terms doesn't grow the list, so it stays allowed.
+        assert gs.dismiss_glossary_proposals(did, ["a", "c"]) == {"changed": 1}
+        assert gs.dismiss_glossary_proposals(did, ["a"]) == {"changed": 0}
+
+    def test_status_checks_only_the_held_terms(self, isolated_db, monkeypatch):
+        did, sid = _drama(isolated_db)
+        isolated_db.add_glossary_dismissals(sid, ["路人", "other"])
+        monkeypatch.setattr(db, "list_glossary_dismissals",
+                            lambda *a: pytest.fail("status must not load the whole list"))
+        self._held(monkeypatch, did, gs._normalize_proposals(
+            [_prop("青云宗"), _prop("路人")], [], ""))
+        shown = gs.get_novel_glossary_status(did)["result"]["proposals"]
+        assert [p["term"] for p in shown] == ["青云宗"]
+
+    def test_dismissed_lookup_chunks_large_batches(self, isolated_db):
+        _, sid = _drama(isolated_db)
+        isolated_db.add_glossary_dismissals(sid, ["t7", "t1200"])
+        found = isolated_db.list_dismissed_glossary_terms(sid, [f"t{i}" for i in range(1500)])
+        assert found == {"t7", "t1200"}
+
+    def test_dismissal_timestamp_has_no_timezone_suffix(self, isolated_db):
+        _, sid = _drama(isolated_db)
+        isolated_db.add_glossary_dismissals(sid, ["a"])
+        assert "+" not in isolated_db.list_glossary_dismissals(sid)[0]["created_at"]
+
     def test_deleting_the_series_removes_its_ignore_list(self, isolated_db):
         _, sid = _drama(isolated_db)
         isolated_db.add_glossary_dismissals(sid, ["a"])
