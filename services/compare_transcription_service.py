@@ -281,9 +281,27 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
     return {"job_id": job_id, "drama_id": drama_id, "line_count": len(picked)}
 
 
-def _hear(slice_path: str, cfg: dict, on_fallback, cancel_check) -> str:
+def _line_language(ln, cfg: dict, line_number: int):
+    """(language to hear this line in, reason to skip it or None). A line's own
+    language wins over the title's so a mixed-language line isn't re-heard in
+    the wrong one. Whisper takes any language; MOSS detects its own; the
+    VAD+Qwen3 backend hears an out-of-set language (English) by its own
+    detection. Plain Qwen3 re-hears Whisper's spans in a fixed language and
+    refuses one outside zh/ja/ko, so that line is skipped, not mis-heard."""
+    language = ln.lang or cfg["language"]
+    if language in asr_backend.LANGUAGE_NAMES:
+        return language, None
+    if cfg["backend"] == "qwen3_asr_vad":
+        return None, None
+    if cfg["backend"] == "qwen3_asr":
+        return language, (f"line {line_number}: Qwen3-ASR doesn't cover this line's "
+                          f"language ({language}), skipped")
+    return language, None
+
+
+def _hear(slice_path: str, cfg: dict, language, on_fallback, cancel_check) -> str:
     """Candidate source text for one cut line from the chosen backend."""
-    backend, language, use_gpu = cfg["backend"], cfg["language"], cfg["use_gpu"]
+    backend, use_gpu = cfg["backend"], cfg["use_gpu"]
     if backend == "qwen3_asr_vad":
         segments = asr_backend.get_backend(backend).transcribe(
             slice_path, language, use_gpu=use_gpu, cancel_check=cancel_check)
@@ -334,6 +352,10 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
                 break
             background_jobs.update_progress(
                 job_id, n / max(len(lines), 1), f"Line {n + 1} of {len(lines)}")
+            language, skip_reason = _line_language(ln, cfg, ln.idx + 1)
+            if skip_reason:
+                errors.append(skip_reason)
+                continue
             slice_path = os.path.join(os.path.dirname(audio_path), f"_comparetx_slice_{ln.id}.wav")
             try:
                 try:
@@ -346,7 +368,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
                     # str() of these carries the ffmpeg command line, i.e. absolute paths.
                     errors.append(f"line {ln.idx + 1}: couldn't cut this line's audio")
                     continue
-                heard = _hear(slice_path, cfg,
+                heard = _hear(slice_path, cfg, language,
                               lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
                               lambda: _cancel_check(job_id))
             except background_jobs.JobCancelled:
