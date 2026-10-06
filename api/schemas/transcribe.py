@@ -34,6 +34,12 @@ __all__ = [
     "RetranscribeApplyRequest",
     "RetranscribeApplyResult",
     "RetranscribeResult",
+    "RetimeRunRequest",
+    "RetimeProposal",
+    "RetimeResult",
+    "RetimeApplyItem",
+    "RetimeApplyRequest",
+    "RetimeApplyResult",
     "CompareSelection",
     "CompareBackendOption",
     "CompareOptions",
@@ -455,3 +461,47 @@ class CompareApplyRequest(BaseModel):
 class CompareApplyResult(BaseModel):
     applied: List[int]
     skipped: List[int]
+
+
+# --- Re-time with the Qwen3 aligner (Review) ---------------------------------
+class RetimeRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_ids: List[StrictInt] = Field(..., min_length=1, max_length=1000)
+
+
+class RetimeProposal(BaseModel):
+    line_id: int
+    number: int
+    base_zh: str
+    start: float
+    end: float
+    new_start: float
+    new_end: float
+    uncertain: bool
+
+
+class RetimeResult(BaseModel):
+    job_id: str
+    proposals: List[RetimeProposal]
+    line_count: int
+    partial: bool
+    device: Optional[str] = None
+    device_notice: Optional[str] = None
+    errors: List[str]
+
+
+class RetimeApplyItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_id: StrictInt = Field(..., ge=1)
+    expected_new_start: float
+    expected_new_end: float
+
+
+class RetimeApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    job_id: str = Field(..., min_length=1, max_length=100)
+    items: List[RetimeApplyItem] = Field(..., min_length=1, max_length=200)
+
+
+class RetimeApplyResult(CompareApplyResult):
+    overlapping: List[int] = []

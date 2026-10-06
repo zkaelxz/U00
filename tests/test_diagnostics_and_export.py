@@ -887,6 +887,11 @@ class TestRedactForSupport:
         assert "/home/bob" not in text
         assert "audio.wav" in text
 
+    def test_repr_escaped_windows_paths_are_redacted(self):
+        text = diagnostics.redact_for_support(
+            "Command '['ffmpeg', '-i', 'C:\\\\Users\\\\bob\\\\U00\\\\audio.wav']' failed")
+        assert "bob" not in text and "Users" not in text and ".../audio.wav" in text
+
     def test_collapses_windows_paths_to_the_last_segment(self):
         text = diagnostics.redact_for_support(r"saved to C:\Users\bob\U00\library\drama_3\audio.wav")
         assert "bob" not in text

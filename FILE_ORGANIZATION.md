@@ -320,6 +320,8 @@ baihe-subtitler/
 │   │                             transcribe-and-align action slice instead
 │   ├── compare_transcription_service.py  Review's Compare transcription: re-hear chosen lines with another
 │   │                             model/backend (+ optional translation) as proposals, apply per line
+│   ├── retime_service.py         Review's Re-time with Qwen3 aligner: new start/end for chosen existing lines
+│   │                             (forced aligner, no ASR) as proposals, apply per line (times only)
 │   ├── transcribe_service.py     Migration Slice 20 -- get_transcribe_config/update_transcribe_config
 │   │                             (Whisper tuning knobs, newly persisted per drama) plus
 │   │                             start_transcribe_run: a background job that does the WHOLE

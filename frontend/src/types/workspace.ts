@@ -396,3 +396,44 @@ export interface CompareApplyResult {
   applied: number[]
   skipped: number[]
 }
+
+// api/schemas/transcribe.py Retime* (Review: Re-time with the Qwen3 aligner).
+export interface RetimeRunRequest {
+  line_ids: number[]
+}
+
+export interface RetimeProposal {
+  line_id: number
+  number: number
+  base_zh: string
+  start: number
+  end: number
+  new_start: number
+  new_end: number
+  uncertain: boolean
+}
+
+export interface RetimeResult {
+  job_id: string
+  proposals: RetimeProposal[]
+  line_count: number
+  partial: boolean
+  device: string | null
+  device_notice: string | null
+  errors: string[]
+}
+
+export interface RetimeApplyItem {
+  line_id: number
+  expected_new_start: number
+  expected_new_end: number
+}
+
+export interface RetimeApplyRequest {
+  job_id: string
+  items: RetimeApplyItem[]
+}
+
+export interface RetimeApplyResult extends CompareApplyResult {
+  overlapping: number[]
+}

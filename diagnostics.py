@@ -973,7 +973,7 @@ _PATH_CHARS = r'[^\s\\/:*?"<>|]'
 _PATH_WORD = (rf'(?!{_PATH_CHARS}*(?:\.[A-Za-z0-9]{{1,5}}|[,;])(?:\s|$))'
               rf'{_PATH_CHARS}+')
 PATH_PATTERN = re.compile(
-    rf'(?:[A-Za-z]:)?[\\/](?:{_PATH_CHARS}+(?: {_PATH_CHARS}+)*[\\/])+'
+    rf'(?:[A-Za-z]:)?[\\/]+(?:{_PATH_CHARS}+(?: {_PATH_CHARS}+)*[\\/]+)+'
     rf'((?:{_PATH_WORD}(?: {_PATH_WORD}){{0,4}} '
     rf'{_PATH_CHARS}+\.[A-Za-z0-9]{{1,5}}(?![A-Za-z0-9])|{_PATH_CHARS}+))')
 
