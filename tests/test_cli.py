@@ -2088,3 +2088,178 @@ class TestCmdTranslateMatchesServiceCapsAndRunningJob:
         assert "already running" in out.getvalue()
         assert "claude" not in calls
         assert not any(r["en"] for r in isolated_db.load_lines(did))
+
+
+def _run_main(*argv):
+    old = sys.argv
+    sys.argv = ["cli.py", *argv]
+    try:
+        cli.main()
+    finally:
+        sys.argv = old
+
+
+class TestCmdGlossary:
+    def _drama(self, db_, series=True):
+        sid = db_.get_or_create_series("S") if series else None
+        return db_.create_drama(title_en="T", series_id=sid)
+
+    def test_add_list_export_remove_round_trip(self, isolated_db, capsys, tmp_path):
+        did = self._drama(isolated_db)
+        _run_main("glossary", "add", "--id", str(did), "--original", "沈清疑",
+                  "--translation", "Shen Qingyi", "--category", "person_name",
+                  "--alias", "清疑", "--enforce-exact")
+        _run_main("glossary", "list", "--id", str(did))
+        out = capsys.readouterr().out
+        assert "沈清疑\tShen Qingyi\t[person_name, exact]" in out and "1 term(s)." in out
+
+        target = tmp_path / "terms.csv"
+        _run_main("glossary", "export", "--id", str(did), "--output", str(target))
+        assert "Shen Qingyi" in target.read_text(encoding="utf-8-sig")
+
+        _run_main("glossary", "remove", "--id", str(did), "--term", "沈清疑", "--yes")
+        assert isolated_db.list_glossary_terms(isolated_db.get_drama(did)["series_id"]) == []
+
+    def test_remove_needs_confirmation(self, isolated_db):
+        did = self._drama(isolated_db)
+        _run_main("glossary", "add", "--id", str(did), "--original", "a", "--translation", "b")
+        with pytest.raises(SystemExit) as exc:
+            _run_main("glossary", "remove", "--id", str(did), "--term", "a")
+        assert "--yes" in str(exc.value)
+        assert len(isolated_db.list_glossary_terms(isolated_db.get_drama(did)["series_id"])) == 1
+
+    def test_import_skips_existing_unless_overwrite(self, isolated_db, capsys, tmp_path):
+        did = self._drama(isolated_db)
+        sid = isolated_db.get_drama(did)["series_id"]
+        _run_main("glossary", "add", "--id", str(did), "--original", "甲", "--translation", "Old")
+        f = tmp_path / "g.csv"
+        f.write_text("term_original,term_translation\n甲,New\n乙,Two\n", encoding="utf-8")
+        _run_main("glossary", "import", "--id", str(did), str(f))
+        assert "1 added" in capsys.readouterr().out
+        by = {t["term_original"]: t["term_translation"] for t in isolated_db.list_glossary_terms(sid)}
+        assert by == {"甲": "Old", "乙": "Two"}
+        _run_main("glossary", "import", "--id", str(did), str(f), "--overwrite")
+        by = {t["term_original"]: t["term_translation"] for t in isolated_db.list_glossary_terms(sid)}
+        assert by["甲"] == "New"
+
+    def test_service_validation_applies(self, isolated_db):
+        did = self._drama(isolated_db, series=False)
+        with pytest.raises(SystemExit) as exc:
+            _run_main("glossary", "add", "--id", str(did), "--original", "a", "--translation", "b")
+        assert "series" in str(exc.value)
+
+    def test_service_errors_are_redacted(self, isolated_db, monkeypatch):
+        from services import glossary_service
+        from services.service_errors import InvalidInputError
+        did = self._drama(isolated_db)
+
+        def boom(*a, **k):
+            raise InvalidInputError("bad key=sk-ant-abcdefghijklmnopqrstuvwxyz0123456789")
+        monkeypatch.setattr(glossary_service, "list_glossary_terms", boom)
+        with pytest.raises(SystemExit) as exc:
+            _run_main("glossary", "list", "--id", str(did))
+        assert "sk-ant-abcdefghijklmnopqrstuvwxyz0123456789" not in str(exc.value)
+
+
+class TestCmdQc:
+    def test_flags_a_wrong_number_and_reports_counts(self, isolated_db, capsys):
+        did = isolated_db.create_drama(title_en="T", status="translated")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="我有三个苹果", en="I have five apples"),
+            Line(idx=1, start=1.0, end=2.0, zh="你好", en="Hello"),
+        ])
+        _run_main("qc", "--id", str(did))
+        out = capsys.readouterr().out
+        assert "checked 2 line(s): 1 newly flagged" in out
+        assert [bool(r.get("flag")) for r in isolated_db.load_lines(did)] == [True, False]
+
+    def test_unknown_title_exits_non_zero(self, isolated_db):
+        with pytest.raises(SystemExit):
+            _run_main("qc", "--id", "9999")
+
+
+class TestCmdTranscribe:
+    def _drama(self, db_):
+        return db_.create_drama(title_en="T", status="not started", audio_filename="a.wav")
+
+    def _fake_job(self, monkeypatch, job):
+        monkeypatch.setattr(cli.background_jobs, "get_status", lambda job_id: job)
+        monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+
+    def _start(self, monkeypatch):
+        calls = {}
+
+        def fake_start(drama_id, **kw):
+            calls.update(kw, drama_id=drama_id)
+            return {"job_id": f"transcribe_{drama_id}"}
+        monkeypatch.setattr(cli.transcribe_service, "start_transcribe_run", fake_start)
+        return calls
+
+    def test_saves_options_and_passes_run_options_to_the_service(self, isolated_db, monkeypatch, capsys):
+        did = self._drama(isolated_db)
+        calls = self._start(monkeypatch)
+        self._fake_job(monkeypatch, {"status": "done", "result": {
+            "line_count": 12, "device": "GPU (cuda)", "device_notice": None}})
+        _run_main("transcribe", "--id", str(did), "--language", "ja", "--whisper-size", "small",
+                  "--beam-size", "3", "--min-silence-ms", "500", "--vad-threshold", "0.4",
+                  "--asr-backend", "whisper", "--separate-vocals", "--diarize",
+                  "--min-speakers", "2", "--max-speakers", "4")
+        drama = isolated_db.get_drama(did)
+        assert (drama["whisper_size"], drama["beam_size"], drama["min_silence_ms"],
+                drama["vad_threshold"], drama["separate_vocals_first"]) == ("small", 3, 500, 0.4, 1)
+        assert calls["source_language"] == "ja" and calls["run_diarize"] is True
+        assert (calls["min_speakers"], calls["max_speakers"]) == (2, 4)
+        out = capsys.readouterr().out
+        assert "12 line(s)" in out and "GPU (cuda)" in out
+
+    def test_out_of_range_option_is_refused_by_the_services_validation(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        calls = self._start(monkeypatch)
+        with pytest.raises(SystemExit) as exc:
+            _run_main("transcribe", "--id", str(did), "--beam-size", "99")
+        assert "beam_size" in str(exc.value) and not calls
+
+    def test_gpu_fallback_notice_is_shown(self, isolated_db, monkeypatch, capsys):
+        did = self._drama(isolated_db)
+        self._start(monkeypatch)
+        self._fake_job(monkeypatch, {"status": "done", "result": {
+            "line_count": 3, "device_notice": "Transcription ran on the CPU because the GPU couldn't be used."}})
+        _run_main("transcribe", "--id", str(did))
+        assert "NOTICE: Transcription ran on the CPU" in capsys.readouterr().out
+
+    def test_failed_job_exits_non_zero_with_redacted_error(self, isolated_db, monkeypatch, capsys):
+        did = self._drama(isolated_db)
+        self._start(monkeypatch)
+        self._fake_job(monkeypatch, {
+            "status": "error", "error": "boom key=sk-ant-abcdefghijklmnopqrstuvwxyz0123456789"})
+        with pytest.raises(SystemExit) as exc:
+            _run_main("transcribe", "--id", str(did))
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "failed" in err and "sk-ant-abcdefghijklmnopqrstuvwxyz0123456789" not in err
+
+    def test_nothing_new_kept_existing_lines_is_not_success(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        self._start(monkeypatch)
+        self._fake_job(monkeypatch, {"status": "done", "result": {
+            "failed_reason": "empty_kept_existing", "existing_line_count": 5}})
+        with pytest.raises(SystemExit) as exc:
+            _run_main("transcribe", "--id", str(did))
+        assert exc.value.code == 1
+
+    def test_service_refusal_exits_non_zero(self, isolated_db):
+        did = isolated_db.create_drama(title_en="T", status="not started")   # no audio
+        with pytest.raises(SystemExit) as exc:
+            _run_main("transcribe", "--id", str(did))
+        assert "No audio" in str(exc.value) or "transcript" in str(exc.value)
+
+    def test_waits_for_the_chained_speaker_job(self, isolated_db, monkeypatch, capsys):
+        did = self._drama(isolated_db)
+        self._start(monkeypatch)
+        jobs = {f"transcribe_{did}": {"status": "done", "result": {"line_count": 2, "diarize_started": True}},
+                f"diarize_{did}": {"status": "error", "error": "no token"}}
+        monkeypatch.setattr(cli.background_jobs, "get_status", lambda job_id: jobs[job_id])
+        with pytest.raises(SystemExit) as exc:
+            _run_main("transcribe", "--id", str(did), "--diarize")
+        assert exc.value.code == 1
+        assert "speaker detection failed" in capsys.readouterr().err

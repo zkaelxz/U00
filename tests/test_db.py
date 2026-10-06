@@ -1792,6 +1792,8 @@ class TestStep26eProfilesMigration:
             profiles = db.list_profiles()
             assert len(profiles) == 1
             default_id = profiles[0]["id"]
+            # Same naive-UTC format as every other db.py timestamp.
+            assert "+" not in profiles[0]["created_at"]
 
             prog = db.get_progress(1, profile_id=default_id)
             assert prog["last_line_idx"] == 7

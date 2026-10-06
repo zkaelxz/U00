@@ -6,7 +6,7 @@ const crumbs = (page: import('@playwright/test').Page) => page.getByRole('naviga
 
 test('a title shows Library > title > stage, and Library goes back', async ({ page }) => {
   await page.goto('/#/drama/1/review')
-  // Until the drama loads the shell shows a "Drama #N" placeholder, which the breadcrumb then replaces.
+  // The heading reads "Drama #1" until the title loads; reading it earlier pins the placeholder.
   await expect(page.getByTestId('drama-title')).not.toHaveText(/^Drama #\d+$/)
   const title = (await page.getByTestId('drama-title').textContent())!.trim()
   await expect(crumbs(page).getByRole('link')).toHaveText(['Library', title])
