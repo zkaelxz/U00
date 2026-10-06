@@ -7,7 +7,6 @@ import time
 import pytest
 
 import background_jobs
-import core
 import db
 import resegment
 from core import Line
@@ -314,11 +313,10 @@ class TestApi:
 
 
 def test_merge_refuses_a_line_past_the_text_cap():
-    did, ids = _seed()
     half = "x" * (svc.MAX_LINE_TEXT_CHARS // 2 + 1)
-    rows = db.load_lines(did)
-    for r in rows[:2]:
-        r["zh"] = half
-    db.save_lines(did, [core.line_from_row(r) for r in rows])
+    did = db.create_drama(title_zh="D", source_language="zh")
+    db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh=half),
+                        Line(idx=1, start=1.0, end=2.0, zh=half)])
+    ids = [r["id"] for r in db.load_lines(did)]
     with pytest.raises(InvalidInputError):
-        svc.merge_lines(did, [ids[0], ids[1]], ids)
+        svc.merge_lines(did, ids, ids)
