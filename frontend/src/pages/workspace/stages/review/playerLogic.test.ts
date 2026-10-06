@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { clampTime, lineAt, parseJumpTime, SUBTITLE_OPTIONS, subtitleSrc } from './playerLogic'
+import { clampTime, lineAt, parseJumpTime, PLAYBACK_RATES, SUBTITLE_OPTIONS, subtitleSrc, validRate } from './playerLogic'
 
 describe('parseJumpTime', () => {
   it('reads seconds, mm:ss and h:mm:ss', () => {
@@ -49,5 +49,13 @@ describe('lineAt', () => {
     expect(lineAt(lines, 3.5)).toBeNull()
     expect(lineAt(lines, 4.9)?.id).toBe(3)
     expect(lineAt([], 1)).toBeNull()
+  })
+})
+
+describe('validRate', () => {
+  it('keeps listed speeds and falls back to normal speed for anything else', () => {
+    for (const r of PLAYBACK_RATES) expect(validRate(r)).toBe(r)
+    expect(validRate(3)).toBe(1)
+    expect(validRate(Number.NaN)).toBe(1)
   })
 })
