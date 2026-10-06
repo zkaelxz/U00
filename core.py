@@ -4,6 +4,8 @@ imported by both the API services and cli.py (headless batch mode)
 without pulling in a UI framework.
 """
 
+import bisect
+import math
 import os
 import re
 import difflib
@@ -714,6 +716,12 @@ _CJK_SPACE_RE = re.compile(r"(?<=[぀-ヿ㐀-鿿가-힯])\s+|\s+(?=[぀-ヿ㐀-�
 MIN_PIECE_SECONDS = 0.8
 MIN_PIECE_CJK_CHARS = 4
 MIN_PIECE_WORDS = 2
+# A silence between two Whisper words at least this long is a place a line with no
+# punctuation may be cut; shorter ones are ordinary breathing inside a phrase.
+MIN_WORD_GAP_SECONDS = 0.25
+# Gaps this close to the largest candidate count as equally good, so the cut that
+# lands nearest the middle wins and a line is not peeled one stub at a time.
+_SIMILAR_GAP_RATIO = 0.75
 
 # Words whose trailing "." is not a sentence end.
 _ABBREVIATIONS = frozenset((
@@ -839,69 +847,271 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
             out.append(seg)
             continue
 
-        def fits(piece):
+        def estimated_fits(piece, at=0):
             n = len("".join(piece.split()))
             return ((limit_s is None or dur * n / total <= limit_s)
                     and (limit_c is None or count(piece) <= limit_c))
 
-        def pack(units):
-            chunks, cur = [], ""
-            for u in units:
-                if cur and not fits(cur + u):
+        def cut(fits):
+            """The punctuation pieces (strings that concatenate to `text`); `fits`
+            gets the piece and its character offset in `text`."""
+            def pack(units, at):
+                chunks, cur, start = [], "", at
+                for u in units:
+                    if cur and not fits(cur + u, start):
+                        chunks.append(cur)
+                        start += len(cur)
+                        cur = ""
+                    cur += u
+                if cur:
                     chunks.append(cur)
-                    cur = ""
-                cur += u
-            if cur:
-                chunks.append(cur)
-            return chunks
+                return chunks
 
-        sentences = _cut_after(text, _SENTENCE_END_RE, _sentence_keep() if rules else None)
-        pieces = []
-        for chunk in sentences if rules and rules.per_sentence else pack(sentences):
-            # one sentence that is still too long: fall back to its commas
-            for sub in [chunk] if fits(chunk) else pack(_cut_after(chunk, _CLAUSE_END_RE)):
-                # Whisper often separates CJK phrases with plain spaces instead of commas
-                pieces.extend([sub] if fits(sub) else pack(_cut_after(sub, _CJK_SPACE_RE)))
+            sentences = _cut_after(text, _SENTENCE_END_RE, _sentence_keep() if rules else None)
+            pieces, at = [], 0
+            for chunk in sentences if rules and rules.per_sentence else pack(sentences, 0):
+                # one sentence that is still too long: fall back to its commas
+                subs = [chunk] if fits(chunk, at) else pack(_cut_after(chunk, _CLAUSE_END_RE), at)
+                sub_at = at
+                for sub in subs:
+                    # Whisper often separates CJK phrases with plain spaces instead of commas
+                    pieces.extend([sub] if fits(sub, sub_at)
+                                  else pack(_cut_after(sub, _CJK_SPACE_RE), sub_at))
+                    sub_at += len(sub)
+                at += len(chunk)
+            return pieces
+
+        index = _WordIndex.build(text, seg.get("words")) if seg.get("words") else None
+        if index:
+            def fits_words(i, j):
+                return ((limit_s is None or index.seconds(i, j) <= limit_s)
+                        and (limit_c is None or index.measure(i, j, rules) <= limit_c))
+
+            def fits_real(piece, at):
+                words = index.word_range(at, at + len(piece))
+                return estimated_fits(piece) if words is None else fits_words(*words)
+
+            split = _split_on_words(seg, text, cut(fits_real), index, fits_words, rules)
+            if split is not None:
+                out.extend(split)
+                continue
+        pieces = cut(estimated_fits)
         pieces = [p for p in pieces if p.strip()]
         if rules:
-            pieces = _fold_small(pieces, dur, total)
+            pieces = _fold_small(
+                pieces, lambda p: _is_stub(p, dur * len("".join(p.split())) / total))
         if len(pieces) < 2:
             out.append(seg)
             continue
+        bare = {k: v for k, v in seg.items() if k != "words"}
         done = 0
         for i, p in enumerate(pieces):
             start = seg["start"] + dur * done / total
             done += len("".join(p.split()))
             end = seg["end"] if i == len(pieces) - 1 else seg["start"] + dur * done / total
-            out.append({**seg, "start": start, "end": end, "text": p.strip()})
+            # estimated cuts: the words no longer line up with the text
+            out.append({**bare, "start": start, "end": end, "text": p.strip()})
     return out
 
 
-def _fold_small(pieces: list, dur: float, total: int) -> list:
-    """Merges each piece under the MIN_PIECE_* floors into its previous
+def _fold_small(pieces: list, small, join="".join) -> list:
+    """Merges each piece for which small(piece) holds into its previous
     neighbour (the next one for the first piece), so no stub survives. A merged
     piece may pass the max limits; that beats an unreadable flash."""
-    def small(p):
-        cjk = len(_CJK_RE.findall(p))
-        short = cjk < MIN_PIECE_CJK_CHARS if cjk else len(p.split()) < MIN_PIECE_WORDS
-        return short or dur * len("".join(p.split())) / total < MIN_PIECE_SECONDS
-
     # One forward pass: a piece that is not small stays so once a neighbour is
     # appended, so only the incoming piece ever needs checking. Parts are joined
     # at the end to keep a run of stubs linear.
-    out, carry = [], ""
+    out, carry = [], []
     for p in pieces:
-        p = carry + p
-        carry = ""
-        if not small(p):
-            out.append([p])
+        parts = carry + [p]
+        carry = []
+        if not small(join(parts)):
+            out.append(parts)
         elif out:
-            out[-1].append(p)
+            out[-1].extend(parts)
         else:
-            carry = p
+            carry = parts
     if carry:
-        out.append([carry])
-    return ["".join(parts) for parts in out]
+        out.append(carry)
+    return [join(parts) for parts in out]
+
+
+def _is_stub(text: str, seconds: float) -> bool:
+    cjk = len(_CJK_RE.findall(text))
+    return (cjk < MIN_PIECE_CJK_CHARS if cjk else len(text.split()) < MIN_PIECE_WORDS) \
+        or seconds < MIN_PIECE_SECONDS
+
+
+class _WordIndex:
+    """A segment's Whisper words laid over the character offsets of its text.
+
+    `build` returns None unless the words' text, apart from whitespace, is exactly
+    the segment's text and their times are numbers: then a cut chosen by the
+    words can never reword, add or drop text. Word i spans text[cs[i]:ce[i]] and
+    ts[i]..te[i] seconds; ends and starts are clamped to be non-decreasing because
+    Whisper's neighbouring words overlap a little."""
+
+    def __init__(self, kept, cs, ce, ts, te, cjk):
+        self.kept, self.cs, self.ce, self.ts, self.te, self.cjk = kept, cs, ce, ts, te, cjk
+        self._sparse = None
+
+    @classmethod
+    def build(cls, text: str, words):
+        kept, cs, ce, ts, te, cjk = [], [], [], [], [], [0]
+        pos, size = 0, len(text)
+        for w in words or ():
+            try:
+                token = str(w["word"]).strip()
+                start, end = float(w["start"]), float(w["end"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            if not token:
+                continue
+            if not (math.isfinite(start) and math.isfinite(end) and end >= start):
+                return None
+            while pos < size and text[pos].isspace():
+                pos += 1
+            if not text.startswith(token, pos):
+                return None
+            kept.append(w)
+            cs.append(pos)
+            pos += len(token)
+            ce.append(pos)
+            ts.append(max(start, ts[-1]) if ts else start)
+            te.append(max(end, ts[-1], te[-1]) if te else end)
+            cjk.append(cjk[-1] + len(_CJK_RE.findall(token)))
+        if not kept or text[pos:].strip():
+            return None
+        return cls(kept, cs, ce, ts, te, cjk)
+
+    def word_range(self, a: int, b: int):
+        """(i, j) of the words inside text[a:b], or None when a word straddles
+        either edge or the range holds none."""
+        i, j = bisect.bisect_left(self.cs, a), bisect.bisect_left(self.cs, b)
+        if j <= i or (i and self.ce[i - 1] > a) or self.ce[j - 1] > b:
+            return None
+        return i, j
+
+    def seconds(self, i: int, j: int) -> float:
+        return self.te[j - 1] - self.ts[i]
+
+    def measure(self, i: int, j: int, rules: Optional["SplitRules"]) -> int:
+        cjk = self.cjk[j] - self.cjk[i]
+        if rules is None:
+            return cjk
+        return cjk or ((self.ce[j - 1] - self.cs[i]) if rules.count_latin else 0)
+
+    def _max_gap(self, lo: int, hi: int) -> float:
+        """Largest silence before any of the words lo..hi (inclusive), by a sparse
+        table so a cut is found in O(log n) however many words the line has."""
+        if self._sparse is None:
+            table = [[-math.inf] + [self.ts[k] - self.te[k - 1] for k in range(1, len(self.ts))]]
+            width = 1
+            while 2 * width <= len(self.ts):
+                prev = table[-1]
+                table.append([max(prev[k], prev[k + width]) for k in range(len(prev) - width)])
+                width *= 2
+            self._sparse = table
+        level = (hi - lo + 1).bit_length() - 1
+        row = self._sparse[level]
+        return max(row[lo], row[hi - (1 << level) + 1])
+
+    def _nearest_gap(self, i: int, j: int, lo: int, hi: int, threshold: float):
+        """The word k in lo..hi whose preceding silence is at least `threshold`
+        and sits nearest the middle of words i..j-1, or None."""
+        middle = (self.ts[i] + self.te[j - 1]) / 2
+        pivot = min(max(bisect.bisect_left(self.ts, middle), lo), hi)
+        found = []
+        if self._max_gap(lo, pivot) >= threshold:
+            a, b = lo, pivot
+            while a < b:  # largest x with a qualifying gap in x..pivot
+                mid = (a + b + 1) // 2
+                a, b = (mid, b) if self._max_gap(mid, pivot) >= threshold else (a, mid - 1)
+            found.append(a)
+        if pivot < hi and self._max_gap(pivot + 1, hi) >= threshold:
+            a, b = pivot + 1, hi
+            while a < b:  # smallest y with a qualifying gap in pivot+1..y
+                mid = (a + b) // 2
+                a, b = (a, mid) if self._max_gap(pivot + 1, mid) >= threshold else (mid + 1, b)
+            found.append(a)
+        return min(found, key=lambda k: abs((self.te[k - 1] + self.ts[k]) / 2 - middle),
+                   default=None)
+
+    def gap_cuts(self, i: int, j: int, fits) -> list:
+        """Word ranges covering i..j-1 that fit, cut only at pauses of at least
+        MIN_WORD_GAP_SECONDS and never leaving a side under the MIN_PIECE_* floors.
+        A range with no admissible pause is returned as it is."""
+        done, stack = [], [(i, j)]
+        while stack:
+            a, b = stack.pop()
+            k = None if fits(a, b) or b - a < 2 else self._pick_cut(a, b)
+            if k is None:
+                done.append((a, b))
+            else:
+                stack.extend(((k, b), (a, k)))
+        return done
+
+    def _pick_cut(self, i: int, j: int):
+        cjk = self.cjk[j] - self.cjk[i]
+        if cjk:
+            lo = bisect.bisect_left(self.cjk, self.cjk[i] + MIN_PIECE_CJK_CHARS)
+            hi = bisect.bisect_right(self.cjk, self.cjk[j] - MIN_PIECE_CJK_CHARS) - 1
+        else:
+            lo, hi = i + MIN_PIECE_WORDS, j - MIN_PIECE_WORDS
+        lo = max(lo, i + 1, bisect.bisect_left(self.te, self.ts[i] + MIN_PIECE_SECONDS) + 1)
+        hi = min(hi, j - 1, bisect.bisect_right(self.ts, self.te[j - 1] - MIN_PIECE_SECONDS) - 1)
+        if lo > hi:
+            return None
+        biggest = self._max_gap(lo, hi)
+        if biggest < MIN_WORD_GAP_SECONDS:
+            return None
+        return self._nearest_gap(i, j, lo, hi, max(MIN_WORD_GAP_SECONDS,
+                                                   biggest * _SIMILAR_GAP_RATIO))
+
+
+def _split_on_words(seg, text, pieces, index, fits, rules):
+    """Cuts `seg` where its punctuation pieces (strings that concatenate to
+    `text`) and then the largest pauses between words say, with each piece timed
+    by its own first and last word and its text sliced from `text`. Returns None
+    when a cut would fall inside a word or a piece has no usable word time, so the
+    caller can fall back to the character-share estimate."""
+    ranges, pos = [], 0
+    for p in pieces:
+        if p.strip():
+            words = index.word_range(pos, pos + len(p))
+            if words is None:
+                return None
+            ranges.append((pos, pos + len(p)) + words)
+        pos += len(p)
+    if not ranges:
+        return None
+
+    def join(parts):
+        return parts[0][0], parts[-1][1], parts[0][2], parts[-1][3]
+
+    if rules:
+        ranges = _fold_small(
+            ranges, lambda r: _is_stub(text[r[0]:r[1]], index.seconds(r[2], r[3])), join)
+
+    cut = []
+    for a, b, i, j in ranges:
+        parts = sorted(index.gap_cuts(i, j, fits))
+        for n, (pi, pj) in enumerate(parts):
+            cut.append((a if n == 0 else index.cs[pi], b if n == len(parts) - 1 else index.cs[pj],
+                        pi, pj))
+    if len(cut) < 2:
+        return [seg]
+    out, floor = [], seg["start"]
+    for a, b, i, j in cut:
+        start = max(index.ts[i], floor)
+        end = min(index.te[j - 1], seg["end"])
+        piece = text[a:b].strip()
+        if end <= start or not piece:
+            return None
+        out.append({**seg, "start": start, "end": end, "text": piece,
+                    "words": index.kept[i:j]})
+        floor = end
+    return out
 
 
 def tighten_to_words(start: float, end: float, words) -> tuple:
@@ -918,6 +1128,15 @@ def tighten_to_words(start: float, end: float, words) -> tuple:
     except (AttributeError, TypeError):
         return start, end
     return (new_start, new_end) if new_end > new_start else (start, end)
+
+
+def _word_dicts(words) -> list:
+    """faster-whisper Word objects as plain {start, end, word} dicts; empty when
+    the segment has none (word timestamps off, or an older release)."""
+    try:
+        return [{"start": w.start, "end": w.end, "word": w.word} for w in words or ()]
+    except AttributeError:
+        return []
 
 
 def _accepts_transcribe_kwarg(model, name):
@@ -1030,7 +1249,11 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             # a cut-off sound tag, "...", a dash) is not a subtitle.
             if any(ch.isalnum() for ch in text):
                 start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
-                result.append({"start": start, "end": end, "text": text})
+                seg = {"start": start, "end": end, "text": text}
+                words = _word_dicts(getattr(s, "words", None))
+                if words:
+                    seg["words"] = words
+                result.append(seg)
             if progress_cb:
                 progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
         if filter_hallucination_repeats:
