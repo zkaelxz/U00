@@ -103,6 +103,16 @@ describe('failed API calls', () => {
     for (const bad of ['secret', 'line text', 'X-Baihe-Local', 'My secret title']) expect(text).not.toContain(bad)
   })
 
+  it('does not record aborted requests or a busy waveform (429 from peaks)', async () => {
+    const aborted = vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')) as unknown as typeof fetch
+    await expect(getJson('/api/media/dramas/3/peaks', aborted)).rejects.toThrow()
+    const busy = vi.fn(async () => new Response(JSON.stringify({ error: { code: 'rate_limited', message: 'busy' } }), { status: 429 })) as unknown as typeof fetch
+    await expect(getJson('/api/media/dramas/3/peaks', busy)).rejects.toThrow()
+    expect(captureSnapshot().failed_requests).toEqual([])
+    await expect(getJson('/api/other', busy)).rejects.toThrow()
+    expect(captureSnapshot().failed_requests).toHaveLength(1)
+  })
+
   it('recordFailedRequest normalises the method', () => {
     recordFailedRequest('delete', '/api/dramas/3', 403, 'forbidden')
     expect(captureSnapshot().failed_requests[0]).toMatchObject({ method: 'DELETE', status: 403 })

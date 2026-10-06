@@ -30,6 +30,7 @@ __all__ = [
     "DramaDeleteResult",
     "MediaUploadResult",
     "MediaStatus",
+    "MediaPeaks",
     "UploadAndTranscribeResult",
     "LibraryUsage",
     "LibraryDashboard",
@@ -308,6 +309,13 @@ class MediaStatus(BaseModel):
     # Superseded originals and failed uploads kept in the title's folder.
     kept_media_files: int = 0
     kept_media_bytes: int = 0
+
+
+class MediaPeaks(BaseModel):
+    start: float
+    end: float
+    buckets: int
+    peaks: List[int] = Field(description="Peak loudness per bucket, 0-255.")
 
 
 class UploadAndTranscribeResult(BaseModel):
