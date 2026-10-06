@@ -46,6 +46,11 @@ import {
   splitTranslationPieces,
   stepFrom,
   structureErrorText,
+  undoDoneMessage,
+  undoHandleOf,
+  undoRefusal,
+  UNDO_CHANGED_MESSAGE,
+  UNDO_GONE_MESSAGE,
   languageSetText,
   LINE_LANGUAGES,
   lineLangChip,
@@ -410,5 +415,32 @@ describe('splitTranslationPieces', () => {
     expect(splitTranslationPieces('Thanks,  dear friends', 8)).toEqual(['Thanks,', 'dear friends'])
     expect(splitTranslationPieces(' Hi there ', 4)).toEqual([' Hi', 'there'])
     expect(splitPieces('Thanks,  dear friends', 8)).toEqual(['Thanks, ', ' dear friends'])
+  })
+})
+
+describe('undo of a structural edit', () => {
+  it('needs both the snapshot id and the fingerprint the server returned', () => {
+    expect(undoHandleOf({ history_id: 7, lines_fingerprint: 'abc' })).toEqual({ historyId: 7, fingerprint: 'abc' })
+    expect(undoHandleOf({ history_id: 7 })).toBeNull()
+    expect(undoHandleOf({ history_id: null, lines_fingerprint: 'abc' })).toBeNull()
+    expect(undoHandleOf({})).toBeNull()
+  })
+  it('explains a refused undo in plain text, keeping the offer only while a job runs', () => {
+    const changed = new ApiError(409, { code: 'conflict', message: 'The lines were edited since that change' })
+    expect(undoRefusal(changed)).toEqual({ text: UNDO_CHANGED_MESSAGE, keepOffer: false })
+    expect(UNDO_CHANGED_MESSAGE).toContain('Records → Line history')
+    const noted = new ApiError(409, { code: 'conflict', message: 'A line this undo would remove has a note, emotion tag or reading position saved since' })
+    expect(undoRefusal(noted)).toEqual({ text: UNDO_CHANGED_MESSAGE, keepOffer: false })
+    const job = new ApiError(409, { code: 'conflict', message: 'A background job is still running' })
+    expect(undoRefusal(job)).toEqual({ text: JOB_RUNNING_MESSAGE, keepOffer: true })
+    expect(undoRefusal(new ApiError(404, { code: 'not_found', message: 'x' }))).toEqual({ text: UNDO_GONE_MESSAGE, keepOffer: false })
+    expect(UNDO_GONE_MESSAGE).toContain('Records → Line history')
+    expect(undoRefusal(new ApiError(500, { code: 'error', message: 'x' }))).toBeNull()
+  })
+  it('says what an undo of a delete or merge does not bring back', () => {
+    expect(undoDoneMessage('delete')).toContain('but not its notes or emotion tag')
+    expect(undoDoneMessage('merge')).toContain('notes and emotion tags stay on the line they were merged into')
+    expect(undoDoneMessage('split')).toBe('Undone. The lines are back as they were before.')
+    expect(undoDoneMessage('resplit')).toBe(undoDoneMessage('split'))
   })
 })

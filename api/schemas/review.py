@@ -501,6 +501,10 @@ class RestructureSplit(_RestructureBase):
 class RestructureResult(BaseModel):
     line_ids: List[int]
     lines: List[ReviewLinesLine]
+    # The snapshot taken just before this write, and a fingerprint of the lines it
+    # left: together they let a client undo it (restore with expected_fingerprint).
+    history_id: Optional[int] = None
+    lines_fingerprint: Optional[str] = None
 
 
 class ResegmentChange(BaseModel):
@@ -556,6 +560,8 @@ class ResplitResult(BaseModel):
     note: Optional[str] = None
     dry_run: Optional[bool] = None
     pieces: Optional[int] = None
+    history_id: Optional[int] = None
+    lines_fingerprint: Optional[str] = None
 
 
 class ResegmentStarted(BaseModel):
@@ -575,7 +581,8 @@ class ResegmentLlmPreview(ResegmentPreview):
 
 
 class RestoreVersionRequest(_RestructureBase):
-    pass
+    # From the write being undone; 409 if any restorable field changed since.
+    expected_fingerprint: Optional[str] = Field(None, min_length=1, max_length=128)
 
 
 class RestoreVersionResult(BaseModel):

@@ -80,8 +80,13 @@ export const applyLlmResegmentPreview = (id: number, expectedLineIds: number[], 
     f,
   )
 
-export const restoreSnapshot = (id: number, historyId: number, expectedLineIds: number[], f?: Fetch) =>
-  postJson<RestoreVersionResult>(`${base(id)}/history/${historyId}/restore`, { expected_line_ids: expectedLineIds }, f)
+// With `expectedFingerprint` (an undo) the server refuses if any restorable field changed since.
+export const restoreSnapshot = (id: number, historyId: number, expectedLineIds: number[], expectedFingerprint?: string, f?: Fetch) =>
+  postJson<RestoreVersionResult>(
+    `${base(id)}/history/${historyId}/restore`,
+    expectedFingerprint ? { expected_line_ids: expectedLineIds, expected_fingerprint: expectedFingerprint } : { expected_line_ids: expectedLineIds },
+    f,
+  )
 
 // Interim until a line-index endpoint exists: every line of the drama, in
 // order, read through the Review list in pages of 200 (the route's maximum).

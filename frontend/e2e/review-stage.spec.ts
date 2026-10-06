@@ -469,7 +469,7 @@ test('split a line from the sheet, then merge it back', async ({ page }) => {
   await split.getByRole('button', { name: 'Split line' }).click()
 
   await expect(rows(page)).toHaveCount(4)
-  await expect(page.getByRole('status').filter({ hasText: /^Split #/ })).toContainText('Undo in Records → Line history.')
+  await expect(page.getByRole('status').filter({ hasText: /^Split #/ })).toContainText('Records → Line history')
   expect(bodies[0]).toEqual({ expected_line_ids: ids, at_char: 2, expected_zh: '再见朋友' })
   // The new second piece is the active line.
   await expect(rows(page).nth(2)).toHaveAttribute('aria-current', 'true')
