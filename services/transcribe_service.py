@@ -1370,7 +1370,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 raw_backend, raw_model = "qwen3_asr", "Qwen3-ASR"
             lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                           speaker=seg.get("speaker") or None, flag=seg.get("flag"),
-                          flag_note=seg.get("flag_note") or "", lang=seg.get("lang"))
+                          flag_note=seg.get("flag_note") or "", lang=seg.get("lang"),
+                          word_timings=core_module.encode_line_words(seg["text"],
+                                                                     seg.get("words")))
                      for i, seg in enumerate(
                          s for s in core_module.split_long_segments(segments)
                          if s["text"].strip())]

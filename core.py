@@ -5,6 +5,8 @@ without pulling in a UI framework.
 """
 
 import bisect
+import hashlib
+import json
 import math
 import os
 import re
@@ -54,6 +56,10 @@ class Line:
     lang: str = None
     # Permanent row id (lines.id). None for a line not saved yet.
     id: int = field(default=None, compare=False)
+    # encode_line_words' stored form, read through line_words. None means "not
+    # loaded": db.save_lines then leaves the column alone (and clears it when the
+    # text changes), so a caller that never loads it can't wipe or keep stale words.
+    word_timings: str = field(default=None, compare=False, repr=False)
     # Field values as last loaded from / saved to the database. db.save_lines
     # only writes a field whose value differs from this, so two writers
     # (a background job and the page) can't clobber each other's fields.
@@ -111,8 +117,11 @@ def line_from_row(row) -> "Line":
               en=row.get("en") or "", speaker=row.get("speaker"),
               dub_filename=row.get("dub_filename"), flag=row.get("flag"),
               flag_note=row.get("flag_note") or "", speaker_manual=bool(row.get("speaker_manual")),
-              sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"))
+              sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"),
+              word_timings=row.get("word_timings"))
     ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
+    if "word_timings" in row:
+        ln.orig["word_timings"] = ln.word_timings
     return ln
 
 
@@ -1112,6 +1121,91 @@ def _split_on_words(seg, text, pieces, index, fits, rules):
                     "words": index.kept[i:j]})
         floor = end
     return out
+
+
+# A line's Whisper words are stored with it (lines.word_timings) only up to these
+# sizes: a Whisper line has a few dozen words, and a line merged far past that is
+# not worth a large row on every save.
+MAX_STORED_WORDS = 1000
+MAX_STORED_WORD_BYTES = 32_000
+
+
+def text_fingerprint(text: str) -> str:
+    return hashlib.sha1((text or "").encode("utf-8")).hexdigest()[:16]
+
+
+def encode_line_words(text: str, words) -> Optional[str]:
+    """The stored form of a line's words: its text's fingerprint and, per word,
+    [first char, end char, start ms, end ms]. None when the words don't spell
+    exactly `text` or pass the MAX_STORED_* caps."""
+    if not words or len(words) > MAX_STORED_WORDS:
+        return None
+    index = _WordIndex.build(text, words)
+    if index is None:
+        return None
+    rows = [[a, b, round(t0 * 1000), round(t1 * 1000)]
+            for a, b, t0, t1 in zip(index.cs, index.ce, index.ts, index.te)]
+    payload = json.dumps({"h": text_fingerprint(text), "w": rows}, separators=(",", ":"))
+    return payload if len(payload) <= MAX_STORED_WORD_BYTES else None
+
+
+def line_words(ln) -> Optional[list]:
+    """A line's stored words as {start, end, word} dicts, or None unless they
+    were computed against exactly its current text and fall inside its time.
+    Any text edit changes the fingerprint, so stale words are never used."""
+    payload, text = getattr(ln, "word_timings", None), ln.zh or ""
+    if not isinstance(payload, str) or len(payload) > MAX_STORED_WORD_BYTES:
+        return None
+    try:
+        data = json.loads(payload)
+        if data["h"] != text_fingerprint(text):
+            return None
+        words, pos = [], 0
+        for a, b, t0, t1 in data["w"]:
+            if not (isinstance(a, int) and isinstance(b, int) and pos <= a < b <= len(text)):
+                return None
+            words.append({"word": text[a:b], "start": t0 / 1000, "end": t1 / 1000})
+            pos = b
+    except (ValueError, TypeError, KeyError):
+        return None
+    index = _WordIndex.build(text, words)
+    # Times are absolute audio times, so a re-timed line keeps its words; a row
+    # whose words lie wholly outside its span describes some other audio.
+    if index is None or index.te[-1] <= ln.start or index.ts[0] >= ln.end:
+        return None
+    return words
+
+
+def line_word_index(ln) -> Optional["_WordIndex"]:
+    words = line_words(ln)
+    return _WordIndex.build(ln.zh or "", words) if words else None
+
+
+def span_words(index: "_WordIndex", a: int, b: int, piece: str) -> Optional[str]:
+    """Stored words for a piece cut from text[a:b] (`piece` is that slice,
+    stripped or not), or None when a word straddles a cut."""
+    found = index.word_range(a, b)
+    return encode_line_words(piece, index.kept[found[0]:found[1]]) if found else None
+
+
+def pause_offsets(index: "_WordIndex") -> set:
+    """Character offsets where a word starts after a silence of at least
+    MIN_WORD_GAP_SECONDS: real pauses a line may be cut at."""
+    return {index.cs[k] for k in range(1, len(index.cs))
+            if index.ts[k] - index.te[k - 1] >= MIN_WORD_GAP_SECONDS}
+
+
+def word_cut_times(index: "_WordIndex", spans, start: float, end: float) -> Optional[list]:
+    """Cut times between consecutive (a, b) character spans of a line: each
+    is the next piece's first word start. None unless every span holds whole
+    words and the cuts increase strictly inside (start, end)."""
+    ranges = [index.word_range(a, b) for a, b in spans]
+    if any(r is None for r in ranges):
+        return None
+    cuts = [index.ts[i] for i, _j in ranges[1:]]
+    if all(start < c < end for c in cuts) and all(x < y for x, y in zip(cuts, cuts[1:])):
+        return cuts
+    return None
 
 
 def tighten_to_words(start: float, end: float, words) -> tuple:
