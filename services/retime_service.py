@@ -116,6 +116,17 @@ def _segments(lines, members: list) -> list:
 
 
 def _make_consistent(proposals: list, lines, media_duration) -> list:
+    """Repeats the clamp pass until no proposal is dropped: a dropped (unmoved)
+    neighbour goes back to its stored times, which can leave the proposal
+    before it overlapping that stored start, a row apply would always refuse."""
+    while True:
+        kept = _clamp_pass(proposals, lines, media_duration)
+        if len(kept) == len(proposals):
+            return kept
+        proposals = kept
+
+
+def _clamp_pass(proposals: list, lines, media_duration) -> list:
     """Clamps each proposal against its neighbours (proposed times where the
     neighbour has a proposal, stored times otherwise) and the media end, so
     applying any subset of a run's proposals can't start with overlaps the run
@@ -160,8 +171,10 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
     progress = [0.0]
     groups = _groups(lines, set(line_ids), language, errors)
     cancelled, failed_reason, detail = False, None, None
+    model_loaded = [False]
 
     def on_device(label):
+        model_loaded[0] = True
         device["label"] = label
         background_jobs.update_progress(job_id, progress[0], f"Aligning on {label}...")
 
@@ -177,7 +190,11 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
                     audio_path, [_segments(lines, members)], group_language,
                     # A failed GPU load would otherwise be retried for every group.
                     use_gpu=use_gpu and not fallback, on_device=on_device,
-                    on_gpu_fallback=lambda exc: fallback.append(core_module.short_reason(exc)))
+                    on_gpu_fallback=lambda exc: fallback.append(core_module.short_reason(exc)),
+                    cancel_check=lambda: compare._cancel_check(job_id))
+            except background_jobs.JobCancelled:
+                cancelled = True
+                break
             except core_module.ModelDownloadError as exc:
                 failed_reason, detail = "model_download", jobs_service.scrub_text(str(exc))
                 break
@@ -185,7 +202,12 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
                 failed_reason = "dependency_missing"
                 detail = "The Qwen3 forced aligner needs qwen-asr and torch: pip install qwen-asr torch"
                 break
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+                if isinstance(exc, OSError) and not model_loaded[0]:
+                    # A corrupt or missing local model fails the same way for
+                    # every group, so retrying only repeats the load.
+                    errors.append("the aligner model couldn't be loaded")
+                    break
                 # str() of these carries the ffmpeg argv with repr-escaped
                 # (doubled-backslash) Windows paths the scrubber can't recognise.
                 errors.append(f"lines {lines[members[0]].idx + 1}-{lines[members[-1]].idx + 1}: "

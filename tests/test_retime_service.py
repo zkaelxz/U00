@@ -216,6 +216,77 @@ class TestJob:
             assert "Users" not in text and "a.wav" not in text
         assert res["errors"] == ["lines 1-2: couldn't cut this part of the audio"]
 
+    def test_model_load_oserror_stops_after_the_first_group(self, monkeypatch, _env):
+        did, ids = _drama(3)
+        db.update_line_fields_if(did, ids[1], {"lang": "ja"}, {})
+        tried = []
+
+        def broken(audio, groups, language, **kw):
+            tried.append(language)
+            raise OSError(r"C:\Users\x\model.bin is corrupt")
+        monkeypatch.setattr(forced_align, "refine_segment_timing", broken)
+        _run(did, ids)
+        assert len(tried) == 1
+        res = svc.get_retime_result(did)
+        assert res["errors"] == ["the aligner model couldn't be loaded"]
+
+    def test_slice_oserror_after_load_only_skips_that_group(self, monkeypatch, _env):
+        did, ids = _drama(3)
+        db.update_line_fields_if(did, ids[1], {"lang": "ja"}, {})
+        real = forced_align.refine_segment_timing
+
+        def flaky(audio, groups, language, **kw):
+            if language == "ja":
+                kw["on_device"]("CPU")
+                raise FileNotFoundError("ffmpeg")
+            return real(audio, groups, language, **kw)
+        monkeypatch.setattr(forced_align, "refine_segment_timing", flaky)
+        _run(did, ids)
+        res = svc.get_retime_result(did)
+        assert len(res["proposals"]) == 2
+        assert res["errors"] == ["lines 2-2: couldn't cut this part of the audio"]
+
+    def test_cancel_inside_the_aligner_call_ends_partial_not_as_an_error(self, monkeypatch, _env):
+        did, ids = _drama(3)
+        db.update_line_fields_if(did, ids[2], {"lang": "ja"}, {})
+        real = forced_align.refine_segment_timing
+
+        def cancel_then_check(audio, groups, language, cancel_check=None, **kw):
+            if language == "ja":
+                background_jobs.request_cancel(f"retime_{did}")
+                cancel_check()
+            return real(audio, groups, language, cancel_check=cancel_check, **kw)
+        monkeypatch.setattr(forced_align, "refine_segment_timing", cancel_then_check)
+        _run(did, ids)
+        res = svc.get_retime_result(did)
+        assert res["partial"] is True and len(res["proposals"]) == 2
+        assert res["errors"] == []
+
+    def test_cancel_before_the_model_loads_proposes_nothing(self, monkeypatch, _env):
+        did, ids = _drama(2)
+
+        def cancelled(audio, groups, language, cancel_check=None, **kw):
+            background_jobs.request_cancel(f"retime_{did}")
+            cancel_check()
+        monkeypatch.setattr(forced_align, "refine_segment_timing", cancelled)
+        _, job = _run(did, ids)
+        assert job["result"] == {"failed_reason": "cancelled"}
+
+    def test_dropped_unmoved_neighbour_does_not_strand_the_line_before_it(self, monkeypatch, _env):
+        did, ids = _drama(2)
+
+        def shift(audio, groups, language, **kw):
+            a, b = (dict(s) for s in groups[0])
+            a["end"] = 6.005
+            b["start"], b["end"] = 6.005, 9.5
+            return [a, b]
+        monkeypatch.setattr(transcribe_service, "_audio_duration_seconds", lambda path: 9.0)
+        monkeypatch.setattr(forced_align, "refine_segment_timing", shift)
+        _run(did, ids)
+        (p,) = svc.get_retime_result(did)["proposals"]
+        # Clamped to the media end, line 2 is back to its stored times and dropped; line 1 must end at its stored start.
+        assert p["new_end"] == 6.0
+
     def test_device_notice_is_scrubbed(self, monkeypatch, _env):
         did, ids = _drama(2)
         _env["fallback"] = True
