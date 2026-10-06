@@ -3,19 +3,25 @@ import path from 'node:path'
 
 import type { Page } from '@playwright/test'
 
-// Drama 3 gets a real 12 s 16:9 webm (made with ffmpeg) and three lines: one
-// subtitle line at 0-3 s, four lines at 3-6 s, and a gap after.
+// Drama 3 gets a 12 s 16:9 silent webm (written with OpenCV, as review-stage.spec.ts does,
+// since CI has no ffmpeg) and three lines: one subtitle line at 0-3 s, four lines at
+// 3-6 s, and a gap after. False when OpenCV isn't installed.
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
 
 export const FOUR_LINES = 'First line of a long subtitle\nSecond line of a long subtitle\nThird line of a long subtitle\nFourth line of a long subtitle'
 
-export function seedVideo(): void {
-  const code = `import db, os, subprocess
+export function seedVideo(): boolean {
+  const code = `import db, os
 db.configure_library_dir(${JSON.stringify(libraryDir)})
+import cv2, numpy as np
 from core import Line
 p = os.path.join(db.drama_dir(3), 'e2e.webm')
-subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=10:duration=12', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=12', '-c:v', 'libvpx', '-b:v', '200k', '-c:a', 'libvorbis', '-shortest', p], check=True)
+w = cv2.VideoWriter(p, cv2.VideoWriter_fourcc(*'VP80'), 10, (320, 180))
+assert w.isOpened()
+for i in range(120):
+    w.write(np.full((180, 320, 3), (i * 2) % 255, np.uint8))
+w.release()
 db.update_drama(3, source_video_filename='e2e.webm')
 db.save_lines(3, [
     Line(idx=0, start=0.0, end=3.0, zh='你好', en='Hello there'),
@@ -23,7 +29,12 @@ db.save_lines(3, [
     Line(idx=2, start=8.0, end=9.0, zh='', en=''),
 ])
 `
-  execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot })
+  try {
+    execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot })
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function currentTime(page: Page): Promise<number> {

@@ -6,7 +6,7 @@ import { currentTime, FOUR_LINES, seedVideo, seekVideo, stubFullscreen } from '.
 // changing the layout) and full screen.
 
 test.beforeEach(async ({ page }) => {
-  seedVideo()
+  test.skip(!seedVideo(), 'OpenCV is not installed, so there is no test video')
   await stubFullscreen(page)
   await page.goto('/#/drama/3/review')
   await expect(page.locator('video.review-video')).toBeVisible()

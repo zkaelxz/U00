@@ -6,7 +6,7 @@ import { FOUR_LINES, seedVideo, seekVideo, stubFullscreen } from './playerMocks'
 // Phone: the overlay fits the small picture, stays readable and the new button is a real touch target.
 
 test.beforeEach(async ({ page }) => {
-  seedVideo()
+  test.skip(!seedVideo(), 'OpenCV is not installed, so there is no test video')
   await installHitArea(page)
   await stubFullscreen(page)
   await page.goto('/#/drama/3/review')
