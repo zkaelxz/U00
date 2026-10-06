@@ -158,7 +158,9 @@ export function FlagToggle({ text, open, onToggle, controls, children }: {
 
 const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
 
-// One line: meta, source and translation. The active row (roving tabIndex)
+// One line: meta, source and translation. Only the active row's controls are Tab
+// stops (roving tabIndex; j/k moves it): with every row's buttons tabbable the
+// selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
 function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
@@ -240,6 +242,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
           className={buttonClass('ghost', 'sm', 'review-more')}
           aria-label={`More actions for line ${lineNumber(line.idx)}`}
           aria-haspopup="dialog"
+          tabIndex={active ? undefined : -1}
           onClick={() => actions.openSheet(line.id)}
         >
           {active && !isPhone ? 'More' : '⋯'}
@@ -285,7 +288,7 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
             type="button"
             className="review-en"
             data-testid="line-en"
-            
+            tabIndex={active ? undefined : -1}
             onClick={() => (isPhone && !active ? actions.activate(line.id) : actions.openEdit(line.id))}
           >
             {line.en || <span className="muted review-untranslated">Not translated</span>}

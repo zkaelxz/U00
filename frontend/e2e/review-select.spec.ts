@@ -94,3 +94,42 @@ test('desktop: the tick target is 32px', async ({ page }) => {
   expect(Math.round(b!.width)).toBe(32)
   expect(Math.round(b!.height)).toBe(32)
 })
+
+// Keyboard path: only the active row's controls are Tab stops (j/k moves the
+// active row), so a ticked box leads to the selection bar in a few presses.
+async function tabTo(page: import('@playwright/test').Page, name: string, max = 60) {
+  for (let i = 0; i < max; i++) {
+    await page.keyboard.press('Tab')
+    if ((await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === name) return
+  }
+  throw new Error(`Tab never reached "${name}" within ${max} presses`)
+}
+
+test('keyboard: Tab reaches the active row box, Space ticks it, the bar is next', async ({ page }) => {
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
+  await page.locator('body').click({ position: { x: 1, y: 1 } })
+  await tabTo(page, 'Select line #1')
+  await page.keyboard.press('Space')
+  const bar = page.getByTestId('selection-bar')
+  await expect(bar).toContainText('1 selected')
+
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('Tab')
+    if (await page.evaluate(() => !!document.activeElement?.closest('[data-testid=selection-bar]'))) break
+  }
+  await expect(bar.locator(':focus')).toHaveCount(1)
+})
+
+test('keyboard: j moves the active row and its box takes the Tab stop; Shift+Space ticks a range', async ({ page }) => {
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
+  await box(page, 1).check()
+  await page.locator('.review-line[data-line-id]').first().focus()
+  for (let i = 0; i < 3; i++) await page.keyboard.press('j')
+  await expect(box(page, 4)).toHaveAttribute('tabindex', '0')
+  await expect(box(page, 1)).toHaveAttribute('tabindex', '-1')
+  await box(page, 4).focus()
+  await page.keyboard.press('Shift+Space')
+  await expect(page.getByTestId('selection-bar')).toContainText('4 selected')
+})
