@@ -56,6 +56,21 @@ def score_text_similarity(actual: str, reference: str) -> float:
     return difflib.SequenceMatcher(a=a, b=b, autojunk=False).ratio()
 
 
+def translation_similarity(actual: str, reference: str):
+    """(score 0.0-1.0, metric): "chrf" (plain character 6-gram F-score) when
+    sacrebleu is installed, else "similarity" (the difflib ratio above).
+    The two scales differ, so callers store the metric next to the score."""
+    try:
+        from sacrebleu.metrics import CHRF
+    except ImportError:
+        return score_text_similarity(actual, reference), "similarity"
+    a, b = (actual or "").strip(), (reference or "").strip()
+    if not a and not b:
+        return 1.0, "chrf"
+    # word_order=0 keeps it chrF, not chrF++: CJK has no word boundaries to count.
+    return CHRF(char_order=6, word_order=0).sentence_score(a, [b]).score / 100.0, "chrf"
+
+
 def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bool = False):
     """
     case: {"input_path": audio file, "source_language": "zh"/"ja"/"ko",

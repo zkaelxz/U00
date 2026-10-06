@@ -155,6 +155,12 @@ trafilatura>=2.0
 # records which scorer produced it. 3.0 is the oldest release checked.
 jiwer>=3.0
 
+# --- Benchmark Lab: chrF translation similarity (benchmark.translation_similarity) ---
+# Apache-2.0. Optional -- without it translations are scored with the built-in
+# difflib ratio; each result records its metric ("chrf" or "similarity").
+# 2.4 is the oldest release whose CHRF.sentence_score API this uses.
+sacrebleu>=2.4
+
 # --- Google sign-in token checks (household access) ---
 cryptography>=46.0.6
 

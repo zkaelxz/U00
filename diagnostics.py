@@ -111,6 +111,8 @@ OPTIONAL_DEPENDENCIES = {
                                  "Sources tab's browser tier)", "feature"),
     "jiwer": ("jiwer", "Benchmark Lab: standard CER/WER scoring for transcription and OCR "
                        "(falls back to a built-in scorer)", "feature"),
+    "sacrebleu": ("sacrebleu", "Benchmark Lab: chrF translation similarity (falls back to a "
+                               "built-in character similarity ratio)", "feature"),
     "trafilatura": ("trafilatura", "Sources tab: pulling a novel chapter's main text out of a "
                                    "pasted URL (falls back to a simpler built-in extractor)",
                     "feature"),
@@ -206,7 +208,7 @@ APPROX_DOWNLOAD_MB = {
     "lightnovel-crawler": 30,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
-    "jiwer": 3,
+    "jiwer": 3, "sacrebleu": 2,
 }
 PULLS_TORCH = {"pyannote-audio", "f5-tts", "omnivoice", "chatterbox-tts", "hume-tada",
                "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
@@ -380,6 +382,10 @@ INSTALL_TASKS = [
     {"id": "benchmark_scoring", "group": "App", "label": "Benchmark Lab: standard CER/WER",
      "help": "Score transcription and OCR benchmarks with jiwer instead of the built-in scorer.",
      "packages": ["jiwer"]},
+    {"id": "benchmark_translation_scoring", "group": "App",
+     "label": "Benchmark Lab: chrF translation score",
+     "help": "Score translation benchmarks with chrF (sacrebleu) instead of the built-in similarity ratio.",
+     "packages": ["sacrebleu"]},
 ]
 
 

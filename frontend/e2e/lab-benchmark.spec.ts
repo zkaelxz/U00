@@ -96,7 +96,7 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await runs.getByRole('button', { name: 'Compare in Arena (2)' }).click()
 
   const arena = page.getByRole('region', { name: 'Model Arena' })
-  await expect(arena).toContainText('similarity to the reference translation')
+  await expect(arena).toContainText('against the reference translation')
   await expect(arena).toContainText('Baseline')
   await expect(arena).toContainText('±0 pts vs first')
   await expect(arena.getByRole('list', { name: 'Cases' }).locator(':scope > li')).toHaveCount(3)

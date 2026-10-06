@@ -32,6 +32,7 @@ export interface BenchmarkOptions {
   whisper_sizes: string[]
   ocr_backends: string[]
   pass_threshold: number
+  chrf_pass_threshold: number
   max_configs: number
 }
 
@@ -155,7 +156,7 @@ export interface BenchmarkResult {
   output_text: string
   score: number | null
   metric: string | null
-  /** 'jiwer' or 'builtin' for CER/WER; null on older results (built-in). */
+  /** 'jiwer' or 'builtin' for CER/WER, 'sacrebleu' or 'builtin' for translation; null on older results (built-in). */
   scorer?: string | null
   passed: boolean | null
   duration_seconds: number | null
