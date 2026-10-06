@@ -4656,7 +4656,10 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
     ]
     conn = get_conn()
     try:
-        conn.execute("BEGIN")
+        # IMMEDIATE: this reads the lines' words before it writes, and a
+        # deferred BEGIN's upgrade to a write fails at once ("database is
+        # locked") if another connection commits in between.
+        conn.execute("BEGIN IMMEDIATE")
         stored = dict(conn.execute(
             "SELECT id, word_timings FROM lines WHERE drama_id = ? AND word_timings IS NOT NULL",
             (drama_id,)).fetchall())

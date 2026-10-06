@@ -2197,3 +2197,29 @@ def test_line_ids_with_refs_takes_more_ids_than_sqlite_binds(isolated_db):
     db.save_emotions(did, {0: {"emotion": "joy"}}, id_by_idx={0: line.id})
     assert db.line_ids_with_refs(did, range(line.id, line.id + 40_000)) == {line.id}
     assert db.line_ids_with_refs(did + 1, [line.id]) == set()
+
+
+def test_snapshot_waits_for_a_concurrent_writer_instead_of_failing(isolated_db):
+    """The snapshot reads the lines' words before it writes; a deferred BEGIN
+    would fail at once with "database is locked" when another connection
+    commits in between."""
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=i, start=float(i), end=i + 0.5, zh="甲") for i in range(50)])
+    lines = db.load_line_objects(did)
+    stop, errors = threading.Event(), []
+
+    def writer():
+        while not stop.is_set():
+            db.set_app_setting("busy", 1)
+    t = threading.Thread(target=writer)
+    t.start()
+    try:
+        for _ in range(150):
+            try:
+                db.save_line_history_snapshot(did, lines, "t")
+            except sqlite3.OperationalError as e:
+                errors.append(e)
+    finally:
+        stop.set()
+        t.join()
+    assert errors == []
