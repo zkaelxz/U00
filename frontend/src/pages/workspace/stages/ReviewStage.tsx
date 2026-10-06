@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { MediaKind } from '../../../api/media'
 import { getMediaStatus } from '../../../api/workspace'
@@ -54,11 +54,23 @@ function Fold({ storageKey, title, summary, openSignal, children }: {
 }
 
 export default function ReviewStage() {
-  const { dramaId, drama } = useStage()
+  const { dramaId, drama, refetchDrama } = useStage()
   // Bumped after any write or finished job; every panel refetches on it.
   const [reloads, setReloads] = useState(0)
-  const changed = useCallback(() => setReloads((n) => n + 1), [])
+  // The header and tab counts come from the shell's workflow progress, which only
+  // reloads with the drama; the filter chips come from the lines list. Refreshing
+  // both here keeps the three in step after every write.
+  const changed = useCallback(() => {
+    setReloads((n) => n + 1)
+    refetchDrama()
+  }, [refetchDrama])
   const jobRunning = useDramaJobRunning(dramaId, reloads)
+  // A job that finished (translation, re-transcribe) rewrote lines the list has not seen yet.
+  const wasRunning = useRef(false)
+  useEffect(() => {
+    if (wasRunning.current && !jobRunning) changed()
+    wasRunning.current = jobRunning
+  }, [jobRunning, changed])
   // Bumped by the selection bar's "Compare transcription…": opens the fold and
   // the section and shows the ticked lines there.
   const [compareSignal, setCompareSignal] = useState(0)
