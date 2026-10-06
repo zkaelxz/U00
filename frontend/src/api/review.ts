@@ -2,6 +2,7 @@ import type {
   ApplyResult,
   FindReplaceRequest,
   HistoryItem,
+  HistorySnapshot,
   LineFilter,
   LineExplanation,
   LineImprovement,
@@ -79,6 +80,9 @@ export const deleteNote = (id: number, noteId: number, f?: Fetch) =>
   deleteJson<NoteDeleteResult>(`${lines(id)}/notes/${noteId}`, f)
 
 export const listHistory = (id: number, f?: Fetch) => getJson<HistoryItem[]>(`${review(id)}/history`, f)
+
+export const getHistorySnapshot = (id: number, historyId: number, f?: Fetch) =>
+  getJson<HistorySnapshot>(`${review(id)}/history/${historyId}`, f)
 
 export const listVersions = (id: number, f?: Fetch) => getJson<VersionItem[]>(`${review(id)}/versions`, f)
 
