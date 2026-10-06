@@ -397,6 +397,8 @@ baihe-subtitler/
 │   ├── delete_service.py         PC-only deletes (handoff queue item 2): remove audio/video, raw novel
 │   │                             text; delete version, series character, preset, voice bank
 │   ├── url_guard.py              B-25 -- shared public-address check (http(s), every resolved IP global) for services and sources/http
+│   ├── egress_proxy.py           loopback proxy that lets yt-dlp/live_fetch reach public addresses only (every
+│   │                             connection re-checked by url_guard and pinned); used by live_service
 │   ├── capped_body.py            shared byte-capped, deadline-capped read of a streamed HTTP body (closes the response)
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
@@ -949,6 +951,7 @@ baihe-subtitler/
 | `emotion.py` | emotional register detection and preservation |
 | `bulk_translate.py` | the "Bulk (cheaper, slower)" translation mode |
 | `live_translate.py` | near-live translation of an ongoing live stream |
+| `live_fetch.py` | fetches a live stream (HLS included) through the egress proxy and pipes it to ffmpeg's stdin |
 
 **Dubbing, subtitles & video**
 | File | Does |
