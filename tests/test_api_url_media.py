@@ -153,8 +153,8 @@ def test_audio_only_download(client, env):
     assert st["status"] == "done", st
     ddir = db.drama_dir(did)
     assert os.path.exists(os.path.join(ddir, "source.wav"))
-    assert env.writes == [{"audio_filename": "source.wav", "source_url": URL,
-                           "title_zh": "Clip Title"}]
+    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+                           "source_url": URL, "title_zh": "Clip Title"}]
     assert env.ffmpeg == []
     _no_tmp(did)
     # the job view carries no URL, title or path
@@ -413,8 +413,19 @@ def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
     i = cmd.index("-i")
     assert cmd[i - 4:i] == video_export.local_input()
     assert os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
-    assert env.writes == [{"audio_filename": "source.wav", "source_url": DIRECT}]
+    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+                           "source_url": DIRECT}]
     _no_tmp(did)
+
+
+def test_direct_audio_link_with_audio_only_off_still_installs_audio_only(client, env, direct):
+    did = _drama()
+    r = client.post(f"/api/media/dramas/{did}/download-url",
+                    json={"url": DIRECT, "audio_only": False})
+    assert r.status_code == 200, r.text
+    assert _wait(f"urlmedia_{did}")["status"] == "done"
+    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+                           "source_url": DIRECT}]
 
 
 def test_direct_video_link_keeps_video(client, env, direct):
@@ -685,4 +696,20 @@ def test_a_download_that_cannot_be_saved_leaves_the_title_as_it_was(client, env,
     assert st["status"] == "error" and st["error"].endswith(svc._SAVE_FAILED)
     assert env.writes == [] and db.get_drama(did)["audio_filename"] == "source.wav"
     assert sorted(os.listdir(ddir)) == ["source.wav"]
+    _no_tmp(did)
+
+
+def test_an_audio_only_download_sets_an_old_video_aside(client, env):
+    did = _drama()
+    ddir = db.drama_dir(did)
+    for name, data in (("source.mp4", b"old video"), ("audio.wav", b"old wav")):
+        with open(os.path.join(ddir, name), "wb") as f:
+            f.write(data)
+    db.update_drama(did, audio_filename="audio.wav", source_video_filename="source.mp4")
+    st = _run(client, did, confirm_replace_audio=True)
+    assert st["status"] == "done", st
+    drama = db.get_drama(did)
+    assert (drama["audio_filename"], drama["source_video_filename"]) == ("source.wav", None)
+    assert sorted(_kept(did).values()) == [b"old video", b"old wav"]
+    assert sorted(os.listdir(ddir)) == ["kept_media", "source.wav"]
     _no_tmp(did)

@@ -322,7 +322,8 @@ def _needs_confirm(drama_id: int, lines, language: str) -> bool:
 def _reseg_inputs(drama_id: int, drama: dict):
     language = drama.get("source_language") or "zh"
     raw = raw_transcript.load_latest(db.drama_dir(drama_id))
-    return language, drama.get("chinese_script") or "simplified", (raw or {}).get("segments")
+    return (language, drama.get("chinese_script") or "simplified", (raw or {}).get("segments"),
+            transcribe_service.stored_min_pause_sec(drama))
 
 
 def preview_resegmentation(drama_id: int) -> dict:
@@ -330,10 +331,10 @@ def preview_resegmentation(drama_id: int) -> dict:
     is True when any line long enough to be split carries a translation,
     flag or note -- Apply then needs confirm=true."""
     drama = _require_drama(drama_id)
-    language, script, segments = _reseg_inputs(drama_id, drama)
+    language, script, segments, min_pause = _reseg_inputs(drama_id, drama)
     lines = db.load_line_objects(drama_id, with_words=True)
     new_lines, changed = resegment.resegment_lines(lines, language, segments=segments,
-                                                   chinese_script=script)
+                                                   chinese_script=script, min_pause=min_pause)
     changed_ids = {ln.id for ln, _ in changed}
     candidates = _candidate_ids(lines, language)
     need = _affected_counts(drama_id, lines, candidates)
@@ -364,11 +365,11 @@ def _usage_logger(drama_id, engine_name, engine):
 
 
 def _run_resegment_job(job_id, drama_id, lines, source_ids, language, engine, engine_name,
-                       segments, script):
+                       segments, script, min_pause):
     usage = _usage_logger(drama_id, engine_name, engine) if engine is not None else None
     new_lines, changed = resegment.resegment_lines(lines, language, engine=engine,
                                                    segments=segments, chinese_script=script,
-                                                   usage_cb=usage)
+                                                   usage_cb=usage, min_pause=min_pause)
     result = {"changed": len(changed)}
     if changed:
         result.update(_apply_resegmented(drama_id, new_lines, source_ids))
@@ -423,7 +424,7 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
             raise InvalidInputError("use_preview applies the stored preview; don't pass use_llm, "
                                     "engine or model with it.")
         return _start_preview_apply(drama_id, expected_line_ids, confirm)
-    language, script, segments = _reseg_inputs(drama_id, drama)
+    language, script, segments, min_pause = _reseg_inputs(drama_id, drama)
     engine_name, eng = _build_engine(drama, engine, model) if use_llm else (None, None)
     _refuse_if_job_running(drama_id)
     lines = db.load_line_objects(drama_id, with_words=True)
@@ -435,12 +436,12 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
     if engine_name == "ollama":
         started = background_jobs.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
-            args=(lines, language, eng, segments, script), gpu_touching=True, description=desc,
-            on_done=_make_on_done(drama_id, expected_line_ids, engine_name, eng))
+            args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
+            description=desc, on_done=_make_on_done(drama_id, expected_line_ids, engine_name, eng))
     else:
         started = background_jobs.start_job(
             job_id, _run_resegment_job, job_id, drama_id, lines, expected_line_ids, language,
-            eng, engine_name, segments, script, description=desc)
+            eng, engine_name, segments, script, min_pause, description=desc)
     if not started:
         raise ConflictError("A re-segmentation is already running for this drama.")
     return {"job_id": job_id, "drama_id": drama_id}
@@ -488,10 +489,11 @@ def _store_llm_preview(drama_id, source_lines, language, new_lines, changed, eng
 
 
 def _run_llm_preview_job(job_id, drama_id, lines, language, engine, engine_name, segments,
-                         script):
+                         script, min_pause):
     new_lines, changed = resegment.resegment_lines(
         [dataclasses.replace(ln) for ln in lines], language, engine=engine, segments=segments,
-        chinese_script=script, usage_cb=_usage_logger(drama_id, engine_name, engine))
+        chinese_script=script, usage_cb=_usage_logger(drama_id, engine_name, engine),
+        min_pause=min_pause)
     _store_llm_preview(drama_id, lines, language, new_lines,
                        [(ln.id, ln.idx, ln.zh, p) for ln, p in changed], engine_name)
     background_jobs.set_result(job_id, {"line_count": len(new_lines)})
@@ -515,7 +517,7 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
     refuses it. Applying still goes through start_resegmentation."""
     from services import translate_run_service   # lazy: it imports many services
     drama = _require_drama(drama_id)
-    language, script, segments = _reseg_inputs(drama_id, drama)
+    language, script, segments, min_pause = _reseg_inputs(drama_id, drama)
     engine_name, eng = _build_engine(drama, engine, model)
     translate_run_service.refuse_when_cap_spent(engine_name,
                                                 settings_service.get_gemini_free_tier())
@@ -529,12 +531,12 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
     if engine_name == "ollama":
         started = background_jobs.start_process_job(
             job_id, resegment.resegment_subprocess_worker,
-            args=(lines, language, eng, segments, script), gpu_touching=True, description=desc,
-            on_done=_make_preview_on_done(drama_id, lines, language, engine_name, eng))
+            args=(lines, language, eng, segments, script, min_pause), gpu_touching=True,
+            description=desc, on_done=_make_preview_on_done(drama_id, lines, language, engine_name, eng))
     else:
         started = background_jobs.start_job(
             job_id, _run_llm_preview_job, job_id, drama_id, lines, language, eng, engine_name,
-            segments, script, description=desc)
+            segments, script, min_pause, description=desc)
     if not started:
         raise ConflictError("A re-segmentation preview is already running for this drama.")
     return {"job_id": job_id, "drama_id": drama_id}
@@ -662,6 +664,7 @@ class _Resplit:
     language: str = "zh"
     sensitivity: str = "normal"
     max_seconds: Optional[float] = None
+    min_pause: float = core_module.MIN_WORD_GAP_SECONDS
 
     @property
     def label(self) -> str:
@@ -692,8 +695,10 @@ class _Resplit:
             return [seg]
         words = core_module.line_words(ln)
         if not words:
-            return core_module.split_long_segments([seg], rules=self.rules(ln))
-        pieces = core_module.split_long_segments([{**seg, "words": words}], rules=self.rules(ln))
+            return core_module.split_long_segments([seg], rules=self.rules(ln),
+                                                   min_pause=self.min_pause)
+        pieces = core_module.split_long_segments([{**seg, "words": words}], rules=self.rules(ln),
+                                                 min_pause=self.min_pause)
         # Word times tighten a piece to its speech, but the line's outer edges
         # may have been re-timed on purpose (by hand or a re-time run); the
         # Review split and the AI re-split keep them, so this does too.
@@ -920,7 +925,8 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
         raise InvalidInputError(f"sensitivity must be one of {', '.join(RESPLIT_SENSITIVITIES)}.")
     if max_seconds is not None and not 2 <= max_seconds <= 120:
         raise InvalidInputError("max_seconds must be between 2 and 120.")
-    cfg = _Resplit(drama.get("source_language") or "zh", sensitivity, max_seconds)
+    cfg = _Resplit(drama.get("source_language") or "zh", sensitivity, max_seconds,
+                   transcribe_service.stored_min_pause_sec(drama))
     if not dry_run:
         _refuse_if_job_running(drama_id)
     lines = db.load_line_objects(drama_id, with_words=True)

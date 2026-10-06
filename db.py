@@ -1174,6 +1174,7 @@ def _migrate_drama_columns(conn):
                           ("vad_threshold", "REAL DEFAULT 0.5"),
                           ("beam_size", "INTEGER DEFAULT 5"),
                           ("hallucination_silence_sec", "REAL DEFAULT 2.0"),
+                          ("min_pause_sec", "REAL DEFAULT 0.35"),
                           ("separate_vocals_first", "INTEGER DEFAULT 0"),
                           ("separation_backend", "TEXT DEFAULT 'auto'"),
                           ("realign_long_segments", "INTEGER DEFAULT 0"),
@@ -1193,6 +1194,9 @@ def _migrate_drama_columns(conn):
                           # to (services/notion_service.py), so a re-export updates
                           # that page in place. Only the id, never a token or URL.
                           ("notion_page_id", "TEXT"),
+                          # Per-title reading-speed flag strictness
+                          # (subtitle_formats.READING_SPEED_MODES).
+                          ("reading_speed_mode", "TEXT DEFAULT 'normal'"),
                           # The Translate stage's "genre guidance" and "default to
                           # she/her" toggles. NULL = never chosen for this title, so
                           # the API defaults apply (genre on, she/her off).
@@ -2193,6 +2197,17 @@ def update_drama(drama_id: int, **fields):
         conn.execute(f"UPDATE dramas SET {set_clause} WHERE id = ?",
                      list(fields.values()) + [drama_id])
         conn.commit()
+
+
+def set_status_if(drama_id: int, expected: str, new: str) -> bool:
+    """Changes the status only while it is still `expected`, in one statement,
+    so a concurrent dub or export that set a later status is never undone."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "UPDATE dramas SET status = ?, updated_at = ? WHERE id = ? AND status = ?",
+            (new, datetime.datetime.utcnow().isoformat(), drama_id, expected))
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def set_drama_notion_page_id(drama_id: int, page_id):

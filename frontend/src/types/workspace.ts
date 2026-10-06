@@ -7,6 +7,7 @@ export interface MediaStatus {
   drama_id: number
   has_audio: boolean
   has_source_video: boolean
+  reads_burned_in_subtitles?: boolean
   upload_max_mb: number
   // Superseded originals and failed uploads kept in the title's folder (numbers only).
   kept_media_files: number
@@ -49,6 +50,8 @@ export interface TranscribeConfig {
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
+  // Shortest silence between words at which a long line may be cut.
+  min_pause_sec: number
   // Seconds of silence inside a segment that make Whisper skip it; 0 = off.
   hallucination_silence_sec: number
   separate_vocals_first: boolean

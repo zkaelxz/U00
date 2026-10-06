@@ -84,7 +84,7 @@ def test_status(client, monkeypatch):
     did = _drama()
     r = client.get(f"/api/media/dramas/{did}/status")
     assert r.json() == {"drama_id": did, "has_audio": False, "has_source_video": False,
-                        "upload_max_mb": 5,
+                        "reads_burned_in_subtitles": False, "upload_max_mb": 5,
                         "kept_media_files": 0, "kept_media_bytes": 0}
     client.post(f"/api/media/dramas/{did}/upload", files={"file": ("a.wav", b"x")})
     assert client.get(f"/api/media/dramas/{did}/status").json()["has_audio"] is True
@@ -320,3 +320,21 @@ def test_replacing_audio_needs_confirm(client, monkeypatch):
     r = _post(client, did, {"confirm_replace_audio": "true"})
     assert r.status_code == 200, r.text
     assert os.listdir(os.path.join(db.drama_dir(did), "kept_media"))
+
+
+def test_audio_over_a_hardsub_ocr_video_switches_the_mode_and_the_run_starts(client, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D", transcript_mode="hardsub_ocr")
+    ddir = db.drama_dir(did)
+    for name in ("source.mp4", "audio.wav"):
+        with open(os.path.join(ddir, name), "wb") as f:
+            f.write(b"old")
+    db.update_drama(did, source_video_filename="source.mp4", audio_filename="audio.wav")
+    captured = _capture_worker_start(monkeypatch)
+    r = _post(client, did, {"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    assert r.json()["job_id"] == f"transcribe_{did}"
+    d = db.get_drama(did)
+    assert (d["source_video_filename"], d["transcript_mode"]) == (None, "whisper")
+    assert captured
+    assert "kept_media" in os.listdir(ddir)
