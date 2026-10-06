@@ -100,12 +100,19 @@ export default function SettingsPage() {
   // The fold holding the Developer Mode card only exists once the settings load.
   const route = useRoute()
   const wantsDeveloperMode = route.name === 'settings' && route.section === 'developer-mode'
+  const wantsUploads = route.name === 'settings' && route.section === 'uploads'
   const loaded = settings !== null
   useEffect(() => {
     if (!wantsDeveloperMode || !loaded) return
     setSignals((cur) => ({ ...cur, experimental: (cur.experimental ?? 0) + 1 }))
     setJumpTo((cur) => ({ id: 'developer-mode', n: (cur?.n ?? 0) + 1 }))
   }, [wantsDeveloperMode, loaded])
+  // The Uploads block sits in the Advanced fold, which is only rendered once the settings load.
+  useEffect(() => {
+    if (!wantsUploads || !loaded) return
+    setSignals((cur) => ({ ...cur, advanced: (cur.advanced ?? 0) + 1 }))
+    setJumpTo((cur) => ({ id: 'advanced', n: (cur?.n ?? 0) + 1 }))
+  }, [wantsUploads, loaded])
   useEffect(() => {
     if (!jumpTo) return
     const el = document.getElementById(`settings-${jumpTo.id}`)
@@ -268,7 +275,7 @@ export default function SettingsPage() {
             <WebSearchSection />
             <ExtensionSection />
           </Fold>
-          <Fold id="advanced" signals={signals} summary="OCR, offline models, downloads and server addresses" single>
+          <Fold id="advanced" signals={signals} summary="OCR, offline models, downloads, upload size and server addresses" single>
             <AdvancedCard {...prefProps} />
           </Fold>
           <Fold id="experimental" signals={signals} summary="Transcription experiments, Developer Mode">

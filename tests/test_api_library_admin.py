@@ -396,7 +396,7 @@ class TestRestore:
         monkeypatch.setattr(las, "validate_backup_zip", lambda b: validated.append(1))
         r = _restore(client, b"0" * 4096)
         assert r.status_code == 422
-        assert _error(r)["message"] == "The uploaded file is too large."
+        assert _error(r)["message"].startswith("That file is larger than the")
         assert validated == [] and no_swap == []
 
     def test_read_capped_without_declared_size(self, monkeypatch):

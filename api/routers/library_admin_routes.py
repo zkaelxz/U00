@@ -38,7 +38,6 @@ _ERR_404 = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
 _MEDIA_TYPES = {"backup": "application/zip", "export": "application/zip",
                 "database": "application/octet-stream", "user_backup": "application/zip"}
 _NO_ARTIFACT = "No artifact available."
-_TOO_LARGE = "The uploaded file is too large."
 
 
 def _redacted(result: dict) -> dict:
@@ -146,15 +145,15 @@ def get_artifact(kind: LibraryArtifactKind = Path()):
 
 
 def _read_capped(upload: UploadFile) -> bytes:
-    """The upload as one bytes object, refused (422) past BAIHE_MAX_UPLOAD_MB.
+    """The upload as one bytes object, refused (422) past the upload limit.
     One read of limit+1 bytes, so the peak is the upload itself, not a copy."""
     limit = media_upload_service.max_upload_bytes()
     size = getattr(upload, "size", None)
     if size is not None and size > limit:
-        raise InvalidInputError(_TOO_LARGE)
+        raise InvalidInputError(media_upload_service.too_large_message(limit))
     data = upload.file.read(limit + 1)
     if len(data) > limit:
-        raise InvalidInputError(_TOO_LARGE)
+        raise InvalidInputError(media_upload_service.too_large_message(limit))
     return data
 
 

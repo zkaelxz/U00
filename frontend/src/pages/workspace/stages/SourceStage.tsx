@@ -15,7 +15,7 @@ import { mediaKind } from '../detailsForm'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
-import { checkUploadFile, sourceJobIds, UPLOAD_EXTENSIONS } from '../sourceForm'
+import { checkUploadFile, isUploadLimitProblem, sourceJobIds, UPLOAD_EXTENSIONS, UPLOAD_LIMIT_SETTINGS_HREF } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { DetailsPanel } from './DetailsPanel'
 import { FillInPanel } from './MetadataPanel'
@@ -202,7 +202,17 @@ export default function SourceStage() {
       )}
       {hasMedia && pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
       <ErrorBanner error={removeError} describe={{ pcOnly: true }} onDismiss={() => setRemoveError(null)} />
-      {fileProblem && <p className="error" role="alert">{fileProblem}</p>}
+      {fileProblem && (
+        <p className="error" role="alert">
+          {fileProblem}
+          {isUploadLimitProblem(fileProblem) && (
+            <>
+              {' '}
+              <a href={UPLOAD_LIMIT_SETTINGS_HREF}>Change it in Settings &gt; Advanced &gt; Uploads</a>.
+            </>
+          )}
+        </p>
+      )}
       {uploaded && <p role="status">{uploaded}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </>
