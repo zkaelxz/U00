@@ -302,8 +302,8 @@ def cmd_export_video(args):
         out_path = os.path.join(ddir, f"subtitled_episode{out_ext}")
         print(f"#{d['id']} rendering {mode} video...")
         soft = not use_ass and mode != "hardsub"
-        if soft and out_ext.lower() not in (".mp4", ".mkv"):
-            out_path = os.path.splitext(out_path)[0] + ".mp4"
+        if soft:
+            out_path = os.path.splitext(out_path)[0] + video_export.softsub_output_extension(video_path)
         # Render beside the final file and replace it only on success, so a
         # failed or interrupted run never leaves a partial file under the real name.
         tmp_path = os.path.splitext(out_path)[0] + ".partial" + os.path.splitext(out_path)[1]
