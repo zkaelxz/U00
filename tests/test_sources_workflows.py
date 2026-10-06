@@ -381,8 +381,13 @@ class TestFrontDoor:
             f.write(b"old audio")
         isolated_db.update_drama(drama_id, audio_filename="audio.wav")
 
+        from services.service_errors import InvalidInputError
+        with pytest.raises(InvalidInputError) as e:
+            front_door.import_video("https://www.youtube.com/watch?v=abc123def45", drama_id,
+                                    audio_only=False)
+        assert e.value.details == {"reason": "confirm_replace_audio"}
         path = front_door.import_video("https://www.youtube.com/watch?v=abc123def45", drama_id,
-                                       audio_only=False)
+                                       audio_only=False, confirm_replace_audio=True)
         d = isolated_db.get_drama(drama_id)
         assert d["source_video_filename"] == "source.mp4" and path == os.path.join(ddir, "source.mp4")
         with open(os.path.join(ddir, d["audio_filename"]), "rb") as f:
@@ -391,6 +396,50 @@ class TestFrontDoor:
         assert len(kept) == 1 and kept[0].startswith("replaced-")
         with open(os.path.join(ddir, "kept_media", kept[0]), "rb") as f:
             assert f.read() == b"old audio"
+
+    def test_a_video_import_waits_for_an_upload_or_job_on_the_drama(self, isolated_db,
+                                                                    monkeypatch):
+        import video_download
+        from services import drama_service, media_upload_service as mus
+        from services.service_errors import ConflictError
+        calls = []
+        monkeypatch.setattr(video_download, "download", lambda *a, **k: calls.append(1))
+        drama_id = isolated_db.create_drama(media_type="streamer_vod")
+        url = "https://www.youtube.com/watch?v=abc123def45"
+        mus.claimed.add(drama_id)
+        try:
+            with pytest.raises(ConflictError):
+                front_door.import_video(url, drama_id)
+        finally:
+            mus.claimed.discard(drama_id)
+        monkeypatch.setattr(drama_service, "job_running_for_drama", lambda _d: True)
+        with pytest.raises(ConflictError):
+            front_door.import_video(url, drama_id)
+        assert calls == [] and drama_id not in mus.claimed
+
+    @pytest.mark.parametrize("where, name", [("outside", "clip.wav"), ("tmp", "clip.exe"),
+                                             ("tmp", "source.txt")])
+    def test_a_video_import_refuses_a_file_it_could_not_recover(self, isolated_db, monkeypatch,
+                                                                tmp_path, where, name):
+        # A path outside the temp folder, or a name install_media would give
+        # a name that recover_stale_uploads never matches, is never put in place.
+        import video_download
+        from services import media_upload_service as mus
+        from services.service_errors import InvalidInputError
+
+        def fake_download(url, out_dir, **_kw):
+            path = os.path.join(out_dir if where == "tmp" else str(tmp_path), name)
+            with open(path, "wb") as f:
+                f.write(b"data")
+            return path
+        monkeypatch.setattr(video_download, "download", fake_download)
+        drama_id = isolated_db.create_drama(media_type="streamer_vod")
+        with pytest.raises(InvalidInputError) as e:
+            front_door.import_video("https://www.youtube.com/watch?v=abc123def45", drama_id)
+        assert str(tmp_path) not in str(e.value) and name not in str(e.value)
+        assert isolated_db.get_drama(drama_id)["audio_filename"] in (None, "")
+        assert os.listdir(isolated_db.drama_dir(drama_id)) == []
+        assert drama_id not in mus.claimed
 
 
 class TestBilibiliRouting:

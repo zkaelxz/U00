@@ -18,8 +18,9 @@ cancelled, the upload is kept as `kept_media/failed-upload-<UTC time><ext>`
 and the drama is left as it was. A staged upload a crash left behind, and a
 `source[-n]<ext>` / `audio[-n].wav` the drama does not name (a crash between
 placing files and the DB write, a failed rollback, an old file that was in
-use), is moved there at the drama's next upload or at startup
-(recover_stale_uploads); until then the media status counts it as kept.
+use), is moved there at the drama's next upload or at startup once it is
+a few minutes old (recover_stale_uploads); until then the media status
+counts it as kept.
 Nothing in kept_media/ is referenced by the database, and the app never
 deletes it on its own: it goes only when the user clears it in Storage or
 deletes the title. "Remove audio/video" leaves it. Backups with media and
@@ -90,6 +91,10 @@ EXTRACT_JOB_PREFIX = "extract_audio_"
 # job "running" forever; cancel kills it sooner.
 EXTRACT_TIMEOUT_SECONDS = 2 * 60 * 60
 _FOLLOW_POLL_SECONDS = 0.5
+# An unnamed in-place file younger than this may be one another Baihe process
+# has just put in place and not yet recorded (the upload claim is per
+# process), so recovery leaves it for a later pass.
+UNNAMED_MIN_AGE_SECONDS = 10 * 60
 _BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
 # Per-drama upload claim: held from the running-job check until the
 # file is in place and any extraction job is registered, so a concurrent
@@ -326,19 +331,27 @@ def _is_staged_upload(name) -> bool:
 
 def _unnamed_media(ddir, drama, names) -> list:
     """The regular files in `names` with an in-place media name that no
-    `*_filename` field of the drama names."""
-    named = set()
+    `*_filename` field of the drama names. A field names a file by spelling
+    or by identity: Windows and macOS resolve `Audio.wav` to `audio.wav`,
+    so a file that is the same (st_dev, st_ino) as a named one is never a
+    leftover."""
+    named, named_ids = set(), set()
     for key, value in drama.items():
-        if key.endswith("_filename") and isinstance(value, str):
+        if key.endswith("_filename") and isinstance(value, str) and value:
             # A stored path's last part counts too: never move a file the
             # drama might reach some other way.
-            named.update((value, value.replace("\\", "/").rsplit("/", 1)[-1]))
+            for ref in (value, value.replace("\\", "/").rsplit("/", 1)[-1]):
+                named.add(os.path.normcase(ref))
+                with contextlib.suppress(OSError, ValueError):
+                    st = os.lstat(os.path.join(ddir, ref))
+                    named_ids.add((st.st_dev, st.st_ino))
     out = []
     for name in names:
-        if name in named or not _IN_PLACE_RE.match(name):
+        if os.path.normcase(name) in named or not _IN_PLACE_RE.match(name):
             continue
         with contextlib.suppress(OSError):
-            if stat.S_ISREG(os.lstat(os.path.join(ddir, name)).st_mode):
+            st = os.lstat(os.path.join(ddir, name))
+            if stat.S_ISREG(st.st_mode) and (st.st_dev, st.st_ino) not in named_ids:
                 out.append(name)
     return out
 
@@ -347,11 +360,13 @@ def recover_stale_uploads(drama_id, now=None) -> int:
     """Moves media that a crash, restart, failed job start or failed move
     left in the drama folder into kept_media/: staged uploads
     (`.upload_*<ext>`, only once older than EXTRACT_TIMEOUT_SECONDS) as
-    failed-upload-*, and in-place media files the drama doesn't name as
-    unreferenced-*. Nothing while a job runs for the drama, so a live
-    extraction's input or a job's not-yet-recorded file is never moved; the
-    caller holds the drama's upload claim for the same reason. Returns how
-    many were moved."""
+    failed-upload-*, and in-place media files the drama doesn't name (only
+    once untouched for UNNAMED_MIN_AGE_SECONDS) as unreferenced-*. Nothing
+    while a job runs for the drama, so a live extraction's input or a job's
+    not-yet-recorded file is never moved; the caller holds the drama's
+    upload claim for the same reason. The claim only covers this process
+    and an audio upload starts no job, so another process's just-placed
+    file is protected by the age rule alone. Returns how many were moved."""
     if drama_service.job_running_for_drama(drama_id):
         return 0
     drama = db.get_drama(drama_id)
@@ -376,6 +391,14 @@ def recover_stale_uploads(drama_id, now=None) -> int:
         moved += not os.path.lexists(path)
     # Without the drama's row nothing tells a leftover from its media.
     for name in _unnamed_media(ddir, drama, names) if drama is not None else ():
+        try:
+            st = os.lstat(os.path.join(ddir, name))
+        except OSError:
+            continue
+        # ctime as well: a link or rename into place keeps the old mtime but
+        # updates the POSIX ctime. (Windows ctime is the creation time.)
+        if now - max(st.st_mtime, st.st_ctime) < UNNAMED_MIN_AGE_SECONDS:
+            continue
         _retire(ddir, name, "unreferenced")
         moved += not os.path.lexists(os.path.join(ddir, name))
     return moved
@@ -383,8 +406,9 @@ def recover_stale_uploads(drama_id, now=None) -> int:
 
 def recover_all_stale_uploads() -> int:
     """Startup pass of recover_stale_uploads over every drama folder. A
-    drama with an upload in progress is skipped: its new file may be in
-    place before the DB names it."""
+    drama with an upload in progress in this process is skipped: its new
+    file may be in place before the DB names it (another process's upload
+    is left alone by the age rule in recover_stale_uploads)."""
     try:
         names = os.listdir(db.DRAMAS_DIR)
     except OSError:
