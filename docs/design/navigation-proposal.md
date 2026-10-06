@@ -1,6 +1,25 @@
 # Navigation proposal: left menu, Ctrl+K palette and Jobs table
 
-Status: proposal for the owner to approve. Docs only; no code changed and no tests run. Nothing here is built until the owner answers section 5.
+Status: partly built; the owner approved section 5 on 2026-10-05 (see "Owner answers"). The rest of this file is the original proposal, written when nothing was built, so read it with the build status below. Status checked against `frontend/src/nav`, `frontend/src/router.ts` and `git log` at 175d617.
+
+| Step or decision | Built? | Where |
+|---|---|---|
+| N1 nav registry | Built | `nav/navItems.ts`, header and gear from one registry (#769) |
+| N2 left menu, wide screens | Built | `nav/SideNav.tsx` (#774) |
+| N3 drawer below 1024 px | Built | `nav/NavDrawer.tsx` (#797) |
+| N4 Jobs fields (API) | Built | `drama_id`, `kind` on `JobRecord` (#770); title-less jobs get a server-decided `page` (#791) |
+| N5 Jobs page | Built | `#/jobs` (#776); the Diagnostics job-history route is retired (#791) |
+| N6 palette, screens and the open title's stages | Built | `nav/CommandPalette.tsx`, `nav/palette.ts` (#814). Screens and the open title's stages only |
+| N7 palette titles and lines | Not built | `palette.ts` has no title or line search |
+| N8 referrer-aware Back, copy link | Not built | In progress as a breadcrumb PR; the workspace back link still always goes to Library |
+| N9 doc fold-in | Not built | |
+| D4 rename "Quick translate" | Built | now "Translate text" in `navItems.ts` |
+| D6 Diagnostics and Benchmark Lab gated by `admin.diagnostics` | Built | `navItems.ts` (#795) |
+| D9 `?find=` / `?line=` and Settings fold anchors | Not built | no such parameter in `router.ts` |
+| D13 Customize menu | Built | `nav/hiddenNav.ts` (#813) |
+| Rail collapsed by default below 1280 px | Built | `nav/useRailCollapsed.ts` (#787) |
+
+The other decisions (D1-D3, D5, D7, D8, D10-D12) were not checked one by one here.
 Written 2026-10-05 against `baihe-subtitler` at 611e69e. Every code claim below was read in `frontend/src`, `services/` or `api/` on that commit; where a doc and the code disagree, the code wins and the doc is named.
 
 ## 0. What was recovered, and what was not

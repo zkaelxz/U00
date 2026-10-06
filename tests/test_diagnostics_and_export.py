@@ -91,6 +91,11 @@ class TestDiagnostics:
             assert deps[pip_name][0] == import_name
             assert deps[pip_name][2] == "feature"
 
+    def test_ctranslate2_is_registered_for_gpu_detection(self):
+        """core.gpu_status imports ctranslate2 lazily; without an entry
+        Diagnostics could never say it is missing."""
+        assert diagnostics.OPTIONAL_DEPENDENCIES["ctranslate2"][0] == "ctranslate2"
+
     def test_lazy_optional_imports_in_asr_modules_are_registered(self):
         """CLAUDE.md: every optional import must be in OPTIONAL_DEPENDENCIES,
         or Diagnostics never reports it missing. asr_backend/forced_align

@@ -232,7 +232,7 @@ Whisper often mishears proper nouns in Chinese without it showing. In order of v
 
 Other Transcribe options (Workspace > Transcribe):
 - **Speech-splitting sensitivity** (default 300 ms, range 300-3000 ms; 300 is the floor) and **speech detection sensitivity** (the Silero VAD threshold): the first controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing phantom lines.
-- **Remove background music before transcribing**: vocal separation with `audio-separator` (preferred) or Demucs. Adds a full extra pass; skip it for clean dialogue.
+- **Remove background music before transcribing**: vocal separation with `audio-separator` (preferred) or Demucs. Adds a full extra pass; skip it unless the background is music alone (in the benchmark it hurt with noise and did nothing on clean audio).
 - **Split long merged lines using word-level alignment** (experimental, off by default): re-aligns a line against its own audio with Meta's MMS aligner (`pip install torchaudio uroman`, ~1.1GB model on first use). It only re-times text Whisper already produced.
 - **Review > Check line coverage** (run before translating) flags overlong lines, large gaps, blank source text and untranslated lines.
 - A translation that failed in the background shows as a banner in the Workspace until dismissed; press Translate again and already-translated lines are skipped.
