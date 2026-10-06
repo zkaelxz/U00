@@ -9,7 +9,7 @@ import { usePopOut } from '../../../../hooks/usePopOut'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
-import { clampTime, JUMP_ERROR, lineAt, parseJumpTime, SUBTITLE_OPTIONS, subtitleSrc, type SubtitleChoice } from './playerLogic'
+import { CAPTION_SIZE_OPTIONS, clampTime, JUMP_ERROR, lineAt, parseJumpTime, PLAYBACK_RATES, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface PlayerHandle {
@@ -18,6 +18,8 @@ export interface PlayerHandle {
   // Play or stop the given line: stops when that line is already playing.
   toggleLine: (line: Pick<ReviewLine, 'id' | 'idx' | 'start' | 'end'>) => void
   togglePlay: () => void
+  getCurrentTime: () => number
+  setRate: (rate: number) => void
   toggleLoop: () => void
 }
 
@@ -60,11 +62,15 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   const [failed, setFailed] = useState(false)
   const [loop, setLoop] = usePersistedState('review.loop', false)
   const [open, setOpen] = usePersistedState('review.playerOpen', true)
+  const [ratePref, setRatePref] = usePersistedState('review.rate', 1)
+  const rate = validRate(ratePref)
   const [subsPref, setSubs] = usePersistedState<string>('review.subs', 'English')
   const subs: SubtitleChoice = SUBTITLE_OPTIONS.some((o) => o.value === subsPref) ? (subsPref as SubtitleChoice) : 'English'
   // Keyed on the track URL, so a new track starts blank without an effect reset.
   const [cueFor, setCueFor] = useState<{ src: string; text: string } | null>(null)
   const [missingSrc, setMissingSrc] = useState<string | null>(null)
+  const [captionSizePref, setCaptionSize] = usePersistedState<string>('review.popoutCaptionSize', 'default')
+  const captionSize: CaptionSize = CAPTION_SIZE_OPTIONS.some((o) => o.value === captionSizePref) ? (captionSizePref as CaptionSize) : 'default'
   const [jump, setJump] = useState('')
   const [jumpError, setJumpError] = useState<string | null>(null)
   const loopId = useId()
@@ -89,6 +95,16 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     loopRef.current = loop
   }, [loop])
 
+  // Also on loadedmetadata: a new source can reset the element's speed.
+  const applyRate = useCallback((el: HTMLMediaElement | null) => {
+    if (!el) return
+    el.defaultPlaybackRate = rate
+    el.playbackRate = rate
+    // Without this a slowed clip sounds low; browsers that lack it keep their default.
+    if ('preservesPitch' in el) el.preservesPitch = true
+  }, [rate])
+  useEffect(() => applyRate(media.current), [applyRate])
+
   const place = useCallback(() => {
     const target = panelHost === undefined ? slotRef.current : panelHost
     if (target && panelBox.parentNode !== target) target.appendChild(panelBox)
@@ -103,6 +119,21 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     if (!floating) place()
   }, [place, floating])
   useLayoutEffect(() => () => panelBox.remove(), [panelBox])
+
+  // The pop-out window is resized by the user, so the caption follows its width.
+  // Listening on that window's own resize event (not a ResizeObserver from this
+  // page) keeps this independent of cross-document observer support.
+  useEffect(() => {
+    const win = panelBox.ownerDocument.defaultView
+    if (!floating || !win) return
+    const fit = () => panelBox.style.setProperty('--popout-caption-size', `${popoutCaptionPx(win.innerWidth, captionSize)}px`)
+    fit()
+    win.addEventListener('resize', fit)
+    return () => {
+      win.removeEventListener('resize', fit)
+      panelBox.style.removeProperty('--popout-caption-size')
+    }
+  }, [floating, panelBox, captionSize])
 
   const setSeg = (s: Segment | null) => {
     segRef.current = s
@@ -209,9 +240,11 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         else playLine(line)
       },
       togglePlay,
+      getCurrentTime: () => media.current?.currentTime ?? 0,
+      setRate: (r) => setRatePref(validRate(r)),
       toggleLoop: () => setLoop(!loopRef.current),
     }),
-    [playLine, stop, togglePlay, setLoop],
+    [playLine, stop, togglePlay, setLoop, setRatePref],
   )
 
   const track = src ? (
@@ -240,7 +273,10 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
       setSeg(null)
     },
     onTimeUpdate: (e: SyntheticEvent<HTMLMediaElement>) => setTime(e.currentTarget.currentTime),
-    onLoadedMetadata: (e: SyntheticEvent<HTMLMediaElement>) => setDuration(e.currentTarget.duration),
+    onLoadedMetadata: (e: SyntheticEvent<HTMLMediaElement>) => {
+      setDuration(e.currentTarget.duration)
+      applyRate(e.currentTarget)
+    },
     onError: () => setFailed(true),
   }
   const here = segment ?? lineAt(lines, time)
@@ -306,6 +342,16 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
             </button>
           )}
           <label className="review-subs">
+            Speed
+            <select value={rate} onChange={(e) => setRatePref(validRate(Number(e.target.value)))}>
+              {PLAYBACK_RATES.map((r) => (
+                <option key={r} value={r}>
+                  {r}×
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="review-subs">
             Subtitles
             <select value={subs} onChange={(e) => setSubs(e.target.value)}>
               {SUBTITLE_OPTIONS.map((o) => (
@@ -315,6 +361,18 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
               ))}
             </select>
           </label>
+          {floating && (
+            <label className="review-subs">
+              Subtitle size
+              <select value={captionSize} onChange={(e) => setCaptionSize(e.target.value)}>
+                {CAPTION_SIZE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       </div>
       {jumpError && (

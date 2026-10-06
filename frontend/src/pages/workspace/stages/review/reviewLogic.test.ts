@@ -10,6 +10,7 @@ import {
   speakerTimeFooter,
   speakerTimeLines,
   buildPatch,
+  timingPatch,
   canResegmentWith,
   droppedText,
   llmApplyProblem,
@@ -21,7 +22,11 @@ import {
   codePointOffset,
   draftFromLine,
   emptyMessage,
+  cutBoundaries,
   estimateSplitTime,
+  proportionalCut,
+  snapCut,
+  stepToBoundary,
   formatDuration,
   gapForNewLine,
   initialActiveId,
@@ -317,5 +322,84 @@ describe('speaker time summary', () => {
   it('footer mentions the uncovered audio only when known', () => {
     expect(speakerTimeFooter(sum)).toBe('4:20 of speech in the saved detection; 1:01:40 of the audio has no speaker turn.')
     expect(speakerTimeFooter({ ...sum, uncovered_seconds: null })).toBe('4:20 of speech in the saved detection.')
+  })
+})
+
+describe('timingPatch', () => {
+  const at = (idx: number, start: number, end: number) => mk(idx, { idx, start, end })
+  const mid = at(1, 5, 7)
+  const around = { prev: at(0, 1, 4), next: at(2, 8, 10) }
+
+  it('is a normal expected-checked patch for one field', () => {
+    expect(timingPatch(mid, around, 'start', 5.1)).toEqual({ start: 5.1, expected: { start: 5 } })
+    expect(timingPatch(mid, around, 'end', 7.5)).toEqual({ end: 7.5, expected: { end: 7 } })
+  })
+
+  it('rounds away float noise and never goes below zero', () => {
+    expect(timingPatch(mid, around, 'end', 7 + 0.1 + 0.2)).toEqual({ end: 7.3, expected: { end: 7 } })
+    expect(timingPatch(at(0, 0.05, 2), {}, 'start', -0.05)).toEqual({ start: 0, expected: { start: 0.05 } })
+  })
+
+  it('refuses a start at or after the end, with the existing message', () => {
+    expect(timingPatch(mid, around, 'start', 7)).toBe('End must be after start.')
+    expect(timingPatch(mid, around, 'end', 5)).toBe('End must be after start.')
+  })
+
+  it('refuses to push into the previous or next line', () => {
+    expect(timingPatch(mid, around, 'start', 3.9)).toBe('Start would overlap line #1.')
+    expect(timingPatch(mid, around, 'end', 8.1)).toBe('End would overlap line #3.')
+    expect(timingPatch(mid, around, 'start', 4)).toEqual({ start: 4, expected: { start: 5 } })
+    expect(timingPatch(mid, around, 'end', 8)).toEqual({ end: 8, expected: { end: 7 } })
+  })
+
+  it('lets a line that already overlaps move out of the overlap', () => {
+    const tight = at(1, 3, 7)
+    expect(timingPatch(tight, around, 'start', 3.5)).toEqual({ start: 3.5, expected: { start: 3 } })
+    expect(timingPatch(tight, around, 'start', 2.5)).toBe('Start would overlap line #1.')
+  })
+
+  it('ignores neighbours that are not adjacent in the script (filtered lists)', () => {
+    const far = { prev: at(0, 1, 6), next: at(9, 5, 10) }
+    expect(timingPatch(at(4, 5, 7), far, 'start', 4)).toEqual({ start: 4, expected: { start: 5 } })
+    expect(timingPatch(at(4, 5, 7), far, 'end', 9)).toEqual({ end: 9, expected: { end: 7 } })
+  })
+
+  it('is null when nothing would change', () => {
+    expect(timingPatch(mid, around, 'start', 5)).toBeNull()
+  })
+})
+
+describe('split cut suggestions', () => {
+  it('finds boundaries after spaces and punctuation, never at the edges', () => {
+    expect(cutBoundaries('Hello there, friend')).toEqual([6, 13])
+    expect(cutBoundaries('你好，朋友。')).toEqual([3])
+    expect(cutBoundaries('no')).toEqual([])
+    expect(cutBoundaries('a ')).toEqual([])
+  })
+  it('snaps to the nearest boundary, earlier on a tie', () => {
+    expect(snapCut('Hello there, friend', 9)).toBe(6)
+    expect(snapCut('Hello there, friend', 11)).toBe(13)
+    expect(snapCut('aa bb', 2)).toBe(3)
+  })
+  it('keeps the exact offset when the text has no boundary, clamped inside', () => {
+    expect(snapCut('abcdef', 3)).toBe(3)
+    expect(snapCut('abcdef', 0)).toBe(1)
+    expect(snapCut('abcdef', 99)).toBe(5)
+    expect(snapCut('a', 1)).toBe(1)
+  })
+  it('counts emoji as one character', () => {
+    expect(snapCut('😀😀 😀😀', 2)).toBe(3)
+    expect(snapCut('😀😀😀😀', 2)).toBe(2)
+  })
+  it('cuts the translation at the same fraction as the source', () => {
+    expect(proportionalCut(4, 2, 'Hello there, friend')).toBe(13)
+    expect(proportionalCut(10, 7, 'one two three four five six')).toBe(19)
+    expect(proportionalCut(0, 0, 'ab cd')).toBe(3)
+  })
+  it('steps to the previous or next boundary, else the edge', () => {
+    expect(stepToBoundary('Hello there, friend', 6, 1)).toBe(13)
+    expect(stepToBoundary('Hello there, friend', 6, -1)).toBe(1)
+    expect(stepToBoundary('你好，朋友。你', 3, 1)).toBe(6)
+    expect(stepToBoundary('abcdef', 2, 1)).toBe(5)
   })
 })

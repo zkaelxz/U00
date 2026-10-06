@@ -99,6 +99,7 @@ class TestGetTranscribeConfig:
             "beam_size": 5,
             "min_silence_ms": 300,
             "vad_threshold": 0.5,
+            "hallucination_silence_sec": 2.0,
             "separate_vocals_first": False,
             "separation_backend": "auto",
             "realign_long_segments": False,
@@ -171,6 +172,17 @@ class TestUpdateTranscribeConfig:
         did = isolated_db.create_drama(title_en="D")
         with pytest.raises(InvalidInputError):
             transcribe_service.update_transcribe_config(did, vad_threshold=1.0)
+
+    def test_hallucination_silence_sec_zero_turns_it_off_and_is_kept(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        result = transcribe_service.update_transcribe_config(did, hallucination_silence_sec=0)
+        assert result["hallucination_silence_sec"] == 0
+
+    def test_hallucination_silence_sec_out_of_range_raises(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        for bad in (0.2, 11):
+            with pytest.raises(InvalidInputError):
+                transcribe_service.update_transcribe_config(did, hallucination_silence_sec=bad)
 
     def test_unknown_separation_backend_raises(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
@@ -383,6 +395,7 @@ class TestStartTranscribeRun:
         assert captured["beam_size"] == 7
         assert captured["min_silence_ms"] == 900
         assert captured["vad_threshold"] == 0.4
+        assert captured["hallucination_silence_sec"] == 2.0
         assert captured["separate_vocals_first"] is True
         assert captured["separation_backend"] == "demucs"
         assert captured["realign_long_segments"] is True
@@ -1130,6 +1143,34 @@ class TestQwen3Backends:
         assert result["forced_align_error"] is None
         _clear(job_id)
 
+    def test_forced_align_cancel_ends_cancelled_releases_gpu_and_keeps_lines(
+            self, isolated_db, monkeypatch):
+        import forced_align
+        from core import Line
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="have_transcript")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="old")])
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 2.0, "text": "x"}])
+        released = []
+        monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models",
+                            lambda: released.append(1))
+        job_id = f"transcribe_{did}"
+
+        def fake_align(*a, cancel_check=None, **k):
+            background_jobs.request_cancel(job_id)
+            cancel_check()
+            raise AssertionError("cancel_check must raise once cancel is requested")
+        monkeypatch.setattr(forced_align, "align_with_qwen3", fake_align)
+
+        # _spawn turns this exception into a "cancelled" job.
+        with pytest.raises(background_jobs.JobCancelled):
+            self._run(did, ddir, "have_transcript", "hi there",
+                      alignment_method="qwen3_forced_align")
+
+        assert released
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["old"]
+        _clear(job_id)
+
     def test_forced_align_value_error_falls_back_and_is_reported(self, isolated_db, monkeypatch):
         import forced_align
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="have_transcript")
@@ -1537,7 +1578,7 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
     transcribe_service._transcribe_worker(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         False, "auto", False, False, True, "", False, "whisper", "whisper_diff", None, 1,
-        False, False, str(tmp_path / "scratch"), result_queue)
+        False, False, 2.0, str(tmp_path / "scratch"), result_queue)
     items = []
     while not result_queue.empty():
         items.append(result_queue.get_nowait())
@@ -1604,7 +1645,7 @@ def test_the_worker_pickles_and_runs_in_a_spawned_process(tmp_path):
     proc = ctx.Process(target=transcribe_service._transcribe_worker, daemon=True, args=(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         True, "no_such_backend", False, False, False, "", False, "whisper", "whisper_diff", None,
-        1, False, False, str(tmp_path / "scratch"), result_queue))
+        1, False, False, 2.0, str(tmp_path / "scratch"), result_queue))
     proc.start()
     items = [result_queue.get(timeout=60)]
     while items[-1][0] == "progress":

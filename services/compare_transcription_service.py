@@ -272,6 +272,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "beam_size": drama.get("beam_size") or tuning["beam_size"],
          "min_silence_ms": drama.get("min_silence_ms") or tuning["min_silence_ms"],
          "vad_threshold": drama.get("vad_threshold") or tuning["vad_threshold"],
+         "hallucination_silence_sec": transcribe_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
          "use_gpu": settings_service.get_use_gpu()},
         translation, gpu_touching=True,
@@ -313,7 +314,9 @@ def _hear(slice_path: str, cfg: dict, language, on_fallback, cancel_check) -> st
             slice_path, cfg["whisper_size"], language=language, use_gpu=use_gpu,
             initial_prompt=cfg["prompt"], beam_size=cfg["beam_size"],
             min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
-            on_gpu_fallback=on_fallback, fast_mode=cfg["fast_mode"])
+            on_gpu_fallback=on_fallback, fast_mode=cfg["fast_mode"],
+            hallucination_silence_sec=cfg.get("hallucination_silence_sec",
+                                              core_module.DEFAULT_HALLUCINATION_SILENCE_SEC))
         if backend == "qwen3_asr" and segments:
             segments = asr_backend.get_backend(backend).transcribe(
                 slice_path, language, segments, use_gpu=use_gpu)

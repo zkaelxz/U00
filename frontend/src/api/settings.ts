@@ -47,7 +47,7 @@ export function gpuMaxParallelHelp(n: number): string {
 
 // Persisted preferences (PC only). The patch holds only changed fields.
 export const updatePreferences = (patch: Partial<SettingsPreferences>, f?: Fetch) =>
-  postJson<SettingsOverview>('/api/settings', patch, f)
+  postJson<SettingsOverview>('/api/settings', patch, pcOnlyFetch(f))
 
 // Write-only key endpoints. The value goes in the body only,
 // never the URL; the response is {engine, configured}, never the key.

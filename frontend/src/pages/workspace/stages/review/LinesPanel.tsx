@@ -36,6 +36,9 @@ import { canRetranscribe } from './retranscribeLogic'
 import {
   adjacentRun,
   buildPatch,
+  formatTime,
+  timingPatch,
+  type TimingField,
   charCount,
   codePointOffset,
   draftFromLine,
@@ -598,7 +601,36 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       },
     }
 
-    return { actions, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo, saveEdit, stillDirty, setEditNow }
+    // Timing hotkeys queue, so held-down nudges each start from the line the
+    // previous save returned (a stale base would 409).
+    let timingQueue: Promise<void> = Promise.resolve()
+    const setTiming = (id: number, field: TimingField, value: (line: ReviewLine) => number) => {
+      timingQueue = timingQueue.then(async () => {
+        const line = find(id)
+        if (!line) return
+        if (st.current.edit?.lineId === id) {
+          setStatus('Save or discard your edit first.')
+          return
+        }
+        const at = st.current.shown.findIndex((l) => l.id === id)
+        const patch = timingPatch(line, { prev: st.current.shown[at - 1], next: st.current.shown[at + 1] }, field, value(line))
+        if (typeof patch === 'string') {
+          setStatus(patch)
+          return
+        }
+        if (patch === null) return
+        try {
+          const saved = await patchLine(dramaId, id, patch)
+          replaceLine(saved)
+          setIssue(null)
+          setStatus(`#${lineNumber(saved.idx)} ${field} ${formatTime(saved[field])}`)
+          st.current.onChanged()
+        } catch (e) {
+          failLine(id, e)
+        }
+      })
+    }
+    return { actions, setTiming, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo, saveEdit, stillDirty, setEditNow }
   }, [dramaId])
 
   const { actions } = ctl
@@ -950,6 +982,23 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         if (!mediaKind) return false
         player.current?.toggleLoop()
         return true
+      case 's':
+      case 't': {
+        if (!mediaKind || !player.current) return false
+        const now = player.current.getCurrentTime()
+        ctl.setTiming(active.id, combo === 's' ? 'start' : 'end', () => now)
+        return true
+      }
+      case 'z':
+      case 'x':
+      case 'c':
+      case 'v': {
+        const step = event.shiftKey ? 0.5 : 0.1
+        const delta = combo === 'z' || combo === 'c' ? -step : step
+        const field = combo === 'z' || combo === 'x' ? 'start' : 'end'
+        ctl.setTiming(active.id, field, (line) => line[field] + delta)
+        return true
+      }
       case 'm':
       case 'a':
         if (limited) setStatus(ALL_LINES_ONLY)
@@ -1204,6 +1253,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             })
           }}
           onClose={() => setSheet(null)}
+          onPlayRange={(start, end) => sheetLine && player.current?.playLine({ id: sheetLine.id, idx: sheetLine.idx, start, end })}
           onPlay={() => closeSheetThen(() => sheetLine && player.current?.playLine(sheetLine))}
           onEditDetails={() => closeSheetThen(() => sheetLine && void ctl.openEdit(sheetLine.id, true))}
           canRetranscribe={canRetranscribeLine}

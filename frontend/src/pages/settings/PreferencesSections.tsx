@@ -160,7 +160,7 @@ function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolea
             onConfirm={() => run(resetMonthCounter)}
           />
           {resetAt ? (
-            <button type="button" className="link" disabled={busy} onClick={() => run(undoMonthCounterReset)}>
+            <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => run(undoMonthCounterReset)}>
               Undo reset
             </button>
           ) : null}

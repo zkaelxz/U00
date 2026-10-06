@@ -97,6 +97,31 @@ export function buildPatch(line: ReviewLine, draft: LineDraft): LinePatch | stri
   return patch
 }
 
+export type TimingField = 'start' | 'end'
+type Timed = Pick<ReviewLine, 'idx' | 'start' | 'end'>
+
+// A timing hotkey as a normal line patch. Uses buildPatch's end-after-start
+// rule, and refuses to push a boundary into a neighbouring line (only when the
+// move makes the overlap worse, so a line that already overlaps can be pulled out).
+// Neighbours count only when adjacent in the script: a filtered or searched
+// list can put unrelated lines side by side.
+export function timingPatch(
+  line: ReviewLine,
+  neighbours: { prev?: Timed | null; next?: Timed | null },
+  field: TimingField,
+  seconds: number,
+): LinePatch | string | null {
+  const value = Math.max(0, Math.round(seconds * 1000) / 1000)
+  const { prev, next } = neighbours
+  if (field === 'start' && prev && prev.idx === line.idx - 1 && value < prev.end && value < line.start) {
+    return `Start would overlap line #${lineNumber(prev.idx)}.`
+  }
+  if (field === 'end' && next && next.idx === line.idx + 1 && value > next.start && value > line.end) {
+    return `End would overlap line #${lineNumber(next.idx)}.`
+  }
+  return buildPatch(line, { ...draftFromLine(line), [field]: String(value) })
+}
+
 // A draft that would send something (or is invalid) is dirty: navigation saves it first.
 export function isDirty(line: ReviewLine, draft: LineDraft): boolean {
   return buildPatch(line, draft) !== null
@@ -229,6 +254,54 @@ export function splitPieces(text: string, at: number): [string, string] {
 
 export function charCount(text: string): number {
   return Array.from(text).length
+}
+
+const BREAK_PUNCT = new Set(Array.from(',.!?;:，。！？；：、…'))
+
+/**
+ * Code-point offsets where a cut reads naturally: right after a space run or
+ * punctuation, before the next word. A cut that would leave either piece empty
+ * is never offered.
+ */
+export function cutBoundaries(text: string): number[] {
+  const chars = Array.from(text)
+  const out: number[] = []
+  for (let k = 1; k < chars.length; k++) {
+    const prev = chars[k - 1]
+    if ((/\s/.test(prev) || BREAK_PUNCT.has(prev)) && !/\s/.test(chars[k])) out.push(k)
+  }
+  return out
+}
+
+/** The boundary nearest `target` (ties go earlier); `target` itself when the text has none. */
+export function snapCut(text: string, target: number): number {
+  const len = charCount(text)
+  const clamped = Math.min(Math.max(1, target), Math.max(1, len - 1))
+  let best = clamped
+  let bestDist = Infinity
+  for (const k of cutBoundaries(text)) {
+    const d = Math.abs(k - clamped)
+    if (d < bestDist) {
+      best = k
+      bestDist = d
+    }
+  }
+  return best
+}
+
+/** Where to cut the translation so it breaks at the same fraction of the text as the source did. */
+export function proportionalCut(zhLen: number, zhAt: number, en: string): number {
+  const enLen = charCount(en)
+  const frac = zhLen > 0 ? zhAt / zhLen : 0.5
+  return snapCut(en, Math.round(enLen * frac))
+}
+
+/** The previous (-1) or next (1) boundary from `at`, or the line's edge when there is none. */
+export function stepToBoundary(text: string, at: number, dir: -1 | 1): number {
+  const bounds = cutBoundaries(text)
+  const hit = dir === 1 ? bounds.find((k) => k > at) : [...bounds].reverse().find((k) => k < at)
+  const len = charCount(text)
+  return hit ?? (dir === 1 ? Math.max(1, len - 1) : 1)
 }
 
 /** A cut time in proportion to the text before the split (the server's default is similar). */

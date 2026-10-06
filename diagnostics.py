@@ -111,6 +111,8 @@ OPTIONAL_DEPENDENCIES = {
                                  "Sources tab's browser tier)", "feature"),
     "jiwer": ("jiwer", "Benchmark Lab: standard CER/WER scoring for transcription and OCR "
                        "(falls back to a built-in scorer)", "feature"),
+    "sacrebleu": ("sacrebleu", "Benchmark Lab: chrF translation similarity (falls back to a "
+                               "built-in character similarity ratio)", "feature"),
     "trafilatura": ("trafilatura", "Sources tab: pulling a novel chapter's main text out of a "
                                    "pasted URL (falls back to a simpler built-in extractor)",
                     "feature"),
@@ -206,7 +208,7 @@ APPROX_DOWNLOAD_MB = {
     "lightnovel-crawler": 30,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
-    "jiwer": 3,
+    "jiwer": 3, "sacrebleu": 2,
 }
 PULLS_TORCH = {"pyannote-audio", "f5-tts", "omnivoice", "chatterbox-tts", "hume-tada",
                "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
@@ -380,6 +382,10 @@ INSTALL_TASKS = [
     {"id": "benchmark_scoring", "group": "App", "label": "Benchmark Lab: standard CER/WER",
      "help": "Score transcription and OCR benchmarks with jiwer instead of the built-in scorer.",
      "packages": ["jiwer"]},
+    {"id": "benchmark_translation_scoring", "group": "App",
+     "label": "Benchmark Lab: chrF translation score",
+     "help": "Score translation benchmarks with chrF (sacrebleu) instead of the built-in similarity ratio.",
+     "packages": ["sacrebleu"]},
 ]
 
 
@@ -956,10 +962,19 @@ def check_engine_reachable(engine_name: str, api_key: str = None, model: str = N
 
 # Middle segments may contain single spaces ("My Documents") so folder-name
 # fragments aren't left behind; they can't start or end with one, which keeps
-# a path from swallowing the prose around it.
+# a path from swallowing the prose around it. The filename may too, but only
+# when it ends in a short extension ("my file name.wav"): without that anchor
+# there is no telling where the name stops and the sentence resumes. Words
+# before the final one can't themselves end in an extension or a comma, so
+# "b.wav because ... see c.txt" stops at b.wav, and the word cap bounds how
+# far a spaced name can reach.
+_PATH_CHARS = r'[^\s\\/:*?"<>|]'
+_PATH_WORD = (rf'(?!{_PATH_CHARS}*(?:\.[A-Za-z0-9]{{1,5}}|[,;])(?:\s|$))'
+              rf'{_PATH_CHARS}+')
 PATH_PATTERN = re.compile(
-    r'(?:[A-Za-z]:)?[\\/](?:[^\s\\/:*?"<>|]+(?: [^\s\\/:*?"<>|]+)*[\\/])+'
-    r'([^\s\\/:*?"<>|]+)')
+    rf'(?:[A-Za-z]:)?[\\/](?:{_PATH_CHARS}+(?: {_PATH_CHARS}+)*[\\/])+'
+    rf'((?:{_PATH_WORD}(?: {_PATH_WORD}){{0,4}} '
+    rf'{_PATH_CHARS}+\.[A-Za-z0-9]{{1,5}}(?![A-Za-z0-9])|{_PATH_CHARS}+))')
 
 # ANSI escape sequences (CSI: colours, cursor moves), e.g. yt-dlp's
 # "\x1b[0;31mERROR:\x1b[0m" -- unreadable noise in a report or log view.

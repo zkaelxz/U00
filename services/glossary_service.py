@@ -428,9 +428,23 @@ def novel_glossary_engine(drama_id: int) -> str:
     return _drama(drama_id).get("translation_engine") or _default_engine()
 
 
-def _normalize_proposals(proposals, known_terms) -> list:
+# A proposal is High confidence when the term turns up at least this often
+# in the source and every window that proposed it agreed on one rendering;
+# anything else is Low. Deliberately simple so a reviewer can predict it.
+HIGH_CONFIDENCE_MIN_OCCURRENCES = 3
+MAX_ALTERNATIVES = 5
+
+
+def _confidence(occurrences: int, alternatives: list, translation: str) -> str:
+    consistent = bool(translation) and not alternatives
+    return "high" if consistent and occurrences >= HIGH_CONFIDENCE_MIN_OCCURRENCES else "low"
+
+
+def _normalize_proposals(proposals, known_terms, source_text: str = "") -> list:
     """Allowlisted proposal dicts keyed by term text (a repeated term keeps
-    the last one); already_in_glossary is the snapshot at extraction time."""
+    the last one); already_in_glossary is the snapshot at extraction time.
+    occurrences counts the term in source_text (the text the model read);
+    alternatives are the other renderings earlier windows proposed."""
     known = {t["term_original"] for t in known_terms}
     out = {}
     for p in proposals or []:
@@ -438,9 +452,18 @@ def _normalize_proposals(proposals, known_terms) -> list:
         term = term.strip() if isinstance(term, str) else ""
         if not term or len(term) > MAX_TERM_LEN:
             continue
+        translation = str(p.get("suggested_translation") or "").strip()[:MAX_TERM_LEN]
+        renderings = p.get("renderings") if isinstance(p.get("renderings"), list) else []
+        alternatives = [r.strip()[:MAX_TERM_LEN] for r in renderings
+                        if isinstance(r, str) and r.strip() and r.strip() != translation]
+        alternatives = list(dict.fromkeys(alternatives))[:MAX_ALTERNATIVES]
+        occurrences = source_text.count(term) if source_text else 0
         out[term] = {
             "term": term,
-            "suggested_translation": str(p.get("suggested_translation") or "").strip()[:MAX_TERM_LEN],
+            "suggested_translation": translation,
+            "occurrences": occurrences,
+            "alternatives": alternatives,
+            "confidence": _confidence(occurrences, alternatives, translation),
             "category": p.get("category") if p.get("category") in tguide.TERM_CATEGORIES else None,
             "policy": p.get("policy") if p.get("policy") in tguide.TERM_POLICIES else None,
             "reason": str(p.get("reason") or "")[:MAX_NOTES_LEN],
@@ -495,7 +518,7 @@ def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_t
         # Engine errors can echo request details; never surface them raw.
         raise RuntimeError(
             _EXTRACT_FAILED + " " + translate_engines.redact_secrets(str(exc))) from None
-    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms),
+    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms, src_text),
                                         "run_id": run_id})
 
 
@@ -634,11 +657,21 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
 
 
 _PROPOSAL_FIELDS = ("term", "suggested_translation", "category", "policy", "reason",
-                    "already_in_glossary")
+                    "already_in_glossary", "occurrences", "alternatives", "confidence")
+
+
+# Bounds the ignore list a shared-series editor can grow, since every status
+# poll and list call reads it.
+MAX_DISMISSALS_PER_SERIES = 5000
+
+
+def _dismissals(drama: dict) -> list:
+    sid = drama.get("series_id")
+    return db.list_glossary_dismissals(sid) if sid else []
 
 
 def _extraction_status(drama_id: int, job_id: str) -> dict:
-    _drama(drama_id)
+    drama = _drama(drama_id)
     job = background_jobs.get_status(job_id)
     if not job:
         return {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
@@ -646,9 +679,16 @@ def _extraction_status(drama_id: int, job_id: str) -> dict:
     status = job.get("status")
     result = None
     if status == "done":
-        result = {"proposals": [{k: p.get(k) for k in _PROPOSAL_FIELDS}
+        held = [p.get("term") for p in (job.get("result") or {}).get("proposals") or []
+                if isinstance(p, dict) and isinstance(p.get("term"), str)]
+        sid = drama.get("series_id")
+        ignored = db.list_dismissed_glossary_terms(sid, held) if sid else set()
+        result = {"proposals": [{**{k: p.get(k) for k in _PROPOSAL_FIELDS},
+                                 "occurrences": p.get("occurrences") or 0,
+                                 "alternatives": p.get("alternatives") or [],
+                                 "confidence": p.get("confidence") or "low"}
                                 for p in (job.get("result") or {}).get("proposals") or []
-                                if isinstance(p, dict)]}
+                                if isinstance(p, dict) and p.get("term") not in ignored]}
     message = job.get("error") if status == "error" else job.get("message")
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
             "message": translate_engines.redact_secrets(str(message)) if message else "",
@@ -745,6 +785,43 @@ def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existin
     return report
 
 
+def list_glossary_dismissals(drama_id: int) -> dict:
+    """{"dismissals": [{term, created_at}]}: the proposals ignored for this
+    drama's series (empty for a drama with no series)."""
+    return {"dismissals": [{"term": d["term_original"], "created_at": d["created_at"]}
+                           for d in _dismissals(_drama(drama_id))]}
+
+
+def _clean_dismiss_terms(terms) -> list:
+    if (not isinstance(terms, (list, tuple)) or not terms or len(terms) > 1000
+            or not all(isinstance(t, str) and t.strip() and len(t.strip()) <= MAX_TERM_LEN
+                       for t in terms)):
+        raise InvalidInputError("terms must be a non-empty list of term strings.")
+    return list(dict.fromkeys(t.strip() for t in terms))
+
+
+def dismiss_glossary_proposals(drama_id: int, terms: list) -> dict:
+    """Ignores these terms for the drama's series: the extractions' statuses
+    stop listing them. Any text is accepted (a term from a later run needn't
+    be in the held one); the series must exist (UnsupportedOperationError).
+    {"changed": n} new ignores."""
+    sid = _series_id(_drama(drama_id), required=True)
+    clean = _clean_dismiss_terms(terms)
+    before = {d["term_original"] for d in db.list_glossary_dismissals(sid)}
+    if len(before | set(clean)) > MAX_DISMISSALS_PER_SERIES:
+        raise InvalidInputError(
+            f"A series can ignore at most {MAX_DISMISSALS_PER_SERIES} glossary terms; "
+            "restore some before ignoring more.")
+    db.add_glossary_dismissals(sid, clean)
+    return {"changed": len([t for t in clean if t not in before])}
+
+
+def restore_glossary_proposals(drama_id: int, terms: list) -> dict:
+    """Takes terms off the ignore list; {"changed": n} removed."""
+    sid = _series_id(_drama(drama_id), required=True)
+    return {"changed": db.remove_glossary_dismissals(sid, _clean_dismiss_terms(terms))}
+
+
 def apply_novel_glossary(drama_id: int, terms: list, overwrite_existing: bool = False,
                          overrides: Optional[dict] = None, run_id: Optional[str] = None) -> dict:
     """Adds the named proposals (by term text, never list position) from
@@ -795,7 +872,12 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
     # One LLM call can't be interrupted; a cancel during it drops the result.
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
-    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms),
+    # `renderings` is the novel path's cross-window tally; a single call has no
+    # windows, so a model-supplied one would be an unvetted alternatives source.
+    proposals = [{k: v for k, v in p.items() if k != "renderings"}
+                 for p in proposals if isinstance(p, dict)]
+    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms,
+                                                                  "\n".join(source_lines)),
                                         "run_id": run_id})
 
 

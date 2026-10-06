@@ -305,6 +305,12 @@ WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False, "no_repeat_ngra
                             "repetition_penalty": 1.1}
 
 
+# Seconds of silence inside a segment's word timings above which faster-whisper
+# drops that segment as a likely hallucination. Conservative on purpose: a
+# lower value starts dropping real lines that follow a long pause.
+DEFAULT_HALLUCINATION_SILENCE_SEC = 2.0
+
+
 def release_gpu_models():
     """Call after a GPU stage (transcription, alignment, diarization)
     finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models
@@ -595,6 +601,46 @@ def build_initial_prompt(terms, max_terms: int = 40) -> str:
     return "、".join(names[:max_terms]) + "。"
 
 
+# Credit/outro lines Whisper emits on silence because its training subtitles
+# ended with them. Matched against the whole segment text only, after
+# _stock_key() strips case, spaces and punctuation.
+_STOCK_PHRASE_RES = [re.compile(p) for p in (
+    r"subtitlesbytheamaraorgcommunity",
+    r"amaraorg.{0,8}",
+    r"thanks?youforwatching",
+    r"thanksforwatching",
+    r"字幕由.{0,30}提供",
+    r"请不吝点赞.*",
+    r"ご視聴ありがとうございま(?:した|す)",
+    r"ご清聴ありがとうございま(?:した|す)",
+    r"mbc뉴스.{0,12}입니다",
+    r"시청해주셔서감사합니다",
+)]
+# A stock phrase is only dropped with at least this much silence on each side
+# (a missing neighbour counts as silence), so dialogue that happens to say
+# "thanks for watching" between other lines survives.
+STOCK_PHRASE_ISOLATION_SEC = 5.0
+
+
+def _stock_key(text):
+    return "".join(ch for ch in (text or "").casefold() if ch.isalnum())
+
+
+def _is_isolated_stock_phrase(segments, i):
+    key = _stock_key(segments[i]["text"])
+    if not any(rx.fullmatch(key) for rx in _STOCK_PHRASE_RES):
+        return False
+    seg = segments[i]
+    try:
+        if i > 0 and seg["start"] - segments[i - 1]["end"] < STOCK_PHRASE_ISOLATION_SEC:
+            return False
+        if i + 1 < len(segments) and segments[i + 1]["start"] - seg["end"] < STOCK_PHRASE_ISOLATION_SEC:
+            return False
+    except KeyError:
+        return False
+    return True
+
+
 def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
     """
     Whisper is well known to loop a short phrase across MANY separate
@@ -624,6 +670,10 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
     defaults conservatively high (4) to keep that risk low -- lower it if
     loops are still getting through on your content, raise it if you've
     actually hit the false-positive case.
+
+    Also drops a segment whose WHOLE text is a stock credit/outro phrase
+    ("Thanks for watching", "字幕由…提供", "ご視聴ありがとうございました") when it
+    has at least STOCK_PHRASE_ISOLATION_SEC of silence on each side.
     """
     if not segments:
         return segments
@@ -644,7 +694,7 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
         else:
             out.extend(segments[i:j])
         i = j
-    return out
+    return [seg for k, seg in enumerate(out) if not _is_isolated_stock_phrase(out, k)]
 
 
 # A transcribed line longer than either limit is cut into subtitle-sized pieces.
@@ -846,12 +896,24 @@ def tighten_to_words(start: float, end: float, words) -> tuple:
     return (new_start, new_end) if new_end > new_start else (start, end)
 
 
+def _accepts_transcribe_kwarg(model, name):
+    """False for a faster-whisper release that predates `name`, which would
+    otherwise fail the whole run with a TypeError."""
+    import inspect
+    try:
+        params = inspect.signature(model.transcribe).parameters
+    except (TypeError, ValueError):
+        return False
+    return name in params or any(p.kind is p.VAR_KEYWORD for p in params.values())
+
+
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
                            use_gpu: bool = False, local_model_path: str = None,
                            hf_token: str = None, initial_prompt: str = "",
                            beam_size: int = 5, min_silence_duration_ms: int = 2000,
                            vad_threshold: float = 0.5, filter_hallucination_repeats: int = 4,
-                           on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False):
+                           on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False,
+                           hallucination_silence_sec: float = DEFAULT_HALLUCINATION_SILENCE_SEC):
     """
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
@@ -895,6 +957,12 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     failure mode on silence/music that its own per-segment decoding
     thresholds don't catch. Set to 0 or None to disable entirely.
 
+    hallucination_silence_sec: faster-whisper's hallucination_silence_threshold --
+    a segment with a silent gap this long inside its word timings is
+    skipped as a likely hallucination. 0 or None turns it off. Not passed
+    when faster-whisper is too old to know it, and ignored by faster-whisper
+    itself in fast_mode (its batched pipeline hard-codes it off).
+
     on_gpu_fallback: optional callback invoked with the original exception
     if a requested GPU run fails at actual inference time and this
     transparently retries on CPU -- so the caller can tell the person
@@ -925,6 +993,9 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     }
     if initial_prompt.strip():
         kwargs["initial_prompt"] = initial_prompt.strip()
+    if hallucination_silence_sec and not fast_mode and _accepts_transcribe_kwarg(
+            model, "hallucination_silence_threshold"):
+        kwargs["hallucination_silence_threshold"] = float(hallucination_silence_sec)
 
     def _collect(segments, info):
         duration = getattr(info, "duration", None) or 0
