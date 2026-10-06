@@ -589,3 +589,25 @@ def test_resplit_leaves_a_line_over_the_cap_unsplit_and_says_so():
     out = svc.resplit_long_lines(did, ids, sensitivity="sentence", dry_run=True)
     assert out["split_lines"] == 0
     assert "1 line over the limits" in out["note"]
+
+
+def test_resplit_uses_the_titles_pause(monkeypatch):
+    import core
+    did, ids = _seed()
+    db.update_drama(did, min_pause_sec=0.8)
+    seen = []
+    real = core.split_long_segments
+    monkeypatch.setattr(core, "split_long_segments",
+                        lambda segs, **kw: seen.append(kw["min_pause"]) or real(segs, **kw))
+    svc.resplit_long_lines(did, ids)
+    assert seen and set(seen) == {0.8}
+
+
+def test_resegmentation_preview_uses_the_titles_pause(monkeypatch):
+    did, _ids = _seed()
+    db.update_drama(did, min_pause_sec=0.6)
+    seen = []
+    monkeypatch.setattr(svc.resegment, "resegment_lines",
+                        lambda lines, language, **kw: seen.append(kw["min_pause"]) or (lines, []))
+    svc.preview_resegmentation(did)
+    assert seen == [0.6]

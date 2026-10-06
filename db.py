@@ -1174,6 +1174,7 @@ def _migrate_drama_columns(conn):
                           ("vad_threshold", "REAL DEFAULT 0.5"),
                           ("beam_size", "INTEGER DEFAULT 5"),
                           ("hallucination_silence_sec", "REAL DEFAULT 2.0"),
+                          ("min_pause_sec", "REAL DEFAULT 0.35"),
                           ("separate_vocals_first", "INTEGER DEFAULT 0"),
                           ("separation_backend", "TEXT DEFAULT 'auto'"),
                           ("realign_long_segments", "INTEGER DEFAULT 0"),
@@ -1192,7 +1193,10 @@ def _migrate_drama_columns(conn):
                           # Roadmap 112: the Notion page this drama was last exported
                           # to (services/notion_service.py), so a re-export updates
                           # that page in place. Only the id, never a token or URL.
-                          ("notion_page_id", "TEXT")]:
+                          ("notion_page_id", "TEXT"),
+                          # Per-title reading-speed flag strictness
+                          # (subtitle_formats.READING_SPEED_MODES).
+                          ("reading_speed_mode", "TEXT DEFAULT 'normal'")]:
         if col not in drama_cols:
             _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
 

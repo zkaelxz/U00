@@ -4,6 +4,7 @@ import { ApiError } from '../../api/client'
 import {
   advancedSummary,
   checkOcrImages,
+  isDirectAudioUrl,
   isVideoFile,
   ocrBackendOptions,
   runOptionProblem,
@@ -13,7 +14,7 @@ import {
 } from './sourceForm'
 
 const base: AdvancedValues = {
-  beam_size: '5', min_silence_ms: '300', vad_threshold: '0.5', hallucination_silence_sec: '2', hardsub_interval_sec: '1',
+  beam_size: '5', min_silence_ms: '300', min_pause_sec: '0.35', vad_threshold: '0.5', hallucination_silence_sec: '2', hardsub_interval_sec: '1',
   alignment_method: 'whisper_diff', asr_backend_choice: 'whisper', separation_backend: 'auto',
   separate_vocals_first: false, realign_long_segments: false, whisper_fast_mode: false, use_groq: false, prompt: '',
 }
@@ -24,6 +25,10 @@ describe('advancedSummary', () => {
   })
   it('lists only the values that differ', () => {
     expect(advancedSummary({ ...base, beam_size: '8', use_groq: true, prompt: ' x ' })).toBe('beam 8 · Groq · replacement prompt')
+  })
+  it('mentions a changed split pause only when it differs from 0.35', () => {
+    expect(advancedSummary({ ...base, min_pause_sec: '0.5' })).toBe('split pause 0.5 s')
+    expect(advancedSummary({ ...base, min_pause_sec: '0.350' })).toBe('defaults')
   })
   it('mentions a changed hallucination guard', () => {
     expect(advancedSummary({ ...base, hallucination_silence_sec: '0' })).toBe('no hallucination guard')
@@ -87,5 +92,16 @@ describe('isVideoFile', () => {
     expect(isVideoFile('clip.mkv')).toBe(true)
     expect(isVideoFile('dub.mp3')).toBe(false)
     expect(isVideoFile('mp4.wav')).toBe(false)
+  })
+})
+
+describe('isDirectAudioUrl', () => {
+  it('reads the extension of the URL path, as the server does', () => {
+    expect(isDirectAudioUrl('https://a.example/x/ep.MP3?t=1')).toBe(true)
+    expect(isDirectAudioUrl(' https://a.example/x/ep.flac ')).toBe(true)
+    expect(isDirectAudioUrl('https://a.example/x/ep.mp4')).toBe(false)
+    expect(isDirectAudioUrl('https://a.example/watch?v=x.mp3')).toBe(false)
+    expect(isDirectAudioUrl('https://a.example/.mp3')).toBe(false)
+    expect(isDirectAudioUrl('not a url')).toBe(false)
   })
 })

@@ -30,6 +30,8 @@ import {
   advancedSummary,
   loadSourceForm,
   MIN_SILENCE_MS_MAX,
+  MIN_PAUSE_SEC_MAX,
+  MIN_PAUSE_SEC_MIN,
   MIN_SILENCE_MS_MIN,
   parseExpectedSpeakers,
   parseSpeakerHints,
@@ -113,6 +115,7 @@ type ConfigForm = {
   hardsub_ocr_backend: string
   beam_size: string
   min_silence_ms: string
+  min_pause_sec: string
   vad_threshold: string
   hallucination_silence_sec: string
   hardsub_interval_sec: string
@@ -130,6 +133,7 @@ const formFromConfig = (c: TranscribeConfig): ConfigForm => ({
   hardsub_ocr_backend: c.hardsub_ocr_backend,
   beam_size: String(c.beam_size),
   min_silence_ms: String(c.min_silence_ms),
+  min_pause_sec: String(c.min_pause_sec),
   vad_threshold: String(c.vad_threshold),
   hallucination_silence_sec: String(c.hallucination_silence_sec),
   hardsub_interval_sec: String(c.hardsub_interval_sec),
@@ -143,6 +147,7 @@ const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
   ...f,
   beam_size: Number(f.beam_size),
   min_silence_ms: Number(f.min_silence_ms),
+  min_pause_sec: Number(f.min_pause_sec),
   vad_threshold: Number(f.vad_threshold),
   hallucination_silence_sec: Number(f.hallucination_silence_sec),
   hardsub_interval_sec: Number(f.hardsub_interval_sec),
@@ -434,7 +439,7 @@ export default function TranscribeStage({
         </select>
       </Field>
     )
-  const num = (label: string, key: 'beam_size' | 'min_silence_ms' | 'vad_threshold' | 'hallucination_silence_sec' | 'hardsub_interval_sec', step: number, help: string, unit?: string) =>
+  const num = (label: string, key: 'beam_size' | 'min_silence_ms' | 'min_pause_sec' | 'vad_threshold' | 'hallucination_silence_sec' | 'hardsub_interval_sec', step: number, help: string, unit?: string) =>
     cf && (
       <Field label={label} help={help} unit={unit}>
         <input type="number" step={step} value={cf[key]} onChange={(e) => setC(key, e.target.value)} />
@@ -655,6 +660,7 @@ export default function TranscribeStage({
           <div className="source-grid">
             {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
             {num('Min silence', 'min_silence_ms', 50, `${MIN_SILENCE_MS_MIN}-${MIN_SILENCE_MS_MAX}. Silence that splits lines; longer gives fewer, longer lines. Lower values split at shorter pauses and can cut mid-sentence. Auto-tune below can pick it.`, 'ms')}
+            {num('Pause that can split a long line', 'min_pause_sec', 0.05, `${MIN_PAUSE_SEC_MIN}-${MIN_PAUSE_SEC_MAX}. Longer lines are only cut where the speaker pauses at least this long. Higher gives fewer, longer lines. Lower cuts more.`, 's')}
             {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
             {num('Hallucination guard', 'hallucination_silence_sec', 0.5, 'Experimental. 0 (off) or 0.5-10. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Whisper only: ignored by Qwen3-ASR, and by Fast mode.', 's')}
             {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}

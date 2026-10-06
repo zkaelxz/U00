@@ -101,6 +101,7 @@ class TestGetTranscribeConfig:
             "min_silence_ms": 300,
             "vad_threshold": 0.5,
             "hallucination_silence_sec": 2.0,
+            "min_pause_sec": 0.35,
             "separate_vocals_first": False,
             "separation_backend": "auto",
             "realign_long_segments": False,
@@ -180,6 +181,22 @@ class TestUpdateTranscribeConfig:
         did = isolated_db.create_drama(title_en="D")
         with pytest.raises(InvalidInputError):
             transcribe_service.update_transcribe_config(did, vad_threshold=1.0)
+
+    def test_min_pause_sec_defaults_to_035_and_a_null_column_uses_it(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        assert transcribe_service.get_transcribe_config(did)["min_pause_sec"] == 0.35
+        isolated_db.update_drama(did, min_pause_sec=None)
+        assert transcribe_service.get_transcribe_config(did)["min_pause_sec"] == 0.35
+
+    def test_min_pause_sec_range_is_enforced(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        for ok in (0.1, 0.35, 2.0, 1):
+            result = transcribe_service.update_transcribe_config(did, min_pause_sec=ok)
+            assert result["min_pause_sec"] == ok
+        for bad in (0.09, 2.01, 0, -1, float("nan"), float("inf"), "0.5", True, False, [0.5]):
+            with pytest.raises(InvalidInputError):
+                transcribe_service.update_transcribe_config(did, min_pause_sec=bad)
+        assert transcribe_service.get_transcribe_config(did)["min_pause_sec"] == 1
 
     def test_hallucination_silence_sec_zero_turns_it_off_and_is_kept(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
@@ -404,6 +421,7 @@ class TestStartTranscribeRun:
         assert captured["min_silence_ms"] == 900
         assert captured["vad_threshold"] == 0.4
         assert captured["hallucination_silence_sec"] == 2.0
+        assert captured["min_pause_sec"] == 0.35
         assert captured["separate_vocals_first"] is True
         assert captured["separation_backend"] == "demucs"
         assert captured["realign_long_segments"] is True
@@ -1621,12 +1639,41 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
     transcribe_service._transcribe_worker(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         False, "auto", False, False, True, "", False, "whisper", "whisper_diff", None, 1,
-        False, False, 2.0, str(tmp_path / "scratch"), result_queue)
+        False, False, 2.0, 0.35, str(tmp_path / "scratch"), result_queue)
     items = []
     while not result_queue.empty():
         items.append(result_queue.get_nowait())
     assert seen == ["gsk_env_key"]
     assert items[-1] == ("ok", {"failed_reason": "empty"})
+
+
+def test_the_run_uses_the_pause_saved_when_it_started(isolated_db, monkeypatch, tmp_path):
+    """The pause reaches split_long_segments from the run's frozen copy, not from
+    the title read again later."""
+    import queue
+    did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", use_groq=1, min_pause_sec=0.8)
+    monkeypatch.setattr(transcribe_service.settings_service, "resolve_key",
+                        lambda key, env_path=None: "gsk_env_key" if key == "groq" else None)
+    captured = _capture_worker_start(monkeypatch)
+    transcribe_service.start_transcribe_run(did)
+    isolated_db.update_drama(did, min_pause_sec=0.2)
+    assert captured["min_pause_sec"] == 0.8
+
+    seen = []
+    segments = [{"start": 0.0, "end": 1.0, "text": "你好"}]
+    monkeypatch.setattr(core_module, "transcribe_with_groq",
+                        lambda path, lang, key, progress_cb=None: segments)
+    monkeypatch.setattr(core_module, "split_long_segments",
+                        lambda segs, **kw: seen.append(kw) or segs)
+    monkeypatch.setattr(background_jobs, "start_own_process_group", lambda: None)
+    monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
+    result_queue = queue.Queue()
+    import inspect
+    names = list(inspect.signature(transcribe_service._transcribe_worker).parameters)[:-1]
+    worker_args = [captured[n] for n in names]
+    worker_args[names.index("scratch_dir")] = str(tmp_path / "scratch")
+    transcribe_service._transcribe_worker(*worker_args, result_queue)
+    assert seen and seen[0]["min_pause"] == 0.8
 
 
 class TestMoveIntoPlace:
@@ -1688,7 +1735,7 @@ def test_the_worker_pickles_and_runs_in_a_spawned_process(tmp_path):
     proc = ctx.Process(target=transcribe_service._transcribe_worker, daemon=True, args=(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         True, "no_such_backend", False, False, False, "", False, "whisper", "whisper_diff", None,
-        1, False, False, 2.0, str(tmp_path / "scratch"), result_queue))
+        1, False, False, 2.0, 0.35, str(tmp_path / "scratch"), result_queue))
     proc.start()
     items = [result_queue.get(timeout=60)]
     while items[-1][0] == "progress":

@@ -83,6 +83,10 @@ _SAVE_FAILED = ("Could not put the upload in place as this title's media. The up
 _CONFIRM_REPLACE = "This drama already has audio. Confirm replacing it first."
 KEPT_DIRNAME = "kept_media"
 _MEDIA_FIELDS = ("audio_filename", "source_video_filename")
+# A new title has no transcript_mode (it reads as have_transcript), which
+# needs pasted text; a title that was reading burned-in subtitles has none,
+# so it moves to the one audio mode that works without it.
+AUDIO_TRANSCRIPT_MODE = "whisper"
 # The in-place names install_media gives new media; one the drama doesn't
 # name is a leftover (see recover_stale_uploads).
 _IN_PLACE_RE = re.compile(r"(?:source(?:-\d+)?(?:%s)|audio(?:-\d+)?\.wav)\Z" % "|".join(
@@ -297,6 +301,10 @@ def install_media(drama_id, new_files, **fields):
     for field in _MEDIA_FIELDS:
         if field not in new_files:
             fields.setdefault(field, None)
+    # hardsub_ocr needs a video (source_service refuses to set it without
+    # one), and every transcribe run of such a title fails once it is gone.
+    if old.get("transcript_mode") == "hardsub_ocr" and "source_video_filename" not in new_files:
+        fields.setdefault("transcript_mode", AUDIO_TRANSCRIPT_MODE)
     placed = []
     try:
         for field, (src, stem, ext) in new_files.items():
@@ -640,6 +648,7 @@ def get_media_status(drama_id) -> dict:
         "drama_id": drama_id,
         "has_audio": bool(audio and os.path.exists(os.path.join(db.drama_dir(drama_id), audio))),
         "has_source_video": bool(drama.get("source_video_filename")),
+        "reads_burned_in_subtitles": drama.get("transcript_mode") == "hardsub_ocr",
         "upload_max_mb": max_upload_bytes() // _MB,
         **kept_media_usage(drama_id),
     }
