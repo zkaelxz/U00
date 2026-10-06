@@ -1991,7 +1991,7 @@ class TestMissingPackageOutcome:
         q = queue.Queue()
         transcribe_service._transcribe_worker(
             "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
-            False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0,
+            False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
             str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
         assert kind == "ok"
