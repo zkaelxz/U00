@@ -64,7 +64,8 @@ import raw_transcript
 import dub as dub_module
 import background_jobs
 from services import (dub_service, engine_routing_service, glossary_retranslate_service,
-                      lines_service, line_provenance_service, narration_service, settings_service,
+                      lines_service, line_provenance_service, narration_service, review_extras_service,
+                      settings_service,
                       transcribe_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
 from services.service_errors import DependencyUnavailableError, ServiceError
@@ -1062,6 +1063,27 @@ def cmd_set_language(args):
     print(msg)
 
 
+def cmd_clean_en(args):
+    """The Review stage's "Fix common errors" pass (deterministic, no AI):
+    a preview by default, --apply saves it after a line-history snapshot."""
+    try:
+        preview = review_extras_service.preview_en_cleanup(args.id)
+        for rule in preview["rules"]:
+            print(f"  {rule['label']}: {rule['lines']} line(s)")
+        shown = args.show if args.show is not None else 5
+        for ch in preview["changes"][:shown]:
+            print(f"  #{ch['idx'] + 1}: {ch['before']!r} -> {ch['after']!r}")
+        print(f"#{args.id}: {preview['lines_changed']} of {preview['lines_scanned']} line(s) would change")
+        if args.apply and preview["lines_changed"]:
+            result = review_extras_service.apply_en_cleanup(args.id, preview["plan_hash"])
+            print(f"#{args.id}: cleaned {result['applied']} line(s)"
+                  + (f"; {result['stale']} edited meanwhile and kept" if result["stale"] else "")
+                  + " (previous text is in Line history)")
+    except ServiceError as e:
+        print(f"Error: {e.message}")
+        sys.exit(1)
+
+
 def cmd_run(args):
     """Align then translate a single drama in one shot."""
     cmd_align(args)
@@ -1121,6 +1143,12 @@ def main():
     p_lang.add_argument("--lang", required=True,
                         help="A language code, or 'default' / '' for the title's language")
     p_lang.set_defaults(func=cmd_set_language)
+
+    p_clean = sub.add_parser("clean-en", help="Fix common errors in the English (no AI); preview unless --apply")
+    p_clean.add_argument("--id", type=int, required=True)
+    p_clean.add_argument("--apply", action="store_true", help="Save the changes (a Line history snapshot is taken first)")
+    p_clean.add_argument("--show", type=int, help="How many before/after examples to print (default 5)")
+    p_clean.set_defaults(func=cmd_clean_en)
 
     p_align = sub.add_parser("align")
     p_align.add_argument("--id", type=int, default=None)
