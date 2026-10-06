@@ -220,9 +220,9 @@ def test_run_start_and_validate_refuse_vad_backend_without_faster_whisper(isolat
     monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature: None)
     monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
                         lambda name, *a: None if name == "faster_whisper" else real_find_spec(name, *a))
-    with pytest.raises(DependencyUnavailableError, match="faster-whisper"):
+    with pytest.raises(DependencyUnavailableError, match="Open Diagnostics"):
         transcribe_service.start_transcribe_run(did)
-    with pytest.raises(DependencyUnavailableError, match="faster-whisper"):
+    with pytest.raises(DependencyUnavailableError, match="Open Diagnostics"):
         transcribe_service.validate_transcribe_options(did)
 
 
