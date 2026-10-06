@@ -614,11 +614,8 @@ class _HangingServer(_Server):
             handler.wfile.write(head)
             handler.wfile.flush()
             handler.connection.settimeout(30)
-            try:
-                handler.connection.recv(1)
-            except OSError:
-                pass
-            closed.set()
+            if _until_peer_closes(handler.connection):
+                closed.set()
 
         self.httpd.RequestHandlerClass.do_GET = do_get
 
@@ -704,12 +701,31 @@ def test_request_head_must_arrive_within_the_overall_deadline(proxy, monkeypatch
 
 
 
+def _until_peer_closes(conn) -> bool:
+    """Reads until the other side closes (True), or until conn's timeout
+    expires (False: still open, so not a close)."""
+    try:
+        while conn.recv(4096):
+            pass
+        return True
+    except ConnectionResetError:
+        return True
+    except OSError:
+        return False
+
+
+# Response heads that never finish: an HTTP status line and header, and
+# a TLS record (a ServerHello's) announcing 16 KiB that never arrive.
+_HTTP_HEAD = b"HTTP/1.1 200 OK\r\nX-Slow: " + b"a" * 500
+_TLS_HEAD = b"\x16\x03\x03\x40\x00\x02" + b"\0" * 500
+
+
 class _SilentOrigin:
     """A raw origin on loopback that reads the request and never answers
-    (or, with trickle, sends a response head one byte at a time, never
-    finishing it); records when the other side closes."""
+    (or sends `trickle` one byte at a time, never finishing a response
+    head); records when the other side closes."""
 
-    def __init__(self, trickle: bool = False):
+    def __init__(self, trickle: bytes = b""):
         self.accepted = threading.Event()
         self.closed_by_peer = threading.Event()
         self.trickle = trickle
@@ -726,17 +742,19 @@ class _SilentOrigin:
             return
         self.accepted.set()
         conn.settimeout(10)
-        try:
-            if self.trickle:
+        closed = False
+        if self.trickle:
+            try:
                 conn.recv(4096)
-                for byte in b"HTTP/1.1 200 OK\r\nX-Slow: " + b"a" * 500:
+                for byte in self.trickle:
                     conn.sendall(bytes([byte]))
                     time.sleep(0.05)
-            while conn.recv(4096):
+            except (ConnectionResetError, BrokenPipeError):
+                closed = True
+            except OSError:
                 pass
-        except OSError:
-            pass
-        self.closed_by_peer.set()
+        if closed or _until_peer_closes(conn):
+            self.closed_by_peer.set()
         conn.close()
 
     def close(self):
@@ -785,7 +803,7 @@ def test_close_ends_connections_waiting_on_a_stalled_upstream(monkeypatch, metho
 
 def test_upstream_response_head_must_arrive_within_the_overall_deadline(proxy, monkeypatch):
     monkeypatch.setattr(egress_proxy, "UPSTREAM_HEAD_TIMEOUT", 0.5)
-    origin = _SilentOrigin(trickle=True)
+    origin = _SilentOrigin(trickle=_HTTP_HEAD)
     try:
         started = time.monotonic()
         answer = _raw(proxy, f"GET http://origin.test:{origin.port}/ HTTP/1.1\r\n"
@@ -810,11 +828,8 @@ class _NoAnswerServer(_Server):
         def do_get(handler):
             server.accepted.set()
             handler.connection.settimeout(10)
-            try:
-                handler.connection.recv(1)
-            except OSError:
-                pass
-            server.closed_by_peer.set()
+            if _until_peer_closes(handler.connection):
+                server.closed_by_peer.set()
 
         self.httpd.RequestHandlerClass.do_GET = do_get
 
@@ -860,6 +875,43 @@ def test_halt_while_waiting_for_headers_through_the_proxy_leaves_nothing_open(
         assert origin.closed_by_peer.wait(5)
         assert _wait_threads_gone(_proxy_threads() - before)
         assert not [t for t in threading.enumerate() if t.name in ("live-fetch", "live-pipe")]
+    finally:
+        pump.halt()
+        origin.close()
+
+
+@pytest.mark.parametrize("scheme,head", [("http", _HTTP_HEAD), ("https", _TLS_HEAD)],
+                         ids=["http-headers", "https-handshake"])
+def test_a_request_whose_handshake_or_headers_trickle_ends_at_the_deadline(proxy, scheme,
+                                                                           head):
+    """Every byte arrives well inside READ_TIMEOUT and, over https, inside
+    a CONNECT tunnel the proxy's head deadline does not cover: the
+    fetcher's own deadline still ends the request."""
+    origin = _SilentOrigin(trickle=head)
+    sink_closed = threading.Event()
+
+    class Sink:
+        def write(self, b):
+            pass
+
+        def flush(self):
+            pass
+
+        def close(self):
+            sink_closed.set()
+
+    started = time.monotonic()
+    pump = live_fetch.StreamPump(f"{scheme}://origin.test:{origin.port}/a", Sink(),
+                                 proxy=proxy.url, stall_timeout=0.5).start()
+    try:
+        assert sink_closed.wait(10)
+        pump.join(5)
+        assert time.monotonic() - started < 4
+        assert not pump.alive() and pump.error == live_fetch.STALLED
+        # A plain-http forward waits out its own head deadline; the
+        # capture's end closes the proxy, which ends it.
+        proxy.close()
+        assert origin.closed_by_peer.wait(5)
     finally:
         pump.halt()
         origin.close()

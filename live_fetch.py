@@ -265,6 +265,10 @@ class StreamPump:
         self._fetch_done = threading.Event()
         self._lock = threading.Lock()
         self._sockets = weakref.WeakSet()
+        # Which _open call a deadline timer belongs to, so one that fires
+        # late never shuts down the sockets of the request after it.
+        self._open_generation = 0
+        self._open_expired = False
         self._threads = []
         self._session = requests.Session()
         adapter = _TrackingAdapter(self._track, self._release)
@@ -295,7 +299,7 @@ class StreamPump:
     def _track(self, sock):
         with self._lock:
             self._sockets.add(sock)
-            if self._stop.is_set():  # opened after halt() went through the set
+            if self._stop.is_set() or self._open_expired:  # opened after the shutdowns
                 _shutdown(sock)
 
     def _release(self, sock):
@@ -368,7 +372,52 @@ class StreamPump:
                     if time.monotonic() >= deadline:
                         raise StreamFetchError(FFMPEG_STALLED) from None
 
-    def _open(self, url: str):
+    def _open(self, url: str, deadline: float):
+        """_follow(url), ended as STALLED once `deadline` passes. Read
+        timeouts are per recv and the proxy's head deadline does not see
+        inside a CONNECT tunnel, so without this an https host trickling
+        its handshake or headers would hold the request open
+        indefinitely."""
+        with self._lock:
+            self._open_generation += 1
+            self._open_expired = False
+            generation = self._open_generation
+        timer = threading.Timer(max(0.0, deadline - time.monotonic()), self._expire,
+                                (generation,))
+        timer.daemon = True
+        timer.start()
+        try:
+            response = self._follow(url)
+        except _FetchFailed:
+            if self._disarm(timer):
+                raise StreamFetchError(STALLED) from None
+            raise
+        except BaseException:
+            self._disarm(timer)
+            raise
+        if self._disarm(timer):
+            response.close()
+            raise StreamFetchError(STALLED)
+        return response
+
+    def _expire(self, generation: int):
+        with self._lock:
+            if generation != self._open_generation:
+                return
+            self._open_expired = True
+            for sock in list(self._sockets):
+                _shutdown(sock)
+
+    def _disarm(self, timer) -> bool:
+        """Whether the deadline passed; afterwards the timer can no
+        longer shut anything down."""
+        timer.cancel()
+        with self._lock:
+            self._open_generation += 1
+            expired, self._open_expired = self._open_expired, False
+        return expired
+
+    def _follow(self, url: str):
         """A streamed 200 response for url, following at most
         MAX_REDIRECTS http(s) redirects, each one a request of its own
         through the proxy."""
@@ -428,7 +477,7 @@ class StreamPump:
     def _read(self, url: str, limit: int) -> tuple:
         """(body, final url) of one GET bounded in size and in time."""
         deadline = time.monotonic() + self._stall_timeout
-        response = self._open(url)
+        response = self._open(url, deadline)
         try:
             body = bytearray()
             for chunk in self._chunks(response):
@@ -442,7 +491,7 @@ class StreamPump:
 
     def _fetch(self, url: str):
         deadline = time.monotonic() + self._stall_timeout
-        response = self._open(url)
+        response = self._open(url, deadline)
         try:
             chunks = self._chunks(response)
             first = next(chunks, b"")

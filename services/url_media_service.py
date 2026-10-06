@@ -53,6 +53,7 @@ from urllib.parse import urljoin, urlsplit
 import background_jobs
 import db
 import storage
+import video_export
 from services import drama_service, media_upload_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -178,9 +179,7 @@ def ydl_options(tmp_dir: str, caps: _Caps) -> dict:
 
 
 def _extract_cmd(video_path: str, wav_path: str) -> list:
-    """-protocol_whitelist file: a downloaded "mp4" could really be an HLS
-    playlist naming network URLs; ffmpeg may only open local files."""
-    return ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", video_path, "-vn",
+    return ["ffmpeg", "-y", *video_export.local_input(), "-i", video_path, "-vn",
             "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wav_path]
 
 

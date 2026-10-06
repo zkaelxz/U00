@@ -55,6 +55,7 @@ import time
 
 import background_jobs
 import db
+import video_export
 from services import drama_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
@@ -528,9 +529,7 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
     ddir = db.drama_dir(drama_id)
     part_path = os.path.join(ddir, ".audio.extract.wav")
     background_jobs.update_progress(job_id, 0.05, "Extracting audio from the video...")
-    # -protocol_whitelist file: an upload named .mp4 could really be an HLS
-    # playlist naming network URLs; ffmpeg may only open local files.
-    cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", staged, "-vn",
+    cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", staged, "-vn",
            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", part_path]
     failed = _EXTRACT_FAILED
     try:

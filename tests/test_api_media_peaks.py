@@ -13,6 +13,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
+import video_export
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import media_peaks_service as svc
@@ -77,7 +78,7 @@ def test_ffmpeg_gets_the_window_and_a_timeout_and_no_shell(client, did, ffmpeg):
     cmd, kw = ffmpeg.calls[0]
     assert cmd[cmd.index("-ss") + 1] == "12.500" and cmd[cmd.index("-t") + 1] == "7.500"
     assert kw["timeout"] == svc.DECODE_TIMEOUT_SECONDS and not kw.get("shell")
-    assert cmd[cmd.index("-protocol_whitelist") + 1] == "file"
+    assert cmd[cmd.index("-protocol_whitelist"):][:4] == video_export.local_input()
     assert cmd.index("-protocol_whitelist") < cmd.index("-i")
     assert cmd.count("-t") == 2 and cmd.index("-t", cmd.index("-i")) > cmd.index("-i")
 

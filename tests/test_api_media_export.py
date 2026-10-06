@@ -13,6 +13,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+import video_export
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -561,5 +562,6 @@ def test_video_ffmpeg_inputs_are_file_only(client, drama, isolated_db, fake_ffmp
     cmd, _ = fake_ffmpeg.calls[0]
     inputs = [i for i, a in enumerate(cmd) if a == "-i"]
     assert inputs
+    assert cmd[inputs[0] - 4:inputs[0]] == video_export.local_input(), cmd
     for i in inputs:
-        assert cmd[i - 2:i] == ["-protocol_whitelist", "file"], cmd
+        assert cmd[i - 4:i - 1] == ["-protocol_whitelist", "file", "-format_whitelist"], cmd

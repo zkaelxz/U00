@@ -5,9 +5,14 @@ test_export_formats.py already uses for burn_ass/burn_subtitles) -- these
 pin the constructed command and the estimate math, not real video output.
 Whether a rendered clip actually plays and looks right is a manual check
 (per the roadmap's own exit condition), not something a unit test can judge.
+The input-whitelist tests at the end run a real ffmpeg and skip without one.
 """
 import os
+import shutil
+import socket
+import subprocess
 import sys
+import threading
 
 import pytest
 
@@ -125,3 +130,144 @@ class TestOtherFfmpegTimeouts:
         monkeypatch.setattr(subprocess, "run", lambda cmd, **k: seen.append(k.get("timeout")))
         core.extract_audio_from_video("v.mp4", "a.wav")
         assert seen == [core.EXTRACT_AUDIO_TIMEOUT_SECONDS]
+
+
+# ---- input whitelist: real ffmpeg on real files --------------------------
+
+HAS_FFMPEG = shutil.which("ffmpeg") is not None
+_needs_ffmpeg = pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
+
+_TONE = ["-f", "lavfi", "-i", "sine=d=1"]
+_PICTURE = ["-f", "lavfi", "-i", "testsrc=d=1:s=64x64:r=10"]
+# Each accepted upload/download extension, as ffmpeg writes it, plus
+# mislabelled files the whitelist still has to take: MPEG-TS saved as .mp4
+# and raw ADTS AAC saved as .m4a.
+_SAMPLES = {
+    ".mp3": _TONE + ["-c:a", "libmp3lame"],
+    ".wav": _TONE + ["-c:a", "pcm_s16le"],
+    ".m4a": _TONE + ["-c:a", "aac"],
+    ".flac": _TONE + ["-c:a", "flac"],
+    ".ogg": _TONE + ["-c:a", "libvorbis"],
+    ".mp4": _PICTURE + _TONE + ["-c:v", "mpeg4", "-c:a", "aac"],
+    ".mkv": _PICTURE + _TONE + ["-c:v", "mpeg4", "-c:a", "aac"],
+    ".mov": _PICTURE + _TONE + ["-c:v", "mpeg4", "-c:a", "aac"],
+    ".webm": _PICTURE + _TONE + ["-c:v", "libvpx", "-c:a", "libopus"],
+    "ts.mp4": _PICTURE + _TONE + ["-c:v", "mpeg4", "-c:a", "aac", "-f", "mpegts"],
+    "adts.m4a": _TONE + ["-c:a", "aac", "-f", "adts"],
+}
+
+
+def _encoders() -> str:
+    return subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True,
+                          text=True, timeout=30).stdout if HAS_FFMPEG else ""
+
+
+def _sample(tmp_path, kind: str) -> str:
+    args = _SAMPLES[kind]
+    for codec in args[args.index("-c:a") + 1:][:1] + (
+            [args[args.index("-c:v") + 1]] if "-c:v" in args else []):
+        if f" {codec} " not in _encoders():
+            pytest.skip(f"this ffmpeg has no {codec} encoder")
+    path = str(tmp_path / ("sample" + kind if kind.startswith(".") else kind))
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *args, "-t", "1", path],
+                   check=True, timeout=60)
+    return path
+
+
+def test_every_accepted_extension_has_a_sample():
+    from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
+    assert set(AUDIO_EXTENSIONS + VIDEO_EXTENSIONS) <= set(_SAMPLES)
+
+
+@_needs_ffmpeg
+@pytest.mark.parametrize("kind", list(_SAMPLES))
+def test_audio_extraction_reads_every_supported_input(tmp_path, kind):
+    """The upload and URL-import extraction command, as run on each type."""
+    from services import url_media_service
+    wav = str(tmp_path / "out.wav")
+    subprocess.run(url_media_service._extract_cmd(_sample(tmp_path, kind), wav),
+                   check=True, capture_output=True, timeout=60)
+    assert os.path.getsize(wav) > 1000
+
+
+@_needs_ffmpeg
+@pytest.mark.parametrize("kind", [".mp3", ".flac", ".mp4", ".webm"])
+def test_waveform_peaks_decode_supported_inputs(tmp_path, kind):
+    from services import media_peaks_service
+    pcm = media_peaks_service._decode(_sample(tmp_path, kind), 0.0, 0.5)
+    assert len(pcm) > 1000
+
+
+@_needs_ffmpeg
+@pytest.mark.parametrize("kind", [".mp4", ".mkv", ".mov", ".webm"])
+def test_video_exports_read_supported_inputs(tmp_path, kind):
+    """Soft subtitles, the dub track (replaced and mixed) and the burned-in
+    preview, on each accepted video type."""
+    video = _sample(tmp_path, kind)
+    dub = _sample(tmp_path, ".wav")
+    srt = tmp_path / "s.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:00:00,800\nhi\n", encoding="utf-8")
+    # These test the inputs: VP8 and Opus can't be stream-copied into .mp4.
+    out_ext = ".mkv" if kind in (".mkv", ".webm") else ".mp4"
+    runs = {
+        "softsub": ve.mux_soft_subtitles_cmd(video, str(srt), str(tmp_path / f"s{out_ext}")),
+        "dub": ve.replace_audio_with_dub_cmd(video, dub, str(tmp_path / "d.mkv")),
+        "dub_mixed": ve.replace_audio_with_dub_cmd(video, dub, str(tmp_path / "m.mkv"), -20),
+    }
+    for name, cmd in runs.items():
+        result = subprocess.run(cmd, capture_output=True, timeout=60)
+        assert result.returncode == 0, (name, result.stderr[-500:])
+        assert os.path.getsize(cmd[-1]) > 0
+    if " subtitles " in subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                                       capture_output=True, text=True, timeout=30).stdout:
+        out = str(tmp_path / "p.mp4")
+        ve.render_preview_clip(video, "[Script Info]\n", out, 0.0, 0.5)
+        assert os.path.getsize(out) > 0
+
+
+class _Listener:
+    """Counts connections to a loopback port."""
+
+    def __init__(self):
+        self.connections = 0
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(4)
+        self.port = self.sock.getsockname()[1]
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            self.connections += 1
+            conn.close()
+
+    def close(self):
+        self.sock.close()
+
+
+@_needs_ffmpeg
+def test_a_dash_manifest_saved_as_mp4_opens_no_connection(tmp_path):
+    """ffmpeg 6.1's DASH demuxer opens http fragment URLs even under
+    `-protocol_whitelist file` (checked when this was written), so the
+    format whitelist is what keeps a manifest uploaded as .mp4 unread."""
+    listener = _Listener()
+    fake = tmp_path / "source.mp4"
+    fake.write_text(
+        '<?xml version="1.0"?><MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" '
+        'mediaPresentationDuration="PT2S" minBufferTime="PT1S" '
+        'profiles="urn:mpeg:dash:profile:isoff-on-demand:2011"><Period>'
+        '<AdaptationSet mimeType="audio/mp4"><Representation id="a" bandwidth="1">'
+        f"<BaseURL>http://127.0.0.1:{listener.port}/a.mp4</BaseURL></Representation>"
+        "</AdaptationSet></Period></MPD>", encoding="utf-8")
+    from services import url_media_service
+    try:
+        result = subprocess.run(url_media_service._extract_cmd(str(fake), str(tmp_path / "o.wav")),
+                                capture_output=True, timeout=30)
+    finally:
+        listener.close()
+    assert listener.connections == 0
+    assert b"Format not on whitelist" in result.stderr and result.returncode != 0
