@@ -376,6 +376,7 @@ baihe-subtitler/
 │   ├── url_media_service.py      Workspace "From a URL" -- yt-dlp download job urlmedia_ (public-URL check,
 │   │                             size/time/live/playlist caps, no cookies, temp dir, field-scoped write)
 │   ├── media_playback_service.py Migration Slice 52 -- contained path lookup for audio/video playback
+│   ├── media_peaks_service.py    Downsampled audio peaks for the Review waveform timeline
 │   ├── comic_view_service.py     comic viewer: page list, contained page-image lookup (magic-byte type,
 │   │                             no symlinks, 50 MB cap, no PIL), visible text regions, page progress
 │   ├── scanlate_pages_service.py Scanlate S1/S2: panel config, page detail by stable region id, run notes,

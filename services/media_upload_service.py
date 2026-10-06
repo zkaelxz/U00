@@ -31,13 +31,15 @@ client still polls one job id. Cancel kills the ffmpeg process tree.
 
 The client's filename is never used for storage or returned: only its
 extension is read, and only if it is on the whitelist. The body is streamed
-to a temp file in the drama folder (capped at BAIHE_MAX_UPLOAD_MB, default
-2048) and fsynced before it is renamed into place. No path is ever returned.
+to a temp file in the drama folder (capped by `max_upload_bytes`) and fsynced
+before it is renamed into place. No path is ever returned.
 
 No FastAPI import: takes a binary file-like object.
 """
 import contextlib
+import math
 import os
+import shutil
 import sqlite3
 import stat
 import subprocess
@@ -47,14 +49,19 @@ import time
 
 import background_jobs
 import db
-from services import drama_service
+from services import drama_service, settings_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm")
 _CHUNK = 1024 * 1024
-_DEFAULT_MAX_MB = 2048
-_TOO_LARGE = "The uploaded file is too large."
+_MB = 1024 * 1024
+# Free space kept back after an upload, so a fill-to-the-brim upload doesn't
+# leave the library's database unable to write.
+_DISK_MARGIN_BYTES = 256 * _MB
+UPLOAD_LIMIT_HINT = "Change it in Settings > Advanced > Uploads."
+_NO_DISK_ROOM = ("There is not enough free disk space for this upload. Free up space on the "
+                 "Baihe PC or upload a smaller file.")
 # The content modes with an audio pipeline (source_service's
 # `has_audio_pipeline`); keep in sync by hand.
 UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
@@ -82,12 +89,60 @@ claims_lock = threading.Lock()
 claimed = set()
 
 
-def max_upload_bytes() -> int:
+def _env_limit_mb():
+    """BAIHE_MAX_UPLOAD_MB as a positive finite number, else None. A zero,
+    negative or unparseable value is ignored rather than read as a 0-byte
+    limit, which would silently block every upload."""
     try:
-        mb = float(os.environ.get("BAIHE_MAX_UPLOAD_MB", _DEFAULT_MAX_MB))
+        mb = float(os.environ.get("BAIHE_MAX_UPLOAD_MB", ""))
     except ValueError:
-        mb = _DEFAULT_MAX_MB
-    return int(max(mb, 0) * 1024 * 1024)
+        return None
+    if not (math.isfinite(mb) and mb > 0):
+        return None
+    # 1e303 is finite, but int(mb * _MB) would overflow to inf.
+    return min(mb, settings_service.MAX_UPLOAD_MB)
+
+
+def upload_limit_from_env() -> bool:
+    return _env_limit_mb() is not None
+
+
+def max_upload_bytes() -> int:
+    """The environment variable wins over the saved setting so an owner who
+    pinned a limit there isn't overridden from the UI. Every caller sits on
+    a local_only() route (the household listener refuses uploads outright),
+    so there is no separate household limit to apply."""
+    mb = _env_limit_mb()
+    if mb is None:
+        mb = settings_service.get_preference("max_upload_mb")
+    return int(mb * _MB)
+
+
+def too_large_message(limit: int) -> str:
+    return f"That file is larger than the {limit // _MB} MB upload limit. {UPLOAD_LIMIT_HINT}"
+
+
+def _check_disk_room(folder, fileobj):
+    """Refuses before copying when the drive can't hold the upload. Skipped
+    when the size or free space can't be read, so an odd file object or a
+    drive that doesn't report free space never blocks an upload."""
+    try:
+        here = fileobj.tell()
+        size = fileobj.seek(0, os.SEEK_END) - here
+        fileobj.seek(here)
+    except (AttributeError, OSError, ValueError):
+        return
+    check_room_for(folder, size)
+
+
+def check_room_for(folder, size):
+    """Same refusal for a size known up front (a Content-Length)."""
+    try:
+        free = shutil.disk_usage(folder).free
+    except OSError:
+        return
+    if free < size + _DISK_MARGIN_BYTES:
+        raise InvalidInputError(_NO_DISK_ROOM)
 
 
 def _safe_extension(client_filename) -> str:
@@ -288,6 +343,7 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
         raise InvalidInputError(_CONFIRM_REPLACE, details={"reason": "confirm_replace_audio"})
     limit = max_upload_bytes()
     ddir = db.drama_dir(drama_id)
+    _check_disk_room(ddir, fileobj)
     fd, tmp_path = tempfile.mkstemp(prefix=".upload_", suffix=".part", dir=ddir)
     size = 0
     try:
@@ -298,7 +354,7 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
                     break
                 size += len(chunk)
                 if size > limit:
-                    raise InvalidInputError(_TOO_LARGE)
+                    raise InvalidInputError(too_large_message(limit))
                 out.write(chunk)
             out.flush()
             os.fsync(out.fileno())
@@ -458,6 +514,6 @@ def get_media_status(drama_id) -> dict:
         "drama_id": drama_id,
         "has_audio": bool(audio and os.path.exists(os.path.join(db.drama_dir(drama_id), audio))),
         "has_source_video": bool(drama.get("source_video_filename")),
-        "upload_max_mb": max_upload_bytes() // (1024 * 1024),
+        "upload_max_mb": max_upload_bytes() // _MB,
         **kept_media_usage(drama_id),
     }
