@@ -215,7 +215,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
     thread job `softsub_video_<drama_id>`: the SRT for `field` (en, zh or
     bilingual) is added as a selectable subtitle track, video and audio
     are stream-copied. .mp4/.mkv sources keep their container, anything
-    else becomes .mp4 (mov_text). Output kind "softsub_video".
+    else (.webm, .mov, ...) becomes .mkv (srt). Output kind "softsub_video".
     Raises NotFoundError, InvalidInputError (no lines, no source video,
     bad field), DependencyUnavailableError (ffmpeg missing), ConflictError
     (a video export already running). Returns {"job_id": ...}."""
@@ -227,9 +227,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
                                                      include_notes=include_notes)
     _require_ffmpeg()
     job_id = f"softsub_video_{drama_id}"
-    ext = os.path.splitext(video_path)[1].lower()
-    if ext not in (".mp4", ".mkv"):
-        ext = ".mp4"
+    ext = video_export.softsub_output_extension(video_path)
     language = "eng" if field == "en" else "und"
     return _start_video_job(drama_id, job_id, _softsub_video_job, job_id, drama_id, video_path,
                             srt_text, ext, language,

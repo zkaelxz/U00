@@ -295,13 +295,13 @@ def test_softsub_runs_and_writes_artifact(client, drama, isolated_db, fake_ffmpe
     assert "language=und" in cmd
 
 
-def test_softsub_other_container_becomes_mp4(client, drama, isolated_db, fake_ffmpeg):
+def test_softsub_other_container_becomes_mkv(client, drama, isolated_db, fake_ffmpeg):
     _add_video(isolated_db, drama, "source.webm")
     assert client.post(f"/api/export/dramas/{drama}/softsub-video").status_code == 200
     assert _wait(f"softsub_video_{drama}")["status"] == "done"
-    assert artifact_service.get_artifact(drama, "softsub_video")["name"] == f"softsub_video_{drama}.mp4"
+    assert artifact_service.get_artifact(drama, "softsub_video")["name"] == f"softsub_video_{drama}.mkv"
     cmd, _ = fake_ffmpeg.calls[0]
-    assert cmd[cmd.index("-c:s") + 1] == "mov_text" and "language=eng" in cmd
+    assert cmd[-1].endswith(".mkv") and cmd[cmd.index("-c:s") + 1] == "srt" and "language=eng" in cmd
 
 
 def test_softsub_srt_holds_the_lines(client, drama, isolated_db, monkeypatch):

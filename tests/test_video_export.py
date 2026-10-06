@@ -125,3 +125,39 @@ class TestOtherFfmpegTimeouts:
         monkeypatch.setattr(subprocess, "run", lambda cmd, **k: seen.append(k.get("timeout")))
         core.extract_audio_from_video("v.mp4", "a.wav")
         assert seen == [core.EXTRACT_AUDIO_TIMEOUT_SECONDS]
+
+
+class TestSoftsubContainer:
+    @pytest.mark.parametrize("source,expected", [
+        ("a.mp4", ".mp4"), ("a.mkv", ".mkv"), ("a.webm", ".mkv"), ("a.mov", ".mkv"),
+        ("a.avi", ".mkv"), ("a.flv", ".mkv"), ("a.ts", ".mkv"),
+        ("A.MP4", ".mp4"), ("A.MKV", ".mkv"), ("A.WEBM", ".mkv"), ("noext", ".mkv"),
+    ])
+    def test_extension_choice(self, source, expected):
+        assert ve.softsub_output_extension(source) == expected
+
+    @pytest.mark.parametrize("source,codec", [
+        ("a.mp4", "mov_text"), ("a.mkv", "srt"), ("a.webm", "srt"), ("a.mov", "srt"),
+        ("a.avi", "srt"), ("A.WEBM", "srt"),
+    ])
+    def test_command_codec_follows_chosen_container(self, source, codec):
+        out = "out" + ve.softsub_output_extension(source)
+        cmd = ve.mux_soft_subtitles_cmd(source, "s.srt", out)
+        assert cmd[cmd.index("-c:s") + 1] == codec
+        assert cmd[cmd.index("-c:v") + 1] == "copy" and cmd[cmd.index("-c:a") + 1] == "copy"
+
+    def test_webm_with_vp8_and_opus_muxes_with_real_ffmpeg(self, tmp_path):
+        import shutil
+        import subprocess
+        if not shutil.which("ffmpeg"):
+            pytest.skip("ffmpeg not installed")
+        src = tmp_path / "t.webm"
+        made = subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=d=1:s=64x64:r=10",
+             "-f", "lavfi", "-i", "sine=d=1", "-c:v", "libvpx", "-c:a", "libopus", str(src)],
+            capture_output=True)
+        if made.returncode != 0:
+            pytest.skip("ffmpeg lacks libvpx/libopus")
+        out = str(tmp_path / ("out" + ve.softsub_output_extension(str(src))))
+        ve.mux_soft_subtitles(str(src), "1\n00:00:00,000 --> 00:00:00,900\nhi\n", out)
+        assert os.path.getsize(out) > 0

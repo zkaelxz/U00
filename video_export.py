@@ -163,6 +163,14 @@ def burn_ass(video_path: str, ass_text: str, out_path: str):
 _FILE_ONLY = ("-protocol_whitelist", "file")
 
 
+def softsub_output_extension(video_path: str) -> str:
+    """.mp4 and .mkv sources keep their container; everything else becomes
+    .mkv, because MP4 refuses stream-copied VP8/VP9/Opus and the like while
+    Matroska accepts whatever codec the source holds."""
+    ext = os.path.splitext(video_path)[1].lower()
+    return ext if ext in (".mp4", ".mkv") else ".mkv"
+
+
 def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
                            language: str = "eng") -> list:
     """The ffmpeg argument list mux_soft_subtitles runs (also used by the
@@ -180,7 +188,8 @@ def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
 
 def mux_soft_subtitles(video_path: str, srt_text: str, out_path: str, language: str = "eng"):
     """Softsub: subtitles added as a selectable/toggleable track.
-    Output must be .mp4 (mov_text codec) or .mkv (srt codec passthrough)."""
+    Output must be .mp4 (mov_text codec) or .mkv (srt codec); pick the
+    extension with softsub_output_extension."""
     srt_path = _write_srt_tempfile(srt_text)
     try:
         subprocess.run(mux_soft_subtitles_cmd(video_path, srt_path, out_path, language),
