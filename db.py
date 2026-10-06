@@ -2191,6 +2191,17 @@ def update_drama(drama_id: int, **fields):
         conn.commit()
 
 
+def set_status_if(drama_id: int, expected: str, new: str) -> bool:
+    """Changes the status only while it is still `expected`, in one statement,
+    so a concurrent dub or export that set a later status is never undone."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "UPDATE dramas SET status = ?, updated_at = ? WHERE id = ? AND status = ?",
+            (new, datetime.datetime.utcnow().isoformat(), drama_id, expected))
+        conn.commit()
+        return cur.rowcount > 0
+
+
 def set_drama_notion_page_id(drama_id: int, page_id):
     """Roadmap 112: records (or clears, with None) the Notion page a drama
     was exported to. Left out of update_drama on purpose: an export is not

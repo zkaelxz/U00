@@ -203,6 +203,11 @@ def start_background_services() -> dict:
     except Exception as exc:
         _log("leftover deleted-drama folders were not swept: %s", exc)
     try:
+        import bulk_translate
+        bulk_translate.repair_stale_aligned_statuses()
+    except Exception as exc:
+        _log("stale 'aligned' statuses were not corrected: %s", exc)
+    try:
         import storage
         storage.sweep_stale_temp()
     except Exception as exc:
