@@ -636,6 +636,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     separation_backend = drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"]
     prompt = _resolve_initial_prompt(drama_id, initial_prompt or "", extra_names or "")
     use_gpu = settings_service.get_use_gpu()
+    # Read here, in the parent, and frozen with the other settings for the saved run settings.
+    gpu_app_settings = raw_transcript.current_gpu_app_settings()
     if transcript_mode == "hardsub_ocr":
         started = background_jobs.start_job(
             job_id, _run_transcribe_and_apply_job, job_id, drama_id, audio_path, transcript_mode,
@@ -651,6 +653,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             use_gpu, asr_backend_choice, alignment_method,
             min_speakers=min_speakers, max_speakers=max_speakers,
             hallucination_silence_sec=hallucination_silence_sec,
+            gpu_app_settings=gpu_app_settings,
             gpu_touching=True, description=description)
     else:
         # The worker's temp files go here; removed by on_finish however the
@@ -679,7 +682,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                     whisper_size=whisper_size, use_gpu=use_gpu, transcript_mode=transcript_mode,
                     alignment_method=alignment_method, hf_token=hf_token,
                     diarize_audio_path=diarize_audio_path, expected_speakers=expected_speakers,
-                    min_speakers=min_speakers, max_speakers=max_speakers),
+                    min_speakers=min_speakers, max_speakers=max_speakers,
+                    gpu_app_settings=gpu_app_settings),
                 on_finish=functools.partial(_remove_scratch_dir, scratch_dir,
                                             part_dir=os.path.dirname(audio_path)))
         except BaseException:
@@ -875,7 +879,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                                    diarize_audio_path=None, use_gpu=False,
                                    asr_backend_choice="whisper", alignment_method="whisper_diff",
                                    min_speakers=None, max_speakers=None,
-                                   hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC):
+                                   hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
+                                   gpu_app_settings=None):
     """The thread-job body (start_transcribe_run uses it for hardsub_ocr):
     runs the pipeline in this thread (_transcribe_pipeline), applies the
     result to the drama's lines and optionally chain-starts diarization
@@ -913,7 +918,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         use_gpu=use_gpu, transcript_mode=transcript_mode, alignment_method=alignment_method,
         hf_token=hf_token, diarize_audio_path=diarize_audio_path,
         expected_speakers=expected_speakers, min_speakers=min_speakers,
-        max_speakers=max_speakers))
+        max_speakers=max_speakers, gpu_app_settings=gpu_app_settings))
 
 
 def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_language,
@@ -1429,12 +1434,25 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             "whisper_clock": whisper_clock, "stage_seconds": stage_seconds,
             "word_align_error": word_align_error,
             "forced_align_error": forced_align_error, "coverage_warning": coverage_msg,
-            "moss_run": moss_run, "moss_truncated": bool(moss_info.get("truncated"))}
+            "moss_run": moss_run, "moss_truncated": bool(moss_info.get("truncated")),
+            "run_config": {
+                "asr_backend": asr_backend_choice, "whisper_size": whisper_size,
+                "local_model_path": local_model_path, "language": source_language,
+                "transcript_mode": transcript_mode, "alignment_method": alignment_method,
+                "min_silence_ms": min_silence_ms, "vad_threshold": vad_threshold,
+                "beam_size": beam_size, "hallucination_silence_sec": hallucination_silence_sec,
+                "whisper_fast_mode": whisper_fast_mode, "use_groq": use_groq,
+                "separate_vocals_first": separate_vocals_first,
+                "separation_backend": separation_backend,
+                "realign_long_segments": realign_long_segments,
+                "mixed_languages": mixed_languages, "vad_refine_timing": vad_refine_timing,
+                "use_gpu": use_gpu, "initial_prompt": initial_prompt}}
 
 
 def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_size, use_gpu,
                          transcript_mode, alignment_method, hf_token, diarize_audio_path,
-                         expected_speakers, min_speakers=None, max_speakers=None) -> dict:
+                         expected_speakers, min_speakers=None, max_speakers=None,
+                         gpu_app_settings=None) -> dict:
     """Applies a _transcribe_pipeline outcome to the drama and returns the
     job's result: replaces its lines (history snapshot first), writes the
     raw transcript, marks it "aligned", records MOSS speakers, chain-starts
@@ -1468,7 +1486,13 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     db.save_lines(drama_id, lines)
     raw_transcript.write_raw_transcript(
         db.drama_dir(drama_id), segments, lines, backend=outcome["raw_backend"],
-        model=outcome["raw_model"], language=source_language, mode=outcome["raw_mode"])
+        model=outcome["raw_model"], language=source_language, mode=outcome["raw_mode"],
+        settings=raw_transcript.build_run_settings(
+            **outcome["run_config"], expected_speakers=expected_speakers,
+            min_speakers=min_speakers, max_speakers=max_speakers,
+            gpu_fallback_msgs=gpu_fallback_msg, stage_seconds=outcome["stage_seconds"],
+            **(gpu_app_settings or raw_transcript.current_gpu_app_settings()))
+        if outcome.get("run_config") else None)
     db.update_drama(drama_id, status="aligned")
 
     # MOSS already labelled speakers: record them as characters and don't

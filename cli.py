@@ -507,6 +507,7 @@ def cmd_align(args):
             raise RuntimeError(
                 "use_groq is on but no Groq API key is configured. Set one in Settings first.")
         local_model_path = settings_service.get_whisper_model_path()
+        app_gpu_settings = raw_transcript.current_gpu_app_settings()
         gpu_fallback = []
         started = time.monotonic()
         if use_groq:
@@ -583,7 +584,20 @@ def cmd_align(args):
         # Same untouched-output record the Workspace transcription writes.
         raw_transcript.write_raw_transcript(
             ddir, segments, lines, backend="whisper", model=whisper_size,
-            language=language, mode="aligned_transcript")
+            language=language, mode="aligned_transcript",
+            settings=raw_transcript.build_run_settings(
+                asr_backend="whisper", whisper_size=whisper_size,
+                local_model_path=local_model_path, language=language,
+                transcript_mode="have_transcript", alignment_method=alignment_method,
+                min_silence_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
+                beam_size=cfg["beam_size"],
+                hallucination_silence_sec=cfg["hallucination_silence_sec"],
+                whisper_fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
+                use_groq=use_groq, separate_vocals_first=cfg["separate_vocals_first"],
+                separation_backend=cfg["separation_backend"],
+                realign_long_segments=cfg["realign_long_segments"],
+                mixed_languages=False, use_gpu=use_gpu, gpu_fallback_msgs=gpu_fallback,
+                initial_prompt=initial_prompt, **app_gpu_settings))
         db.update_drama(d["id"], status="aligned")
         print(f"#{d['id']} aligned {len(lines)} lines.")
 
