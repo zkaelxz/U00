@@ -372,6 +372,40 @@ export const MAX_MERGE_LINES = 50
 export const LINES_CHANGED_MESSAGE = 'Lines changed since this page loaded. Reload and try again.'
 export const JOB_RUNNING_MESSAGE = 'A job is running on this drama. Structure edits wait until it finishes.'
 
+/** What the server gave back to undo one structural change (the snapshot taken before it, and
+ *  a fingerprint of the lines it left, so an undo refuses if they were edited since). */
+export interface UndoHandle {
+  historyId: number
+  fingerprint: string
+}
+
+export function undoHandleOf(r: { history_id?: number | null; lines_fingerprint?: string | null }): UndoHandle | null {
+  return r.history_id && r.lines_fingerprint ? { historyId: r.history_id, fingerprint: r.lines_fingerprint } : null
+}
+
+export const UNDO_CHANGED_MESSAGE = 'The lines changed since. Restore from Records → Line history instead.'
+export const UNDO_GONE_MESSAGE = 'This change can no longer be undone here. Records → Line history has the saved versions.'
+
+export type UndoKind = 'split' | 'merge' | 'delete' | 'resplit'
+
+/** What an undo really brings back: notes and emotion tags live outside the snapshot, so a
+ *  deleted line's are gone and a merge's stay on the line they were merged into. */
+export function undoDoneMessage(kind: UndoKind): string {
+  if (kind === 'delete')
+    return 'Undone. The line is back with its text, translation, timing, speaker and flag, but not its notes or emotion tag.'
+  if (kind === 'merge') return 'Undone. The merged lines are back; their notes and emotion tags stay on the line they were merged into.'
+  return 'Undone. The lines are back as they were before.'
+}
+
+/** A refused undo in plain text, and whether the offer is still worth keeping (a running job
+ *  only delays it), or null to show the generic banner. */
+export function undoRefusal(e: unknown): { text: string; keepOffer: boolean } | null {
+  if (!(e instanceof ApiError)) return null
+  if (e.status === 404) return { text: UNDO_GONE_MESSAGE, keepOffer: false }
+  if (e.status !== 409) return null
+  return /job/i.test(e.message) ? { text: JOB_RUNNING_MESSAGE, keepOffer: true } : { text: UNDO_CHANGED_MESSAGE, keepOffer: false }
+}
+
 /** Plain text for a structure-edit failure, or null to show the generic banner. */
 export function structureErrorText(e: unknown): string | null {
   if (!(e instanceof ApiError) || e.status !== 409) return null
