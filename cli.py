@@ -509,6 +509,7 @@ def cmd_align(args):
                 fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
                 initial_prompt=initial_prompt, beam_size=cfg["beam_size"],
                 min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
+                hallucination_silence_sec=cfg["hallucination_silence_sec"],
                 on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
         if not segments:
             release_gpu_models()
