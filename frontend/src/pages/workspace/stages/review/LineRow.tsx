@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { memo, useEffect, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 
 import { retryBlockedLine } from '../../../../api/review'
 import { translateApi } from '../../../../api/translate'
@@ -116,6 +116,36 @@ function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
   return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
 }
 
+// The chip stays one clipped line; a button reveals the whole note so the
+// advice is readable on touch, where there is no hover.
+export function FlagToggle({ text, open, onToggle, controls, children }: {
+  text: string
+  open: boolean
+  onToggle: (open: boolean) => void
+  controls: string
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      className="review-flag-toggle"
+      title={text}
+      aria-expanded={open}
+      aria-controls={open ? controls : undefined}
+      onClick={() => onToggle(!open)}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && open) {
+          // Keep Esc from also leaving the row's edit mode.
+          e.stopPropagation()
+          onToggle(false)
+        }
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
 const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
 
 // One line: meta, source and translation. The active row (roving tabIndex)
@@ -123,6 +153,8 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // the AI panel are only rendered while open, so a long list stays light.
 function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
+  const [flagOpen, setFlagOpen] = useState(false)
+  const flagNoteId = `flag-note-${line.id}`
   const langChip = lineLangChip(line.lang, sourceLanguage)
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -187,16 +219,17 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
         {line.dub_filename && !isPhone && <span>Dub: {line.dub_filename}</span>}
-        {line.flag && (
+        {line.flag && !isPhone && (
           <span className="review-flag" data-testid="line-flag">
-            {isPhone ? (
-              <>
-                <span aria-hidden="true">⚑</span>
-                <span className="sr-only"> Flagged: {flagText(line)}</span>
-              </>
-            ) : (
+            <FlagToggle text={flagText(line)} open={flagOpen} onToggle={setFlagOpen} controls={flagNoteId}>
               <Badge tone="warn">⚑ {flagText(line)}</Badge>
-            )}
+            </FlagToggle>
+          </span>
+        )}
+        {line.flag && isPhone && (
+          <span className="review-flag" data-testid="line-flag">
+            <span aria-hidden="true">⚑</span>
+            <span className="sr-only"> Flagged: {flagText(line)}</span>
           </span>
         )}
         <button
@@ -211,9 +244,14 @@ function LineRowImpl({ dramaId, line, sourceLanguage, active, selected, isPhone,
       </div>
       {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}
       {isPhone && active && line.flag && (
-        <div className="review-flag review-flag-line" aria-hidden="true">
-          Flagged: {flagText(line)}
+        <div className="review-flag review-flag-line">
+          <FlagToggle text={`Flagged: ${flagText(line)}`} open={flagOpen} onToggle={setFlagOpen} controls={flagNoteId}>
+            Flagged: {flagText(line)}
+          </FlagToggle>
         </div>
+      )}
+      {line.flag && flagOpen && (
+        <p id={flagNoteId} className="review-flag-open" role="note">{flagText(line)}</p>
       )}
       <div className="review-body">
         <div lang="zh" className="review-zh">{line.zh}</div>

@@ -193,7 +193,7 @@ def test_oversize_rejected_and_partial_deleted(client, isolated_db, monkeypatch)
     did = db.create_drama(title_en="D")
     r = _up(client, did, "a.mp3", b"x" * 100)
     assert r.status_code == 422
-    assert r.json()["error"]["message"] == "The uploaded file is too large."
+    assert r.json()["error"]["message"] .startswith("That file is larger than the")
     assert os.listdir(db.drama_dir(did)) == []
     assert not db.get_drama(did).get("audio_filename")
 

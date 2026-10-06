@@ -33,6 +33,8 @@ import {
   OCR_LABELS,
   parseCap,
   parseNumCtx,
+  parseUploadMb,
+  DEFAULT_UPLOAD_MB,
   SAVED_ON_PC_NOTE,
   type Parsed,
 } from './preferences'
@@ -182,7 +184,7 @@ export function AdvancedCard(props: Props) {
   const p = settings.preferences
   const c = settings.choices
   return (
-    <Card title="Advanced" meta="OCR, offline models, downloads and server addresses" aria-label="Advanced">
+    <Card title="Advanced" meta="OCR, offline models, downloads, upload size and server addresses" aria-label="Advanced">
       <PrefsSection
         {...common}
         title="OCR"
@@ -275,6 +277,41 @@ export function AdvancedCard(props: Props) {
             </Field>
             <Field label="Novel downloader (lightnovel-crawler)" help="Only needed if you installed lightnovel-crawler (a separate program you install yourself) and it isn't on PATH. The full path to lncrawl on the Baihe PC; the file must be named lncrawl or lightnovel-crawler. Blank to find it on PATH.">
               <input type="text" spellCheck={false} value={String(d.lncrawl_cmd)} onChange={(e) => set('lncrawl_cmd', e.target.value)} placeholder="C:\Users\you\.local\bin\lncrawl.exe" />
+            </Field>
+          </>
+        )}
+      </PrefsSection>
+      <PrefsSection
+        {...common}
+        title="Uploads"
+        summary={`Limit ${settings.effective_upload_max_mb.toLocaleString('en-US')} MB${settings.upload_max_mb_from_env ? ' · set by the environment' : ''}`}
+        fromPrefs={(x) => ({ max_upload_mb: String(x.max_upload_mb) })}
+        toPatch={(d) => {
+          const n = parseUploadMb(String(d.max_upload_mb), DEFAULT_UPLOAD_MB)
+          return n.ok ? { ok: true, value: { max_upload_mb: n.value } } : n
+        }}
+      >
+        {(d, set) => (
+          <>
+            {settings.upload_max_mb_from_env && (
+              <p className="settings-note">Set by the environment, so it can't be changed here.</p>
+            )}
+            <Field
+              label="Upload size limit (MB)"
+              help={
+                settings.upload_max_mb_from_env
+                  ? `Set by the environment (BAIHE_MAX_UPLOAD_MB), so it is ${settings.effective_upload_max_mb.toLocaleString('en-US')} MB and can't be changed here. Remove the variable to use a saved limit.`
+                  : `The largest audio or video file or backup you can upload to this PC. From 100 to 1,048,576 MB; blank uses ${DEFAULT_UPLOAD_MB.toLocaleString('en-US')} MB. The drive also needs room for the file. Other devices can't upload.`
+              }
+            >
+              <input
+                type="text"
+                inputMode="numeric"
+                value={settings.upload_max_mb_from_env ? String(settings.effective_upload_max_mb) : String(d.max_upload_mb)}
+                disabled={settings.upload_max_mb_from_env}
+                onChange={(e) => set('max_upload_mb', e.target.value)}
+                placeholder={String(DEFAULT_UPLOAD_MB)}
+              />
             </Field>
           </>
         )}

@@ -83,6 +83,11 @@ __all__ = [
     "MergeShortPreview",
     "MergeShortApply",
     "MergeShortResult",
+    "EnCleanupRule",
+    "EnCleanupChange",
+    "EnCleanupPreview",
+    "EnCleanupApply",
+    "EnCleanupResult",
     "StyleProfileView",
     "StyleHistoryEntry",
     "StyleState",
@@ -529,6 +534,11 @@ class ResegmentStart(_RestructureBase):
 class ResplitStart(_RestructureBase):
     align_to_audio: StrictBool = False
     confirm: StrictBool = False
+    sensitivity: Literal["normal", "more", "sentence"] = "normal"
+    # Replaces the preset's duration limit; None keeps the preset's own.
+    max_seconds: Optional[float] = Field(None, ge=2, le=120)
+    # Count what would be split without writing anything.
+    dry_run: StrictBool = False
 
 
 class ResplitResult(BaseModel):
@@ -544,6 +554,8 @@ class ResplitResult(BaseModel):
     cleared_translations: Optional[int] = None
     speakers_reassigned: Optional[bool] = None
     note: Optional[str] = None
+    dry_run: Optional[bool] = None
+    pieces: Optional[int] = None
 
 
 class ResegmentStarted(BaseModel):
@@ -749,6 +761,45 @@ class MergeShortApply(_RestructureBase):
 
 class MergeShortResult(RestructureResult):
     merged_groups: int
+
+
+class EnCleanupRule(BaseModel):
+    rule: str
+    label: str
+    lines: int
+
+
+class EnCleanupChange(BaseModel):
+    line_id: int
+    idx: int
+    before: str
+    after: str
+    rules: List[str]
+
+
+class EnCleanupPreview(BaseModel):
+    drama_id: int
+    lines_scanned: int
+    lines_changed: int
+    lines_skipped: int = Field(
+        default=0, description="Lines over the length guard, left untouched.")
+    rules: List[EnCleanupRule]
+    changes: List[EnCleanupChange] = Field(description="Capped; `truncated` says more exist.")
+    truncated: bool
+    plan_hash: str
+
+
+class EnCleanupApply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_plan_hash: str = Field(
+        min_length=1, max_length=128,
+        description="The preview's `plan_hash`; 409 if a fresh cleanup would differ.")
+
+
+class EnCleanupResult(BaseModel):
+    applied: int
+    stale: int
+    history_id: int
 
 
 class StyleProfileView(BaseModel):

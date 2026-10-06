@@ -5,6 +5,7 @@ import type { ReviewLine } from '../../../../types/review'
 import {
   adjacentRun,
   resplitNeedsConfirm,
+  resplitPreviewSummary,
   resplitSummary,
   speakerTimeFooter,
   speakerTimeLines,
@@ -42,6 +43,7 @@ import {
   pageStillMatches,
   resegmentSummary,
   splitPieces,
+  splitTranslationPieces,
   stepFrom,
   structureErrorText,
   languageSetText,
@@ -294,6 +296,14 @@ describe('re-split summary', () => {
   it('reports nothing to split', () => {
     expect(resplitSummary({ split_lines: 0 })).toMatch(/Nothing changed/)
   })
+  it('summarises a dry run', () => {
+    expect(resplitPreviewSummary({ dry_run: true, split_lines: 31, pieces: 118 })).toBe('Preview: 31 lines would be split into 118.')
+    expect(resplitPreviewSummary({ split_lines: 1, pieces: 3, cleared_translations: 1 })).toBe(
+      'Preview: 1 line would be split into 3. 1 translation would be cleared.',
+    )
+    expect(resplitPreviewSummary({ split_lines: 0, note: 'No line is over the limits at Normal sensitivity. Try "More".' })).toMatch(/Normal sensitivity/)
+    expect(resplitPreviewSummary({ split_lines: 0 })).toBe('Preview: no line would be split.')
+  })
   it('spots the confirm refusal only', () => {
     const e = (s: number, m: string) => new ApiError(s, { code: 'x', message: m })
     expect(resplitNeedsConfirm(e(422, 'pass confirm=true.'))).toBe(true)
@@ -392,5 +402,13 @@ describe('split cut suggestions', () => {
     expect(stepToBoundary('Hello there, friend', 6, -1)).toBe(1)
     expect(stepToBoundary('你好，朋友。你', 3, 1)).toBe(6)
     expect(stepToBoundary('abcdef', 2, 1)).toBe(5)
+  })
+})
+
+describe('splitTranslationPieces', () => {
+  it('trims the way the server does, leaving the cut itself alone', () => {
+    expect(splitTranslationPieces('Thanks,  dear friends', 8)).toEqual(['Thanks,', 'dear friends'])
+    expect(splitTranslationPieces(' Hi there ', 4)).toEqual([' Hi', 'there'])
+    expect(splitPieces('Thanks,  dear friends', 8)).toEqual(['Thanks, ', ' dear friends'])
   })
 })
