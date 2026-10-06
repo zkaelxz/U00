@@ -203,6 +203,7 @@ from engine_backends.translate_pipeline import (  # noqa: F401
     build_reflect_faithful_prompt,
     build_reflect_reflection_prompt,
     build_translation_context,
+    plan_batches,
     reflect_translate_batch,
     translate_lines_with_engine,
 )

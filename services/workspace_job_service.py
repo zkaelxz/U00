@@ -20,7 +20,7 @@ import bulk_translate
 import emotion
 import core as core_module
 from core import transcribe_for_timing
-from services import job_timing_service, line_provenance_service
+from services import job_timing_service, line_provenance_service, settings_service
 
 
 def _id_by_idx(lines):
@@ -123,12 +123,14 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     character_names = tguide.build_speaker_labels(
         db.list_characters_with_series_names(drama_id),
         db.list_series_characters(_series_id) if _series_id else [])
+    scene_aware = settings_service.get_preference("scene_aware_batches")
     # What produced each line, and per-stage timing.
     provenance = line_provenance_service.translate_run_tracker(
         drama_id, lines, engine, engine_choice, glossary_terms, locale=locale,
         style_preset=style_preset, reflect=bool(reflect), context_window=context_window,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
-        style_note=style_note or "", style_guidelines=style_guidelines or "")
+        style_note=style_note or "", style_guidelines=style_guidelines or "",
+        scene_aware_batches=scene_aware)
 
     if own_lines_only:
         _save, _notes = bulk_translate.own_lines_callbacks(drama_id, lines, provenance)
@@ -148,7 +150,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         context_window=context_window, context_window_ahead=context_window_ahead,
         batch_size=batch_size, character_names=character_names,
         ollama_num_ctx_override=ollama_num_ctx_override,
-        reflect=reflect, target_ids=target_ids,
+        reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         cost_cap_usd=cost_cap_usd,
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes,

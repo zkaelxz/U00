@@ -12,6 +12,7 @@ export interface SettingsPreferences {
   default_engine: string
   default_locale: string
   default_style_note: string
+  scene_aware_batches: boolean // translate batches start at scene breaks
   episode_summary_engine: string
   monthly_cap_usd: number | null // null: BAIHE_MONTHLY_CAP_USD from .env applies
   ollama_num_ctx_override: number // 0: sized from the prompt

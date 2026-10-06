@@ -379,6 +379,9 @@ _PREFERENCES = {
     "default_locale": ("en-US", _one_of("default_locale", lambda: LOCALE_CHOICES)),
     "default_style_note": ("", _check_text("default_style_note", _MAX_STYLE_NOTE_LENGTH,
                                            multiline=True)),
+    # Starts translate batches at scene breaks. Safe on by default: a run's
+    # resume re-plans over the lines still untranslated, nothing is keyed by batch.
+    "scene_aware_batches": (True, _check_bool("scene_aware_batches")),
     "episode_summary_engine": ("ollama", _one_of("episode_summary_engine",
                                                  lambda: SUMMARY_ENGINE_CHOICES)),
     "monthly_cap_usd": (None, _check_cap),

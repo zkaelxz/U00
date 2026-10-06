@@ -818,6 +818,7 @@ def cmd_translate(args):
 
         style_note = (args.style_note if args.style_note is not None
                       else settings_service.get_preference("default_style_note"))
+        scene_aware = settings_service.get_preference("scene_aware_batches")
         # Same settings the Workspace job records with each line.
         provenance = line_provenance_service.translate_run_tracker(
             d["id"], lines, engine, engine_name, glossary_terms,
@@ -826,7 +827,8 @@ def cmd_translate(args):
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
-            style_note=style_note or "", style_guidelines=style_guidelines or "")
+            style_note=style_note or "", style_guidelines=style_guidelines or "",
+            scene_aware_batches=scene_aware)
         if force and any(ln.en for ln in lines):
             # Same data-loss guard as translate_run_service: keep the old
             # translation restorable from history before it's overwritten.
@@ -854,7 +856,7 @@ def cmd_translate(args):
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
-            reflect=getattr(args, "reflect", False),
+            reflect=getattr(args, "reflect", False), scene_aware_batches=scene_aware,
             notes_cb=notes_cb,
             progress_cb=_progress,
             save_cb=save_cb,

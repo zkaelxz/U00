@@ -242,6 +242,40 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
 TRANSLATE_PROMPT_VERSION = "1"
 
 
+# A pause this long between two lines is treated as a scene break. Matches
+# core.diagnose_line_coverage's large-gap default so both agree on "large".
+SCENE_BREAK_GAP_SECONDS = 3.0
+
+
+def plan_batches(lines, max_size: int, min_gap: float = SCENE_BREAK_GAP_SECONDS,
+                 tail_fraction: float = 0.25) -> list:
+    """Splits `lines` into consecutive batches of at most `max_size`, ending a
+    batch at a scene break instead of mid-scene where it can.
+
+    A batch may end early only inside its last `tail_fraction` of lines, at
+    the largest pause of at least `min_gap` seconds (the later cut wins a tie,
+    so batches stay large). With no such pause it is cut at `max_size`, which
+    makes a recording with no long silences batch exactly as fixed slices do.
+    Pure and order-only, so a resumed run re-plans the lines still left and
+    gets the same cuts for the same input.
+    """
+    batches = []
+    start, n = 0, len(lines)
+    while start < n:
+        end = min(start + max_size, n)
+        if end < n:
+            earliest = max(start + 1, end - int(max_size * tail_fraction))
+            best_cut, best_gap = end, None
+            for cut in range(earliest, end + 1):
+                gap = lines[cut].start - lines[cut - 1].end
+                if gap >= min_gap and (best_gap is None or gap >= best_gap):
+                    best_cut, best_gap = cut, gap
+            end = best_cut
+        batches.append(lines[start:end])
+        start = end
+    return batches
+
+
 def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int = 20,
                                  style_note: str = "", novel_reference=None, progress_cb=None,
                                  save_cb=None, force_retranslate: bool = False,
@@ -250,8 +284,12 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  context_window: int = 6, context_window_ahead: int = 3,
                                  character_names: dict = None, ollama_num_ctx_override: int = None,
                                  reflect: bool = False, notes_cb=None, cost_cap_usd: float = None,
-                                 cap_cb=None, target_ids=None, detail_cb=None):
-    """detail_cb: optional callable (fraction, message) for a job that wants
+                                 cap_cb=None, target_ids=None, detail_cb=None,
+                                 scene_aware_batches: bool = False):
+    """scene_aware_batches: start batches at scene breaks (plan_batches)
+    instead of cutting fixed slices of batch_size. Same maximum size.
+
+    detail_cb: optional callable (fraction, message) for a job that wants
     finer progress than progress_cb: fires at the start and end of every
     batch, after each Reflect pass starts, and while a retry waits. When
     given it replaces progress_cb entirely, so a caller passes one or the
@@ -384,7 +422,10 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
         if usage_cb:
             usage_cb(inp, out, cache_read, cache_write)
 
-    n_batches = (len(target_lines) + batch_size - 1) // batch_size
+    batches = (plan_batches(target_lines, batch_size) if scene_aware_batches
+               else [target_lines[i:i + batch_size]
+                     for i in range(0, len(target_lines), batch_size)])
+    n_batches = len(batches)
     last_frac = 0.0
 
     def report(frac, message):
@@ -394,10 +435,9 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
         if detail_cb:
             detail_cb(last_frac, message)
 
-    for bi, start in enumerate(range(0, len(target_lines), batch_size)):
+    for bi, batch in enumerate(batches):
         if cancel_check_cb and cancel_check_cb():
             break
-        batch = target_lines[start:start + batch_size]
         batch_label = f"Batch {bi + 1} of {n_batches}"
         report(bi / n_batches, batch_label)
         first_pos = next(i for i, ln in enumerate(lines) if ln.idx == batch[0].idx)

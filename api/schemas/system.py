@@ -296,6 +296,7 @@ class SettingsPreferences(BaseModel):
     default_engine: str
     default_locale: str
     default_style_note: str
+    scene_aware_batches: bool
     episode_summary_engine: str
     monthly_cap_usd: Optional[float] = None
     ollama_num_ctx_override: int
@@ -375,6 +376,7 @@ class SettingsUpdateRequest(BaseModel):
     default_engine: Optional[StrictStr] = Field(None, max_length=40)
     default_locale: Optional[StrictStr] = Field(None, max_length=8)
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)
+    scene_aware_batches: Optional[StrictBool] = None
     episode_summary_engine: Optional[StrictStr] = Field(None, max_length=40)
     monthly_cap_usd: Optional[Union[StrictInt, StrictFloat]] = None
     ollama_num_ctx_override: Optional[StrictInt] = None
