@@ -93,6 +93,19 @@ class _Sink:
         self.closed.set()
 
 
+def _until_peer_closes(conn) -> bool:
+    """Reads until the other side closes (True), or until conn's timeout
+    expires (False: still open, so not a close)."""
+    try:
+        while conn.recv(4096):
+            pass
+        return True
+    except ConnectionResetError:
+        return True
+    except OSError:
+        return False
+
+
 def _run(url, sink=None, timeout=10, **kw):
     sink = sink or _Sink()
     pump = live_fetch.StreamPump(url, sink, **kw).start()
@@ -375,10 +388,7 @@ def test_stop_ends_a_blocked_fetch_promptly_and_closes_its_connection(serve):
         handler.wfile.write(b"some")
         handler.wfile.flush()
         handler.connection.settimeout(10)
-        try:
-            if handler.connection.recv(1) == b"":
-                server.closed_by_client.set()
-        except OSError:
+        if _until_peer_closes(handler.connection):
             server.closed_by_client.set()
 
     s = serve({"/a": (200, {}, hang)})
@@ -417,11 +427,7 @@ class _Silent:
             return
         self.accepted.set()
         conn.settimeout(10)
-        try:
-            while conn.recv(4096):
-                pass
-            self.closed_by_client.set()
-        except OSError:
+        if _until_peer_closes(conn):
             self.closed_by_client.set()
         conn.close()
 

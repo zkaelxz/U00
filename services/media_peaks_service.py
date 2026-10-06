@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import threading
 
+import video_export
 from services import media_playback_service
 from services.service_errors import (
     DependencyUnavailableError, InvalidInputError, NotFoundError, RateLimitedError)
@@ -76,9 +77,7 @@ def bucket_peaks(pcm: bytes, buckets: int) -> list:
 
 def _decode(path: str, start: float, end: float) -> bytes:
     span = f"{end - start:.3f}"
-    # The file is user-supplied: an upload named .mp4 could be an HLS/DASH
-    # manifest naming network URLs, so only the file protocol may be opened.
-    cmd = ["ffmpeg", "-v", "error", "-protocol_whitelist", "file", "-ss", f"{start:.3f}", "-t", span,
+    cmd = ["ffmpeg", "-v", "error", *video_export.local_input(), "-ss", f"{start:.3f}", "-t", span,
            "-i", path, "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE),
            # Repeated as an output option so a file with odd timestamps can't emit more than the window.
            "-t", span, "-f", "s16le", "-"]

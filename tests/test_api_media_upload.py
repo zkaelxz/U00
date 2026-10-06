@@ -15,6 +15,7 @@ pytest.importorskip("multipart")
 from fastapi.testclient import TestClient
 
 import background_jobs
+import video_export
 from api.api_config import ApiSettings
 from api.server import create_app
 
@@ -142,7 +143,7 @@ def test_extract_ffmpeg_opens_local_files_only(client, isolated_db, monkeypatch)
     did = db.create_drama(title_en="D")
     assert _wait(_up(client, did, "a.mp4").json()["job_id"])["status"] == "done"
     i = cmds[0].index("-i")
-    assert cmds[0][i - 2:i] == ["-protocol_whitelist", "file"]
+    assert cmds[0][i - 4:i] == video_export.local_input()
 
 
 def test_video_extract_cancel_is_cancelled_and_keeps_the_upload(client, isolated_db, monkeypatch):

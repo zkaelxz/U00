@@ -157,9 +157,7 @@ def _burned_video_job(job_id, drama_id, video_path, ass_text, ext):
         with open(os.path.join(tmp, "subs.ass"), "w", encoding="utf-8") as f:
             f.write(ass_text)
         out_name = f"out{ext}"
-        # -protocol_whitelist file: a source named .mp4 could really be an HLS
-        # playlist naming network URLs; ffmpeg may only open local files.
-        cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", video_path,
+        cmd = ["ffmpeg", "-y", *video_export.local_input(), "-i", video_path,
                "-vf", "subtitles=subs.ass",
                "-c:a", "copy", out_name]
         _run_video_ffmpeg(job_id, cmd, tmp)
