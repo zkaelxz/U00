@@ -10,6 +10,7 @@ import { AiExtrasMerge } from './review/AiExtrasMerge'
 import { AiExtrasSenseVoice } from './review/AiExtrasSenseVoice'
 import { AiExtrasStyle } from './review/AiExtrasStyle'
 import { CompareTranscription } from './review/CompareTranscription'
+import { RetimeLines } from './review/RetimeLines'
 import { LinesPanel } from './review/LinesPanel'
 import { LineSelectionProvider } from './review/LineSelectionContext'
 import { RecordsPanel } from './review/RecordsPanel'
@@ -61,6 +62,9 @@ export default function ReviewStage() {
   // the section and shows the ticked lines there.
   const [compareSignal, setCompareSignal] = useState(0)
   const openCompare = useCallback(() => setCompareSignal((n) => n + 1), [])
+  // Same for "Re-time with Qwen3 aligner…".
+  const [retimeSignal, setRetimeSignal] = useState(0)
+  const openRetime = useCallback(() => setRetimeSignal((n) => n + 1), [])
   const [lineCount, setLineCount] = useState<number | null>(null)
   // A finding's line link: the editor opens that line (by id where known).
   const [goTo, setGoTo] = useState<{ target: LineTarget; seq: number; resolve: (m: string | null) => void } | null>(null)
@@ -98,6 +102,7 @@ export default function ReviewStage() {
         onLineCount={setLineCount}
         onFlaggedCount={setFlaggedCount}
         onCompareSelected={openCompare}
+        onRetimeSelected={openRetime}
         goTo={goTo}
       />
       <ReviewChecks
@@ -125,12 +130,13 @@ export default function ReviewStage() {
                 )}
               </Fold>
             )}
-            <Fold storageKey="review.fold.history" title="Versions and history" openSignal={compareSignal || undefined} summary="Notes · versions · history · compare · compare transcription · edit tendencies">
+            <Fold storageKey="review.fold.history" title="Versions and history" openSignal={compareSignal + retimeSignal || undefined} summary="Notes · versions · history · compare · compare transcription · re-time · edit tendencies">
               {(opened) => (
                 <>
                   <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} onGoTo={goToLine} />
                   {parts.history}
                   {!!lineCount && opened && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={compareSignal || undefined} />}
+                  {!!lineCount && opened && <RetimeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={retimeSignal || undefined} />}
                   {!!lineCount && opened && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />}
                 </>
               )}

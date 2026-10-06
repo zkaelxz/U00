@@ -508,7 +508,8 @@ def _still_matches(ln, expected: dict) -> bool:
     return True
 
 
-def _snapshot_once_per_run(drama_id: int, run_token, lines):
+def _snapshot_once_per_run(drama_id: int, run_token, lines,
+                           label: str = "before compare-transcription apply"):
     """Takes the 'before' snapshot, unless this run already took one and no
     other snapshot has been taken since (undo to it still restores the state
     before this run's first apply)."""
@@ -517,8 +518,7 @@ def _snapshot_once_per_run(drama_id: int, run_token, lines):
         latest = db.list_line_history(drama_id)
         if latest and latest[0]["id"] == taken[1]:
             return
-    history_id = db.save_line_history_snapshot(drama_id, lines,
-                                               "before compare-transcription apply")
+    history_id = db.save_line_history_snapshot(drama_id, lines, label)
     _run_snapshots[drama_id] = (run_token, history_id)
 
 
