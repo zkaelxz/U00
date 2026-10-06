@@ -560,6 +560,12 @@ def test_the_deadline_timer_is_cancelled_once_a_request_is_done(serve, monkeypat
             timers.append(self)
 
     monkeypatch.setattr(live_fetch.threading, "Timer", Timer)
+
+    def deadlines():
+        # Timer is patched process-wide: ignore any other Timer made meanwhile
+        return [t for t in timers
+                if getattr(t.function, "__func__", None) is live_fetch.StreamPump._expire]
+
     def hold(handler, server):
         handler.wfile.write(b"some")
         handler.wfile.flush()
@@ -568,7 +574,7 @@ def test_the_deadline_timer_is_cancelled_once_a_request_is_done(serve, monkeypat
     s = serve({"/k": (200, {}, b"0123456789abcdef"), "/live": (200, {}, hold)})
     pump = live_fetch.StreamPump(f"{s.base}/live", _Sink())
     assert pump._read(f"{s.base}/k", 16)[0] == b"0123456789abcdef"
-    assert len(timers) == 1 and timers[0].finished.is_set()
+    assert len(deadlines()) == 1 and deadlines()[0].finished.is_set()
 
     sink = _Sink()
     pump = live_fetch.StreamPump(f"{s.base}/live", sink).start()
@@ -578,10 +584,10 @@ def test_the_deadline_timer_is_cancelled_once_a_request_is_done(serve, monkeypat
             time.sleep(0.02)
         assert bytes(sink.data) == b"some"
         # A stream that is not HLS, still being piped: only its start was timed.
-        assert len(timers) == 2 and timers[1].finished.is_set()
+        assert len(deadlines()) == 2 and deadlines()[1].finished.is_set()
     finally:
         pump.halt()
         pump.join(5)
-    for timer in timers:
+    for timer in deadlines():
         timer.join(1)
         assert not timer.is_alive()

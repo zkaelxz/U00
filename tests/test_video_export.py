@@ -245,8 +245,8 @@ def test_waveform_peaks_decode_supported_inputs(tmp_path, kind):
 @_needs_ffmpeg
 @pytest.mark.parametrize("kind", [".mp4", ".mkv", ".mov", ".webm", ".avi"])
 def test_video_exports_read_supported_inputs(tmp_path, kind):
-    """Soft subtitles, the dub track (replaced and mixed) and the burned-in
-    preview, on each accepted video type and a legacy .avi source."""
+    """Soft subtitles and the dub track (replaced and mixed), on each accepted
+    video type and a legacy .avi source."""
     video = _sample(tmp_path, kind)
     dub = _sample(tmp_path, ".wav")
     srt = tmp_path / "s.srt"
@@ -262,6 +262,12 @@ def test_video_exports_read_supported_inputs(tmp_path, kind):
         result = subprocess.run(cmd, capture_output=True, timeout=60)
         assert result.returncode == 0, (name, result.stderr[-500:])
         assert os.path.getsize(cmd[-1]) > 0
+
+
+@_needs_ffmpeg
+@pytest.mark.parametrize("kind", [".mp4", ".mkv", ".mov", ".webm", ".avi"])
+def test_burned_in_preview_reads_supported_inputs(tmp_path, kind):
+    video = _sample(tmp_path, kind)
     if " subtitles " not in subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
                                            capture_output=True, text=True, timeout=30).stdout:
         pytest.skip("this ffmpeg has no subtitles filter (the preview was not tried)")
@@ -270,6 +276,13 @@ def test_video_exports_read_supported_inputs(tmp_path, kind):
     out = str(tmp_path / "p.mp4")
     ve.render_preview_clip(video, "[Script Info]\n", out, 0.0, 0.5)
     assert os.path.getsize(out) > 0
+
+
+def test_the_local_format_whitelist_names_no_playlist_or_network_format():
+    names = set(ve.LOCAL_MEDIA_FORMATS.split(","))
+    risky = {"hls", "dash", "concat", "ffconcat", "imf", "image2", "lavfi", "sdp",
+             "rtp", "rtsp", "webvtt", "vobsub"}
+    assert not names & risky
 
 
 class _Listener:

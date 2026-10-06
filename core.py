@@ -821,9 +821,16 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
     punctuation, then at commas, then at spaces next to CJK text, packing
     neighbouring pieces up to the limits.
 
-    Whisper segments carry no word timing at this point, so each piece gets a
-    share of the original span proportional to its character count: boundaries
-    are estimates, but pieces stay contiguous, increasing and inside the span.
+    When a segment carries Whisper word timings that spell exactly its text,
+    pieces are timed by their own first and last word, and a line with no
+    punctuation is cut at the real pauses between words. Without words, or when
+    they cannot be mapped onto the text exactly, the old estimate is the
+    fallback: each piece gets a share of the original span proportional to its
+    character count, so boundaries are guesses but pieces stay contiguous,
+    increasing and inside the span. That fallback still cuts at punctuation
+    (a failed word mapping does not leave a punctuated line whole, because a
+    punctuation cut is what this function did before words existed); a line
+    with no punctuation is left whole.
     Text with no usable cut, and short segments, are returned as they are.
     Other keys (speaker) are copied onto every piece.
 

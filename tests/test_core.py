@@ -1360,7 +1360,7 @@ class TestWordTimestampsKept:
     def test_a_line_with_no_punctuation_is_cut_at_the_real_pauses(self):
         import core
         text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心" * 2
-        # 66 chars at 0.25 s = 16.5 s; real silences after chars 22 and 44
+        # 66 chars at 0.25 s = 16.5 s, plus 1.6 s of real silences after chars 22 and 44
         seg = self._seg(text, pauses={22: 0.9, 44: 0.7})
         assert seg["end"] - seg["start"] > 17
         out = core.split_long_segments([seg])
@@ -1371,6 +1371,17 @@ class TestWordTimestampsKept:
             (words[0]["start"], words[21]["end"]), (words[22]["start"], words[43]["end"]),
             (words[44]["start"], words[-1]["end"])]
         assert [p["words"] for p in out] == [words[:22], words[22:44], words[44:]]
+
+    def test_a_17_second_unpunctuated_clip_with_four_pauses_is_cut(self):
+        import core
+        # about 17 s and 56 characters: 56 * 0.25 s = 14 s of speech plus 3 s of pauses
+        text = "我今天去了公园然后看到很多人在那边跳舞我也跟着跳了一会儿觉得很开心真的太好玩了下次还想再来而且天气特别好大家都很高兴一直玩到天黑才回家"[:56]
+        assert len(text) == 56
+        seg = self._seg(text, pauses={14: 0.75, 28: 1.0, 42: 0.75, 49: 0.5})
+        assert 16.5 < seg["end"] - seg["start"] < 17.5
+        out = core.split_long_segments([seg])
+        assert len(out) >= 2 and "".join(p["text"] for p in out) == text
+        assert all(p["end"] - p["start"] <= core.SPLIT_MAX_SECONDS for p in out)
 
     def test_cuts_happen_only_while_pieces_are_still_too_long(self):
         import core
@@ -1434,11 +1445,29 @@ class TestWordTimestampsKept:
         seg = self._seg(text, pauses={20: core.MIN_WORD_GAP_SECONDS - 0.05})
         assert core.split_long_segments([seg], max_seconds=8) == [seg]
 
+    @staticmethod
+    def _seg_with_exact_gap(text, gap):
+        """Words that touch (end = next start) except `gap` before char 20; every
+        time is a multiple of 1/16, exact in binary, so the gap is exact."""
+        words, t = [], 0.0
+        for i, ch in enumerate(text):
+            t += gap if i == 20 else 0.0
+            words.append({"start": t, "end": t + 0.25, "word": ch})
+            t += 0.25
+        return {"start": 0.0, "end": t, "text": text, "words": words}
+
     def test_pause_exactly_at_the_minimum_is_a_cut_point(self):
         import core
         text = "一二三四五六七八九十" * 4
-        seg = self._seg(text, pauses={20: core.MIN_WORD_GAP_SECONDS + 0.01})
+        assert core.MIN_WORD_GAP_SECONDS == 0.25  # the 0.25 s gap below must stay the minimum
+        seg = self._seg_with_exact_gap(text, core.MIN_WORD_GAP_SECONDS)
         assert len(core.split_long_segments([seg], max_seconds=8)) == 2
+
+    def test_pause_just_under_the_minimum_is_not_a_cut_point(self):
+        import core
+        text = "一二三四五六七八九十" * 4
+        seg = self._seg_with_exact_gap(text, core.MIN_WORD_GAP_SECONDS - 0.0625)
+        assert core.split_long_segments([seg], max_seconds=8) == [seg]
 
     def test_floors_keep_a_stub_from_being_cut_off(self):
         import core
