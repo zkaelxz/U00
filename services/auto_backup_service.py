@@ -1365,7 +1365,8 @@ def _import_file_ref(folder, value, subdir):
     """`value` (normalised to "/") when it is a plain file name, or
     "<subdir>/<plain name>", that stays inside `folder`; None otherwise,
     and always None when `folder` is None (the drama's files weren't
-    imported)."""
+    imported). A name that is a folder there (e.g. "pages") is None: a
+    file column naming it would let a media replace move the folder."""
     if folder is None or not isinstance(value, str) or "\x00" in value or ":" in value:
         return None
     parts = value.replace("\\", "/").split("/")
@@ -1375,7 +1376,8 @@ def _import_file_ref(folder, value, subdir):
         base, name = os.path.join(folder, subdir), parts[1]
     else:
         return None
-    if delete_service.file_in_folder(base, name) is None:
+    path = delete_service.file_in_folder(base, name)
+    if path is None or os.path.isdir(path):
         return None
     return name if len(parts) == 1 else f"{subdir}/{name}"
 

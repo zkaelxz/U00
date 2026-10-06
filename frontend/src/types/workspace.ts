@@ -14,7 +14,7 @@ export interface MediaStatus {
 }
 
 export interface MediaUploadResult {
-  name: string
+  name: string | null
   size: number
   kind: string
   // Set for a video: the background audio-extraction job.

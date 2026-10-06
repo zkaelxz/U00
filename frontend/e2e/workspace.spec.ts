@@ -173,6 +173,43 @@ test('upload-and-transcribe waits for the replace box, also after the server ask
   expect(confirms).toEqual([null, 'true'])
 })
 
+test('after upload-and-transcribe the next run transcribes the stored audio instead of uploading again', async ({ page }) => {
+  await page.route('**/api/media/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_audio: true, has_source_video: false, upload_max_mb: 500, kept_media_files: 0, kept_media_bytes: 0 } }),
+  )
+  const uploads: (string | null)[] = []
+  await page.route('**/api/media/dramas/1/upload-and-transcribe', async (route) => {
+    const body = route.request().postDataBuffer()?.toString('latin1') ?? ''
+    uploads.push(/name="confirm_replace_audio"\r\n\r\n(\w+)/.exec(body)?.[1] ?? null)
+    await route.fulfill({ json: { upload: { name: 'source-2.mp3', size: 3, kind: 'audio', job_id: null }, job_id: 'fake-job' } })
+  })
+  const runs: unknown[] = []
+  await page.route('**/api/transcribe/dramas/1/run', async (route) => {
+    runs.push(route.request().postDataJSON())
+    await route.fulfill({ json: { job_id: 'fake-job' } })
+  })
+  await page.route('**/api/jobs/fake-job', (route) => route.fulfill({ json: job('done', { progress: 1, finished_at: 2 }) }))
+  await page.goto('/#/drama/1/source')
+  await expect(page.getByTestId('media-status')).toContainText('Audio attached')
+  await page.getByLabel('Audio or video file').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  const transcript = page.getByLabel('Transcript text', { exact: true })
+  if (await transcript.count()) await transcript.fill('line one')
+  const box = page.getByLabel(/Replace the current audio\/video/)
+  await box.check()
+  const transcribe = page.getByRole('button', { name: 'Transcribe', exact: true })
+  await transcribe.click()
+  await expect(page.getByTestId('job-status')).toContainText('Done')
+  expect(uploads).toEqual(['true'])
+
+  // The picked file and the replace tick are spent: the next run uses the stored audio.
+  await expect(box).not.toBeChecked()
+  await expect(page.getByRole('button', { name: 'Upload', exact: true })).toBeDisabled()
+  await expect(transcribe).toBeEnabled()
+  await transcribe.click()
+  await expect.poll(() => runs.length).toBe(1)
+  expect(uploads).toEqual(['true'])
+})
+
 test('starts a transcription with the right body, polls the job and cancels it', async ({ page }) => {
   const run = await mockRun(page, 1)
   await page.goto('/#/drama/1/source')

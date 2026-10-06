@@ -265,7 +265,13 @@ export default function SourceStage() {
     >
       <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} confirmReplace={confirmReplace}
         replaceUnconfirmed={mustConfirm && !replace} onReplaceRefused={() => setServerHasMedia(true)} busy={busy}
-        onJobStarted={(id, expected) => {
+        onJobStarted={(id, expected, sentFile) => {
+          // Otherwise every later run would upload the same file again and keep another full copy.
+          if (sentFile) {
+            setFile(null)
+            setReplace(false)
+            setServerHasMedia(false)
+          }
           setExpectedSeconds(expected ?? null)
           setJobId(id)
         }}

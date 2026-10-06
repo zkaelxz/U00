@@ -350,11 +350,47 @@ class TestFrontDoor:
         # generic yt-dlp path, unchanged.
         url = "https://www.youtube.com/watch?v=abc123def45"
         assert front_door.preview(url).content_type == front_door.VIDEO
-        front_door.import_video(url, drama_id)
-        assert calls == [(url, isolated_db.drama_dir(drama_id), True)]
+        path = front_door.import_video(url, drama_id)
+        assert [(c[0], c[2]) for c in calls] == [(url, True)]
+        # Downloaded to a temp folder, then put in place like an upload.
+        assert calls[0][1] != isolated_db.drama_dir(drama_id)
         d = isolated_db.get_drama(drama_id)
-        assert d["audio_filename"] == "downloaded_audio.wav" and d["source_url"] == url
+        assert d["audio_filename"] == "source.wav" and d["source_url"] == url
+        assert path == os.path.join(isolated_db.drama_dir(drama_id), "source.wav")
         assert d["title_zh"] == "A stream title"
+
+    def test_a_video_import_keeps_the_audio_it_replaces(self, isolated_db, monkeypatch):
+        import core
+        import video_download
+
+        def fake_download(url, out_dir, **_kw):
+            path = os.path.join(out_dir, "clip.mp4")
+            with open(path, "wb") as f:
+                f.write(b"video")
+            return path
+
+        def fake_extract(video_path, out_path):
+            with open(out_path, "wb") as f:
+                f.write(b"new audio")
+            return out_path
+        monkeypatch.setattr(video_download, "download", fake_download)
+        monkeypatch.setattr(core, "extract_audio_from_video", fake_extract)
+        drama_id = isolated_db.create_drama(media_type="streamer_vod")
+        ddir = isolated_db.drama_dir(drama_id)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"old audio")
+        isolated_db.update_drama(drama_id, audio_filename="audio.wav")
+
+        path = front_door.import_video("https://www.youtube.com/watch?v=abc123def45", drama_id,
+                                       audio_only=False)
+        d = isolated_db.get_drama(drama_id)
+        assert d["source_video_filename"] == "source.mp4" and path == os.path.join(ddir, "source.mp4")
+        with open(os.path.join(ddir, d["audio_filename"]), "rb") as f:
+            assert f.read() == b"new audio"
+        kept = os.listdir(os.path.join(ddir, "kept_media"))
+        assert len(kept) == 1 and kept[0].startswith("replaced-")
+        with open(os.path.join(ddir, "kept_media", kept[0]), "rb") as f:
+            assert f.read() == b"old audio"
 
 
 class TestBilibiliRouting:

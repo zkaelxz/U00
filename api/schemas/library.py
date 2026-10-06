@@ -294,7 +294,8 @@ class DramaDeleteResult(BaseModel):
 
 
 class MediaUploadResult(BaseModel):
-    name: str
+    # None for a video: its name is picked when the extraction job puts it in place.
+    name: Optional[str] = None
     size: int
     kind: str
     # Set for a video -- the background audio-extraction job to poll.
