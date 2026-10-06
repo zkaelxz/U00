@@ -71,8 +71,7 @@ describe('no request bypasses api/client.ts', () => {
           .filter(([, comment, body]) => /\bPC[- ]only\b/i.test(comment) && /\b(postJson|postMultipart|putJson|patchJson|deleteJson)\b/.test(body) && !body.includes('pcOnlyFetch'))
           .map(([, , body]) => `${file.slice(1)}: ${body.split('\n')[0].trim()}`),
       )
-    // updatePreferences is the known gap, kept visible rather than fixed here.
-    expect(hits).toEqual(['src/api/settings.ts: export const updatePreferences = (patch: Partial<SettingsPreferences>, f?: Fetch) =>'])
+    expect(hits).toEqual([])
   })
 
   it('the rules catch what they should', () => {

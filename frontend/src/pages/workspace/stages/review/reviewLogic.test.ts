@@ -9,6 +9,7 @@ import {
   speakerTimeFooter,
   speakerTimeLines,
   buildPatch,
+  timingPatch,
   canResegmentWith,
   droppedText,
   llmApplyProblem,
@@ -308,5 +309,49 @@ describe('speaker time summary', () => {
   it('footer mentions the uncovered audio only when known', () => {
     expect(speakerTimeFooter(sum)).toBe('4:20 of speech in the saved detection; 1:01:40 of the audio has no speaker turn.')
     expect(speakerTimeFooter({ ...sum, uncovered_seconds: null })).toBe('4:20 of speech in the saved detection.')
+  })
+})
+
+describe('timingPatch', () => {
+  const at = (idx: number, start: number, end: number) => mk(idx, { idx, start, end })
+  const mid = at(1, 5, 7)
+  const around = { prev: at(0, 1, 4), next: at(2, 8, 10) }
+
+  it('is a normal expected-checked patch for one field', () => {
+    expect(timingPatch(mid, around, 'start', 5.1)).toEqual({ start: 5.1, expected: { start: 5 } })
+    expect(timingPatch(mid, around, 'end', 7.5)).toEqual({ end: 7.5, expected: { end: 7 } })
+  })
+
+  it('rounds away float noise and never goes below zero', () => {
+    expect(timingPatch(mid, around, 'end', 7 + 0.1 + 0.2)).toEqual({ end: 7.3, expected: { end: 7 } })
+    expect(timingPatch(at(0, 0.05, 2), {}, 'start', -0.05)).toEqual({ start: 0, expected: { start: 0.05 } })
+  })
+
+  it('refuses a start at or after the end, with the existing message', () => {
+    expect(timingPatch(mid, around, 'start', 7)).toBe('End must be after start.')
+    expect(timingPatch(mid, around, 'end', 5)).toBe('End must be after start.')
+  })
+
+  it('refuses to push into the previous or next line', () => {
+    expect(timingPatch(mid, around, 'start', 3.9)).toBe('Start would overlap line #1.')
+    expect(timingPatch(mid, around, 'end', 8.1)).toBe('End would overlap line #3.')
+    expect(timingPatch(mid, around, 'start', 4)).toEqual({ start: 4, expected: { start: 5 } })
+    expect(timingPatch(mid, around, 'end', 8)).toEqual({ end: 8, expected: { end: 7 } })
+  })
+
+  it('lets a line that already overlaps move out of the overlap', () => {
+    const tight = at(1, 3, 7)
+    expect(timingPatch(tight, around, 'start', 3.5)).toEqual({ start: 3.5, expected: { start: 3 } })
+    expect(timingPatch(tight, around, 'start', 2.5)).toBe('Start would overlap line #1.')
+  })
+
+  it('ignores neighbours that are not adjacent in the script (filtered lists)', () => {
+    const far = { prev: at(0, 1, 6), next: at(9, 5, 10) }
+    expect(timingPatch(at(4, 5, 7), far, 'start', 4)).toEqual({ start: 4, expected: { start: 5 } })
+    expect(timingPatch(at(4, 5, 7), far, 'end', 9)).toEqual({ end: 9, expected: { end: 7 } })
+  })
+
+  it('is null when nothing would change', () => {
+    expect(timingPatch(mid, around, 'start', 5)).toBeNull()
   })
 })

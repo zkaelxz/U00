@@ -160,6 +160,7 @@ def _seed_series(c, name="Saga"):
     _insert(c, "glossary_terms", series_id=sid, term_original="剑", term_translation="sword")
     _insert(c, "translation_memory", series_id=sid, source_text="你好", translation="Hello",
             use_count=3, updated_at="2026-01-03")
+    _insert(c, "glossary_dismissals", series_id=sid, term_original="路人", created_at="2026-01-04")
     return sid, sc
 
 
@@ -247,7 +248,8 @@ SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results", "speaker_merge
 LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
 PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
-SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory")
+SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory",
+                   "glossary_dismissals")
 
 
 def _fk_child_tables():
