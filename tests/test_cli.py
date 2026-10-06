@@ -1843,6 +1843,29 @@ class TestExportVideoAtomic(TestExportVideoAss):
         assert [n for n in os.listdir(isolated_db.drama_dir(did)) if "partial" in n] == []
 
 
+class TestExportVideoSoftsubContainer(TestExportVideoAtomic):
+    @pytest.mark.parametrize("source,final", [
+        ("source.webm", "subtitled_episode.mkv"), ("source.mkv", "subtitled_episode.mkv"),
+        ("source.mp4", "subtitled_episode.mp4"), ("SOURCE.WEBM", "subtitled_episode.mkv"),
+    ])
+    def test_softsub_picks_the_same_container_as_the_app(self, isolated_db, monkeypatch, source, final):
+        import os
+        import video_export
+        did = self._drama(isolated_db)
+        isolated_db.update_drama(did, source_video_filename=source)
+        with open(os.path.join(isolated_db.drama_dir(did), source), "wb") as f:
+            f.write(b"x")
+        seen = []
+        monkeypatch.setattr(video_export, "mux_soft_subtitles",
+                            lambda v, srt, out: (seen.append(out), open(out, "wb").write(b"n")))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_export_video(argparse.Namespace(
+                id=did, style=None, mode="softsub", plain=True, no_speaker_colors=False,
+                subs="english"))
+        assert os.path.splitext(seen[0])[1] == os.path.splitext(final)[1]
+        assert os.path.exists(os.path.join(isolated_db.drama_dir(did), final))
+
+
 class TestLocaleParity:
     """The English variants are defined once (settings_service.LOCALE_CHOICES);
     the CLI, the translate-run service, the prompt and the frontend labels follow it."""
