@@ -306,6 +306,9 @@ class MediaStatus(BaseModel):
     has_audio: bool
     has_source_video: bool
     upload_max_mb: int
+    # Superseded originals and failed uploads kept in the title's folder.
+    kept_media_files: int = 0
+    kept_media_bytes: int = 0
 
 
 class MediaPeaks(BaseModel):

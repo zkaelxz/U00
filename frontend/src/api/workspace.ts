@@ -35,9 +35,12 @@ type Fetch = typeof fetch
 export const getMediaStatus = (id: number, f?: Fetch) =>
   getJson<MediaStatus>(`/api/media/dramas/${id}/status`, f)
 
-export const uploadMedia = (id: number, file: File, f?: Fetch) => {
+// confirmReplace: the drama already has audio/video (the server refuses with
+// 422 reason "confirm_replace_audio" otherwise); the old file is kept.
+export const uploadMedia = (id: number, file: File, confirmReplace: boolean, f?: Fetch) => {
   const form = new FormData()
   form.append('file', file)
+  if (confirmReplace) form.append('confirm_replace_audio', 'true')
   return postMultipart<MediaUploadResult>(`/api/media/dramas/${id}/upload`, form, f)
 }
 
@@ -46,10 +49,12 @@ export const uploadAndTranscribe = (
   id: number,
   file: File,
   opts: TranscribeRunRequest,
+  confirmReplace: boolean,
   f?: Fetch,
 ) => {
   const form = new FormData()
   form.append('file', file)
+  if (confirmReplace) form.append('confirm_replace_audio', 'true')
   for (const [key, value] of Object.entries(opts)) {
     if (value !== undefined && value !== null) form.append(key, String(value))
   }
