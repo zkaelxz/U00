@@ -35,3 +35,17 @@ def test_min_silence_bounds_match_core():
 def test_novel_epub_cap_matches_the_attach_service():
     assert (_ts_number("pages/workspace/stages/novelFile.ts", "MAX_NOVEL_EPUB_BYTES")
             == novel_attach_service.MAX_EPUB_BYTES)
+
+
+def _ts_extensions(path, name):
+    text = (SRC / path).read_text(encoding="utf-8")
+    m = re.search(rf"const {name} = \[([^\]]*)\]", text)
+    assert m, f"{name} not found in {path}"
+    return re.findall(r"'(\.[a-z0-9]+)'", m.group(1))
+
+
+def test_media_extension_lists_match_the_upload_service():
+    from services import media_upload_service as mus
+    path = "pages/workspace/sourceForm.ts"
+    assert tuple(_ts_extensions(path, "AUDIO_EXTENSIONS")) == mus.AUDIO_EXTENSIONS
+    assert tuple(_ts_extensions(path, "VIDEO_EXTENSIONS")) == mus.VIDEO_EXTENSIONS

@@ -8,7 +8,7 @@ const expect = baseExpect.configure({ timeout: 15_000 })
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
-async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: boolean; hasSourceVideo?: boolean } = {}) {
+async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: boolean; hasSourceVideo?: boolean; hardsub?: boolean } = {}) {
   const s = { bodies: [] as unknown[], unmocked: [] as string[], job: 'none' as 'none' | 'running' | 'done' }
   // Guard: every non-GET API call nothing below mocks is aborted; GETs go to the seeded API.
   await page.route(/\/api\//, (route) => {
@@ -20,7 +20,7 @@ async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: b
     await page.route(/\/api\/meta$/, (route) => json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: opts.local }))
   }
   await page.route(/\/api\/media\/dramas\/1\/status$/, (route) =>
-    json(route, { drama_id: 1, has_audio: !!opts.hasAudio, has_source_video: !!opts.hasSourceVideo, upload_max_mb: 2048 }),
+    json(route, { drama_id: 1, has_audio: !!opts.hasAudio, has_source_video: !!opts.hasSourceVideo, reads_burned_in_subtitles: !!opts.hardsub, upload_max_mb: 2048 }),
   )
   // Read-only (ffprobe) for the Transcribe time estimate (D04); a POST, so mocked here.
   await page.route(/\/api\/metadata\/dramas\/1\/analyze-media$/, (route) =>
@@ -79,9 +79,42 @@ test('From a URL: audio only over a video says the video is set aside', async ({
   await page.getByRole('radio', { name: 'From a URL' }).check()
   const note = page.getByTestId('url-sets-video-aside')
   await expect(page.getByRole('switch', { name: 'Audio only' })).toBeChecked()
-  await expect(note).toContainText('Audio only also sets the current video aside')
+  await expect(note).toContainText('This link will give audio only, so it also sets the current video aside')
   await page.getByRole('switch', { name: 'Audio only' }).click()
   await expect(note).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
+test('From a URL: a direct audio link with Audio only off still says the video is set aside', async ({ page }) => {
+  const s = await mockUrlDownload(page, { hasAudio: true, hasSourceVideo: true })
+  await page.goto('/#/drama/1/source')
+  await page.getByRole('radio', { name: 'From a URL' }).check()
+  const note = page.getByTestId('url-sets-video-aside')
+  const link = page.getByRole('textbox', { name: 'Video or audio link' })
+  await page.getByRole('switch', { name: 'Audio only' }).click()
+  await expect(page.getByRole('switch', { name: 'Audio only' })).not.toBeChecked()
+  await expect(page.getByText('Keeps the video too and extracts its audio.')).toBeVisible()
+
+  await link.fill('https://host.example/media/x.MP3?sig=1')
+  await expect(note).toContainText('sets the current video aside')
+  await expect(page.getByText('Keeps just the audio track.')).toBeVisible()
+  await expect(page.getByText('Keeps the video too')).toHaveCount(0)
+
+  // A video file or a page link keeps the video.
+  await link.fill('https://host.example/media/x.mp4')
+  await expect(note).toHaveCount(0)
+  await link.fill('https://host.example/watch?v=x.mp3')
+  await expect(note).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
+test('From a URL: the note says when it also leaves reading burned-in subtitles', async ({ page }) => {
+  const s = await mockUrlDownload(page, { hasAudio: true, hasSourceVideo: true, hardsub: true })
+  await page.goto('/#/drama/1/source')
+  await page.getByRole('radio', { name: 'From a URL' }).check()
+  await expect(page.getByTestId('url-sets-video-aside')).toContainText(
+    'switches this title from reading burned-in subtitles to transcribing the audio',
+  )
   expect(s.unmocked).toEqual([])
 })
 

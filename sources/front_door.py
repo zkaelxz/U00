@@ -235,6 +235,8 @@ def import_video(url: str, drama_id: int, audio_only: bool = True, progress_cb=N
 
         path = os.path.realpath(path)
         ext = os.path.splitext(path)[1].lower()
+        # Video extensions stay allowed for audio_only: an audio-only stream
+        # can arrive as .webm (or a muxed fallback), and it is kept as the audio.
         allowed = mus.VIDEO_EXTENSIONS + (mus.AUDIO_EXTENSIONS if audio_only else ())
         if (not path.startswith(os.path.realpath(tmp) + os.sep) or not os.path.isfile(path)
                 or ext not in allowed):

@@ -418,6 +418,16 @@ def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
     _no_tmp(did)
 
 
+def test_direct_audio_link_with_audio_only_off_still_installs_audio_only(client, env, direct):
+    did = _drama()
+    r = client.post(f"/api/media/dramas/{did}/download-url",
+                    json={"url": DIRECT, "audio_only": False})
+    assert r.status_code == 200, r.text
+    assert _wait(f"urlmedia_{did}")["status"] == "done"
+    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+                           "source_url": DIRECT}]
+
+
 def test_direct_video_link_keeps_video(client, env, direct):
     url = "https://cdn.example/v/clip.mp4"
     did = _drama()
