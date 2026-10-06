@@ -6,6 +6,7 @@ import { useStage } from '../StageContext'
 import { Section } from '../../../components/Section'
 import { readSectionOpen } from '../../../components/sectionStorage'
 import { AiExtrasBurnPreview } from './review/AiExtrasBurnPreview'
+import { AiExtrasCleanup } from './review/AiExtrasCleanup'
 import { AiExtrasMerge } from './review/AiExtrasMerge'
 import { AiExtrasSenseVoice } from './review/AiExtrasSenseVoice'
 import { AiExtrasStyle } from './review/AiExtrasStyle'
@@ -119,12 +120,13 @@ export default function ReviewStage() {
               {parts.coverage}
             </ReviewJobsPanel>
             {!!lineCount && (
-              <Fold storageKey="review.fold.restructure" title="Restructure lines" summary="Structure · re-split · merge short · shorten overlong">
+              <Fold storageKey="review.fold.restructure" title="Restructure lines" summary="Structure · re-split · merge short · fix common errors · shorten overlong">
                 {() => (
                   <>
                     <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
                     <ResplitLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
                     <AiExtrasMerge dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
+                    <AiExtrasCleanup dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
                     {parts.shorten}
                   </>
                 )}

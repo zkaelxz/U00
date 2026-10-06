@@ -398,6 +398,8 @@ baihe-subtitler/
 │   ├── delete_service.py         PC-only deletes (handoff queue item 2): remove audio/video, raw novel
 │   │                             text; delete version, series character, preset, voice bank
 │   ├── url_guard.py              B-25 -- shared public-address check (http(s), every resolved IP global) for services and sources/http
+│   ├── egress_proxy.py           loopback proxy that lets yt-dlp/live_fetch reach public addresses only (every
+│   │                             connection re-checked by url_guard and pinned); used by live_service
 │   ├── capped_body.py            shared byte-capped, deadline-capped read of a streamed HTTP body (closes the response)
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
@@ -634,7 +636,7 @@ baihe-subtitler/
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
-│       ├── review_extras_routes.py /api/review-extras/dramas/{id}/merge-short/preview|apply, style(/learn|
+│       ├── review_extras_routes.py /api/review-extras/dramas/{id}/merge-short/preview|apply, en-cleanup/preview|apply, style(/learn|
 │       │                         /apply|/reset), sensevoice (POST job, GET rows), burn-preview (POST job,
 │       │                         /info, /clip Range); tests/test_api_review_extras.py
 │       ├── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
@@ -947,9 +949,11 @@ baihe-subtitler/
 | `translation_guide.py` | style presets, term policies, translation notes |
 | `translation_memory.py` | suggests a translation you already approved for an exact/near-identical line (never auto-applied) |
 | `auto_qc.py` | flags a translation that drops or invents a number, date, name, amount or unit |
+| `en_cleanup.py` | deterministic, no-AI "fix common errors" rules for English subtitle text (spacing, punctuation, quotes, ellipses, "i", doubled words, CJK leakage); pure, used by Review and the CLI |
 | `emotion.py` | emotional register detection and preservation |
 | `bulk_translate.py` | the "Bulk (cheaper, slower)" translation mode |
 | `live_translate.py` | near-live translation of an ongoing live stream |
+| `live_fetch.py` | fetches a live stream (HLS included) through the egress proxy and pipes it to ffmpeg's stdin |
 
 **Dubbing, subtitles & video**
 | File | Does |
