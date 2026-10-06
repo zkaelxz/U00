@@ -135,7 +135,7 @@ class TestAutotuneStart:
         assert isolated_db.drama_dir(did) not in r.text
 
     @pytest.mark.parametrize("body", [
-        {"candidates": []}, {"candidates": [200]}, {"candidates": [3001]},
+        {"candidates": []}, {"candidates": [99]}, {"candidates": [3001]},
         {"candidates": [300, 400, 500, 600, 700, 800, 900]}, {"candidates": [True]},
         {"candidates": ["300"]}, {"candidates": [300, 300]}, {"initial_prompt": "x" * 1001},
         {"bogus": 1}])
