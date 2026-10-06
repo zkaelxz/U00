@@ -182,9 +182,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .split-cut { display: grid; gap: var(--space-2); }
 .split-cut-text { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); line-height: 2; overflow-wrap: anywhere; cursor: pointer; }
 .split-cut-text > span { position: relative; }
-.split-cut-a { background: color-mix(in srgb, var(--accent, #3b82f6) 22%, transparent); }
-.split-cut-b { background: color-mix(in srgb, var(--ok, #16a34a) 22%, transparent); }
-.split-cut-mark { display: inline-block; width: 3px; height: 1.4em; margin: 0 1px; vertical-align: middle; border-radius: 2px; background: var(--text, currentColor); }
+.split-cut-a { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.split-cut-b { background: color-mix(in srgb, var(--ok) 22%, transparent); }
+.split-cut-mark { display: inline-block; width: 3px; height: 1.4em; margin: 0 1px; vertical-align: middle; border-radius: 2px; background: var(--text); }
 .split-cut-nudge { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .split-cut-nudge button { min-height: 44px; min-width: 44px; }
 .split-note { margin: 0; font-weight: 600; }
