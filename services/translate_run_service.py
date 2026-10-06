@@ -157,6 +157,30 @@ def _default_model(engine_name: str) -> Optional[str]:
     return translate_engines.effective_default_model(engine_name)
 
 
+def validate_run_options(engine_name: str, model, *, locale: str, style_preset: str,
+                         context_window: int, context_window_ahead: int, batch_size: int,
+                         job_cost_cap_usd, gemini_free_tier: bool) -> None:
+    """The checks on a translate run's own options, shared by
+    start_translate_run and `cli.py translate` so both refuse the same
+    values. Takes resolved values (defaults already applied). InvalidInputError
+    / UnsupportedOperationError."""
+    if locale not in settings_service.LOCALE_CHOICES:
+        raise InvalidInputError("Unknown English variant.")
+    if style_preset not in translation_guide.STYLE_PRESETS:
+        raise InvalidInputError("Unknown style preset.")
+    if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
+        raise InvalidInputError("job_cost_cap_usd can't be negative.")
+    _require_offered_model(engine_name, model)
+    if (gemini_free_tier and engine_name == "gemini"
+            and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
+        raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
+    if min(context_window, context_window_ahead) < 0 or batch_size < 1:
+        raise InvalidInputError("Context window and batch size are out of range.")
+    if batch_size > MAX_BATCH_SIZE:
+        raise InvalidInputError(f"Batch size can't be more than {MAX_BATCH_SIZE}: a larger "
+                                f"batch's reply can be cut off by the engine's output limit.")
+
+
 def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str = None,
                             reflect: bool = False, force_retranslate: bool = False,
                             bulk: bool = False, gemini_free_tier: bool = None,
@@ -356,27 +380,18 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                    or engine_routing_service.resolve_capability("translation.cheap"))
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
-    if locale not in settings_service.LOCALE_CHOICES:
-        raise InvalidInputError("Unknown English variant.")
     is_novel = drama.get("content_mode") == "novel_narration"
     style_preset = style_preset or ("novel" if is_novel else "audio_drama")
-    if style_preset not in translation_guide.STYLE_PRESETS:
-        raise InvalidInputError("Unknown style preset.")
-    if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
-        raise InvalidInputError("job_cost_cap_usd can't be negative.")
-    if (gemini_free_tier and engine_name == "gemini"
-            and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
-        raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     defaults = get_translate_config_defaults(is_novel)
     context_window = defaults["context_window"] if context_window is None else context_window
     context_window_ahead = (defaults["context_window_ahead"]
                             if context_window_ahead is None else context_window_ahead)
     batch_size = defaults["batch_size"] if batch_size is None else batch_size
-    if min(context_window, context_window_ahead) < 0 or batch_size < 1:
-        raise InvalidInputError("Context window and batch size are out of range.")
-    if batch_size > MAX_BATCH_SIZE:
-        raise InvalidInputError(f"Batch size can't be more than {MAX_BATCH_SIZE}: a larger "
-                                f"batch's reply can be cut off by the engine's output limit.")
+    validate_run_options(
+        engine_name, model, locale=locale, style_preset=style_preset,
+        context_window=context_window, context_window_ahead=context_window_ahead,
+        batch_size=batch_size, job_cost_cap_usd=job_cost_cap_usd,
+        gemini_free_tier=gemini_free_tier)
     if fallback_chain and (reflect or bulk):
         raise InvalidInputError("A fallback chain only applies to a normal translation run.")
     if own_lines_only and line_ids is None:
@@ -416,7 +431,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     chain_error = translate_engines.fallback_chain_error(c["engine"] for c in chain)
     if chain_error:
         raise InvalidInputError(chain_error)
-    for c in chain:
+    for c in chain[1:]:  # the main engine's model is checked by validate_run_options
         _require_offered_model(c["engine"], c["model"])
     monthly_cap = month_cap_usd()
     month_spend = db.get_month_spend() if monthly_cap else 0.0

@@ -63,12 +63,13 @@ import bulk_translate
 import raw_transcript
 import dub as dub_module
 import background_jobs
-from services import (engine_routing_service, glossary_retranslate_service, lines_service,
-                      line_provenance_service, narration_service, settings_service,
+from services import (dub_service, engine_routing_service, glossary_retranslate_service,
+                      lines_service, line_provenance_service, narration_service, settings_service,
                       transcribe_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
 from services.service_errors import DependencyUnavailableError, ServiceError
-from services.translate_run_service import engine_cap_applies, get_translate_config_defaults
+from services.translate_run_service import (engine_cap_applies, get_translate_config_defaults,
+                                            validate_run_options)
 
 
 def _gemini_free_tier(engine_name: str) -> bool:
@@ -485,25 +486,46 @@ def cmd_align(args):
             audio_path = audio_preprocess.separate_vocals(
                 audio_path, os.path.join(os.path.dirname(audio_path), "vocals.wav"),
                 backend=cfg["separation_backend"], use_gpu=use_gpu)
+        use_groq = bool(d.get("use_groq"))
+        groq_api_key = settings_service.resolve_key("groq") if use_groq else None
+        if use_groq and not groq_api_key:
+            # Same refusal as the app, before any audio is processed.
+            raise RuntimeError(
+                "use_groq is on but no Groq API key is configured. Set one in Settings first.")
         local_model_path = settings_service.get_whisper_model_path()
         gpu_fallback = []
         started = time.monotonic()
-        segments = transcribe_for_timing(
-            audio_path, whisper_size, language=language, use_gpu=use_gpu,
-            local_model_path=local_model_path,
-            fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
-            initial_prompt=initial_prompt, beam_size=cfg["beam_size"],
-            min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
-            on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
-        # The model's own load can fall back to CPU before any inference runs.
-        load_error = core_module.get_whisper_device_info(
-            whisper_size, use_gpu=use_gpu, local_model_path=local_model_path).get("gpu_error")
-        if load_error:
-            gpu_fallback.insert(0, load_error)
+        if use_groq:
+            try:
+                segments = core_module.transcribe_with_groq(audio_path, language, groq_api_key)
+            except core_module.GroqTranscriptionError as exc:
+                raise RuntimeError(
+                    f"Groq transcription failed: {translate_engines.redact_secrets(str(exc))}"
+                ) from exc
+        else:
+            segments = transcribe_for_timing(
+                audio_path, whisper_size, language=language, use_gpu=use_gpu,
+                local_model_path=local_model_path,
+                fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
+                initial_prompt=initial_prompt, beam_size=cfg["beam_size"],
+                min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
+                on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
+        if not segments:
+            release_gpu_models()
+            print(f"#{d['id']} skipped: no speech was found in the audio, so nothing was "
+                  f"aligned and the existing lines were left alone.")
+            return
+        if not use_groq:
+            # The model's own load can fall back to CPU before any inference runs.
+            load_error = core_module.get_whisper_device_info(
+                whisper_size, use_gpu=use_gpu, local_model_path=local_model_path).get("gpu_error")
+            if load_error:
+                gpu_fallback.insert(0, load_error)
         if gpu_fallback:
             print(f"#{d['id']} WARNING: "
                   f"{core_module.gpu_fallback_notice('Transcription', gpu_fallback[0])}")
-        elif segments and not cfg["whisper_fast_mode"] and not getattr(args, "fast", False):
+        elif (segments and not use_groq and not cfg["whisper_fast_mode"]
+              and not getattr(args, "fast", False)):
             # Same history the app's estimate reads; fast mode runs at another speed.
             transcribe_service.record_transcribe_speed(
                 whisper_size, bool(use_gpu), transcribe_service._audio_duration_seconds(audio_path),
@@ -625,11 +647,14 @@ def cmd_translate(args):
                 or engine_routing_service.resolve_capability("translation.cheap"))
     _engines = {}
 
-    def _engine_for(name):
+    def _own_flags(name):
         # --api-key/--model belong to --engine when it's given, else to the
         # old default engine (claude). A drama saved with another engine
         # uses that engine's own configured key -- never someone else's.
-        own_flags = (name == args.engine) if args.engine else name == _API_KEY_DEFAULT_ENGINE
+        return (name == args.engine) if args.engine else name == _API_KEY_DEFAULT_ENGINE
+
+    def _engine_for(name):
+        own_flags = _own_flags(name)
         if name not in _engines:
             _engines[name] = translate_engines.get_engine(
                 name,
@@ -684,9 +709,30 @@ def cmd_translate(args):
         if missing:
             print(f"#{d['id']} skipped: no {missing[0]} key is configured for --fallback.")
             return
-        engine = _engine_for(engine_name)
         # Same defaults the service/React use (10/6/30 for novel narration).
         tdefaults = get_translate_config_defaults(d.get("content_mode") == "novel_narration")
+        style_preset = args.style_preset or (
+            "novel" if d.get("content_mode") == "novel_narration" else "audio_drama")
+        # The same option checks as start_translate_run. An invalid flag is
+        # the same for every drama, so it stops the batch instead of failing
+        # each title in turn.
+        try:
+            validate_run_options(
+                engine_name, args.model if _own_flags(engine_name) else None,
+                locale=args.locale or settings_service.get_preference("default_locale"),
+                style_preset=style_preset,
+                context_window=_flag_or(args, "context_window", tdefaults),
+                context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
+                batch_size=_flag_or(args, "batch_size", tdefaults),
+                job_cost_cap_usd=getattr(args, "cost_cap", None),
+                gemini_free_tier=_gemini_free_tier(engine_name))
+        except ServiceError as e:
+            raise SystemExit(f"translate: {e.message}")
+        if background_jobs.is_running(f"translate_{d['id']}"):
+            print(f"#{d['id']} skipped: a translation is already running for this drama "
+                  f"in the app.")
+            return
+        engine = _engine_for(engine_name)
         novel_reference = _load_novel_reference(d)
         # UI parity: without these, a CLI-run translation skipped the
         # series glossary, craft/style guidelines, and locale entirely --
@@ -698,8 +744,6 @@ def cmd_translate(args):
         # series glossary, learned style profile, emotion guidance, gender
         # hints, speaker names -- comes from the same builder the translate
         # run service uses.
-        style_preset = args.style_preset or (
-            "novel" if d.get("content_mode") == "novel_narration" else "audio_drama")
         glossary_terms, style_guidelines, character_names = \
             workspace_job_service.build_run_style_context(
                 d["id"], d, lines, style_preset,
@@ -740,10 +784,13 @@ def cmd_translate(args):
         month_spend = db.get_month_spend() if monthly_setting else 0.0
         caps = []
         for name in chain_names:
-            monthly_cap = (monthly_setting if engine_cap_applies(name, _gemini_free_tier(name))
-                           else None)
+            # Neither cap applies to a free or local engine, as in the service.
+            if not engine_cap_applies(name, _gemini_free_tier(name)):
+                caps.append(None)
+                continue
             cap, refusal = translate_engines.resolve_cost_cap(
-                getattr(args, "cost_cap", None), monthly_cap, month_spend if monthly_cap else 0.0)
+                getattr(args, "cost_cap", None), monthly_setting,
+                month_spend if monthly_setting else 0.0)
             if refusal:
                 raise RuntimeError(refusal)
             caps.append(cap)
@@ -858,6 +905,14 @@ def cmd_translate(args):
 
 
 def cmd_dub(args):
+    # Up front, as the API does: a bad pacing limit or missing TTS package
+    # would otherwise fail the same way for every drama in the batch.
+    try:
+        max_speedup, max_slowdown = dub_service.resolve_pacing_limits(
+            getattr(args, "max_speedup", None), getattr(args, "max_slowdown", None))
+        dub_service.require_engine_dependency(getattr(args, "tts_engine", None) or "edge_tts")
+    except ServiceError as e:
+        raise SystemExit(f"dub: {e.message}")
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="translated")
 
     def step(d):
@@ -892,8 +947,7 @@ def cmd_dub(args):
 
         build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
         stretch = {} if is_narration else dict(
-            max_speedup=getattr(args, "max_speedup", None) or dub_module.DUB_MAX_SPEEDUP,
-            max_slowdown=getattr(args, "max_slowdown", None) or dub_module.DUB_MAX_SLOWDOWN)
+            max_speedup=max_speedup, max_slowdown=max_slowdown)
         narration_kwargs = (dict(narrate_original=narrate_original, source_language=source_lang)
                             if is_narration else {})
         keep_bg = bool(getattr(args, "keep_background", False)) and not is_narration
