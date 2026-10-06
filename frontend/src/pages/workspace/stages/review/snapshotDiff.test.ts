@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { HistorySnapshotLine, ReviewLine } from '../../../../types/review'
-import { PREVIEW_CAP, previewSnapshot, previewSummary } from './snapshotPreview'
+import { PREVIEW_CAP, previewSnapshot, previewSummary } from './snapshotDiff'
 
 const cur = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start: id, end: id + 1, zh: `z${id}`, en: `e${id}`, speaker: null,
@@ -12,7 +12,7 @@ const snap = (id: number | null, over: Partial<HistorySnapshotLine> = {}): Histo
   speaker_manual: false, dub_filename: null, ...over,
 })
 
-describe('previewSnapshot', () => {
+describe('snapshotDiff', () => {
   it('reports nothing for identical lines', () => {
     const p = previewSnapshot([cur(1), cur(2)], [snap(1), snap(2)])
     expect(previewSummary(p)).toBe('No lines would change.')

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { getHistorySnapshot } from '../../../../api/review'
 import { listAllLines } from '../../../../api/restructure'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
-import { previewSnapshot, previewSummary, type SnapshotPreview as Preview } from './snapshotPreview'
+import { previewSnapshot, previewSummary, type SnapshotPreview as Preview } from './snapshotDiff'
 
 interface Props {
   dramaId: number
