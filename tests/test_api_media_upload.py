@@ -744,6 +744,22 @@ def test_unnamed_media_is_only_recovered_once_it_is_old(client, isolated_db):
     assert sorted(_kept(did).values()) == [b"first", b"other process"]
 
 
+def test_installed_media_counts_as_new_even_from_an_old_source(isolated_db, tmp_path):
+    # On Windows a link or rename into place changes neither mtime nor ctime,
+    # so until the DB names it the file would look old enough to recover.
+    import db
+    from services import media_upload_service as m
+    did = db.create_drama(title_en="D")
+    src = tmp_path / "download.mp3"
+    src.write_bytes(b"media")
+    old_t = time.time() - m.UNNAMED_MIN_AGE_SECONDS - 60
+    os.utime(src, (old_t, old_t))
+    before = time.time()
+    names = m.install_media(did, {"audio_filename": (str(src), "source", ".mp3")})
+    st = os.stat(os.path.join(db.drama_dir(did), names["audio_filename"]))
+    assert st.st_mtime >= before - 1
+
+
 def test_a_file_the_drama_names_by_another_spelling_is_never_moved(client, isolated_db,
                                                                     monkeypatch):
     # Windows and macOS resolve "Audio.wav" to "audio.wav". A hard link stands

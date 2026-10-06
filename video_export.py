@@ -18,9 +18,11 @@ import tempfile
 
 # What a stored source (an upload or a download with one of
 # media_upload_service's AUDIO/VIDEO_EXTENSIONS) is read as, plus aac,
-# mpegts and flv, which a mislabelled download often really is. Not hls,
-# dash, concat or any other format that names further files or URLs.
-LOCAL_MEDIA_FORMATS = "mov,matroska,mp3,wav,flac,ogg,aac,mpegts,flv"
+# mpegts and flv, which a mislabelled download often really is, and avi,
+# asf, mpeg, aiff, w64 and caf, which a library from before the extension
+# check can still hold. Not hls, dash, concat or any other format that
+# names further files or URLs.
+LOCAL_MEDIA_FORMATS = "mov,matroska,mp3,wav,flac,ogg,aac,mpegts,flv,avi,asf,mpeg,aiff,w64,caf"
 
 
 def local_input(formats: str = LOCAL_MEDIA_FORMATS) -> list:

@@ -183,11 +183,13 @@ def import_video(url: str, drama_id: int, audio_only: bool = True, progress_cb=N
     which have no dedicated adapter). The download goes to a temp folder and
     is put in place by media_upload_service.install_media, as an upload is:
     never over an existing file, and the replaced files are kept in
-    kept_media/. The same guards as url_media_service apply: the drama's
-    upload claim is held throughout, nothing starts while a job runs for the
-    drama, replacing media needs confirm_replace_audio, and the downloaded
-    file must lie inside the temp folder with a whitelisted extension (any
-    other name could never be recovered as an unnamed leftover).
+    kept_media/. Its guards: the drama's upload claim is held throughout,
+    nothing starts while a job runs for the drama, replacing media needs
+    confirm_replace_audio, and the downloaded file must lie inside the temp
+    folder with a whitelisted extension (any other name could never be
+    recovered as an unnamed leftover). Unlike url_media_service it does not
+    check that the URL is public, check the drama's content mode, or cap the
+    download's duration and running time.
     Returns the installed downloaded file's path."""
     import shutil
 

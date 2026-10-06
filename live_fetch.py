@@ -15,6 +15,7 @@ fixed message: SAMPLE-AES and other key formats, byte-range segments.
 Own code rather than yt-dlp's downloader: its native HLS downloader does
 not take live streams and hands them to ffmpeg, which is what this avoids.
 """
+import contextlib
 import queue
 import re
 import socket
@@ -265,10 +266,10 @@ class StreamPump:
         self._fetch_done = threading.Event()
         self._lock = threading.Lock()
         self._sockets = weakref.WeakSet()
-        # Which _open call a deadline timer belongs to, so one that fires
-        # late never shuts down the sockets of the request after it.
-        self._open_generation = 0
-        self._open_expired = False
+        # Which _deadline a timer belongs to, so one that fires late never
+        # shuts down the sockets of the request after it.
+        self._deadline_generation = 0
+        self._deadline_expired = False
         self._threads = []
         self._session = requests.Session()
         adapter = _TrackingAdapter(self._track, self._release)
@@ -299,7 +300,7 @@ class StreamPump:
     def _track(self, sock):
         with self._lock:
             self._sockets.add(sock)
-            if self._stop.is_set() or self._open_expired:  # opened after the shutdowns
+            if self._stop.is_set() or self._deadline_expired:  # opened after the shutdowns
                 _shutdown(sock)
 
     def _release(self, sock):
@@ -372,22 +373,25 @@ class StreamPump:
                     if time.monotonic() >= deadline:
                         raise StreamFetchError(FFMPEG_STALLED) from None
 
-    def _open(self, url: str, deadline: float):
-        """_follow(url), ended as STALLED once `deadline` passes. Read
+    @contextlib.contextmanager
+    def _deadline(self, deadline: float):
+        """Ends the request made inside it as STALLED once `deadline`
+        passes; yields a function that disarms the timer early. Read
         timeouts are per recv and the proxy's head deadline does not see
         inside a CONNECT tunnel, so without this an https host trickling
-        its handshake or headers would hold the request open
-        indefinitely."""
+        its handshake or headers, or a body's chunk-size and trailer
+        lines (http.client reads those inside one read1 call), would hold
+        the request open indefinitely."""
         with self._lock:
-            self._open_generation += 1
-            self._open_expired = False
-            generation = self._open_generation
+            self._deadline_generation += 1
+            self._deadline_expired = False
+            generation = self._deadline_generation
         timer = threading.Timer(max(0.0, deadline - time.monotonic()), self._expire,
                                 (generation,))
         timer.daemon = True
         timer.start()
         try:
-            response = self._follow(url)
+            yield lambda: self._disarm(timer)
         except _FetchFailed:
             if self._disarm(timer):
                 raise StreamFetchError(STALLED) from None
@@ -395,16 +399,15 @@ class StreamPump:
         except BaseException:
             self._disarm(timer)
             raise
+        # A body cut short by the timer's shutdown can read as a clean end.
         if self._disarm(timer):
-            response.close()
             raise StreamFetchError(STALLED)
-        return response
 
     def _expire(self, generation: int):
         with self._lock:
-            if generation != self._open_generation:
+            if generation != self._deadline_generation:
                 return
-            self._open_expired = True
+            self._deadline_expired = True
             for sock in list(self._sockets):
                 _shutdown(sock)
 
@@ -413,8 +416,8 @@ class StreamPump:
         longer shut anything down."""
         timer.cancel()
         with self._lock:
-            self._open_generation += 1
-            expired, self._open_expired = self._open_expired, False
+            self._deadline_generation += 1
+            expired, self._deadline_expired = self._deadline_expired, False
         return expired
 
     def _follow(self, url: str):
@@ -468,49 +471,44 @@ class StreamPump:
             self._check_stop()
             raise _FetchFailed(STALLED) from None
 
-    def _check_deadline(self, deadline: float):
-        # Read timeouts alone let a server trickle one byte per READ_TIMEOUT
-        # forever; this ends it at most READ_TIMEOUT past the deadline.
-        if time.monotonic() > deadline:
-            raise StreamFetchError(STALLED)
-
     def _read(self, url: str, limit: int) -> tuple:
         """(body, final url) of one GET bounded in size and in time."""
-        deadline = time.monotonic() + self._stall_timeout
-        response = self._open(url, deadline)
-        try:
-            body = bytearray()
-            for chunk in self._chunks(response):
-                body += chunk
-                if len(body) > limit:
-                    raise StreamFetchError(TOO_LARGE)
-                self._check_deadline(deadline)
-            return bytes(body), response.url
-        finally:
-            response.close()
+        with self._deadline(time.monotonic() + self._stall_timeout):
+            response = self._follow(url)
+            try:
+                body = bytearray()
+                for chunk in self._chunks(response):
+                    body += chunk
+                    if len(body) > limit:
+                        raise StreamFetchError(TOO_LARGE)
+                return bytes(body), response.url
+            finally:
+                response.close()
 
     def _fetch(self, url: str):
-        deadline = time.monotonic() + self._stall_timeout
-        response = self._open(url, deadline)
-        try:
-            chunks = self._chunks(response)
-            first = next(chunks, b"")
-            content_type = response.headers.get("Content-Type", "").lower()
-            if not (first.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"#EXTM3U")
-                    or "mpegurl" in content_type):
-                self._emit(first)
+        with self._deadline(time.monotonic() + self._stall_timeout) as disarm:
+            response = self._follow(url)
+            try:
+                chunks = self._chunks(response)
+                first = next(chunks, b"")
+                content_type = response.headers.get("Content-Type", "").lower()
+                if not (first.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"#EXTM3U")
+                        or "mpegurl" in content_type):
+                    # A stream that is not HLS has no end; only its start is bounded.
+                    if disarm():
+                        raise StreamFetchError(STALLED)
+                    self._emit(first)
+                    for chunk in chunks:
+                        self._emit(chunk)
+                    return
+                body = bytearray(first)
                 for chunk in chunks:
-                    self._emit(chunk)
-                return
-            body = bytearray(first)
-            for chunk in chunks:
-                body += chunk
-                if len(body) > MAX_PLAYLIST_BYTES:
-                    raise StreamFetchError(TOO_LARGE)
-                self._check_deadline(deadline)
-            final_url = response.url
-        finally:
-            response.close()
+                    body += chunk
+                    if len(body) > MAX_PLAYLIST_BYTES:
+                        raise StreamFetchError(TOO_LARGE)
+                final_url = response.url
+            finally:
+                response.close()
         self._hls(bytes(body).decode("utf-8", "replace"), final_url)
 
     def _playlist(self, url: str) -> tuple:
