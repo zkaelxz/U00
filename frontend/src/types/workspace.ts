@@ -339,6 +339,8 @@ export interface CompareRunRequest extends CompareTranslateFields {
   selection: CompareSelection
   whisper_size?: string | null
   asr_backend?: string | null
+  initial_prompt?: string
+  extra_names?: string
 }
 
 export interface CompareRunResult {
