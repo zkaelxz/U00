@@ -4,6 +4,7 @@ and ffmpeg; no proxy here (tests/test_egress_proxy.py runs the fetcher
 through the proxy into a real ffmpeg)."""
 import http.server
 import os
+import socket
 import sys
 import threading
 import time
@@ -141,6 +142,16 @@ def test_unsupported_hls_features_are_refused(line):
     assert str(e.value) == live_fetch.UNSUPPORTED
 
 
+def test_a_playlist_with_too_many_entries_is_refused():
+    def playlist(n):
+        return "#EXTM3U\n" + "".join(f"#EXTINF:1,\ns{i}.ts\n" for i in range(n))
+    cap = live_fetch.MAX_PLAYLIST_ENTRIES
+    assert len(live_fetch.parse_playlist(playlist(cap), "http://h/")["segments"]) == cap
+    with pytest.raises(live_fetch.StreamFetchError) as exc:
+        live_fetch.parse_playlist(playlist(cap + 1), "http://h/")
+    assert str(exc.value) == live_fetch.TOO_LARGE and "http" not in str(exc.value)
+
+
 def test_pick_rendition_takes_the_lowest_bandwidth_or_its_audio_rendition():
     master = live_fetch.parse_playlist(
         "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=900000\nhi.m3u8\n"
@@ -256,7 +267,6 @@ def test_a_failed_segment_is_skipped_and_the_rest_play(serve):
                                  "crypto:file:///etc/passwd", "data:,x"])
 @pytest.mark.parametrize("position", ["variant", "segment", "key", "init", "redirect"])
 def test_a_non_http_address_anywhere_ends_the_capture_unopened(serve, uri, position):
-    pytest.importorskip("cryptography")
     playlists = {
         "variant": f"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\n{uri}\n",
         "segment": f"#EXTM3U\n#EXTINF:1,\n{uri}\n#EXT-X-ENDLIST\n",
@@ -385,6 +395,79 @@ def test_stop_ends_a_blocked_fetch_promptly_and_closes_its_connection(serve):
     assert pump.error is None  # a stop is not a failure
     assert s.closed_by_client.wait(5)
     assert not [t for t in threading.enumerate() if t.name in ("live-fetch", "live-pipe")]
+
+
+class _Silent:
+    """Accepts connections and reads the request, never answers; records
+    when the client closes its side."""
+
+    def __init__(self):
+        self.accepted = threading.Event()
+        self.closed_by_client = threading.Event()
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(4)
+        self.base = f"http://127.0.0.1:{self.sock.getsockname()[1]}"
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        try:
+            conn, _ = self.sock.accept()
+        except OSError:
+            return
+        self.accepted.set()
+        conn.settimeout(10)
+        try:
+            while conn.recv(4096):
+                pass
+            self.closed_by_client.set()
+        except OSError:
+            self.closed_by_client.set()
+        conn.close()
+
+    def close(self):
+        self.sock.close()
+
+
+def test_stop_while_waiting_for_response_headers_is_prompt():
+    """No response exists yet, so only the connection's own socket can
+    wake the fetch: halt() shuts it down, nothing is left open."""
+    server = _Silent()
+    sink = _Sink()
+    pump = live_fetch.StreamPump(f"{server.base}/a", sink).start()
+    try:
+        assert server.accepted.wait(5)
+        time.sleep(0.2)  # the request is sent; the fetch waits for headers
+        started = time.monotonic()
+        pump.halt()
+        pump.join(5)
+        assert time.monotonic() - started < 3
+        assert not pump.alive() and sink.closed.is_set() and pump.error is None
+        assert server.closed_by_client.wait(5)
+        assert not [t for t in threading.enumerate() if t.name in ("live-fetch", "live-pipe")]
+    finally:
+        pump.halt()
+        server.close()
+
+
+def test_a_segment_that_trickles_past_the_stall_timeout_ends_the_capture(serve):
+    """Each byte arrives well inside READ_TIMEOUT; the request as a whole
+    is still bounded."""
+    def trickle(handler, server):
+        try:
+            for _ in range(200):
+                handler.wfile.write(b"x")
+                handler.wfile.flush()
+                time.sleep(0.05)
+        except OSError:
+            pass
+
+    s = serve({"/p.m3u8": (200, _M3U8, _segments(["slow.ts"])),
+               "/slow.ts": (200, {}, trickle)})
+    started = time.monotonic()
+    pump, sink = _run(f"{s.base}/p.m3u8", stall_timeout=0.5)
+    assert pump.error == live_fetch.STALLED and bytes(sink.data) == b""
+    assert time.monotonic() - started < 5
 
 
 def test_stop_during_the_playlist_wait_is_prompt(serve):

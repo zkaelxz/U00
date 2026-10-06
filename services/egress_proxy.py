@@ -44,6 +44,9 @@ CONNECT_TIMEOUT = 15.0
 # For the whole request head: a per-recv timeout alone lets a local process
 # hold every connection slot by trickling bytes.
 HEAD_TIMEOUT = 15.0
+# For the whole upstream response head, for the same reason: a hostile
+# server trickling header bytes must not hold a connection open forever.
+UPSTREAM_HEAD_TIMEOUT = 30.0
 # A kept-alive CONNECT tunnel can sit idle between HLS playlist refreshes.
 IDLE_TIMEOUT = 120.0
 _CHUNK = 65_536
@@ -57,6 +60,40 @@ BLOCKED_PORTS = frozenset({
 _USER = "baihe"
 _HOP_HEADERS = {"connection", "keep-alive", "proxy-connection", "proxy-authorization",
                 "proxy-authenticate", "te", "trailer", "upgrade"}
+
+
+class _Sockets:
+    """Every socket a proxy has open, so close() can end connections still
+    in progress. A socket is shut down (waking a thread blocked on it) but
+    only ever closed by the thread that owns it, which first takes it out
+    under the lock, so close() never touches a reused descriptor."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._open = set()
+        self._closed = False
+
+    def add(self, sock):
+        with self._lock:
+            if not self._closed:
+                self._open.add(sock)
+                return
+        sock.close()
+        raise _Refused("")
+
+    def close(self, sock):
+        with self._lock:
+            self._open.discard(sock)
+        sock.close()
+
+    def shutdown_all(self):
+        with self._lock:
+            self._closed = True
+            for sock in self._open:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
 
 
 class _Refused(Exception):
@@ -78,7 +115,12 @@ def _read_head(sock, deadline: float = None) -> tuple:
             if remaining <= 0:
                 raise _Refused("408 Request Timeout")
             sock.settimeout(remaining)
-        chunk = sock.recv(_CHUNK)
+        try:
+            chunk = sock.recv(_CHUNK)
+        except socket.timeout:
+            if deadline is None:
+                raise
+            raise _Refused("408 Request Timeout") from None
         if not chunk:
             raise _Refused("")
         buf += chunk
@@ -86,8 +128,9 @@ def _read_head(sock, deadline: float = None) -> tuple:
     return head, rest
 
 
-def _open_upstream(host: str, port: int):
-    """A socket connected to the validated public address of host:port."""
+def _open_upstream(host: str, port: int, sockets: _Sockets):
+    """A socket connected to the validated public address of host:port,
+    tracked in sockets."""
     if not host or not 0 < port < 65536:
         raise _Refused("400 Bad Request")
     if port in BLOCKED_PORTS:
@@ -100,9 +143,11 @@ def _open_upstream(host: str, port: int):
     except url_guard.URLResolveError:
         raise _Refused("502 Bad Gateway") from None
     try:
-        return socket.create_connection((ip, port), timeout=CONNECT_TIMEOUT)
+        upstream = socket.create_connection((ip, port), timeout=CONNECT_TIMEOUT)
     except OSError:
         raise _Refused("502 Bad Gateway") from None
+    sockets.add(upstream)
+    return upstream
 
 
 def _pump(client, upstream, forward_client: bool):
@@ -132,21 +177,22 @@ def _pump(client, upstream, forward_client: bool):
                 upstream.sendall(data)
 
 
-def _connect(client, target: str, rest: bytes):
+def _connect(client, target: str, rest: bytes, sockets: _Sockets):
     host, sep, port = target.rpartition(":")
     if not sep or not port.isdigit():
         raise _Refused("400 Bad Request")
-    upstream = _open_upstream(host.strip("[]"), int(port))
+    upstream = _open_upstream(host.strip("[]"), int(port), sockets)
     try:
         client.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
         if rest:
             upstream.sendall(rest)
         _pump(client, upstream, forward_client=True)
     finally:
-        upstream.close()
+        sockets.close(upstream)
 
 
-def _forward(client, method: str, target: str, version: str, header_lines, rest: bytes):
+def _forward(client, method: str, target: str, version: str, header_lines, rest: bytes,
+             sockets: _Sockets):
     try:
         parts = urlsplit(target)
         port = parts.port or 80
@@ -171,7 +217,7 @@ def _forward(client, method: str, target: str, version: str, header_lines, rest:
     path = parts.path or "/"
     if parts.query:
         path += "?" + parts.query
-    upstream = _open_upstream(parts.hostname, port)
+    upstream = _open_upstream(parts.hostname, port, sockets)
     try:
         request = "\r\n".join([f"{method} {path} {version}", *headers, "Connection: close", "", ""])
         upstream.sendall(request.encode("latin-1") + rest[:length])
@@ -184,14 +230,18 @@ def _forward(client, method: str, target: str, version: str, header_lines, rest:
             remaining -= len(data)
         # The response says Connection: close too, so the client opens a
         # new connection (and gets a fresh check) for its next request.
-        head, body = _read_head(upstream)
+        try:
+            head, body = _read_head(upstream, time.monotonic() + UPSTREAM_HEAD_TIMEOUT)
+        except _Refused as refusal:
+            raise _Refused("504 Gateway Timeout" if refusal.status.startswith("408")
+                           else "502 Bad Gateway") from None
         lines = head.decode("latin-1").split("\r\n")
         kept = [lines[0]] + [ln for ln in lines[1:]
                              if ln.partition(":")[0].strip().lower() not in _HOP_HEADERS]
         client.sendall(("\r\n".join(kept + ["Connection: close", "", ""])).encode("latin-1") + body)
         _pump(client, upstream, forward_client=False)
     finally:
-        upstream.close()
+        sockets.close(upstream)
 
 
 def _authorized(header_lines, expected: bytes) -> bool:
@@ -205,7 +255,7 @@ def _authorized(header_lines, expected: bytes) -> bool:
     return False
 
 
-def _handle(client, slots, expected_auth: bytes):
+def _handle(client, slots, expected_auth: bytes, sockets: _Sockets):
     try:
         head, rest = _read_head(client, time.monotonic() + HEAD_TIMEOUT)
         client.settimeout(CONNECT_TIMEOUT)
@@ -219,9 +269,9 @@ def _handle(client, slots, expected_auth: bytes):
                            'Proxy-Authenticate: Basic realm="baihe"\r\n')
         method, target, version = request_line
         if method.upper() == "CONNECT":
-            _connect(client, target, rest)
+            _connect(client, target, rest, sockets)
         else:
-            _forward(client, method, target, version, lines[1:], rest)
+            _forward(client, method, target, version, lines[1:], rest, sockets)
     except _Refused as refusal:
         if refusal.status:
             try:
@@ -232,20 +282,21 @@ def _handle(client, slots, expected_auth: bytes):
     except (OSError, UnicodeError, ValueError):
         pass
     finally:
-        client.close()
+        sockets.close(client)
         slots.release()
 
 
 class GuardedProxy:
     """`with GuardedProxy() as proxy:` serves on `proxy.url` until the block
-    ends. Connections already open are ended when their client closes
-    them (live capture stops its fetcher before the proxy). `proxy.url` carries the
+    ends, and the end also shuts down every connection still open (a
+    thread still connecting upstream ends within CONNECT_TIMEOUT). `proxy.url` carries the
     secret in its userinfo: hand it only to the client process, never log
     or store it (translate_engines.redact_secrets masks URL userinfo)."""
 
     def __init__(self):
         self._listener = None
         self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self._sockets = _Sockets()
         self._secret = secrets.token_urlsafe(24)
         self._expected_auth = base64.b64encode(f"{_USER}:{self._secret}".encode())
         self.url = None
@@ -268,7 +319,13 @@ class GuardedProxy:
             if not self._slots.acquire(blocking=False):
                 client.close()
                 continue
-            threading.Thread(target=_handle, args=(client, self._slots, self._expected_auth),
+            try:
+                self._sockets.add(client)
+            except _Refused:
+                self._slots.release()
+                return  # closed while accepting
+            threading.Thread(target=_handle,
+                             args=(client, self._slots, self._expected_auth, self._sockets),
                              daemon=True, name="egress-proxy-conn").start()
 
     def close(self):
@@ -279,6 +336,7 @@ class GuardedProxy:
             except OSError:
                 pass
             listener.close()
+        self._sockets.shutdown_all()
 
     def __enter__(self):
         return self.start()

@@ -344,6 +344,10 @@ class _Sentinel:
                 conn, _ = self.sock.accept()
             except OSError:
                 return
+            # Recorded at accept, so a test asserting right after close()
+            # can't miss a connection whose request was still being read.
+            index = len(self.hits)
+            self.hits.append(b"")
             conn.settimeout(2)
             data = b""
             try:
@@ -354,7 +358,7 @@ class _Sentinel:
                     data += chunk
             except OSError:
                 pass
-            self.hits.append(data)
+            self.hits[index] = data
             conn.close()
 
     def close(self):
@@ -698,3 +702,164 @@ def test_request_head_must_arrive_within_the_overall_deadline(proxy, monkeypatch
         assert closed
         assert time.monotonic() - started < 3
 
+
+
+class _SilentOrigin:
+    """A raw origin on loopback that reads the request and never answers
+    (or, with trickle, sends a response head one byte at a time, never
+    finishing it); records when the other side closes."""
+
+    def __init__(self, trickle: bool = False):
+        self.accepted = threading.Event()
+        self.closed_by_peer = threading.Event()
+        self.trickle = trickle
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(4)
+        self.port = self.sock.getsockname()[1]
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        try:
+            conn, _ = self.sock.accept()
+        except OSError:
+            return
+        self.accepted.set()
+        conn.settimeout(10)
+        try:
+            if self.trickle:
+                conn.recv(4096)
+                for byte in b"HTTP/1.1 200 OK\r\nX-Slow: " + b"a" * 500:
+                    conn.sendall(bytes([byte]))
+                    time.sleep(0.05)
+            while conn.recv(4096):
+                pass
+        except OSError:
+            pass
+        self.closed_by_peer.set()
+        conn.close()
+
+    def close(self):
+        self.sock.close()
+
+
+def _proxy_threads():
+    return {t for t in threading.enumerate() if t.name.startswith("egress-proxy")}
+
+
+def _wait_threads_gone(threads, timeout=5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    for thread in threads:
+        thread.join(max(0.0, deadline - time.monotonic()))
+    return not any(t.is_alive() for t in threads)
+
+
+@pytest.mark.parametrize("method", ["GET", "CONNECT"])
+def test_close_ends_connections_waiting_on_a_stalled_upstream(monkeypatch, method):
+    """close() shuts down every client and upstream socket still open,
+    so no connection thread outlives the session."""
+    monkeypatch.setattr(url_guard, "resolve_public", lambda url: "127.0.0.1")
+    origin = _SilentOrigin()
+    before = _proxy_threads()
+    p = egress_proxy.GuardedProxy().start()
+    port = int(p.url.rsplit(":", 1)[1])
+    target = (f"GET http://origin.test:{origin.port}/ HTTP/1.1\r\nHost: origin.test\r\n"
+              if method == "GET" else f"CONNECT origin.test:{origin.port} HTTP/1.1\r\n")
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
+            s.sendall(target.encode() + _auth_header(p.url) + b"\r\n")
+            if method == "CONNECT":
+                assert s.recv(4096).startswith(b"HTTP/1.1 200")
+                s.sendall(b"GET / HTTP/1.1\r\nHost: origin.test\r\n\r\n")
+            assert origin.accepted.wait(5)
+            started = time.monotonic()
+            p.close()
+            assert _read_all(s) == b""  # ended, not answered
+            assert time.monotonic() - started < 3
+        assert origin.closed_by_peer.wait(5)
+        assert _wait_threads_gone(_proxy_threads() - before)
+    finally:
+        p.close()
+        origin.close()
+
+
+def test_upstream_response_head_must_arrive_within_the_overall_deadline(proxy, monkeypatch):
+    monkeypatch.setattr(egress_proxy, "UPSTREAM_HEAD_TIMEOUT", 0.5)
+    origin = _SilentOrigin(trickle=True)
+    try:
+        started = time.monotonic()
+        answer = _raw(proxy, f"GET http://origin.test:{origin.port}/ HTTP/1.1\r\n"
+                             "Host: origin.test\r\n\r\n".encode())
+        assert answer.startswith(b"HTTP/1.1 504")
+        assert time.monotonic() - started < 3
+        assert origin.closed_by_peer.wait(5)
+    finally:
+        origin.close()
+
+
+class _NoAnswerServer(_Server):
+    """Takes the request (over TLS too, once _serve_tls wraps it) and
+    never answers it."""
+
+    def __init__(self):
+        super().__init__()
+        self.accepted = threading.Event()
+        self.closed_by_peer = threading.Event()
+        server = self
+
+        def do_get(handler):
+            server.accepted.set()
+            handler.connection.settimeout(10)
+            try:
+                handler.connection.recv(1)
+            except OSError:
+                pass
+            server.closed_by_peer.set()
+
+        self.httpd.RequestHandlerClass.do_GET = do_get
+
+
+@pytest.mark.parametrize("scheme,stage", [
+    ("http", "headers"), ("https", "tls_handshake"),
+    pytest.param("https", "headers", marks=pytest.mark.skipif(
+        not HAS_OPENSSL, reason="needs openssl"))])
+def test_halt_while_waiting_for_headers_through_the_proxy_leaves_nothing_open(
+        proxy, tmp_path, monkeypatch, scheme, stage):
+    """The fetch is still inside session.get (no response yet): halt()
+    alone ends it, and closing the proxy afterwards leaves no proxy
+    thread or upstream connection behind."""
+    if scheme == "https" and stage == "headers":
+        origin = _NoAnswerServer()
+        _serve_tls(origin, tmp_path, monkeypatch)
+    else:
+        origin = _SilentOrigin()
+    before = _proxy_threads()
+    sink_closed = threading.Event()
+
+    class Sink:
+        def write(self, b):
+            pass
+
+        def flush(self):
+            pass
+
+        def close(self):
+            sink_closed.set()
+
+    pump = live_fetch.StreamPump(f"{scheme}://origin.test:{origin.port}/a", Sink(),
+                                 proxy=proxy.url).start()
+    try:
+        assert origin.accepted.wait(5)
+        time.sleep(0.2)
+        started = time.monotonic()
+        pump.halt()
+        pump.join(5)
+        assert time.monotonic() - started < 3
+        assert not pump.alive() and sink_closed.is_set() and pump.error is None
+        proxy.close()
+        assert origin.closed_by_peer.wait(5)
+        assert _wait_threads_gone(_proxy_threads() - before)
+        assert not [t for t in threading.enumerate() if t.name in ("live-fetch", "live-pipe")]
+    finally:
+        pump.halt()
+        origin.close()
