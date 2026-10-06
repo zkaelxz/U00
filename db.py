@@ -1644,7 +1644,7 @@ def _migrate_step26e_profiles():
         if conn.execute("SELECT 1 FROM profiles LIMIT 1").fetchone():
             return
         conn.execute("BEGIN")
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        now = datetime.datetime.utcnow().isoformat()
         cur = conn.execute("INSERT INTO profiles (name, color, created_at) VALUES (?, ?, ?)",
                            ("Me", None, now))
         default_id = cur.lastrowid
@@ -4326,6 +4326,21 @@ def list_glossary_dismissals(series_id: int) -> list:
         rows = conn.execute("SELECT term_original, created_at FROM glossary_dismissals "
                             "WHERE series_id = ? ORDER BY term_original", (series_id,)).fetchall()
     return [dict(r) for r in rows]
+
+
+def list_dismissed_glossary_terms(series_id: int, terms) -> set:
+    """Which of `terms` are on the series' ignore list (chunked to stay under
+    SQLite's bound-variable limit)."""
+    terms = list(dict.fromkeys(terms))
+    found = set()
+    with contextlib.closing(get_conn()) as conn:
+        for i in range(0, len(terms), 500):
+            chunk = terms[i:i + 500]
+            rows = conn.execute(
+                "SELECT term_original FROM glossary_dismissals WHERE series_id = ? "
+                f"AND term_original IN ({','.join('?' * len(chunk))})", (series_id, *chunk))
+            found.update(r["term_original"] for r in rows)
+    return found
 
 
 def add_glossary_dismissals(series_id: int, terms) -> None:

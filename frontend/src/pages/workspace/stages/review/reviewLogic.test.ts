@@ -21,7 +21,11 @@ import {
   codePointOffset,
   draftFromLine,
   emptyMessage,
+  cutBoundaries,
   estimateSplitTime,
+  proportionalCut,
+  snapCut,
+  stepToBoundary,
   formatDuration,
   gapForNewLine,
   initialActiveId,
@@ -353,5 +357,40 @@ describe('timingPatch', () => {
 
   it('is null when nothing would change', () => {
     expect(timingPatch(mid, around, 'start', 5)).toBeNull()
+  })
+})
+
+describe('split cut suggestions', () => {
+  it('finds boundaries after spaces and punctuation, never at the edges', () => {
+    expect(cutBoundaries('Hello there, friend')).toEqual([6, 13])
+    expect(cutBoundaries('你好，朋友。')).toEqual([3])
+    expect(cutBoundaries('no')).toEqual([])
+    expect(cutBoundaries('a ')).toEqual([])
+  })
+  it('snaps to the nearest boundary, earlier on a tie', () => {
+    expect(snapCut('Hello there, friend', 9)).toBe(6)
+    expect(snapCut('Hello there, friend', 11)).toBe(13)
+    expect(snapCut('aa bb', 2)).toBe(3)
+  })
+  it('keeps the exact offset when the text has no boundary, clamped inside', () => {
+    expect(snapCut('abcdef', 3)).toBe(3)
+    expect(snapCut('abcdef', 0)).toBe(1)
+    expect(snapCut('abcdef', 99)).toBe(5)
+    expect(snapCut('a', 1)).toBe(1)
+  })
+  it('counts emoji as one character', () => {
+    expect(snapCut('😀😀 😀😀', 2)).toBe(3)
+    expect(snapCut('😀😀😀😀', 2)).toBe(2)
+  })
+  it('cuts the translation at the same fraction as the source', () => {
+    expect(proportionalCut(4, 2, 'Hello there, friend')).toBe(13)
+    expect(proportionalCut(10, 7, 'one two three four five six')).toBe(19)
+    expect(proportionalCut(0, 0, 'ab cd')).toBe(3)
+  })
+  it('steps to the previous or next boundary, else the edge', () => {
+    expect(stepToBoundary('Hello there, friend', 6, 1)).toBe(13)
+    expect(stepToBoundary('Hello there, friend', 6, -1)).toBe(1)
+    expect(stepToBoundary('你好，朋友。你', 3, 1)).toBe(6)
+    expect(stepToBoundary('abcdef', 2, 1)).toBe(5)
   })
 })

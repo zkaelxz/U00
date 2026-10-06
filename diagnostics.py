@@ -43,7 +43,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     # health check below could no longer actually catch one of them going
     # missing.
     "applog.py", "audio_preprocess.py", "auto_qc.py", "benchmark.py",
-    "bulk_translate.py", "check_setup.py", "hardsub_ocr.py", "live_translate.py",
+    "bulk_translate.py", "check_setup.py", "hardsub_ocr.py", "live_translate.py", "live_fetch.py",
     "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
     "sensevoice_tags.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
     "translation_memory.py", "action_tiers.py", "media_inspect.py",
@@ -130,7 +130,8 @@ OPTIONAL_DEPENDENCIES = {
                                 "experimental one-pass transcription + speaker labels "
                                 "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
                                 "can't share an install with Qwen3-ASR)", "experimental"),
-    "cryptography": ("cryptography", "Google sign-in token checks", "feature"),
+    "cryptography": ("cryptography", "Google sign-in token checks, live capture of AES-128 "
+                                     "encrypted HLS streams", "feature"),
     "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
     "fastapi": ("fastapi", "the HTTP API the React frontend talks to (python -m api)",
                 "required"),
@@ -962,10 +963,19 @@ def check_engine_reachable(engine_name: str, api_key: str = None, model: str = N
 
 # Middle segments may contain single spaces ("My Documents") so folder-name
 # fragments aren't left behind; they can't start or end with one, which keeps
-# a path from swallowing the prose around it.
+# a path from swallowing the prose around it. The filename may too, but only
+# when it ends in a short extension ("my file name.wav"): without that anchor
+# there is no telling where the name stops and the sentence resumes. Words
+# before the final one can't themselves end in an extension or a comma, so
+# "b.wav because ... see c.txt" stops at b.wav, and the word cap bounds how
+# far a spaced name can reach.
+_PATH_CHARS = r'[^\s\\/:*?"<>|]'
+_PATH_WORD = (rf'(?!{_PATH_CHARS}*(?:\.[A-Za-z0-9]{{1,5}}|[,;])(?:\s|$))'
+              rf'{_PATH_CHARS}+')
 PATH_PATTERN = re.compile(
-    r'(?:[A-Za-z]:)?[\\/](?:[^\s\\/:*?"<>|]+(?: [^\s\\/:*?"<>|]+)*[\\/])+'
-    r'([^\s\\/:*?"<>|]+)')
+    rf'(?:[A-Za-z]:)?[\\/](?:{_PATH_CHARS}+(?: {_PATH_CHARS}+)*[\\/])+'
+    rf'((?:{_PATH_WORD}(?: {_PATH_WORD}){{0,4}} '
+    rf'{_PATH_CHARS}+\.[A-Za-z0-9]{{1,5}}(?![A-Za-z0-9])|{_PATH_CHARS}+))')
 
 # ANSI escape sequences (CSI: colours, cursor moves), e.g. yt-dlp's
 # "\x1b[0;31mERROR:\x1b[0m" -- unreadable noise in a report or log view.
