@@ -79,6 +79,8 @@ for (const size of sizes) {
     await page.setViewportSize(size)
     for (const url of [...routes, '/#/drama/3/translate']) {
       await load(page, url)
+      // A hash-only navigation keeps the previous page's scroll, and the sticky back button would then sit over this page's content.
+      await page.evaluate(() => window.scrollTo(0, 0))
       // The glossary's instruction editors arrive after networkidle; measure with them present, not sometimes without.
       if (url.endsWith('/translate')) await expect(page.getByLabel('Series instructions')).toBeVisible()
       // Open the folds so their dense buttons are measured too.

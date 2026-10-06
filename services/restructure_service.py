@@ -29,6 +29,7 @@ failure between snapshot and save leaves only an extra snapshot.
 No FastAPI import: plain dicts in and out. Messages never echo
 line text, keys or paths.
 """
+import contextlib
 import dataclasses
 import math
 import threading
@@ -121,6 +122,17 @@ def _commit(drama_id: int, current, new_lines, label: str):
     for i, ln in enumerate(new_lines):
         ln.idx = i
     db.save_lines(drama_id, new_lines)
+
+
+@contextlib.contextmanager
+def exclusive_write(drama_id: int):
+    """The structural-write guard (drama exists, no job running, drama lock
+    held) for a writer that saves only some fields and so can't use
+    structural_write's full sync."""
+    _require_drama(drama_id)
+    _refuse_if_job_running(drama_id)
+    with _drama_lock(drama_id):
+        yield
 
 
 def structural_write(drama_id: int, expected_line_ids, label: str, build):

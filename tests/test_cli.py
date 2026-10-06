@@ -1874,6 +1874,37 @@ class TestLocaleParity:
             c.lower() for c in settings_service.LOCALE_CHOICES}
 
 
+class TestCmdCleanEn:
+    def _run(self, *argv):
+        old = sys.argv
+        sys.argv = ["cli.py", "clean-en", *argv]
+        try:
+            cli.main()
+        finally:
+            sys.argv = old
+
+    def _drama(self, db_):
+        did = db_.create_drama(title_en="Test", status="aligned")
+        db_.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="hello  , i go"),
+                             Line(idx=1, start=1.0, end=2.0, zh="再见", en="Bye.")])
+        return did
+
+    def test_previews_by_default_and_applies_with_a_snapshot(self, isolated_db, capsys):
+        did = self._drama(isolated_db)
+        self._run("--id", str(did))
+        assert "1 of 2 line(s) would change" in capsys.readouterr().out
+        assert isolated_db.load_line_objects(did)[0].en == "hello  , i go"
+        self._run("--id", str(did), "--apply")
+        assert "cleaned 1 line(s)" in capsys.readouterr().out
+        assert isolated_db.load_line_objects(did)[0].en == "hello, I go"
+        assert [h["label"] for h in isolated_db.list_line_history(did)] == ["before English cleanup"]
+
+    def test_unknown_drama_exits(self, isolated_db, capsys):
+        with pytest.raises(SystemExit):
+            self._run("--id", "999")
+        assert "Error" in capsys.readouterr().out
+
+
 class TestCmdSetLanguage:
     def _drama(self, db_, **kw):
         did = db_.create_drama(title_en="Test", status="aligned")

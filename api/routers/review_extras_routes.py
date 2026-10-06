@@ -17,7 +17,8 @@ from fastapi.responses import FileResponse
 from api.auth import (is_auth_enabled, is_local_request, local_only, require_engines_allowed,
                       require_permission)
 from api.llm_slots import llm_slot
-from api.schemas import (BurnPreviewInfo, BurnPreviewStart, BurnPreviewStarted, ErrorResponse,
+from api.schemas import (BurnPreviewInfo, BurnPreviewStart, BurnPreviewStarted, EnCleanupApply,
+                         EnCleanupPreview, EnCleanupResult, ErrorResponse,
                          MergeShortApply, MergeShortPreview, MergeShortResult, SenseVoiceStarted,
                          SenseVoiceTags, StyleApplyRequest, StyleLearnRequest, StyleResetRequest,
                          StyleRestoreRequest, StyleState)
@@ -49,6 +50,22 @@ def get_merge_short_preview(drama_id: int = Path(ge=1),
 def post_merge_short_apply(body: MergeShortApply, drama_id: int = Path(ge=1)):
     return svc.apply_merge_short(drama_id, body.expected_line_ids, body.expected_groups,
                                  body.min_duration, body.max_gap, body.max_chars)
+
+
+# --- English cleanup: deterministic fix of common errors ----------------------
+
+@router.get("/dramas/{drama_id}/en-cleanup/preview", dependencies=[require_permission("lines.read")],
+            response_model=EnCleanupPreview,
+            summary="Preview the English cleanup (read-only, no AI)", responses=_R)
+def get_en_cleanup_preview(drama_id: int = Path(ge=1)):
+    return svc.preview_en_cleanup(drama_id)
+
+
+@router.post("/dramas/{drama_id}/en-cleanup/apply", dependencies=[require_permission("lines.edit")],
+             response_model=EnCleanupResult,
+             summary="Apply the previewed English cleanup (snapshot first)", responses=_R)
+def post_en_cleanup_apply(body: EnCleanupApply, drama_id: int = Path(ge=1)):
+    return svc.apply_en_cleanup(drama_id, body.expected_plan_hash)
 
 
 # --- R37: learn my style -----------------------------------------------------

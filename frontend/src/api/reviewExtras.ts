@@ -1,11 +1,14 @@
 // Review AI extras (/api/review-extras/...): auto-merge short lines (preview,
-// then apply with the preview's ids and groups; 409 if either changed), learn
+// then apply with the preview's ids and groups; 409 if either changed), English
+// cleanup (no AI; apply echoes the preview's plan_hash), learn
 // my style (reset is PC-only), SenseVoice audio tags and the burned-subtitle
 // preview clip.
 import type {
   BurnPreviewInfo,
   BurnPreviewStart,
   BurnPreviewStarted,
+  EnCleanupPreview,
+  EnCleanupResult,
   MergeShortApply,
   MergeShortOptions,
   MergeShortPreview,
@@ -37,6 +40,12 @@ export const previewMergeShort = (id: number, opts: Partial<MergeShortOptions> =
 
 export const applyMergeShort = (id: number, body: MergeShortApply, f?: Fetch) =>
   postJson<MergeShortResult>(`${base(id)}/merge-short/apply`, body, f)
+
+export const previewEnCleanup = (id: number, f?: Fetch) =>
+  getJson<EnCleanupPreview>(`${base(id)}/en-cleanup/preview`, f)
+
+export const applyEnCleanup = (id: number, expected_plan_hash: string, f?: Fetch) =>
+  postJson<EnCleanupResult>(`${base(id)}/en-cleanup/apply`, { expected_plan_hash }, f)
 
 export const getStyle = (id: number, f?: Fetch) => getJson<StyleState>(`${base(id)}/style`, f)
 

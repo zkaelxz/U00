@@ -336,6 +336,17 @@ class TestAuthOn:
         body = c.get("/api/diagnostics", headers=_h(s)).json()
         assert body == {"error": {"code": "forbidden", "message": "Not allowed."}}
 
+    def test_en_cleanup_preview_needs_lines_read_and_apply_lines_edit(self, isolated_db):
+        c = _remote(_app())
+        u, s = _user()
+        url = "/api/review-extras/dramas/1/en-cleanup"
+        body = {"expected_plan_hash": "x"}
+        auth_service.revoke_permission(u["id"], "lines.edit")
+        assert c.get(f"{url}/preview", headers=_h(s)).status_code == 404   # allowed; no such drama
+        assert c.post(f"{url}/apply", json=body, headers=_h(s)).status_code == 403
+        auth_service.revoke_permission(u["id"], "lines.read")
+        assert c.get(f"{url}/preview", headers=_h(s)).status_code == 403
+
     def test_admin_gets_admin_routes(self, isolated_db):
         c = _remote(_app())
         _u, s = _user(admin=True)
