@@ -10,7 +10,9 @@ the caller can pin its connection to it.
 
 Callers: `services.metadata_service._check_public_url` (and through it
 `services.safe_fetch`), `sources.http._requests_transport` and
-`page_fetch.fetch_static`, which re-validate every redirect hop. Error
+`page_fetch.fetch_static`, which re-validate every redirect hop, and
+`services.egress_proxy`, which checks every connection ffmpeg and yt-dlp
+make during live capture. Error
 messages are fixed strings with no URL, host or IP in them.
 
 Standard library only, so `sources/` can import it without pulling in the
