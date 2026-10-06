@@ -296,6 +296,12 @@ def install_media(drama_id, new_files, **fields):
             _fsync_file(src)
             dst = _move_no_clobber(src, _in_place_names(ddir, stem, ext))
             placed.append((dst, src))
+            # recover_stale_uploads leaves an unnamed file alone while it is
+            # young, but a link or rename keeps an old mtime and on Windows
+            # its ctime too (the creation time there), so it is set to now.
+            if not os.path.islink(dst):
+                with contextlib.suppress(OSError):
+                    os.utime(dst)
             fields[field] = os.path.basename(dst)
         _fsync_dir(ddir)
         db.update_drama(drama_id, **fields)
@@ -397,7 +403,8 @@ def recover_stale_uploads(drama_id, now=None) -> int:
         except OSError:
             continue
         # ctime as well: a link or rename into place keeps the old mtime but
-        # updates the POSIX ctime. (Windows ctime is the creation time.)
+        # updates the POSIX ctime. (Windows ctime is the creation time;
+        # install_media sets the mtime of what it places.)
         if now - max(st.st_mtime, st.st_ctime) < UNNAMED_MIN_AGE_SECONDS:
             continue
         _retire(ddir, name, "unreferenced")

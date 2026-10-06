@@ -13,6 +13,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 
 import pytest
 
@@ -154,6 +155,13 @@ _SAMPLES = {
     ".webm": _PICTURE + _TONE + ["-c:v", "libvpx", "-c:a", "libopus"],
     "ts.mp4": _PICTURE + _TONE + ["-c:v", "mpeg4", "-c:a", "aac", "-f", "mpegts"],
     "adts.m4a": _TONE + ["-c:a", "aac", "-f", "adts"],
+    # Types a library from before the upload extension check can hold.
+    ".avi": _PICTURE + _TONE + ["-c:v", "mpeg4", "-c:a", "aac"],
+    ".wmv": _PICTURE + _TONE + ["-c:v", "wmv2", "-c:a", "wmav2"],
+    ".mpg": _PICTURE + _TONE + ["-c:v", "mpeg2video", "-c:a", "mp2"],
+    ".aiff": _TONE + ["-c:a", "pcm_s16be"],
+    ".w64": _TONE + ["-c:a", "pcm_s16le"],
+    ".caf": _TONE + ["-c:a", "pcm_s16le"],
 }
 
 
@@ -199,10 +207,10 @@ def test_waveform_peaks_decode_supported_inputs(tmp_path, kind):
 
 
 @_needs_ffmpeg
-@pytest.mark.parametrize("kind", [".mp4", ".mkv", ".mov", ".webm"])
+@pytest.mark.parametrize("kind", [".mp4", ".mkv", ".mov", ".webm", ".avi"])
 def test_video_exports_read_supported_inputs(tmp_path, kind):
     """Soft subtitles, the dub track (replaced and mixed) and the burned-in
-    preview, on each accepted video type."""
+    preview, on each accepted video type and a legacy .avi source."""
     video = _sample(tmp_path, kind)
     dub = _sample(tmp_path, ".wav")
     srt = tmp_path / "s.srt"
@@ -218,11 +226,14 @@ def test_video_exports_read_supported_inputs(tmp_path, kind):
         result = subprocess.run(cmd, capture_output=True, timeout=60)
         assert result.returncode == 0, (name, result.stderr[-500:])
         assert os.path.getsize(cmd[-1]) > 0
-    if " subtitles " in subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
-                                       capture_output=True, text=True, timeout=30).stdout:
-        out = str(tmp_path / "p.mp4")
-        ve.render_preview_clip(video, "[Script Info]\n", out, 0.0, 0.5)
-        assert os.path.getsize(out) > 0
+    if " subtitles " not in subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                                           capture_output=True, text=True, timeout=30).stdout:
+        pytest.skip("this ffmpeg has no subtitles filter (the preview was not tried)")
+    if " libx264 " not in _encoders():
+        pytest.skip("this ffmpeg has no libx264 encoder (the preview was not tried)")
+    out = str(tmp_path / "p.mp4")
+    ve.render_preview_clip(video, "[Script Info]\n", out, 0.0, 0.5)
+    assert os.path.getsize(out) > 0
 
 
 class _Listener:
@@ -264,10 +275,17 @@ def test_a_dash_manifest_saved_as_mp4_opens_no_connection(tmp_path):
         f"<BaseURL>http://127.0.0.1:{listener.port}/a.mp4</BaseURL></Representation>"
         "</AdaptationSet></Period></MPD>", encoding="utf-8")
     from services import url_media_service
+    cmd = url_media_service._extract_cmd(str(fake), str(tmp_path / "o.wav"))
+    at = cmd.index("-format_whitelist")
     try:
-        result = subprocess.run(url_media_service._extract_cmd(str(fake), str(tmp_path / "o.wav")),
-                                capture_output=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+        assert listener.connections == 0
+        assert b"Format not on whitelist" in result.stderr and result.returncode != 0
+        # The control: the same command without the format whitelist connects.
+        subprocess.run(cmd[:at] + cmd[at + 2:], capture_output=True, timeout=30, check=False)
+        deadline = time.monotonic() + 5
+        while listener.connections == 0 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert listener.connections > 0
     finally:
         listener.close()
-    assert listener.connections == 0
-    assert b"Format not on whitelist" in result.stderr and result.returncode != 0
