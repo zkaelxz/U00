@@ -77,6 +77,7 @@ Open (lead session merges once CI is green):
 - #589 is parked unmerged (see Live capture and SSRF below).
 - WP5 is merged except the owner's real-PC checks and network steps: forward router port 443, a domain/DDNS name, the firewall rule `enable-remote` prints, and the Google client values plus `BAIHE_PUBLIC_URL` in `.env`.
 - Step 141 build (after its spec).
+- Started 2026-10-06, not yet merged: Steps 159, 161, 144a, 148, 164, 173, 176 and 150 (see Backlog below).
 
 Source browser-tier status (owner-reported 2026-10; static fetch returned an empty SPA shell, the browser tier was never run for these):
 - Miaoqumh, GoDaManhua/Baozimh (godamh.com), Kuaikan, Zero-Sum Online: browser-tier support unverified; the adapters' "no browser needed" notes were not confirmed against the live site.
@@ -111,6 +112,51 @@ Parked import and export follow-ups (owner decision 2026-09-30, revisit only if 
 - Rows written before the at-rest redaction change (`access_attempts`, `source_health`, `tracked_series.last_check_error`, `job_records`) are only scrubbed on read. In-memory job messages are not query-stripped; check that the job API scrubs them.
 
 Resource for the deferred manual Scanlate canvas editor: tldraw (github.com/tldraw/tldraw), an infinite-canvas SDK with custom shapes, tools and drawing. The editor's requirements are in section 5 of `docs/specs/scanlate-api-spec.md`. Check it again if that feature resumes. The Scanlate-specific image editing tools would still need custom work, and its repository says production use requires a license key, so check the license terms first.
+
+## Backlog (audited 2026-10-06)
+Roadmap Steps 144-182, checked against baihe-subtitler at 43ee3ec, with the owner's decisions. The planning docs for these steps sit on the roadmap-only drafts #640 and #660, which will be closed, so this table is the record.
+
+| Step | What | Status | Decision |
+|---|---|---|---|
+| 159 | Timing hotkeys + playback speed | In flight | Build |
+| 161 | Whisper hallucination guards | In flight | Build |
+| 144a | Keep originals on re-upload and failed extraction | In flight | Build |
+| 148 | Glossary proposals (counts, confidence, ignore list) | In flight | Build |
+| 164 | Waveform timeline | In flight | Build |
+| 173 | English fix-common-errors | In flight | Build |
+| 176 | Scene-break batches | In flight | Build |
+| 150 | chrF scoring | In flight | Build |
+| 165 | Keep Whisper word timestamps | Next | Build after 161 merges (both touch `core.py`) |
+| 171 | CBZ + full ComicInfo | Next | Build |
+| 162 | Text-mask fallback | Next | Build Otsu with light/dark polarity; defer the ML detector |
+| 158 | Manual timing shift | Next | Manual shift only; auto-sync waits for the re-time feature |
+| 145 | Source hashes | Later | After 144 |
+| 146 | OCR confidence | Later | Low value |
+| 149 | Line provenance history | Later | Low value |
+| 152 | Public benchmark sets | Later | After 147 and 150 |
+| 154 | Trash | Later | Extend the existing `baihe_trash` in `services/disk_usage_service.py`, no second trash |
+| 156 | Timing/speaker benchmark | Later | Start with an offline scorer |
+| 157 | Import existing subtitles | Later | Low value |
+| 160 | Timing tidy-up | Later | Low value |
+| 163 | Text/stroke colours | Later | After 162 |
+| 167 | Metadata APIs | Later | Low value |
+| 169 | MKV styled ASS | Later | Low value |
+| 170 | Burn-in quality / NVENC | Later | Burn-in exists (`video_export.burn_subtitles`, `burn_ass`) with no codec or quality option; the clip and preview paths hard-code `libx264` |
+| 174 | Per-series check intervals | Later | Low value |
+| 175 | LabelPlus | Later | Low value |
+| 177 | Hardsub change detection | Later | Low value |
+| 178 | Two-page spreads | Later | Low value |
+| 182 | JASSUB | Later | Low value |
+| 153 | Late-file drift on long recordings | Re-check first | No diagnosis exists; re-measure after the Re-time-with-aligner feature lands |
+| 151 | Generic OpenAI-compatible engine | Partly existing | `engine_backends/openai_compat.py` holds only `DeepSeekEngine` and `OpenAIEngine`; no generic engine id (`ollama` alone takes a `base_url`). Build only if local models are wanted, and have Opus review it |
+| 147 | Offer-after-correction benchmark flow | Not building | Skip for now |
+| 155 | Finished-copy archive | Not building | Drop |
+| 166 | Force-align the ASR's own text | Not building | Decide after 165; overlaps the existing Qwen3 aligner (`services/transcribe_service.py`, `qwen3_forced_align`) |
+| 168 | Vision-LLM OCR | Not building | No: privacy |
+| 172 | Broadcast timing / shot snapping | Not building | Drop |
+| 179 | Jellyfin upload through the API | Not building | Skip unless the NAS has no shared folder |
+| 180 | OPDS | Not building | No; wait for remote access (Step 140) |
+| 181 | Signed updates | Not building | minisign when distributing beyond the owner; the SHA-256 check stays |
 
 ## Next
 - Remote access, steps 133-140 (other household members and phones use the PC's library). Sign-in, ownership, the D5 listeners, the boot service and the Caddy config with owner-run enable are merged; left: the owner's LAN test with a real certificate and the router port last (140).
