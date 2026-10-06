@@ -31,6 +31,8 @@ line text, keys or paths.
 """
 import contextlib
 import dataclasses
+import hashlib
+import json
 import math
 import threading
 from typing import Optional
@@ -116,16 +118,34 @@ def _number(name: str, value) -> float:
     return float(value)
 
 
-def _commit(drama_id: int, current, new_lines, label: str):
+def lines_fingerprint(lines) -> str:
+    """Hash of every field a history restore overwrites (and the ids). Handed
+    back after a write so an undo can refuse when anything restorable was
+    edited since, which the id-list check alone can't see."""
+    rows = [(ln.id, ln.start, ln.end, ln.zh, ln.en, ln.speaker, bool(ln.speaker_manual),
+             bool(ln.sfx), ln.flag, ln.flag_note or "", ln.lang, ln.dub_filename) for ln in lines]
+    return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _commit(drama_id: int, current, new_lines, label: str) -> int:
     """Snapshot `current` (fresh from the DB), then full-sync `new_lines`.
-    Caller holds the drama lock and has already checked expected ids."""
-    db.save_line_history_snapshot(drama_id, current, label)
+    Caller holds the drama lock and has already checked expected ids.
+    Returns the snapshot's `history_id`, so the caller can offer an undo."""
+    history_id = db.save_line_history_snapshot(drama_id, current, label)
     if db.load_line_ids(drama_id) != {ln.id for ln in current}:
         raise ConflictError("This drama's lines changed while saving -- nothing was changed; "
                             "reload and try again.")
     for i, ln in enumerate(new_lines):
         ln.idx = i
     db.save_lines(drama_id, new_lines)
+    return history_id
+
+
+def undo_handle(drama_id: int, history_id: int) -> dict:
+    """What a client needs to undo the write that just finished. Caller holds
+    the drama lock, so the fingerprint is of exactly what that write left."""
+    return {"history_id": history_id,
+            "lines_fingerprint": lines_fingerprint(db.load_line_objects(drama_id))}
 
 
 @contextlib.contextmanager
@@ -153,9 +173,10 @@ def structural_write(drama_id: int, expected_line_ids, label: str, build,
         # build works on copies so the snapshot sees the untouched lines
         work = [dataclasses.replace(ln, orig=dict(ln.orig), merged_ids=[]) for ln in current]
         new_lines, touched = build(work)
-        _commit(drama_id, current, new_lines, label)
+        history_id = _commit(drama_id, current, new_lines, label)
+        handle = undo_handle(drama_id, history_id)
     return {"line_ids": [ln.id for ln in new_lines],
-            "lines": [line_dict(ln) for ln in touched]}
+            "lines": [line_dict(ln) for ln in touched], **handle}
 
 
 def _index_of(lines, line_id) -> int:
@@ -619,7 +640,8 @@ def _start_preview_apply(drama_id: int, expected_line_ids: list, confirm: bool) 
 # Version history
 # ---------------------------------------------------------------------------
 
-def restore_version(drama_id: int, history_id: int, expected_line_ids) -> dict:
+def restore_version(drama_id: int, history_id: int, expected_line_ids,
+                    expected_fingerprint: Optional[str] = None) -> dict:
     """Restores a history snapshot over the current lines, after taking a
     "before restore" snapshot (so the restore itself can be undone). Lines
     are matched by permanent id (core.restore_saved_lines / adopt_ids):
@@ -628,7 +650,14 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids) -> dict:
     before those were recorded, stay as the line has them now); a line
     merged/deleted since gets a fresh id and nothing is reattached by
     position. Refused while a job
-    runs on the drama. No confirm field."""
+    runs on the drama. No confirm field.
+
+    `expected_fingerprint` (an undo of the write that returned it) makes the
+    restore refuse, with nothing written, when any restorable field of the
+    current lines differs from what that write left: ids alone would let a
+    restore overwrite a text edit saved since. It also refuses when a line the
+    restore would remove has a note, emotion tag or reading position, which
+    the full sync would delete."""
     get_line_history_snapshot(drama_id, history_id)  # 404 unless it's this drama's
     # the raw rows: the read above returns dub_filename as a bare basename
     rows = db.get_line_history_snapshot(history_id)
@@ -636,7 +665,18 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids) -> dict:
         raise NotFoundError(f"No history snapshot {history_id} for drama {drama_id}.")
 
     def build(lines):
+        if expected_fingerprint is not None and lines_fingerprint(lines) != expected_fingerprint:
+            raise ConflictError("The lines were edited since that change -- restore from "
+                                "Records, Line history instead.")
         restored = core_module.restore_saved_lines(rows, lines)
+        if expected_fingerprint is not None:
+            # The fingerprint covers line fields only; a line the restore removes
+            # takes its notes, emotion tag and reading position with it.
+            kept = {ln.id for ln in restored if ln.id is not None}
+            if db.line_ids_with_refs(drama_id, {ln.id for ln in lines} - kept):
+                raise ConflictError("A line this undo would remove has a note, emotion tag or "
+                                    "reading position saved since -- nothing was changed; "
+                                    "restore from Records, Line history instead.")
         return restored, []
     out = structural_write(drama_id, expected_line_ids, "before restore", build)
     return {"history_id": history_id, "line_ids": out["line_ids"]}
@@ -823,7 +863,7 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
             return {"split_lines": 0, "line_count": len(current), "lines_before": len(current),
                     "timing": timing, "aligned_lines": 0, "cleared_translations": 0,
                     "speakers_reassigned": False, "note": _nothing_to_split(current, cfg)}
-        _commit(drama_id, current, new_lines, "before re-split")
+        history_id = _commit(drama_id, current, new_lines, "before re-split")
         reassigned = False
         try:
             if diarize.load_turns(db.drama_dir(drama_id)) is not None:
@@ -835,9 +875,11 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
             reason = (str(exc).rstrip(".") if isinstance(exc, ServiceError)
                       else "the saved speaker detection couldn't be read")
             note = f"Split saved; speakers were not re-assigned: {reason}. {note}".strip()
+        # after the relabel, so the fingerprint covers the speakers it set
+        handle = undo_handle(drama_id, history_id)
     return {"split_lines": split, "line_count": len(new_lines), "lines_before": len(current),
             "timing": timing, "aligned_lines": aligned, "cleared_translations": cleared,
-            "speakers_reassigned": reassigned, "note": note}
+            "speakers_reassigned": reassigned, "note": note, **handle}
 
 
 def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, language, use_gpu,
