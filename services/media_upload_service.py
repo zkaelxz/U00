@@ -2,8 +2,8 @@
 services/media_upload_service.py -- upload an audio/video file into a
 drama's folder: the file is saved as `source<ext>` in the drama folder; a video also gets its audio
 track extracted to `audio.wav` and both filenames recorded, an audio file
-records just `audio_filename` (`-2`, `-3`... is added while the old file is
-still there).
+records `audio_filename` and clears `source_video_filename` (`-2`, `-3`... is
+added while the old file is still there).
 
 A drama that already has audio or a source video needs
 `confirm_replace_audio` (422 with details.reason "confirm_replace_audio"
@@ -284,12 +284,19 @@ def install_media(drama_id, new_files, **fields):
     existing file, so a file that is open elsewhere is never touched. One
     update_drama call then switches every field at once (with `fields`): the
     database is the commit point, so a crash or error at any step leaves the
-    drama naming a consistent, complete set of files. Only after it are the
-    files the drama no longer names moved into kept_media/. On an error
-    before the commit the new files are moved back to their paths and the
-    error raised, with the drama unchanged."""
+    drama naming a consistent, complete set of files. new_files is the
+    drama's whole media set: a media field it leaves out is cleared, so
+    audio installed alone also unnames the old video. Only after the commit
+    are the files the drama no longer names moved into kept_media/. On an
+    error before the commit the new files are moved back to their paths and
+    the error raised, with the drama unchanged."""
     ddir = db.drama_dir(drama_id)
     old = db.get_drama(drama_id) or {}
+    # An old video kept beside new audio would be shown in Review and muxed
+    # into exports with sound that isn't its own.
+    for field in _MEDIA_FIELDS:
+        if field not in new_files:
+            fields.setdefault(field, None)
     placed = []
     try:
         for field, (src, stem, ext) in new_files.items():
@@ -310,13 +317,12 @@ def install_media(drama_id, new_files, **fields):
             with contextlib.suppress(OSError):
                 os.rename(dst, src)
         raise
-    named = {fields.get(f, old.get(f)) for f in _MEDIA_FIELDS}
-    for field in new_files:
-        if old.get(field) not in named:
-            try:
-                _retire(ddir, old.get(field))
-            except Exception:  # committed: a retire hiccup must not report the swap as failed
-                pass
+    named = {fields[f] for f in _MEDIA_FIELDS}
+    for name in {old.get(f) for f in _MEDIA_FIELDS} - named:
+        try:
+            _retire(ddir, name)
+        except Exception:  # committed: a retire hiccup must not report the swap as failed
+            pass
     return {f: fields[f] for f in new_files}
 
 

@@ -872,3 +872,101 @@ def test_fsync_file_syncs_the_data_and_never_fails_the_install(tmp_path, monkeyp
     m._fsync_file(str(path))
     assert len(synced) == 1
     m._fsync_file(str(tmp_path / "gone.wav"))  # best effort: no error
+
+
+def _replace_with_audio(client, did, data=b"new audio"):
+    return client.post(f"/api/media/dramas/{did}/upload", files={"file": ("dub.mp3", data)},
+                       data={"confirm_replace_audio": "true"})
+
+
+def test_replacing_a_video_with_audio_sets_the_video_aside(client, isolated_db):
+    # An old video left named beside new audio would play its picture over
+    # sound that isn't its own, in Review and in every video export.
+    import db
+    did = db.create_drama(title_en="D")
+    _video_title(client, did)
+    r = _replace_with_audio(client, did)
+    assert r.status_code == 200, r.text
+    after = db.get_drama(did)
+    assert (after["audio_filename"], after["source_video_filename"]) == ("source.mp3", None)
+    assert sorted(os.listdir(db.drama_dir(did))) == ["kept_media", "source.mp3"]
+    kept = _kept(did)
+    assert sorted(kept.values()) == [b"old", b"wav"]
+    assert all(n.startswith("replaced-") for n in kept)
+    body = _status(client, did)
+    assert (body["has_audio"], body["has_source_video"]) == (True, False)
+    assert body["kept_media_files"] == 2
+    source = client.get(f"/api/source/dramas/{did}/config").json()
+    assert source["has_video_source"] is False
+
+
+def test_video_exports_refuse_plainly_once_the_video_was_replaced_by_audio(client, isolated_db,
+                                                                         monkeypatch):
+    import db
+    from core import Line
+    did = db.create_drama(title_en="D")
+    db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
+    _video_title(client, did)
+    assert _replace_with_audio(client, did).status_code == 200
+    ran = []
+    monkeypatch.setattr(background_jobs, "run_cancellable", lambda *a, **kw: ran.append(a))
+    for path in ("burned-video", "softsub-video", "dubbed-video"):
+        r = client.post(f"/api/export/dramas/{did}/{path}", json={})
+        assert r.status_code == 422, (path, r.text)
+        assert r.json()["error"]["message"] == "No source video uploaded for this drama."
+    assert ran == []
+
+
+def test_a_failed_db_switch_on_audio_replace_keeps_video_and_audio(client, isolated_db,
+                                                                   monkeypatch):
+    import sqlite3
+    import db
+    from services import media_upload_service
+    did = db.create_drama(title_en="D")
+    before = _video_title(client, did)
+
+    def locked(*a, **kw):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(db, "update_drama", locked)
+    r = _replace_with_audio(client, did, b"new")
+    assert r.status_code == 409 and r.json()["error"]["message"] == media_upload_service._SAVE_FAILED
+    _assert_title_unchanged(did, before)
+    assert _status(client, did)["has_source_video"] is True
+
+
+def test_a_crash_before_the_old_video_was_set_aside_is_recovered(client, isolated_db,
+                                                                 monkeypatch):
+    # The DB write is the commit point and the old files are moved only
+    # after it, so a crash in between leaves them in place but unnamed.
+    import db
+    from services import media_upload_service as m
+    did = db.create_drama(title_en="D")
+    _video_title(client, did)
+    monkeypatch.setattr(m, "_retire", lambda *a, **kw: None)
+    assert _replace_with_audio(client, did).status_code == 200
+    monkeypatch.undo()
+    assert db.get_drama(did)["source_video_filename"] is None
+    ddir = db.drama_dir(did)
+    assert sorted(os.listdir(ddir)) == ["audio.wav", "source.mp3", "source.mp4"]
+    body = _status(client, did)
+    assert body["has_source_video"] is False and body["kept_media_files"] == 2
+    later = time.time() + m.UNNAMED_MIN_AGE_SECONDS + 1
+    assert m.recover_stale_uploads(did, now=later) == 2
+    kept = _kept(did)
+    assert sorted(kept.values()) == [b"old", b"wav"]
+    assert all(n.startswith("unreferenced-") for n in kept)
+    assert sorted(os.listdir(ddir)) == ["kept_media", "source.mp3"]
+    assert _read(did, "source.mp3") == b"new audio"
+
+
+def test_replacing_audio_with_a_video_attaches_it_and_sets_the_old_audio_aside(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp4", b"vid")},
+                    data={"confirm_replace_audio": "true"})
+    assert _wait(r.json()["job_id"])["status"] == "done"
+    after = db.get_drama(did)
+    assert (after["source_video_filename"], after["audio_filename"]) == ("source.mp4", "audio.wav")
+    assert _status(client, did)["has_source_video"] is True
+    assert list(_kept(did).values()) == [b"first"]

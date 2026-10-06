@@ -5,7 +5,16 @@ import type { TranscribeConfigUpdate } from '../../types/workspace'
 // re-validates everything; these only save a round trip and mirror
 // services/media_upload_service.py and services/transcribe_service.py.
 
-export const UPLOAD_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4', '.mkv', '.mov', '.webm']
+const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.mov', '.webm']
+export const UPLOAD_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', ...VIDEO_EXTENSIONS]
+
+export const isVideoFile = (name: string) => VIDEO_EXTENSIONS.some((e) => name.toLowerCase().endsWith(e))
+
+// Audio replaces the title's media as a whole: the server unnames the old video too.
+export const UPLOAD_SETS_VIDEO_ASIDE =
+  "Uploading audio also sets the current video aside (kept in this title's folder), so the title will have no source video for Review or video export."
+export const URL_SETS_VIDEO_ASIDE =
+  "Audio only also sets the current video aside (kept in this title's folder), so the title will have no source video for Review or video export."
 
 // The link target for "Change it in Settings"; the server's error text names the same place.
 export const UPLOAD_LIMIT_SETTINGS_HREF = '#/settings?section=uploads'

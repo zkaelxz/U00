@@ -8,7 +8,7 @@ const expect = baseExpect.configure({ timeout: 15_000 })
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
-async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: boolean } = {}) {
+async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: boolean; hasSourceVideo?: boolean } = {}) {
   const s = { bodies: [] as unknown[], unmocked: [] as string[], job: 'none' as 'none' | 'running' | 'done' }
   // Guard: every non-GET API call nothing below mocks is aborted; GETs go to the seeded API.
   await page.route(/\/api\//, (route) => {
@@ -20,7 +20,7 @@ async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: b
     await page.route(/\/api\/meta$/, (route) => json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: opts.local }))
   }
   await page.route(/\/api\/media\/dramas\/1\/status$/, (route) =>
-    json(route, { drama_id: 1, has_audio: !!opts.hasAudio, has_source_video: false, upload_max_mb: 2048 }),
+    json(route, { drama_id: 1, has_audio: !!opts.hasAudio, has_source_video: !!opts.hasSourceVideo, upload_max_mb: 2048 }),
   )
   // Read-only (ffprobe) for the Transcribe time estimate (D04); a POST, so mocked here.
   await page.route(/\/api\/metadata\/dramas\/1\/analyze-media$/, (route) =>
@@ -69,6 +69,19 @@ test('From a URL: toggle, checks, download starts the urlmedia job', async ({ pa
   // The choice is remembered.
   await page.reload()
   await expect(page.getByRole('radio', { name: 'From a URL' })).toBeChecked()
+  expect(s.unmocked).toEqual([])
+})
+
+test('From a URL: audio only over a video says the video is set aside', async ({ page }) => {
+  const s = await mockUrlDownload(page, { hasAudio: true, hasSourceVideo: true })
+  await page.goto('/#/drama/1/source')
+  await expect(page.getByTestId('media-status')).toContainText('Source video attached')
+  await page.getByRole('radio', { name: 'From a URL' }).check()
+  const note = page.getByTestId('url-sets-video-aside')
+  await expect(page.getByRole('switch', { name: 'Audio only' })).toBeChecked()
+  await expect(note).toContainText('Audio only also sets the current video aside')
+  await page.getByRole('switch', { name: 'Audio only' }).click()
+  await expect(note).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })
 

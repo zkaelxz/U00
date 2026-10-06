@@ -34,7 +34,7 @@ an existing file (`-2`... while the old one is there), one field-scoped DB
 write as the commit point (audio_filename, [source_video_filename],
 source_url and, only when both titles are empty (re-read just before
 writing), title_zh), then the replaced files move to kept_media/.
-Audio-only leaves an older source_video_filename as is.
+Audio-only clears an older source_video_filename and moves that video there too.
 
 Errors are fixed strings: never the URL, a path or yt-dlp's raw text.
 """
