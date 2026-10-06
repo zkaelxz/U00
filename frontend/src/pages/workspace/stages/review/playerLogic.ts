@@ -76,3 +76,52 @@ export function popoutCaptionPx(windowWidth: number, size: CaptionSize = 'defaul
   const px = windowWidth * 0.0225 * CAPTION_FACTOR[size]
   return Math.round(Math.min(CAPTION_MAX_PX, Math.max(CAPTION_MIN_PX, px)))
 }
+
+export const SEEK_STEP_S = 5
+export const SEEK_STEP_FINE_S = 1
+
+export interface PlayerKey {
+  key: string
+  shiftKey: boolean
+  altKey: boolean
+  ctrlKey: boolean
+  metaKey: boolean
+  target: { closest: (selector: string) => unknown } | null
+}
+
+export type PlayerKeyAction = { kind: 'seek'; to: number } | { kind: 'playpause' } | { kind: 'fullscreen' } | null
+
+// Controls that use the arrow keys (or typed letters) themselves: the seek
+// bar, the selects, the jump field and the waveform handles.
+const OWN_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="spinbutton"], [role="textbox"], [role="combobox"], [role="listbox"]'
+// Space on these is their own click, so it must not also toggle playback.
+const CLICKABLE = 'button, a[href], summary'
+
+// What a key pressed inside the player's frame does. Review's line shortcuts
+// (J/K, F to dismiss a flag, Space to play a line) live outside this frame, so
+// these keys only apply while the player itself has focus.
+export function playerKeyAction(e: PlayerKey, time: number, duration: number): PlayerKeyAction {
+  if (e.ctrlKey || e.metaKey || e.altKey) return null
+  if (e.target?.closest(OWN_KEYS)) return null
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    const step = (e.shiftKey ? SEEK_STEP_FINE_S : SEEK_STEP_S) * (e.key === 'ArrowLeft' ? -1 : 1)
+    return { kind: 'seek', to: clampTime(time + step, duration) }
+  }
+  if (e.shiftKey) return null
+  if (e.key === 'f' || e.key === 'F') return { kind: 'fullscreen' }
+  if (e.key === ' ' && !e.target?.closest(CLICKABLE)) return { kind: 'playpause' }
+  return null
+}
+
+// The cue as drawn over the picture: no blank lines, and nothing at all for an
+// empty cue so no empty box is drawn.
+export function overlayText(cue: string): string {
+  return cue
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+// Controls over a full-screen picture hide after this long without activity.
+export const FULLSCREEN_IDLE_MS = 3000
