@@ -306,6 +306,8 @@ class MediaStatus(BaseModel):
     drama_id: int
     has_audio: bool
     has_source_video: bool
+    # Transcript mode is hardsub_ocr: replacing the video with audio switches it.
+    reads_burned_in_subtitles: bool = False
     upload_max_mb: int
     # Superseded originals and failed uploads kept in the title's folder.
     kept_media_files: int = 0

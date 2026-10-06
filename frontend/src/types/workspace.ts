@@ -7,6 +7,7 @@ export interface MediaStatus {
   drama_id: number
   has_audio: boolean
   has_source_video: boolean
+  reads_burned_in_subtitles?: boolean
   upload_max_mb: number
   // Superseded originals and failed uploads kept in the title's folder (numbers only).
   kept_media_files: number

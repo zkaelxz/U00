@@ -4,6 +4,7 @@ import { ApiError } from '../../api/client'
 import {
   advancedSummary,
   checkOcrImages,
+  isDirectAudioUrl,
   isVideoFile,
   ocrBackendOptions,
   runOptionProblem,
@@ -87,5 +88,16 @@ describe('isVideoFile', () => {
     expect(isVideoFile('clip.mkv')).toBe(true)
     expect(isVideoFile('dub.mp3')).toBe(false)
     expect(isVideoFile('mp4.wav')).toBe(false)
+  })
+})
+
+describe('isDirectAudioUrl', () => {
+  it('reads the extension of the URL path, as the server does', () => {
+    expect(isDirectAudioUrl('https://a.example/x/ep.MP3?t=1')).toBe(true)
+    expect(isDirectAudioUrl(' https://a.example/x/ep.flac ')).toBe(true)
+    expect(isDirectAudioUrl('https://a.example/x/ep.mp4')).toBe(false)
+    expect(isDirectAudioUrl('https://a.example/watch?v=x.mp3')).toBe(false)
+    expect(isDirectAudioUrl('https://a.example/.mp3')).toBe(false)
+    expect(isDirectAudioUrl('not a url')).toBe(false)
   })
 })

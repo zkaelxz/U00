@@ -970,3 +970,43 @@ def test_replacing_audio_with_a_video_attaches_it_and_sets_the_old_audio_aside(c
     assert (after["source_video_filename"], after["audio_filename"]) == ("source.mp4", "audio.wav")
     assert _status(client, did)["has_source_video"] is True
     assert list(_kept(did).values()) == [b"first"]
+
+
+def _hardsub_video_title(client, did):
+    import db
+    _video_title(client, did)
+    db.update_drama(did, transcript_mode="hardsub_ocr")
+
+
+def test_replacing_a_hardsub_ocr_video_with_audio_switches_the_mode(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    _hardsub_video_title(client, did)
+    assert _status(client, did)["reads_burned_in_subtitles"] is True
+    assert _replace_with_audio(client, did).status_code == 200
+    d = db.get_drama(did)
+    assert d["source_video_filename"] is None
+    assert d["transcript_mode"] == "whisper"
+    assert _status(client, did)["reads_burned_in_subtitles"] is False
+    from services import source_service
+    assert source_service.get_source_config(did)["transcript_mode"] == "whisper"
+
+
+def test_replacing_a_hardsub_ocr_video_with_a_video_keeps_the_mode(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    _hardsub_video_title(client, did)
+    assert _replace_video(client, did)["status"] == "done"
+    d = db.get_drama(did)
+    assert d["source_video_filename"] and d["source_video_filename"].endswith(".mp4")
+    assert d["transcript_mode"] == "hardsub_ocr"
+
+
+@pytest.mark.parametrize("mode", [None, "have_transcript", "whisper"])
+def test_replacing_a_video_with_audio_leaves_other_modes_alone(client, isolated_db, mode):
+    import db
+    did = db.create_drama(title_en="D")
+    _video_title(client, did)
+    db.update_drama(did, transcript_mode=mode)
+    assert _replace_with_audio(client, did).status_code == 200
+    assert db.get_drama(did)["transcript_mode"] == mode
