@@ -310,3 +310,13 @@ class TestApi:
         assert client.get(f"{base}/resegment/preview").status_code == 200
         assert client.post(f"{base}/merge", json={"line_ids": ids[:2], "expected_line_ids": ids,
                                                   "bogus": 1}).status_code == 422
+
+
+def test_merge_refuses_a_line_past_the_text_cap():
+    half = "x" * (svc.MAX_LINE_TEXT_CHARS // 2 + 1)
+    did = db.create_drama(title_zh="D", source_language="zh")
+    db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh=half),
+                        Line(idx=1, start=1.0, end=2.0, zh=half)])
+    ids = [r["id"] for r in db.load_lines(did)]
+    with pytest.raises(InvalidInputError):
+        svc.merge_lines(did, ids, ids)

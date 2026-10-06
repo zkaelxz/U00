@@ -84,7 +84,12 @@ export interface ResplitStart {
   expected_line_ids: number[]
   align_to_audio: boolean
   confirm: boolean
+  sensitivity?: ResplitSensitivity
+  max_seconds?: number | null
+  dry_run?: boolean
 }
+
+export type ResplitSensitivity = 'normal' | 'more' | 'sentence'
 
 export interface ResplitResult {
   job_id?: string | null
@@ -97,6 +102,8 @@ export interface ResplitResult {
   cleared_translations?: number | null
   speakers_reassigned?: boolean | null
   note?: string | null
+  dry_run?: boolean | null
+  pieces?: number | null
 }
 
 export interface ReassignResult {

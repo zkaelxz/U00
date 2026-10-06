@@ -41,6 +41,7 @@ import db
 import diarize
 import raw_transcript
 import resegment
+import subtitle_formats
 import translate_engines
 from services import (diarization_service, drama_service, settings_service, transcribe_service,
                       translate_service)
@@ -51,6 +52,9 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       UnsupportedOperationError)
 
 MAX_LINE_TEXT_CHARS = 2000
+# Lines already past the cap (merged before it existed) are not re-split by the
+# rules presets, whose quote and abbreviation checks cost more per character.
+RESPLIT_MAX_CHARS = 10 * MAX_LINE_TEXT_CHARS
 MAX_SPEAKER_CHARS = 100
 MAX_MERGE_LINES = 50
 RESEGMENT_JOB_PREFIX = "resegment_"  # already in background_jobs.DRAMA_JOB_PREFIXES
@@ -215,6 +219,9 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
         for ln in rest:
             head.zh = head.zh.rstrip() + ln.zh.strip()
             head.en = (head.en.rstrip() + " " + ln.en.strip()).strip()
+            if len(head.zh) > MAX_LINE_TEXT_CHARS or len(head.en) > MAX_LINE_TEXT_CHARS:
+                raise InvalidInputError(
+                    f"The merged line would pass {MAX_LINE_TEXT_CHARS} characters.")
             if not head.flag and ln.flag:
                 head.flag, head.flag_note = ln.flag, ln.flag_note
             head.merged_ids = list(head.merged_ids) + [ln.id]
@@ -627,18 +634,78 @@ _RESPLIT_CONFIRM = ("Some long lines already have a translation. A split piece c
                     "it, so those lines would lose their English -- pass confirm=true.")
 
 
-def _resplit_plan(lines) -> dict:
+RESPLIT_SENSITIVITIES = {"normal": "Normal", "more": "More", "sentence": "Sentence by sentence"}
+_RESPLIT_NEXT = {"normal": 'Try "More" or "Sentence by sentence".',
+                 "more": 'Try "Sentence by sentence".',
+                 "sentence": "Try a shorter duration cap."}
+
+
+@dataclasses.dataclass(frozen=True)
+class _Resplit:
+    """What to cut: the sensitivity preset, an optional duration cap and the
+    title language lines fall back to."""
+    language: str = "zh"
+    sensitivity: str = "normal"
+    max_seconds: Optional[float] = None
+
+    @property
+    def label(self) -> str:
+        return RESPLIT_SENSITIVITIES[self.sensitivity] + (
+            f", {self.max_seconds:g} s cap" if self.max_seconds else "")
+
+    def rules(self, ln) -> Optional[core_module.SplitRules]:
+        """None is today's fixed 8 s / 40 CJK characters. The cap replaces the
+        8 s limit rather than adding to it: a cap above 8 would otherwise do nothing."""
+        if self.sensitivity == "normal" and not self.max_seconds:
+            return None
+        seconds = self.max_seconds or core_module.SPLIT_MAX_SECONDS
+        if self.sensitivity == "normal":
+            return core_module.SplitRules(seconds, core_module.SPLIT_MAX_CJK_CHARS, count_latin=False)
+        if self.sensitivity == "more":
+            return core_module.SplitRules(
+                seconds, subtitle_formats.line_char_limit(ln.lang or self.language))
+        return core_module.SplitRules(self.max_seconds, None, per_sentence=True)
+
+    def too_long(self, ln) -> bool:
+        return len(ln.zh) > RESPLIT_MAX_CHARS and self.rules(ln) is not None
+
+    def split(self, ln) -> list:
+        if self.too_long(ln):
+            return [{"start": ln.start, "end": ln.end, "text": ln.zh}]
+        return core_module.split_long_segments(
+            [{"start": ln.start, "end": ln.end, "text": ln.zh}], rules=self.rules(ln))
+
+
+def _resplit_candidates(lines):
+    return [ln for ln in lines if not ln.sfx and ln.id is not None and (ln.zh or "").strip()]
+
+
+def _resplit_plan(lines, cfg: _Resplit) -> dict:
     """{line_id: [{"start","end","text"}, ...]} for each line the proportional
-    splitter cuts in two or more pieces (same limits as a fresh transcription)."""
+    splitter cuts in two or more pieces."""
     plan = {}
-    for ln in lines:
-        if ln.sfx or ln.id is None or not (ln.zh or "").strip():
-            continue
-        pieces = core_module.split_long_segments(
-            [{"start": ln.start, "end": ln.end, "text": ln.zh}])
+    for ln in _resplit_candidates(lines):
+        pieces = cfg.split(ln)
         if len(pieces) >= 2:
             plan[ln.id] = pieces
     return plan
+
+
+def _nothing_to_split(lines, cfg: _Resplit) -> str:
+    """Why a run cut nothing: lines over the limits with nowhere to cut are
+    not the same problem as no line being over them."""
+    stuck = 0
+    for ln in _resplit_candidates(lines):
+        if cfg.too_long(ln):
+            stuck += 1
+            continue
+        rules = cfg.rules(ln) or core_module.SplitRules(max_chars=core_module.SPLIT_MAX_CJK_CHARS,
+                                                         count_latin=False)
+        stuck += core_module.exceeds_limits({"start": ln.start, "end": ln.end, "text": ln.zh}, rules)
+    if stuck:
+        return (f"{stuck} line{'s' if stuck != 1 else ''} over the limits at {cfg.label} "
+                "sensitivity, but none has a sentence or comma break to cut at.")
+    return f"No line is over the limits at {cfg.label} sensitivity. {_RESPLIT_NEXT[cfg.sensitivity]}"
 
 
 def _resplit_snapshot(lines, plan) -> dict:
@@ -675,7 +742,8 @@ def _aligned_pieces(audio_path, ln, pieces, language, use_gpu):
 
 
 def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timing: str,
-                   note: str, expected: dict, own_job_id: Optional[str] = None) -> dict:
+                   note: str, expected: dict, cfg: _Resplit,
+                   own_job_id: Optional[str] = None) -> dict:
     """Commit step shared by both modes: fresh lines, id check, plan check,
     snapshot, one save, then speakers from the saved turns for the split
     lines only. `expected` is _resplit_snapshot from when the split was asked."""
@@ -688,7 +756,7 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
                                 "again.")
         current = db.load_line_objects(drama_id)
         _check_expected(current, expected_line_ids)
-        plan = _resplit_plan(current)
+        plan = _resplit_plan(current, cfg)
         if set(plan) != set(expected) or _resplit_snapshot(current, plan) != expected:
             raise ConflictError("A line's text, timing or translation changed while splitting "
                                 "-- nothing was changed; reload and try again.")
@@ -719,7 +787,7 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
         if not split:
             return {"split_lines": 0, "line_count": len(current), "lines_before": len(current),
                     "timing": timing, "aligned_lines": 0, "cleared_translations": 0,
-                    "speakers_reassigned": False, "note": "No line is over the length limits."}
+                    "speakers_reassigned": False, "note": _nothing_to_split(current, cfg)}
         _commit(drama_id, current, new_lines, "before re-split")
         reassigned = False
         try:
@@ -737,9 +805,10 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
             "speakers_reassigned": reassigned, "note": note}
 
 
-def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, language, use_gpu):
+def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, language, use_gpu,
+                     cfg):
     lines = db.load_line_objects(drama_id)
-    plan = _resplit_plan(lines)
+    plan = _resplit_plan(lines, cfg)
     by_id = {ln.id: ln for ln in lines}
     expected = _resplit_snapshot(lines, plan)
     timed, notes, aligner_down = {}, [], None
@@ -781,7 +850,7 @@ def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, l
     timing = "aligned" if timed else "proportional"
     try:
         result = _apply_resplit(drama_id, expected_line_ids, confirm, timed, timing,
-                                " ".join(notes), expected, own_job_id=job_id)
+                                " ".join(notes), expected, cfg, own_job_id=job_id)
     except (ConflictError, InvalidInputError) as exc:
         background_jobs.set_result(job_id, {"failed_reason": "not_applied", "detail": str(exc)})
         return
@@ -789,13 +858,23 @@ def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, l
 
 
 def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool = False,
-                       confirm: bool = False) -> dict:
-    """Cuts the drama's over-long lines (the limits of a fresh transcription)
-    at sentence/comma boundaries in place -- no transcription, no speaker
-    detection. The first piece keeps the line's id and flag; the pieces take
-    the parent's speaker, then saved diarization turns (if any) relabel the
-    split lines only, manual speakers kept. Translations can't be shared across pieces: a long
-    line that has one needs confirm=true, and its pieces start empty.
+                       confirm: bool = False, sensitivity: str = "normal",
+                       max_seconds: Optional[float] = None, dry_run: bool = False) -> dict:
+    """Cuts the drama's over-long lines at sentence/comma boundaries in place --
+    no transcription, no speaker detection. The first piece keeps the line's id
+    and flag; the pieces take the parent's speaker, then saved diarization
+    turns (if any) relabel the split lines only, manual speakers kept.
+    Translations can't be shared across pieces: a long line that has one needs
+    confirm=true, and its pieces start empty.
+
+    sensitivity: "normal" (the limits of a fresh transcription: 8 s / 40 CJK
+    characters), "more" (the per-language subtitle line length, in each line's
+    own language) or "sentence" (every sentence end). max_seconds replaces the
+    preset's duration limit. Pieces under 0.8 s or 4 CJK characters / 2 words
+    are folded into a neighbour in "more" and "sentence".
+
+    dry_run only counts: {dry_run, split_lines, pieces, lines_before, line_count,
+    cleared_translations, note}, no write, no confirm, allowed while a job runs.
 
     Timing is proportional to text length (instant, returned as the summary
     {split_lines, lines_before, line_count, timing, aligned_lines,
@@ -807,24 +886,36 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     Refused (409) while any job runs on the drama."""
     drama = _require_drama(drama_id)
     expected_line_ids = _id_list("expected_line_ids", expected_line_ids)
-    _refuse_if_job_running(drama_id)
+    if sensitivity not in RESPLIT_SENSITIVITIES:
+        raise InvalidInputError(f"sensitivity must be one of {', '.join(RESPLIT_SENSITIVITIES)}.")
+    if max_seconds is not None and not 2 <= max_seconds <= 120:
+        raise InvalidInputError("max_seconds must be between 2 and 120.")
+    cfg = _Resplit(drama.get("source_language") or "zh", sensitivity, max_seconds)
+    if not dry_run:
+        _refuse_if_job_running(drama_id)
     lines = db.load_line_objects(drama_id)
     _check_expected(lines, expected_line_ids)
-    plan = _resplit_plan(lines)
+    plan = _resplit_plan(lines, cfg)
+    if dry_run:
+        pieces = sum(len(p) for p in plan.values())
+        return {"dry_run": True, "split_lines": len(plan), "pieces": pieces,
+                "lines_before": len(lines), "line_count": len(lines) - len(plan) + pieces,
+                "cleared_translations": sum(1 for ln in lines if ln.id in plan and ln.en.strip()),
+                "note": "" if plan else _nothing_to_split(lines, cfg)}
     _check_resplit_confirm(lines, plan, confirm)
     if not align_to_audio or not plan:
         return _apply_resplit(drama_id, expected_line_ids, confirm, {}, "proportional", "",
-                              _resplit_snapshot(lines, plan))
+                              _resplit_snapshot(lines, plan), cfg)
     audio_path = transcribe_service._drama_audio_path(drama_id, drama)
     if audio_path is None:
         return _apply_resplit(
             drama_id, expected_line_ids, confirm, {}, "proportional",
             "This drama has no stored audio, so the lines were split with estimated timing.",
-            _resplit_snapshot(lines, plan))
+            _resplit_snapshot(lines, plan), cfg)
     job_id = f"{RESPLIT_JOB_PREFIX}{drama_id}"
     started = background_jobs.start_job(
         job_id, _run_resplit_job, job_id, drama_id, expected_line_ids, confirm, audio_path,
-        drama.get("source_language") or "zh", settings_service.get_use_gpu(),
+        cfg.language, settings_service.get_use_gpu(), cfg,
         gpu_touching=True, description=f"Re-splitting lines (drama #{drama_id})")
     if not started:
         raise ConflictError("Lines are already being re-split for this drama.")
