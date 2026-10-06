@@ -307,3 +307,15 @@ def test_upload_refuses_a_bad_speaker_range_and_stores_nothing(client, monkeypat
     r = _post(client, did, {"run_diarize": "true", "min_speakers": "5", "max_speakers": "2"})
     assert r.status_code == 422, r.text
     assert not db.get_drama(did).get("audio_filename")
+
+
+def test_replacing_audio_needs_confirm(client, monkeypatch):
+    import db
+    did = _drama()
+    _capture_worker_start(monkeypatch)
+    assert _post(client, did).status_code == 200
+    r = _post(client, did)
+    assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "confirm_replace_audio"
+    r = _post(client, did, {"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    assert os.listdir(os.path.join(db.drama_dir(did), "kept_media"))

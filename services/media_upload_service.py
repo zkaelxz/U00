@@ -4,6 +4,17 @@ drama's folder: the file is saved as `source<ext>` in the drama folder; a video 
 track extracted to `audio.wav` and both filenames recorded, an audio file
 records just `audio_filename`.
 
+A drama that already has audio or a source video needs
+`confirm_replace_audio` (422 with details.reason "confirm_replace_audio"
+otherwise, the same rule as url_media_service). A file already at
+`source<ext>` is never overwritten: it is first kept as
+`kept_media/replaced-<UTC time><ext>`. A video is staged under a hidden name
+and only put in place after its audio was extracted; if extraction fails or
+is cancelled, the upload is kept as `kept_media/failed-upload-<UTC time><ext>`
+and the drama is left as it was. Nothing in kept_media/ is referenced by the
+database or deleted by the app; backups with media and imports carry it with
+the rest of the drama folder, and Storage lists it like the drama's media.
+
 A video's audio extraction (ffmpeg) runs in background job
 `extract_audio_<drama_id>`, not in the request. The job owns the whole
 step (extraction, then the field-scoped DB write) and, for
@@ -13,10 +24,11 @@ client still polls one job id. Cancel kills the ffmpeg process tree.
 The client's filename is never used for storage or returned: only its
 extension is read, and only if it is on the whitelist. The body is streamed
 to a temp file in the drama folder (capped at BAIHE_MAX_UPLOAD_MB, default
-2048), then atomically renamed into place. No path is ever returned.
+2048) and fsynced before it is renamed into place. No path is ever returned.
 
 No FastAPI import: takes a binary file-like object.
 """
+import contextlib
 import os
 import subprocess
 import tempfile
@@ -39,7 +51,10 @@ UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
 NO_UPLOAD_MODE = ("This drama has no audio to upload (it is set to work from a novel). "
                    "Change what you are working from to Audio drama or Streamer/VOD first.")
 _BAD_TYPE = "Unsupported file type. Upload an audio or video file."
-_EXTRACT_FAILED = "Could not read audio from that video file."
+_EXTRACT_FAILED = ("Could not read audio from that video file. The uploaded video was kept "
+                   "in this title's folder; the title's audio is unchanged.")
+_CONFIRM_REPLACE = "This drama already has audio. Confirm replacing it first."
+KEPT_DIRNAME = "kept_media"
 EXTRACT_JOB_PREFIX = "extract_audio_"
 # Wall-clock cap on one ffmpeg extraction, so a stuck ffmpeg can't leave the
 # job "running" forever; cancel kills it sooner.
@@ -74,13 +89,68 @@ def _safe_extension(client_filename) -> str:
     return ext
 
 
-def _save_upload(drama_id, client_filename, fileobj):
+def _has_media(drama, drama_id) -> bool:
+    ddir = db.drama_dir(drama_id)
+    return any(name and os.path.exists(os.path.join(ddir, name))
+               for name in (drama.get("audio_filename"), drama.get("source_video_filename")))
+
+
+def _fsync_dir(path):
+    # Best effort: a folder that refuses fsync must not fail an upload whose
+    # renames already happened.
+    with contextlib.suppress(OSError):
+        db.fsync_dir(path)
+
+
+def _kept_path(ddir, label, ext) -> str:
+    kept = os.path.join(ddir, KEPT_DIRNAME)
+    os.makedirs(kept, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    for n in range(1, 1000):
+        path = os.path.join(kept, f"{label}-{stamp}{'' if n == 1 else f'-{n}'}{ext}")
+        if not os.path.lexists(path):
+            return path
+    raise OSError("no free kept_media name")
+
+
+def _put_in_place(ddir, staged, name):
+    """Renames `staged` to `name` in ddir. A file already there is kept
+    first, as a hard link so `name` never goes missing in between; a
+    filesystem without hard links gets a rename (a crash between the two
+    renames leaves `name` missing, but both files on disk)."""
+    final = os.path.join(ddir, name)
+    if os.path.lexists(final):
+        keep = _kept_path(ddir, "replaced", os.path.splitext(name)[1])
+        try:
+            os.link(final, keep)
+        except OSError:
+            os.rename(final, keep)
+        _fsync_dir(os.path.dirname(keep))
+    os.replace(staged, final)
+    _fsync_dir(ddir)
+
+
+def _keep_failed_upload(ddir, staged, ext):
+    """Moves a video whose audio couldn't be extracted to kept_media/. If
+    even that fails it stays at its hidden staged name: never deleted."""
+    if not os.path.exists(staged):
+        return
+    with contextlib.suppress(OSError):
+        os.rename(staged, _kept_path(ddir, "failed-upload", ext))
+        _fsync_dir(os.path.join(ddir, KEPT_DIRNAME))
+
+
+def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False):
+    """Streams the body to a hidden file in the drama folder; returns
+    (ext, size, staged path). Nothing is put in place here."""
     ext = _safe_extension(client_filename)
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in UPLOAD_CONTENT_MODES:
         raise InvalidInputError(NO_UPLOAD_MODE)
+    if _has_media(drama, drama_id) and not confirm_replace_audio:
+        raise InvalidInputError(_CONFIRM_REPLACE, details={"reason": "confirm_replace_audio"})
     limit = max_upload_bytes()
     ddir = db.drama_dir(drama_id)
     fd, tmp_path = tempfile.mkstemp(prefix=".upload_", suffix=".part", dir=ddir)
@@ -95,26 +165,34 @@ def _save_upload(drama_id, client_filename, fileobj):
                 if size > limit:
                     raise InvalidInputError(_TOO_LARGE)
                 out.write(chunk)
+            out.flush()
+            os.fsync(out.fileno())
         if size == 0:
             raise InvalidInputError("The uploaded file is empty.")
-        final_path = os.path.join(ddir, f"source{ext}")
-        os.replace(tmp_path, final_path)
+        # ffmpeg picks some demuxers by extension, so the staged video keeps it.
+        staged = tmp_path[:-len(".part")] + ext
+        os.replace(tmp_path, staged)
     except BaseException:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
-    return ext, size
+    return ext, size, staged
 
 
-def upload_media(drama_id, client_filename, fileobj, transcribe_options=None) -> dict:
+def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
+                 confirm_replace_audio=False) -> dict:
     """Only one upload per drama at a time, and none while a drama job runs.
-    Saves the upload. An audio file is recorded at once (job_id None).
+    Replacing existing audio/video needs confirm_replace_audio (422
+    details.reason "confirm_replace_audio"). Saves the upload. An audio
+    file is put in place and recorded at once (job_id None).
     A video starts job `extract_audio_<id>` and returns its job_id before
     extraction runs (poll GET /api/jobs/{job_id}). With transcribe_options
     (kwargs for transcribe_service.start_transcribe_run), that same job
     starts and follows the transcribe run once the audio is extracted; for
     an audio file the run is started here, under the upload claim, and its
     id returned as "transcribe_job_id" (the upload is kept if it fails)."""
+    if not isinstance(confirm_replace_audio, bool):
+        raise InvalidInputError("confirm_replace_audio must be true or false.")
     with claims_lock:
         if drama_id in claimed:
             raise ConflictError("Another upload is in progress for this drama.")
@@ -122,8 +200,14 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None) ->
     try:
         if drama_service.job_running_for_drama(drama_id):
             raise ConflictError(_BUSY)
-        ext, size = _save_upload(drama_id, client_filename, fileobj)
+        ext, size, staged = _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio)
         if ext not in VIDEO_EXTENSIONS:
+            try:
+                _put_in_place(db.drama_dir(drama_id), staged, f"source{ext}")
+            except BaseException:
+                if os.path.exists(staged):
+                    os.remove(staged)
+                raise
             db.update_drama(drama_id, audio_filename=f"source{ext}")
             result = {"name": f"source{ext}", "size": size, "kind": "audio", "job_id": None}
             if transcribe_options is not None:  # started while the claim is still held
@@ -133,9 +217,10 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None) ->
             return result
         job_id = f"{EXTRACT_JOB_PREFIX}{drama_id}"
         started = background_jobs.start_job(
-            job_id, _extract_audio_job, job_id, drama_id, ext, transcribe_options,
+            job_id, _extract_audio_job, job_id, drama_id, ext, staged, transcribe_options,
             description=f"Audio extraction (drama #{drama_id})")
         if not started:  # unreachable while the claim and running-job check hold
+            os.remove(staged)
             raise ConflictError(_BUSY)
         return {"name": f"source{ext}", "size": size, "kind": "video", "job_id": job_id}
     finally:
@@ -143,22 +228,23 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None) ->
             claimed.discard(drama_id)
 
 
-def _extract_audio_job(job_id, drama_id, ext, transcribe_options=None):
+def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
     ddir = db.drama_dir(drama_id)
-    video_path = os.path.join(ddir, f"source{ext}")
     part_path = os.path.join(ddir, ".audio.extract.wav")
     background_jobs.update_progress(job_id, 0.05, "Extracting audio from the video...")
     # -protocol_whitelist file: an upload named .mp4 could really be an HLS
     # playlist naming network URLs; ffmpeg may only open local files.
-    cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", video_path, "-vn",
+    cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", staged, "-vn",
            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", part_path]
     try:
         background_jobs.run_cancellable(job_id, cmd, cwd=ddir, timeout=EXTRACT_TIMEOUT_SECONDS)
+        _put_in_place(ddir, staged, f"source{ext}")
         os.replace(part_path, os.path.join(ddir, "audio.wav"))
     except BaseException as exc:
-        for path in (part_path, video_path):
-            if os.path.exists(path):
-                os.remove(path)
+        if os.path.exists(part_path):
+            os.remove(part_path)
+        # The upload may be the user's only copy, so a failure or cancel keeps it.
+        _keep_failed_upload(ddir, staged, ext)
         if isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError)):
             raise RuntimeError(_EXTRACT_FAILED) from None
         raise

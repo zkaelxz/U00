@@ -108,6 +108,28 @@ test('rejects an unsupported upload before sending it', async ({ page }) => {
   expect(uploads).toEqual([])
 })
 
+test('replacing existing audio needs the replace box, which is sent with the upload', async ({ page }) => {
+  await page.route('**/api/media/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_audio: true, has_source_video: false, upload_max_mb: 500 } }),
+  )
+  const confirms: (string | null)[] = []
+  await page.route('**/api/media/dramas/1/upload', async (route) => {
+    const body = route.request().postDataBuffer()?.toString('latin1') ?? ''
+    confirms.push(/name="confirm_replace_audio"\r\n\r\n(\w+)/.exec(body)?.[1] ?? null)
+    await route.fulfill({ json: { name: 'source.mp3', size: 3, kind: 'audio', job_id: null } })
+  })
+  await page.goto('/#/drama/1/source')
+  await expect(page.getByTestId('media-status')).toContainText('Audio attached')
+  await page.getByLabel('Audio or video file').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  const upload = page.getByRole('button', { name: 'Upload', exact: true })
+  await expect(upload).toBeDisabled()
+
+  await page.getByLabel(/Replace the current audio\/video/).check()
+  await upload.click()
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded audio' })).toBeVisible()
+  expect(confirms).toEqual(['true'])
+})
+
 test('starts a transcription with the right body, polls the job and cancels it', async ({ page }) => {
   const run = await mockRun(page, 1)
   await page.goto('/#/drama/1/source')

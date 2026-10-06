@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { ApiError } from '../../../api/client'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
@@ -25,6 +26,9 @@ import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
 import { mediaFileInputId } from './stageBlockers'
 
+const needsConfirm = (e: unknown) =>
+  e instanceof ApiError && e.status === 422 && (e.details as { reason?: unknown } | null)?.reason === 'confirm_replace_audio'
+
 export default function SourceStage() {
   const { dramaId, drama, onJobDone } = useStage()
   const [media, setMedia] = useState<MediaStatus | null>(null)
@@ -32,6 +36,9 @@ export default function SourceStage() {
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
+  const [replace, setReplace] = useState(false)
+  // The server says the drama has audio/video even if the status we read did not.
+  const [serverHasMedia, setServerHasMedia] = useState(false)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null)
   const [reloads, setReloads] = useState(0)
@@ -102,11 +109,17 @@ export default function SourceStage() {
     setFile(f && !problem ? f : null)
   }
 
+  const hasMedia = !!media && (media.has_audio || media.has_source_video)
+  const mustConfirm = hasMedia || serverHasMedia
+  const confirmReplace = mustConfirm && replace
+
   const upload = () => {
-    if (!file) return
-    uploadMedia(dramaId, file).then(
+    if (!file || (mustConfirm && !replace)) return
+    uploadMedia(dramaId, file, confirmReplace).then(
       (r) => {
         setError(null)
+        setReplace(false)
+        setServerHasMedia(false)
         const mb = (r.size / (1024 * 1024)).toFixed(1)
         setFile(null)
         if (r.job_id) {
@@ -119,11 +132,13 @@ export default function SourceStage() {
         setReloads((n) => n + 1)
         onJobDone()
       },
-      setError,
+      (e: unknown) => {
+        if (needsConfirm(e)) setServerHasMedia(true)
+        setError(e)
+      },
     )
   }
 
-  const hasMedia = !!media && (media.has_audio || media.has_source_video)
   const remove = () => {
     setUploaded(null)
     setRemoveError(null)
@@ -183,9 +198,20 @@ export default function SourceStage() {
             disabled={!media}
             onChange={(e) => pick(e.target.files?.[0] ?? null)}
           />
-          <button type="button" className={buttonClass('secondary')} disabled={!file || busy} onClick={upload}>
+          <button
+            type="button"
+            className={buttonClass('secondary')}
+            disabled={!file || busy || (mustConfirm && !replace)}
+            onClick={upload}
+          >
             Upload
           </button>
+          {mustConfirm && (
+            <label>
+              <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+              Replace the current audio/video (the old file is kept in this title's folder)
+            </label>
+          )}
         </div>
       )}
       {hasMedia && pc === 'local' && (
@@ -219,7 +245,7 @@ export default function SourceStage() {
       title="Transcribe audio or video"
       summary={hasMedia ? 'audio attached' : 'upload or download a file'}
     >
-      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy}
+      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} confirmReplace={confirmReplace} busy={busy}
         onJobStarted={(id, expected) => {
           setExpectedSeconds(expected ?? null)
           setJobId(id)

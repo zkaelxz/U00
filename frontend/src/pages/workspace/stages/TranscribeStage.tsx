@@ -91,6 +91,8 @@ interface Props {
   media: MediaStatus | null
   // A pre-checked file chosen in the media picker, or null.
   file: File | null
+  // The picker's "Replace the current audio/video" box, sent with an upload of `file`.
+  confirmReplace: boolean
   busy: boolean
   // expectedSeconds: this PC's recorded speed applied to this media, when there is one.
   onJobStarted: (jobId: string, expectedSeconds?: number | null) => void
@@ -136,7 +138,7 @@ const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
   hardsub_interval_sec: Number(f.hardsub_interval_sec),
 })
 
-export default function TranscribeStage({ mediaSlot, media, file, busy, onJobStarted }: Props) {
+export default function TranscribeStage({ mediaSlot, media, file, confirmReplace, busy, onJobStarted }: Props) {
   const { dramaId, drama } = useStage()
   const mossEnabled = useMossExperimental()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
@@ -361,7 +363,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           realignLong: cf.realign_long_segments,
         })
       : null
-    const start = () => (file ? uploadAndTranscribe(dramaId, file, req) : startTranscribe(dramaId, req))
+    const start = () => (file ? uploadAndTranscribe(dramaId, file, req, confirmReplace) : startTranscribe(dramaId, req))
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
     const changed = (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== current[k])

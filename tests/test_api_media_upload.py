@@ -97,7 +97,17 @@ def test_video_upload_returns_before_extraction_finishes(client, isolated_db, mo
         assert f.read() == b"fakeaudio"
 
 
-def test_video_extract_failure_is_job_error_and_cleans_up(client, isolated_db, monkeypatch):
+def _kept(did):
+    import db
+    kept = os.path.join(db.drama_dir(did), "kept_media")
+    out = {}
+    for name in sorted(os.listdir(kept)) if os.path.isdir(kept) else []:
+        with open(os.path.join(kept, name), "rb") as f:
+            out[name] = f.read()
+    return out
+
+
+def test_video_extract_failure_is_job_error_and_keeps_the_upload(client, isolated_db, monkeypatch):
     import db
 
     def boom(job_id, cmd, cwd=None, **kw):
@@ -109,8 +119,13 @@ def test_video_extract_failure_is_job_error_and_cleans_up(client, isolated_db, m
     job = _wait(r.json()["job_id"])
     assert job["status"] == "error"
     assert "Could not read audio from that video file." in job["error"]
+    assert "kept" in job["error"]
     assert "sk-ant" not in job["error"] and "sk-ant" not in (job.get("traceback") or "")
-    assert os.listdir(db.drama_dir(did)) == []
+    assert db.drama_dir(did) not in job["error"]
+    assert os.listdir(db.drama_dir(did)) == ["kept_media"]
+    kept = _kept(did)
+    assert list(kept.values()) == [b"fakeaudio"]
+    assert next(iter(kept)).startswith("failed-upload-") and next(iter(kept)).endswith(".mp4")
     assert not db.get_drama(did).get("audio_filename")
 
 
@@ -129,7 +144,7 @@ def test_extract_ffmpeg_opens_local_files_only(client, isolated_db, monkeypatch)
     assert cmds[0][i - 2:i] == ["-protocol_whitelist", "file"]
 
 
-def test_video_extract_cancel_is_cancelled_and_cleans_up(client, isolated_db, monkeypatch):
+def test_video_extract_cancel_is_cancelled_and_keeps_the_upload(client, isolated_db, monkeypatch):
     import db
 
     def cancelled(job_id, cmd, cwd=None, **kw):
@@ -138,7 +153,8 @@ def test_video_extract_cancel_is_cancelled_and_cleans_up(client, isolated_db, mo
     did = db.create_drama(title_en="D")
     job = _wait(_up(client, did, "a.mp4").json()["job_id"])
     assert job["status"] == "cancelled"
-    assert os.listdir(db.drama_dir(did)) == []
+    assert os.listdir(db.drama_dir(did)) == ["kept_media"]
+    assert list(_kept(did).values()) == [b"fakeaudio"]
 
 
 def test_run_cancellable_timeout_kills_process(isolated_db):
@@ -258,3 +274,130 @@ def test_concurrent_upload_loser_never_touches_winner_file(client, isolated_db):
     with open(os.path.join(db.drama_dir(did), "source.mp4"), "rb") as f:
         assert f.read() == b"winner"
     assert not any(n.startswith(".upload_") for n in os.listdir(db.drama_dir(did)))
+
+
+def _read(did, name):
+    import db
+    with open(os.path.join(db.drama_dir(did), name), "rb") as f:
+        return f.read()
+
+
+def test_replacing_audio_needs_confirm_and_touches_nothing_without_it(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+    r = _up(client, did, "b.mp3", b"second")
+    assert r.status_code == 422
+    assert r.json()["error"]["details"]["reason"] == "confirm_replace_audio"
+    assert os.listdir(db.drama_dir(did)) == ["source.mp3"]
+    assert _read(did, "source.mp3") == b"first"
+
+
+def test_confirmed_replace_keeps_the_old_original(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    assert _read(did, "source.mp3") == b"second"
+    kept = _kept(did)
+    assert list(kept.values()) == [b"first"]
+    assert next(iter(kept)).startswith("replaced-") and next(iter(kept)).endswith(".mp3")
+    assert "kept_media" not in r.text
+    # a second replace in the same second gets its own name
+    client.post(f"/api/media/dramas/{did}/upload", files={"file": ("c.mp3", b"third")},
+                data={"confirm_replace_audio": "true"})
+    assert sorted(_kept(did).values()) == [b"first", b"second"]
+
+
+def test_existing_source_video_needs_confirm(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _wait(_up(client, did, "a.mp4", b"vid1").json()["job_id"])["status"] == "done"
+    os.remove(os.path.join(db.drama_dir(did), "audio.wav"))  # video alone still counts
+    r = _up(client, did, "b.mp3", b"aud")
+    assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "confirm_replace_audio"
+
+
+def test_video_replace_keeps_old_until_extraction_succeeds(client, isolated_db, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _wait(_up(client, did, "a.mp4", b"old").json()["job_id"])["status"] == "done"
+    gate = threading.Event()
+    seen = {}
+
+    def slow_ffmpeg(job_id, cmd, cwd=None, **kw):
+        seen["during"] = _read(did, "source.mp4")
+        gate.wait(5)
+        _fake_ffmpeg(job_id, cmd)
+    monkeypatch.setattr(background_jobs, "run_cancellable", slow_ffmpeg)
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp4", b"new")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    gate.set()
+    assert _wait(r.json()["job_id"])["status"] == "done"
+    assert seen["during"] == b"old"
+    assert _read(did, "source.mp4") == b"new"
+    assert list(_kept(did).values()) == [b"old"]
+    assert not any(n.startswith(".") for n in os.listdir(db.drama_dir(did)))
+
+
+def test_failed_extraction_on_replace_leaves_the_title_as_it_was(client, isolated_db, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _wait(_up(client, did, "a.mp4", b"old").json()["job_id"])["status"] == "done"
+    before = db.get_drama(did)
+
+    def boom(job_id, cmd, cwd=None, **kw):
+        raise subprocess.CalledProcessError(1, cmd)
+    monkeypatch.setattr(background_jobs, "run_cancellable", boom)
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp4", b"new")},
+                    data={"confirm_replace_audio": "true"})
+    assert _wait(r.json()["job_id"])["status"] == "error"
+    assert _read(did, "source.mp4") == b"old" and _read(did, "audio.wav") == b"wav"
+    after = db.get_drama(did)
+    assert (after["audio_filename"], after["source_video_filename"]) == (
+        before["audio_filename"], before["source_video_filename"])
+    kept = _kept(did)
+    assert list(kept.values()) == [b"new"] and next(iter(kept)).startswith("failed-upload-")
+
+
+def test_replace_without_hard_links_still_keeps_the_old_file(client, isolated_db, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+
+    def no_links(*a, **kw):
+        raise OSError("hard links not supported")
+    monkeypatch.setattr(os, "link", no_links)
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    assert _read(did, "source.mp3") == b"second"
+    assert list(_kept(did).values()) == [b"first"]
+
+
+def test_confirm_flag_must_be_a_bool(isolated_db):
+    import io
+    import db
+    from services import media_upload_service
+    from services.service_errors import InvalidInputError
+    did = db.create_drama(title_en="D")
+    with pytest.raises(InvalidInputError):
+        media_upload_service.upload_media(did, "a.mp3", io.BytesIO(b"x"), confirm_replace_audio="yes")
+
+
+def test_kept_media_is_in_a_media_backup(client, isolated_db):
+    import zipfile
+    import db
+    from services import library_admin_service as las
+    did = db.create_drama(title_en="D")
+    _up(client, did, "a.mp3", b"first")
+    client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                data={"confirm_replace_audio": "true"})
+    dest = os.path.join(db.LIBRARY_DIR, "b.zip")
+    las.write_backup_zip(dest, include_media=True)
+    with zipfile.ZipFile(dest) as zf:
+        names = [n for n in zf.namelist() if n.startswith(f"dramas/{did}/kept_media/replaced-")]
+        assert len(names) == 1 and zf.read(names[0]) == b"first"
