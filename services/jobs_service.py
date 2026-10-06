@@ -474,7 +474,7 @@ JOB_KIND_BY_PREFIX = {
     "transcribe_": "transcribe", "retranscribe_": "transcribe",
     "autotune_": "transcribe", "sensevoice_": "transcribe", "comparetx_": "transcribe",
     "diarize_": "transcribe", "ocrchapter_": "transcribe",
-    "resegment_": "align", "resplit_": "align", "resegpreview_": "align",
+    "resegment_": "align", "resplit_": "align", "retime_": "align", "resegpreview_": "align",
     "dub_": "dub", "narration_": "dub", "audiobook_": "dub", "voiceref_": "dub",
     "burned_video_": "export", "softsub_video_": "export",
     "dubbed_video_": "export", "burnpreview_": "export", "notion_export_": "export",
