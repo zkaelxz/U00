@@ -8,15 +8,16 @@ video, the job_id of the background audio extraction.
 import os
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, Path, UploadFile
+from fastapi import APIRouter, File, Form, Path, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from api.auth import local_only, require_permission
+from api.llm_slots import caller_key
 from pydantic import ValidationError
 
-from api.schemas import (ErrorResponse, MediaStatus, MediaUploadResult, MediaUrlDownloadRequest,
+from api.schemas import (ErrorResponse, MediaPeaks, MediaStatus, MediaUploadResult, MediaUrlDownloadRequest,
                          MediaUrlDownloadStarted, TranscribeRunRequest, UploadAndTranscribeResult)
-from services import (media_playback_service, media_upload_service, transcribe_service,
+from services import (media_peaks_service, media_playback_service, media_upload_service, transcribe_service,
                       url_media_service)
 from services.service_errors import InvalidInputError
 
@@ -117,6 +118,17 @@ _STREAM = [require_permission("media.stream")]
                        404: {"model": ErrorResponse}, 416: {"description": "Range not satisfiable"}})
 def get_audio(drama_id: int = Path(ge=1)):
     return _play(drama_id, "audio")
+
+
+@router.get("/dramas/{drama_id}/peaks", dependencies=_STREAM, response_model=MediaPeaks,
+            summary="Downsampled loudness peaks of a time window of the audio (waveform timeline)",
+            description="Window of 0.5 to 120 seconds, 16 to 2000 buckets. A window past the "
+                        "end of the audio reads as silence.",
+            responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+                       429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def get_peaks(request: Request, drama_id: int = Path(ge=1), start: float = Query(ge=0),
+              end: float = Query(gt=0), buckets: int = Query(500)):
+    return media_peaks_service.get_peaks(drama_id, start, end, buckets, caller_key(request))
 
 
 @router.head("/dramas/{drama_id}/video", dependencies=_STREAM, include_in_schema=False)

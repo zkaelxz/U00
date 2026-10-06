@@ -97,8 +97,11 @@ async function send(path: string, init: RequestInit, fetchImpl: Fetch): Promise<
   let resp: Response
   try {
     resp = await fetchImpl(`${BASE}${path}`, withCsrf(init))
-  } catch {
-    recordFailedRequest(init.method ?? 'GET', path, 0, 'network_error')
+  } catch (e) {
+    // A superseded pan/zoom request is not a failure worth a report slot.
+    if ((e as { name?: string } | null)?.name !== 'AbortError') {
+      recordFailedRequest(init.method ?? 'GET', path, 0, 'network_error')
+    }
     throw new ApiError(0, {
       code: 'network_error',
       message: 'Could not reach the Baihe API. Is it running?',
@@ -112,7 +115,11 @@ async function send(path: string, init: RequestInit, fetchImpl: Fetch): Promise<
 // status and code only: never bodies or headers) and returns the error.
 function failure(method: string | undefined, path: string, status: number, body: unknown): ApiError {
   const info = (body as { error?: ErrorInfo } | null)?.error
-  recordFailedRequest(method ?? 'GET', path, status, info?.code ?? 'internal_error')
+  // Peaks answers 429 while a decode is running and the waveform retries on its
+  // own; recording each would push real failures out of the bounded buffer.
+  if (!(status === 429 && path.includes('/peaks'))) {
+    recordFailedRequest(method ?? 'GET', path, status, info?.code ?? 'internal_error')
+  }
   return new ApiError(status, info ?? { code: 'internal_error', message: `Request failed (${status}).` })
 }
 

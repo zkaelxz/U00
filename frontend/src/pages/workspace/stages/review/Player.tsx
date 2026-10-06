@@ -21,6 +21,10 @@ export interface PlayerHandle {
   getCurrentTime: () => number
   setRate: (rate: number) => void
   toggleLoop: () => void
+  // For the waveform: read the clock without re-rendering, and seek like the seek bar.
+  getTime: () => number
+  getDuration: () => number
+  seek: (seconds: number) => void
 }
 
 type Segment = Pick<ReviewLine, 'id' | 'idx' | 'start' | 'end'>
@@ -243,8 +247,13 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
       getCurrentTime: () => media.current?.currentTime ?? 0,
       setRate: (r) => setRatePref(validRate(r)),
       toggleLoop: () => setLoop(!loopRef.current),
+      getTime: () => media.current?.currentTime ?? 0,
+      getDuration: () => media.current?.duration ?? NaN,
+      seek: seekTo,
     }),
-    [playLine, stop, togglePlay, setLoop, setRatePref],
+    // seekTo reads duration, which only changes with the loaded media.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [playLine, stop, togglePlay, setLoop, setRatePref, duration],
   )
 
   const track = src ? (
