@@ -159,14 +159,16 @@ def exclusive_write(drama_id: int):
         yield
 
 
-def structural_write(drama_id: int, expected_line_ids, label: str, build):
+def structural_write(drama_id: int, expected_line_ids, label: str, build,
+                     with_words: bool = False):
     """load fresh -> check ids -> build(current) -> snapshot -> save, under
-    the drama lock. build returns (new_lines, result_line_objects)."""
+    the drama lock. build returns (new_lines, result_line_objects).
+    with_words loads the lines' stored word timings for a build that cuts or joins text."""
     _require_drama(drama_id)
     expected_line_ids = _id_list("expected_line_ids", expected_line_ids)
     _refuse_if_job_running(drama_id)
     with _drama_lock(drama_id):
-        current = db.load_line_objects(drama_id)
+        current = db.load_line_objects(drama_id, with_words=with_words)
         _check_expected(current, expected_line_ids)
         # build works on copies so the snapshot sees the untouched lines
         work = [dataclasses.replace(ln, orig=dict(ln.orig), merged_ids=[]) for ln in current]
@@ -237,6 +239,12 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
                 _index_of(lines, lid)  # 404 for an unknown id first
             raise InvalidInputError("line_ids must be adjacent lines, in order.")
         head, rest = lines[first], lines[first + 1:first + len(line_ids)]
+        # Joined only when every line's words are valid and in time order; else dropped.
+        words = core_module.line_words(head)
+        for ln in rest:
+            more = core_module.line_words(ln)
+            words = (words + more if words and more and more[0]["start"] >= words[-1]["start"]
+                     else None)
         for ln in rest:
             head.zh = head.zh.rstrip() + ln.zh.strip()
             head.en = (head.en.rstrip() + " " + ln.en.strip()).strip()
@@ -249,8 +257,9 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
             if ln.lang != head.lang:
                 head.lang = None
         head.end = max(head.end, rest[-1].end)
+        head.word_timings = core_module.encode_line_words(head.zh, words) if words else None
         return lines[:first + 1] + lines[first + len(line_ids):], [head]
-    return structural_write(drama_id, expected_line_ids, "before merge", build)
+    return structural_write(drama_id, expected_line_ids, "before merge", build, with_words=True)
 
 
 def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
@@ -260,7 +269,9 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
     on it); the second is a new line with the same speaker/sfx/lang and no
     flag. Its translation stays whole on the first piece unless
     `en_at_char` splits it too. The cut time is `at_time` (strictly inside
-    the line) or proportional to piece length. `expected_zh` must equal
+    the line), else the second piece's first word start when the line has
+    valid stored word timings and the cut falls between words, else
+    proportional to piece length. `expected_zh` must equal
     the line's current text (409 otherwise), since the offset refers to it."""
     for name, v in (("at_char", at_char), ("en_at_char", en_at_char)):
         if v is not None and (isinstance(v, bool) or not isinstance(v, int)):
@@ -288,12 +299,16 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
         en_first, en_second = ln.en, ""
         if en_at_char is not None:
             en_first, en_second = ln.en[:en_at_char].rstrip(), ln.en[en_at_char:].strip()
+        index = core_module.line_word_index(ln)
+        words = ([core_module.span_words(index, 0, at_char, pieces[0]),
+                  core_module.span_words(index, at_char, len(ln.zh), pieces[1])]
+                 if index is not None else [None, None])
         second = core_module.Line(idx=0, start=cut, end=ln.end, zh=pieces[1], en=en_second,
                                   speaker=ln.speaker, speaker_manual=ln.speaker_manual,
-                                  sfx=ln.sfx, lang=ln.lang)
-        ln.zh, ln.en, ln.end = pieces[0], en_first, cut
+                                  sfx=ln.sfx, lang=ln.lang, word_timings=words[1])
+        ln.zh, ln.en, ln.end, ln.word_timings = pieces[0], en_first, cut, words[0]
         return lines[:i + 1] + [second] + lines[i + 1:], [ln, second]
-    return structural_write(drama_id, expected_line_ids, "before split", build)
+    return structural_write(drama_id, expected_line_ids, "before split", build, with_words=True)
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +352,7 @@ def preview_resegmentation(drama_id: int) -> dict:
     flag or note -- Apply then needs confirm=true."""
     drama = _require_drama(drama_id)
     language, script, segments = _reseg_inputs(drama_id, drama)
-    lines = db.load_line_objects(drama_id)
+    lines = db.load_line_objects(drama_id, with_words=True)
     new_lines, changed = resegment.resegment_lines(lines, language, segments=segments,
                                                    chinese_script=script)
     changed_ids = {ln.id for ln, _ in changed}
@@ -432,7 +447,7 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
     language, script, segments = _reseg_inputs(drama_id, drama)
     engine_name, eng = _build_engine(drama, engine, model) if use_llm else (None, None)
     _refuse_if_job_running(drama_id)
-    lines = db.load_line_objects(drama_id)
+    lines = db.load_line_objects(drama_id, with_words=True)
     _check_expected(lines, expected_line_ids)
     if confirm is not True and _needs_confirm(drama_id, lines, language):
         raise InvalidInputError(_CONFIRM_NEEDED)
@@ -525,7 +540,7 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
     engine_name, eng = _build_engine(drama, engine, model)
     translate_run_service.refuse_when_cap_spent(engine_name,
                                                 settings_service.get_gemini_free_tier())
-    lines = db.load_line_objects(drama_id)
+    lines = db.load_line_objects(drama_id, with_words=True)
     job_id = f"{RESEGMENT_PREVIEW_JOB_PREFIX}{drama_id}"
     if background_jobs.is_running(job_id):
         raise ConflictError("A re-segmentation preview is already running for this drama.")
@@ -700,10 +715,22 @@ class _Resplit:
         return len(ln.zh) > RESPLIT_MAX_CHARS and self.rules(ln) is not None
 
     def split(self, ln) -> list:
+        """Pieces cut by split_long_segments; with the line's valid stored words
+        it cuts at real pauses with real times and hands each piece its words."""
+        seg = {"start": ln.start, "end": ln.end, "text": ln.zh}
         if self.too_long(ln):
-            return [{"start": ln.start, "end": ln.end, "text": ln.zh}]
-        return core_module.split_long_segments(
-            [{"start": ln.start, "end": ln.end, "text": ln.zh}], rules=self.rules(ln))
+            return [seg]
+        words = core_module.line_words(ln)
+        if not words:
+            return core_module.split_long_segments([seg], rules=self.rules(ln))
+        pieces = core_module.split_long_segments([{**seg, "words": words}], rules=self.rules(ln))
+        # Word times tighten a piece to its speech, but the line's outer edges
+        # may have been re-timed on purpose (by hand or a re-time run); the
+        # Review split and the AI re-split keep them, so this does too.
+        if len(pieces) >= 2:
+            pieces[0] = {**pieces[0], "start": ln.start}
+            pieces[-1] = {**pieces[-1], "end": ln.end}
+        return pieces
 
 
 def _resplit_candidates(lines):
@@ -784,7 +811,7 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
             raise ConflictError("Another job started on this drama while the lines were being "
                                 "aligned -- nothing was changed; wait for it to finish and try "
                                 "again.")
-        current = db.load_line_objects(drama_id)
+        current = db.load_line_objects(drama_id, with_words=True)
         _check_expected(current, expected_line_ids)
         plan = _resplit_plan(current, cfg)
         if set(plan) != set(expected) or _resplit_snapshot(current, plan) != expected:
@@ -803,12 +830,15 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
             aligned += ln.id in timed
             first, *rest = pieces
             ln.start, ln.end, ln.zh, ln.en = first["start"], first["end"], first["text"], ""
+            ln.word_timings = core_module.encode_line_words(first["text"], first.get("words"))
             if first.get("flag"):
                 ln.flag, ln.flag_note = first["flag"], first["flag_note"]
             new_pieces = [core_module.Line(idx=0, start=p["start"], end=p["end"], zh=p["text"],
                                            speaker=ln.speaker, speaker_manual=ln.speaker_manual,
                                            sfx=ln.sfx, lang=ln.lang, flag=p.get("flag"),
-                                           flag_note=p.get("flag_note", ""))
+                                           flag_note=p.get("flag_note", ""),
+                                           word_timings=core_module.encode_line_words(
+                                               p["text"], p.get("words")))
                           for p in rest]
             new_lines.append(ln)
             new_lines.extend(new_pieces)
@@ -839,7 +869,7 @@ def _apply_resplit(drama_id: int, expected_line_ids, confirm, timed: dict, timin
 
 def _run_resplit_job(job_id, drama_id, expected_line_ids, confirm, audio_path, language, use_gpu,
                      cfg):
-    lines = db.load_line_objects(drama_id)
+    lines = db.load_line_objects(drama_id, with_words=True)
     plan = _resplit_plan(lines, cfg)
     by_id = {ln.id: ln for ln in lines}
     expected = _resplit_snapshot(lines, plan)
@@ -925,7 +955,7 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     cfg = _Resplit(drama.get("source_language") or "zh", sensitivity, max_seconds)
     if not dry_run:
         _refuse_if_job_running(drama_id)
-    lines = db.load_line_objects(drama_id)
+    lines = db.load_line_objects(drama_id, with_words=True)
     _check_expected(lines, expected_line_ids)
     plan = _resplit_plan(lines, cfg)
     if dry_run:
