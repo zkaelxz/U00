@@ -1,7 +1,7 @@
 import { ApiError } from '../../../../api/client'
 import type { SpeakerTimeSummary } from '../../../../types/workspace'
 import type { JobRecord } from '../../../../types/jobs'
-import type { ResegmentPreview, ResplitResult } from '../../../../types/restructure'
+import type { ResegmentPreview, ResplitResult, ResplitSensitivity } from '../../../../types/restructure'
 import type { TranslateEngine } from '../../../../types/translate'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { humanize } from '../../../../components/labels'
@@ -343,6 +343,25 @@ export function resplitSummary(r: ResplitResult): string {
   if (r.speakers_reassigned) parts.push('speakers re-assigned')
   if (r.cleared_translations) parts.push(`${r.cleared_translations} translation${r.cleared_translations === 1 ? '' : 's'} cleared`)
   return parts.join('; ') + '.' + (r.note ? ` ${r.note}` : '')
+}
+
+export const RESPLIT_SENSITIVITIES: { value: ResplitSensitivity; label: string }[] = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'more', label: 'More' },
+  { value: 'sentence', label: 'Sentence by sentence' },
+]
+
+/** Seconds offered for "Also split by duration"; null keeps the preset's own limit. */
+export const RESPLIT_DURATION_CAPS = [5, 10, 15, 20]
+
+/** "Preview: 31 lines would be split into 118." from a dry-run result. */
+export function resplitPreviewSummary(r: ResplitResult): string {
+  const n = r.split_lines ?? 0
+  if (n === 0) return r.note || 'Preview: no line would be split.'
+  const cleared = r.cleared_translations
+    ? ` ${r.cleared_translations} translation${r.cleared_translations === 1 ? '' : 's'} would be cleared.`
+    : ''
+  return `Preview: ${n} line${n === 1 ? '' : 's'} would be split into ${r.pieces ?? 0}.${cleared}`
 }
 
 /** One line per speaker, e.g. "Anna  3:40 · 62% · 41 turns", biggest first. */

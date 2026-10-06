@@ -529,6 +529,11 @@ class ResegmentStart(_RestructureBase):
 class ResplitStart(_RestructureBase):
     align_to_audio: StrictBool = False
     confirm: StrictBool = False
+    sensitivity: Literal["normal", "more", "sentence"] = "normal"
+    # Replaces the preset's duration limit; None keeps the preset's own.
+    max_seconds: Optional[float] = Field(None, ge=2, le=120)
+    # Count what would be split without writing anything.
+    dry_run: StrictBool = False
 
 
 class ResplitResult(BaseModel):
@@ -544,6 +549,8 @@ class ResplitResult(BaseModel):
     cleared_translations: Optional[int] = None
     speakers_reassigned: Optional[bool] = None
     note: Optional[str] = None
+    dry_run: Optional[bool] = None
+    pieces: Optional[int] = None
 
 
 class ResegmentStarted(BaseModel):

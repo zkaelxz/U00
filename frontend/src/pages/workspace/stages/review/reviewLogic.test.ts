@@ -5,6 +5,7 @@ import type { ReviewLine } from '../../../../types/review'
 import {
   adjacentRun,
   resplitNeedsConfirm,
+  resplitPreviewSummary,
   resplitSummary,
   speakerTimeFooter,
   speakerTimeLines,
@@ -288,6 +289,14 @@ describe('re-split summary', () => {
   })
   it('reports nothing to split', () => {
     expect(resplitSummary({ split_lines: 0 })).toMatch(/Nothing changed/)
+  })
+  it('summarises a dry run', () => {
+    expect(resplitPreviewSummary({ dry_run: true, split_lines: 31, pieces: 118 })).toBe('Preview: 31 lines would be split into 118.')
+    expect(resplitPreviewSummary({ split_lines: 1, pieces: 3, cleared_translations: 1 })).toBe(
+      'Preview: 1 line would be split into 3. 1 translation would be cleared.',
+    )
+    expect(resplitPreviewSummary({ split_lines: 0, note: 'No line is over the limits at Normal sensitivity. Try "More".' })).toMatch(/Normal sensitivity/)
+    expect(resplitPreviewSummary({ split_lines: 0 })).toBe('Preview: no line would be split.')
   })
   it('spots the confirm refusal only', () => {
     const e = (s: number, m: string) => new ApiError(s, { code: 'x', message: m })
