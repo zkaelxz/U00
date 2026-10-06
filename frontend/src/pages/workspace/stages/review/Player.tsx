@@ -9,7 +9,7 @@ import { usePopOut } from '../../../../hooks/usePopOut'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
-import { CAPTION_SIZE_OPTIONS, clampTime, JUMP_ERROR, lineAt, parseJumpTime, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, type CaptionSize, type SubtitleChoice } from './playerLogic'
+import { CAPTION_SIZE_OPTIONS, clampTime, JUMP_ERROR, lineAt, parseJumpTime, PLAYBACK_RATES, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface PlayerHandle {
@@ -18,6 +18,8 @@ export interface PlayerHandle {
   // Play or stop the given line: stops when that line is already playing.
   toggleLine: (line: Pick<ReviewLine, 'id' | 'idx' | 'start' | 'end'>) => void
   togglePlay: () => void
+  getCurrentTime: () => number
+  setRate: (rate: number) => void
   toggleLoop: () => void
 }
 
@@ -60,6 +62,8 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   const [failed, setFailed] = useState(false)
   const [loop, setLoop] = usePersistedState('review.loop', false)
   const [open, setOpen] = usePersistedState('review.playerOpen', true)
+  const [ratePref, setRatePref] = usePersistedState('review.rate', 1)
+  const rate = validRate(ratePref)
   const [subsPref, setSubs] = usePersistedState<string>('review.subs', 'English')
   const subs: SubtitleChoice = SUBTITLE_OPTIONS.some((o) => o.value === subsPref) ? (subsPref as SubtitleChoice) : 'English'
   // Keyed on the track URL, so a new track starts blank without an effect reset.
@@ -90,6 +94,16 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   useEffect(() => {
     loopRef.current = loop
   }, [loop])
+
+  // Also on loadedmetadata: a new source can reset the element's speed.
+  const applyRate = useCallback((el: HTMLMediaElement | null) => {
+    if (!el) return
+    el.defaultPlaybackRate = rate
+    el.playbackRate = rate
+    // Without this a slowed clip sounds low; browsers that lack it keep their default.
+    if ('preservesPitch' in el) el.preservesPitch = true
+  }, [rate])
+  useEffect(() => applyRate(media.current), [applyRate])
 
   const place = useCallback(() => {
     const target = panelHost === undefined ? slotRef.current : panelHost
@@ -226,9 +240,11 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         else playLine(line)
       },
       togglePlay,
+      getCurrentTime: () => media.current?.currentTime ?? 0,
+      setRate: (r) => setRatePref(validRate(r)),
       toggleLoop: () => setLoop(!loopRef.current),
     }),
-    [playLine, stop, togglePlay, setLoop],
+    [playLine, stop, togglePlay, setLoop, setRatePref],
   )
 
   const track = src ? (
@@ -257,7 +273,10 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
       setSeg(null)
     },
     onTimeUpdate: (e: SyntheticEvent<HTMLMediaElement>) => setTime(e.currentTarget.currentTime),
-    onLoadedMetadata: (e: SyntheticEvent<HTMLMediaElement>) => setDuration(e.currentTarget.duration),
+    onLoadedMetadata: (e: SyntheticEvent<HTMLMediaElement>) => {
+      setDuration(e.currentTarget.duration)
+      applyRate(e.currentTarget)
+    },
     onError: () => setFailed(true),
   }
   const here = segment ?? lineAt(lines, time)
@@ -322,6 +341,16 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
               Go to line #{lineNumber(selected.idx)}
             </button>
           )}
+          <label className="review-subs">
+            Speed
+            <select value={rate} onChange={(e) => setRatePref(validRate(Number(e.target.value)))}>
+              {PLAYBACK_RATES.map((r) => (
+                <option key={r} value={r}>
+                  {r}×
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="review-subs">
             Subtitles
             <select value={subs} onChange={(e) => setSubs(e.target.value)}>

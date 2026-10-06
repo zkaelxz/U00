@@ -97,6 +97,31 @@ export function buildPatch(line: ReviewLine, draft: LineDraft): LinePatch | stri
   return patch
 }
 
+export type TimingField = 'start' | 'end'
+type Timed = Pick<ReviewLine, 'idx' | 'start' | 'end'>
+
+// A timing hotkey as a normal line patch. Uses buildPatch's end-after-start
+// rule, and refuses to push a boundary into a neighbouring line (only when the
+// move makes the overlap worse, so a line that already overlaps can be pulled out).
+// Neighbours count only when adjacent in the script: a filtered or searched
+// list can put unrelated lines side by side.
+export function timingPatch(
+  line: ReviewLine,
+  neighbours: { prev?: Timed | null; next?: Timed | null },
+  field: TimingField,
+  seconds: number,
+): LinePatch | string | null {
+  const value = Math.max(0, Math.round(seconds * 1000) / 1000)
+  const { prev, next } = neighbours
+  if (field === 'start' && prev && prev.idx === line.idx - 1 && value < prev.end && value < line.start) {
+    return `Start would overlap line #${lineNumber(prev.idx)}.`
+  }
+  if (field === 'end' && next && next.idx === line.idx + 1 && value > next.start && value > line.end) {
+    return `End would overlap line #${lineNumber(next.idx)}.`
+  }
+  return buildPatch(line, { ...draftFromLine(line), [field]: String(value) })
+}
+
 // A draft that would send something (or is invalid) is dirty: navigation saves it first.
 export function isDirty(line: ReviewLine, draft: LineDraft): boolean {
   return buildPatch(line, draft) !== null

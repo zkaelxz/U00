@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { clampTime, lineAt, parseJumpTime, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc } from './playerLogic'
+import { clampTime, lineAt, parseJumpTime, PLAYBACK_RATES, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate } from './playerLogic'
 
 describe('parseJumpTime', () => {
   it('reads seconds, mm:ss and h:mm:ss', () => {
@@ -67,5 +67,13 @@ describe('popoutCaptionPx', () => {
   it('scales with the size choice', () => {
     expect(popoutCaptionPx(2000, 'smaller')).toBeLessThan(popoutCaptionPx(2000))
     expect(popoutCaptionPx(2000, 'larger')).toBeGreaterThan(popoutCaptionPx(2000))
+  })
+})
+
+describe('validRate', () => {
+  it('keeps listed speeds and falls back to normal speed for anything else', () => {
+    for (const r of PLAYBACK_RATES) expect(validRate(r)).toBe(r)
+    expect(validRate(3)).toBe(1)
+    expect(validRate(Number.NaN)).toBe(1)
   })
 })

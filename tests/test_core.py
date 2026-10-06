@@ -507,6 +507,89 @@ class TestFilterHallucinatedSegments:
         assert params["min_repeat_count"].default == 4
 
 
+class TestStockPhraseFilter:
+    def _seg(self, start, end, text):
+        return {"start": start, "end": end, "text": text}
+
+    def test_isolated_stock_phrases_are_dropped(self):
+        for text in ("Subtitles by the Amara.org community", "ご視聴ありがとうございました",
+                     "请不吝点赞 订阅 转发 打赏", "字幕由Amara.org社群提供",
+                     "MBC 뉴스 이덕영입니다", "Thanks for watching!"):
+            segments = [self._seg(0, 2, "real line"), self._seg(30, 32, text),
+                        self._seg(60, 62, "another line")]
+            assert filter_hallucinated_segments(segments) == [segments[0], segments[2]], text
+
+    def test_a_stock_phrase_at_the_end_of_the_audio_is_dropped(self):
+        segments = [self._seg(0, 2, "real line"), self._seg(40, 42, "Thanks for watching")]
+        assert filter_hallucinated_segments(segments) == [segments[0]]
+
+    def test_a_stock_phrase_inside_dialogue_is_kept(self):
+        segments = [self._seg(0, 2, "real line"), self._seg(2.5, 4, "Thanks for watching"),
+                    self._seg(4.5, 6, "another line")]
+        assert filter_hallucinated_segments(segments) == segments
+
+    def test_silent_on_one_side_only_is_kept(self):
+        segments = [self._seg(0, 2, "real line"), self._seg(2.5, 4, "Thanks for watching"),
+                    self._seg(60, 62, "another line")]
+        assert filter_hallucinated_segments(segments) == segments
+
+    def test_real_dialogue_containing_the_words_is_kept_even_when_isolated(self):
+        segments = [self._seg(0, 2, "real line"),
+                    self._seg(30, 33, "He said thanks for watching over her all those years"),
+                    self._seg(60, 62, "another line")]
+        assert filter_hallucinated_segments(segments) == segments
+
+
+class TestHallucinationSilenceThreshold:
+    def _run(self, model_cls, **kwargs):
+        import sys, types
+        import core
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: model_cls()
+        sys.modules["faster_whisper"] = fake_fw
+        core._whisper_model_cache.clear()
+        return core.transcribe_for_timing("/fake/audio.mp3", **kwargs)
+
+    def test_passed_by_default_and_overridable(self):
+        seen = {}
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                seen.clear()
+                seen.update(kwargs)
+                return iter([]), None
+
+        self._run(Model)
+        assert seen["hallucination_silence_threshold"] == 2.0
+        self._run(Model, hallucination_silence_sec=3.5)
+        assert seen["hallucination_silence_threshold"] == 3.5
+
+    def test_zero_does_not_pass_it(self):
+        seen = {}
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                seen.update(kwargs)
+                return iter([]), None
+
+        self._run(Model, hallucination_silence_sec=0)
+        assert "hallucination_silence_threshold" not in seen
+
+    def test_an_older_faster_whisper_without_the_parameter_still_runs(self):
+        seen = {}
+
+        class OldModelStrict:
+            def transcribe(self, audio_path, language=None, vad_filter=False, beam_size=5,
+                           vad_parameters=None, word_timestamps=False,
+                           condition_on_previous_text=True, no_repeat_ngram_size=0,
+                           repetition_penalty=1.0, initial_prompt=None):
+                seen["ok"] = True
+                return iter([]), None
+
+        self._run(OldModelStrict)
+        assert seen == {"ok": True}
+
+
 class TestTranscribeForTimingHallucinationFilter:
     def _stub_faster_whisper(self, texts):
         import sys, types

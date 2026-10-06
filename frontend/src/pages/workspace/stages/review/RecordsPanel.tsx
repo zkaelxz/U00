@@ -22,6 +22,7 @@ import { lineNumber } from '../../../../lineNumber'
 import { capFirst } from '../../../../labels'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { buttonClass } from '../../../../components/uiClasses'
+import { SnapshotPreview } from './SnapshotPreview'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../../hooks/usePcOnly'
 
 interface Records {
@@ -46,6 +47,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
   const [records, setRecords] = useState<Records | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [restoring, setRestoring] = useState<HistoryItem | null>(null)
+  const [previewing, setPreviewing] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [restored, setRestored] = useState<string | null>(null)
   const pc = usePcOnly()
@@ -273,6 +275,15 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
             {history.map((h) => (
               <li key={h.id}>
                 {capFirst(h.label ?? `Snapshot ${h.id}`)} <span className="muted">{h.created_at}</span>{' '}
+                <button
+                  type="button"
+                  className={buttonClass('ghost', 'sm')}
+                  aria-expanded={previewing === h.id}
+                  onClick={() => setPreviewing(previewing === h.id ? null : h.id)}
+                >
+                  {previewing === h.id ? 'Hide preview' : 'Preview'}
+                </button>{' '}
+                {previewing === h.id && <SnapshotPreview dramaId={dramaId} historyId={h.id} />}
                 {restoring?.id !== h.id && (
                   <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setRestored(null); setRestoring(h) }}>
                     Restore…

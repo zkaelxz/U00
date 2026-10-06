@@ -15,6 +15,14 @@ export const SUBTITLE_OPTIONS: { value: SubtitleChoice; label: string }[] = [
   { value: 'off', label: 'Off' },
 ]
 
+// Slow speeds help to time overlapping speakers; every one keeps the pitch.
+export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
+
+// A remembered rate that is no longer on the list falls back to normal speed.
+export function validRate(rate: number): number {
+  return PLAYBACK_RATES.includes(rate) ? rate : 1
+}
+
 export const JUMP_ERROR = 'Type a time like 1:23, 1:02:03 or 83.5.'
 
 // "83.5", "1:23", "1:02:03" (and "1:23.5") -> seconds; null when unreadable.
