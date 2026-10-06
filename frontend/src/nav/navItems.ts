@@ -1,6 +1,6 @@
 /*
- * One list of the app's navigation items. The header's main nav, the cogwheel
- * menu and the wide-screen left rail render from it, so a new page is added
+ * One list of the app's navigation items. The left rail, the nav drawer, the
+ * command palette and the Customize menu all read it, so a new page is added
  * here once.
  *
  * `requires` records the permission the page's data routes need
@@ -11,8 +11,6 @@ import type { PcMode } from '../api/pcOnly'
 import { holds } from '../pages/diagnostics/adminUsers'
 import type { Route } from '../router'
 import type { SessionState } from '../hooks/useSession'
-
-export type NavSurface = 'header' | 'gear' | 'none'
 
 /** usePersistedState key for the rail's collapsed state. */
 export const RAIL_COLLAPSED_KEY = 'nav.collapsed'
@@ -44,9 +42,6 @@ export interface RailSlot {
 export interface NavItem {
   label: string
   target: Route
-  /** Route names that mark this item as the current page. */
-  active: Route['name'][]
-  surface: NavSurface
   /** Permission the page's reads need; null when any signed-in caller may open it. */
   requires: string | null
   /** Hide the item from callers without `requires`. Off where the page still shows something useful or the owner hasn't decided. */
@@ -64,60 +59,57 @@ export interface NavItem {
 function item(
   label: string,
   target: Route,
-  active: Route['name'][],
-  surface: NavSurface,
   over: Partial<Pick<NavItem, 'requires' | 'hideWithoutPermission' | 'pcOnly' | 'developerMode' | 'rail' | 'badge'>> = {},
 ): NavItem {
-  return { label, target, active, surface, requires: null, hideWithoutPermission: false, pcOnly: false, developerMode: false, rail: null, badge: null, ...over }
+  return { label, target, requires: null, hideWithoutPermission: false, pcOnly: false, developerMode: false, rail: null, badge: null, ...over }
 }
 
-// Order is the on-screen order within each surface, and within each rail group.
+// Order is the on-screen order within each rail group.
 export const NAV_ITEMS: NavItem[] = [
-  item('Library', { name: 'library' }, ['library', 'library-tools', 'drama', 'read', 'comic', 'manga', 'manga-series', 'manga-read'], 'header', {
+  item('Library', { name: 'library' }, {
     requires: 'library.read',
     rail: { group: 'library', active: ['library', 'drama', 'read', 'comic'] },
   }),
-  item('Saved manga', { name: 'manga' }, ['manga', 'manga-series', 'manga-read'], 'none', {
+  item('Saved manga', { name: 'manga' }, {
     requires: 'library.read',
     rail: { group: 'library', active: ['manga', 'manga-series', 'manga-read'] },
   }),
-  item('Library tools', { name: 'library-tools' }, ['library-tools'], 'none', {
+  item('Library tools', { name: 'library-tools' }, {
     requires: 'library.read',
     rail: { group: 'library', active: ['library-tools'] },
   }),
-  item('Translate text', { name: 'translate' }, ['translate'], 'header', {
+  item('Translate text', { name: 'translate' }, {
     requires: 'library.read',
     rail: { group: 'tools', active: ['translate'] },
   }),
-  item('Sources', { name: 'sources' }, ['sources'], 'header', { requires: 'library.read', rail: { group: 'find', active: ['sources'] } }),
-  item('Discover', { name: 'discover' }, ['discover'], 'header', { requires: 'library.read', rail: { group: 'find', active: ['discover'] } }),
-  item('Live', { name: 'live' }, ['live'], 'header', { requires: 'library.read', rail: { group: 'tools', active: ['live'] } }),
-  // The header button is the glance; this is the page. Below 1024px it sits in the gear menu so the phone's 3 by 2 header grid keeps its shape.
-  item('Jobs', { name: 'jobs' }, ['jobs'], 'gear', {
+  item('Sources', { name: 'sources' }, { requires: 'library.read', rail: { group: 'find', active: ['sources'] } }),
+  item('Discover', { name: 'discover' }, { requires: 'library.read', rail: { group: 'find', active: ['discover'] } }),
+  item('Live', { name: 'live' }, { requires: 'library.read', rail: { group: 'tools', active: ['live'] } }),
+  // The header's Jobs button is the glance; this is the page.
+  item('Jobs', { name: 'jobs' }, {
     requires: 'library.read',
     badge: 'running-jobs',
     rail: { group: 'system', active: ['jobs'] },
   }),
   // A member sees only Sharing and devices here, which needs library.read.
-  item('Settings', { name: 'settings' }, ['settings'], 'gear', { requires: 'library.read', rail: { group: 'system', active: ['settings'] } }),
-  item('Admin', { name: 'admin' }, ['admin'], 'gear', {
+  item('Settings', { name: 'settings' }, { requires: 'library.read', rail: { group: 'system', active: ['settings'] } }),
+  item('Admin', { name: 'admin' }, {
     requires: 'admin.users.read',
     hideWithoutPermission: true,
     rail: { group: 'system', active: ['admin'] },
   }),
-  // The gear folds Benchmark Lab into Diagnostics' highlight; the rail has a row for each.
-  item('Diagnostics', { name: 'diagnostics' }, ['diagnostics', 'benchmark'], 'gear', {
+  item('Diagnostics', { name: 'diagnostics' }, {
     requires: 'admin.diagnostics',
     hideWithoutPermission: true,
     rail: { group: 'system', active: ['diagnostics'] },
   }),
-  item('Benchmark Lab', { name: 'benchmark' }, ['benchmark'], 'none', {
+  item('Benchmark Lab', { name: 'benchmark' }, {
     requires: 'admin.diagnostics',
     hideWithoutPermission: true,
     rail: { group: 'system', active: ['benchmark'] },
   }),
   // The Assistant's routes are local_only(); the page also waits for Developer Mode.
-  item('Assistant', { name: 'assistant' }, ['assistant'], 'gear', { pcOnly: true, developerMode: true, rail: { group: 'system', active: ['assistant'] } }),
+  item('Assistant', { name: 'assistant' }, { pcOnly: true, developerMode: true, rail: { group: 'system', active: ['assistant'] } }),
 ]
 
 export interface NavContext {
@@ -159,10 +151,6 @@ export function customizableNavItems(ctx: NavContext): NavItem[] {
 /** Items the menu shows this person, hiding applied; the palette reads this too. */
 export function visibleNavItemsFor(ctx: NavContext): NavItem[] {
   return customizableNavItems(ctx).filter((i) => !isHiddenByChoice(i, ctx))
-}
-
-export function visibleNavItems(surface: NavSurface, ctx: NavContext): NavItem[] {
-  return NAV_ITEMS.filter((i) => i.surface === surface && isVisible(i, ctx))
 }
 
 export interface RailItem {
