@@ -90,7 +90,7 @@ class TestAutotune:
 
     def test_bad_input(self, isolated_db):
         did = _audio_drama(isolated_db)
-        for bad in ([], [200], [300, 300], [True], list(range(300, 1000, 100))):
+        for bad in ([], [99], [300, 300], [True], list(range(300, 1000, 100))):
             with pytest.raises(InvalidInputError):
                 ts.start_autotune_run(did, candidates=bad)
         nod = isolated_db.create_drama(title_en="none")

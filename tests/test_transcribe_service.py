@@ -163,10 +163,17 @@ class TestUpdateTranscribeConfig:
         with pytest.raises(InvalidInputError):
             transcribe_service.update_transcribe_config(did, beam_size=11)
 
-    def test_min_silence_ms_out_of_range_raises(self, isolated_db):
+    @pytest.mark.parametrize("value", [99, 3001])
+    def test_min_silence_ms_out_of_range_raises(self, isolated_db, value):
         did = isolated_db.create_drama(title_en="D")
         with pytest.raises(InvalidInputError):
-            transcribe_service.update_transcribe_config(did, min_silence_ms=100)
+            transcribe_service.update_transcribe_config(did, min_silence_ms=value)
+
+    @pytest.mark.parametrize("value", [100, 3000])
+    def test_min_silence_ms_bounds_accepted(self, isolated_db, value):
+        did = isolated_db.create_drama(title_en="D")
+        result = transcribe_service.update_transcribe_config(did, min_silence_ms=value)
+        assert result["min_silence_ms"] == value
 
     def test_vad_threshold_out_of_range_raises(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
