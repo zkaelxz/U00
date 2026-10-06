@@ -89,6 +89,7 @@ test('job progress arrives over the stream, with no polling while it is up', asy
     stream.push('job', { ...job('running', 0.9, 'other job'), job_id: 'someone-else' })
 
     // No timer: over three seconds (two poll intervals) no GET of the job.
+    // Proving a non-event: a polling timer would fire within two of its intervals.
     await page.waitForTimeout(3000)
     expect(gets.length).toBe(reads)
     await expect(page.getByTestId('job-percent')).toHaveText('60%')
@@ -187,6 +188,7 @@ test('Live: a pushed status reads the new lines from the page cursor, no timer',
     // Status only (no new lines): shown without a read.
     stream.push('live', { ...status, message: 'Still listening' })
     await expect(live.getByTestId('live-status')).toHaveText('Still listening · 2 lines')
+    // Proving a non-event: a status-only push must not trigger a poll, which would fire within this window.
     await page.waitForTimeout(2500)
     expect(m.polls.slice(reads)).toEqual(['after=0'])
 

@@ -148,7 +148,7 @@ test('screenshots: phone vertical, paged right to left and the text sheet', asyn
     const v = await mockComic(page, { id: 21, mediaType: 'manhwa', lastPage: 2, rendered: [1, 2] })
     await page.goto('/#/comic/21')
     await expect(page.getByTestId('comic-page').nth(1).locator('img')).toHaveJSProperty('complete', true)
-    await page.waitForTimeout(300)
+    await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
     await page.screenshot({ path: `${SHOTS_DIR}/phone-vertical-${scheme}.png` })
 
     await page.unrouteAll({ behavior: 'ignoreErrors' })
