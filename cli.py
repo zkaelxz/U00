@@ -79,7 +79,7 @@ import background_jobs
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
                       glossary_service, jobs_service, lines_service, line_provenance_service,
                       narration_service, review_extras_service, settings_service, transcribe_service,
-                      translate_service, workspace_job_service)
+                      translate_run_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
 from services.service_errors import DependencyUnavailableError, ServiceError
 from services.translate_run_service import (engine_cap_applies, get_translate_config_defaults,
@@ -753,17 +753,22 @@ def cmd_translate(args):
         # series glossary, craft/style guidelines, and locale entirely --
         # a real, confirmed gap between what the Workspace Translate
         # button sends and what this command sent for the same drama.
-        # The pronoun-default/genre-notes toggles aren't stored on the drama,
-        # so they come from --female-pronouns / --no-genre-notes (defaults
-        # match the API: she/her off, genre notes on). Everything else --
+        # The pronoun-default/genre-notes toggles come from the flags when given
+        # (and are then saved for the title), else from the title's saved
+        # choice, as in the app. Everything else --
         # series glossary, learned style profile, emotion guidance, gender
         # hints, speaker names -- comes from the same builder the translate
         # run service uses.
+        no_genre = getattr(args, "no_genre_notes", None)
+        include_genre_notes = None if no_genre is None else not no_genre
+        default_female_pronouns = getattr(args, "female_pronouns", None)
         glossary_terms, style_guidelines, character_names = \
             workspace_job_service.build_run_style_context(
                 d["id"], d, lines, style_preset,
-                include_genre_notes=not getattr(args, "no_genre_notes", False),
-                default_female_pronouns=getattr(args, "female_pronouns", False))
+                include_genre_notes=include_genre_notes,
+                default_female_pronouns=default_female_pronouns)
+        translate_run_service.save_style_toggles(
+            d["id"], include_genre_notes, default_female_pronouns)
         target_ids = None
         if glossary_affected:
             # Same selection as the app's "Re-translate lines affected by the
@@ -1382,12 +1387,18 @@ def main():
                                    "otherwise) unless set explicitly.")
     p_translate.add_argument("--locale", default=None, choices=list(settings_service.LOCALE_CHOICES),
                              help="Default: the Settings English variant (en-US until changed).")
-    p_translate.add_argument("--female-pronouns", action="store_true",
-                           help="Default ambiguous pronouns to she/her (the Workspace "
-                                "checkbox / a preset's pronoun default).")
-    p_translate.add_argument("--no-genre-notes", action="store_true",
-                           help="Leave out the baihe/GL genre guidance (on by default, "
-                                "as in the Workspace).")
+    p_translate.add_argument("--female-pronouns", action="store_true", default=None,
+                           help="Default ambiguous pronouns to she/her and save that choice "
+                                "for the title. Without --female-pronouns or "
+                                "--no-female-pronouns the title's saved choice applies (off "
+                                "until chosen).")
+    p_translate.add_argument("--no-female-pronouns", action="store_false", dest="female_pronouns",
+                           default=None, help="Turn the she/her default off and save that.")
+    p_translate.add_argument("--no-genre-notes", action="store_true", default=None,
+                           help="Leave out the baihe/GL genre guidance and save that choice "
+                                "for the title (on until chosen otherwise).")
+    p_translate.add_argument("--genre-notes", action="store_false", dest="no_genre_notes",
+                           default=None, help="Include the genre guidance and save that.")
     p_translate.add_argument("--force", action="store_true",
                               help="Re-translate everything, including lines that already have a translation")
     p_translate.add_argument("--glossary-affected", action="store_true",
@@ -1546,12 +1557,18 @@ def main():
     p_run.add_argument("--style-preset", default=None, choices=list(tguide.STYLE_PRESETS))
     p_run.add_argument("--locale", default=None, choices=list(settings_service.LOCALE_CHOICES),
                         help="Default: the Settings English variant (en-US until changed).")
-    p_run.add_argument("--female-pronouns", action="store_true",
-                           help="Default ambiguous pronouns to she/her (the Workspace "
-                                "checkbox / a preset's pronoun default).")
-    p_run.add_argument("--no-genre-notes", action="store_true",
-                           help="Leave out the baihe/GL genre guidance (on by default, "
-                                "as in the Workspace).")
+    p_run.add_argument("--female-pronouns", action="store_true", default=None,
+                           help="Default ambiguous pronouns to she/her and save that choice "
+                                "for the title. Without --female-pronouns or "
+                                "--no-female-pronouns the title's saved choice applies (off "
+                                "until chosen).")
+    p_run.add_argument("--no-female-pronouns", action="store_false", dest="female_pronouns",
+                           default=None, help="Turn the she/her default off and save that.")
+    p_run.add_argument("--no-genre-notes", action="store_true", default=None,
+                           help="Leave out the baihe/GL genre guidance and save that choice "
+                                "for the title (on until chosen otherwise).")
+    p_run.add_argument("--genre-notes", action="store_false", dest="no_genre_notes",
+                           default=None, help="Include the genre guidance and save that.")
     p_run.add_argument("--transcript", default=None, metavar="FILE",
                        help="Chinese transcript to align (- for stdin); needs --id. "
                             "Default: <drama folder>/transcript.txt.")

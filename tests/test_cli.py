@@ -114,6 +114,43 @@ class TestCmdTranslateParity:
         assert seen["default_female_pronouns"] is female
         assert seen["include_genre_notes"] is genre
 
+    def test_without_flags_the_titles_saved_choice_applies(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.update_drama(did, default_female_pronouns=1, include_genre_notes=0)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+                            lambda lines, engine, **kw: (lines, []))
+        seen = {}
+        real = cli.tguide.build_style_guidelines
+
+        def spy(*a, **k):
+            seen.update(k)
+            return real(*a, **k)
+        monkeypatch.setattr(cli.tguide, "build_style_guidelines", spy)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did))
+        assert (seen["include_genre_notes"], seen["default_female_pronouns"]) == (False, True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did, female_pronouns=False, no_genre_notes=False))
+        assert (seen["include_genre_notes"], seen["default_female_pronouns"]) == (True, False)
+        drama = isolated_db.get_drama(did)
+        assert (drama["include_genre_notes"], drama["default_female_pronouns"]) == (1, 0)
+
+    @pytest.mark.parametrize("flags,female,no_genre", [
+        ([], None, None),
+        (["--female-pronouns", "--no-genre-notes"], True, True),
+        (["--no-female-pronouns", "--genre-notes"], False, False),
+    ])
+    def test_parser_toggle_flags_are_three_state(self, monkeypatch, flags, female, no_genre):
+        captured = {}
+        monkeypatch.setattr(cli, "cmd_translate", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(sys, "argv", ["cli.py", "translate", "--id", "1", "--api-key", "k"]
+                            + flags)
+        cli.main()
+        assert captured["args"].female_pronouns is female
+        assert captured["args"].no_genre_notes is no_genre
+
     @pytest.mark.parametrize("command", ["translate", "run"])
     def test_real_parser_has_the_toggle_flags(self, monkeypatch, command):
         captured = {}
