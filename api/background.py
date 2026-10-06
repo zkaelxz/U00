@@ -209,6 +209,12 @@ def start_background_services() -> dict:
         from translate_engines import redact_secrets
         _log("leftover temp files were not swept: %s", redact_secrets(str(exc)))
     try:
+        from services import media_upload_service
+        media_upload_service.recover_all_stale_uploads()
+    except Exception as exc:
+        from translate_engines import redact_secrets
+        _log("leftover uploads were not moved to kept_media: %s", redact_secrets(str(exc)))
+    try:
         from services import lncrawl_service
         lncrawl_service.cleanup_stale_workdirs()
     except Exception as exc:

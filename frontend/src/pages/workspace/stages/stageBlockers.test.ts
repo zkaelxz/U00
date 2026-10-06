@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { exportBlocked, translateBlocker } from './stageBlockers'
+import { ApiError } from '../../../api/client'
+import { exportBlocked, needsReplaceConfirm, translateBlocker } from './stageBlockers'
 
 describe('translateBlocker', () => {
   it('blocks with no lines, whatever the other flags', () => {
@@ -25,5 +26,17 @@ describe('exportBlocked', () => {
     expect(exportBlocked(0)).toBe(true)
     expect(exportBlocked(3)).toBe(false)
     expect(exportBlocked(null)).toBe(false)
+  })
+})
+
+describe('needsReplaceConfirm', () => {
+  it('is true only for the 422 that asks to confirm replacing media', () => {
+    const err = (status: number, reason?: string) =>
+      new ApiError(status, { code: 'x', message: 'm', details: reason ? { reason } : undefined })
+    expect(needsReplaceConfirm(err(422, 'confirm_replace_audio'))).toBe(true)
+    expect(needsReplaceConfirm(err(422, 'other'))).toBe(false)
+    expect(needsReplaceConfirm(err(422))).toBe(false)
+    expect(needsReplaceConfirm(err(409, 'confirm_replace_audio'))).toBe(false)
+    expect(needsReplaceConfirm(new Error('x'))).toBe(false)
   })
 })

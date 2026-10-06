@@ -44,7 +44,7 @@ import { AutoTune } from './AutoTune'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
 import { TranscriptModePicker } from './SourceModes'
-import { mediaFileInputId } from './stageBlockers'
+import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
 import { diarizeEstimate, measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import './source.css'
@@ -69,6 +69,7 @@ const OPTION_LABELS: Record<string, string> = {
   tesseract: 'Tesseract',
   paddle: 'PaddleOCR',
 }
+const REPLACE_NEEDED = 'a tick in "Replace the current audio/video"'
 const optionLabel = (o: string) => OPTION_LABELS[o] ?? humanizeValue(o)
 
 // advancedSummary names changed backends by their raw value; show their labels.
@@ -91,6 +92,12 @@ interface Props {
   media: MediaStatus | null
   // A pre-checked file chosen in the media picker, or null.
   file: File | null
+  // The picker's "Replace the current audio/video" box, sent with an upload of `file`.
+  confirmReplace: boolean
+  // The drama has audio/video and that box is not ticked yet.
+  replaceUnconfirmed: boolean
+  // The server refused the upload until replacing is confirmed.
+  onReplaceRefused: () => void
   busy: boolean
   // expectedSeconds: this PC's recorded speed applied to this media, when there is one.
   onJobStarted: (jobId: string, expectedSeconds?: number | null) => void
@@ -139,7 +146,9 @@ const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
   hardsub_interval_sec: Number(f.hardsub_interval_sec),
 })
 
-export default function TranscribeStage({ mediaSlot, media, file, busy, onJobStarted }: Props) {
+export default function TranscribeStage({
+  mediaSlot, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, onJobStarted,
+}: Props) {
   const { dramaId, drama } = useStage()
   const mossEnabled = useMossExperimental()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
@@ -253,6 +262,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   }
   // A refused run or save: name the option when the server's sentence does, else show the banner.
   const fail = (e: unknown) => {
+    if (needsReplaceConfirm(e)) onReplaceRefused()
     const p = runProblemFromError(e)
     if (p) {
       setError(null)
@@ -288,7 +298,9 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     ? ''
     : !file && !hasMedia && !haveTranscript
       ? 'an audio or video file'
-      : haveTranscript && !transcriptText.trim()
+      : file && replaceUnconfirmed
+        ? REPLACE_NEEDED
+        : haveTranscript && !transcriptText.trim()
         ? 'the transcript text'
         : ''
 
@@ -364,7 +376,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           realignLong: cf.realign_long_segments,
         })
       : null
-    const start = () => (file ? uploadAndTranscribe(dramaId, file, req) : startTranscribe(dramaId, req))
+    const start = () => (file ? uploadAndTranscribe(dramaId, file, req, confirmReplace) : startTranscribe(dramaId, req))
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
     const changed = (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== current[k])
@@ -435,6 +447,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   // Rule 22: the reason's fix focuses the missing field.
   const fixNeeded = () => {
     if (needed === 'the transcript text') return transcriptRef.current?.focus()
+    if (needed === REPLACE_NEEDED) return document.getElementById(replaceBoxId(dramaId))?.focus()
     const input = document.getElementById(mediaFileInputId(dramaId))
     if (input) {
       input.scrollIntoView({ block: 'center' })
@@ -545,7 +558,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         <div className="source-needed" id="transcribe-needed" role="note">
           <span>Still needed: {needed}.</span>
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={fixNeeded}>
-            {needed === 'the transcript text' ? 'Paste transcript' : 'Choose a file'}
+            {needed === 'the transcript text' ? 'Paste transcript' : needed === REPLACE_NEEDED ? 'Show the box' : 'Choose a file'}
           </button>
         </div>
       )}

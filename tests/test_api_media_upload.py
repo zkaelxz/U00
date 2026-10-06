@@ -97,7 +97,17 @@ def test_video_upload_returns_before_extraction_finishes(client, isolated_db, mo
         assert f.read() == b"fakeaudio"
 
 
-def test_video_extract_failure_is_job_error_and_cleans_up(client, isolated_db, monkeypatch):
+def _kept(did):
+    import db
+    kept = os.path.join(db.drama_dir(did), "kept_media")
+    out = {}
+    for name in sorted(os.listdir(kept)) if os.path.isdir(kept) else []:
+        with open(os.path.join(kept, name), "rb") as f:
+            out[name] = f.read()
+    return out
+
+
+def test_video_extract_failure_is_job_error_and_keeps_the_upload(client, isolated_db, monkeypatch):
     import db
 
     def boom(job_id, cmd, cwd=None, **kw):
@@ -109,8 +119,13 @@ def test_video_extract_failure_is_job_error_and_cleans_up(client, isolated_db, m
     job = _wait(r.json()["job_id"])
     assert job["status"] == "error"
     assert "Could not read audio from that video file." in job["error"]
+    assert "kept" in job["error"]
     assert "sk-ant" not in job["error"] and "sk-ant" not in (job.get("traceback") or "")
-    assert os.listdir(db.drama_dir(did)) == []
+    assert db.drama_dir(did) not in job["error"]
+    assert os.listdir(db.drama_dir(did)) == ["kept_media"]
+    kept = _kept(did)
+    assert list(kept.values()) == [b"fakeaudio"]
+    assert next(iter(kept)).startswith("failed-upload-") and next(iter(kept)).endswith(".mp4")
     assert not db.get_drama(did).get("audio_filename")
 
 
@@ -129,7 +144,7 @@ def test_extract_ffmpeg_opens_local_files_only(client, isolated_db, monkeypatch)
     assert cmds[0][i - 2:i] == ["-protocol_whitelist", "file"]
 
 
-def test_video_extract_cancel_is_cancelled_and_cleans_up(client, isolated_db, monkeypatch):
+def test_video_extract_cancel_is_cancelled_and_keeps_the_upload(client, isolated_db, monkeypatch):
     import db
 
     def cancelled(job_id, cmd, cwd=None, **kw):
@@ -138,7 +153,8 @@ def test_video_extract_cancel_is_cancelled_and_cleans_up(client, isolated_db, mo
     did = db.create_drama(title_en="D")
     job = _wait(_up(client, did, "a.mp4").json()["job_id"])
     assert job["status"] == "cancelled"
-    assert os.listdir(db.drama_dir(did)) == []
+    assert os.listdir(db.drama_dir(did)) == ["kept_media"]
+    assert list(_kept(did).values()) == [b"fakeaudio"]
 
 
 def test_run_cancellable_timeout_kills_process(isolated_db):
@@ -258,3 +274,366 @@ def test_concurrent_upload_loser_never_touches_winner_file(client, isolated_db):
     with open(os.path.join(db.drama_dir(did), "source.mp4"), "rb") as f:
         assert f.read() == b"winner"
     assert not any(n.startswith(".upload_") for n in os.listdir(db.drama_dir(did)))
+
+
+def _read(did, name):
+    import db
+    with open(os.path.join(db.drama_dir(did), name), "rb") as f:
+        return f.read()
+
+
+def test_replacing_audio_needs_confirm_and_touches_nothing_without_it(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+    r = _up(client, did, "b.mp3", b"second")
+    assert r.status_code == 422
+    assert r.json()["error"]["details"]["reason"] == "confirm_replace_audio"
+    assert os.listdir(db.drama_dir(did)) == ["source.mp3"]
+    assert _read(did, "source.mp3") == b"first"
+
+
+def test_confirmed_replace_keeps_the_old_original(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    # never written over the old name: the drama switches to a free one
+    assert db.get_drama(did)["audio_filename"] == "source-2.mp3"
+    assert _read(did, "source-2.mp3") == b"second"
+    assert not os.path.exists(os.path.join(db.drama_dir(did), "source.mp3"))
+    kept = _kept(did)
+    assert list(kept.values()) == [b"first"]
+    assert next(iter(kept)).startswith("replaced-") and next(iter(kept)).endswith(".mp3")
+    assert "kept_media" not in r.text
+    # a second replace in the same second gets its own kept name
+    client.post(f"/api/media/dramas/{did}/upload", files={"file": ("c.mp3", b"third")},
+                data={"confirm_replace_audio": "true"})
+    assert _read(did, db.get_drama(did)["audio_filename"]) == b"third"
+    assert sorted(_kept(did).values()) == [b"first", b"second"]
+
+
+def test_existing_source_video_needs_confirm(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _wait(_up(client, did, "a.mp4", b"vid1").json()["job_id"])["status"] == "done"
+    os.remove(os.path.join(db.drama_dir(did), "audio.wav"))  # video alone still counts
+    r = _up(client, did, "b.mp3", b"aud")
+    assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "confirm_replace_audio"
+
+
+def test_video_replace_keeps_old_until_extraction_succeeds(client, isolated_db, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _wait(_up(client, did, "a.mp4", b"old").json()["job_id"])["status"] == "done"
+    gate = threading.Event()
+    seen = {}
+
+    def slow_ffmpeg(job_id, cmd, cwd=None, **kw):
+        seen["during"] = _read(did, "source.mp4")
+        gate.wait(5)
+        _fake_ffmpeg(job_id, cmd)
+    monkeypatch.setattr(background_jobs, "run_cancellable", slow_ffmpeg)
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp4", b"new")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    gate.set()
+    assert _wait(r.json()["job_id"])["status"] == "done"
+    assert seen["during"] == b"old"
+    after = db.get_drama(did)
+    assert (after["source_video_filename"], after["audio_filename"]) == ("source-2.mp4", "audio-2.wav")
+    assert _read(did, "source-2.mp4") == b"new"
+    assert sorted(_kept(did).values()) == [b"old", b"wav"]
+    assert not any(n.startswith(".") for n in os.listdir(db.drama_dir(did)))
+
+
+def test_failed_extraction_on_replace_leaves_the_title_as_it_was(client, isolated_db, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _wait(_up(client, did, "a.mp4", b"old").json()["job_id"])["status"] == "done"
+    before = db.get_drama(did)
+
+    def boom(job_id, cmd, cwd=None, **kw):
+        raise subprocess.CalledProcessError(1, cmd)
+    monkeypatch.setattr(background_jobs, "run_cancellable", boom)
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp4", b"new")},
+                    data={"confirm_replace_audio": "true"})
+    assert _wait(r.json()["job_id"])["status"] == "error"
+    assert _read(did, "source.mp4") == b"old" and _read(did, "audio.wav") == b"wav"
+    after = db.get_drama(did)
+    assert (after["audio_filename"], after["source_video_filename"]) == (
+        before["audio_filename"], before["source_video_filename"])
+    kept = _kept(did)
+    assert list(kept.values()) == [b"new"] and next(iter(kept)).startswith("failed-upload-")
+
+
+def test_replace_without_hard_links_still_keeps_the_old_file(client, isolated_db, monkeypatch):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+
+    def no_links(*a, **kw):
+        raise OSError("hard links not supported")
+    monkeypatch.setattr(os, "link", no_links)
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    assert _read(did, db.get_drama(did)["audio_filename"]) == b"second"
+    assert list(_kept(did).values()) == [b"first"]
+
+
+def test_confirm_flag_must_be_a_bool(isolated_db):
+    import io
+    import db
+    from services import media_upload_service
+    from services.service_errors import InvalidInputError
+    did = db.create_drama(title_en="D")
+    with pytest.raises(InvalidInputError):
+        media_upload_service.upload_media(did, "a.mp3", io.BytesIO(b"x"), confirm_replace_audio="yes")
+
+
+def test_kept_media_is_in_a_media_backup(client, isolated_db):
+    import zipfile
+    import db
+    from services import library_admin_service as las
+    did = db.create_drama(title_en="D")
+    _up(client, did, "a.mp3", b"first")
+    client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                data={"confirm_replace_audio": "true"})
+    dest = os.path.join(db.LIBRARY_DIR, "b.zip")
+    las.write_backup_zip(dest, include_media=True)
+    with zipfile.ZipFile(dest) as zf:
+        names = [n for n in zf.namelist() if n.startswith(f"dramas/{did}/kept_media/replaced-")]
+        assert len(names) == 1 and zf.read(names[0]) == b"first"
+
+
+def _video_title(client, did):
+    assert _wait(_up(client, did, "a.mp4", b"old").json()["job_id"])["status"] == "done"
+    import db
+    return db.get_drama(did)
+
+
+def _replace_video(client, did):
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp4", b"new")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    return _wait(r.json()["job_id"])
+
+
+def _assert_title_unchanged(did, before):
+    import db
+    after = db.get_drama(did)
+    assert (after["audio_filename"], after["source_video_filename"]) == ("audio.wav", "source.mp4")
+    assert (before["audio_filename"], before["source_video_filename"]) == ("audio.wav", "source.mp4")
+    assert _read(did, "source.mp4") == b"old" and _read(did, "audio.wav") == b"wav"
+    kept = _kept(did)
+    assert list(kept.values()) == [b"new"] and next(iter(kept)).startswith("failed-upload-")
+    # nothing half-installed or staged is left beside the title's files
+    assert sorted(os.listdir(db.drama_dir(did))) == ["audio.wav", "kept_media", "source.mp4"]
+
+
+def test_audio_that_cannot_be_put_in_place_leaves_the_title_consistent(client, isolated_db, monkeypatch):
+    # e.g. Windows refusing a name in the folder: the extracted WAV can't be
+    # moved in after the new video was. The old video and audio stay named.
+    import db
+    from services import media_upload_service
+    did = db.create_drama(title_en="D")
+    before = _video_title(client, did)
+    real_link, real_rename = os.link, os.rename
+
+    def refuse_audio(fn):
+        def wrapper(src, dst, *a, **kw):
+            if os.path.basename(dst).startswith("audio"):
+                raise PermissionError(13, "in use")
+            return fn(src, dst, *a, **kw)
+        return wrapper
+    monkeypatch.setattr(media_upload_service.os, "link", refuse_audio(real_link))
+    monkeypatch.setattr(media_upload_service.os, "rename", refuse_audio(real_rename))
+    job = _replace_video(client, did)
+    assert job["status"] == "error"
+    assert job["error"].endswith(media_upload_service._SAVE_FAILED)
+    _assert_title_unchanged(did, before)
+
+
+def test_a_failed_db_switch_leaves_the_title_consistent(client, isolated_db, monkeypatch):
+    import sqlite3
+    import db
+    from services import media_upload_service
+    did = db.create_drama(title_en="D")
+    before = _video_title(client, did)
+
+    def locked(*a, **kw):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(db, "update_drama", locked)
+    job = _replace_video(client, did)
+    assert job["status"] == "error" and job["error"].endswith(media_upload_service._SAVE_FAILED)
+    _assert_title_unchanged(did, before)
+
+
+def test_old_files_in_use_never_block_the_switch(client, isolated_db, monkeypatch):
+    # Windows: the old audio.wav is open (Review playing it), so it can be
+    # neither replaced nor moved. The new files go in under fresh names, the
+    # drama switches to them, and the old WAV just stays, unreferenced and
+    # with one name only.
+    import db
+    from services import media_upload_service
+    did = db.create_drama(title_en="D")
+    _video_title(client, did)
+    ddir = db.drama_dir(did)
+    busy = os.path.join(ddir, "audio.wav")
+    real_unlink, real_rename, real_replace = os.unlink, os.rename, os.replace
+
+    def guard(fn):
+        def wrapper(src, *a, **kw):
+            if os.path.abspath(src) == busy:
+                raise PermissionError(13, "in use")
+            return fn(src, *a, **kw)
+        return wrapper
+    monkeypatch.setattr(media_upload_service.os, "unlink", guard(real_unlink))
+    monkeypatch.setattr(media_upload_service.os, "rename", guard(real_rename))
+    monkeypatch.setattr(media_upload_service.os, "replace", guard(real_replace))
+    assert _replace_video(client, did)["status"] == "done"
+    after = db.get_drama(did)
+    assert (after["source_video_filename"], after["audio_filename"]) == ("source-2.mp4", "audio-2.wav")
+    assert _read(did, "source-2.mp4") == b"new" and _read(did, "audio.wav") == b"wav"
+    assert list(_kept(did).values()) == [b"old"]
+    assert os.stat(busy).st_nlink == 1
+
+
+def test_audio_upload_that_cannot_be_saved_is_kept_and_says_so(client, isolated_db, monkeypatch):
+    import db
+    from services import media_upload_service
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+    # no free name can be claimed (each candidate refused)
+    monkeypatch.setattr(media_upload_service, "_in_place_names", lambda *a: iter([]))
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 409 and r.json()["error"]["message"] == media_upload_service._SAVE_FAILED
+    assert db.get_drama(did)["audio_filename"] == "source.mp3" and _read(did, "source.mp3") == b"first"
+    kept = _kept(did)
+    assert list(kept.values()) == [b"second"] and next(iter(kept)).startswith("failed-upload-")
+
+
+def test_move_never_overwrites_a_taken_name(tmp_path, monkeypatch):
+    from services import media_upload_service as m
+    src, taken, free = tmp_path / "src", tmp_path / "a", tmp_path / "b"
+    src.write_bytes(b"new")
+    taken.write_bytes(b"precious")
+    assert m._move_no_clobber(str(src), [str(taken), str(free)]) == str(free)
+    assert taken.read_bytes() == b"precious" and free.read_bytes() == b"new"
+
+    # a name taken between the check and the link: FileExistsError moves on,
+    # it never falls back to an overwriting rename
+    src.write_bytes(b"new2")
+    racer, last = tmp_path / "c", tmp_path / "d"
+    real_link = os.link
+
+    def racing_link(s, d, *a, **kw):
+        if d == str(racer):
+            racer.write_bytes(b"theirs")
+            raise FileExistsError(17, "exists")
+        return real_link(s, d, *a, **kw)
+    renames = []
+    monkeypatch.setattr(m.os, "link", racing_link)
+    monkeypatch.setattr(m.os, "rename", lambda *a: renames.append(a))
+    assert m._move_no_clobber(str(src), [str(racer), str(last)]) == str(last)
+    assert racer.read_bytes() == b"theirs" and last.read_bytes() == b"new2" and renames == []
+
+
+def test_move_without_hard_links_skips_taken_names(tmp_path, monkeypatch):
+    from services import media_upload_service as m
+    src, taken, free = tmp_path / "src", tmp_path / "a", tmp_path / "b"
+    src.write_bytes(b"new")
+    taken.write_bytes(b"precious")
+
+    def no_links(*a, **kw):
+        raise OSError("hard links not supported")
+    monkeypatch.setattr(m.os, "link", no_links)
+    assert m._move_no_clobber(str(src), [str(taken), str(free)]) == str(free)
+    assert taken.read_bytes() == b"precious" and free.read_bytes() == b"new"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symlinks")
+def test_a_symlinked_original_is_moved_as_a_link_not_followed(client, isolated_db, tmp_path):
+    import db
+    did = db.create_drama(title_en="D")
+    outside = tmp_path / "outside.mp3"
+    outside.write_bytes(b"theirs")
+    ddir = db.drama_dir(did)
+    os.symlink(outside, os.path.join(ddir, "source.mp3"))
+    db.update_drama(did, audio_filename="source.mp3")
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"new")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    kept_dir = os.path.join(ddir, "kept_media")
+    (name,) = os.listdir(kept_dir)
+    assert os.path.islink(os.path.join(kept_dir, name))
+    assert outside.read_bytes() == b"theirs" and os.stat(outside).st_nlink == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symlinks")
+def test_a_linked_kept_media_folder_is_refused(client, isolated_db, tmp_path):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    ddir = db.drama_dir(did)
+    os.symlink(elsewhere, os.path.join(ddir, "kept_media"))
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    # the switch happened; the old original stays in the folder instead
+    assert _read(did, db.get_drama(did)["audio_filename"]) == b"second"
+    assert _read(did, "source.mp3") == b"first"
+    assert os.listdir(elsewhere) == []
+
+
+def test_start_job_raising_keeps_the_upload(client, isolated_db, monkeypatch):
+    import db
+
+    def broken(*a, **kw):
+        raise RuntimeError("thread limit")
+    monkeypatch.setattr(background_jobs, "start_job", broken)
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp4", b"vid").status_code == 500
+    assert list(_kept(did).values()) == [b"vid"]
+    assert not any(n.startswith(".") for n in os.listdir(db.drama_dir(did)))
+
+
+def test_stale_staged_uploads_are_recovered_never_deleted(client, isolated_db, monkeypatch):
+    import db
+    from services import drama_service, media_upload_service as m
+    did = db.create_drama(title_en="D")
+    ddir = db.drama_dir(did)
+    old_t = time.time() - m.EXTRACT_TIMEOUT_SECONDS - 60
+    for name, data in ((".upload_old.mp4", b"crashed"), (".upload_new.mp4", b"live"),
+                       (".upload_x.part", b"partial"), ("notes.mp4", b"mine")):
+        with open(os.path.join(ddir, name), "wb") as f:
+            f.write(data)
+        if name != ".upload_new.mp4":
+            os.utime(os.path.join(ddir, name), (old_t, old_t))
+    monkeypatch.setattr(drama_service, "job_running_for_drama", lambda _d: True)
+    assert m.recover_stale_uploads(did) == 0  # a job may still be reading it
+    monkeypatch.undo()
+    assert m.recover_all_stale_uploads() == 1
+    assert list(_kept(did).values()) == [b"crashed"]
+    assert sorted(os.listdir(ddir)) == [".upload_new.mp4", ".upload_x.part", "kept_media", "notes.mp4"]
+    # also at the drama's next upload
+    os.utime(os.path.join(ddir, ".upload_new.mp4"), (old_t, old_t))
+    assert _up(client, did, "a.mp3", b"aud").status_code == 200
+    assert sorted(_kept(did).values()) == [b"crashed", b"live"]
+
+
+def test_status_reports_kept_media_as_numbers_only(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    _up(client, did, "a.mp3", b"first")
+    client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second!")},
+                data={"confirm_replace_audio": "true"})
+    body = client.get(f"/api/media/dramas/{did}/status").json()
+    assert body["kept_media_files"] == 1 and body["kept_media_bytes"] == len(b"first")
+    assert "replaced" not in str(body) and "kept_media/" not in str(body)

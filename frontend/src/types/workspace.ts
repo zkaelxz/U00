@@ -8,6 +8,9 @@ export interface MediaStatus {
   has_audio: boolean
   has_source_video: boolean
   upload_max_mb: number
+  // Superseded originals and failed uploads kept in the title's folder (numbers only).
+  kept_media_files: number
+  kept_media_bytes: number
 }
 
 export interface MediaUploadResult {
