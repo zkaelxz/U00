@@ -252,6 +252,13 @@ export function splitPieces(text: string, at: number): [string, string] {
   return [chars.slice(0, at).join(''), chars.slice(at).join('')]
 }
 
+/** The translation pieces the server stores for a cut at `at`: it trims the
+ *  first piece's end and the second piece's both ends (services/restructure_service.split_line). */
+export function splitTranslationPieces(text: string, at: number): [string, string] {
+  const [first, second] = splitPieces(text, at)
+  return [first.trimEnd(), second.trim()]
+}
+
 export function charCount(text: string): number {
   return Array.from(text).length
 }

@@ -185,6 +185,12 @@ class TestAddDeleteSplit:
         assert _notes(did)["tb"] == ids[1]
         assert len(out["lines"]) == 2
 
+    def test_split_trims_translation_pieces(self):
+        did, ids = _seed([("你好世界", "Hello,  world")])
+        svc.split_line(did, ids[0], ids, at_char=2, expected_zh="你好世界", en_at_char=7)
+        rows = _rows(did)
+        assert [r["en"] for r in rows] == ["Hello,", "world"]
+
     def test_split_stale_text_409(self):
         did, ids = _seed()
         with pytest.raises(ConflictError):
