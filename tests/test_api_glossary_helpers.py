@@ -361,7 +361,8 @@ class TestLinesGlossaryRoutes:
         body = r.json()
         assert body["status"] == "done" and body["run_id"]
         assert set(body["proposals"][0]) == {"term", "suggested_translation", "category",
-                                             "policy", "reason", "already_in_glossary"}
+                                             "policy", "reason", "already_in_glossary",
+                                             "occurrences", "alternatives", "confidence"}
         r = client.post(_gl(did, "/apply"), json={
             "terms": ["青云宗"], "overrides": {"青云宗": {"translation": "Azure Cloud Sect"}},
             "run_id": body["run_id"]})

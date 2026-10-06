@@ -19,6 +19,7 @@ import {
   novelGlossaryApplyErrorText,
   overwriteConfirmText,
   defaultTermSelection,
+  highConfidenceTerms,
   isActiveStatus,
   novelGlossaryBlocker,
   novelGlossaryProgressText,
@@ -33,6 +34,9 @@ const p = (term: string, already = false): NovelGlossaryProposal => ({
   policy: null,
   reason: '',
   already_in_glossary: already,
+  occurrences: 3,
+  alternatives: [],
+  confidence: 'high',
 })
 
 describe('auto-tune helpers', () => {
@@ -126,5 +130,13 @@ describe('auto-tune elapsed time and ETA', () => {
     // 2 of 3 started after 60 s: one finished (60 s each), two remain incl. the current one.
     expect(autotuneEta(60, 'Testing candidate 2 of 3 (800ms)...')).toBe('about 2:00 left')
     expect(autotuneEta(180, 'Testing candidate 3 of 3 (800ms)...')).toBe('about 1:30 left')
+  })
+})
+
+describe('highConfidenceTerms', () => {
+  it('keeps High proposals that are not already in the glossary', () => {
+    const low = { ...p('low'), confidence: 'low' as const }
+    expect([...highConfidenceTerms([p('a'), low, p('b', true), p('c')])]).toEqual(['a', 'c'])
+    expect(highConfidenceTerms([]).size).toBe(0)
   })
 })

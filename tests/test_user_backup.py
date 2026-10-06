@@ -168,7 +168,8 @@ def _build_library():
         conn.execute("PRAGMA foreign_keys = OFF")
         chars = {}
         for sid, marker in ((sa, MINE), (sb, OTHER)):
-            for t in ("series_characters", "glossary_terms", "translation_memory"):
+            for t in ("series_characters", "glossary_terms", "translation_memory",
+                      "glossary_dismissals"):
                 _seed_row(conn, t, {"series_id": sid}, marker)
             chars[sid] = conn.execute("SELECT id FROM series_characters WHERE series_id = ?",
                                       (sid,)).fetchone()[0]
@@ -196,7 +197,7 @@ def _build_library():
             for t in ("progress", "personal_notes", "reading_history"):
                 _seed_row(conn, t, {"drama_id": did, "profile_id": other_profile}, OTHER)
         seeded = set(drama_tables) | {"series_characters", "glossary_terms", "bubbles",
-                                      "translation_memory", "translate_history",
+                                      "translation_memory", "glossary_dismissals", "translate_history",
                                       "style_profile", "profiles", "dramas", "series", "users",
                                       "user_permissions", "auth_sessions", "audit_log"}
         for t in _tables(conn):
@@ -340,7 +341,8 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
         assert links[d["a_in_sb"]] is None and links[d["a_in_sa"]] is not None
         a_pages = {r[0] for r in conn.execute("SELECT id FROM pages")}
         assert {r[0] for r in conn.execute("SELECT page_id FROM bubbles")} == a_pages
-        for t in ("glossary_terms", "series_characters", "translation_memory"):
+        for t in ("glossary_terms", "series_characters", "translation_memory",
+                  "glossary_dismissals"):
             assert {r[0] for r in conn.execute(f"SELECT series_id FROM {t}")} == {sa}, t
         assert [tuple(r) for r in conn.execute("SELECT user_id FROM translate_history")] == \
             [(None,)]

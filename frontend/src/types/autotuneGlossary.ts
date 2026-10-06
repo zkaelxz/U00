@@ -41,6 +41,19 @@ export interface NovelGlossaryProposal {
   policy: string | null
   reason: string
   already_in_glossary: boolean
+  // Times the term occurs in the text the model read, and the other
+  // renderings it proposed for it; confidence is derived from both.
+  occurrences: number
+  alternatives: string[]
+  confidence: 'high' | 'low'
+}
+
+export interface GlossaryDismissals {
+  dismissals: { term: string; created_at: string | null }[]
+}
+
+export interface GlossaryDismissResult {
+  changed: number
 }
 
 export interface NovelGlossaryStatus {

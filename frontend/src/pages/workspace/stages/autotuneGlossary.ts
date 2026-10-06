@@ -6,6 +6,11 @@ import type {
   NovelGlossaryProposal,
 } from '../../../types/autotuneGlossary'
 
+// "Select all High": the High-confidence proposals not already in the glossary.
+export function highConfidenceTerms(proposals: NovelGlossaryProposal[]): Set<string> {
+  return new Set(proposals.filter((p) => p.confidence === 'high' && !p.already_in_glossary).map((p) => p.term))
+}
+
 export const isActiveStatus = (status: string | null | undefined) =>
   status === 'queued' || status === 'running'
 

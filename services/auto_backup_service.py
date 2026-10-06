@@ -1299,7 +1299,8 @@ _SKIPPED_TABLES = {
 _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
-SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory")
+SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory",
+                   "glossary_dismissals")
 # Columns naming a file in the drama folder, with the one subfolder the app
 # writes that file in (None: the folder itself). Readers join these onto the
 # drama folder, so a backup from another library keeps one only when it is a

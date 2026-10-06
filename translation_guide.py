@@ -669,7 +669,16 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
                     continue
                 e["category"] = e.get("category") if e.get("category") in TERM_CATEGORIES else "other"
                 e["policy"] = e.get("policy") if e.get("policy") in TERM_POLICIES else "keep_pinyin"
-                # later windows refine earlier proposals rather than duplicating
+                # later windows refine earlier proposals rather than duplicating,
+                # but the earlier renderings stay visible: a term rendered
+                # differently per window is the inconsistency a reviewer should see.
+                seen = all_terms.get(e["term"])
+                e["windows"] = (seen["windows"] if seen else 0) + 1
+                renderings = list(seen["renderings"]) if seen else []
+                rendering = str(e.get("suggested_translation") or "").strip()
+                if rendering and rendering not in renderings:
+                    renderings.append(rendering)
+                e["renderings"] = renderings
                 all_terms[e["term"]] = e
         if progress_cb:
             progress_cb((i + 1) / total)

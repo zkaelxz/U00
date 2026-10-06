@@ -645,7 +645,7 @@ USER_BACKUP_TABLES = {
     "voice_suggestion_dismissals": ("series_character", ""),
     "bubbles": ("page", ""),
     "glossary_terms": ("series", ""), "series_characters": ("series", ""),
-    "translation_memory": ("series", ""),
+    "translation_memory": ("series", ""), "glossary_dismissals": ("series", ""),
     "translate_history": ("user", "the owner's standalone translations"),
     "profiles": ("profiles", "reader data is per library, on the default profile"),
     "style_profile": ("style_scope", "the global profile is learned from everyone's edits"),

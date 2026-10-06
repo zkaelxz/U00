@@ -1,3 +1,4 @@
+import { buttonClass } from '../../../components/uiClasses'
 import type { NovelGlossaryProposal } from '../../../types/autotuneGlossary'
 import type { GlossaryCatalogues } from '../../../types/translateStage'
 import { proposalValues, type Edits, type ProposalValues } from './glossaryExtract'
@@ -12,6 +13,8 @@ interface Props {
   catalogues: GlossaryCatalogues | null
   isPhone: boolean
   testId: string
+  // Offered only where ignoring makes sense (Suggest terms, not the pre-translate review).
+  onIgnore?: (term: string) => void
 }
 
 function OptionSelect({ label, value, options, onChange }: {
@@ -36,11 +39,26 @@ function OptionSelect({ label, value, options, onChange }: {
 // The proposals of a glossary extraction: a checkbox per term plus editable
 // translation, category and policy. Cards on a phone, a table otherwise.
 // Rows are keyed by term text.
-export function GlossaryProposals({ proposals, selected, onToggle, edits, onEdit, catalogues, isPhone, testId }: Props) {
+export function GlossaryProposals({ proposals, selected, onToggle, edits, onEdit, catalogues, isPhone, testId, onIgnore }: Props) {
   const inGlossary = <span className="badge">Already in glossary</span>
   const checkbox = (p: NovelGlossaryProposal) => (
     <input type="checkbox" aria-label={`Select ${p.term}`} checked={selected.has(p.term)} onChange={() => onToggle(p.term)} />
   )
+  const confidence = (p: NovelGlossaryProposal) => (
+    <span className={`badge confidence-${p.confidence}`}>{p.confidence === 'high' ? 'High' : 'Low'}</span>
+  )
+  const seen = (p: NovelGlossaryProposal) => (
+    <>
+      {p.occurrences}×
+      {p.alternatives.length > 0 && <span className="muted"> · also: {p.alternatives.join(', ')}</span>}
+    </>
+  )
+  const ignore = (p: NovelGlossaryProposal) =>
+    onIgnore && (
+      <button type="button" className={buttonClass('secondary')} aria-label={`Ignore ${p.term}`} onClick={() => onIgnore(p.term)}>
+        Ignore
+      </button>
+    )
   const fields = (p: NovelGlossaryProposal) => {
     const v = proposalValues(p, edits)
     return {
@@ -84,8 +102,9 @@ export function GlossaryProposals({ proposals, selected, onToggle, edits, onEdit
           return (
             <li key={p.term}>
               <label>
-                {checkbox(p)} <strong>{p.term}</strong> {p.already_in_glossary && inGlossary}
+                {checkbox(p)} <strong>{p.term}</strong> {confidence(p)} {p.already_in_glossary && inGlossary}
               </label>
+              <div className="muted">Seen {seen(p)}</div>
               <div className="glossary-proposal-edit">
                 {f.translation}
                 {catalogues && (
@@ -97,6 +116,7 @@ export function GlossaryProposals({ proposals, selected, onToggle, edits, onEdit
               </div>
               {!catalogues && <div className="muted">{[f.category, f.policy].filter(Boolean).join(' · ')}</div>}
               {p.reason && <div className="muted novel-glossary-reason">{p.reason}</div>}
+              {onIgnore && <div className="autotune-card-action">{ignore(p)}</div>}
             </li>
           )
         })}
@@ -114,7 +134,10 @@ export function GlossaryProposals({ proposals, selected, onToggle, edits, onEdit
             <th>Translation</th>
             <th>Category</th>
             <th>Policy</th>
+            <th>Seen</th>
+            <th>Confidence</th>
             <th>Reason</th>
+            {onIgnore && <th />}
           </tr>
         </thead>
         <tbody>
@@ -134,7 +157,10 @@ export function GlossaryProposals({ proposals, selected, onToggle, edits, onEdit
                 <td>{f.translation}</td>
                 <td>{f.category}</td>
                 <td>{f.policy}</td>
+                <td>{seen(p)}</td>
+                <td>{confidence(p)}</td>
                 <td className="novel-glossary-reason">{p.reason}</td>
+                {onIgnore && <td>{ignore(p)}</td>}
               </tr>
             )
           })}
