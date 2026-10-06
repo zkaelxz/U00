@@ -691,8 +691,16 @@ class _Resplit:
         if self.too_long(ln):
             return [seg]
         words = core_module.line_words(ln)
-        return core_module.split_long_segments([{**seg, "words": words} if words else seg],
-                                               rules=self.rules(ln))
+        if not words:
+            return core_module.split_long_segments([seg], rules=self.rules(ln))
+        pieces = core_module.split_long_segments([{**seg, "words": words}], rules=self.rules(ln))
+        # Word times tighten a piece to its speech, but the line's outer edges
+        # may have been re-timed on purpose (by hand or a re-time run); the
+        # Review split and the AI re-split keep them, so this does too.
+        if len(pieces) >= 2:
+            pieces[0] = {**pieces[0], "start": ln.start}
+            pieces[-1] = {**pieces[-1], "end": ln.end}
+        return pieces
 
 
 def _resplit_candidates(lines):

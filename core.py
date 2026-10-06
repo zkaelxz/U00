@@ -1141,6 +1141,8 @@ def _split_on_words(seg, text, pieces, index, fits, rules):
 # not worth a large row on every save.
 MAX_STORED_WORDS = 1000
 MAX_STORED_WORD_BYTES = 32_000
+# Far past any real recording; a stored time beyond it can only be a hand-made row.
+_MAX_WORD_MS = 100 * 3600 * 1000
 
 
 def text_fingerprint(text: str) -> str:
@@ -1175,11 +1177,15 @@ def line_words(ln) -> Optional[list]:
             return None
         words, pos = [], 0
         for a, b, t0, t1 in data["w"]:
-            if not (isinstance(a, int) and isinstance(b, int) and pos <= a < b <= len(text)):
+            # encode_line_words writes only ints, so anything else (a float,
+            # inf/nan, a bool) is a hand-made backup row, never a transcription.
+            if not (all(type(v) is int for v in (a, b, t0, t1))
+                    and pos <= a < b <= len(text) and 0 <= t0 <= t1 <= _MAX_WORD_MS):
                 return None
             words.append({"word": text[a:b], "start": t0 / 1000, "end": t1 / 1000})
             pos = b
-    except (ValueError, TypeError, KeyError):
+    # A backup can carry any string: deep nesting makes json.loads recurse.
+    except (ValueError, TypeError, KeyError, RecursionError, OverflowError):
         return None
     index = _WordIndex.build(text, words)
     # Times are absolute audio times, so a re-timed line keeps its words; a row
