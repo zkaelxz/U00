@@ -127,7 +127,7 @@ def _protect(text: str, protected_terms, speaker: Optional[str]):
     text = _LABEL_RE.sub(hide, text)
     if speaker:
         text = re.sub(rf"^[ \t]*{re.escape(speaker)}[ \t]*:", hide, text, flags=re.M)
-    terms_re = protected_terms if isinstance(protected_terms, re.Pattern) else compile_terms(protected_terms)
+    terms_re = protected_terms if isinstance(protected_terms, re.Pattern) else compile_terms(protected_terms or ())
     if terms_re:
         text = terms_re.sub(hide, text)
     if len(spans) > _SENTINEL_END - _SENTINEL_BASE:

@@ -177,3 +177,8 @@ def test_many_glossary_terms_match_like_one_at_a_time():
     pat = ec.compile_terms(terms)
     assert clean(text, protected_terms=pat) == clean(text, protected_terms=terms)
     assert clean("a ,b", protected_terms=pat)[0] == "a, b"
+
+
+def test_a_plan_without_glossary_terms_passes_none():
+    assert ec.compile_terms([]) is None
+    assert clean("a ,b", protected_terms=ec.compile_terms([]))[0] == "a, b"
