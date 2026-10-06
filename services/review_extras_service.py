@@ -165,7 +165,8 @@ def cleanup_plan(drama_id: int, lines) -> list:
     drama = _require_drama(drama_id)
     terms = [t["term_translation"] for t in db.list_glossary_terms(drama["series_id"])] \
         if drama.get("series_id") else []
-    style = en_cleanup.detect_style(ln.en for ln in lines)
+    terms = en_cleanup.compile_terms(terms)
+    style = en_cleanup.detect_style(ln.en for ln in lines if not en_cleanup.too_long(ln.en))
     plan = []
     for ln in lines:
         new, rules = en_cleanup.clean_text(ln.en, style, terms, ln.speaker)
@@ -190,6 +191,7 @@ def preview_en_cleanup(drama_id: int) -> dict:
             per_rule[name] += 1
     return {
         "drama_id": drama_id, "lines_scanned": len(lines), "lines_changed": len(plan),
+        "lines_skipped": sum(en_cleanup.too_long(ln.en) for ln in lines),
         "rules": [{"rule": name, "label": en_cleanup.RULE_LABELS[name], "lines": n}
                   for name, n in per_rule.items() if n],
         "changes": [{"line_id": ln.id, "idx": ln.idx, "before": ln.en, "after": new,

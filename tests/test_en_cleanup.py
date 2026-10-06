@@ -131,3 +131,49 @@ def test_plan_hash_changes_with_any_change():
     assert a == ec.plan_hash([(1, "x"), (2, "y")])
     assert a != ec.plan_hash([(1, "x"), (2, "z")])
     assert a != ec.plan_hash([(1, "xy")])
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("<i>Go to www.example.com</i>  now", "<i>Go to www.example.com</i> now"),
+    ("<i>www.x.com</i>  i", "<i>www.x.com</i> I"),
+    ("see www.x.com<i>  go</i>", "see www.x.com<i> go</i>"),
+    ("<i>go</i>www.x.com  now", "<i>go</i>www.x.com now"),
+    ("<i>a@b.com</i>  i go", "<i>a@b.com</i> I go"),
+    ("mail a@b.com<b>  now</b>", "mail a@b.com<b> now</b>"),
+])
+def test_urls_next_to_tags_keep_every_tag(text, expected):
+    assert clean(text)[0] == expected
+
+
+def test_leaked_private_use_character_discards_the_change(monkeypatch):
+    monkeypatch.setitem(ec._RULE_FUNCS, "extra_space", lambda t, s: t + chr(0xE000))
+    assert clean("hello  there") == ("hello  there", [])
+
+
+def _fast(fn, bound=1.0):
+    import time
+    t = time.perf_counter()
+    fn()
+    assert time.perf_counter() - t < bound
+
+
+def test_adversarial_long_lines_stay_fast():
+    _fast(lambda: clean("a. " * 660 + "b"))
+    _fast(lambda: clean("a." * 1000 + "@"))
+    _fast(lambda: clean('x "' * 660, style={"quotes": "curly", "ellipsis": "dots"}))
+
+
+def test_over_long_lines_are_skipped():
+    text = "hello  there " * 400
+    assert len(text) > ec.MAX_LINE_CHARS
+    assert clean(text) == (text, [])
+    assert ec.too_long(text) and not ec.too_long("short")
+
+
+def test_many_glossary_terms_match_like_one_at_a_time():
+    terms = [f"Term{i} Name" for i in range(600)]
+    text = "the Term599 Name ,and term0 name ,x"
+    assert clean(text, protected_terms=terms)[0] == "the Term599 Name, and term0 name, x"
+    pat = ec.compile_terms(terms)
+    assert clean(text, protected_terms=pat) == clean(text, protected_terms=terms)
+    assert clean("a ,b", protected_terms=pat)[0] == "a, b"

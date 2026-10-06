@@ -1076,7 +1076,8 @@ def cmd_clean_en(args):
         shown = args.show if args.show is not None else 5
         for ch in preview["changes"][:shown]:
             print(f"  #{ch['idx'] + 1}: {ch['before']!r} -> {ch['after']!r}")
-        print(f"#{args.id}: {preview['lines_changed']} of {preview['lines_scanned']} line(s) would change")
+        print(f"#{args.id}: {preview['lines_changed']} of {preview['lines_scanned']} line(s) would change"
+              + (f"; {preview['lines_skipped']} over-long line(s) skipped" if preview["lines_skipped"] else ""))
         if args.apply and preview["lines_changed"]:
             result = review_extras_service.apply_en_cleanup(args.id, preview["plan_hash"])
             print(f"#{args.id}: cleaned {result['applied']} line(s)"

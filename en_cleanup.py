@@ -39,7 +39,8 @@ _SENTINEL_RE = re.compile("[-]")
 
 _CJK_LETTER_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]")
 _TAG_RE = re.compile(r"<[^<>\n]{1,80}>|\{\\[^{}\n]{0,80}\}")
-_URL_RE = re.compile(r"(?:https?://|www\.)\S+|\b[\w.+-]+@[\w-]+\.[\w.-]+\b", re.I)
+# The local part is bounded: an unbounded one is quadratic on "a.a.a.a...".
+_URL_RE = re.compile(r"(?:https?://|www\.)\S+|\b[\w.+-]{1,64}@[\w-]+\.[\w.-]+\b", re.I)
 # "JOHN:" / "- Mary (O.S.):" at the start of a (physical) line.
 _LABEL_RE = re.compile(r"^([ \t]*(?:[-–—][ \t]*)?[^\W\d_][\w .'()\-]{0,24}?:)(?=[ \t])", re.M)
 
@@ -63,6 +64,10 @@ _DOUBLEABLE_FUNCTION_WORDS = frozenset(
     "the a an of to in on at for with from by and or but as if my your his her our their its "
     "was were".split())
 
+# Imported text can be far longer than the API's 2000-char cap; the regexes
+# below are only cheap on subtitle-sized input.
+MAX_LINE_CHARS = 4000
+
 _OPEN_QUOTES = '“‘'
 _CLOSE_QUOTES = '”’'
 
@@ -72,6 +77,10 @@ def has_cjk_letters(text: str) -> bool:
     never cleaned. Full-width punctuation alone does not count: removing
     that is the point of the cjk_punctuation rule."""
     return bool(_CJK_LETTER_RE.search(text or ""))
+
+
+def too_long(text: str) -> bool:
+    return len(text or "") > MAX_LINE_CHARS
 
 
 def detect_style(texts: Iterable[str]) -> dict:
@@ -90,7 +99,16 @@ def detect_style(texts: Iterable[str]) -> dict:
             "ellipsis": "char" if char > dots else "dots"}
 
 
-def _protect(text: str, protected_terms: Iterable[str], speaker: Optional[str]):
+def compile_terms(terms: Iterable[str]) -> Optional["re.Pattern"]:
+    """One alternation for all glossary terms, longest first so a term inside
+    a longer term doesn't split it. Build once per plan, not per line."""
+    unique = sorted({t.strip() for t in terms if t and t.strip()}, key=len, reverse=True)
+    if not unique:
+        return None
+    return re.compile(r"(?<![\w])(?:" + "|".join(re.escape(t) for t in unique) + r")(?![\w])", re.I)
+
+
+def _protect(text: str, protected_terms, speaker: Optional[str]):
     """(masked text, spans) with markup, URLs, speaker labels and glossary
     terms swapped for sentinels; None if the text already holds private-use
     characters (a sentinel could not be told from the original)."""
@@ -99,27 +117,29 @@ def _protect(text: str, protected_terms: Iterable[str], speaker: Optional[str]):
     spans = []
 
     def hide(m):
-        spans.append(m.group(0))
+        # Expanded now so a span that swallowed an earlier sentinel (a URL
+        # running into a masked tag) never nests: _unprotect is one pass.
+        spans.append(_unprotect(m.group(0), spans))
         return chr(_SENTINEL_BASE + len(spans) - 1)
-
-    def hide_literal(src, term):
-        return re.sub(re.escape(term), hide, src, flags=re.I) if term else src
 
     text = _TAG_RE.sub(hide, text)
     text = _URL_RE.sub(hide, text)
     text = _LABEL_RE.sub(hide, text)
     if speaker:
         text = re.sub(rf"^[ \t]*{re.escape(speaker)}[ \t]*:", hide, text, flags=re.M)
-    # Longest first, so a term inside a longer term doesn't split it.
-    for term in sorted({t.strip() for t in protected_terms if t and t.strip()}, key=len, reverse=True):
-        text = re.sub(rf"(?<![\w]){re.escape(term)}(?![\w])", hide, text, flags=re.I)
+    terms_re = protected_terms if isinstance(protected_terms, re.Pattern) else compile_terms(protected_terms)
+    if terms_re:
+        text = terms_re.sub(hide, text)
     if len(spans) > _SENTINEL_END - _SENTINEL_BASE:
         return None
     return text, spans
 
 
 def _unprotect(text: str, spans) -> str:
-    return _SENTINEL_RE.sub(lambda m: spans[ord(m.group(0)) - _SENTINEL_BASE], text)
+    # An index past the spans is a sentinel no rule should have produced; it is
+    # left in place for clean_text's leak check to reject.
+    return _SENTINEL_RE.sub(
+        lambda m: spans[i] if (i := ord(m.group(0)) - _SENTINEL_BASE) < len(spans) else m.group(0), text)
 
 
 def _cjk_punctuation(text, style):
@@ -179,6 +199,9 @@ def _space_after_punctuation(text, style):
     return re.sub(r"(?<=[a-z]{3})\.(?=[A-Z][a-z])", ". ", text)
 
 
+_QUOTE_OPENER_PRECEDERS = frozenset(" \t\n\r\f\v([{-–—…")
+
+
 def _to_curly(text):
     parts = text.split('"')
     if len(parts) > 1 and len(parts) % 2 == 1:
@@ -187,7 +210,7 @@ def _to_curly(text):
         # double quotes are left straight.
         out, ok = parts[0], True
         for i, part in enumerate(parts[1:]):
-            if i % 2 == 0 and out and not re.search(r"[\s(\[{\-–—…]$", out):
+            if i % 2 == 0 and out and out[-1] not in _QUOTE_OPENER_PRECEDERS:
                 ok = False
                 break
             out += ("“" if i % 2 == 0 else "”") + part
@@ -224,11 +247,14 @@ def _pronoun_i(text, style):
 _SENTENCE_START_RE = re.compile(r"(?<=\w)([.!?][\"”’)\]]*)([ \n]+)([a-z]\w*)")
 
 
+_PREV_WORD_RE = re.compile(r"([A-Za-z.]+)\Z")
+
+
 def _capitalize_sentence(text, style):
     def fix(m):
         end, gap, word = m.group(1), m.group(2), m.group(3)
-        before = text[:m.start(1)]
-        prev = re.search(r"([A-Za-z.]+)$", before)
+        # Abbreviations are short; a bounded tail keeps this linear per match.
+        prev = _PREV_WORD_RE.search(text[max(0, m.start(1) - 40):m.start(1)])
         prev_word = prev.group(1).lower().rstrip(".") if prev else ""
         # Abbreviations, initials ("J. smith"), and brand-style words
         # ("iPhone") are not sentence starts.
@@ -255,8 +281,9 @@ _RULE_FUNCS = {
 def clean_text(text: str, style: Optional[dict] = None, protected_terms: Iterable[str] = (),
                speaker: Optional[str] = None, rules: Iterable[str] = RULES) -> tuple:
     """(cleaned text, rules that changed it). Text with CJK letters, empty
-    text, or text holding private-use characters comes back unchanged."""
-    if not text or has_cjk_letters(text):
+    text, over-long text, or text holding private-use characters comes back
+    unchanged. `protected_terms` may be a `compile_terms` result."""
+    if not text or too_long(text) or has_cjk_letters(text):
         return text, []
     style = style or {"quotes": "straight", "ellipsis": "dots"}
     protected = _protect(text, protected_terms, speaker)
@@ -273,6 +300,9 @@ def clean_text(text: str, style: Optional[dict] = None, protected_terms: Iterabl
             applied.append(name)
             masked = new
     result = _unprotect(masked, spans)
+    # Safety net: a leaked sentinel would save invisible junk, so drop the line.
+    if _SENTINEL_RE.search(result):
+        return text, []
     return (result, applied) if result != text else (text, [])
 
 

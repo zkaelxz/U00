@@ -774,6 +774,8 @@ class EnCleanupPreview(BaseModel):
     drama_id: int
     lines_scanned: int
     lines_changed: int
+    lines_skipped: int = Field(
+        default=0, description="Lines over the length guard, left untouched.")
     rules: List[EnCleanupRule]
     changes: List[EnCleanupChange] = Field(description="Capped; `truncated` says more exist.")
     truncated: bool
