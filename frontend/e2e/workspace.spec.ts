@@ -130,6 +130,33 @@ test('replacing existing audio needs the replace box, which is sent with the upl
   expect(confirms).toEqual(['true'])
 })
 
+test('replacing a video with audio says the video is set aside, then shows no source video', async ({ page }) => {
+  let video = true
+  await page.route('**/api/media/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_audio: true, has_source_video: video, upload_max_mb: 500, kept_media_files: video ? 0 : 2, kept_media_bytes: video ? 0 : 2048 } }),
+  )
+  await page.route('**/api/media/dramas/1/upload', async (route) => {
+    video = false
+    await route.fulfill({ json: { name: 'source.mp3', size: 3, kind: 'audio', job_id: null } })
+  })
+  await page.goto('/#/drama/1/source')
+  await expect(page.getByTestId('media-status')).toContainText('Source video attached')
+  const input = page.getByLabel('Audio or video file')
+  const note = page.getByTestId('replace-sets-video-aside')
+  await expect(note).toContainText('sets the current video aside')
+
+  await input.setInputFiles({ name: 'new.mp4', mimeType: 'video/mp4', buffer: Buffer.from('abc') })
+  await expect(note).toHaveCount(0)
+  await input.setInputFiles({ name: 'dub.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  await expect(note).toContainText('no source video for Review or video export')
+
+  await page.getByLabel(/Replace the current audio\/video/).check()
+  await page.getByRole('button', { name: 'Upload', exact: true }).click()
+  await expect(page.getByTestId('media-status')).toContainText('No source video')
+  await expect(page.getByTestId('kept-media')).toContainText('2 files')
+  await expect(note).toHaveCount(0)
+})
+
 test('upload-and-transcribe waits for the replace box, also after the server asks for it', async ({ page }) => {
   // The status read says no media (e.g. another tab added it since): the server's 422 brings up the box.
   await page.route('**/api/media/dramas/1/status', (route) =>
