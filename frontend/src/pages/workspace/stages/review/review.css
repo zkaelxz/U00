@@ -375,3 +375,21 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* Clear of the fixed phone action bar. */
   .review-selbar { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* ---- waveform timeline ---- */
+.review-wave-section { display: grid; gap: var(--space-1); }
+.review-wave { display: grid; gap: var(--space-1); min-width: 0; }
+.review-wave-tools { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; font-size: var(--text-sm); }
+.review-wave-range { margin-left: auto; font-variant-numeric: tabular-nums; }
+.review-wave-box { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); cursor: crosshair; touch-action: pan-y; user-select: none; }
+.review-wave-canvas { position: absolute; inset: 0; display: block; }
+.review-wave-cue { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--info) 14%, transparent); border-left: 1px solid var(--info); border-right: 1px solid var(--info); pointer-events: none; overflow: hidden; }
+.review-wave-cue.is-active { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+.review-wave-cue-label { font-size: var(--text-xs); padding: 0 var(--space-1); color: var(--text); }
+/* A wide hit area around a 2px line: easy to grab with a finger or a mouse. */
+.review-wave-handle { position: absolute; top: 0; bottom: 0; width: 18px; margin-left: -9px; cursor: ew-resize; touch-action: none; z-index: 1; }
+.review-wave-handle::after { content: ''; position: absolute; top: 0; bottom: 0; left: 8px; width: 2px; background: var(--accent); }
+.review-wave-handle:focus-visible { outline: none; }
+.review-wave-handle:focus-visible::after, .review-wave-handle.is-dragging::after { width: 4px; left: 7px; box-shadow: 0 0 0 3px var(--focus); }
+.review-wave-head { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--bad); pointer-events: none; display: none; }
+.review-wave-note { position: absolute; inset: auto var(--space-2) var(--space-1) var(--space-2); margin: 0; font-size: var(--text-xs); }

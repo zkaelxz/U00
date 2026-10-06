@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ApiError } from '../../../../api/client'
 import type { MediaKind } from '../../../../api/media'
@@ -26,6 +26,7 @@ import { routeHref } from '../../../../router'
 import type { RestructureResult } from '../../../../types/restructure'
 import type { LineFilter, ReviewLine, ReviewLinesPage, TmSuggestion } from '../../../../types/review'
 import type { NewLine } from './AddLineForm'
+import type { Edge } from './Waveform'
 import { FindReplacePanel } from './FindReplacePanel'
 import { LineActionsSheet, type SheetState, type SheetView } from './LineActionsSheet'
 import { useLineSelectionContext } from './LineSelectionContext'
@@ -116,6 +117,9 @@ function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
 // edit mode, the "⋯" line sheet with structure edits, a sticky toolbar with the
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
+// Loaded on first use so the canvas code stays out of the main bundle.
+const Waveform = lazy(() => import('./Waveform'))
+
 export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, onCompareSelected, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
@@ -161,6 +165,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [replaceOpen, setReplaceOpen] = useState(() => readSectionOpen(browserStorage(), 'review.findreplace', false))
 
   const player = useRef<PlayerHandle>(null)
+  // Phones start with the waveform folded away; elsewhere it is open.
+  const [waveOpen, setWaveOpen] = usePersistedState('review.waveform', !isPhone)
   // Phones: the player's video and tools sit here, under the sticky toolbar.
   const [playerDock, setPlayerDock] = useState<HTMLDivElement | null>(null)
   // Tablets and wider, with a video: the video, seek bar and subtitles sit in the side card.
@@ -482,6 +488,22 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       setSheet({ lineId: id, view, ...extra })
     }
 
+    // One edge dragged on the waveform: same patch, stale check and refresh as a row edit.
+    const retime = async (id: number, edge: Edge, value: number) => {
+      const line = find(id)
+      if (!line) return false
+      try {
+        const saved = await patchLine(dramaId, id, { [edge]: value, expected: { [edge]: line[edge] } })
+        replaceLine(saved)
+        setIssue(null)
+        st.current.onChanged()
+        return true
+      } catch (e) {
+        failLine(id, e)
+        return false
+      }
+    }
+
     const actions: RowActions = {
       activate: (id) => void activate(id),
       retranscribeFocused: () => setRetranscribeFocusId(null),
@@ -598,7 +620,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       },
     }
 
-    return { actions, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo, saveEdit, stillDirty, setEditNow }
+    return { actions, retime, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo, saveEdit, stillDirty, setEditNow }
   }, [dramaId])
 
   const { actions } = ctl
@@ -1000,6 +1022,29 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const pagerInPlayer = isPhone && mediaKind !== null && showPager
   const sideVideo = isWide && !isPhone && mediaKind === 'video' && !emptyDrama
 
+  // Wider screens keep it in the sticky toolbar so it stays in view while the
+  // list scrolls; phones put it under the player dock, where it scrolls away.
+  const waveform =
+    mediaKind && !emptyDrama ? (
+      <div className="review-wave-section">
+        <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={waveOpen} onClick={() => setWaveOpen(!waveOpen)}>
+          {waveOpen ? 'Hide waveform' : 'Show waveform'}
+        </button>
+        {waveOpen && (
+          <Suspense fallback={null}>
+            <Waveform
+              dramaId={dramaId}
+              lines={shown}
+              active={active}
+              player={player}
+              onRetime={ctl.retime}
+              editingActive={!!active && edit !== null && edit.lineId === active.id}
+            />
+          </Suspense>
+        )}
+      </div>
+    ) : null
+
   return (
     <section className={sideVideo ? 'review-editor has-side' : 'review-editor'} aria-label="Lines" ref={sectionRef}>
       <div className="review-main">
@@ -1025,21 +1070,25 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onCompact={setCompact}
           player={
             mediaKind ? (
-              <Player
-                ref={player}
-                dramaId={dramaId}
-                kind={mediaKind}
-                lines={shown}
-                selected={active}
-                captionVersion={reloads}
-                panelHost={isPhone ? playerDock : sideVideo ? sideDock : undefined}
-                trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
-              />
+              <>
+                <Player
+                  ref={player}
+                  dramaId={dramaId}
+                  kind={mediaKind}
+                  lines={shown}
+                  selected={active}
+                  captionVersion={reloads}
+                  panelHost={isPhone ? playerDock : sideVideo ? sideDock : undefined}
+                  trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
+                />
+                {!isPhone && waveform}
+              </>
             ) : null
           }
         />
         )}
         {isPhone && mediaKind && !emptyDrama && <div className="review-player-dock" ref={setPlayerDock} />}
+        {isPhone && waveform}
         {data && (
           <p className="sr-only" data-testid="line-counts">
             {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated

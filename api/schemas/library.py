@@ -30,6 +30,7 @@ __all__ = [
     "DramaDeleteResult",
     "MediaUploadResult",
     "MediaStatus",
+    "MediaPeaks",
     "UploadAndTranscribeResult",
     "LibraryUsage",
     "LibraryDashboard",
@@ -305,6 +306,13 @@ class MediaStatus(BaseModel):
     has_audio: bool
     has_source_video: bool
     upload_max_mb: int
+
+
+class MediaPeaks(BaseModel):
+    start: float
+    end: float
+    buckets: int
+    peaks: List[int] = Field(description="Peak loudness per bucket, 0-255.")
 
 
 class UploadAndTranscribeResult(BaseModel):
