@@ -429,8 +429,10 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
             raise InvalidInputError("beam_size must be between 1 and 10.")
         updates["beam_size"] = fields["beam_size"]
     if "min_silence_ms" in fields and fields["min_silence_ms"] is not None:
-        if not 300 <= fields["min_silence_ms"] <= 3000:
-            raise InvalidInputError("min_silence_ms must be between 300 and 3000.")
+        if not core_module.MIN_SILENCE_MS_MIN <= fields["min_silence_ms"] <= core_module.MIN_SILENCE_MS_MAX:
+            raise InvalidInputError(
+                f"min_silence_ms must be between {core_module.MIN_SILENCE_MS_MIN} "
+                f"and {core_module.MIN_SILENCE_MS_MAX}.")
         updates["min_silence_ms"] = fields["min_silence_ms"]
     if "vad_threshold" in fields and fields["vad_threshold"] is not None:
         if not 0.1 <= fields["vad_threshold"] <= 0.9:
@@ -1583,11 +1585,13 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     if candidates is None:
         candidates = list(core_module.DEFAULT_AUTOTUNE_CANDIDATES_MS)
     if (not isinstance(candidates, (list, tuple)) or not candidates or len(candidates) > 6
-            or any(isinstance(c, bool) or not isinstance(c, int) or not 300 <= c <= 3000
+            or any(isinstance(c, bool) or not isinstance(c, int)
+                   or not core_module.MIN_SILENCE_MS_MIN <= c <= core_module.MIN_SILENCE_MS_MAX
                    for c in candidates)
             or len(set(candidates)) != len(candidates)):
         raise InvalidInputError(
-            "candidates must be 1-6 distinct whole numbers between 300 and 3000 (ms).")
+            f"candidates must be 1-6 distinct whole numbers between {core_module.MIN_SILENCE_MS_MIN} "
+            f"and {core_module.MIN_SILENCE_MS_MAX} (ms).")
     initial_prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
     job_id = autotune_job_id(drama_id)
     started = background_jobs.start_process_job(

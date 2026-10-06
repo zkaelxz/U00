@@ -25,10 +25,14 @@ export function checkUploadFile(name: string, sizeBytes: number, maxMb: number):
   return null
 }
 
+// Keep in sync with MIN_SILENCE_MS_MIN/MAX in core.py.
+export const MIN_SILENCE_MS_MIN = 100
+export const MIN_SILENCE_MS_MAX = 3000
+
 // Labels match the Transcribe stage's fields.
 const RANGES = {
   beam_size: { label: 'Beam size', min: 1, max: 10, integer: true },
-  min_silence_ms: { label: 'Min silence (ms)', min: 300, max: 3000, integer: true },
+  min_silence_ms: { label: 'Min silence (ms)', min: MIN_SILENCE_MS_MIN, max: MIN_SILENCE_MS_MAX, integer: true },
   vad_threshold: { label: 'VAD threshold', min: 0.1, max: 0.9, integer: false },
   hardsub_interval_sec: { label: 'Hardsub interval (s)', min: 0.5, max: 3.0, integer: false },
 } as const
