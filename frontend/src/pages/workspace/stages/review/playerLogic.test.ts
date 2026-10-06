@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { clampTime, lineAt, parseJumpTime, SUBTITLE_OPTIONS, subtitleSrc } from './playerLogic'
+import { clampTime, lineAt, parseJumpTime, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc } from './playerLogic'
 
 describe('parseJumpTime', () => {
   it('reads seconds, mm:ss and h:mm:ss', () => {
@@ -49,5 +49,23 @@ describe('lineAt', () => {
     expect(lineAt(lines, 3.5)).toBeNull()
     expect(lineAt(lines, 4.9)?.id).toBe(3)
     expect(lineAt([], 1)).toBeNull()
+  })
+})
+
+describe('popoutCaptionPx', () => {
+  it('is about 2.25% of a wide window', () => {
+    expect(popoutCaptionPx(2000)).toBe(45)
+  })
+  it('never drops below the inline size', () => {
+    expect(popoutCaptionPx(300)).toBe(16)
+    expect(popoutCaptionPx(0)).toBe(16)
+    expect(popoutCaptionPx(NaN)).toBe(16)
+  })
+  it('is capped on huge windows', () => {
+    expect(popoutCaptionPx(10000, 'larger')).toBe(72)
+  })
+  it('scales with the size choice', () => {
+    expect(popoutCaptionPx(2000, 'smaller')).toBeLessThan(popoutCaptionPx(2000))
+    expect(popoutCaptionPx(2000, 'larger')).toBeGreaterThan(popoutCaptionPx(2000))
   })
 })

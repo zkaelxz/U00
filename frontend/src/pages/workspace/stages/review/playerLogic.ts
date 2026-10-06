@@ -47,3 +47,24 @@ export function subtitleSrc(dramaId: number, choice: SubtitleChoice, version: nu
 export function lineAt<T extends Pick<ReviewLine, 'start' | 'end'>>(lines: T[], time: number): T | null {
   return lines.find((l) => time >= l.start && time < l.end) ?? null
 }
+
+export type CaptionSize = 'smaller' | 'default' | 'larger'
+
+export const CAPTION_SIZE_OPTIONS: { value: CaptionSize; label: string }[] = [
+  { value: 'smaller', label: 'Smaller' },
+  { value: 'default', label: 'Default' },
+  { value: 'larger', label: 'Larger' },
+]
+
+const CAPTION_FACTOR: Record<CaptionSize, number> = { smaller: 0.8, default: 1, larger: 1.35 }
+const CAPTION_MIN_PX = 16
+const CAPTION_MAX_PX = 72
+
+// Pop-out caption font size from the window's width: about 2.25% of it, so a
+// 2000px window reads from across a desk, never below the inline caption's size
+// and capped so an ultrawide window doesn't turn one line into a banner.
+export function popoutCaptionPx(windowWidth: number, size: CaptionSize = 'default'): number {
+  if (!Number.isFinite(windowWidth) || windowWidth <= 0) return CAPTION_MIN_PX
+  const px = windowWidth * 0.0225 * CAPTION_FACTOR[size]
+  return Math.round(Math.min(CAPTION_MAX_PX, Math.max(CAPTION_MIN_PX, px)))
+}

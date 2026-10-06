@@ -9,7 +9,7 @@ import { usePopOut } from '../../../../hooks/usePopOut'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
-import { clampTime, JUMP_ERROR, lineAt, parseJumpTime, SUBTITLE_OPTIONS, subtitleSrc, type SubtitleChoice } from './playerLogic'
+import { CAPTION_SIZE_OPTIONS, clampTime, JUMP_ERROR, lineAt, parseJumpTime, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface PlayerHandle {
@@ -65,6 +65,8 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   // Keyed on the track URL, so a new track starts blank without an effect reset.
   const [cueFor, setCueFor] = useState<{ src: string; text: string } | null>(null)
   const [missingSrc, setMissingSrc] = useState<string | null>(null)
+  const [captionSizePref, setCaptionSize] = usePersistedState<string>('review.popoutCaptionSize', 'default')
+  const captionSize: CaptionSize = CAPTION_SIZE_OPTIONS.some((o) => o.value === captionSizePref) ? (captionSizePref as CaptionSize) : 'default'
   const [jump, setJump] = useState('')
   const [jumpError, setJumpError] = useState<string | null>(null)
   const loopId = useId()
@@ -103,6 +105,21 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     if (!floating) place()
   }, [place, floating])
   useLayoutEffect(() => () => panelBox.remove(), [panelBox])
+
+  // The pop-out window is resized by the user, so the caption follows its width.
+  // Listening on that window's own resize event (not a ResizeObserver from this
+  // page) keeps this independent of cross-document observer support.
+  useEffect(() => {
+    const win = panelBox.ownerDocument.defaultView
+    if (!floating || !win) return
+    const fit = () => panelBox.style.setProperty('--popout-caption-size', `${popoutCaptionPx(win.innerWidth, captionSize)}px`)
+    fit()
+    win.addEventListener('resize', fit)
+    return () => {
+      win.removeEventListener('resize', fit)
+      panelBox.style.removeProperty('--popout-caption-size')
+    }
+  }, [floating, panelBox, captionSize])
 
   const setSeg = (s: Segment | null) => {
     segRef.current = s
@@ -315,6 +332,18 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
               ))}
             </select>
           </label>
+          {floating && (
+            <label className="review-subs">
+              Subtitle size
+              <select value={captionSize} onChange={(e) => setCaptionSize(e.target.value)}>
+                {CAPTION_SIZE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       </div>
       {jumpError && (
