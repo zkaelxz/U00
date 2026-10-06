@@ -51,6 +51,15 @@ REM                            same thing without needing the flag every
 REM                            time -- same pattern as the PORTABLE marker.
 REM                            Falls back to plain `python` when neither
 REM                            is set, so nothing changes by default.
+REM   start.bat --no-update -- skip the automatic update for this run. A
+REM                            NOUPDATE marker file next to this script
+REM                            (any contents) turns it off for good -- same
+REM                            pattern as the PORTABLE marker. Without
+REM                            either, a git checkout on the baihe-subtitler
+REM                            branch is fast-forwarded to origin before
+REM                            launch (see the "Auto-update" section; it
+REM                            never touches edited files, other branches,
+REM                            or a copy whose app is already running).
 
 cd /d "%~dp0"
 
@@ -60,6 +69,7 @@ if /i "%~1"=="--portable" set BAIHE_PORTABLE=1
 if /i "%~1"=="--ci" set BAIHE_CI=1
 if /i "%~1"=="--server-only" set BAIHE_SERVER_ONLY=1
 if /i "%~1"=="--build-frontend" set BAIHE_BUILD_FRONTEND=1
+if /i "%~1"=="--no-update" set BAIHE_NO_UPDATE=1
 if /i "%~1"=="--python-version" (
     set PYTHON_VERSION=%~2
     shift
@@ -150,30 +160,158 @@ if not exist %PY% (
     )
 )
 
+REM --- Auto-update (git working copy only) ------------------------------------
+REM Fast-forwards a git clone to origin/baihe-subtitler before launch so
+REM nobody has to update by hand. Every skip path below
+REM just prints one line (or nothing) and carries on with the version
+REM already on disk; nothing here may fail the launch. Only a fast-forward
+REM is ever attempted, so edited, committed or untracked files are never
+REM overwritten, and no other git command that rewrites the working tree
+REM is used.
+REM
+REM Not while the app is running: Python has already imported the old code
+REM and the window is showing the old screens, so changing files under it
+REM would only mix versions until the next restart. The "already running"
+REM branch further down then just opens the window.
+REM
+REM cmd.exe re-reads a running .bat from a byte offset, so replacing this
+REM very file mid-run can execute garbage. After a successful update this
+REM script therefore starts a fresh copy of itself on one line (the whole
+REM line is parsed before the merge's result can change the file) and
+REM exits; BAIHE_UPDATE_OLD tells that copy to report instead of fetching.
+if defined BAIHE_UPDATE_OLD goto :update_report
+if defined BAIHE_CI goto :update_done
+if defined BAIHE_SERVER_ONLY goto :update_done
+if defined BAIHE_NO_UPDATE goto :update_done
+if exist NOUPDATE goto :update_done
+if exist INSTALLED goto :update_done
+if not exist ".git" goto :update_done
+where git >nul 2>nul
+if errorlevel 1 goto :update_done
+call :health_ok
+if not errorlevel 1 goto :update_done
+
+set "UPD_BRANCH="
+for /f "delims=" %%B in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "UPD_BRANCH=%%B"
+if not defined UPD_BRANCH goto :update_no_git
+if not "%UPD_BRANCH%"=="baihe-subtitler" goto :update_other_branch
+
+set "UPD_DIRTY="
+for /f "delims=" %%L in ('git status --porcelain --untracked-files=no 2^>nul') do set "UPD_DIRTY=1"
+if defined UPD_DIRTY goto :update_dirty
+
+set "UPD_OLD="
+for /f %%H in ('git rev-parse HEAD 2^>nul') do set "UPD_OLD=%%H"
+if not defined UPD_OLD goto :update_no_git
+
+REM Offline or unreachable: give up after ~15 s of near-zero speed, and never
+REM wait on a credential prompt.
+set GIT_TERMINAL_PROMPT=0
+git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 fetch --quiet origin baihe-subtitler >nul 2>nul
+if errorlevel 1 goto :update_fetch_failed
+set "GIT_TERMINAL_PROMPT="
+
+set "UPD_NEW="
+for /f %%H in ('git rev-parse FETCH_HEAD 2^>nul') do set "UPD_NEW=%%H"
+if not defined UPD_NEW goto :update_fetch_failed
+if "%UPD_NEW%"=="%UPD_OLD%" goto :update_done
+git merge-base --is-ancestor %UPD_OLD% %UPD_NEW% >nul 2>nul
+if errorlevel 1 goto :update_not_ff
+
+set "BAIHE_UPDATE_OLD=%UPD_OLD%"
+git merge --ff-only --quiet FETCH_HEAD >nul 2>nul && (call "%~f0" %* & exit /b !errorlevel!)
+set "BAIHE_UPDATE_OLD="
+echo Not updated: git could not apply the update. Starting the version on this PC.
+goto :update_done
+
+:update_no_git
+echo Not updated: this folder's git information could not be read. Starting the version on this PC.
+goto :update_done
+
+:update_other_branch
+echo Not updated: this copy is not on the baihe-subtitler branch. Starting the version on this PC.
+goto :update_done
+
+:update_dirty
+echo Not updated: some of the program files in this folder were edited. Starting the version on this PC.
+goto :update_done
+
+:update_fetch_failed
+set "GIT_TERMINAL_PROMPT="
+echo Not updated: could not reach GitHub ^(offline?^). Starting the version on this PC.
+goto :update_done
+
+:update_not_ff
+echo Not updated: this copy has changes of its own that the update would not sit on top of. Starting the version on this PC.
+goto :update_done
+
+REM Runs only in the fresh copy started after a successful update.
+:update_report
+set "UPD_OLD=%BAIHE_UPDATE_OLD%"
+set "UPD_NEW="
+for /f %%H in ('git rev-parse HEAD 2^>nul') do set "UPD_NEW=%%H"
+set "UPD_SHORT="
+for /f %%H in ('git rev-parse --short HEAD 2^>nul') do set "UPD_SHORT=%%H"
+set "UPD_COUNT="
+for /f %%N in ('git rev-list --count %UPD_OLD%..%UPD_NEW% 2^>nul') do set "UPD_COUNT=%%N"
+if "%UPD_COUNT%"=="1" (
+    echo Updated to %UPD_SHORT%: 1 new commit.
+) else (
+    echo Updated to %UPD_SHORT%: %UPD_COUNT% new commits.
+)
+REM git prints the subjects itself so that characters cmd treats as special
+REM in a commit message are shown as written.
+git log -n 5 --format="  - %%s" %UPD_OLD%..%UPD_NEW%
+
+set "UPD_DEPS="
+for /f "delims=" %%F in ('git diff --name-only %UPD_OLD% %UPD_NEW% -- requirements-core.txt constraints.txt constraints.lock.txt 2^>nul') do set "UPD_DEPS=1"
+if defined UPD_DEPS set BAIHE_FORCE_DEPS=1
+
+REM frontend\dist is not tracked, so the screens only change when rebuilt.
+set "UPD_UI="
+for /f "delims=" %%F in ('git diff --name-only %UPD_OLD% %UPD_NEW% -- frontend/src frontend/public frontend/index.html frontend/package.json frontend/package-lock.json frontend/vite.config.ts frontend/tsconfig.json frontend/tsconfig.app.json 2^>nul') do set "UPD_UI=1"
+if not defined UPD_UI goto :update_done
+if defined BAIHE_BUILD_FRONTEND goto :update_done
+where npm >nul 2>nul
+if errorlevel 1 goto :update_no_npm
+set BAIHE_BUILD_FRONTEND=1
+set BAIHE_AUTO_BUILD=1
+goto :update_done
+
+:update_no_npm
+echo The app's screens were not rebuilt because Node.js was not found, so the
+echo screens still look like the old version. To get the new ones: install
+echo Node.js 22 and run start.bat --build-frontend, or unzip the release's
+echo baihe-frontend zip into this folder ^(docs\RELEASE.md^).
+:update_done
+
 REM --- Dependencies --------------------------------------------------------
 REM Checks every package requirements-core.txt actually installs, not
 REM just one of them -- a stale or partially-installed venv where one
 REM package still imports fine but something else is missing used to
 REM make this skip the install step entirely and fail later with a much
 REM less clear error (Step 53). Keep this import list in sync with
-REM requirements-core.txt's own packages.
+REM requirements-core.txt's own packages. An update that changed the
+REM requirements or constraints files skips the check and installs anyway.
+if defined BAIHE_FORCE_DEPS goto :install_deps
 %PY% -c "import requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn, numpy, PIL; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" >nul 2>nul
-if errorlevel 1 (
-    echo Installing dependencies -- this can take a few minutes the first time...
-    if exist constraints.lock.txt (
-        %PY% -m pip install -r requirements-core.txt -c constraints.lock.txt
-    ) else (
-        %PY% -m pip install -r requirements-core.txt -c constraints.txt
-    )
-    if errorlevel 1 (
-        echo.
-        echo Installing dependencies failed -- see the error above.
-        echo A common fix: %PY% -m pip install --upgrade pip
-        if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
-        exit /b 1
-    )
-    echo.
+if not errorlevel 1 goto :deps_ready
+:install_deps
+echo Installing dependencies -- this can take a few minutes the first time...
+if exist constraints.lock.txt (
+    %PY% -m pip install -r requirements-core.txt -c constraints.lock.txt
+) else (
+    %PY% -m pip install -r requirements-core.txt -c constraints.txt
 )
+if errorlevel 1 (
+    echo.
+    echo Installing dependencies failed -- see the error above.
+    echo A common fix: %PY% -m pip install --upgrade pip
+    if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
+    exit /b 1
+)
+echo.
+:deps_ready
 
 REM --- Plain-words setup check (ffmpeg, JS runtime, CUDA) -----------------
 %PY% check_setup.py
@@ -222,6 +360,7 @@ call npm run build
 if errorlevel 1 goto :build_failed
 popd
 if exist "frontend\dist\index.html" goto :frontend_ready
+if defined BAIHE_AUTO_BUILD goto :frontend_ready
 echo The build finished but frontend\dist\index.html still isn't there.
 if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
 exit /b 1
@@ -230,6 +369,10 @@ exit /b 1
 popd
 echo.
 echo Building the React app failed -- see the npm error above.
+if defined BAIHE_AUTO_BUILD (
+    echo Starting with the screens already on this PC.
+    goto :frontend_ready
+)
 if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
 exit /b 1
 

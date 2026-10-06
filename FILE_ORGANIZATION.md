@@ -26,7 +26,7 @@ baihe-subtitler/
 ├── requirements-optional.txt     per-feature extras
 ├── requirements.txt              everything, in one shot -- just the three files above combined
 ├── constraints.txt               upper bounds for packages that have broken this app before
-├── start.bat                     one-click Windows launcher: runs `python -m api`, opens http://127.0.0.1:8600/
+├── start.bat                     one-click Windows launcher: fast-forwards a git clone first (`--no-update` / NOUPDATE opt out), runs `python -m api`, opens http://127.0.0.1:8600/
 ├── start.ps1                     PowerShell version of the launcher (start.bat is primary)
 ├── make_lock.bat                 snapshots installed package versions to constraints.lock.txt
 ├── make_shortcut.bat             creates a desktop shortcut to start.bat

@@ -96,6 +96,16 @@ Run the Setup installer (`BaiheStudio-Setup-<version>.exe`, built by the "Window
 
 `start.bat` also accepts `--portable`, `--server-only` (don't open a window), `--ci`, and `--python-version 3.12` (or a `PYTHON_VERSION` marker file); `start.ps1` is the PowerShell equivalent (`-Portable`, `-PythonVersion`, `-BuildFrontend`). It uses `constraints.lock.txt` instead of `constraints.txt` if you made one with `make_lock.bat`. `uninstall.bat` removes the shortcut and virtual environment and asks separately (default no) before touching your library or your user PATH entries for ffmpeg/Tesseract.
 
+**Automatic updates (source checkouts).** Before it starts, `start.bat` brings a git clone up to date with `origin/baihe-subtitler`, so you don't have to `git pull` and restart by hand. It only ever fast-forwards: it never discards, stashes or overwrites your changes, and it leaves untracked and ignored files (`library\`, `.env`, `venv\`, `frontend\dist`, the marker files) alone. When it updates it says `Updated to <commit>: N new commits` and lists the latest subjects. If `requirements-core.txt` or the constraints files changed it installs the new dependencies in the same launch, and if the screens' source changed it rebuilds `frontend\dist` when Node.js (`npm`) is installed; otherwise it tells you to run `start.bat --build-frontend` or unzip the release's frontend zip.
+
+It prints one line and starts the version already on disk, without updating, when:
+
+- the copy is not on the `baihe-subtitler` branch (including local commits that aren't on origin);
+- a tracked file was edited (`git status` shows changes to files git knows about);
+- Baihe Studio is already running. The running app keeps its old code and screens until it is restarted, so close it and run `start.bat` again to pick up an update.
+
+(It also does nothing without a `.git` folder, such as an installed copy or release zip, without `git` on PATH, or when GitHub can't be reached.) Turn it off for one run with `start.bat --no-update`, or for good with an empty file named `NOUPDATE` next to `start.bat`. `--ci` and `--server-only` never update. `start.ps1` does not update; use `start.bat`.
+
 ### Prerequisites
 
 Python 3.10+ (CI uses 3.11; the installer ships 3.12) and `ffmpeg` with libass (for burning subtitles; most builds have it). Node.js 22 is only needed to build the frontend yourself. Other tools (Tesseract and so on) are covered where each feature is described.
