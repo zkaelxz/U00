@@ -100,7 +100,8 @@ interface Props {
   onReplaceRefused: () => void
   busy: boolean
   // expectedSeconds: this PC's recorded speed applied to this media, when there is one.
-  onJobStarted: (jobId: string, expectedSeconds?: number | null) => void
+  // sentFile: the run was started by uploading `file`.
+  onJobStarted: (jobId: string, expectedSeconds?: number | null, sentFile?: boolean) => void
 }
 
 type ConfigForm = {
@@ -388,7 +389,7 @@ export default function TranscribeStage({
       : Promise.resolve()
     saveFirst.then(start).then((r) => {
       setError(null)
-      onJobStarted(r.job_id, expectedRunSeconds)
+      onJobStarted(r.job_id, expectedRunSeconds, !!file)
     }, fail)
   }
 

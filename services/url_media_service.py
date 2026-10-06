@@ -7,8 +7,9 @@ video). The route is
 Checks in the request, before any job or fetch: the pasted URL is public
 (sources_url_service.check_public_url: http(s), no userinfo, <=2000 chars,
 every resolved address global), the drama exists and works from audio
-(`content_mode` audio_drama or streamer_vod), replacing existing audio
-needs `confirm_replace_audio`, yt-dlp is installed (unless the link is a
+(`content_mode` audio_drama or streamer_vod), replacing existing audio or
+video needs `confirm_replace_audio` (media_upload_service.has_media, as an
+upload), yt-dlp is installed (unless the link is a
 direct media link), no job runs for the
 drama, and no other URL download runs in this process.
 
@@ -66,8 +67,8 @@ _ONE_AT_A_TIME = "Another URL download is running. Wait for it to finish or canc
 _NO_YTDLP = "Downloading from a URL needs yt-dlp, which isn't installed on this PC."
 _FAILED = ("Couldn't download from that link. It may be private, region-locked or not "
            "supported, or yt-dlp may need an update.")
-_SAVE_FAILED = ("Downloaded, but couldn't save the file into this title's folder. The title's "
-               "audio and video are unchanged.")
+_SAVE_FAILED = ("Downloaded, but couldn't make it this title's audio. The title's audio and "
+               "video are unchanged.")
 _REJECTED = "That link is a live stream, a playlist or longer than 6 hours, so it was not downloaded."
 _TOO_LARGE = "The download is larger than the upload limit, so it was stopped."
 _DISK_NEARLY_FULL = "The drive is almost full, so the download was stopped."
@@ -104,11 +105,6 @@ def _any_url_download_running() -> bool:
             if st.get("status") in ("running", "queued"):
                 return True
     return False
-
-
-def _has_audio(drama: dict, drama_id: int) -> bool:
-    audio = drama.get("audio_filename")
-    return bool(audio and os.path.exists(os.path.join(db.drama_dir(drama_id), audio)))
 
 
 class _Caps:
@@ -393,7 +389,7 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
 
 def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -> dict:
     """Starts `urlmedia_<drama_id>`; poll GET /api/jobs/{job_id}. 422 bad or
-    private URL, wrong content_mode, or audio exists without
+    private URL, wrong content_mode, or audio or video exists without
     confirm_replace_audio (details.reason "confirm_replace_audio"); 503 the
     host doesn't resolve or yt-dlp is missing; 404 no drama; 409 while a
     job or upload runs for the drama, or another URL download runs."""
@@ -405,7 +401,7 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
         raise NotFoundError(f"No drama with id {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in media_upload_service.UPLOAD_CONTENT_MODES:
         raise InvalidInputError(media_upload_service.NO_UPLOAD_MODE)
-    if _has_audio(drama, drama_id) and not confirm_replace_audio:
+    if media_upload_service.has_media(drama, drama_id) and not confirm_replace_audio:
         raise InvalidInputError("This drama already has audio. Confirm replacing it first.",
                                 details={"reason": "confirm_replace_audio"})
     if direct_media_ext(url) is None and not _yt_dlp_installed():
