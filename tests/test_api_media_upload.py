@@ -694,6 +694,7 @@ def test_media_left_unnamed_by_a_crash_is_counted_then_kept(client, isolated_db,
     assert m.recover_all_stale_uploads() == 0  # a job may be about to record them
     assert _status(client, did)["kept_media_files"] == 0  # nor counted while it runs
     monkeypatch.undo()
+    monkeypatch.setattr(m, "UNNAMED_MIN_AGE_SECONDS", 0)  # the age rule has its own test
     assert m.recover_all_stale_uploads() == 2
     kept = _kept(did)
     assert sorted(kept.values()) == [b"new upload", b"new wav"]
@@ -718,6 +719,52 @@ def test_startup_recovery_skips_a_drama_with_an_upload_in_progress(isolated_db):
     assert os.listdir(db.drama_dir(did)) == ["source.mp3"]
 
 
+def test_unnamed_media_is_only_recovered_once_it_is_old(client, isolated_db):
+    # Another process may have just linked its upload into place and not yet
+    # named it in the DB; its claim is invisible here and an audio upload
+    # starts no job. A link keeps the old mtime, so ctime counts too.
+    import db
+    from services import media_upload_service as m
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+    ddir = db.drama_dir(did)
+    with open(os.path.join(ddir, "source-2.mp3"), "wb") as f:
+        f.write(b"other process")
+    old_t = time.time() - m.UNNAMED_MIN_AGE_SECONDS - 60
+    os.utime(os.path.join(ddir, "source-2.mp3"), (old_t, old_t))
+    assert m.recover_all_stale_uploads() == 0
+    assert m.recover_stale_uploads(did) == 0
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200 and r.json()["name"] == "source-3.mp3"
+    assert _read(did, "source-2.mp3") == b"other process"
+    later = time.time() + m.UNNAMED_MIN_AGE_SECONDS + 1
+    assert m.recover_stale_uploads(did, now=later) == 1
+    assert sorted(_kept(did).values()) == [b"first", b"other process"]
+
+
+def test_a_file_the_drama_names_by_another_spelling_is_never_moved(client, isolated_db,
+                                                                    monkeypatch):
+    # Windows and macOS resolve "Audio.wav" to "audio.wav". A hard link stands
+    # in for that here, so the test doesn't depend on this filesystem's case
+    # rules: the drama names one spelling, the in-place name is the same file.
+    import db
+    from services import media_upload_service as m
+    monkeypatch.setattr(m, "UNNAMED_MIN_AGE_SECONDS", 0)
+    did = db.create_drama(title_en="D")
+    ddir = db.drama_dir(did)
+    with open(os.path.join(ddir, "Live Audio.wav"), "wb") as f:
+        f.write(b"live")
+    try:
+        os.link(os.path.join(ddir, "Live Audio.wav"), os.path.join(ddir, "audio.wav"))
+    except OSError:
+        pytest.skip("no hard links on this filesystem")
+    db.update_drama(did, audio_filename="Live Audio.wav")
+    assert _status(client, did)["kept_media_files"] == 0
+    assert m.recover_all_stale_uploads() == 0
+    assert _read(did, "audio.wav") == b"live" and _kept(did) == {}
+
+
 def test_a_failed_rollback_leaves_the_upload_counted_and_recovered(client, isolated_db, monkeypatch):
     # The DB switch fails and moving the new file back fails too: it stays
     # in the folder under its in-place name, still kept as the error says.
@@ -737,6 +784,7 @@ def test_a_failed_rollback_leaves_the_upload_counted_and_recovered(client, isola
     r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
                     data={"confirm_replace_audio": "true"})
     monkeypatch.undo()
+    monkeypatch.setattr(m, "UNNAMED_MIN_AGE_SECONDS", 0)
     assert r.status_code == 409 and r.json()["error"]["message"] == m._SAVE_FAILED
     assert db.get_drama(did)["audio_filename"] == "source.mp3"
     assert _read(did, "source-2.mp3") == b"second"
@@ -768,6 +816,7 @@ def test_an_old_file_that_was_in_use_is_counted_then_kept(client, isolated_db, m
     assert _replace_video(client, did)["status"] == "done"
     assert _status(client, did)["kept_media_files"] == 2  # old video moved, old audio still in place
     monkeypatch.undo()
+    monkeypatch.setattr(m, "UNNAMED_MIN_AGE_SECONDS", 0)
     assert m.recover_stale_uploads(did) == 1
     assert sorted(_kept(did).values()) == [b"old", b"wav"]
     assert db.get_drama(did)["audio_filename"] == "audio-2.wav"
