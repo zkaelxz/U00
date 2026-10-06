@@ -1,17 +1,17 @@
 """
 services/egress_proxy.py -- a loopback HTTP proxy that only reaches public
-addresses, for tools that open URLs on their own (ffmpeg, yt-dlp).
+addresses, for clients that open URLs a remote server names (yt-dlp, and
+live_fetch, which fetches a live stream for ffmpeg).
 
-Checking a URL once in Python and then handing it to ffmpeg or yt-dlp is
-not enough: they follow redirects, open every HLS/DASH variant, segment
-and key URI a playlist names, and resolve DNS again at connect time. Run
-them with this proxy instead (ffmpeg: the `http_proxy` environment
-variable; yt-dlp: the `proxy` option) and every connection they make goes
-through `_open_upstream`: the target host is resolved and checked by
-url_guard.resolve_public (every address global) and the socket connects
-to that validated address, so a redirect, a playlist entry or a DNS
-answer that changes after the check cannot reach loopback, the LAN or a
-metadata address.
+Checking a URL once and then handing it on is not enough: a client
+follows redirects, opens every HLS variant, segment and key URI a playlist
+names, and resolves DNS again at connect time. Run it with this proxy
+instead (yt-dlp: the `proxy` option; live_fetch: its `proxy` argument)
+and every connection it makes goes through `_open_upstream`: the target
+host is resolved and checked by url_guard.resolve_public (every address
+global) and the socket connects to that validated address, so a redirect,
+a playlist entry or a DNS answer that changes after the check cannot reach
+loopback, the LAN or a metadata address.
 
 Two request forms are served: `CONNECT host:port` (https, tunnelled
 unchanged, so TLS and SNI are the client's own) and an absolute-form
@@ -24,17 +24,6 @@ so another local process can't borrow it while a session runs. Ports a
 browser refuses to fetch from (the Fetch standard's "bad ports": SMTP,
 SSH, IRC and the like) are refused on every host; no media server uses
 them.
-
-Known gap (ffmpeg 6.1): ffmpeg's HLS demuxer connects to host:port itself,
-bypassing this proxy, for a `tcp://host:port/` variant URI (sends nothing,
-reads the reply as a playlist) and for an `httpproxy://host:port/dest`
-variant, segment or key URI (accepted because its name starts with
-"http"). The latter sends one fixed `CONNECT dest HTTP/1.1` request (dest
-from a playlist line, which can't hold CR or LF), and only a `200` reply
-lets bytes through, read as media. Neither protocol can leave the
-whitelist: ffmpeg tunnels https to a proxy only through httpproxy, over
-tcp. The DASH and IMF demuxers, whose XML entries can carry a decoded
-CR LF or a tcp:// path, are kept out by live_service's format whitelist.
 
 Standard library only.
 """
@@ -55,7 +44,7 @@ CONNECT_TIMEOUT = 15.0
 # For the whole request head: a per-recv timeout alone lets a local process
 # hold every connection slot by trickling bytes.
 HEAD_TIMEOUT = 15.0
-# A live HLS connection can sit idle between playlist refreshes.
+# A kept-alive CONNECT tunnel can sit idle between HLS playlist refreshes.
 IDLE_TIMEOUT = 120.0
 _CHUNK = 65_536
 # https://fetch.spec.whatwg.org/#bad-port
@@ -225,7 +214,7 @@ def _handle(client, slots, expected_auth: bytes):
         if len(request_line) != 3:
             raise _Refused("400 Bad Request")
         if not _authorized(lines[1:], expected_auth):
-            # ffmpeg sends credentials only after this challenge.
+            # Some clients (curl, ffmpeg) send credentials only after this challenge.
             raise _Refused("407 Proxy Authentication Required",
                            'Proxy-Authenticate: Basic realm="baihe"\r\n')
         method, target, version = request_line
@@ -250,7 +239,7 @@ def _handle(client, slots, expected_auth: bytes):
 class GuardedProxy:
     """`with GuardedProxy() as proxy:` serves on `proxy.url` until the block
     ends. Connections already open are ended when their client closes
-    them (ffmpeg is stopped before the proxy). `proxy.url` carries the
+    them (live capture stops its fetcher before the proxy). `proxy.url` carries the
     secret in its userinfo: hand it only to the client process, never log
     or store it (translate_engines.redact_secrets masks URL userinfo)."""
 

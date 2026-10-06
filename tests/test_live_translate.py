@@ -387,6 +387,9 @@ class TestStaleChunkGuard:
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
 
         class FakeProc:
+
+            error = None
+
             def poll(self):
                 return None
         monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
@@ -549,6 +552,9 @@ class TestRunLiveJobContextCarrying:
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
 
         class FakeProc:
+
+            error = None
+
             def poll(self):
                 return None  # never looks "ended" on its own -- cancel ends the loop
 
@@ -780,6 +786,9 @@ class TestOverlapDedupAgainstRealAudio:
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
 
         class FakeProc:
+
+            error = None
+
             def poll(self):
                 return None
         monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
@@ -866,6 +875,9 @@ class TestOverlapTailTextWindow:
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
 
         class FakeProc:
+
+            error = None
+
             def poll(self):
                 return None
         monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
@@ -932,32 +944,9 @@ class TestPaddingRealFfmpegChunks:
         assert padded_samples[:8000] == _read_samples(c0)[-8000:]
 
 
-class TestStreamUrlCheckAndProtocolWhitelist:
-    """The API's hooks (services/live_service.py): the resolved stream URL
-    is checked before ffmpeg opens it, and ffmpeg gets an input protocol
-    whitelist. Both default off (the Streamlit tab's behaviour)."""
-
-    def test_whitelist_goes_before_the_input(self, monkeypatch, tmp_path):
-        seen = []
-        monkeypatch.setattr(lt.subprocess, "Popen", lambda cmd, **k: seen.append(cmd))
-        lt.start_segment_capture("https://x.example/a.m3u8", str(tmp_path), 20,
-                                 protocol_whitelist="http,https,tcp,tls,crypto")
-        cmd = seen[0]
-        i = cmd.index("-protocol_whitelist")
-        assert cmd[i + 1] == "http,https,tcp,tls,crypto" and cmd.index("-i") == i + 2
-        lt.start_segment_capture("https://x.example/a.m3u8", str(tmp_path), 20)
-        assert "-protocol_whitelist" not in seen[1]
-
-    def test_format_whitelist_goes_before_the_input(self, monkeypatch, tmp_path):
-        seen = []
-        monkeypatch.setattr(lt.subprocess, "Popen", lambda cmd, **k: seen.append(cmd))
-        lt.start_segment_capture("https://x.example/a.m3u8", str(tmp_path), 20,
-                                 protocol_whitelist="http", format_whitelist="hls,mpegts")
-        cmd = seen[0]
-        i = cmd.index("-format_whitelist")
-        assert cmd[i + 1] == "hls,mpegts" and i < cmd.index("-i")
-        lt.start_segment_capture("https://x.example/a.m3u8", str(tmp_path), 20)
-        assert "-format_whitelist" not in seen[1]
+class TestStreamUrlCheck:
+    """The API's hook (services/live_service.py): the resolved stream URL
+    is checked before anything fetches it. Off by default."""
 
     def test_refused_stream_url_never_reaches_ffmpeg(self, monkeypatch):
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "file:///etc/passwd")
@@ -969,3 +958,88 @@ class TestStreamUrlCheckAndProtocolWhitelist:
         with pytest.raises(ValueError):
             lt.run_live_job("test_stream_check", "https://example.com/live", "/fake/out", 20,
                             "zh", "tiny", engine=None, stream_url_check=refuse)
+
+
+class _Capture:
+    """A capture whose fetcher error and ffmpeg exit code the test sets."""
+
+    def __init__(self, error=None, code=None):
+        self.error = error
+        self.code = code
+
+    def poll(self):
+        return self.code
+
+
+class TestCaptureEndings:
+    """How run_live_job ends on what the capture reports: a fetch failure
+    or an ffmpeg error is a job error with the fetcher's fixed message; a
+    stream that ends is a normal finish."""
+
+    def _run(self, monkeypatch, capture, job_id):
+        import background_jobs
+        background_jobs.clear_job(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: capture)
+        stopped = []
+        monkeypatch.setattr(lt, "stop_capture", lambda c: stopped.append(c))
+        try:
+            lt.run_live_job(job_id, "https://example.com/live", "/fake/out", 20, "zh", "tiny",
+                            engine=None, poll_interval=0.01)
+        finally:
+            assert stopped == [capture]
+            background_jobs.clear_job(job_id)
+
+    def test_a_fetch_failure_is_a_job_error_with_its_fixed_message(self, monkeypatch):
+        import live_fetch
+        with pytest.raises(lt.LiveCaptureError) as exc:
+            self._run(monkeypatch, _Capture(error=live_fetch.STALLED, code=0), "test_live_fail")
+        assert str(exc.value) == live_fetch.STALLED
+
+    def test_ffmpeg_exiting_with_an_error_is_a_job_error(self, monkeypatch):
+        with pytest.raises(lt.LiveCaptureError) as exc:
+            self._run(monkeypatch, _Capture(code=1), "test_live_ffmpeg_fail")
+        assert "ffmpeg could not read the stream" in str(exc.value)
+
+    def test_a_stream_that_ends_finishes_the_job(self, monkeypatch):
+        self._run(monkeypatch, _Capture(code=0), "test_live_ends")
+
+
+class _Pump:
+    def __init__(self, log):
+        self.log = log
+
+    def halt(self):
+        self.log.append("halt")
+
+    def join(self):
+        self.log.append("join")
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
+def test_stop_capture_halts_the_fetcher_then_ends_ffmpeg_then_joins(tmp_path):
+    log = []
+    proc = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "s16le",
+                             "-i", "pipe:0", "-f", "null", "-"], stdin=subprocess.PIPE)
+    real_terminate = proc.terminate
+    proc.terminate = lambda: log.append("terminate") or real_terminate()
+    lt.stop_capture(lt.SegmentCapture(proc, _Pump(log)), timeout=5)
+    assert log == ["halt", "terminate", "join"]
+    assert proc.poll() is not None
+    proc.stdin.close()
+
+
+def test_stop_capture_kills_an_ffmpeg_that_ignores_sigterm():
+    log = []
+    proc = subprocess.Popen([sys.executable, "-c",
+                             "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                             "print('ready', flush=True); time.sleep(30)"],
+                            stdout=subprocess.PIPE)
+    assert proc.stdout.readline().strip() == b"ready"
+    started = time.monotonic()
+    lt.stop_capture(lt.SegmentCapture(proc, _Pump(log)), timeout=0.5)
+    assert proc.poll() is not None and time.monotonic() - started < 5
+    assert log == ["halt", "join"]
+    proc.stdout.close()

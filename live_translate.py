@@ -8,12 +8,12 @@ far, in bounded chunks, and keep going" rather than "process the whole
 file once."
 
 Pipeline, per chunk:
-  1. ffmpeg reads the resolved stream URL and segments it into fixed-
-     length audio chunks (its own `segment` muxer) -- this is what makes
-     the "live" part possible at all: ffmpeg can read an ongoing HLS/DASH
-     stream the same way it reads a file, and segmenting it as it arrives
-     means each chunk is ready to transcribe long before the stream
-     itself ends.
+  1. live_fetch fetches the resolved stream (following HLS playlists)
+     and pipes it into ffmpeg, which segments it into fixed-length audio
+     chunks (its own `segment` muxer) -- this is what makes the "live"
+     part possible at all: segmenting the stream as it arrives means
+     each chunk is ready to transcribe long before the stream itself
+     ends.
   2. Each completed chunk is transcribed with the same Whisper backend
      used everywhere else in this app (core.transcribe_for_timing), with
      chunk-relative timestamps shifted to be stream-relative.
@@ -72,6 +72,7 @@ import time
 import wave
 
 import background_jobs
+import live_fetch
 
 
 class LiveCaptureError(RuntimeError):
@@ -185,67 +186,86 @@ def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str 
     return stream_url
 
 
-def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 20,
-                           sample_rate: int = 16000,
-                           protocol_whitelist: str = None, proxy: str = None,
-                           format_whitelist: str = None) -> subprocess.Popen:
-    """
-    Launches ffmpeg to read `source_url` continuously and write it out as
-    numbered mono WAV chunks (chunk_00000.wav, chunk_00001.wav, ...), each
-    `segment_seconds` long. Returns the running Popen handle -- the caller
-    is responsible for stopping it (stop_capture()).
+# What ffmpeg may read the piped stream as: MPEG-TS and fMP4 (HLS
+# segments) and the containers a direct live stream comes in. Not hls,
+# dash, concat or any other format that names further URLs: ffmpeg 6.1's
+# DASH demuxer opens http fragment URLs even under `-protocol_whitelist
+# pipe`, so this list is a guard of its own, not a duplicate.
+FFMPEG_FORMAT_WHITELIST = "mpegts,mov,aac,mp3,flv,matroska,ogg,wav"
 
-    `source_url` can be a real live stream URL (from resolve_stream_url)
-    or, for testing, a local file -- ffmpeg treats both the same way once
-    it's reading from them, which is what makes this testable without a
-    real broadcast.
+
+class SegmentCapture:
+    """A running capture: ffmpeg segmenting what live_fetch.StreamPump
+    writes to its stdin. Stop it with stop_capture()."""
+
+    def __init__(self, proc: subprocess.Popen, pump: live_fetch.StreamPump):
+        self.proc = proc
+        self.pump = pump
+
+    def poll(self):
+        return self.proc.poll()
+
+    @property
+    def error(self):
+        """The fetcher's fixed failure message, or None."""
+        return self.pump.error
+
+
+def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 20,
+                           sample_rate: int = 16000, proxy: str = None) -> SegmentCapture:
+    """
+    Starts ffmpeg writing numbered mono WAV chunks (chunk_00000.wav,
+    chunk_00001.wav, ...), each `segment_seconds` long, from its stdin,
+    and a live_fetch.StreamPump fetching `source_url` (through `proxy`
+    when given) into that stdin. The caller stops it (stop_capture()).
+
+    ffmpeg opens nothing itself (`-protocol_whitelist pipe`), so no
+    playlist entry, redirect or manifest can make it connect anywhere;
+    every URL is fetched by the pump, through the proxy.
 
     Any chunk_*.wav/padded_*.wav already in out_dir (left by an earlier
     run sharing the directory) is removed first, so ffmpeg's new chunk
     numbering never mixes with old audio that run_live_job would then
     process as this run's (clear_stale_chunks).
-
-    protocol_whitelist: when given (the API passes one), ffmpeg may open
-    the input -- and anything a playlist points at -- only through these
-    protocols (`-protocol_whitelist`, an input option, so it doesn't
-    affect writing the chunk files). None keeps ffmpeg's default.
-    format_whitelist: likewise for demuxers (`-format_whitelist`); ffmpeg
-    copies it into the contexts a playlist opens, so it also limits what
-    each variant and segment may be read as.
-
-    proxy: when given, ffmpeg runs with it as `http_proxy`, so every
-    http(s) connection it opens (redirects, playlist variants, segments,
-    keys) goes through that proxy; https goes as CONNECT through ffmpeg's
-    `httpproxy` protocol, which the whitelist must then allow. `no_proxy`
-    is removed, or a host it matches would be reached directly.
     """
     os.makedirs(out_dir, exist_ok=True)
     clear_stale_chunks(out_dir)
     pattern = os.path.join(out_dir, "chunk_%05d.wav")
-    input_opts = ["-format_whitelist", format_whitelist] if format_whitelist else []
-    if protocol_whitelist:
-        input_opts += ["-protocol_whitelist", protocol_whitelist]
-    cmd = ["ffmpeg", "-y", *input_opts, "-i", source_url, "-vn", "-ac", "1", "-ar", str(sample_rate),
+    cmd = ["ffmpeg", "-y", "-protocol_whitelist", "pipe", "-format_whitelist",
+           FFMPEG_FORMAT_WHITELIST, "-i", "pipe:0", "-vn", "-ac", "1", "-ar", str(sample_rate),
            "-f", "segment", "-segment_time", str(segment_seconds), "-reset_timestamps", "1",
            pattern]
-    env = None
-    if proxy:
-        env = {k: v for k, v in os.environ.items()
-               if k.lower() not in ("no_proxy", "http_proxy", "https_proxy", "all_proxy")}
-        env["http_proxy"] = proxy
-    return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
-
-
-def stop_capture(proc: subprocess.Popen, timeout: float = 5.0):
-    """Terminates ffmpeg cleanly (SIGTERM lets it flush the segment it's
-    currently writing) rather than killing it outright."""
-    if proc.poll() is not None:
-        return
-    proc.terminate()
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
     try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
+        pump = live_fetch.StreamPump(source_url, proc.stdin, proxy=proxy).start()
+    except BaseException:
         proc.kill()
+        proc.wait()
+        raise
+    return SegmentCapture(proc, pump)
+
+
+def stop_capture(capture, timeout: float = 5.0):
+    """Stops the fetcher (no new bytes), then ffmpeg -- SIGTERM lets it
+    flush the segment it's writing, a kill follows after `timeout` -- and
+    then waits for the fetcher's threads, which by then have nothing left
+    to block on. Also takes a bare Popen."""
+    pump = getattr(capture, "pump", None)
+    proc = getattr(capture, "proc", capture)
+    if pump is not None:
+        pump.halt()
+    try:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+    finally:
+        if pump is not None:
+            pump.join()
 
 
 _CHUNK_RE = re.compile(r"chunk_(\d{5})\.wav$")
@@ -529,8 +549,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   source_language: str, whisper_size: str, engine, use_gpu: bool = False,
                   poll_interval: float = 2.0, cookies_browser: str = None, cookies_file: str = None,
                   overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float = None,
-                  stream_url_check=None, protocol_whitelist: str = None, proxy: str = None,
-                  format_whitelist: str = None):
+                  stream_url_check=None, proxy: str = None):
     """
     The background-thread target (see background_jobs.start_job). Runs
     until request_cancel(job_id) is set or the stream itself ends, then
@@ -561,11 +580,14 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     means no limit.
 
     stream_url_check: optional callable run on the stream URL yt-dlp
-    resolved, before ffmpeg opens it; it raises to refuse (the API checks
-    scheme and public host). protocol_whitelist and format_whitelist are
-    passed to start_segment_capture. proxy is passed to both
-    resolve_stream_url and start_segment_capture. All default to None (no
-    check, ffmpeg's default protocols and demuxers, no proxy).
+    resolved, before anything fetches it; it raises to refuse (the API
+    checks scheme and public host). proxy is passed to both
+    resolve_stream_url and start_segment_capture. Both default to None
+    (no check, no proxy).
+
+    A fetch failure, or ffmpeg ending with an error, ends the job with
+    a LiveCaptureError carrying a fixed message (no URL); a stream that
+    simply ends finishes it normally.
     """
     overlap_seconds = max(0.0, min(float(overlap_seconds or 0), segment_seconds / 2))
     my_generation = bump_generation(job_id)
@@ -578,9 +600,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
         stream_url_check(source_url)
 
     background_jobs.update_progress(job_id, 0.0, "Starting capture...")
-    proc = start_segment_capture(source_url, out_dir, segment_seconds,
-                                 protocol_whitelist=protocol_whitelist, proxy=proxy,
-                                 format_whitelist=format_whitelist)
+    proc = start_segment_capture(source_url, out_dir, segment_seconds, proxy=proxy)
 
     all_cues = []
     last_completed = -1
@@ -596,7 +616,13 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
             if max_seconds is not None and time.monotonic() - started >= max_seconds:
                 background_jobs.update_progress(job_id, 0.0, "Stopped: time limit reached.")
                 break
+            if proc.error:
+                raise LiveCaptureError(proc.error)
             if proc.poll() is not None:
+                if proc.poll() != 0:
+                    raise LiveCaptureError(
+                        "ffmpeg could not read the stream (an unsupported format, or the "
+                        "stream broke off).")
                 background_jobs.update_progress(
                     job_id, 0.0, "Capture stopped (stream likely ended).")
                 break

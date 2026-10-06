@@ -1,11 +1,12 @@
 """services/egress_proxy.py: the loopback proxy live capture runs yt-dlp and
-ffmpeg through, so a redirect, a playlist entry or a changed DNS answer
-cannot reach a non-public address after the first URL check.
+its stream fetcher through, so a redirect, a playlist entry or a changed
+DNS answer cannot reach a non-public address after the first URL check;
+and the capture as a whole: ffmpeg reads only the piped stream.
 
 Local servers only. "origin.test" stands for a public host (the resolver is
 faked to validate it and pin 127.0.0.1); every other host goes through the
-real url_guard, which refuses 127.0.0.1. The ffmpeg tests need a real
-ffmpeg binary (and the https one openssl) and are skipped without one."""
+real url_guard, which refuses 127.0.0.1. The capture tests need a real
+ffmpeg binary (and the https ones openssl) and are skipped without one."""
 import base64
 import http.server
 import os
@@ -22,6 +23,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import live_fetch
 import live_translate
 import translate_engines
 from services import egress_proxy, live_service, url_guard
@@ -224,107 +226,109 @@ def test_closed_proxy_refuses_new_connections():
         s.connect(("127.0.0.1", port))
 
 
-def test_capture_env_routes_ffmpeg_through_the_proxy(monkeypatch, tmp_path):
+def test_capture_ffmpeg_opens_only_its_stdin(monkeypatch, tmp_path):
+    """ffmpeg gets no URL and no proxy: it reads the stream live_fetch
+    pipes to it, with every protocol but `pipe` refused."""
     seen = {}
-    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
-    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
-    monkeypatch.setenv("https_proxy", "http://corp.example:3128")
-    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: seen.update(cmd=cmd, **kw))
-    live_translate.start_segment_capture("https://cdn.example/x.m3u8", str(tmp_path),
-                                         protocol_whitelist="http", proxy="http://127.0.0.1:9")
-    env = seen["env"]
-    assert env["http_proxy"] == "http://127.0.0.1:9"
-    assert not {"no_proxy", "https_proxy"} & {k.lower() for k in env}
+
+    class _Proc:
+        stdin = None
+
+        def kill(self):
+            pass
+
+        def wait(self):
+            pass
+
+    monkeypatch.setenv("http_proxy", "http://corp.example:3128")
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: seen.update(cmd=cmd, **kw) or _Proc())
+    monkeypatch.setattr(live_fetch.StreamPump, "start", lambda self: self)
+    capture = live_translate.start_segment_capture("https://cdn.example/x.m3u8", str(tmp_path),
+                                                   proxy="http://u:p@127.0.0.1:9")
+    cmd = seen["cmd"]
+    i = cmd.index("-protocol_whitelist")
+    assert cmd[i + 1] == "pipe" and cmd[cmd.index("-i") + 1] == "pipe:0" and i < cmd.index("-i")
+    assert cmd[cmd.index("-format_whitelist") + 1] == live_translate.FFMPEG_FORMAT_WHITELIST
+    assert not any("cdn.example" in arg or "127.0.0.1" in arg for arg in cmd)
+    assert seen["stdin"] == subprocess.PIPE and seen.get("env") is None
+    session = capture.pump._session
+    assert session.trust_env is False  # no no_proxy / corporate proxy from the environment
+    assert session.proxies == {"http": "http://u:p@127.0.0.1:9", "https": "http://u:p@127.0.0.1:9"}
 
 
-def test_capture_without_proxy_keeps_the_inherited_environment(monkeypatch, tmp_path):
-    seen = {}
-    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: seen.update(cmd=cmd, **kw))
-    live_translate.start_segment_capture("https://cdn.example/x.m3u8", str(tmp_path))
-    assert seen["env"] is None
-
-
-def _capture_args(proxy, url, tmp_path):
-    return dict(source_url=url, out_dir=str(tmp_path / "chunks"), segment_seconds=10,
-                protocol_whitelist=live_service.FFMPEG_PROTOCOL_WHITELIST,
-                format_whitelist=live_service.FFMPEG_FORMAT_WHITELIST, proxy=proxy.url)
-
-
-def _run_ffmpeg_through(proxy, url, tmp_path):
-    proc = live_translate.start_segment_capture(**_capture_args(proxy, url, tmp_path))
+def _capture(proxy, url, tmp_path, timeout=30):
+    """Runs a real capture until ffmpeg ends; returns the capture."""
+    capture = live_translate.start_segment_capture(url, str(tmp_path / "chunks"), 10,
+                                                   proxy=proxy.url)
     try:
-        proc.wait(timeout=30)
+        deadline = time.monotonic() + timeout
+        while capture.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
     finally:
-        live_translate.stop_capture(proc)
+        live_translate.stop_capture(capture)
+    assert not capture.pump.alive()
+    return capture
 
 
-def _ffmpeg_stderr_through(proxy, url, tmp_path, monkeypatch) -> str:
-    """Runs the exact command and environment start_segment_capture builds,
-    keeping ffmpeg's stderr."""
-    seen, real_popen = {}, subprocess.Popen
-    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: seen.update(cmd=cmd, env=kw["env"]))
-    live_translate.start_segment_capture(**_capture_args(proxy, url, tmp_path))
-    monkeypatch.setattr(subprocess, "Popen", real_popen)
-    return subprocess.run(seen["cmd"], env=seen["env"], capture_output=True, text=True,
-                          timeout=30).stderr
-
-
-def _ffmpeg_has_demuxer(name: str) -> bool:
-    if not HAS_FFMPEG:
-        return False
-    out = subprocess.run(["ffmpeg", "-hide_banner", "-demuxers"], capture_output=True,
-                         text=True, timeout=30).stdout
-    return any(line.split()[1:2] == [name] for line in out.splitlines())
+def _chunks(tmp_path):
+    out = tmp_path / "chunks"
+    return os.listdir(out) if out.exists() else []
 
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
-def test_ffmpeg_redirect_to_a_private_host_is_not_followed(proxy, private_server, tmp_path):
+def test_redirect_to_a_private_host_is_not_followed(proxy, private_server, tmp_path):
     origin = _Server({"/live": (302, {"Location":
                                       f"http://127.0.0.1:{private_server.port}/secret"}, b"")})
     try:
-        _run_ffmpeg_through(proxy, f"http://origin.test:{origin.port}/live", tmp_path)
+        capture = _capture(proxy, f"http://origin.test:{origin.port}/live", tmp_path)
     finally:
         origin.close()
     assert origin.hits == ["/live"]
     assert private_server.hits == []
+    assert capture.error == live_fetch.REFUSED
 
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
-def test_ffmpeg_hls_segments_and_keys_on_a_private_host_are_not_fetched(
-        proxy, private_server, tmp_path):
+def test_hls_segments_and_keys_on_a_private_host_are_not_fetched(proxy, private_server, tmp_path):
     private = f"http://127.0.0.1:{private_server.port}"
     playlist = ("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:0\n"
                 f'#EXT-X-KEY:METHOD=AES-128,URI="{private}/key"\n'
                 f"#EXTINF:2.0,\n{private}/seg0.ts\n#EXT-X-ENDLIST\n").encode()
-    origin = _Server({"/live.m3u8": (200, {"Content-Type": "application/vnd.apple.mpegurl"},
-                                     playlist)})
+    origin = _Server({"/live.m3u8": (200, _M3U8, playlist)})
     try:
-        _run_ffmpeg_through(proxy, f"http://origin.test:{origin.port}/live.m3u8", tmp_path)
+        _capture(proxy, f"http://origin.test:{origin.port}/live.m3u8", tmp_path)
     finally:
         origin.close()
-    assert "/live.m3u8" in origin.hits
+    assert origin.hits == ["/live.m3u8"]
     assert private_server.hits == []
 
 
-@pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
-def test_ffmpeg_reads_a_public_source_through_the_proxy(proxy, tmp_path):
-    """Normal behaviour is kept: a public stream is read (ffmpeg never
-    resolves origin.test itself, so the bytes can only come via the proxy)."""
+def _tone(tmp_path, seconds=3):
     src = tmp_path / "tone.wav"
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=d=3",
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"sine=d={seconds}",
                     "-ac", "1", "-ar", "16000", str(src)], check=True, timeout=30)
-    origin = _Server({"/tone.wav": (200, {"Content-Type": "audio/wav"}, src.read_bytes())})
+    return src
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
+def test_a_public_direct_stream_is_piped_to_ffmpeg_through_the_proxy(proxy, tmp_path):
+    """Normal behaviour is kept: a public stream is read (nothing resolves
+    origin.test but the test's proxy resolver, so the bytes can only come
+    via the proxy)."""
+    origin = _Server({"/tone.wav": (200, {"Content-Type": "audio/wav"},
+                                    _tone(tmp_path).read_bytes())})
     try:
-        _run_ffmpeg_through(proxy, f"http://origin.test:{origin.port}/tone.wav", tmp_path)
+        capture = _capture(proxy, f"http://origin.test:{origin.port}/tone.wav", tmp_path)
     finally:
         origin.close()
     assert origin.hits == ["/tone.wav"]
-    assert os.listdir(tmp_path / "chunks")  # audio arrived and was segmented
+    assert capture.error is None and capture.poll() == 0
+    assert _chunks(tmp_path)  # audio arrived and was segmented
 
 
 class _Sentinel:
-    """A raw TCP listener on loopback that records what every connection
-    sends (up to the end of a request head), then closes it."""
+    """A raw TCP listener on loopback that records every connection made to
+    it (and what it sends, up to the end of a request head)."""
 
     def __init__(self):
         self.hits = []
@@ -357,13 +361,33 @@ class _Sentinel:
         self.sock.close()
 
 
-# Without it ffmpeg won't detect HLS at a path not ending in .m3u8.
+# Without it a playlist at a path not ending in .m3u8 isn't taken for HLS.
 _M3U8 = {"Content-Type": "application/vnd.apple.mpegurl"}
+_SEG = (200, {}, b"\x47" * 1880)
 
 
-def _hls(entry: str) -> bytes:
-    return ("#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\n"
-            f"{entry}\n#EXT-X-ENDLIST\n").encode()
+def _variant(uri: str) -> bytes:
+    return f"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\n{uri}\n".encode()
+
+
+def _segment(uri: str) -> bytes:
+    return f"#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\n{uri}\n#EXT-X-ENDLIST\n".encode()
+
+
+def _key(uri: str) -> bytes:
+    return ("#EXTM3U\n#EXT-X-TARGETDURATION:2\n"
+            f'#EXT-X-KEY:METHOD=AES-128,URI="{uri}"\n'
+            "#EXTINF:2,\n/seg.ts\n#EXT-X-ENDLIST\n").encode()
+
+
+def _audio_rendition(uri: str) -> bytes:
+    return ('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="x",DEFAULT=YES,'
+            f'URI="{uri}"\n#EXT-X-STREAM-INF:BANDWIDTH=1,AUDIO="a"\n/v.m3u8\n').encode()
+
+
+def _map(uri: str) -> bytes:
+    return (f'#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXT-X-MAP:URI="{uri}"\n'
+            "#EXTINF:2,\n/seg.ts\n#EXT-X-ENDLIST\n").encode()
 
 
 _U = "urn:uuid:"
@@ -380,7 +404,6 @@ _IMF_CPL = (
     f"<TrackFileId>{_U}66666666-6666-6666-6666-666666666666</TrackFileId></Resource>"
     "</ResourceList></cc:MainAudioSequence></SequenceList></Segment></SegmentList>"
     "</CompositionPlaylist>")
-# Without the format whitelist, ffmpeg 6.1's IMF demuxer opens this Path.
 _IMF_ASSETMAP = (
     '<?xml version="1.0"?><AssetMap xmlns="http://www.smpte-ra.org/schemas/429-9/2007/AM">'
     f"<Id>{_U}77777777-7777-7777-7777-777777777777</Id><AssetList><Asset>"
@@ -397,80 +420,237 @@ def _mpd(base_url: str) -> bytes:
             "</Period></MPD>").encode()
 
 
-_TCP_ENTRIES = {
-    "hls_segment": lambda p: {"/s": (200, _M3U8, _hls(f"tcp://127.0.0.1:{p}/seg.ts"))},
-    "hls_key": lambda p: {"/s": (200, _M3U8, (
-        f'#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXT-X-KEY:METHOD=AES-128,URI="tcp://127.0.0.1:{p}/k"'
-        "\n#EXTINF:2,\n/seg.ts\n#EXT-X-ENDLIST\n").encode()),
-        "/seg.ts": (200, {}, b"\x47" * 1880)},
-    "hls_crypto_segment": lambda p: {"/s": (200, _M3U8, _hls(f"crypto+tcp://127.0.0.1:{p}/seg.ts"))},
-    "dash_base_url": lambda p: {"/s": (200, {"Content-Type": "application/dash+xml"},
-                                       _mpd(f"tcp://127.0.0.1:{p}/a.mp4"))},
+def _crlf_base_url(scheme: str, port: int) -> str:
+    # &#13;&#10; decodes to a real CR LF in an XML reader.
+    return (f"{scheme}://127.0.0.1:{port}/x&#13;&#10;X-Injected: 1&#13;&#10;"
+            "&#13;&#10;GET /injected HTTP/1.1")
+
+
+# Every way a stream can name a connection of its own, with the sentinel
+# as the target. Before the stream was piped, ffmpeg opened the tcp://
+# variant and every httpproxy:// entry itself, bypassing the proxy.
+_SCHEMES = {
+    "tcp": lambda p: f"tcp://127.0.0.1:{p}/x",
+    "httpproxy": lambda p: f"httpproxy://127.0.0.1:{p}/x",
+    "crypto_httpproxy": lambda p: f"crypto+httpproxy://127.0.0.1:{p}/x",
+    "private_http": lambda p: f"http://127.0.0.1:{p}/x",
+    "private_https": lambda p: f"https://127.0.0.1:{p}/x",
+}
+_POSITIONS = {"variant": _variant, "segment": _segment, "key": _key,
+              "audio_rendition": _audio_rendition, "init_map": _map}
+_ENTRIES = {f"{pos}_{scheme}": (lambda p, pos=pos, scheme=scheme: {
+    "/s": (200, _M3U8, _POSITIONS[pos](_SCHEMES[scheme](p))), "/seg.ts": _SEG})
+    for pos in _POSITIONS for scheme in _SCHEMES}
+_ENTRIES.update({
+    f"dash_crlf_base_url_{scheme}": (lambda p, scheme=scheme: {
+        "/s": (200, {"Content-Type": "application/dash+xml"}, _mpd(_crlf_base_url(scheme, p)))})
+    for scheme in ("http", "httpproxy", "tcp")})
+_ENTRIES.update({
+    "dash_tcp_base_url": lambda p: {"/s": (200, {"Content-Type": "application/dash+xml"},
+                                           _mpd(f"tcp://127.0.0.1:{p}/a.mp4"))},
     "imf_asset_path": lambda p: {
         "/s": (200, {}, _IMF_CPL.encode()),
         "/ASSETMAP.xml": (200, {}, _IMF_ASSETMAP.format(path=f"tcp://127.0.0.1:{p}/").encode())},
     "ffconcat": lambda p: {"/s": (200, {}, (
         f"ffconcat version 1.0\nfile 'tcp://127.0.0.1:{p}/'\n").encode())},
-    "redirect": lambda p: {"/s": (302, {"Location": f"tcp://127.0.0.1:{p}/"}, b"")},
-}
+    "redirect_tcp": lambda p: {"/s": (302, {"Location": f"tcp://127.0.0.1:{p}/"}, b"")},
+    "redirect_httpproxy": lambda p: {"/s": (302, {"Location": f"httpproxy://127.0.0.1:{p}/x"},
+                                            b"")},
+})
 
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
-@pytest.mark.parametrize("kind", sorted(_TCP_ENTRIES))
-def test_ffmpeg_never_opens_a_tcp_url_a_stream_names(proxy, tmp_path, kind):
-    """tcp must stay whitelisted (http, tls and httpproxy run over it), so a
-    raw tcp:// URL would skip the proxy. ffmpeg's HLS demuxer opens only
-    http(s) segments and keys, the format whitelist refuses DASH, IMF and
-    concat, and a redirect reaches the proxy as an absolute-form non-http
-    request, which it refuses. An HLS variant is the exception (see
-    test_ffmpeg_direct_playlist_entries_send_at_most_a_fixed_request)."""
+@pytest.mark.parametrize("kind", sorted(_ENTRIES))
+def test_nothing_a_stream_names_reaches_a_local_port(proxy, tmp_path, kind):
+    """The full capture (fetcher, proxy and a real ffmpeg reading its
+    stdin): the sentinel on loopback gets no connection at all."""
     sentinel = _Sentinel()
-    origin = _Server(_TCP_ENTRIES[kind](sentinel.port))
+    origin = _Server(_ENTRIES[kind](sentinel.port))
     try:
-        _run_ffmpeg_through(proxy, f"http://origin.test:{origin.port}/s", tmp_path)
+        capture = _capture(proxy, f"http://origin.test:{origin.port}/s", tmp_path)
     finally:
         origin.close()
         sentinel.close()
     assert origin.hits[:1] == ["/s"]
     assert sentinel.hits == []
+    assert capture.error or capture.poll() != 0 or not _chunks(tmp_path)
 
 
-def _serve_tls(origin, tmp_path):
-    """Switch a _Server to https with a throwaway origin.test certificate
-    (ffmpeg doesn't verify it by default)."""
+@pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
+@pytest.mark.parametrize("position", ["variant", "segment", "key"])
+def test_a_file_url_in_a_playlist_is_never_read(proxy, tmp_path, position):
+    secret = _tone(tmp_path)
+    origin = _Server({"/s": (200, _M3U8, _POSITIONS[position](secret.as_uri())),
+                      "/seg.ts": _SEG})
+    try:
+        capture = _capture(proxy, f"http://origin.test:{origin.port}/s", tmp_path)
+    finally:
+        origin.close()
+    assert capture.error == live_fetch.NOT_HTTP
+    assert not _chunks(tmp_path)
+
+
+def _ffmpeg_has_demuxer(name: str) -> bool:
+    if not HAS_FFMPEG:
+        return False
+    out = subprocess.run(["ffmpeg", "-hide_banner", "-demuxers"], capture_output=True,
+                         text=True, timeout=30).stdout
+    return any(line.split()[1:2] == [name] for line in out.splitlines())
+
+
+def _capture_cmd(monkeypatch, tmp_path) -> list:
+    """The ffmpeg command start_segment_capture runs."""
+    seen = {}
+
+    class _Proc:
+        stdin = None
+
+    real = subprocess.Popen
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: seen.update(cmd=cmd) or _Proc())
+    monkeypatch.setattr(live_fetch.StreamPump, "start", lambda self: self)
+    live_translate.start_segment_capture("http://x.example/", str(tmp_path / "chunks"), 10)
+    monkeypatch.setattr(subprocess, "Popen", real)
+    return seen["cmd"]
+
+
+@pytest.mark.skipif(not _ffmpeg_has_demuxer("hls"),
+                    reason="needs a real ffmpeg binary with the hls demuxer")
+@pytest.mark.parametrize("position", ["variant", "segment", "key"])
+@pytest.mark.parametrize("scheme", ["http", "tcp", "httpproxy", "crypto+httpproxy"])
+def test_ffmpeg_on_a_pipe_opens_nothing_even_with_the_hls_demuxer(position, scheme):
+    """Without the format whitelist: ffmpeg forced to read a piped HLS
+    playlist still connects nowhere, as `-protocol_whitelist pipe` refuses
+    every protocol an entry could name."""
+    sentinel = _Sentinel()
+    data = _POSITIONS[position](f"{scheme}://127.0.0.1:{sentinel.port}/x")
+    try:
+        result = subprocess.run(["ffmpeg", "-hide_banner", "-protocol_whitelist", "pipe",
+                                 "-f", "hls", "-i", "pipe:0", "-f", "null", "-"],
+                                input=data, capture_output=True, timeout=30)
+    finally:
+        sentinel.close()
+    assert sentinel.hits == []
+    assert result.returncode != 0
+
+
+@pytest.mark.skipif(not _ffmpeg_has_demuxer("dash"),
+                    reason="needs a real ffmpeg binary with the dash demuxer")
+@pytest.mark.parametrize("scheme", ["http", "httpproxy"])
+def test_piped_dash_is_refused_by_the_format_whitelist(monkeypatch, tmp_path, scheme):
+    """ffmpeg 6.1's DASH demuxer opens http and httpproxy fragment URLs
+    even under `-protocol_whitelist pipe` (checked when this was written),
+    so the format whitelist is what keeps a piped manifest unread."""
+    sentinel = _Sentinel()
+    data = _mpd(_crlf_base_url(scheme, sentinel.port))
+    try:
+        result = subprocess.run(_capture_cmd(monkeypatch, tmp_path), input=data,
+                                capture_output=True, timeout=30)
+    finally:
+        sentinel.close()
+    assert sentinel.hits == []
+    assert b"Format not on whitelist" in result.stderr
+    assert result.returncode != 0
+
+
+def _serve_tls(origin, tmp_path, monkeypatch):
+    """Switch a _Server to https with a throwaway origin.test certificate,
+    which the fetcher is told to trust."""
     key, cert = tmp_path / "k.pem", tmp_path / "c.pem"
     subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout",
-                    str(key), "-out", str(cert), "-days", "1", "-subj", "/CN=origin.test"],
+                    str(key), "-out", str(cert), "-days", "1", "-subj", "/CN=origin.test",
+                    "-addext", "subjectAltName=DNS:origin.test"],
                    check=True, capture_output=True, timeout=60)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(str(cert), str(key))
     origin.httpd.socket = ctx.wrap_socket(origin.httpd.socket, server_side=True)
+    monkeypatch.setattr(live_fetch, "TLS_VERIFY", str(cert))
 
 
 @pytest.mark.skipif(not (HAS_FFMPEG and HAS_OPENSSL), reason="needs real ffmpeg and openssl")
-def test_ffmpeg_reads_https_through_the_proxy_with_its_secret(proxy, tmp_path):
-    """https goes as an authenticated CONNECT (ffmpeg answers the 407
-    challenge with the userinfo of http_proxy)."""
-    src = tmp_path / "tone.wav"
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=d=3",
-                    "-ac", "1", "-ar", "16000", str(src)], check=True, timeout=30)
-    origin = _Server({"/tone.wav": (200, {"Content-Type": "audio/wav"}, src.read_bytes())})
-    _serve_tls(origin, tmp_path)
+def test_https_goes_through_the_proxy_with_its_secret(proxy, tmp_path, monkeypatch):
+    """https goes as an authenticated CONNECT, and the certificate is
+    verified (here against the test's own CA)."""
+    origin = _Server({"/tone.wav": (200, {"Content-Type": "audio/wav"},
+                                    _tone(tmp_path).read_bytes())})
+    _serve_tls(origin, tmp_path, monkeypatch)
     try:
-        _run_ffmpeg_through(proxy, f"https://origin.test:{origin.port}/tone.wav", tmp_path)
+        capture = _capture(proxy, f"https://origin.test:{origin.port}/tone.wav", tmp_path)
     finally:
         origin.close()
     assert origin.hits == ["/tone.wav"]
-    assert os.listdir(tmp_path / "chunks")
+    assert capture.error is None
+    assert _chunks(tmp_path)
+
+
+@pytest.mark.skipif(not (HAS_FFMPEG and HAS_OPENSSL), reason="needs real ffmpeg and openssl")
+def test_https_with_an_untrusted_certificate_is_refused(proxy, tmp_path, monkeypatch):
+    origin = _Server({"/tone.wav": (200, {}, b"x")})
+    _serve_tls(origin, tmp_path, monkeypatch)
+    monkeypatch.setattr(live_fetch, "TLS_VERIFY", True)
+    try:
+        capture = _capture(proxy, f"https://origin.test:{origin.port}/tone.wav", tmp_path)
+    finally:
+        origin.close()
+    assert origin.hits == []
+    assert capture.error == live_fetch.UNREACHABLE
+
+
+class _HangingServer(_Server):
+    """Sends a WAV header and a little audio, then holds the response open."""
+
+    def __init__(self, head: bytes):
+        super().__init__()
+        self.closed = threading.Event()
+        closed = self.closed
+
+        def do_get(handler):
+            handler.send_response(200)
+            handler.send_header("Content-Type", "audio/wav")
+            handler.end_headers()
+            handler.wfile.write(head)
+            handler.wfile.flush()
+            handler.connection.settimeout(30)
+            try:
+                handler.connection.recv(1)
+            except OSError:
+                pass
+            closed.set()
+
+        self.httpd.RequestHandlerClass.do_GET = do_get
+
+
+@pytest.mark.skipif(not (HAS_FFMPEG and HAS_OPENSSL), reason="needs real ffmpeg and openssl")
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_stop_ends_a_capture_blocked_on_a_silent_stream_promptly(proxy, tmp_path, monkeypatch,
+                                                                 scheme):
+    """stop_capture wakes the fetch blocked reading through the proxy
+    tunnel, ends ffmpeg and leaves no fetcher thread or open upstream
+    connection behind."""
+    origin = _HangingServer(_tone(tmp_path, seconds=1).read_bytes())
+    if scheme == "https":
+        _serve_tls(origin, tmp_path, monkeypatch)
+    capture = live_translate.start_segment_capture(f"{scheme}://origin.test:{origin.port}/a",
+                                                   str(tmp_path / "chunks"), 10, proxy=proxy.url)
+    try:
+        time.sleep(1.0)
+        assert capture.poll() is None and capture.error is None
+        started = time.monotonic()
+        live_translate.stop_capture(capture)
+        assert time.monotonic() - started < 5
+        assert capture.poll() is not None and not capture.pump.alive()
+        assert origin.closed.wait(5)
+    finally:
+        live_translate.stop_capture(capture)
+        origin.close()
 
 
 @pytest.mark.skipif(not (HAS_FFMPEG and HAS_OPENSSL), reason="needs real ffmpeg and openssl")
 @pytest.mark.parametrize("scheme", ["http", "https"])
 @pytest.mark.parametrize("segment_type", ["mpegts", "fmp4"])
-def test_ffmpeg_reads_hls_through_the_proxy_within_the_whitelists(
-        proxy, tmp_path, scheme, segment_type):
-    """The demuxer whitelist still lets an ordinary HLS stream through,
-    with MPEG-TS or fragmented-MP4 segments."""
+def test_hls_is_fetched_through_the_proxy_and_piped_to_ffmpeg(
+        proxy, tmp_path, monkeypatch, scheme, segment_type):
+    """An ordinary HLS stream, with MPEG-TS or fragmented-MP4 segments,
+    still becomes audio chunks within the format whitelist."""
     hls_dir = tmp_path / "hls"
     hls_dir.mkdir()
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=d=4",
@@ -481,83 +661,14 @@ def test_ffmpeg_reads_hls_through_the_proxy_within_the_whitelists(
               for f in hls_dir.iterdir()}
     origin = _Server(routes)
     if scheme == "https":
-        _serve_tls(origin, tmp_path)
+        _serve_tls(origin, tmp_path, monkeypatch)
     try:
-        _run_ffmpeg_through(proxy, f"{scheme}://origin.test:{origin.port}/live.m3u8", tmp_path)
+        capture = _capture(proxy, f"{scheme}://origin.test:{origin.port}/live.m3u8", tmp_path)
     finally:
         origin.close()
     assert set(origin.hits) == set(routes)  # playlist, every segment (and the init)
-    assert os.listdir(tmp_path / "chunks")
-
-
-def _connect_line(port: int) -> bytes:
-    return f"CONNECT x HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n".encode()
-
-
-# (playlist, what ffmpeg 6.1 sends to 127.0.0.1:port on its own) for each
-# entry it opens directly instead of through the egress proxy.
-_DIRECT_ENTRIES = {
-    "httpproxy_segment": lambda p: (_hls(f"httpproxy://127.0.0.1:{p}/x"), _connect_line(p)),
-    "httpproxy_crypto_segment": lambda p: (_hls(f"crypto+httpproxy://127.0.0.1:{p}/x"),
-                                           _connect_line(p)),
-    # A bare CR ends the playlist line, so it can't reach the CONNECT line.
-    "httpproxy_segment_with_cr": lambda p: (
-        _hls(f"httpproxy://127.0.0.1:{p}/x\rX-Injected: 1"), _connect_line(p)),
-    "httpproxy_variant": lambda p: (
-        f"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nhttpproxy://127.0.0.1:{p}/x\n".encode(),
-        _connect_line(p)),
-    "httpproxy_key": lambda p: (
-        ("#EXTM3U\n#EXT-X-TARGETDURATION:2\n"
-         f'#EXT-X-KEY:METHOD=AES-128,URI="httpproxy://127.0.0.1:{p}/x"\n'
-         "#EXTINF:2,\n/seg.ts\n#EXT-X-ENDLIST\n").encode(), _connect_line(p)),
-    # ffmpeg opens variant playlists without the http-only check it applies
-    # to segments and keys; tcp:// writes nothing, only reads.
-    "tcp_variant": lambda p: (
-        f"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\ntcp://127.0.0.1:{p}/v.m3u8\n".encode(), b""),
-}
-
-
-@pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
-@pytest.mark.parametrize("kind", sorted(_DIRECT_ENTRIES))
-def test_ffmpeg_direct_playlist_entries_send_at_most_a_fixed_request(proxy, tmp_path, kind):
-    """httpproxy and tcp must stay whitelisted (ffmpeg tunnels https to a
-    proxy only through httpproxy, over tcp), and ffmpeg's HLS demuxer opens
-    these entries itself, bypassing the egress proxy: a known gap
-    (docs/remote-access-decision.md). Pin the most it can send: nothing,
-    or one fixed-form CONNECT whose destination is one playlist line."""
-    sentinel = _Sentinel()
-    playlist, expected = _DIRECT_ENTRIES[kind](sentinel.port)
-    origin = _Server({"/s": (200, _M3U8, playlist), "/seg.ts": (200, {}, b"\x47" * 1880)})
-    try:
-        _run_ffmpeg_through(proxy, f"http://origin.test:{origin.port}/s", tmp_path)
-    finally:
-        origin.close()
-        sentinel.close()
-    assert origin.hits[:1] == ["/s"]
-    assert all(hit == expected for hit in sentinel.hits), sentinel.hits
-
-
-@pytest.mark.skipif(not _ffmpeg_has_demuxer("dash"),
-                    reason="needs a real ffmpeg binary with the dash demuxer")
-@pytest.mark.parametrize("scheme", ["httpproxy", "http"])
-def test_ffmpeg_refuses_the_dash_demuxer_so_a_crlf_base_url_sends_nothing(
-        proxy, tmp_path, monkeypatch, scheme):
-    """A DASH BaseURL's &#13;&#10; decodes to a real CR LF that ffmpeg would
-    put into its request line; the format whitelist keeps the DASH demuxer
-    from reading the manifest at all."""
-    sentinel = _Sentinel()
-    base_url = (f"{scheme}://127.0.0.1:{sentinel.port}/x&#13;&#10;X-Injected: 1&#13;&#10;"
-                "&#13;&#10;GET /injected HTTP/1.1")
-    origin = _Server({"/s": (200, {"Content-Type": "application/dash+xml"}, _mpd(base_url))})
-    try:
-        stderr = _ffmpeg_stderr_through(proxy, f"http://origin.test:{origin.port}/s", tmp_path,
-                                        monkeypatch)
-    finally:
-        origin.close()
-        sentinel.close()
-    assert "Format not on whitelist" in stderr
-    assert origin.hits == ["/s"]
-    assert sentinel.hits == []
+    assert capture.error is None and capture.poll() == 0
+    assert _chunks(tmp_path)
 
 
 def test_request_head_must_arrive_within_the_overall_deadline(proxy, monkeypatch):

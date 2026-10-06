@@ -130,7 +130,8 @@ OPTIONAL_DEPENDENCIES = {
                                 "experimental one-pass transcription + speaker labels "
                                 "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
                                 "can't share an install with Qwen3-ASR)", "experimental"),
-    "cryptography": ("cryptography", "Google sign-in token checks", "feature"),
+    "cryptography": ("cryptography", "Google sign-in token checks, live capture of AES-128 "
+                                     "encrypted HLS streams", "feature"),
     "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
     "fastapi": ("fastapi", "the HTTP API the React frontend talks to (python -m api)",
                 "required"),

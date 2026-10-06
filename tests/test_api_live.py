@@ -193,16 +193,17 @@ def test_one_session_at_a_time(client, fake_live):
     assert _wait(lambda: client.post("/api/live/sessions", json=body).status_code == 200)
 
 
-def test_job_gets_stream_check_and_ffmpeg_whitelist(client, fake_live):
+def test_job_gets_stream_check_and_proxy(client, fake_live):
     r = client.post("/api/live/sessions", json={"url": URL, "engine": "fake"})
     assert r.status_code == 200
     assert _wait(lambda: "kw" in fake_live)
     assert fake_live["kw"]["stream_url_check"] is live_service.check_stream_url
-    assert fake_live["kw"]["protocol_whitelist"] == "http,https,tcp,tls,crypto,httpproxy"
-    assert fake_live["kw"]["format_whitelist"] == live_service.FFMPEG_FORMAT_WHITELIST
-    assert not {"dash", "imf", "concat"} & set(fake_live["kw"]["format_whitelist"].split(","))
     assert fake_live["kw"]["proxy"].startswith("http://baihe:")
     assert "@127.0.0.1:" in fake_live["kw"]["proxy"]
+    # ffmpeg's input limits are fixed in live_translate, not chosen per caller.
+    assert not {"protocol_whitelist", "format_whitelist"} & set(fake_live["kw"])
+    assert not {"hls", "dash", "imf", "concat"} & set(
+        live_translate.FFMPEG_FORMAT_WHITELIST.split(","))
 
 
 @pytest.mark.parametrize("bad", ["file:///etc/passwd", "rtmp://example.com/live", "concat:a|b",

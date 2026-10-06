@@ -18,6 +18,8 @@ PUBLIC = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
 
 
 class FakeProc:
+    error = None
+
     def __init__(self):
         self.stopped = False
 
@@ -35,11 +37,8 @@ def live(monkeypatch, isolated_db):
     monkeypatch.setattr(live_translate, "resolve_stream_url", lambda url, **k: "http://media")
     calls = {"process": [], "procs": []}
 
-    def fake_capture(source_url, out_dir, segment_seconds, protocol_whitelist=None, proxy=None,
-                     format_whitelist=None):
+    def fake_capture(source_url, out_dir, segment_seconds, proxy=None):
         calls["out_dir"] = out_dir
-        calls["protocol_whitelist"] = protocol_whitelist
-        calls["format_whitelist"] = format_whitelist
         calls["proxy"] = proxy
         p = FakeProc()
         calls["procs"].append(p)
@@ -148,8 +147,6 @@ def test_second_start_while_one_runs_is_conflict(live):
     with pytest.raises(ConflictError):
         _start()
     assert list(live_service._sessions) == [a]
-    assert live["protocol_whitelist"] == live_service.FFMPEG_PROTOCOL_WHITELIST
-    assert live["format_whitelist"] == live_service.FFMPEG_FORMAT_WHITELIST
 
 
 def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live):
@@ -265,8 +262,10 @@ def test_stale_chunks_never_processed(live, monkeypatch, tmp_path):
     seen = []
     monkeypatch.setattr(live_translate, "process_chunk",
                         lambda path, idx, *a, **k: seen.append(idx) or [])
-    # The real capture starter (it does the clearing), with ffmpeg mocked.
+    # The real capture starter (it does the clearing), with ffmpeg and the
+    # stream fetcher mocked.
     monkeypatch.setattr(live_translate.subprocess, "Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(live_translate.live_fetch.StreamPump, "start", lambda self: self)
     monkeypatch.setattr(live_translate, "start_segment_capture", _REAL_CAPTURE)
     background_jobs.start_job("live_stale", live_translate.run_live_job, "live_stale", "u",
                               str(tmp_path), 10, "zh", "tiny", object(), poll_interval=0.01,

@@ -10,9 +10,11 @@ pipeline, and max_minutes is a hard stop.
 
 Decisions (spec): any public http(s) URL yt-dlp can resolve is accepted
 (host checked by services.url_guard.resolve_public, no fetch here). The
-job runs yt-dlp and ffmpeg through a services.egress_proxy.GuardedProxy,
-so every connection they make afterwards (redirects, playlist variants,
-segments, keys) is checked and pinned to a public address too; no
+job runs yt-dlp and the stream fetcher (live_fetch, which pipes the
+stream into ffmpeg; ffmpeg itself opens nothing) through a
+services.egress_proxy.GuardedProxy, so every connection they make
+afterwards (redirects, playlist variants, segments, keys) is checked and
+pinned to a public address too; no
 browser cookies over the API (a start at the PC uses the saved Settings
 cookies; see start_session); keys are resolved server-side, never taken
 from the caller. No FastAPI import.
@@ -45,16 +47,6 @@ MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
-# ffmpeg input protocols for a resolved live stream (HLS over https needs
-# tcp, tls and crypto for encrypted segments, and httpproxy to tunnel
-# https through the egress proxy); no file, pipe, data, etc. ffmpeg still
-# opens tcp:// HLS variants and httpproxy:// HLS entries itself (see
-# services/egress_proxy.py).
-FFMPEG_PROTOCOL_WHITELIST = "http,https,tcp,tls,crypto,httpproxy"
-# Demuxers a live stream and its HLS segments need. Not dash, imf or
-# concat: they open URLs from XML or script entries that ffmpeg checks
-# less strictly than HLS lines (a DASH BaseURL can carry a decoded CR LF).
-FFMPEG_FORMAT_WHITELIST = "hls,mpegts,aac,mp3,mov,flv,matroska,ogg,wav,webvtt"
 
 _lock = threading.Lock()
 # session_id -> {"dir": str or None, "engine": str}
@@ -138,8 +130,8 @@ def _active_session_locked():
 
 
 def check_stream_url(stream_url) -> None:
-    """Run on the direct stream URL yt-dlp resolved, before ffmpeg opens
-    it: services.url_guard.resolve_public (http/https only, no userinfo,
+    """Run on the direct stream URL yt-dlp resolved, before it is
+    fetched: services.url_guard.resolve_public (http/https only, no userinfo,
     every resolved address public), on the full URL (no length cap: a
     signed stream URL can be long). The error never echoes the URL, which
     can carry a signed token."""
@@ -162,8 +154,8 @@ def _require_public(url, bad_message: str) -> None:
 def _make_target(session_id: str):
     def _target(*args, **kwargs):
         try:
-            # run_live_job stops ffmpeg before returning, so the proxy
-            # outlives every connection it serves.
+            # run_live_job stops the stream fetcher (and ffmpeg) before
+            # returning, so the proxy outlives every connection it serves.
             with egress_proxy.GuardedProxy() as proxy:
                 live_translate.run_live_job(*args, proxy=proxy.url, **kwargs)
         finally:
@@ -249,8 +241,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
             max_seconds=max_minutes * 60,
-            stream_url_check=check_stream_url, protocol_whitelist=FFMPEG_PROTOCOL_WHITELIST,
-            format_whitelist=FFMPEG_FORMAT_WHITELIST,
+            stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
             gpu_touching=bool(use_gpu), description="Live capture (local Whisper)")
     except Exception:
