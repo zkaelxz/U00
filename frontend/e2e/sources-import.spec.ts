@@ -139,6 +139,7 @@ test('browser check: handoff card, no automatic retry', async ({ page }) => {
   m.preview = 'handoff'
   await expect(page.getByText('The site showed a browser check. Baihe never gets past these.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Open in your browser ↗' })).toHaveAttribute('href', 'https://alpha.example/a/c2')
+  // Proving a non-event: no automatic retry of the preview may follow the handoff card.
   await page.waitForTimeout(2000)
   await expect.poll(() => posted(s, '/api/sources/url/preview').length).toBe(1)
   m.preview = 'none'
@@ -205,6 +206,7 @@ test('import while another drama job runs: the server message, no outcomes', asy
   await expect(panel.getByText('Transcribing is running for this drama. Try again when it finishes.')).toBeVisible()
   const polls = () => s.calls.filter((c) => c.path === '/api/sources/jobs/sourceimport_12/result').length
   const before = polls()
+  // Proving a non-event: a reattached poll would start within this window.
   await page.waitForTimeout(2000)
   // Not reattached: no polling of the stored run, and its outcomes never show.
   expect(polls()).toBe(before)
