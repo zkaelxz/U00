@@ -4,7 +4,7 @@ import { Field } from '../../../../components/Field'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine } from '../../../../types/review'
-import { charCount, codePointOffset, estimateSplitTime, proportionalCut, splitPieces, stepToBoundary } from './reviewLogic'
+import { charCount, codePointOffset, estimateSplitTime, proportionalCut, splitPieces, splitTranslationPieces, stepToBoundary } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface SplitChoice {
@@ -101,7 +101,7 @@ export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSpl
   const enAt = clampInside(enManual ?? proportionalCut(zhLen, at, line.en), enLen)
 
   const [zh1, zh2] = splitPieces(line.zh, at)
-  const [en1, en2] = splitEn ? splitPieces(line.en, enAt) : [line.en, '']
+  const [en1, en2] = splitEn ? splitTranslationPieces(line.en, enAt) : [line.en, '']
   const estimate = estimateSplitTime(line, at)
   const timeNum = time.trim() === '' ? null : Number(time)
   const timeBad = timeNum !== null && (Number.isNaN(timeNum) || timeNum <= line.start || timeNum >= line.end)

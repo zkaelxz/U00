@@ -43,6 +43,7 @@ import {
   pageStillMatches,
   resegmentSummary,
   splitPieces,
+  splitTranslationPieces,
   stepFrom,
   structureErrorText,
   languageSetText,
@@ -401,5 +402,13 @@ describe('split cut suggestions', () => {
     expect(stepToBoundary('Hello there, friend', 6, -1)).toBe(1)
     expect(stepToBoundary('你好，朋友。你', 3, 1)).toBe(6)
     expect(stepToBoundary('abcdef', 2, 1)).toBe(5)
+  })
+})
+
+describe('splitTranslationPieces', () => {
+  it('trims the way the server does, leaving the cut itself alone', () => {
+    expect(splitTranslationPieces('Thanks,  dear friends', 8)).toEqual(['Thanks,', 'dear friends'])
+    expect(splitTranslationPieces(' Hi there ', 4)).toEqual([' Hi', 'there'])
+    expect(splitPieces('Thanks,  dear friends', 8)).toEqual(['Thanks, ', ' dear friends'])
   })
 })
