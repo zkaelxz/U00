@@ -503,3 +503,89 @@ def test_route_sensitivity_fields(isolated_db):
                           "dry_run": True})
     assert r.status_code == 200, r.text
     assert r.json()["dry_run"] is True and r.json()["pieces"] == 3 and len(db.load_lines(did)) == 3
+
+
+# --- bounded / incremental sentence-end checks ---------------------------------
+
+def _reference_cuts(text):
+    """The original whole-prefix implementation, kept to prove the bounded and
+    incremental one cuts the same places on ordinary text."""
+    import re
+    import core
+
+    def inside(end):
+        head = text[:end]
+        return (head.count('"') % 2 == 1
+                or any(head.count(o) > head.count(c) for o, c in core._QUOTE_PAIRS))
+
+    def keep(_t, m):
+        if inside(m.end()):
+            return False
+        if not m.group().startswith("."):
+            return True
+        word = re.search(r"(\S+)$", text[:m.start()])
+        word = word.group(1).strip("\"'“‘([").lower() if word else ""
+        if (word.rstrip(".") in core._ABBREVIATIONS or word.isdigit()
+                or re.fullmatch(r"(?:[a-z]\.)+[a-z]", word)):
+            return False
+        if len(word) == 1 and word != "i":
+            return False
+        after = text[m.end():m.end() + 1]
+        return not (after.islower() or (after.isdigit() and word in core._NUMBERED_BEFORE_DIGIT))
+    return core._cut_after(text, core._SENTENCE_END_RE, keep)
+
+
+EQUIV_TEXTS = [
+    SENT * 3,
+    "他说：「你好。我是小明。请多关照。」然后他就走了。再见了朋友。",
+    "これは長い文です。次の文もあります！「引用。です。」最後。",
+    "오늘 아침에 일찍 일어났어요. 공원에서 달리기를 했어요? 정말 좋았어요.",
+    "Dr. Smith paid 3.5 dollars at No. 5 Main St. yesterday. He said \"Stop. Go home now.\" Then he left.",
+    "We use e.g. apples, i.e. fruit. I. M. Pei built it. It cost 3.5 million. Done. ok then.",
+    "“First. Second.” Third. 『a。b。』 c。",
+]
+
+
+@pytest.mark.parametrize("text", EQUIV_TEXTS)
+def test_incremental_sentence_cuts_match_the_whole_prefix_version(text):
+    import core
+    assert core._cut_after(text, core._SENTENCE_END_RE, core._sentence_keep()) == _reference_cuts(text)
+
+
+def _timed(fn, limit=2.0):
+    t = time.perf_counter()
+    out = fn()
+    assert time.perf_counter() - t < limit
+    return out
+
+
+def _sentence_split(text, seconds):
+    import core
+    rules = core.SplitRules(None, None, per_sentence=True)
+    return core.split_long_segments([{"start": 0.0, "end": seconds, "text": text}], rules=rules)
+
+
+@pytest.mark.parametrize("n", [100_000, 1_000_000])
+def test_adversarial_dots_after_a_long_unbroken_run_stay_fast(n):
+    _timed(lambda: _sentence_split("x" * n + ". . . .", 60.0))
+
+
+def test_many_sentence_ends_and_quotes_stay_linear():
+    _timed(lambda: _sentence_split("好。" * 100_000, 600.0))
+    _timed(lambda: _sentence_split("a. B. " * 50_000, 600.0))
+    _timed(lambda: _sentence_split("「好。" * 100_000 + "」" * 5, 600.0))
+    _timed(lambda: _sentence_split('"a. ' * 50_000, 600.0))
+
+
+def test_alternating_one_word_sentences_fold_in_one_pass():
+    pieces = _timed(lambda: _sentence_split("This is a longer sentence. Go. " * 20_000, 6000.0))
+    assert all(len(p["text"].split()) >= 2 for p in pieces)
+
+
+def test_resplit_leaves_a_line_over_the_cap_unsplit_and_says_so():
+    did = db.create_drama(title_zh="D", source_language="zh")
+    db.save_lines(did, [Line(idx=0, start=0.0, end=60.0, zh="好。" * svc.RESPLIT_MAX_CHARS)])
+    ids = [r["id"] for r in db.load_lines(did)]
+    out = svc.resplit_long_lines(did, ids, sensitivity="sentence", dry_run=True)
+    assert out["split_lines"] == 0
+    assert "1 line over the limits" in out["note"]

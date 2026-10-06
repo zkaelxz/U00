@@ -7,6 +7,7 @@ import time
 import pytest
 
 import background_jobs
+import core
 import db
 import resegment
 from core import Line
@@ -310,3 +311,14 @@ class TestApi:
         assert client.get(f"{base}/resegment/preview").status_code == 200
         assert client.post(f"{base}/merge", json={"line_ids": ids[:2], "expected_line_ids": ids,
                                                   "bogus": 1}).status_code == 422
+
+
+def test_merge_refuses_a_line_past_the_text_cap():
+    did, ids = _seed()
+    half = "x" * (svc.MAX_LINE_TEXT_CHARS // 2 + 1)
+    rows = db.load_lines(did)
+    for r in rows[:2]:
+        r["zh"] = half
+    db.save_lines(did, [core.line_from_row(r) for r in rows])
+    with pytest.raises(InvalidInputError):
+        svc.merge_lines(did, [ids[0], ids[1]], ids)

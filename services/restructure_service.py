@@ -51,6 +51,9 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       UnsupportedOperationError)
 
 MAX_LINE_TEXT_CHARS = 2000
+# Lines already past the cap (merged before it existed) are not re-split by the
+# rules presets, whose quote and abbreviation checks cost more per character.
+RESPLIT_MAX_CHARS = 10 * MAX_LINE_TEXT_CHARS
 MAX_SPEAKER_CHARS = 100
 MAX_MERGE_LINES = 50
 RESEGMENT_JOB_PREFIX = "resegment_"  # already in background_jobs.DRAMA_JOB_PREFIXES
@@ -204,6 +207,9 @@ def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
         for ln in rest:
             head.zh = head.zh.rstrip() + ln.zh.strip()
             head.en = (head.en.rstrip() + " " + ln.en.strip()).strip()
+            if len(head.zh) > MAX_LINE_TEXT_CHARS or len(head.en) > MAX_LINE_TEXT_CHARS:
+                raise InvalidInputError(
+                    f"The merged line would pass {MAX_LINE_TEXT_CHARS} characters.")
             if not head.flag and ln.flag:
                 head.flag, head.flag_note = ln.flag, ln.flag_note
             head.merged_ids = list(head.merged_ids) + [ln.id]
@@ -648,7 +654,12 @@ class _Resplit:
                 seconds, subtitle_formats.line_char_limit(ln.lang or self.language))
         return core_module.SplitRules(self.max_seconds, None, per_sentence=True)
 
+    def too_long(self, ln) -> bool:
+        return len(ln.zh) > RESPLIT_MAX_CHARS and self.rules(ln) is not None
+
     def split(self, ln) -> list:
+        if self.too_long(ln):
+            return [{"start": ln.start, "end": ln.end, "text": ln.zh}]
         return core_module.split_long_segments(
             [{"start": ln.start, "end": ln.end, "text": ln.zh}], rules=self.rules(ln))
 
@@ -673,6 +684,9 @@ def _nothing_to_split(lines, cfg: _Resplit) -> str:
     not the same problem as no line being over them."""
     stuck = 0
     for ln in _resplit_candidates(lines):
+        if cfg.too_long(ln):
+            stuck += 1
+            continue
         rules = cfg.rules(ln) or core_module.SplitRules(max_chars=core_module.SPLIT_MAX_CJK_CHARS,
                                                          count_latin=False)
         stuck += core_module.exceeds_limits({"start": ln.start, "end": ln.end, "text": ln.zh}, rules)

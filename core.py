@@ -741,21 +741,38 @@ class SplitRules:
         return cjk or (len(text.strip()) if self.count_latin else 0)
 
 
-def _inside_quote(text: str, end: int) -> bool:
-    head = text[:end]
-    return (head.count('"') % 2 == 1
-            or any(head.count(o) > head.count(c) for o, c in _QUOTE_PAIRS))
+_QUOTE_CHARS = ('"',) + tuple(c for pair in _QUOTE_PAIRS for c in pair)
+# Abbreviations, initials and list numbers are far shorter than this; a bound
+# keeps the backward scan linear on a line with no whitespace.
+_WORD_LOOKBACK = 64
+
+
+def _sentence_keep():
+    """A `keep` callback for _cut_after that tracks open quotes incrementally.
+    Matches arrive in order, so each call counts only the text since the last
+    one; rescanning the head per match is quadratic on a long line."""
+    seen = 0
+    counts = dict.fromkeys(_QUOTE_CHARS, 0)
+
+    def keep(text: str, m) -> bool:
+        nonlocal seen
+        chunk = text[seen:m.end()]
+        seen = m.end()
+        for ch in _QUOTE_CHARS:
+            counts[ch] += chunk.count(ch)
+        inside = (counts['"'] % 2 == 1
+                  or any(counts[o] > counts[c] for o, c in _QUOTE_PAIRS))
+        return not inside and _real_sentence_end(text, m)
+    return keep
 
 
 def _real_sentence_end(text: str, m) -> bool:
-    """False for a match that only looks like a sentence end: inside open
-    quotes, or an English "." after an abbreviation, initial or list number, or
-    before a lowercase continuation."""
-    if _inside_quote(text, m.end()):
-        return False
+    """False for an English "." that only looks like a sentence end: after an
+    abbreviation, initial or list number, or before a lowercase continuation.
+    Quote state is the caller's (_sentence_keep)."""
     if not m.group().startswith("."):
         return True
-    word = re.search(r"(\S+)$", text[:m.start()])
+    word = re.search(r"(\S+)$", text[max(0, m.start() - _WORD_LOOKBACK):m.start()])
     word = word.group(1).strip("\"'“‘([").lower() if word else ""
     if word.rstrip(".") in _ABBREVIATIONS or word.isdigit() or re.fullmatch(r"(?:[a-z]\.)+[a-z]", word):
         return False
@@ -838,7 +855,7 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
                 chunks.append(cur)
             return chunks
 
-        sentences = _cut_after(text, _SENTENCE_END_RE, _real_sentence_end if rules else None)
+        sentences = _cut_after(text, _SENTENCE_END_RE, _sentence_keep() if rules else None)
         pieces = []
         for chunk in sentences if rules and rules.per_sentence else pack(sentences):
             # one sentence that is still too long: fall back to its commas
@@ -869,15 +886,22 @@ def _fold_small(pieces: list, dur: float, total: int) -> list:
         short = cjk < MIN_PIECE_CJK_CHARS if cjk else len(p.split()) < MIN_PIECE_WORDS
         return short or dur * len("".join(p.split())) / total < MIN_PIECE_SECONDS
 
-    pieces = list(pieces)
-    while len(pieces) > 1:
-        i = next((k for k, p in enumerate(pieces) if small(p)), None)
-        if i is None:
-            break
-        j = i - 1 if i else 1
-        lo, hi = sorted((i, j))
-        pieces[lo:hi + 1] = [pieces[lo] + pieces[hi]]
-    return pieces
+    # One forward pass: a piece that is not small stays so once a neighbour is
+    # appended, so only the incoming piece ever needs checking. Parts are joined
+    # at the end to keep a run of stubs linear.
+    out, carry = [], ""
+    for p in pieces:
+        p = carry + p
+        carry = ""
+        if not small(p):
+            out.append([p])
+        elif out:
+            out[-1].append(p)
+        else:
+            carry = p
+    if carry:
+        out.append([carry])
+    return ["".join(parts) for parts in out]
 
 
 def tighten_to_words(start: float, end: float, words) -> tuple:
