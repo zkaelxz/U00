@@ -256,6 +256,54 @@ export function charCount(text: string): number {
   return Array.from(text).length
 }
 
+const BREAK_PUNCT = new Set(Array.from(',.!?;:，。！？；：、…'))
+
+/**
+ * Code-point offsets where a cut reads naturally: right after a space run or
+ * punctuation, before the next word. A cut that would leave either piece empty
+ * is never offered.
+ */
+export function cutBoundaries(text: string): number[] {
+  const chars = Array.from(text)
+  const out: number[] = []
+  for (let k = 1; k < chars.length; k++) {
+    const prev = chars[k - 1]
+    if ((/\s/.test(prev) || BREAK_PUNCT.has(prev)) && !/\s/.test(chars[k])) out.push(k)
+  }
+  return out
+}
+
+/** The boundary nearest `target` (ties go earlier); `target` itself when the text has none. */
+export function snapCut(text: string, target: number): number {
+  const len = charCount(text)
+  const clamped = Math.min(Math.max(1, target), Math.max(1, len - 1))
+  let best = clamped
+  let bestDist = Infinity
+  for (const k of cutBoundaries(text)) {
+    const d = Math.abs(k - clamped)
+    if (d < bestDist) {
+      best = k
+      bestDist = d
+    }
+  }
+  return best
+}
+
+/** Where to cut the translation so it breaks at the same fraction of the text as the source did. */
+export function proportionalCut(zhLen: number, zhAt: number, en: string): number {
+  const enLen = charCount(en)
+  const frac = zhLen > 0 ? zhAt / zhLen : 0.5
+  return snapCut(en, Math.round(enLen * frac))
+}
+
+/** The previous (-1) or next (1) boundary from `at`, or the line's edge when there is none. */
+export function stepToBoundary(text: string, at: number, dir: -1 | 1): number {
+  const bounds = cutBoundaries(text)
+  const hit = dir === 1 ? bounds.find((k) => k > at) : [...bounds].reverse().find((k) => k < at)
+  const len = charCount(text)
+  return hit ?? (dir === 1 ? Math.max(1, len - 1) : 1)
+}
+
 /** A cut time in proportion to the text before the split (the server's default is similar). */
 export function estimateSplitTime(line: Pick<ReviewLine, 'start' | 'end' | 'zh'>, at: number): number {
   const n = charCount(line.zh)
