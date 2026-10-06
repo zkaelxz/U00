@@ -499,3 +499,89 @@ def test_the_session_ignores_environment_proxies(monkeypatch):
     assert pump._session.proxies == {"http": "http://u:p@127.0.0.1:9",
                                      "https": "http://u:p@127.0.0.1:9"}
     assert live_fetch.StreamPump("http://x.example/", _Sink())._session.proxies == {}
+
+
+def _slow_chunked_trailer(handler, server):
+    """A chunked body that ends at once (`0`) and then sends a trailer line
+    every 0.2 s: each recv is quick, but http.client reads every trailer
+    line inside one read1 call."""
+    handler.wfile.write(b"0\r\n")
+    try:
+        for i in range(50):
+            handler.wfile.write(b"X-Pad-%d: 1\r\n" % i)
+            handler.wfile.flush()
+            time.sleep(0.2)
+        handler.wfile.write(b"\r\n")
+    except OSError:
+        server.closed_by_client.set()
+
+
+@pytest.mark.parametrize("slow", ["playlist", "segment"])
+def test_a_body_whose_chunked_trailers_trickle_ends_at_the_deadline(serve, slow):
+    chunked = {"Transfer-Encoding": "chunked"}
+    routes = {"/p.m3u8": (200, _M3U8, _segments(["a.ts"])), "/a.ts": (200, {}, b"a")}
+    path = "/p.m3u8" if slow == "playlist" else "/a.ts"
+    routes[path] = (200, {**routes[path][1], **chunked}, _slow_chunked_trailer)
+    s = serve(routes)
+    started = time.monotonic()
+    pump, sink = _run(f"{s.base}/p.m3u8", stall_timeout=1.0, timeout=8)
+    assert pump.error == live_fetch.STALLED and bytes(sink.data) == b""
+    assert time.monotonic() - started < 5  # the server would keep going for 10 s
+    assert s.closed_by_client.wait(5)
+
+
+def test_a_late_deadline_timer_leaves_the_next_requests_sockets_alone():
+    pump = live_fetch.StreamPump("http://x.example/", _Sink())
+    ours, theirs = socket.socketpair()
+    try:
+        with pump._deadline(time.monotonic() + 60):
+            stale = pump._deadline_generation
+        with pump._deadline(time.monotonic() + 60):
+            pump._track(ours)
+            pump._expire(stale)  # the first request's timer, firing late
+            ours.sendall(b"ok")
+            assert theirs.recv(2) == b"ok"
+        with pytest.raises(live_fetch.StreamFetchError, match=live_fetch.STALLED):
+            with pump._deadline(time.monotonic() + 60):
+                pump._expire(pump._deadline_generation)  # this request's own timer
+        with pytest.raises(OSError):
+            ours.sendall(b"x" * 1_000_000)
+    finally:
+        ours.close()
+        theirs.close()
+
+
+def test_the_deadline_timer_is_cancelled_once_a_request_is_done(serve, monkeypatch):
+    timers = []
+
+    class Timer(threading.Timer):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            timers.append(self)
+
+    monkeypatch.setattr(live_fetch.threading, "Timer", Timer)
+    def hold(handler, server):
+        handler.wfile.write(b"some")
+        handler.wfile.flush()
+        time.sleep(3)
+
+    s = serve({"/k": (200, {}, b"0123456789abcdef"), "/live": (200, {}, hold)})
+    pump = live_fetch.StreamPump(f"{s.base}/live", _Sink())
+    assert pump._read(f"{s.base}/k", 16)[0] == b"0123456789abcdef"
+    assert len(timers) == 1 and timers[0].finished.is_set()
+
+    sink = _Sink()
+    pump = live_fetch.StreamPump(f"{s.base}/live", sink).start()
+    try:
+        deadline = time.monotonic() + 5
+        while bytes(sink.data) != b"some" and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert bytes(sink.data) == b"some"
+        # A stream that is not HLS, still being piped: only its start was timed.
+        assert len(timers) == 2 and timers[1].finished.is_set()
+    finally:
+        pump.halt()
+        pump.join(5)
+    for timer in timers:
+        timer.join(1)
+        assert not timer.is_alive()
