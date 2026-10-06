@@ -47,10 +47,14 @@ MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
 # ffmpeg input protocols for a resolved live stream (HLS over https needs
 # tcp, tls and crypto for encrypted segments, and httpproxy to tunnel
-# https through the egress proxy); no file, pipe, data, etc. ffmpeg opens
-# no tcp:// URL a stream names (tests/test_egress_proxy.py), but does open
-# httpproxy:// playlist entries directly (see services/egress_proxy.py).
+# https through the egress proxy); no file, pipe, data, etc. ffmpeg still
+# opens tcp:// HLS variants and httpproxy:// HLS entries itself (see
+# services/egress_proxy.py).
 FFMPEG_PROTOCOL_WHITELIST = "http,https,tcp,tls,crypto,httpproxy"
+# Demuxers a live stream and its HLS segments need. Not dash, imf or
+# concat: they open URLs from XML or script entries that ffmpeg checks
+# less strictly than HLS lines (a DASH BaseURL can carry a decoded CR LF).
+FFMPEG_FORMAT_WHITELIST = "hls,mpegts,aac,mp3,mov,flv,matroska,ogg,wav,webvtt"
 
 _lock = threading.Lock()
 # session_id -> {"dir": str or None, "engine": str}
@@ -66,7 +70,10 @@ def clean_message(text) -> str:
     a client (a yt-dlp or proxy error can name the stream or proxy URL)."""
     if not text:
         return ""
-    text = jobs_service.scrub_text(_PATH_RE.sub("<path>", str(text)))
+    # Not jobs_service.scrub_text: its username redaction rewrites ordinary
+    # words in transcripts and errors ("li" -> "[USER]kely").
+    text = jobs_service._URL_PATTERN.sub("[URL]", str(text))
+    text = _PATH_RE.sub("<path>", translate_engines.redact_secrets(text))
     return text.splitlines()[0][:500] if text.strip() else ""
 
 
@@ -243,6 +250,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url, protocol_whitelist=FFMPEG_PROTOCOL_WHITELIST,
+            format_whitelist=FFMPEG_FORMAT_WHITELIST,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
             gpu_touching=bool(use_gpu), description="Live capture (local Whisper)")
     except Exception:

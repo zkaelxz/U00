@@ -948,6 +948,17 @@ class TestStreamUrlCheckAndProtocolWhitelist:
         lt.start_segment_capture("https://x.example/a.m3u8", str(tmp_path), 20)
         assert "-protocol_whitelist" not in seen[1]
 
+    def test_format_whitelist_goes_before_the_input(self, monkeypatch, tmp_path):
+        seen = []
+        monkeypatch.setattr(lt.subprocess, "Popen", lambda cmd, **k: seen.append(cmd))
+        lt.start_segment_capture("https://x.example/a.m3u8", str(tmp_path), 20,
+                                 protocol_whitelist="http", format_whitelist="hls,mpegts")
+        cmd = seen[0]
+        i = cmd.index("-format_whitelist")
+        assert cmd[i + 1] == "hls,mpegts" and i < cmd.index("-i")
+        lt.start_segment_capture("https://x.example/a.m3u8", str(tmp_path), 20)
+        assert "-format_whitelist" not in seen[1]
+
     def test_refused_stream_url_never_reaches_ffmpeg(self, monkeypatch):
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "file:///etc/passwd")
         monkeypatch.setattr(lt, "start_segment_capture",

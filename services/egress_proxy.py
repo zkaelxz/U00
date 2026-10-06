@@ -25,13 +25,16 @@ browser refuses to fetch from (the Fetch standard's "bad ports": SMTP,
 SSH, IRC and the like) are refused on every host; no media server uses
 them.
 
-Known gap (ffmpeg 6.1): ffmpeg's HLS and DASH demuxers accept any entry
-whose protocol name starts with "http", so an `httpproxy://host:port/dest`
-variant, segment or key URI in a playlist makes ffmpeg connect to
-host:port itself, bypassing this proxy. It sends one fixed
-`CONNECT dest HTTP/1.1` request (dest from the playlist, no CR/LF), and
-only a `200` reply lets bytes through, read as media. `httpproxy` can't
-leave the whitelist: ffmpeg tunnels https to a proxy only through it.
+Known gap (ffmpeg 6.1): ffmpeg's HLS demuxer connects to host:port itself,
+bypassing this proxy, for a `tcp://host:port/` variant URI (sends nothing,
+reads the reply as a playlist) and for an `httpproxy://host:port/dest`
+variant, segment or key URI (accepted because its name starts with
+"http"). The latter sends one fixed `CONNECT dest HTTP/1.1` request (dest
+from a playlist line, which can't hold CR or LF), and only a `200` reply
+lets bytes through, read as media. Neither protocol can leave the
+whitelist: ffmpeg tunnels https to a proxy only through httpproxy, over
+tcp. The DASH and IMF demuxers, whose XML entries can carry a decoded
+CR LF or a tcp:// path, are kept out by live_service's format whitelist.
 
 Standard library only.
 """
@@ -41,6 +44,7 @@ import secrets
 import select
 import socket
 import threading
+import time
 from urllib.parse import urlsplit
 
 from services import url_guard
@@ -48,6 +52,9 @@ from services import url_guard
 MAX_HEADER_BYTES = 65_536
 MAX_CONNECTIONS = 64
 CONNECT_TIMEOUT = 15.0
+# For the whole request head: a per-recv timeout alone lets a local process
+# hold every connection slot by trickling bytes.
+HEAD_TIMEOUT = 15.0
 # A live HLS connection can sit idle between playlist refreshes.
 IDLE_TIMEOUT = 120.0
 _CHUNK = 65_536
@@ -70,12 +77,18 @@ class _Refused(Exception):
         self.header = header
 
 
-def _read_head(sock) -> tuple:
-    """(header block bytes without the blank line, bytes read past it)."""
+def _read_head(sock, deadline: float = None) -> tuple:
+    """(header block bytes without the blank line, bytes read past it).
+    deadline: a time.monotonic() value the whole head must arrive by."""
     buf = b""
     while b"\r\n\r\n" not in buf:
         if len(buf) > MAX_HEADER_BYTES:
             raise _Refused("431 Request Header Fields Too Large")
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise _Refused("408 Request Timeout")
+            sock.settimeout(remaining)
         chunk = sock.recv(_CHUNK)
         if not chunk:
             raise _Refused("")
@@ -205,8 +218,8 @@ def _authorized(header_lines, expected: bytes) -> bool:
 
 def _handle(client, slots, expected_auth: bytes):
     try:
+        head, rest = _read_head(client, time.monotonic() + HEAD_TIMEOUT)
         client.settimeout(CONNECT_TIMEOUT)
-        head, rest = _read_head(client)
         lines = head.decode("latin-1").split("\r\n")
         request_line = lines[0].split(" ")
         if len(request_line) != 3:

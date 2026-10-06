@@ -35,9 +35,11 @@ def live(monkeypatch, isolated_db):
     monkeypatch.setattr(live_translate, "resolve_stream_url", lambda url, **k: "http://media")
     calls = {"process": [], "procs": []}
 
-    def fake_capture(source_url, out_dir, segment_seconds, protocol_whitelist=None, proxy=None):
+    def fake_capture(source_url, out_dir, segment_seconds, protocol_whitelist=None, proxy=None,
+                     format_whitelist=None):
         calls["out_dir"] = out_dir
         calls["protocol_whitelist"] = protocol_whitelist
+        calls["format_whitelist"] = format_whitelist
         calls["proxy"] = proxy
         p = FakeProc()
         calls["procs"].append(p)
@@ -147,6 +149,7 @@ def test_second_start_while_one_runs_is_conflict(live):
         _start()
     assert list(live_service._sessions) == [a]
     assert live["protocol_whitelist"] == live_service.FFMPEG_PROTOCOL_WHITELIST
+    assert live["format_whitelist"] == live_service.FFMPEG_FORMAT_WHITELIST
 
 
 def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live):
@@ -191,6 +194,18 @@ def test_dir_removed_on_error_and_message_clean(live, monkeypatch):
     blob = repr(s)
     assert dirs[0] not in blob and "sk-ant" not in blob and "Traceback" not in blob
     assert "/tmp" not in blob and "chunk_00001" not in blob
+
+
+def test_clean_message_keeps_words_containing_the_os_username(monkeypatch):
+    import getpass
+    monkeypatch.setattr(getpass, "getuser", lambda: "li")
+    shown = live_service.clean_message(
+        "Likely a timeout: https://cdn.example/live.m3u8?token=abc failed, "
+        "key sk-ant-abcdefghijklmnopqrstu, file /home/li/chunks/chunk_00001.wav")
+    assert shown.startswith("Likely a timeout: [URL] failed")
+    assert "[USER]" not in shown
+    assert "cdn.example" not in shown and "token" not in shown
+    assert "sk-ant" not in shown and "/home" not in shown and "chunk_00001" not in shown
 
 
 def test_dir_removed_on_cancel_while_running(live):
