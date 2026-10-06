@@ -378,7 +378,7 @@ class TestOwnLinesOnly:
     def test_mid_run_edit_gets_no_flag_from_the_run(self, isolated_db, monkeypatch):
         did, _sid, rows = _seed([("林晚一", "one"), ("林晚二", "two")], terms=[LIN])
 
-        def flag_all(lines, field="en"):
+        def flag_all(lines, field="en", mode="normal"):
             for ln in lines:
                 ln.flag, ln.flag_note = "dense", "too fast"
             return len(lines)
@@ -399,7 +399,7 @@ class TestOwnLinesOnly:
             self, isolated_db, monkeypatch):
         did, _sid, rows = _seed([("林晚一", "one"), ("林晚二", "two")], terms=[LIN])
 
-        def flag_all(lines, field="en"):
+        def flag_all(lines, field="en", mode="normal"):
             for ln in lines:
                 ln.flag, ln.flag_note = "dense", "too fast"
             return len(lines)
@@ -443,7 +443,7 @@ class TestOwnLinesOnly:
             self, isolated_db, monkeypatch, edit, expected):
         did, _sid, rows = _seed([("林晚一", "one"), ("林晚二", "two")], terms=[LIN])
 
-        def flag_all(lines, field="en"):
+        def flag_all(lines, field="en", mode="normal"):
             for ln in lines:
                 ln.flag, ln.flag_note = "dense", "too fast"
             return len(lines)

@@ -28,13 +28,13 @@ const rate = (page: import('@playwright/test').Page) => page.locator('audio').ev
 
 test('the speed applies to the player and is remembered after a reload', async ({ page }) => {
   await page.goto('/#/drama/3/review')
-  const speed = page.getByLabel('Speed')
+  const speed = page.getByLabel(/^Speed/)
   await expect(speed).toHaveValue('1')
   await speed.selectOption('0.5')
   expect(await rate(page)).toBe(0.5)
 
   await page.reload()
-  await expect(page.getByLabel('Speed')).toHaveValue('0.5')
+  await expect(page.getByLabel(/^Speed/)).toHaveValue('0.5')
   await expect.poll(() => rate(page)).toBe(0.5)
 })
 
