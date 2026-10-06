@@ -303,12 +303,17 @@ def _bad_line_timings(per_line_times) -> set:
 
 
 def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: str,
-                      use_gpu: bool = False, on_device=None, on_gpu_fallback=None):
+                      use_gpu: bool = False, on_device=None, on_gpu_fallback=None,
+                      cancel_check=None):
     """Drop-in alternative to core.align_transcript_to_timing() -- same
     inputs, same Line-list output -- that refines timing with true forced
     alignment instead of a character-diff heuristic. See the module
     docstring for why this still needs whisper_segments (as a coarse
     first pass, not as the source of the final timestamps).
+
+    cancel_check() runs before the model load, after it and before each
+    chunk, and should raise to stop; a load or one chunk already running
+    can't be interrupted, so a cancel lands at the next of those points.
     """
     if language not in ALIGNER_LANGUAGE_NAMES:
         raise ValueError(
@@ -325,12 +330,18 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
 
     coarse_lines = align_transcript_to_timing(user_lines, whisper_segments)
     chunks = _bucket_into_chunks(coarse_lines)
+    if cancel_check:
+        cancel_check()
     model = load_qwen3_aligner(use_gpu=use_gpu, **_device_callbacks(on_device, on_gpu_fallback))
+    if cancel_check:
+        cancel_check()
     language_name = ALIGNER_LANGUAGE_NAMES[language]
 
     per_line_times, repaired = {}, set()
     with tempfile.TemporaryDirectory(prefix="baihe_forced_align_") as tmp_dir:
         for chunk in chunks:
+            if cancel_check:
+                cancel_check()
             per_line_times.update(_align_chunk(model, audio_path, chunk, language_name, tmp_dir,
                                               repaired_lines=repaired))
 

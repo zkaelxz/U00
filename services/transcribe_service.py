@@ -1394,9 +1394,12 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     import forced_align
                     lines = forced_align.align_with_qwen3(
                         audio_path, user_lines, segments, language=source_language, use_gpu=use_gpu,
-                        on_device=_aligner_on_device,
+                        on_device=_aligner_on_device, cancel_check=rep.raise_if_cancelled,
                         on_gpu_fallback=lambda exc: _qwen_on_fallback(
                             "Qwen3 forced alignment", exc))
+                except background_jobs.JobCancelled:
+                    core_module.release_gpu_models()
+                    raise
                 except ImportError as exc:
                     return {"failed_reason": "dependency_missing",
                             "detail": "Qwen3 forced alignment needs qwen-asr and torch: "

@@ -1143,6 +1143,34 @@ class TestQwen3Backends:
         assert result["forced_align_error"] is None
         _clear(job_id)
 
+    def test_forced_align_cancel_ends_cancelled_releases_gpu_and_keeps_lines(
+            self, isolated_db, monkeypatch):
+        import forced_align
+        from core import Line
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="have_transcript")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="old")])
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 2.0, "text": "x"}])
+        released = []
+        monkeypatch.setattr(transcribe_service.core_module, "release_gpu_models",
+                            lambda: released.append(1))
+        job_id = f"transcribe_{did}"
+
+        def fake_align(*a, cancel_check=None, **k):
+            background_jobs.request_cancel(job_id)
+            cancel_check()
+            raise AssertionError("cancel_check must raise once cancel is requested")
+        monkeypatch.setattr(forced_align, "align_with_qwen3", fake_align)
+
+        # _spawn turns this exception into a "cancelled" job.
+        with pytest.raises(background_jobs.JobCancelled):
+            self._run(did, ddir, "have_transcript", "hi there",
+                      alignment_method="qwen3_forced_align")
+
+        assert released
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["old"]
+        _clear(job_id)
+
     def test_forced_align_value_error_falls_back_and_is_reported(self, isolated_db, monkeypatch):
         import forced_align
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="have_transcript")

@@ -365,6 +365,46 @@ class TestAlignWithQwen3:
         assert result[1].start == 2.0
         assert result[1].end == 4.0
 
+    def _three_chunk_run(self, monkeypatch, **kw):
+        import forced_align as fa
+        segs = [{"start": 50.0 * i, "end": 50.0 * i + 50.0, "text": t}
+                for i, t in enumerate(["一", "二", "三"])]
+        monkeypatch.setattr(fa, "_extract_audio_slice",
+                            lambda audio_path, start, end, out_path: open(out_path, "wb").close())
+        calls = {"load": 0, "align": 0}
+
+        class FakeModel:
+            def align(self, audio, text, language):
+                calls["align"] += 1
+                return [[FakeUnit(text, 0.0, 1.0)]]
+
+        def load(use_gpu=False, **_):
+            calls["load"] += 1
+            return FakeModel()
+        monkeypatch.setattr(fa, "load_qwen3_aligner", load)
+        return calls, lambda: fa.align_with_qwen3("/fake.wav", ["一", "二", "三"], segs,
+                                                   language="zh", **kw)
+
+    def test_cancel_before_model_load_never_loads_it(self, monkeypatch):
+        def stop():
+            raise RuntimeError("cancelled")
+        calls, run = self._three_chunk_run(monkeypatch, cancel_check=stop)
+        with pytest.raises(RuntimeError, match="cancelled"):
+            run()
+        assert calls == {"load": 0, "align": 0}
+
+    def test_cancel_mid_run_stops_before_the_next_chunk(self, monkeypatch):
+        state = {}
+
+        def stop_after_first_chunk():
+            if state["calls"]["align"] >= 1:
+                raise RuntimeError("cancelled")
+        state["calls"], run = self._three_chunk_run(
+            monkeypatch, cancel_check=stop_after_first_chunk)
+        with pytest.raises(RuntimeError, match="cancelled"):
+            run()
+        assert state["calls"] == {"load": 1, "align": 1}
+
 
 class TestLoadQwen3Aligner:
     def _install_fake_qwen_asr(self, from_pretrained):
