@@ -154,7 +154,7 @@ def apply_merge_short(drama_id: int, expected_line_ids, expected_groups, min_dur
             raise ConflictError("The lines to merge changed since the preview -- preview again.")
         return merged, [ln for ln in merged if ln.merged_ids]
     out = restructure_service.structural_write(drama_id, expected_line_ids, "before merge", build)
-    return {"line_ids": out["line_ids"], "lines": out["lines"], "merged_groups": len(expected_groups)}
+    return {**out, "merged_groups": len(expected_groups)}
 
 
 # ---------------------------------------------------------------------------

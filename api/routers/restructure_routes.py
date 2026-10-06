@@ -105,4 +105,5 @@ def post_resplit(body: ResplitStart, drama_id: int = Path(ge=1)):
              summary="Restore a snapshot (snapshots the current lines first)", responses=_R)
 def post_restore(body: RestoreVersionRequest, drama_id: int = Path(ge=1),
                  history_id: int = Path(ge=1)):
-    return svc.restore_version(drama_id, history_id, body.expected_line_ids)
+    return svc.restore_version(drama_id, history_id, body.expected_line_ids,
+                               body.expected_fingerprint)
