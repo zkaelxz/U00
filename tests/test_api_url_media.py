@@ -306,6 +306,18 @@ def test_replace_audio_needs_confirm(client, env):
     assert db.get_drama(did)["audio_filename"] == "source.wav"
 
 
+def test_an_existing_source_video_also_needs_confirm(client, env):
+    # The same rule as an upload: a video without audio is still media to replace.
+    did = _drama()
+    with open(os.path.join(db.drama_dir(did), "source.mp4"), "wb") as f:
+        f.write(b"old video")
+    db.update_drama(did, source_video_filename="source.mp4")
+    r = _start(client, did)
+    assert r.status_code == 422
+    assert r.json()["error"]["details"]["reason"] == "confirm_replace_audio"
+    assert FakeYDL.calls == []
+
+
 def test_ytdlp_missing_503(client, env, monkeypatch):
     monkeypatch.setattr(svc, "_yt_dlp_installed", lambda: False)
     assert _start(client, _drama()).status_code == 503

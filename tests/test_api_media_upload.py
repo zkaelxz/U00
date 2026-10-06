@@ -64,7 +64,8 @@ def test_video_upload_extracts_audio(client, isolated_db):
     did = db.create_drama(title_en="D")
     r = _up(client, did, "a.mkv")
     assert r.status_code == 200
-    assert r.json() == {"name": "source.mkv", "size": 9, "kind": "video",
+    # The job names the video when it puts it in place (source-2.mkv if source.mkv is taken).
+    assert r.json() == {"name": None, "size": 9, "kind": "video",
                         "job_id": f"extract_audio_{did}"}
     assert _wait(f"extract_audio_{did}")["status"] == "done"
     d = db.get_drama(did)
@@ -637,3 +638,171 @@ def test_status_reports_kept_media_as_numbers_only(client, isolated_db):
     body = client.get(f"/api/media/dramas/{did}/status").json()
     assert body["kept_media_files"] == 1 and body["kept_media_bytes"] == len(b"first")
     assert "replaced" not in str(body) and "kept_media/" not in str(body)
+
+
+def test_a_title_naming_a_folder_never_has_the_folder_moved(client, isolated_db):
+    # An imported title could name a folder ("pages") as its audio; a replace
+    # must leave that folder where it is, contents and all.
+    import db
+    did = db.create_drama(title_en="D")
+    ddir = db.drama_dir(did)
+    os.makedirs(os.path.join(ddir, "pages"))
+    with open(os.path.join(ddir, "pages", "001.png"), "wb") as f:
+        f.write(b"page")
+    db.update_drama(did, audio_filename="pages")
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("a.mp3", b"new")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200
+    assert db.get_drama(did)["audio_filename"] == "source.mp3"
+    assert _read(did, os.path.join("pages", "001.png")) == b"page"
+    assert _kept(did) == {}
+
+
+def test_import_drops_a_file_reference_that_names_a_folder(tmp_path):
+    from services import auto_backup_service as abs_
+    os.makedirs(tmp_path / "pages")
+    (tmp_path / "a.mp3").write_bytes(b"a")
+    assert abs_._import_file_ref(str(tmp_path), "pages", None) is None
+    assert abs_._import_file_ref(str(tmp_path), "a.mp3", None) == "a.mp3"
+    # unchanged: a name whose file wasn't in the backup is still kept
+    assert abs_._import_file_ref(str(tmp_path), "missing.mp3", None) == "missing.mp3"
+
+
+def _status(client, did):
+    return client.get(f"/api/media/dramas/{did}/status").json()
+
+
+def test_media_left_unnamed_by_a_crash_is_counted_then_kept(client, isolated_db, monkeypatch):
+    # A crash after the new file was put in place but before the DB named it:
+    # possibly the user's only copy, so it is counted and moved, never deleted.
+    import db
+    from services import drama_service, media_upload_service as m
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+    ddir = db.drama_dir(did)
+    for name, data in (("source-2.mp3", b"new upload"), ("audio-3.wav", b"new wav"),
+                       ("source.txt", b"mine"), ("notes.mp3", b"mine too"), ("cover.wav", b"art")):
+        with open(os.path.join(ddir, name), "wb") as f:
+            f.write(data)
+    os.makedirs(os.path.join(ddir, "audio-2.wav"))  # never a folder
+    db.update_drama(did, cover_art_filename="cover.wav")
+    body = _status(client, did)
+    assert body["kept_media_files"] == 2
+    assert body["kept_media_bytes"] == len(b"new upload") + len(b"new wav")
+
+    monkeypatch.setattr(drama_service, "job_running_for_drama", lambda _d: True)
+    assert m.recover_all_stale_uploads() == 0  # a job may be about to record them
+    assert _status(client, did)["kept_media_files"] == 0  # nor counted while it runs
+    monkeypatch.undo()
+    assert m.recover_all_stale_uploads() == 2
+    kept = _kept(did)
+    assert sorted(kept.values()) == [b"new upload", b"new wav"]
+    assert all(n.startswith("unreferenced-") for n in kept)
+    assert sorted(os.listdir(ddir)) == ["audio-2.wav", "cover.wav", "kept_media", "notes.mp3",
+                                        "source.mp3", "source.txt"]
+    assert db.get_drama(did)["audio_filename"] == "source.mp3" and _read(did, "source.mp3") == b"first"
+    assert _status(client, did)["kept_media_files"] == 2
+
+
+def test_startup_recovery_skips_a_drama_with_an_upload_in_progress(isolated_db):
+    import db
+    from services import media_upload_service as m
+    did = db.create_drama(title_en="D")
+    with open(os.path.join(db.drama_dir(did), "source.mp3"), "wb") as f:
+        f.write(b"being recorded")
+    m.claimed.add(did)
+    try:
+        assert m.recover_all_stale_uploads() == 0
+    finally:
+        m.claimed.discard(did)
+    assert os.listdir(db.drama_dir(did)) == ["source.mp3"]
+
+
+def test_a_failed_rollback_leaves_the_upload_counted_and_recovered(client, isolated_db, monkeypatch):
+    # The DB switch fails and moving the new file back fails too: it stays
+    # in the folder under its in-place name, still kept as the error says.
+    import sqlite3
+    import db
+    from services import media_upload_service as m
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+
+    def locked(*a, **kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    def no_rename(*a, **kw):
+        raise PermissionError(13, "in use")
+    monkeypatch.setattr(db, "update_drama", locked)
+    monkeypatch.setattr(m.os, "rename", no_rename)
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                    data={"confirm_replace_audio": "true"})
+    monkeypatch.undo()
+    assert r.status_code == 409 and r.json()["error"]["message"] == m._SAVE_FAILED
+    assert db.get_drama(did)["audio_filename"] == "source.mp3"
+    assert _read(did, "source-2.mp3") == b"second"
+    body = _status(client, did)
+    assert (body["kept_media_files"], body["kept_media_bytes"]) == (1, len(b"second"))
+    # moved at the next upload, which still needs the confirm
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("c.mp3", b"third")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200 and r.json()["name"] == "source-2.mp3"
+    assert sorted(_kept(did).values()) == [b"first", b"second"]
+
+
+def test_an_old_file_that_was_in_use_is_counted_then_kept(client, isolated_db, monkeypatch):
+    import db
+    from services import media_upload_service as m
+    did = db.create_drama(title_en="D")
+    _video_title(client, did)
+    busy = os.path.join(db.drama_dir(did), "audio.wav")
+    real_unlink, real_rename = os.unlink, os.rename
+
+    def guard(fn):
+        def wrapper(src, *a, **kw):
+            if os.path.abspath(src) == busy:
+                raise PermissionError(13, "in use")
+            return fn(src, *a, **kw)
+        return wrapper
+    monkeypatch.setattr(m.os, "unlink", guard(real_unlink))
+    monkeypatch.setattr(m.os, "rename", guard(real_rename))
+    assert _replace_video(client, did)["status"] == "done"
+    assert _status(client, did)["kept_media_files"] == 2  # old video moved, old audio still in place
+    monkeypatch.undo()
+    assert m.recover_stale_uploads(did) == 1
+    assert sorted(_kept(did).values()) == [b"old", b"wav"]
+    assert db.get_drama(did)["audio_filename"] == "audio-2.wav"
+
+
+def test_new_media_is_fsynced_before_the_db_names_it(client, isolated_db, monkeypatch):
+    import db
+    from services import media_upload_service as m
+    events = []
+    real_fsync_file, real_update = m._fsync_file, db.update_drama
+
+    def spy_fsync(path):
+        events.append(("fsync", os.path.basename(path), os.path.exists(path)))
+        real_fsync_file(path)
+
+    def spy_update(*a, **kw):
+        events.append(("db",))
+        return real_update(*a, **kw)
+    monkeypatch.setattr(m, "_fsync_file", spy_fsync)
+    monkeypatch.setattr(db, "update_drama", spy_update)
+    did = db.create_drama(title_en="D")
+    assert _wait(_up(client, did, "a.mp4", b"vid").json()["job_id"])["status"] == "done"
+    assert [e[0] for e in events] == ["fsync", "fsync", "db"]
+    names = sorted(e[1] for e in events[:2])
+    assert names[0] == ".audio.extract.wav" and names[1].startswith(".upload_")
+    assert all(e[2] for e in events[:2])  # synced at its source path, before the move
+
+
+def test_fsync_file_syncs_the_data_and_never_fails_the_install(tmp_path, monkeypatch):
+    from services import media_upload_service as m
+    synced = []
+    real = os.fsync
+    monkeypatch.setattr(m.os, "fsync", lambda fd: synced.append(fd) or real(fd))
+    path = tmp_path / "a.wav"
+    path.write_bytes(b"x")
+    m._fsync_file(str(path))
+    assert len(synced) == 1
+    m._fsync_file(str(tmp_path / "gone.wav"))  # best effort: no error

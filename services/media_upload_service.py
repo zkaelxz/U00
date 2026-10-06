@@ -15,8 +15,11 @@ that can't be moved, e.g. open in a player on Windows, stays where it is,
 unreferenced). A video is staged under a hidden `.upload_*` name and only put
 in place after its audio was extracted; if extraction or saving fails or is
 cancelled, the upload is kept as `kept_media/failed-upload-<UTC time><ext>`
-and the drama is left as it was. A staged upload a crash left behind is moved
-there at the drama's next upload or at startup (recover_stale_uploads).
+and the drama is left as it was. A staged upload a crash left behind, and a
+`source[-n]<ext>` / `audio[-n].wav` the drama does not name (a crash between
+placing files and the DB write, a failed rollback, an old file that was in
+use), is moved there at the drama's next upload or at startup
+(recover_stale_uploads); until then the media status counts it as kept.
 Nothing in kept_media/ is referenced by the database, and the app never
 deletes it on its own: it goes only when the user clears it in Storage or
 deletes the title. "Remove audio/video" leaves it. Backups with media and
@@ -31,14 +34,16 @@ client still polls one job id. Cancel kills the ffmpeg process tree.
 
 The client's filename is never used for storage or returned: only its
 extension is read, and only if it is on the whitelist. The body is streamed
-to a temp file in the drama folder (capped by `max_upload_bytes`) and fsynced
-before it is renamed into place. No path is ever returned.
+to a temp file in the drama folder (capped by `max_upload_bytes`). Every new
+file is fsynced before it is put in place and recorded. No path is ever
+returned.
 
 No FastAPI import: takes a binary file-like object.
 """
 import contextlib
 import math
 import os
+import re
 import shutil
 import sqlite3
 import stat
@@ -70,11 +75,16 @@ NO_UPLOAD_MODE = ("This drama has no audio to upload (it is set to work from a n
 _BAD_TYPE = "Unsupported file type. Upload an audio or video file."
 _EXTRACT_FAILED = ("Could not read audio from that video file. The uploaded video was kept "
                    "in this title's folder; the title's audio is unchanged.")
-_SAVE_FAILED = ("Could not save the upload into this title's folder. The uploaded file was kept "
-                "there; the title's audio and video are unchanged.")
+_SAVE_FAILED = ("Could not put the upload in place as this title's media. The uploaded file was "
+                "kept in this title's folder and is counted with the old copies; the title's "
+                "audio and video are unchanged.")
 _CONFIRM_REPLACE = "This drama already has audio. Confirm replacing it first."
 KEPT_DIRNAME = "kept_media"
 _MEDIA_FIELDS = ("audio_filename", "source_video_filename")
+# The in-place names install_media gives new media; one the drama doesn't
+# name is a leftover (see recover_stale_uploads).
+_IN_PLACE_RE = re.compile(r"(?:source(?:-\d+)?(?:%s)|audio(?:-\d+)?\.wav)\Z" % "|".join(
+    re.escape(e) for e in AUDIO_EXTENSIONS + VIDEO_EXTENSIONS))
 EXTRACT_JOB_PREFIX = "extract_audio_"
 # Wall-clock cap on one ffmpeg extraction, so a stuck ffmpeg can't leave the
 # job "running" forever; cancel kills it sooner.
@@ -157,10 +167,19 @@ def _safe_extension(client_filename) -> str:
     return ext
 
 
-def _has_media(drama, drama_id) -> bool:
+def has_media(drama, drama_id) -> bool:
     ddir = db.drama_dir(drama_id)
     return any(name and os.path.exists(os.path.join(ddir, name))
                for name in (drama.get("audio_filename"), drama.get("source_video_filename")))
+
+
+def _fsync_file(path):
+    # Before the DB names the file, so a power cut can't leave it pointing at
+    # a file whose data never reached the disk. r+b: Windows fsync needs a
+    # writable handle. Best effort, like _fsync_dir.
+    with contextlib.suppress(OSError):
+        with open(path, "r+b") as f:
+            os.fsync(f.fileno())
 
 
 def _fsync_dir(path):
@@ -234,8 +253,16 @@ def _move_no_clobber(src, candidates) -> str:
 def _retire(ddir, name, label="replaced"):
     """Moves a file the drama no longer names into kept_media/. Best effort:
     the database already points at the new file, so a file that can't be
-    moved (Windows: it is still being played) just stays where it is."""
-    if not name or name != os.path.basename(name) or not os.path.lexists(os.path.join(ddir, name)):
+    moved (Windows: it is still being played) just stays where it is.
+    Only a file or a link is moved: an imported title can name a folder
+    (e.g. "pages"), which must never be carried off into kept_media."""
+    if not name or name != os.path.basename(name):
+        return
+    try:
+        mode = os.lstat(os.path.join(ddir, name)).st_mode
+    except OSError:
+        return
+    if not (stat.S_ISREG(mode) or stat.S_ISLNK(mode)):
         return
     with contextlib.suppress(OSError):
         _move_no_clobber(os.path.join(ddir, name),
@@ -260,6 +287,7 @@ def install_media(drama_id, new_files, **fields):
     placed = []
     try:
         for field, (src, stem, ext) in new_files.items():
+            _fsync_file(src)
             dst = _move_no_clobber(src, _in_place_names(ddir, stem, ext))
             placed.append((dst, src))
             fields[field] = os.path.basename(dst)
@@ -291,14 +319,42 @@ def _keep_failed_upload(ddir, staged, ext):
         _fsync_dir(os.path.join(ddir, KEPT_DIRNAME))
 
 
+def _is_staged_upload(name) -> bool:
+    return (name.startswith(".upload_")
+            and os.path.splitext(name)[1].lower() in AUDIO_EXTENSIONS + VIDEO_EXTENSIONS)
+
+
+def _unnamed_media(ddir, drama, names) -> list:
+    """The regular files in `names` with an in-place media name that no
+    `*_filename` field of the drama names."""
+    named = set()
+    for key, value in drama.items():
+        if key.endswith("_filename") and isinstance(value, str):
+            # A stored path's last part counts too: never move a file the
+            # drama might reach some other way.
+            named.update((value, value.replace("\\", "/").rsplit("/", 1)[-1]))
+    out = []
+    for name in names:
+        if name in named or not _IN_PLACE_RE.match(name):
+            continue
+        with contextlib.suppress(OSError):
+            if stat.S_ISREG(os.lstat(os.path.join(ddir, name)).st_mode):
+                out.append(name)
+    return out
+
+
 def recover_stale_uploads(drama_id, now=None) -> int:
-    """Moves staged uploads (`.upload_*<ext>`) that a crash, restart or failed
-    job start left in the drama folder into kept_media/failed-upload-*.
-    Only files older than EXTRACT_TIMEOUT_SECONDS, and none while a job runs
-    for the drama, so a live extraction's input is never moved. Returns how
+    """Moves media that a crash, restart, failed job start or failed move
+    left in the drama folder into kept_media/: staged uploads
+    (`.upload_*<ext>`, only once older than EXTRACT_TIMEOUT_SECONDS) as
+    failed-upload-*, and in-place media files the drama doesn't name as
+    unreferenced-*. Nothing while a job runs for the drama, so a live
+    extraction's input or a job's not-yet-recorded file is never moved; the
+    caller holds the drama's upload claim for the same reason. Returns how
     many were moved."""
     if drama_service.job_running_for_drama(drama_id):
         return 0
+    drama = db.get_drama(drama_id)
     ddir = db.drama_dir(drama_id)
     now = time.time() if now is None else now
     try:
@@ -309,7 +365,7 @@ def recover_stale_uploads(drama_id, now=None) -> int:
     for name in names:
         ext = os.path.splitext(name)[1].lower()
         path = os.path.join(ddir, name)
-        if not name.startswith(".upload_") or ext not in AUDIO_EXTENSIONS + VIDEO_EXTENSIONS:
+        if not _is_staged_upload(name):
             continue
         try:
             if os.path.islink(path) or now - os.lstat(path).st_mtime < EXTRACT_TIMEOUT_SECONDS:
@@ -318,16 +374,33 @@ def recover_stale_uploads(drama_id, now=None) -> int:
             continue
         _keep_failed_upload(ddir, path, ext)
         moved += not os.path.lexists(path)
+    # Without the drama's row nothing tells a leftover from its media.
+    for name in _unnamed_media(ddir, drama, names) if drama is not None else ():
+        _retire(ddir, name, "unreferenced")
+        moved += not os.path.lexists(os.path.join(ddir, name))
     return moved
 
 
 def recover_all_stale_uploads() -> int:
-    """Startup pass of recover_stale_uploads over every drama folder."""
+    """Startup pass of recover_stale_uploads over every drama folder. A
+    drama with an upload in progress is skipped: its new file may be in
+    place before the DB names it."""
     try:
         names = os.listdir(db.DRAMAS_DIR)
     except OSError:
         return 0
-    return sum(recover_stale_uploads(int(n)) for n in names if n.isdigit())
+    moved = 0
+    for drama_id in (int(n) for n in names if n.isdigit()):
+        with claims_lock:
+            if drama_id in claimed:
+                continue
+            claimed.add(drama_id)
+        try:
+            moved += recover_stale_uploads(drama_id)
+        finally:
+            with claims_lock:
+                claimed.discard(drama_id)
+    return moved
 
 
 def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False):
@@ -339,7 +412,7 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
         raise NotFoundError(f"No drama with id {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in UPLOAD_CONTENT_MODES:
         raise InvalidInputError(NO_UPLOAD_MODE)
-    if _has_media(drama, drama_id) and not confirm_replace_audio:
+    if has_media(drama, drama_id) and not confirm_replace_audio:
         raise InvalidInputError(_CONFIRM_REPLACE, details={"reason": "confirm_replace_audio"})
     limit = max_upload_bytes()
     ddir = db.drama_dir(drama_id)
@@ -420,7 +493,8 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         if not started:  # unreachable while the claim and running-job check hold
             _keep_failed_upload(ddir, staged, ext)
             raise ConflictError(_BUSY)
-        return {"name": f"source{ext}", "size": size, "kind": "video", "job_id": job_id}
+        # The job picks the video's name when it puts it in place.
+        return {"name": None, "size": size, "kind": "video", "job_id": job_id}
     finally:
         with claims_lock:
             claimed.discard(drama_id)
@@ -488,10 +562,26 @@ def _follow_job(job_id, child_id):
 
 
 def kept_media_usage(drama_id) -> dict:
-    """Count and total size of the files in the drama's kept_media/; numbers
-    only, never a name. Links are not followed or counted."""
-    kept = os.path.join(db.drama_dir(drama_id), KEPT_DIRNAME)
+    """Count and total size of the files in the drama's kept_media/, plus
+    the kept files recover_stale_uploads hasn't moved there yet (staged
+    uploads and in-place media the drama doesn't name); numbers only, never
+    a name. Links are not followed or counted. While a job runs those
+    files may be its live input or not yet recorded, so they aren't counted."""
+    ddir = db.drama_dir(drama_id)
+    kept = os.path.join(ddir, KEPT_DIRNAME)
     files = size = 0
+    names = []
+    if not drama_service.job_running_for_drama(drama_id):
+        with contextlib.suppress(OSError):
+            names = os.listdir(ddir)
+    leftovers = [n for n in names if _is_staged_upload(n)]
+    leftovers += _unnamed_media(ddir, db.get_drama(drama_id) or {}, names)
+    for name in leftovers:
+        with contextlib.suppress(OSError):
+            st = os.lstat(os.path.join(ddir, name))
+            if stat.S_ISREG(st.st_mode):
+                files += 1
+                size += st.st_size
     if os.path.isdir(kept) and not os.path.islink(kept):
         for root, dirs, names in os.walk(kept):
             dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
