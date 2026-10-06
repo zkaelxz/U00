@@ -28,6 +28,14 @@ class TestListJobs:
         jobs = jobs_service.list_jobs()
         assert "sk-ABCDEFGHIJKLMNOP12345" not in jobs[0]["error"]
 
+    def test_scrubs_urls_from_the_error_and_message_fields(self, isolated_db):
+        db.save_job_record("j1", status="error",
+                           error="GET https://internal.example/x?token=abc failed",
+                           message="fetching http://10.0.0.5/secret")
+        job = jobs_service.list_jobs()[0]
+        assert job["error"] == "GET [URL] failed"
+        assert job["message"] == "fetching [URL]"
+
     def test_done_job_without_result_is_ok(self, isolated_db):
         db.save_job_record("j1", status="done")
         job = jobs_service.list_jobs()[0]

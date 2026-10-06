@@ -225,6 +225,14 @@ class TestTheEndpointRefusesWhatItShould:
                                             "content_type": "image/png"}]})
         assert handler.status == 400
 
+    def test_oversized_base64_is_refused_before_decoding(self, token, monkeypatch):
+        def no_decode(*a, **k):
+            raise AssertionError("decoded an oversized image")
+        monkeypatch.setattr("base64.b64decode", no_decode)
+        too_big = "A" * (page_server.MAX_IMAGE_BYTES * 4 // 3 + 8)
+        handler = _post(token, {"images": [{"data": too_big, "content_type": "image/png"}]})
+        assert handler.status == 413
+
     def test_an_unknown_endpoint_is_a_404(self, token):
         assert _get(token, path="/anything-else").status == 404
         assert _post(token, {"images": []}, path="/other").status == 404
