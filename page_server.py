@@ -714,8 +714,13 @@ class _Handler(BaseHTTPRequestHandler):
         for image in images:
             if not isinstance(image, dict):
                 raise EndpointError(400, "each image must be a JSON object")
+            # Checked before decoding so an oversized payload never allocates
+            # the full decoded copy.
+            data = image.get("data") or ""
+            if isinstance(data, (str, bytes)) and len(data) * 3 // 4 > MAX_IMAGE_BYTES:
+                raise EndpointError(413, f"image is larger than {MAX_IMAGE_BYTES // (1024 * 1024)}MB")
             try:
-                content = base64.b64decode(image.get("data") or "", validate=True)
+                content = base64.b64decode(data, validate=True)
             except Exception:
                 raise EndpointError(400, "an image's data was not valid base64") from None
             decoded.append({

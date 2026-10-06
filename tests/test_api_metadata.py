@@ -152,7 +152,7 @@ def test_autofill_bad_scheme_422(client, drama, monkeypatch, url):
 
 
 @pytest.mark.parametrize("ip", ["127.0.0.1", "10.0.0.5", "192.168.1.1", "169.254.169.254",
-                                "::1", "::ffff:127.0.0.1"])
+                                "::1", "::ffff:127.0.0.1", "64:ff9b::7f00:1", "2002:7f00:1::1"])
 def test_autofill_private_hosts_422(client, drama, monkeypatch, ip):
     monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: "k")
     _dns(monkeypatch, ip)

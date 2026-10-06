@@ -953,8 +953,12 @@ def check_engine_reachable(engine_name: str, api_key: str = None, model: str = N
 # can leak the machine's username into a support conversation.
 # ---------------------------------------------------------------------------
 
+# Middle segments may contain single spaces ("My Documents") so folder-name
+# fragments aren't left behind; they can't start or end with one, which keeps
+# a path from swallowing the prose around it.
 PATH_PATTERN = re.compile(
-    r'(?:[A-Za-z]:)?[\\/](?:[^\s\\/:*?"<>|]+[\\/])+([^\s\\/:*?"<>|]+)')
+    r'(?:[A-Za-z]:)?[\\/](?:[^\s\\/:*?"<>|]+(?: [^\s\\/:*?"<>|]+)*[\\/])+'
+    r'([^\s\\/:*?"<>|]+)')
 
 # ANSI escape sequences (CSI: colours, cursor moves), e.g. yt-dlp's
 # "\x1b[0;31mERROR:\x1b[0m" -- unreadable noise in a report or log view.

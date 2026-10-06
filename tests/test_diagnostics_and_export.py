@@ -887,6 +887,16 @@ class TestRedactForSupport:
         assert "bob" not in text
         assert "audio.wav" in text
 
+    def test_collapses_windows_paths_with_spaces_in_folder_names(self):
+        text = diagnostics.redact_for_support(
+            r"saved to C:\Users\x\My Documents\Baihe Data\library\12\audio.wav")
+        assert text == "saved to .../audio.wav"
+
+    def test_collapses_posix_paths_with_spaces_in_folder_names(self):
+        text = diagnostics.redact_for_support(
+            "saved to /home/x/My Documents/Baihe Data/library/12/audio.wav, retrying")
+        assert text == "saved to .../audio.wav, retrying"
+
     def test_empty_text_is_safe(self):
         assert diagnostics.redact_for_support("") == ""
         assert diagnostics.redact_for_support(None) == ""

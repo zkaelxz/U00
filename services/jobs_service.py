@@ -63,6 +63,12 @@ _MAX_JSON = 8000
 _URL_PATTERN = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 
 
+def scrub_text(text: str) -> str:
+    # URLs first: a fetched URL can carry a token or a private host that the
+    # path and key redaction wouldn't recognise.
+    return redact_text(_URL_PATTERN.sub("[URL]", text or ""))
+
+
 def _safe_scalar(value):
     if value is None or isinstance(value, bool):
         return value
@@ -71,7 +77,7 @@ def _safe_scalar(value):
     if isinstance(value, float):
         return value if value == value and abs(value) != float("inf") else None
     if isinstance(value, str):
-        return redact_text(_URL_PATTERN.sub("[URL]", value))[:_MAX_STR]
+        return scrub_text(value)[:_MAX_STR]
     return None
 
 
@@ -411,12 +417,12 @@ def _redact(record: dict) -> dict:
         stored = None
     # Re-projected on read too, so an older row can never leak a dropped key.
     out["result"] = project_result(stored)
-    out["message"] = redact_text(record.get("message") or "")
-    out["error"] = redact_text(record.get("error") or "") or None
+    out["message"] = scrub_text(record.get("message") or "")
+    out["error"] = scrub_text(record.get("error") or "") or None
     out["gpu_touching"] = bool(record.get("gpu_touching"))
     outcome, message = derive_outcome(out.get("status"), out["error"], out["result"])
     out["outcome"] = outcome
-    out["outcome_message"] = (redact_text(message)[:_MAX_STR]
+    out["outcome_message"] = (scrub_text(message)[:_MAX_STR]
                               if message else None)
     out["stale"] = is_stale(record)
     out["stalled"] = bool(record.get("stalled"))
