@@ -11,7 +11,7 @@ import pytest
 import dub
 from core import Line
 from services import dub_service, settings_service
-from services.service_errors import NotFoundError
+from services.service_errors import InvalidInputError, NotFoundError
 
 FAKE_URL = "http://secret-host.example:9999"
 
@@ -174,3 +174,12 @@ def test_h3_pacing_skips_malformed_records(isolated_db):
     out = dub_service.get_dub_pacing(did)
     assert [ln["idx"] for ln in out["lines"]] == [1]
     assert out["lines"][0]["clip_ms"] == 10.5
+
+
+def test_resolve_pacing_limits_defaults_and_ranges():
+    assert dub_service.resolve_pacing_limits(None, None) == (
+        dub_service.dub.DUB_MAX_SPEEDUP, dub_service.dub.DUB_MAX_SLOWDOWN)
+    assert dub_service.resolve_pacing_limits(1.5, 0.8) == (1.5, 0.8)
+    for bad in [(0, None), (2.1, None), (None, 0), (None, 1.1), (0.9, None)]:
+        with pytest.raises(InvalidInputError, match="out of range"):
+            dub_service.resolve_pacing_limits(*bad)

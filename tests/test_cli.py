@@ -34,6 +34,13 @@ import translate_engines
 import dub as dub_module
 from core import Line
 import cli
+from services import dub_service
+
+
+@pytest.fixture(autouse=True)
+def _tts_dependencies_present(monkeypatch):
+    # cmd_dub checks ffmpeg and the TTS package up front; CI has neither.
+    monkeypatch.setattr(dub_service, "_missing_engine_dependency", lambda engine: None)
 
 
 def _translate_args(**overrides):
@@ -44,6 +51,12 @@ def _translate_args(**overrides):
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
+
+
+def _offered_model(engine_name):
+    from services import translate_service
+    return next(e["models"][0] for e in translate_service.list_engines()
+                if e["name"] == engine_name)
 
 
 def _dub_args(**overrides):
@@ -660,6 +673,72 @@ class TestCmdAlignUsesDramaSettings:
             cli.cmd_align(self._args(id=did))
         assert isolated_db.load_lines(did)[0]["zh"] == "你好"
         assert isolated_db.get_drama(did)["status"] == "aligned"
+
+
+class TestCmdAlignGroqAndEmptyResult(TestCmdAlignUsesDramaSettings):
+    # Reuses the drama/args helpers; the inherited tests are skipped below.
+    test_uses_the_dramas_own_saved_whisper_size = None
+    test_a_gpu_to_cpu_fallback_is_printed = None
+    test_an_explicit_flag_still_overrides_the_dramas_saved_size = None
+    test_glossary_terms_are_used_to_prime_recognition = None
+    test_qwen3_forced_align_is_used_when_saved_on_the_drama = None
+    test_missing_qwen3_fails_clearly_before_transcribing = None
+    test_a_late_qwen3_import_error_still_fails_and_frees_the_gpu = None
+    test_debug_traceback_and_failure_text_are_redacted = None
+    test_qwen3_fallback_message_redacts_the_error = None
+    test_default_whisper_diff_alignment_is_unaffected = None
+
+    def test_use_groq_transcribes_through_groq_not_local_whisper(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, use_groq=1)
+        seen = {}
+        monkeypatch.setattr(cli.settings_service, "resolve_key",
+                            lambda name: "groq-key" if name == "groq" else None)
+
+        def fake_groq(audio_path, language, key, **kw):
+            seen.update(language=language, key=key)
+            return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+        monkeypatch.setattr(cli.core_module, "transcribe_with_groq", fake_groq)
+        monkeypatch.setattr(cli, "transcribe_for_timing", lambda *a, **k: pytest.fail("local"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_align(self._args(id=did))
+        assert seen == {"language": "zh", "key": "groq-key"}
+        assert isolated_db.get_drama(did)["status"] == "aligned"
+
+    def test_use_groq_without_a_key_fails_before_transcribing(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, use_groq=1)
+        monkeypatch.setattr(cli.settings_service, "resolve_key", lambda name: None)
+        monkeypatch.setattr(cli, "transcribe_for_timing", lambda *a, **k: pytest.fail("local"))
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            cli.cmd_align(self._args(id=did))
+        assert "no Groq API key" in err.getvalue()
+        assert isolated_db.get_drama(did)["status"] == "not started"
+
+    def test_groq_error_is_redacted(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, use_groq=1)
+        monkeypatch.setattr(cli.settings_service, "resolve_key", lambda name: "gsk_abc123secret")
+
+        def boom(*a, **k):
+            raise cli.core_module.GroqTranscriptionError("bad key gsk_abc123secret")
+        monkeypatch.setattr(cli.core_module, "transcribe_with_groq", boom)
+        monkeypatch.setattr(translate_engines, "redact_secrets",
+                            lambda text: text.replace("gsk_abc123secret", "[redacted]"))
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            cli.cmd_align(self._args(id=did))
+        assert "Groq transcription failed" in err.getvalue()
+        assert "gsk_abc123secret" not in err.getvalue()
+
+    def test_no_speech_stops_and_keeps_existing_lines(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="旧")])
+        monkeypatch.setattr(cli, "transcribe_for_timing", lambda *a, **k: [])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_align(self._args(id=did))
+        assert "no speech was found" in out.getvalue()
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧"]
+        assert isolated_db.get_drama(did)["status"] == "not started"
 
 
 class TestCmdDubFlagPreservation:
@@ -1472,8 +1551,9 @@ class TestCliServiceParity:
         assert "saved engine deepseek" in self.out and "sk-ant" not in self.out
 
     def test_a_bare_api_key_still_works_for_claude_dramas(self, isolated_db, monkeypatch):
-        engines, _ = self._translate(isolated_db, monkeypatch, {}, api_key="sk-ant", model="m")
-        assert engines == [("claude", "sk-ant", "m")]
+        model = _offered_model("claude")
+        engines, _ = self._translate(isolated_db, monkeypatch, {}, api_key="sk-ant", model=model)
+        assert engines == [("claude", "sk-ant", model)]
 
     def test_translate_without_api_key_uses_the_saved_claude_key(self, isolated_db, monkeypatch):
         engines, seen = self._translate(isolated_db, monkeypatch, {}, api_key=None, model=None)
@@ -1491,9 +1571,10 @@ class TestCliServiceParity:
         assert seen and seen.get("cost_cap_usd") is None
 
     def test_translate_explicit_engine_flag_still_wins(self, isolated_db, monkeypatch):
+        model = _offered_model("gemini")
         engines, _ = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
-                                     engine="gemini", api_key="g-key", model="gm")
-        assert engines == [("gemini", "g-key", "gm")]
+                                     engine="gemini", api_key="g-key", model=model)
+        assert engines == [("gemini", "g-key", model)]
 
     def test_translate_novel_drama_gets_10_6_30(self, isolated_db, monkeypatch):
         _, seen = self._translate(isolated_db, monkeypatch, {"content_mode": "novel_narration"})
@@ -1870,3 +1951,109 @@ class TestCmdSetLanguage:
         lines[0].en = "Hello"
         isolated_db.save_lines(did, lines)
         assert isolated_db.load_line_objects(did)[0].lang == "en"
+
+
+class TestCmdDubValidatesLikeTheService:
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        return did
+
+    @pytest.mark.parametrize("overrides", [
+        dict(max_speedup=2.5), dict(max_speedup=0.0), dict(max_slowdown=0.0),
+        dict(max_slowdown=1.5)])
+    def test_out_of_range_pacing_stops_before_any_drama_runs(
+            self, isolated_db, monkeypatch, overrides):
+        did = self._drama(isolated_db)
+        built = []
+        monkeypatch.setattr(dub_module, "build_dub_track",
+                            lambda *a, **k: built.append(1) or ("fake.wav", []))
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_dub(_dub_args(id=did, **overrides))
+        assert "Pacing limits are out of range." in str(exc.value)
+        assert not built
+
+    def test_missing_tts_dependency_fails_with_the_services_text(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        monkeypatch.setattr(dub_service, "_missing_engine_dependency",
+                            lambda engine: f"The {engine} package is not installed.")
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_dub(_dub_args(id=did, tts_engine="offline"))
+        assert "The offline package is not installed." in str(exc.value)
+
+
+class TestCmdTranslateValidatesLikeTheService:
+    def _run(self, isolated_db, monkeypatch, **overrides):
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        calls = []  # the episode-summary engine is built up front, so track the main one
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda name, *a, **k: calls.append(name) or object())
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_translate(_translate_args(id=did, **overrides))
+        assert overrides.get("engine", "claude") not in calls
+        return str(exc.value)
+
+    def test_batch_size_over_the_limit(self, isolated_db, monkeypatch):
+        assert "Batch size can't be more than 60" in self._run(
+            isolated_db, monkeypatch, batch_size=61)
+
+    def test_negative_context_window(self, isolated_db, monkeypatch):
+        assert "out of range" in self._run(isolated_db, monkeypatch, context_window=-1)
+
+    def test_negative_cost_cap(self, isolated_db, monkeypatch):
+        assert "can't be negative" in self._run(isolated_db, monkeypatch, cost_cap=-1.0)
+
+    def test_unknown_locale_and_style_preset(self, isolated_db, monkeypatch):
+        assert "Unknown English variant." in self._run(isolated_db, monkeypatch, locale="xx")
+        assert "Unknown style preset." in self._run(
+            isolated_db, monkeypatch, style_preset="nope")
+
+    def test_model_the_engine_does_not_offer(self, isolated_db, monkeypatch):
+        assert "isn't offered" in self._run(isolated_db, monkeypatch, model="not-a-model")
+
+    def test_gemini_free_tier_model_block(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(cli, "_gemini_free_tier", lambda name: name == "gemini")
+        model = sorted(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS)[0]
+        assert "free tier" in self._run(
+            isolated_db, monkeypatch, engine="gemini", model=model)
+
+
+class TestCmdTranslateMatchesServiceCapsAndRunningJob:
+    class _Engine:
+        name = "ollama"
+        model = "m"
+        supports_reference = False
+        last_usage = {}
+
+        def translate_batch(self, zh_lines, context):
+            return [f"EN:{z}" for z in zh_lines]
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def test_job_cap_is_not_applied_to_a_free_engine(self, isolated_db, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: self._Engine())
+        monkeypatch.setattr(
+            translate_engines, "translate_lines_with_engine",
+            lambda lines, engine, **k: seen.update(cap=k["cost_cap_usd"]) or ([], []))
+        did = self._drama(isolated_db)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did, engine="ollama", cost_cap=1.0))
+        assert seen["cap"] is None
+
+    def test_skips_a_title_the_app_is_already_translating(self, isolated_db, monkeypatch):
+        calls = []
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda name, *a, **k: calls.append(name) or self._Engine())
+        monkeypatch.setattr(cli.background_jobs, "is_running", lambda job_id: True)
+        did = self._drama(isolated_db)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_translate(_translate_args(id=did))
+        assert "already running" in out.getvalue()
+        assert "claude" not in calls
+        assert not any(r["en"] for r in isolated_db.load_lines(did))

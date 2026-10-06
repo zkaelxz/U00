@@ -194,6 +194,25 @@ def _missing_engine_dependency(tts_engine: str):
     return None
 
 
+def require_engine_dependency(tts_engine: str) -> None:
+    """DependencyUnavailableError when ffmpeg or the engine's package is
+    missing; shared with `cli.py dub` so both fail with the same text."""
+    missing = _missing_engine_dependency(tts_engine)
+    if missing:
+        raise DependencyUnavailableError(missing)
+
+
+def resolve_pacing_limits(max_speedup, max_slowdown) -> tuple:
+    """(max_speedup, max_slowdown) with None -> the defaults; InvalidInputError
+    when out of range. None, not falsiness, picks the default so an explicit 0
+    is refused rather than silently replaced."""
+    max_speedup = dub.DUB_MAX_SPEEDUP if max_speedup is None else max_speedup
+    max_slowdown = dub.DUB_MAX_SLOWDOWN if max_slowdown is None else max_slowdown
+    if not (1.0 <= max_speedup <= 2.0 and 0.5 <= max_slowdown <= 1.0):
+        raise InvalidInputError("Pacing limits are out of range.")
+    return max_speedup, max_slowdown
+
+
 def _missing_separation_dependency(backend: str):
     """Fixed-text reason background separation can't run here, or None.
     Never names a path."""
@@ -263,10 +282,7 @@ def start_dub_run(drama_id: int, tts_engine: str = "edge_tts", max_speedup=None,
             raise InvalidInputError("Unknown narration language.")
         if not is_narration:
             raise InvalidInputError("Narration language only applies to narration dramas.")
-    max_speedup = dub.DUB_MAX_SPEEDUP if max_speedup is None else max_speedup
-    max_slowdown = dub.DUB_MAX_SLOWDOWN if max_slowdown is None else max_slowdown
-    if not (1.0 <= max_speedup <= 2.0 and 0.5 <= max_slowdown <= 1.0):
-        raise InvalidInputError("Pacing limits are out of range.")
+    max_speedup, max_slowdown = resolve_pacing_limits(max_speedup, max_slowdown)
 
     if narration_language is None:
         narration_language = drama.get("narration_language") or "translation"
@@ -277,9 +293,7 @@ def start_dub_run(drama_id: int, tts_engine: str = "edge_tts", max_speedup=None,
     if not any((getattr(ln, "zh" if narrate_original else "en") or "").strip() for ln in lines):
         raise InvalidInputError("No source text to narrate." if narrate_original
                                 else "No translated lines to dub yet.")
-    missing = _missing_engine_dependency(tts_engine)
-    if missing:
-        raise DependencyUnavailableError(missing)
+    require_engine_dependency(tts_engine)
 
     background_source = None
     separation_backend = drama.get("separation_backend") or "auto"
