@@ -300,6 +300,12 @@ WHISPER_MODELS = {
     "large-v3-turbo": "large-v3-turbo -- default; close to large-v3 in our tests, about 2x faster",
 }
 DEFAULT_WHISPER_SIZE = "large-v3-turbo"
+# Bounds of the "Speech-splitting sensitivity" (min_silence_ms) setting, enforced
+# for the saved value and for auto-tune candidates. Keep in sync with
+# frontend/src/pages/workspace/sourceForm.ts. 100 ms is about three Silero VAD
+# windows, so shorter values stop being distinguishable from the detector's noise.
+MIN_SILENCE_MS_MIN = 100
+MIN_SILENCE_MS_MAX = 3000
 # Auto-tune's default candidate min_silence_duration_ms values -- spans the
 # "Speech-splitting sensitivity" slider's real range meaningfully (300 is the
 # app's default, services/transcribe_service._DEFAULT_TUNING; 3000 the
@@ -830,9 +836,16 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
     punctuation, then at commas, then at spaces next to CJK text, packing
     neighbouring pieces up to the limits.
 
-    Whisper segments carry no word timing at this point, so each piece gets a
-    share of the original span proportional to its character count: boundaries
-    are estimates, but pieces stay contiguous, increasing and inside the span.
+    When a segment carries Whisper word timings that spell exactly its text,
+    pieces are timed by their own first and last word, and a line with no
+    punctuation is cut at the real pauses between words. Without words, or when
+    they cannot be mapped onto the text exactly, the old estimate is the
+    fallback: each piece gets a share of the original span proportional to its
+    character count, so boundaries are guesses but pieces stay contiguous,
+    increasing and inside the span. That fallback still cuts at punctuation
+    (a failed word mapping does not leave a punctuated line whole, because a
+    punctuation cut is what this function did before words existed); a line
+    with no punctuation is left whole.
     Text with no usable cut, and short segments, are returned as they are.
     Other keys (speaker) are copied onto every piece.
 

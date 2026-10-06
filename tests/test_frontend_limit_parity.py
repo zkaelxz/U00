@@ -26,6 +26,12 @@ def test_translate_text_cap_matches_the_schema():
     assert _ts_number("api/translate.ts", "MAX_TRANSLATE_TEXT_CHARS") == max_length
 
 
+def test_min_silence_bounds_match_core():
+    import core
+    assert _ts_number("pages/workspace/sourceForm.ts", "MIN_SILENCE_MS_MIN") == core.MIN_SILENCE_MS_MIN
+    assert _ts_number("pages/workspace/sourceForm.ts", "MIN_SILENCE_MS_MAX") == core.MIN_SILENCE_MS_MAX
+
+
 def test_novel_epub_cap_matches_the_attach_service():
     assert (_ts_number("pages/workspace/stages/novelFile.ts", "MAX_NOVEL_EPUB_BYTES")
             == novel_attach_service.MAX_EPUB_BYTES)

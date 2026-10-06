@@ -133,6 +133,42 @@ class TestOtherFfmpegTimeouts:
         assert seen == [core.EXTRACT_AUDIO_TIMEOUT_SECONDS]
 
 
+class TestSoftsubContainer:
+    @pytest.mark.parametrize("source,expected", [
+        ("a.mp4", ".mp4"), ("a.mkv", ".mkv"), ("a.webm", ".mkv"), ("a.mov", ".mkv"),
+        ("a.avi", ".mkv"), ("a.flv", ".mkv"), ("a.ts", ".mkv"),
+        ("A.MP4", ".mp4"), ("A.MKV", ".mkv"), ("A.WEBM", ".mkv"), ("noext", ".mkv"),
+    ])
+    def test_extension_choice(self, source, expected):
+        assert ve.softsub_output_extension(source) == expected
+
+    @pytest.mark.parametrize("source,codec", [
+        ("a.mp4", "mov_text"), ("a.mkv", "srt"), ("a.webm", "srt"), ("a.mov", "srt"),
+        ("a.avi", "srt"), ("A.WEBM", "srt"),
+    ])
+    def test_command_codec_follows_chosen_container(self, source, codec):
+        out = "out" + ve.softsub_output_extension(source)
+        cmd = ve.mux_soft_subtitles_cmd(source, "s.srt", out)
+        assert cmd[cmd.index("-c:s") + 1] == codec
+        assert cmd[cmd.index("-c:v") + 1] == "copy" and cmd[cmd.index("-c:a") + 1] == "copy"
+
+    def test_webm_with_vp8_and_opus_muxes_with_real_ffmpeg(self, tmp_path):
+        import shutil
+        import subprocess
+        if not shutil.which("ffmpeg"):
+            pytest.skip("ffmpeg not installed")
+        src = tmp_path / "t.webm"
+        made = subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=d=1:s=64x64:r=10",
+             "-f", "lavfi", "-i", "sine=d=1", "-c:v", "libvpx", "-c:a", "libopus", str(src)],
+            capture_output=True)
+        if made.returncode != 0:
+            pytest.skip("ffmpeg lacks libvpx/libopus")
+        out = str(tmp_path / ("out" + ve.softsub_output_extension(str(src))))
+        ve.mux_soft_subtitles(str(src), "1\n00:00:00,000 --> 00:00:00,900\nhi\n", out)
+        assert os.path.getsize(out) > 0
+
+
 # ---- input whitelist: real ffmpeg on real files --------------------------
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
@@ -209,8 +245,8 @@ def test_waveform_peaks_decode_supported_inputs(tmp_path, kind):
 @_needs_ffmpeg
 @pytest.mark.parametrize("kind", [".mp4", ".mkv", ".mov", ".webm", ".avi"])
 def test_video_exports_read_supported_inputs(tmp_path, kind):
-    """Soft subtitles, the dub track (replaced and mixed) and the burned-in
-    preview, on each accepted video type and a legacy .avi source."""
+    """Soft subtitles and the dub track (replaced and mixed), on each accepted
+    video type and a legacy .avi source."""
     video = _sample(tmp_path, kind)
     dub = _sample(tmp_path, ".wav")
     srt = tmp_path / "s.srt"
@@ -226,6 +262,12 @@ def test_video_exports_read_supported_inputs(tmp_path, kind):
         result = subprocess.run(cmd, capture_output=True, timeout=60)
         assert result.returncode == 0, (name, result.stderr[-500:])
         assert os.path.getsize(cmd[-1]) > 0
+
+
+@_needs_ffmpeg
+@pytest.mark.parametrize("kind", [".mp4", ".mkv", ".mov", ".webm", ".avi"])
+def test_burned_in_preview_reads_supported_inputs(tmp_path, kind):
+    video = _sample(tmp_path, kind)
     if " subtitles " not in subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
                                            capture_output=True, text=True, timeout=30).stdout:
         pytest.skip("this ffmpeg has no subtitles filter (the preview was not tried)")
@@ -234,6 +276,13 @@ def test_video_exports_read_supported_inputs(tmp_path, kind):
     out = str(tmp_path / "p.mp4")
     ve.render_preview_clip(video, "[Script Info]\n", out, 0.0, 0.5)
     assert os.path.getsize(out) > 0
+
+
+def test_the_local_format_whitelist_names_no_playlist_or_network_format():
+    names = set(ve.LOCAL_MEDIA_FORMATS.split(","))
+    risky = {"hls", "dash", "concat", "ffconcat", "imf", "image2", "lavfi", "sdp",
+             "rtp", "rtsp", "webvtt", "vobsub"}
+    assert not names & risky
 
 
 class _Listener:

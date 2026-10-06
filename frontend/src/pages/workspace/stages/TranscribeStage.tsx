@@ -29,6 +29,8 @@ import type {
 import {
   advancedSummary,
   loadSourceForm,
+  MIN_SILENCE_MS_MAX,
+  MIN_SILENCE_MS_MIN,
   parseExpectedSpeakers,
   parseSpeakerHints,
   runOptionProblem,
@@ -648,7 +650,7 @@ export default function TranscribeStage({
           {cf && <>
           <div className="source-grid">
             {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
-            {num('Min silence', 'min_silence_ms', 50, '300-3000. Silence that splits lines; longer gives fewer, longer lines. Auto-tune below can pick it.', 'ms')}
+            {num('Min silence', 'min_silence_ms', 50, `${MIN_SILENCE_MS_MIN}-${MIN_SILENCE_MS_MAX}. Silence that splits lines; longer gives fewer, longer lines. Lower values split at shorter pauses and can cut mid-sentence. Auto-tune below can pick it.`, 'ms')}
             {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
             {num('Hallucination guard', 'hallucination_silence_sec', 0.5, 'Experimental. 0 (off) or 0.5-10. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Whisper only: ignored by Qwen3-ASR, and by Fast mode.', 's')}
             {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
