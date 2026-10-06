@@ -16,7 +16,15 @@ import { mediaKind } from '../detailsForm'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
-import { checkUploadFile, isUploadLimitProblem, sourceJobIds, UPLOAD_EXTENSIONS, UPLOAD_LIMIT_SETTINGS_HREF } from '../sourceForm'
+import {
+  checkUploadFile,
+  isUploadLimitProblem,
+  isVideoFile,
+  sourceJobIds,
+  UPLOAD_EXTENSIONS,
+  UPLOAD_LIMIT_SETTINGS_HREF,
+  UPLOAD_SETS_VIDEO_ASIDE,
+} from '../sourceForm'
 import { useStage } from '../StageContext'
 import { DetailsPanel } from './DetailsPanel'
 import { FillInPanel } from './MetadataPanel'
@@ -186,6 +194,7 @@ export default function SourceStage() {
             dramaId={dramaId}
             contentMode={drama.content_mode}
             hasAudio={media.has_audio}
+            hasSourceVideo={media.has_source_video}
             busy={busy}
             onStarted={(id) => {
               setUploaded(null)
@@ -216,6 +225,11 @@ export default function SourceStage() {
               <input type="checkbox" id={replaceBoxId(dramaId)} checked={replace} onChange={(e) => setReplace(e.target.checked)} />
               Replace the current audio/video (the old file is kept in this title's folder)
             </label>
+          )}
+          {mustConfirm && media?.has_source_video && !(file && isVideoFile(file.name)) && (
+            <p className="muted" data-testid="replace-sets-video-aside">
+              {UPLOAD_SETS_VIDEO_ASIDE}
+            </p>
           )}
         </div>
       )}

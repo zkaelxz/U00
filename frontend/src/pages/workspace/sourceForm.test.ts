@@ -4,6 +4,7 @@ import { ApiError } from '../../api/client'
 import {
   advancedSummary,
   checkOcrImages,
+  isVideoFile,
   ocrBackendOptions,
   runOptionProblem,
   runProblemFromError,
@@ -81,5 +82,14 @@ describe('runProblemFromError', () => {
     expect(runProblemFromError(err('validation_error', 'Invalid transcribe options.'))).toBeNull()
     expect(runProblemFromError(err('validation_error', 'forced alignment failed at /home/me/x'))).toBeNull()
     expect(runProblemFromError(null)).toBeNull()
+  })
+})
+
+describe('isVideoFile', () => {
+  it('tells a video upload from an audio one by extension, any case', () => {
+    expect(isVideoFile('Episode 1.WEBM')).toBe(true)
+    expect(isVideoFile('clip.mkv')).toBe(true)
+    expect(isVideoFile('dub.mp3')).toBe(false)
+    expect(isVideoFile('mp4.wav')).toBe(false)
   })
 })
