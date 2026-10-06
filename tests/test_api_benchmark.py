@@ -335,8 +335,8 @@ class TestRuns:
         (res,) = detail["results"]
         assert res["case_id"] == case_id
         assert res["output_text"].startswith("[TEST]")
-        assert res["metric"] == "similarity"
-        assert res["scorer"] == "builtin"
+        assert res["metric"] in ("chrf", "similarity")
+        assert res["scorer"] == ("sacrebleu" if res["metric"] == "chrf" else "builtin")
 
         listed = c.get(f"{BASE}/runs").json()["runs"]
         assert [x["id"] for x in listed] == [sid]
