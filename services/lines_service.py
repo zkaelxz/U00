@@ -23,6 +23,7 @@ Error messages never echo user text, and no path or key is returned.
 """
 import math
 
+import bulk_translate
 import core as core_module
 import db
 import translation_guide
@@ -163,6 +164,7 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
         db.save_lines(drama_id, [ln], fields=tuple(fields))
 
     if en_changed:
+        bulk_translate.mark_translated_if_complete(drama_id)
         if before_en and ln.en:
             db.record_edit_sample(drama_id, ln.zh, before_en, ln.en)
         if drama.get("series_id") and ln.en.strip():
@@ -283,6 +285,7 @@ def accept_tm_suggestion(drama_id: int, line_id: int, entry_id: int, expected_en
         raise ConflictError("This line changed since you loaded it.",
                             details={"fields": ["en"]})
     db.bump_translation_memory_use(entry["id"])
+    bulk_translate.mark_translated_if_complete(drama_id)
     return _reload_dict(drama_id, line_id)
 
 
