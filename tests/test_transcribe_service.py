@@ -935,7 +935,7 @@ class TestQwen3Backends:
 
         class FakeQwen3ASR:
             def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
-                           batch_size=1, progress_cb=None):
+                           batch_size=1, progress_cb=None, **_device_callbacks):
                 calls.append((language, whisper_segments, use_gpu, batch_size))
                 return [{"start": s["start"], "end": s["end"], "text": "qwen text"}
                         for s in whisper_segments]
@@ -969,7 +969,7 @@ class TestQwen3Backends:
 
         class FakeQwen3ASR:
             def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
-                           batch_size=1, progress_cb=None):
+                           batch_size=1, progress_cb=None, **_device_callbacks):
                 return [{"start": s["start"], "end": s["end"], "text": text}
                         for s in whisper_segments]
         monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", FakeQwen3ASR)
@@ -1006,7 +1006,7 @@ class TestQwen3Backends:
 
         class FakeQwen3ASR:
             def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
-                           batch_size=1, progress_cb=None):
+                           batch_size=1, progress_cb=None, **_device_callbacks):
                 progress_cb(0.5)
                 progress_cb(1.0)
                 return [{"start": s["start"], "end": s["end"], "text": "q"} for s in whisper_segments]
@@ -1113,7 +1113,7 @@ class TestQwen3Backends:
                             lambda *a, **k: [{"start": 0.0, "end": 2.0, "text": "x"}])
         calls = []
 
-        def fake_align(audio_path, user_lines, segments, language, use_gpu=False):
+        def fake_align(audio_path, user_lines, segments, language, use_gpu=False, **_device_callbacks):
             calls.append((language, use_gpu, list(user_lines)))
             return [Line(idx=0, start=0.25, end=1.75, zh="hi there")]
         monkeypatch.setattr(forced_align, "align_with_qwen3", fake_align)

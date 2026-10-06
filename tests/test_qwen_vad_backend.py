@@ -303,3 +303,75 @@ def test_pipeline_cancel_before_start_returns_cancelled(tmp_path, monkeypatch):
     out = _pipeline(_Rep(cancelled=True), tmp_path, monkeypatch,
                     lambda self, *a, **k: pytest.fail("ran"))
     assert out == {"failed_reason": "cancelled"}
+
+
+class _RecordingRep(_Rep):
+    def __init__(self):
+        super().__init__()
+        self.messages = []
+
+    def progress(self, frac, message=""):
+        self.messages.append(message)
+
+    def stage(self, message, frac=0.0):
+        self.messages.append(message)
+        return super().stage(message, frac)
+
+
+def test_pipeline_stage_texts_name_the_cpu_stages_and_the_device(tmp_path, monkeypatch):
+    def fake(self, audio_path, language, stage_cb=None, on_device=None, progress_cb=None, **kw):
+        stage_cb("Loading audio (CPU)")
+        stage_cb("Finding speech (CPU)")
+        stage_cb("Loading the Qwen3-ASR model")
+        on_device("Qwen3-ASR", "GPU")
+        progress_cb(0.42)
+        return [{"start": 1.0, "end": 2.0, "text": "你好"}]
+    rep = _RecordingRep()
+    out = _pipeline(rep, tmp_path, monkeypatch, fake)
+    assert "Loading audio (CPU)" in rep.messages
+    assert "Finding speech (CPU)" in rep.messages
+    assert any(m.startswith("Transcribing with Qwen3-ASR on GPU (no percent") for m in rep.messages)
+    assert "Transcribing with Qwen3-ASR on GPU... 42%" in rep.messages
+    assert out["device_msg"] == "Qwen3-ASR on GPU"
+    assert out["gpu_fallback_msgs"] == []
+
+
+def test_pipeline_reports_a_gpu_fallback_in_the_outcome_and_job_result(tmp_path, monkeypatch):
+    def fake(self, audio_path, language, on_device=None, on_gpu_fallback=None, **kw):
+        on_gpu_fallback("Qwen3-ASR", RuntimeError("CUDA error: no kernel image is available"))
+        on_device("Qwen3-ASR", "CPU")
+        return [{"start": 1.0, "end": 2.0, "text": "你好"}]
+    out = _pipeline(_RecordingRep(), tmp_path, monkeypatch, fake)
+    assert out["gpu_fallback_task"] == "Qwen3-ASR"
+    assert out["device_msg"] == "Qwen3-ASR on CPU"
+    from services import jobs_service, transcribe_service
+    notice = transcribe_service.core_module.gpu_fallback_notice(
+        out["gpu_fallback_task"], out["gpu_fallback_msgs"][0])
+    assert notice.startswith("Qwen3-ASR ran on the CPU because the GPU couldn't be used (")
+    shown = jobs_service.project_result({
+        "gpu_fallback": out["gpu_fallback_msgs"][0], "device_notice": notice,
+        "device": "GPU unavailable; using CPU"})
+    assert shown["device_notice"] == notice and "no kernel image" in shown["gpu_fallback"]
+
+
+def test_cpu_run_reports_cpu_and_no_warning(tmp_path, monkeypatch):
+    def fake(self, audio_path, language, on_device=None, **kw):
+        on_device("Qwen3-ASR", "CPU")
+        return [{"start": 1.0, "end": 2.0, "text": "你好"}]
+    out = _pipeline(_RecordingRep(), tmp_path, monkeypatch, fake)
+    assert out["device_msg"] == "Qwen3-ASR on CPU" and out["gpu_fallback_msgs"] == []
+
+
+def test_backend_names_the_cpu_stages_and_passes_device_callbacks_to_the_loaders(
+        fakes, monkeypatch):
+    fakes(["你好"])
+    stages, loads = [], []
+    monkeypatch.setattr(ab, "load_qwen3_asr",
+                        lambda use_gpu=False, model_size="1.7B", **kw: (loads.append(sorted(kw)),
+                                                                        SeqModel(["你好"]))[1])
+    ab.Qwen3ASRVadBackend().transcribe(
+        "/a.wav", "zh", vad_fn=vad([(1.0, 3.0)]), stage_cb=stages.append,
+        on_device=lambda task, label: None, on_gpu_fallback=lambda task, exc: None)
+    assert stages[:3] == ["Loading audio (CPU)", "Finding speech (CPU)",
+                          "Loading the Qwen3-ASR model"]
+    assert loads == [["on_device", "on_gpu_fallback"]]

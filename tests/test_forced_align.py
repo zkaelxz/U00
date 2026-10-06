@@ -421,6 +421,31 @@ class TestLoadQwen3Aligner:
         assert model is not None
         assert calls == ["cuda:0", "cpu"]
 
+    def _load(self, from_pretrained, use_gpu):
+        self._install_fake_qwen_asr(from_pretrained)
+        import forced_align
+        importlib.reload(forced_align)
+        forced_align._aligner_model_cache.clear()
+        seen = {"device": [], "fallback": []}
+        forced_align.load_qwen3_aligner(use_gpu=use_gpu, on_device=seen["device"].append,
+                                        on_gpu_fallback=seen["fallback"].append)
+        return seen
+
+    def test_gpu_error_reports_cpu_and_the_reason(self):
+        def from_pretrained(model_id, dtype, device_map):
+            if device_map == "cuda:0":
+                raise RuntimeError("CUDA error: no kernel image is available")
+            return object()
+        seen = self._load(from_pretrained, use_gpu=True)
+        assert seen["device"] == ["CPU"]
+        import core
+        assert "no kernel image" in core.short_reason(seen["fallback"][0])
+
+    def test_device_is_reported_without_a_fallback_otherwise(self):
+        ok = lambda model_id, dtype, device_map: object()
+        assert self._load(ok, use_gpu=True) == {"device": ["GPU"], "fallback": []}
+        assert self._load(ok, use_gpu=False) == {"device": ["CPU"], "fallback": []}
+
     def test_network_error_raises_model_download_error(self):
         def from_pretrained(model_id, dtype, device_map):
             raise OSError("Connection timed out while downloading from huggingface.co")

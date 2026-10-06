@@ -123,15 +123,23 @@ class WhisperBackend:
         )
 
 
-def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B"):
+def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B", on_device=None,
+                   on_gpu_fallback=None):
     """Loads (and caches) the Qwen3-ASR model. Same GPU-fallback/network-
     error handling pattern as forced_align.load_qwen3_aligner() and
     core.load_whisper_model() -- see forced_align.py's docstring for why a
     transformers/torch model's CUDA failure surfaces here, at load time,
     rather than deferred to first inference like ctranslate2/faster-whisper.
+
+    on_device("GPU"|"CPU") is called with where the model actually runs, cached
+    or not; on_gpu_fallback(exc) first when a requested GPU load fell back to
+    the CPU. A fallback is not cached under the GPU key, so every call retries
+    the GPU and reports it again.
     """
     cache_key = f"{model_size}_{'gpu' if use_gpu else 'cpu'}"
     if cache_key in _asr_model_cache:
+        if on_device:
+            on_device("GPU" if use_gpu else "CPU")
         return _asr_model_cache[cache_key]
 
     import torch
@@ -149,6 +157,9 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B"):
                 model_id, dtype=torch.bfloat16, device_map="cpu", max_new_tokens=256,
             )
             cache_key = f"{model_size}_cpu"
+            use_gpu = False
+            if on_gpu_fallback:
+                on_gpu_fallback(exc)
         elif is_network_error(exc):
             diag = diagnose_hostname("huggingface.co")
             if diag["status"] == "blocked":
@@ -165,7 +176,21 @@ def load_qwen3_asr(use_gpu: bool = False, model_size: str = "1.7B"):
             raise
 
     _asr_model_cache[cache_key] = model
+    if on_device:
+        on_device("GPU" if use_gpu else "CPU")
     return model
+
+
+def _device_callbacks(task, on_device, on_gpu_fallback) -> dict:
+    """Loader keyword arguments that tag a model load's device reports with the
+    task that loaded it, so one job can tell the ASR model from the aligner.
+    Empty when nobody listens, which keeps callers that don't care unchanged."""
+    out = {}
+    if on_device:
+        out["on_device"] = lambda label: on_device(task, label)
+    if on_gpu_fallback:
+        out["on_gpu_fallback"] = lambda exc: on_gpu_fallback(task, exc)
+    return out
 
 
 class Qwen3ASRBackend:
@@ -175,7 +200,7 @@ class Qwen3ASRBackend:
         self.model_size = model_size
 
     def transcribe(self, audio_path, language, whisper_segments, use_gpu=False, batch_size=1,
-                   progress_cb=None):
+                   progress_cb=None, on_device=None, on_gpu_fallback=None):
         """whisper_segments: the segmentation from WhisperBackend.transcribe()
         (or core.transcribe_for_timing() directly) -- see module docstring
         for why this backend needs Whisper's boundaries rather than
@@ -188,7 +213,8 @@ class Qwen3ASRBackend:
         not yet validated on real audio -- see docs/asr-experiments.md.
 
         progress_cb(fraction): called after each batch, 0..1 of the segments
-        to re-transcribe."""
+        to re-transcribe. on_device(task, "GPU"|"CPU") and on_gpu_fallback(task, exc)
+        report where the model loaded (task names it: "Qwen3-ASR")."""
         if language not in LANGUAGE_NAMES:
             raise ValueError(
                 f"Qwen3-ASR doesn't cover language={language!r} in this project's usage "
@@ -200,7 +226,8 @@ class Qwen3ASRBackend:
                 "-- run WhisperBackend.transcribe() first to get segment boundaries."
             )
 
-        model = load_qwen3_asr(use_gpu=use_gpu, model_size=self.model_size)
+        model = load_qwen3_asr(use_gpu=use_gpu, model_size=self.model_size,
+                               **_device_callbacks("Qwen3-ASR", on_device, on_gpu_fallback))
         language_name = LANGUAGE_NAMES[language]
         batch_size = effective_qwen_batch_size(batch_size)
         out = list(whisper_segments)
@@ -283,7 +310,8 @@ class Qwen3ASRVadBackend:
 
     def transcribe(self, audio_path, language, use_gpu=False, batch_size=1, progress_cb=None,
                    cancel_check=None, refine_timing=False, vad_fn=None,
-                   mixed_languages=False):
+                   mixed_languages=False, stage_cb=None, on_device=None,
+                   on_gpu_fallback=None):
         """Segments as {"start", "end", "text"} (plus "flag"/"flag_note" where
         refined timing is uncertain). cancel_check() is called between batches
         and between aligned spans and should raise to stop; nothing is written
@@ -297,7 +325,12 @@ class Qwen3ASRVadBackend:
         language=None is the same detection with no title language to compare
         with: every line gets its detected "lang" (zh, ja, ko or en; a
         span heard as anything else is retried in the language most spans
-        had). refine_timing is ignored then: the aligner takes one language per run."""
+        had). refine_timing is ignored then: the aligner takes one language per run.
+
+        stage_cb(text) is called as each stage starts, naming the processor
+        for the CPU-only ones (decoding, speech detection) so a busy CPU while
+        the GPU waits is explained. on_device(task, "GPU"|"CPU") and
+        on_gpu_fallback(task, exc) report where Qwen3-ASR and the aligner loaded."""
         import vad_segments
         from core import filter_hallucinated_segments, split_long_segments
         if language is None:
@@ -309,8 +342,12 @@ class Qwen3ASRVadBackend:
             )
         # Uses vad_segments' defaults, not the drama's saved vad_threshold/min_silence_ms,
         # which are tuned for Whisper's own VAD.
+        if stage_cb:
+            stage_cb("Loading audio (CPU)")
         audio = load_audio_16k(audio_path)
         sr = 16000
+        if stage_cb:
+            stage_cb("Finding speech (CPU)")
         # A short pause inside a sentence is not a place to cut: Qwen3-ASR does
         # worse on the halves. Language detection keeps the finer spans so a
         # quick change of speaker and language is not merged into one.
@@ -325,6 +362,8 @@ class Qwen3ASRVadBackend:
             return []
         if cancel_check:
             cancel_check()
+        if stage_cb:
+            stage_cb("Loading the Qwen3-ASR model")
         span_segments = [{"start": w.start_s, "end": w.end_s, "text": ""} for w in windows]
         refine_timing = refine_timing and not mixed_languages
         scale = 0.9 if refine_timing else 1.0
@@ -337,11 +376,12 @@ class Qwen3ASRVadBackend:
 
         if mixed_languages:
             transcribed = self._transcribe_mixed(audio_path, language, spans, windows, use_gpu,
-                                                 _progress, cancel_check)
+                                                 _progress, cancel_check, on_device,
+                                                 on_gpu_fallback)
         else:
             transcribed = Qwen3ASRBackend(model_size=self.model_size).transcribe(
                 audio_path, language, span_segments, use_gpu=use_gpu, batch_size=batch_size,
-                progress_cb=_progress)
+                progress_cb=_progress, on_device=on_device, on_gpu_fallback=on_gpu_fallback)
             # The model heard the padded windows; a line is timed by its span.
             transcribed = [{**seg, "start": span.start_s, "end": span.end_s}
                            for seg, span in zip(transcribed, spans)]
@@ -359,19 +399,23 @@ class Qwen3ASRVadBackend:
             groups.setdefault(p.pop("span"), []).append(p)
         if refine_timing and groups:
             import forced_align
+            if stage_cb:
+                stage_cb("Loading the Qwen3 forced aligner")
             lines = forced_align.refine_segment_timing(
                 audio_path, list(groups.values()), language, use_gpu=use_gpu,
                 cancel_check=cancel_check,
+                **_device_callbacks("Qwen3 forced alignment", on_device, on_gpu_fallback),
                 progress_cb=(lambda f: progress_cb(0.9 + 0.1 * f)) if progress_cb else None)
             return lines
         return [p for group in groups.values() for p in group]
 
     def _transcribe_mixed(self, audio_path, language, spans, windows, use_gpu, progress_cb,
-                          cancel_check):
+                          cancel_check, on_device=None, on_gpu_fallback=None):
         """Up to one segment per span (none when it has no text), with
         "lang"/"flag" set per mixed_language.transcribe_spans."""
         import mixed_language
-        model = load_qwen3_asr(use_gpu=use_gpu, model_size=self.model_size)
+        model = load_qwen3_asr(use_gpu=use_gpu, model_size=self.model_size,
+                               **_device_callbacks("Qwen3-ASR", on_device, on_gpu_fallback))
         with tempfile.TemporaryDirectory(prefix="baihe_qwen3_asr_") as tmp_dir:
             def transcribe(span, language_name):
                 window = windows[spans.index(span)]

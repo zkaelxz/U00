@@ -1020,6 +1020,31 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     moss_run = transcript_mode == "whisper" and asr_backend_choice == "moss_td"
     moss_info = {}
     vad_run = transcript_mode == "whisper" and asr_backend_choice == "qwen3_asr_vad"
+    # Where each Qwen3 model actually loaded ("Qwen3-ASR" -> "GPU"|"CPU"), so
+    # a busy CPU is told apart from a silent GPU fallback.
+    qwen_device = {}
+    fallback_tasks = []
+    vad_stage = {"ticker": None, "percent": False}
+
+    def _qwen_on_fallback(task, exc):
+        gpu_fallback_msg.append(core_module.short_reason(exc))
+        fallback_tasks.append(task)
+
+    def _qwen_on_device(task, label):
+        qwen_device[task] = label
+
+    def _on_vad_device(task, label):
+        _qwen_on_device(task, label)
+        # The model load ends the loading stage; until the first percent the
+        # stage text says where the work runs.
+        if task == "Qwen3-ASR" and vad_stage["ticker"] and not vad_stage["percent"]:
+            _vad_set_stage(f"Transcribing with Qwen3-ASR on {label} (no percent until "
+                           "the first batch finishes)")
+
+    def _vad_set_stage(text):
+        if vad_stage["ticker"]:
+            vad_stage["ticker"].stop()
+        vad_stage["ticker"] = rep.stage(text).start()
 
     if transcript_mode == "hardsub_ocr":
         import hardsub_ocr
@@ -1098,14 +1123,22 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             # Qwen3-ASR writes the text.
             if rep.cancelled():
                 return {"failed_reason": "cancelled"}
-            vad_ticker = rep.stage(
-                "Finding speech and transcribing with Qwen3-ASR (no percent until the "
-                "first batch finishes)").start()
+            _vad_set_stage("Loading audio (CPU)")
 
             def _vad_progress(frac):
-                vad_ticker.stop()
-                rep.progress(min(max(frac, 0.0), 1.0) * RUNNING_MAX,
-                             f"Transcribing with Qwen3-ASR... {frac * 100:.0f}%")
+                vad_stage["percent"] = True
+                vad_stage["ticker"].stop()
+                frac = min(max(frac, 0.0), 1.0)
+                if vad_refine_timing and not mixed_languages and frac > 0.9:
+                    # The backend gives the last tenth to the forced aligner.
+                    where = qwen_device.get("Qwen3 forced alignment")
+                    message = ("Aligning timing with the Qwen3 forced aligner"
+                               f"{f' on {where}' if where else ''}... {frac * 100:.0f}%")
+                else:
+                    where = qwen_device.get("Qwen3-ASR")
+                    message = (f"Transcribing with Qwen3-ASR{f' on {where}' if where else ''}"
+                               f"... {frac * 100:.0f}%")
+                rep.progress(frac * RUNNING_MAX, message)
 
             import asr_backend
             import vad_segments
@@ -1113,7 +1146,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 segments = asr_backend.get_backend("qwen3_asr_vad").transcribe(
                     audio_path, source_language, use_gpu=use_gpu, batch_size=qwen_batch_size,
                     progress_cb=_vad_progress, cancel_check=rep.raise_if_cancelled,
-                    refine_timing=vad_refine_timing, mixed_languages=mixed_languages)
+                    refine_timing=vad_refine_timing, mixed_languages=mixed_languages,
+                    stage_cb=_vad_set_stage, on_device=_on_vad_device,
+                    on_gpu_fallback=_qwen_on_fallback)
             except vad_segments.VadNotInstalledError as exc:
                 return {"failed_reason": "dependency_missing",
                         "detail": "Speech detection needs faster-whisper (it bundles the Silero "
@@ -1131,7 +1166,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 core_module.release_gpu_models()
                 raise
             finally:
-                vad_ticker.stop()
+                if vad_stage["ticker"]:
+                    vad_stage["ticker"].stop()
         elif moss_run:
             # Experimental: one pass that also labels speakers;
             # replaces Whisper for this run, only when chosen explicitly.
@@ -1288,15 +1324,18 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     # ticker would otherwise overwrite the message.
                     qwen_ticker.stop()
                     rep.raise_if_cancelled()
+                    where = qwen_device.get("Qwen3-ASR")
                     rep.progress(
                         QWEN_SPLIT + min(max(frac, 0.0), 1.0) * (RUNNING_MAX - QWEN_SPLIT),
-                        f"Re-transcribing with Qwen3-ASR (step 2 of 2)... {frac * 100:.0f}%")
+                        f"Re-transcribing with Qwen3-ASR (step 2 of 2)... {frac * 100:.0f}%"
+                        f"{f' (on {where})' if where else ''}")
 
                 try:
                     import asr_backend
                     segments = asr_backend.Qwen3ASRBackend().transcribe(
                         audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu,
-                        batch_size=qwen_batch_size, progress_cb=_qwen_progress)
+                        batch_size=qwen_batch_size, progress_cb=_qwen_progress,
+                        on_device=_qwen_on_device, on_gpu_fallback=_qwen_on_fallback)
                 except ImportError as exc:
                     return {"failed_reason": "dependency_missing",
                             "detail": "Qwen3-ASR needs qwen-asr and torch: pip install qwen-asr torch "
@@ -1325,10 +1364,18 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     return {"failed_reason": "cancelled"}
                 rep.progress(RUNNING_MAX,
                              "Aligning with Qwen3-ForcedAligner (true forced alignment)...")
+
+                def _aligner_on_device(label):
+                    qwen_device["Qwen3 forced alignment"] = label
+                    rep.progress(RUNNING_MAX, "Aligning with Qwen3-ForcedAligner "
+                                              f"(true forced alignment) on {label}...")
                 try:
                     import forced_align
                     lines = forced_align.align_with_qwen3(
-                        audio_path, user_lines, segments, language=source_language, use_gpu=use_gpu)
+                        audio_path, user_lines, segments, language=source_language, use_gpu=use_gpu,
+                        on_device=_aligner_on_device,
+                        on_gpu_fallback=lambda exc: _qwen_on_fallback(
+                            "Qwen3 forced alignment", exc))
                 except ImportError as exc:
                     return {"failed_reason": "dependency_missing",
                             "detail": "Qwen3 forced alignment needs qwen-asr and torch: "
@@ -1344,10 +1391,13 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 lines = align_transcript_to_timing(user_lines, segments)
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "aligned_transcript"
 
+    if qwen_device and not device_msg:
+        device_msg = ", ".join(f"{task} on {label}" for task, label in qwen_device.items())
     core_module.release_gpu_models()
     return {"lines": lines, "segments": segments, "raw_backend": raw_backend,
             "raw_model": raw_model, "raw_mode": raw_mode, "audio_path": audio_path,
             "gpu_fallback_msgs": gpu_fallback_msg, "device_msg": device_msg,
+            "gpu_fallback_task": fallback_tasks[0] if fallback_tasks else "Transcription",
             "whisper_clock": whisper_clock, "stage_seconds": stage_seconds,
             "word_align_error": word_align_error,
             "forced_align_error": forced_align_error, "coverage_warning": coverage_msg,
@@ -1424,8 +1474,10 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     return {
         "line_count": len(lines),
         "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
-        "device_notice": (core_module.gpu_fallback_notice("Transcription", gpu_fallback_msg[0])
-                          if gpu_fallback_msg else None),
+        "device_notice": (
+            core_module.gpu_fallback_notice(outcome.get("gpu_fallback_task", "Transcription"),
+                                            gpu_fallback_msg[0])
+            if gpu_fallback_msg else None),
         "device": (f"GPU unavailable ({gpu_fallback_msg[0]}); using CPU"
                    if gpu_fallback_msg else outcome["device_msg"]) or None,
         "word_align_error": outcome["word_align_error"],

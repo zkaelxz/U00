@@ -74,7 +74,7 @@ _WORD_UNIT_LANGUAGES = {"English"}
 _aligner_model_cache = {}
 
 
-def load_qwen3_aligner(use_gpu: bool = False):
+def load_qwen3_aligner(use_gpu: bool = False, on_device=None, on_gpu_fallback=None):
     """Loads (and caches) the Qwen3-ForcedAligner model.
 
     Unlike faster-whisper/ctranslate2 (see core.load_whisper_model's
@@ -86,9 +86,15 @@ def load_qwen3_aligner(use_gpu: bool = False):
     Raises ModelDownloadError on a network failure, reusing core.py's
     own classification/messaging so this looks consistent with the
     Whisper download-failure UI. Anything else propagates as-is.
+
+    on_device("GPU"|"CPU") reports where the model actually runs (cached or
+    not); on_gpu_fallback(exc) is called first when a requested GPU load fell
+    back to the CPU.
     """
     cache_key = "gpu" if use_gpu else "cpu"
     if cache_key in _aligner_model_cache:
+        if on_device:
+            on_device("GPU" if use_gpu else "CPU")
         return _aligner_model_cache[cache_key]
 
     import torch
@@ -105,6 +111,9 @@ def load_qwen3_aligner(use_gpu: bool = False):
                 "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16, device_map="cpu",
             )
             cache_key = "cpu"
+            use_gpu = False
+            if on_gpu_fallback:
+                on_gpu_fallback(exc)
         elif is_network_error(exc):
             diag = diagnose_hostname("huggingface.co")
             if diag["status"] == "blocked":
@@ -121,7 +130,16 @@ def load_qwen3_aligner(use_gpu: bool = False):
             raise
 
     _aligner_model_cache[cache_key] = model
+    if on_device:
+        on_device("GPU" if use_gpu else "CPU")
     return model
+
+
+def _device_callbacks(on_device, on_gpu_fallback) -> dict:
+    """Only the callbacks that were given, so callers that don't listen load the
+    model exactly as before."""
+    return {k: v for k, v in (("on_device", on_device), ("on_gpu_fallback", on_gpu_fallback))
+            if v}
 
 
 def _bucket_into_chunks(coarse_lines, max_chunk_seconds: float = MAX_CHUNK_SECONDS):
@@ -285,7 +303,7 @@ def _bad_line_timings(per_line_times) -> set:
 
 
 def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: str,
-                      use_gpu: bool = False):
+                      use_gpu: bool = False, on_device=None, on_gpu_fallback=None):
     """Drop-in alternative to core.align_transcript_to_timing() -- same
     inputs, same Line-list output -- that refines timing with true forced
     alignment instead of a character-diff heuristic. See the module
@@ -307,7 +325,7 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
 
     coarse_lines = align_transcript_to_timing(user_lines, whisper_segments)
     chunks = _bucket_into_chunks(coarse_lines)
-    model = load_qwen3_aligner(use_gpu=use_gpu)
+    model = load_qwen3_aligner(use_gpu=use_gpu, **_device_callbacks(on_device, on_gpu_fallback))
     language_name = ALIGNER_LANGUAGE_NAMES[language]
 
     per_line_times, repaired = {}, set()
@@ -334,7 +352,8 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
 
 
 def refine_segment_timing(audio_path: str, groups, language: str, use_gpu: bool = False,
-                          cancel_check=None, progress_cb=None):
+                          cancel_check=None, progress_cb=None, on_device=None,
+                          on_gpu_fallback=None):
     """Refines the line times inside each speech span with the forced aligner.
 
     groups: one list per span of {"start", "end", "text"} dicts, in order; the
@@ -348,7 +367,7 @@ def refine_segment_timing(audio_path: str, groups, language: str, use_gpu: bool 
         raise ValueError(
             f"Qwen3-ForcedAligner doesn't cover language={language!r} in this project's "
             f"usage (supported: {sorted(ALIGNER_LANGUAGE_NAMES)}).")
-    model = load_qwen3_aligner(use_gpu=use_gpu)
+    model = load_qwen3_aligner(use_gpu=use_gpu, **_device_callbacks(on_device, on_gpu_fallback))
     language_name = ALIGNER_LANGUAGE_NAMES[language]
     out = []
     with tempfile.TemporaryDirectory(prefix="baihe_forced_align_") as tmp_dir:
