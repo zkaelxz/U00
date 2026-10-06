@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 import db
 import storage
+import video_export
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -176,7 +177,7 @@ def test_video_download_extracts_audio_and_keeps_title(client, env):
     cmd = env.ffmpeg[0]
     assert cmd[0] == "ffmpeg" and os.path.dirname(os.path.dirname(cmd[-1])) == storage.temp_root()
     i = cmd.index("-i")
-    assert cmd[i - 2:i] == ["-protocol_whitelist", "file"]
+    assert cmd[i - 4:i] == video_export.local_input()
     _no_tmp(did)
 
 
@@ -397,7 +398,8 @@ def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
     assert st["status"] == "done", st
     assert FakeYDL.calls == [] and direct.hops == [(DIRECT, "93.184.216.34")]
     cmd = env.ffmpeg[0]
-    assert cmd[cmd.index("-protocol_whitelist") + 1] == "file"
+    i = cmd.index("-i")
+    assert cmd[i - 4:i] == video_export.local_input()
     assert os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
     assert env.writes == [{"audio_filename": "source.wav", "source_url": DIRECT}]
     _no_tmp(did)

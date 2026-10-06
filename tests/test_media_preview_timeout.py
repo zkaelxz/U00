@@ -57,6 +57,6 @@ def test_input_is_file_protocol_only_and_output_is_size_bounded(monkeypatch):
     ve.render_preview_clip("/v.mp4", "x", "/out.mp4", 0, 1)
     cmd = cmds[0]
     wl = cmd.index("-protocol_whitelist")
-    assert cmd[wl + 1] == "file" and wl < cmd.index("-i")
+    assert cmd[wl:wl + 4] == ve.local_input() and wl < cmd.index("-i")
     assert int(cmd[cmd.index("-fs") + 1]) == ve.PREVIEW_CLIP_MAX_BYTES <= 200 * 1024 * 1024
     assert cmd.index("-fs") < cmd.index("/out.mp4") and cmd[-1] == "/out.mp4"
