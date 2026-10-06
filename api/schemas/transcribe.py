@@ -147,6 +147,8 @@ class TranscribeConfig(BaseModel):
     vad_threshold: float
     # Seconds of silence inside a segment that make Whisper skip it; 0 = off.
     hallucination_silence_sec: float
+    # Shortest silence between words at which a long line may be cut.
+    min_pause_sec: float
     separate_vocals_first: bool
     separation_backend: str
     realign_long_segments: bool
@@ -170,6 +172,7 @@ class TranscribeConfigUpdate(BaseModel):
     min_silence_ms: Optional[int] = None
     vad_threshold: Optional[float] = None
     hallucination_silence_sec: Optional[float] = None
+    min_pause_sec: Optional[float] = None
     separate_vocals_first: Optional[bool] = None
     separation_backend: Optional[str] = None
     realign_long_segments: Optional[bool] = None

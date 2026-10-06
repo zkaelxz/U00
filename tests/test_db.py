@@ -1965,7 +1965,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "cover_art_filename", "genre", "publication_status", "chapter_count", "custom_tags",
         "personal_notes", "source_url", "transcript_mode", "whisper_size",
         "alignment_method", "asr_backend_choice", "min_silence_ms", "vad_threshold",
-        "beam_size", "hallucination_silence_sec", "separate_vocals_first", "separation_backend", "realign_long_segments",
+        "beam_size", "hallucination_silence_sec", "min_pause_sec", "separate_vocals_first", "separation_backend", "realign_long_segments",
         "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
         "project_instructions", "notion_page_id", "owner_user_id", "is_private"),
     "series": ("instructions", "owner_user_id", "is_private"),
@@ -2121,6 +2121,11 @@ class TestInitDbSchema:
         upgraded_exact = _exact_snapshot(isolated_db.DB_PATH)
         isolated_db.init_db()
         assert _exact_snapshot(isolated_db.DB_PATH) == upgraded_exact
+
+    def test_a_title_from_an_old_database_gets_the_default_split_pause(self, isolated_db):
+        _make_old_shape(isolated_db.DB_PATH)
+        isolated_db.init_db()
+        assert isolated_db.get_drama(1)["min_pause_sec"] == 0.35
 
     def test_old_database_data_migrations_run(self, isolated_db):
         _make_old_shape(isolated_db.DB_PATH, share_by_default_was_on=True)
