@@ -335,7 +335,7 @@ def test_oversize_upload_rejected(client, monkeypatch):
     data = _manual_zip()
     monkeypatch.setenv("BAIHE_MAX_UPLOAD_MB", "0.01")
     r = _post_list(client, data)
-    assert r.status_code == 422 and "too large" in r.text
+    assert r.status_code == 422 and "larger than the" in r.text
     assert len(_dramas()) == 3
 
 

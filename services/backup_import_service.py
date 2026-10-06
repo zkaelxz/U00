@@ -65,7 +65,6 @@ _SQLITE_MAGIC = b"SQLite format 3\x00"
 _BAD_FILE = "That file isn't a Baihe backup, or it is damaged."
 _FOLDER_EXISTS = ("A folder for an imported drama is already in the library's dramas folder "
                   "and could not be moved aside; nothing was imported.")
-_TOO_LARGE = "The uploaded file is too large."
 # How long reads of the uploaded database may run: a crafted file must not
 # hold the request (and, for an import, the maintenance lock) indefinitely.
 _READ_TIME_LIMIT_S = 30
@@ -85,8 +84,9 @@ FILE_COLUMNS = {t: set(cols) for t, cols in abs_.IMPORT_FILE_COLUMNS.items()}
 
 
 def _save_upload(stream, dest: str):
-    """Streams the upload to `dest`, refused past BAIHE_MAX_UPLOAD_MB."""
+    """Streams the upload to `dest`, refused past the upload limit."""
     limit = media_upload_service.max_upload_bytes()
+    media_upload_service._check_disk_room(os.path.dirname(dest) or ".", stream)
     total = 0
     with open(dest, "wb") as out:
         while True:
@@ -95,7 +95,7 @@ def _save_upload(stream, dest: str):
                 break
             total += len(chunk)
             if total > limit:
-                raise InvalidInputError(_TOO_LARGE)
+                raise InvalidInputError(media_upload_service.too_large_message(limit))
             out.write(chunk)
     if total == 0:
         raise InvalidInputError("Choose a backup file.")

@@ -7,6 +7,13 @@ import type { TranscribeConfigUpdate } from '../../types/workspace'
 
 export const UPLOAD_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4', '.mkv', '.mov', '.webm']
 
+// The link target for "Change it in Settings"; the server's error text names the same place.
+export const UPLOAD_LIMIT_SETTINGS_HREF = '#/settings?section=uploads'
+
+export function isUploadLimitProblem(message: string): boolean {
+  return message.includes('upload limit')
+}
+
 export function checkUploadFile(name: string, sizeBytes: number, maxMb: number): string | null {
   const dot = name.lastIndexOf('.')
   const ext = dot >= 0 ? name.slice(dot).toLowerCase() : ''

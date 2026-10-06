@@ -261,9 +261,19 @@ disk. The pattern, where a route takes a raw body or multipart:
   cut off too: `api/routers/bug_report_routes.py` (`capped`, `BodyTooLarge`)
   is the helper; `backup_routes.py`, `drama_routes.py` (cover upload),
   `scanlate_routes.py` and `sources_tools_routes.py` use it.
-- Media upload size: `BAIHE_MAX_UPLOAD_MB`, read by
-  `media_upload_service.max_upload_bytes`; the service also whitelists the
-  file extension, discards the client's filename and writes atomically.
+- Media upload size: `media_upload_service.max_upload_bytes`. The env var
+  `BAIHE_MAX_UPLOAD_MB` (a positive number; zero, negative or garbage is
+  ignored) wins, else the saved setting `max_upload_mb` (Settings > Advanced >
+  Uploads, 100 to 1048576, written through `POST /api/settings`, `local_only()`),
+  else 20480 MB. The overview reports `effective_upload_max_mb` and
+  `upload_max_mb_from_env` (numbers and a boolean only). Every user of the
+  limit (media upload, URL download, backup import, library restore) is a
+  `local_only()` route, so the household listener never uploads and has no
+  separate limit; a new non-local upload route would need one. The upload is
+  refused before it is copied when the drive lacks room for it plus 256 MB.
+  The service also whitelists the file extension, discards the client's
+  filename and writes atomically. `translateFile.ts`'s 2 GB cap for text/EPUB
+  translate files is a separate limit.
 - Multipart routes add a small overhead allowance to the cap
   (`_MULTIPART_OVERHEAD`, 1 MB) and limit the file and field counts.
 - Upload routes under `/api/media` are `local_only()`, so the early gates

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DramaDetail } from '../../api/types'
 import {
   checkUploadFile,
+  isUploadLimitProblem,
   loadSourceForm,
   parseExpectedSpeakers,
   parseSpeakerHints,
@@ -69,7 +70,9 @@ describe('upload pre-check', () => {
     expect(checkUploadFile('notes.txt', 10, 10)).toMatch(/not supported/)
     expect(checkUploadFile('noext', 10, 10)).toMatch(/not supported/)
     expect(checkUploadFile('a.wav', 0, 10)).toMatch(/empty/)
-    expect(checkUploadFile('a.wav', 10 * MB + 1, 10)).toMatch(/10 MB/)
+    expect(checkUploadFile('a.wav', 10 * MB + 1, 10)).toMatch(/10 MB upload limit/)
+    expect(isUploadLimitProblem(checkUploadFile('a.wav', 10 * MB + 1, 10) ?? '')).toBe(true)
+    expect(isUploadLimitProblem('That file is empty.')).toBe(false)
   })
 })
 

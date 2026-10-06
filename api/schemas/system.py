@@ -299,6 +299,7 @@ class SettingsPreferences(BaseModel):
     scene_aware_batches: bool
     episode_summary_engine: str
     monthly_cap_usd: Optional[float] = None
+    max_upload_mb: int = 20480
     ollama_num_ctx_override: int
     whisper_model_path: str
     ocr_backend: str
@@ -337,6 +338,9 @@ class SettingsOverview(BaseModel):
     offer_provider_models: bool = False
     preferences: SettingsPreferences
     endpoints: Dict[str, Optional[str]]
+    # BAIHE_MAX_UPLOAD_MB set: it wins over preferences.max_upload_mb.
+    upload_max_mb_from_env: bool = False
+    effective_upload_max_mb: int = 20480
     monthly_cap_env_usd: float = 0.0
     effective_monthly_cap_usd: float = 0.0
     # Full month vs what the cap counts since an active reset (UTC ISO time).
@@ -379,6 +383,7 @@ class SettingsUpdateRequest(BaseModel):
     scene_aware_batches: Optional[StrictBool] = None
     episode_summary_engine: Optional[StrictStr] = Field(None, max_length=40)
     monthly_cap_usd: Optional[Union[StrictInt, StrictFloat]] = None
+    max_upload_mb: Optional[StrictInt] = None
     ollama_num_ctx_override: Optional[StrictInt] = None
     whisper_model_path: Optional[StrictStr] = Field(None, max_length=1024)
     ocr_backend: Optional[StrictStr] = Field(None, max_length=40)
