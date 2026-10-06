@@ -628,3 +628,47 @@ def test_a_recognised_failure_shows_the_sentence_before_the_generic_text(client,
     assert st["status"] == "error" and st["error"].endswith(svc._FAILED)
     assert "sign in" in st["error"].lower() and "abc" not in st["error"]
     _no_tmp(did)
+
+
+def _kept(did):
+    kept = os.path.join(db.drama_dir(did), "kept_media")
+    out = {}
+    for name in sorted(os.listdir(kept)) if os.path.isdir(kept) else []:
+        with open(os.path.join(kept, name), "rb") as f:
+            out[name] = f.read()
+    return out
+
+
+def test_a_confirmed_video_download_keeps_the_old_originals(client, env):
+    did = _drama()
+    ddir = db.drama_dir(did)
+    for name, data in (("source.mp4", b"old video"), ("audio.wav", b"old wav")):
+        with open(os.path.join(ddir, name), "wb") as f:
+            f.write(data)
+    db.update_drama(did, audio_filename="audio.wav", source_video_filename="source.mp4")
+    st = _run(client, did, audio_only=False, confirm_replace_audio=True)
+    assert st["status"] == "done", st
+    drama = db.get_drama(did)
+    assert (drama["source_video_filename"], drama["audio_filename"]) == ("source-2.mp4", "audio-2.wav")
+    kept = _kept(did)
+    assert sorted(kept.values()) == [b"old video", b"old wav"]
+    assert all(n.startswith("replaced-") for n in kept)
+    _no_tmp(did)
+
+
+def test_a_download_that_cannot_be_saved_leaves_the_title_as_it_was(client, env, monkeypatch):
+    did = _drama()
+    ddir = db.drama_dir(did)
+    with open(os.path.join(ddir, "source.wav"), "wb") as f:
+        f.write(b"old")
+    db.update_drama(did, audio_filename="source.wav")
+    env.writes.clear()
+
+    def no_names(*a):
+        return iter([])
+    monkeypatch.setattr(media_upload_service, "_in_place_names", no_names)
+    st = _run(client, did, confirm_replace_audio=True)
+    assert st["status"] == "error" and st["error"].endswith(svc._SAVE_FAILED)
+    assert env.writes == [] and db.get_drama(did)["audio_filename"] == "source.wav"
+    assert sorted(os.listdir(ddir)) == ["source.wav"]
+    _no_tmp(did)

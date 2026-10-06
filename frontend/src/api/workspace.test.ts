@@ -24,11 +24,20 @@ const file = new File(['abc'], 'a.mp3')
 describe('workspace api', () => {
   it('uploads media as multipart without a Content-Type header', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
-    await uploadMedia(3, file, fakeFetch(200, { name: 'source.mp3', size: 3, kind: 'audio' }, calls))
+    await uploadMedia(3, file, false, fakeFetch(200, { name: 'source.mp3', size: 3, kind: 'audio' }, calls))
     expect(calls[0].url).toBe('/api/media/dramas/3/upload')
     expect(calls[0].init?.body).toBeInstanceOf(FormData)
     expect((calls[0].init!.headers as Record<string, string>)['Content-Type']).toBeUndefined()
     expect((calls[0].init!.headers as Record<string, string>)['X-Baihe-Local']).toBe('1')
+    expect((calls[0].init!.body as FormData).has('confirm_replace_audio')).toBe(false)
+  })
+
+  it('sends confirm_replace_audio only when replacing is confirmed', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const ok = fakeFetch(200, { upload: { name: 'x', size: 1, kind: 'audio' }, job_id: 'j' }, calls)
+    await uploadMedia(3, file, true, ok)
+    await uploadAndTranscribe(3, file, { run_diarize: false }, true, ok)
+    for (const c of calls) expect((c.init!.body as FormData).get('confirm_replace_audio')).toBe('true')
   })
 
   it('sends upload-and-transcribe options as form fields, skipping unset ones', async () => {
@@ -37,6 +46,7 @@ describe('workspace api', () => {
       1,
       file,
       { source_language: 'ja', run_diarize: true, expected_speakers: undefined, initial_prompt: '' },
+      false,
       fakeFetch(200, { upload: { name: 'x', size: 1, kind: 'audio' }, job_id: 'j' }, calls),
     )
     const form = calls[0].init!.body as FormData

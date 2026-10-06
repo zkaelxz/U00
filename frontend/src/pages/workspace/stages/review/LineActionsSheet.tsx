@@ -42,6 +42,7 @@ interface Props {
   onView: (view: SheetView) => void
   onClose: () => void
   onPlay: () => void
+  onPlayRange?: (start: number, end: number) => void
   onEditDetails: () => void
   canRetranscribe: boolean
   onRetranscribe: () => void
@@ -191,6 +192,7 @@ export function LineActionsSheet(p: Props) {
               busy={p.busy}
               blocked={blocked}
               onSplit={p.onSplit}
+              onPlayRange={p.hasMedia ? p.onPlayRange : undefined}
               onCancel={back}
             />
           )}

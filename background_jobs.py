@@ -1696,7 +1696,9 @@ def any_job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
         return False
 
 
-CANCELLING_MESSAGE = "Cancelling..."
+# A model load or one inference call can't be interrupted, so the job stops at
+# its next cancel check rather than at once.
+CANCELLING_MESSAGE = "Cancelling... (finishes the current step first)"
 # A queued/running job_records row whose owner process is gone (closed by
 # services/jobs_service.py's sweep, at startup and on every job list).
 INTERRUPTED_MESSAGE = "Interrupted: Baihe restarted while this was running."
