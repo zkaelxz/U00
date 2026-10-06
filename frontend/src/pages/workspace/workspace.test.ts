@@ -81,6 +81,8 @@ describe('config validation', () => {
     expect(validateConfig({ min_silence_ms: 3001 })).toMatch(/300 and 3000/)
     expect(validateConfig({ vad_threshold: 0.05 })).toMatch(/0.1 and 0.9/)
     expect(validateConfig({ hardsub_interval_sec: Number.NaN })).toMatch(/0.5 and 3/)
+    expect(validateConfig({ hallucination_silence_sec: 0 })).toBeNull()
+    expect(validateConfig({ hallucination_silence_sec: 0.2 })).toMatch(/0.5 and 10/)
   })
   it('parses expected speakers', () => {
     expect(parseExpectedSpeakers('')).toBeUndefined()

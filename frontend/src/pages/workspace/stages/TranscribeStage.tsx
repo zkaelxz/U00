@@ -105,6 +105,7 @@ type ConfigForm = {
   beam_size: string
   min_silence_ms: string
   vad_threshold: string
+  hallucination_silence_sec: string
   hardsub_interval_sec: string
   separate_vocals_first: boolean
   realign_long_segments: boolean
@@ -121,6 +122,7 @@ const formFromConfig = (c: TranscribeConfig): ConfigForm => ({
   beam_size: String(c.beam_size),
   min_silence_ms: String(c.min_silence_ms),
   vad_threshold: String(c.vad_threshold),
+  hallucination_silence_sec: String(c.hallucination_silence_sec),
   hardsub_interval_sec: String(c.hardsub_interval_sec),
   separate_vocals_first: c.separate_vocals_first,
   realign_long_segments: c.realign_long_segments,
@@ -133,6 +135,7 @@ const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
   beam_size: Number(f.beam_size),
   min_silence_ms: Number(f.min_silence_ms),
   vad_threshold: Number(f.vad_threshold),
+  hallucination_silence_sec: Number(f.hallucination_silence_sec),
   hardsub_interval_sec: Number(f.hardsub_interval_sec),
 })
 
@@ -417,7 +420,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         </select>
       </Field>
     )
-  const num = (label: string, key: 'beam_size' | 'min_silence_ms' | 'vad_threshold' | 'hardsub_interval_sec', step: number, help: string, unit?: string) =>
+  const num = (label: string, key: 'beam_size' | 'min_silence_ms' | 'vad_threshold' | 'hallucination_silence_sec' | 'hardsub_interval_sec', step: number, help: string, unit?: string) =>
     cf && (
       <Field label={label} help={help} unit={unit}>
         <input type="number" step={step} value={cf[key]} onChange={(e) => setC(key, e.target.value)} />
@@ -633,6 +636,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
             {num('Min silence', 'min_silence_ms', 50, '300-3000. Silence that splits lines; longer gives fewer, longer lines. Auto-tune below can pick it.', 'ms')}
             {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
+            {num('Hallucination guard', 'hallucination_silence_sec', 0.5, 'Experimental. 0 (off) or 0.5-10. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Whisper only: ignored by Qwen3-ASR, and by Fast mode.', 's')}
             {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
             {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'],
               haveTranscript

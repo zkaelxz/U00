@@ -26,6 +26,8 @@ const RANGES = {
   hardsub_interval_sec: { label: 'Hardsub interval (s)', min: 0.5, max: 3.0, integer: false },
 } as const
 
+const DEFAULT_HALLUCINATION_SILENCE_SEC = 2
+
 // Returns the first out-of-range knob as a sentence, or null when valid.
 export function validateConfig(update: TranscribeConfigUpdate): string | null {
   for (const [key, r] of Object.entries(RANGES)) {
@@ -34,6 +36,10 @@ export function validateConfig(update: TranscribeConfigUpdate): string | null {
     if (!Number.isFinite(v) || v < r.min || v > r.max || (r.integer && !Number.isInteger(v))) {
       return `${r.label} must be ${r.integer ? 'a whole number ' : ''}between ${r.min} and ${r.max}.`
     }
+  }
+  const h = update.hallucination_silence_sec
+  if (h !== undefined && (!Number.isFinite(h) || (h !== 0 && (h < 0.5 || h > 10)))) {
+    return 'Hallucination guard must be 0 (off) or between 0.5 and 10 seconds.'
   }
   return null
 }
@@ -176,6 +182,7 @@ export interface AdvancedValues {
   beam_size: string
   min_silence_ms: string
   vad_threshold: string
+  hallucination_silence_sec: string
   hardsub_interval_sec: string
   alignment_method: string
   asr_backend_choice: string
@@ -192,6 +199,9 @@ export function advancedSummary(v: AdvancedValues): string {
   if (Number(v.beam_size) !== 5) parts.push(`beam ${v.beam_size}`)
   if (Number(v.min_silence_ms) !== 300) parts.push(`min silence ${v.min_silence_ms} ms`)
   if (Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
+  if (Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
+    parts.push(Number(v.hallucination_silence_sec) === 0 ? 'no hallucination guard' : `hallucination guard ${v.hallucination_silence_sec} s`)
+  }
   if (Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
   if (v.alignment_method !== 'whisper_diff') parts.push(v.alignment_method)
   if (v.asr_backend_choice !== 'whisper') parts.push(v.asr_backend_choice)

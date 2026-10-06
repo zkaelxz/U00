@@ -12,7 +12,7 @@ import {
 } from './sourceForm'
 
 const base: AdvancedValues = {
-  beam_size: '5', min_silence_ms: '300', vad_threshold: '0.5', hardsub_interval_sec: '1',
+  beam_size: '5', min_silence_ms: '300', vad_threshold: '0.5', hallucination_silence_sec: '2', hardsub_interval_sec: '1',
   alignment_method: 'whisper_diff', asr_backend_choice: 'whisper', separation_backend: 'auto',
   separate_vocals_first: false, realign_long_segments: false, whisper_fast_mode: false, use_groq: false, prompt: '',
 }
@@ -23,6 +23,10 @@ describe('advancedSummary', () => {
   })
   it('lists only the values that differ', () => {
     expect(advancedSummary({ ...base, beam_size: '8', use_groq: true, prompt: ' x ' })).toBe('beam 8 · Groq · replacement prompt')
+  })
+  it('mentions a changed hallucination guard', () => {
+    expect(advancedSummary({ ...base, hallucination_silence_sec: '0' })).toBe('no hallucination guard')
+    expect(advancedSummary({ ...base, hallucination_silence_sec: '3' })).toBe('hallucination guard 3 s')
   })
 })
 
