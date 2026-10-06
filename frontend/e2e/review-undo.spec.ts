@@ -10,6 +10,7 @@ const BEFORE = ['你好', '再见朋友', '谢谢']
 test.beforeEach(() => seedLines())
 
 test('split, then Undo brings the lines back and removes the button', async ({ page }) => {
+  await page.clock.install()
   await openReview(page, 3)
   await splitSecondLine(page)
   const notice = page.getByTestId('undo-notice')
@@ -17,13 +18,16 @@ test('split, then Undo brings the lines back and removes the button', async ({ p
   await expect(notice).toContainText('Records → Line history')
   expect(await zhTexts(page)).toEqual(['你好', '再见', '朋友', '谢谢'])
 
-  // It outlasts the old 8 s status line.
-  await page.waitForTimeout(9000)
+  // It outlasts the 8 s status line.
+  await page.clock.fastForward('00:09')
+  await expect(notice).toBeVisible()
   await notice.getByRole('button', { name: 'Undo' }).click()
   await expect(rows(page)).toHaveCount(3)
   expect(await zhTexts(page)).toEqual(BEFORE)
   await expect(notice).toHaveCount(0)
-  await expect(page.getByRole('status').filter({ hasText: 'Undone.' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Undone. The lines are back as they were before.' })).toBeVisible()
+  // Focus moves to the restored line rather than dropping to the page body.
+  await expect(rows(page).nth(1)).toBeFocused()
 })
 
 test('delete, then Undo; the next structural edit replaces the offer', async ({ page }) => {
@@ -37,6 +41,8 @@ test('delete, then Undo; the next structural edit replaces the offer', async ({ 
   await page.getByTestId('undo-notice').getByRole('button', { name: 'Undo' }).click()
   await expect(rows(page)).toHaveCount(3)
   expect(await zhTexts(page)).toEqual(BEFORE)
+  await expect(page.getByRole('status').filter({ hasText: 'but not its notes or emotion tag' })).toBeVisible()
+  await expect(rows(page).nth(2)).toBeFocused()
 })
 
 test('Undo is refused, and says why, when the lines were edited elsewhere in the meantime', async ({ page }) => {
@@ -75,6 +81,7 @@ test('re-split, then Undo restores the long line', async ({ page }) => {
   await expect(notice).toContainText('Split 1 line into 3')
   await notice.getByRole('button', { name: 'Undo' }).click()
   await expect(group.getByTestId('resplit-summary')).toContainText('Undone.')
+  await expect(group.getByTestId('resplit-summary')).toBeFocused()
   await expect(rows(page).filter({ hasText: SENTENCE.repeat(3) })).toHaveCount(1)
   await expect(rows(page)).toHaveCount(4)
 })

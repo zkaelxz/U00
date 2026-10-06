@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { listAllLines, restoreSnapshot } from '../../../../api/restructure'
 import { applyMergeShort, previewMergeShort } from '../../../../api/reviewExtras'
@@ -10,7 +10,7 @@ import { TypedConfirm } from '../../../../components/TypedConfirm'
 import { lineNumber } from '../../../../lineNumber'
 import type { MergeShortOptions, MergeShortPreview } from '../../../../types/reviewExtras'
 import { mergeFormDefaults, mergeSummary, parseMergeForm, type MergeForm } from './aiExtrasLogic'
-import { JOB_RUNNING_MESSAGE, undoErrorText, undoHandleOf, UNDO_DONE_MESSAGE, type UndoHandle } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE, undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle } from './reviewLogic'
 import { UndoNotice } from './UndoNotice'
 
 const SHOWN = 8
@@ -31,6 +31,16 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
   const [error, setError] = useState<unknown>(null)
   const [done, setDone] = useState<string | null>(null)
   const [undo, setUndo] = useState<UndoHandle | null>(null)
+  const undoing = useRef(false)
+  // Set when the Undo notice (and the button that had focus) goes away, so the
+  // status line that replaces it takes focus instead of the page body.
+  const focusStatus = useRef(false)
+  const takeFocus = (el: HTMLParagraphElement | null) => {
+    if (el && focusStatus.current) {
+      focusStatus.current = false
+      el.focus()
+    }
+  }
   const parsed = parseMergeForm(form)
 
   const set = (key: keyof MergeForm) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -69,22 +79,29 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
   }
 
   const doUndo = async () => {
-    if (!undo) return
+    // A ref, not state: two quick clicks must send one restore.
+    if (!undo || undoing.current) return
+    undoing.current = true
     setBusy(true)
     setError(null)
     try {
       const lines = await listAllLines(dramaId)
       await restoreSnapshot(dramaId, undo.historyId, lines.map((l) => l.id), undo.fingerprint)
+      focusStatus.current = true
       setUndo(null)
-      setDone(UNDO_DONE_MESSAGE)
+      setDone(undoDoneMessage('merge'))
       onChanged()
     } catch (e) {
-      const text = undoErrorText(e)
-      if (text) {
-        setUndo(null)
-        setDone(text)
+      const refused = undoRefusal(e)
+      if (refused) {
+        if (!refused.keepOffer) {
+          focusStatus.current = true
+          setUndo(null)
+        }
+        setDone(refused.text)
       } else setError(e)
     } finally {
+      undoing.current = false
       setBusy(false)
     }
   }
@@ -113,7 +130,7 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {done && undo && <UndoNotice message={done} busy={busy} onUndo={() => void doUndo()} onDismiss={() => setUndo(null)} />}
       {done && !undo && (
-        <p role="status" className="muted">
+        <p role="status" className="muted" tabIndex={-1} ref={takeFocus}>
           {done}
         </p>
       )}

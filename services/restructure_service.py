@@ -653,7 +653,9 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids,
     `expected_fingerprint` (an undo of the write that returned it) makes the
     restore refuse, with nothing written, when any restorable field of the
     current lines differs from what that write left: ids alone would let a
-    restore overwrite a text edit saved since."""
+    restore overwrite a text edit saved since. It also refuses when a line the
+    restore would remove has a note, emotion tag or reading position, which
+    the full sync would delete."""
     get_line_history_snapshot(drama_id, history_id)  # 404 unless it's this drama's
     # the raw rows: the read above returns dub_filename as a bare basename
     rows = db.get_line_history_snapshot(history_id)
@@ -665,6 +667,14 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids,
             raise ConflictError("The lines were edited since that change -- restore from "
                                 "Records, Line history instead.")
         restored = core_module.restore_saved_lines(rows, lines)
+        if expected_fingerprint is not None:
+            # The fingerprint covers line fields only; a line the restore removes
+            # takes its notes, emotion tag and reading position with it.
+            kept = {ln.id for ln in restored if ln.id is not None}
+            if db.line_ids_with_refs(drama_id, {ln.id for ln in lines} - kept):
+                raise ConflictError("A line this undo would remove has a note, emotion tag or "
+                                    "reading position saved since -- nothing was changed; "
+                                    "restore from Records, Line history instead.")
         return restored, []
     out = structural_write(drama_id, expected_line_ids, "before restore", build)
     return {"history_id": history_id, "line_ids": out["line_ids"]}

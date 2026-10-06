@@ -1,12 +1,16 @@
 """One-click undo of a structural edit: every write returns the snapshot it took
 (`history_id`) and a fingerprint of the lines it left, and restoring with that
 fingerprint refuses when anything restorable changed since."""
+import contextlib
+import dataclasses
+
 import pytest
 
 import background_jobs
 import db
 from core import Line
 from services import review_extras_service as extras
+from services import lines_service
 from services import restructure_service as svc
 from services.service_errors import ConflictError
 
@@ -139,3 +143,114 @@ def test_undo_over_the_api(monkeypatch):
     ok = client.post(url, json={"expected_line_ids": body["line_ids"],
                                 "expected_fingerprint": body["lines_fingerprint"]})
     assert ok.status_code == 200 and len(ok.json()["line_ids"]) == 4
+
+
+def _new_piece(did, before_ids):
+    return next(r["id"] for r in db.load_lines(did) if r["id"] not in set(before_ids))
+
+
+def _emotions(did):
+    with contextlib.closing(db.get_conn()) as conn:
+        return {r[0] for r in conn.execute("SELECT line_id FROM line_emotions WHERE drama_id = ?",
+                                           (did,))}
+
+
+def test_undo_refused_when_a_split_piece_got_a_note():
+    did, ids = _seed(ROWS)
+    out = svc.split_line(did, ids[1], ids, at_char=1, expected_zh="我很好")
+    piece = _new_piece(did, ids)
+    lines_service.add_note(did, piece, "好", "idiom", "A note on the new piece")
+    after = _texts(did)
+    with pytest.raises(ConflictError):
+        _undo(did, out)
+    assert _texts(did) == after
+    assert [n["line_id"] for n in db.list_translation_notes(did)] == [piece]
+
+
+def test_undo_refused_when_a_split_piece_got_an_emotion():
+    did, ids = _seed(ROWS)
+    out = svc.split_line(did, ids[1], ids, at_char=1, expected_zh="我很好")
+    piece = _new_piece(did, ids)
+    db.save_emotions(did, {2: {"emotion": "joy", "intensity": 0.8}},
+                     id_by_idx={2: piece})
+    with pytest.raises(ConflictError):
+        _undo(did, out)
+    assert _emotions(did) == {piece}
+
+
+def test_undo_refused_when_a_resplit_piece_got_a_note():
+    did, ids = _seed([("你好。", ""), (LONG, "x"), ("再见。", "")])
+    out = svc.resplit_long_lines(did, ids, confirm=True)
+    piece = _new_piece(did, ids)
+    lines_service.add_note(did, piece, "公园", "cultural", "A note on a re-split piece")
+    now = [r["id"] for r in db.load_lines(did)]
+    with pytest.raises(ConflictError):
+        svc.restore_version(did, out["history_id"], now, out["lines_fingerprint"])
+    assert [r["id"] for r in db.load_lines(did)] == now
+    assert [n["line_id"] for n in db.list_translation_notes(did)] == [piece]
+
+
+def test_undo_still_works_with_notes_only_on_lines_it_keeps():
+    did, ids = _seed(ROWS)
+    lines_service.add_note(did, ids[1], "好", "idiom", "On the line being split")
+    out = svc.split_line(did, ids[1], ids, at_char=1, expected_zh="我很好")
+    lines_service.add_note(did, ids[3], "再见", "cultural", "Added after the split")
+    _undo(did, out)
+    assert [r["id"] for r in db.load_lines(did)] == ids
+    assert sorted(n["line_id"] for n in db.list_translation_notes(did)) == [ids[1], ids[3]]
+
+
+@pytest.mark.parametrize("edit", [
+    lambda did, lid: lines_service.patch_line(did, lid, speaker="B"),
+    lambda did, lid: lines_service.patch_line(did, lid, start=0.1),
+    lambda did, lid: db.save_lines(did, [dataclasses.replace(
+        next(ln for ln in db.load_line_objects(did) if ln.id == lid), flag="check", flag_note="x")],
+        fields=("flag", "flag_note")),
+], ids=["speaker", "timing", "flag"])
+def test_undo_refused_after_a_field_edit(edit):
+    did, ids = _seed(ROWS)
+    out = svc.split_line(did, ids[0], ids, at_char=1, expected_zh="你好吗")
+    edit(did, ids[0])
+    after = [dict(r) for r in db.load_lines(did)]
+    with pytest.raises(ConflictError):
+        _undo(did, out)
+    assert [dict(r) for r in db.load_lines(did)] == after
+
+
+def test_undo_refused_when_a_split_piece_got_a_reading_position():
+    did, ids = _seed(ROWS)
+    out = svc.split_line(did, ids[1], ids, at_char=1, expected_zh="我很好")
+    db.save_progress(did, last_line_idx=2)
+    with pytest.raises(ConflictError):
+        _undo(did, out)
+    assert len(db.load_lines(did)) == 5
+
+
+def test_what_undo_of_a_delete_or_merge_brings_back():
+    """Pins the wording of the undo confirmations: a deleted line comes back
+    with a fresh id and its own fields but not its notes or emotion tag; a
+    merge's notes and emotion tags stay on the line they were merged into."""
+    did, ids = _seed(ROWS)
+    line = db.load_line_objects(did)[2]
+    line.flag, line.flag_note, line.dub_filename = "check", "why", "c.wav"
+    db.save_lines(did, [line], fields=("flag", "flag_note", "dub_filename"))
+    lines_service.add_note(did, ids[2], "谢谢", "honorific", "n")
+    db.save_emotions(did, {2: {"emotion": "joy"}}, id_by_idx={2: ids[2]})
+    full = [{k: v for k, v in r.items() if k != "id"} for r in db.load_lines(did)]
+    deleted = svc.delete_line(did, ids[2], ids, confirm=True)
+    _undo(did, deleted)
+    back = db.load_lines(did)
+    assert [{k: v for k, v in r.items() if k != "id"} for r in back] == full
+    assert back[2]["id"] != ids[2]
+    assert db.list_translation_notes(did) == [] and _emotions(did) == set()
+
+    ids = [r["id"] for r in back]
+    lines_service.add_note(did, ids[3], "再见", "cultural", "n")
+    db.save_emotions(did, {3: {"emotion": "sad"}}, id_by_idx={3: ids[3]})
+    merged = svc.merge_lines(did, ids[2:], ids)
+    _undo(did, merged)
+    back = db.load_lines(did)
+    assert [{k: v for k, v in r.items() if k != "id"} for r in back] == full
+    assert back[2]["id"] == ids[2] and back[3]["id"] != ids[3]
+    assert [n["line_id"] for n in db.list_translation_notes(did)] == [ids[2]]
+    assert _emotions(did) == {ids[2]}

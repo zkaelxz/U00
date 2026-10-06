@@ -25,9 +25,9 @@ import {
   speakerTimeFooter,
   speakerTimeLines,
   structureErrorText,
-  undoErrorText,
+  undoDoneMessage,
   undoHandleOf,
-  UNDO_DONE_MESSAGE,
+  undoRefusal,
   type UndoHandle,
 } from './reviewLogic'
 import { UndoNotice } from './UndoNotice'
@@ -51,6 +51,16 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
   const [needsConfirm, setNeedsConfirm] = useState(false)
   const [summary, setSummary] = useState<string | null>(null)
   const [undo, setUndo] = useState<UndoHandle | null>(null)
+  const undoing = useRef(false)
+  // Set when the Undo notice (and the button that had focus) goes away, so the
+  // status line that replaces it takes focus instead of the page body.
+  const focusStatus = useRef(false)
+  const takeFocus = (el: HTMLParagraphElement | null) => {
+    if (el && focusStatus.current) {
+      focusStatus.current = false
+      el.focus()
+    }
+  }
   // A job finished after a reload is reattached, but its undo is not offered then.
   const startedHere = useRef(false)
   const [speakers, setSpeakers] = useState<SpeakerTimeSummary | null>(null)
@@ -111,23 +121,30 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
   }
 
   const doUndo = async () => {
-    if (!undo) return
+    // A ref, not state: two quick clicks must send one restore.
+    if (!undo || undoing.current) return
+    undoing.current = true
     setBusy(true)
     setError(null)
     try {
       const lines = await listAllLines(dramaId)
       await restoreSnapshot(dramaId, undo.historyId, lines.map((l) => l.id), undo.fingerprint)
+      focusStatus.current = true
       setUndo(null)
-      setSummary(UNDO_DONE_MESSAGE)
+      setSummary(undoDoneMessage('resplit'))
       onChanged()
       void loadSpeakers()
     } catch (e) {
-      const text = undoErrorText(e)
-      if (text) {
-        setUndo(null)
-        setSummary(text)
+      const refused = undoRefusal(e)
+      if (refused) {
+        if (!refused.keepOffer) {
+          focusStatus.current = true
+          setUndo(null)
+        }
+        setSummary(refused.text)
       } else setError(e)
     } finally {
+      undoing.current = false
       setBusy(false)
     }
   }
@@ -213,7 +230,11 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
           </div>
         )}
         {summary && undo && <UndoNotice message={summary} busy={blocked} onUndo={() => void doUndo()} onDismiss={() => setUndo(null)} testId="resplit-summary" />}
-        {summary && !undo && <p role="status" data-testid="resplit-summary">{summary}</p>}
+        {summary && !undo && (
+          <p role="status" data-testid="resplit-summary" tabIndex={-1} ref={takeFocus}>
+            {summary}
+          </p>
+        )}
         {structureErrorText(error) ? (
           <p className="error" role="alert">{structureErrorText(error)}</p>
         ) : (

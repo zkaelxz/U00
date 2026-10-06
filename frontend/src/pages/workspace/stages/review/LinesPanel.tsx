@@ -57,13 +57,14 @@ import {
   stepFrom,
   structureErrorText,
   suggestionPatch,
-  undoErrorText,
+  undoDoneMessage,
   undoHandleOf,
-  UNDO_DONE_MESSAGE,
+  undoRefusal,
   type LanguageScope,
   type LineDraft,
   type PanelMode,
   type UndoHandle,
+  type UndoKind,
 } from './reviewLogic'
 import { UndoNotice } from './UndoNotice'
 import type { LineTarget } from './reviewResults'
@@ -171,7 +172,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   }, [dramaId])
   const [status, setStatus] = useState<string | null>(null)
   // The last structural edit, while it can still be undone.
-  const [undo, setUndo] = useState<{ handle: UndoHandle; message: string } | null>(null)
+  // `at` is the edited line's position before the edit, where focus goes after an undo.
+  const [undo, setUndo] = useState<{ handle: UndoHandle; message: string; kind: UndoKind; at: number } | null>(null)
   useEffect(() => setUndo(null), [dramaId])
   const [keysOpen, setKeysOpen] = useState(false)
   // Row density is a per-viewer choice, remembered in localStorage.
@@ -539,6 +541,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           const now = st.current.edit
           if (now) setEditNow({ ...now, note: null })
           setIssue(null)
+          // A note on a line the undo would remove makes the server refuse it.
+          setUndo(null)
           setStatus('Note saved.')
           st.current.onChanged()
         }, (e) => failLine(cur.lineId, e))
@@ -710,7 +714,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // ---- structure edits (sheet) ----
   const runStructure = async (
     call: (ids: number[]) => Promise<RestructureResult>,
-    after: (r: RestructureResult, ids: number[]) => { id: number | null; message: string; undoable?: boolean },
+    after: (r: RestructureResult, ids: number[]) => { id: number | null; message: string; undo?: { kind: UndoKind; at: number } },
   ) => {
     // Claimed synchronously, before any await, so a double click sends one edit.
     if (busyRef.current) return
@@ -730,7 +734,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       const ids = (await listAllLines(dramaId)).map((l) => l.id)
       if (!pageStillMatches(ids, shown.map((l) => l.id), searching ? 'search' : filter, page)) throw mismatch()
       const r = await call(ids)
-      const { id, message, undoable } = after(r, ids)
+      const { id, message, undo: undoable } = after(r, ids)
       const handle = undoable ? undoHandleOf(r) : null
       setSheet(null)
       setEdit(null)
@@ -744,7 +748,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           if (pos !== -1) setPage(pageForPosition(pos))
         }
       }
-      setUndo(handle ? { handle, message } : null)
+      setUndo(handle && undoable ? { handle, message, ...undoable } : null)
       setStatus(handle ? null : message + (undoable ? RECORDS_UNDO : ''))
       onChanged()
     } catch (e) {
@@ -765,18 +769,28 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       // refuses the undo rather than overwrite it.
       if (!(await ctl.leaveEdit())) return
       const ids = (await listAllLines(dramaId)).map((l) => l.id)
-      await restoreSnapshot(dramaId, undo.handle.historyId, ids, undo.handle.fingerprint)
+      const r = await restoreSnapshot(dramaId, undo.handle.historyId, ids, undo.handle.fingerprint)
       setUndo(null)
       setSheet(null)
       setEdit(null)
       selection.clear()
-      setStatus(UNDO_DONE_MESSAGE)
+      // The notice (and the Undo button that had focus) goes away: focus the restored line.
+      const back = r.line_ids[undo.at] ?? r.line_ids[r.line_ids.length - 1]
+      if (back !== undefined) {
+        pending.current = { target: back }
+        if (!searching && filter === 'all') setPage(pageForPosition(r.line_ids.indexOf(back)))
+      }
+      setStatus(undoDoneMessage(undo.kind))
       onChanged()
     } catch (e) {
-      const text = undoErrorText(e)
-      if (text) {
-        setUndo(null)
-        setStatus(text)
+      const refused = undoRefusal(e)
+      if (refused) {
+        if (!refused.keepOffer) {
+          setUndo(null)
+          // Focus was on the Undo button, which goes away with the notice.
+          if (activeId !== null) ctl.focusTo(activeId)
+        }
+        setStatus(refused.text)
       } else setStructError(e)
     } finally {
       busyRef.current = false
@@ -792,9 +806,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     if (!line) return
     void runStructure(
       (ids) => splitLine(dramaId, line.id, { expected_line_ids: ids, at_char: c.at_char, expected_zh: line.zh, at_time: c.at_time, en_at_char: c.en_at_char }),
-      (r) => {
+      (r, before) => {
         const [a, b] = r.lines
-        return { id: b?.id ?? a?.id ?? null, message: a && b ? `Split #${lineNumber(a.idx)} into #${lineNumber(a.idx)}–#${lineNumber(b.idx)}.` : 'Line split.', undoable: true }
+        return {
+          id: b?.id ?? a?.id ?? null,
+          message: a && b ? `Split #${lineNumber(a.idx)} into #${lineNumber(a.idx)}–#${lineNumber(b.idx)}.` : 'Line split.',
+          undo: { kind: 'split', at: before.indexOf(line.id) },
+        }
       },
     )
   }
@@ -806,9 +824,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         if (!run || run.some((id, i) => id !== lineIds[i])) throw mismatch()
         return mergeLines(dramaId, lineIds, ids)
       },
-      (r) => {
+      (r, before) => {
         const head = r.lines[0]
-        return { id: head?.id ?? lineIds[0], message: `Merged ${lineRange(chosen)}${head ? ` into #${lineNumber(head.idx)}` : ''}.`, undoable: true }
+        return {
+          id: head?.id ?? lineIds[0],
+          message: `Merged ${lineRange(chosen)}${head ? ` into #${lineNumber(head.idx)}` : ''}.`,
+          undo: { kind: 'merge', at: before.indexOf(lineIds[0]) },
+        }
       },
     )
   }
@@ -827,7 +849,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       (r, before) => {
         const pos = before.indexOf(line.id)
         const id = r.line_ids[pos] ?? r.line_ids[pos - 1] ?? null
-        return { id, message: `Deleted #${lineNumber(line.idx)}.`, undoable: true }
+        return { id, message: `Deleted #${lineNumber(line.idx)}.`, undo: { kind: 'delete', at: pos } }
       },
     )
   }

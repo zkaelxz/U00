@@ -2586,6 +2586,24 @@ def _repoint_line_refs(conn, drama_id, from_id, to_id):
                  (to_id, from_id, drama_id))
 
 
+# Every per-line table _delete_line_refs cleans: a line removed by a full sync
+# loses its rows there, so an undo checks them first (line_ids_with_refs).
+_LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history")
+
+
+def line_ids_with_refs(drama_id: int, line_ids) -> set:
+    """Which of `line_ids` have a row in any _LINE_REF_TABLES table."""
+    ids = list(line_ids)
+    if not ids:
+        return set()
+    marks = ", ".join("?" for _ in ids)
+    query = " UNION ".join(f"SELECT line_id FROM {t} WHERE drama_id = ? AND line_id IN ({marks})"
+                           for t in _LINE_REF_TABLES)
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute(query, [v for _t in _LINE_REF_TABLES for v in (drama_id, *ids)])
+        return {r[0] for r in rows}
+
+
 def _delete_line_refs(conn, line_id):
     conn.execute("DELETE FROM translation_notes WHERE line_id = ?", (line_id,))
     conn.execute("DELETE FROM line_emotions WHERE line_id = ?", (line_id,))
