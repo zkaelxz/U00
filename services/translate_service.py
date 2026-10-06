@@ -14,8 +14,12 @@ from typing import Optional
 import db
 import translate_engines
 from services import ownership_service, settings_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
-                                      UnsupportedOperationError)
+from services.service_errors import (
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    UnsupportedOperationError,
+)
 
 # translate_engines.ENGINES keys whose engine class needs no API key to run
 # (see translate_engines.py's own ENGINES / FREE_ENGINES):
@@ -123,8 +127,7 @@ def translate(text: str, engine_name: str, source_language: str, target_language
 
     api_key = resolve_api_key(engine_name, env_path)
     if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
 
     engine = translate_engines.get_engine(
         engine_name, api_key, model,

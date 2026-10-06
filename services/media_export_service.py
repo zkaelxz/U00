@@ -135,7 +135,7 @@ def start_audiobook_export(drama_id: int) -> dict:
         raise InvalidInputError("This drama has no lines to export.")
     ddir = db.drama_dir(drama_id)
     if not os.path.isfile(os.path.join(ddir, "narration_track.wav")):
-        raise InvalidInputError("No narration audio yet -- generate the narration first.")
+        raise InvalidInputError("There is no narration yet. Create it in Dub first.")
     _require_ffmpeg()
     job_id = f"audiobook_{drama_id}"
     _refuse_duplicate(job_id, "audiobook", drama_id)
@@ -262,7 +262,7 @@ def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dic
     video_path = _source_video(drama, drama_id)
     dub_path = os.path.join(db.drama_dir(drama_id), "dub_track.wav")
     if not os.path.isfile(dub_path):
-        raise InvalidInputError("No dub track yet -- generate the dub first.")
+        raise InvalidInputError("There is no dub yet. Create it in Dub first.")
     if not isinstance(keep_original, bool):
         raise InvalidInputError("keep_original must be true or false.")
     _require_ffmpeg()

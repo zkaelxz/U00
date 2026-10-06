@@ -29,8 +29,12 @@ import dub
 import translate_engines
 from core import Line
 from services import job_checkpoint_service, job_timing_service, settings_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError)
+from services.service_errors import (
+    ConflictError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+)
 
 DEFAULT_ENGINE = "claude"
 # LLM-capable engines that can tag speakers (pure MT engines cannot).
@@ -98,8 +102,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
         raise InvalidInputError("This drama has no novel text attached yet.")
     api_key = _api_key(engine_name)
     if not api_key:
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
 
     job_id = f"narration_{drama_id}"
     started = background_jobs.start_job(

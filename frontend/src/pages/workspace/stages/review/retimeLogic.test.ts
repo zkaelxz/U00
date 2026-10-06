@@ -16,7 +16,7 @@ describe('retimeOutcome', () => {
   })
   it('explains each failure in plain words', () => {
     expect(retimeOutcome({ status: 'done', result: { failed_reason: 'cancelled' } })).toMatchObject({ text: expect.stringContaining('Cancelled') })
-    expect(retimeOutcome({ status: 'done', result: { failed_reason: 'dependency_missing' } })).toMatchObject({ text: expect.stringContaining('qwen-asr') })
+    expect(retimeOutcome({ status: 'done', result: { failed_reason: 'dependency_missing' } })).toMatchObject({ text: expect.stringContaining('installed yet') })
     expect(retimeOutcome({ status: 'done', result: { failed_reason: 'model_download' } })).toMatchObject({ text: expect.stringContaining('downloaded') })
     expect(retimeOutcome({ status: 'failed' })).toMatchObject({ text: expect.stringContaining('failed') })
   })

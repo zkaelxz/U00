@@ -374,6 +374,8 @@ class CompareOptions(BaseModel):
     whisper_sizes: List[str]
     backends: List[CompareBackendOption]
     translation_engine: str
+    # Why the Qwen3 forced aligner (Re-time) can't run here, or None.
+    aligner_reason: Optional[str] = None
 
 
 class _CompareTranslateFields(BaseModel):

@@ -1120,7 +1120,8 @@ class TestQwen3Backends:
 
         result = background_jobs.get_status(job_id)["result"]
         assert result["failed_reason"] == "dependency_missing"
-        assert "pip install qwen-asr torch" in result["detail"]
+        assert result["detail"] == transcribe_service._MISSING_QWEN_MESSAGE
+        assert "qwen_asr" not in result["detail"]
         assert isolated_db.load_lines(did) == []
         assert not os.path.exists(os.path.join(ddir, "raw_transcript.json"))
         _clear(job_id)
@@ -1210,7 +1211,7 @@ class TestQwen3Backends:
                             lambda name, *a, **k: None if name == "qwen_asr" else real_find(name, *a, **k))
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper",
                                    asr_backend_choice="qwen3_asr")
-        with pytest.raises(DependencyUnavailableError, match="pip install qwen-asr torch"):
+        with pytest.raises(DependencyUnavailableError, match="Open Diagnostics to install it"):
             transcribe_service.start_transcribe_run(did)
         did2, _ = _drama_with_audio(isolated_db, transcript_mode="have_transcript",
                                     alignment_method="qwen3_forced_align")
@@ -1896,3 +1897,42 @@ class TestTranscribeSpeedCalibration:
         assert transcribe_service.measured_stage_seconds("medium", False)["decode_vad"] == 0.0
         assert transcribe_service.measured_stage_seconds("medium", False)["transcribe"] == 120.0
         _clear(job_id)
+
+
+class TestMissingPackageOutcome:
+    def test_worker_turns_an_import_error_into_the_fixed_sentence(self, monkeypatch, tmp_path):
+        import queue
+
+        def boom(*a, **k):
+            raise ModuleNotFoundError("No module named 'faster_whisper'")
+        monkeypatch.setattr(transcribe_service, "_transcribe_pipeline", boom)
+        q = queue.Queue()
+        transcribe_service._transcribe_worker(
+            "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
+            False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0,
+            str(tmp_path / "scratch"), q)
+        kind, outcome = q.get_nowait()
+        assert kind == "ok"
+        assert outcome == {"failed_reason": "dependency_missing",
+                           "detail": transcribe_service.MISSING_TRANSCRIPTION_MESSAGE}
+        assert "faster_whisper" not in outcome["detail"]
+
+    def test_the_hardsub_thread_job_ends_as_an_error_with_the_fixed_sentence(self, isolated_db, monkeypatch):
+        def boom(*a, **k):
+            raise ImportError("No module named 'cv2'")
+        monkeypatch.setattr(transcribe_service, "_transcribe_pipeline", boom)
+        job_id = "transcribe_missing_pkg"
+        background_jobs.clear_job(job_id)
+        background_jobs.start_job(
+            job_id, transcribe_service._run_transcribe_and_apply_job, job_id, 1, "a.wav",
+            "hardsub_ocr", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto", False,
+            False, False, None, None, None)
+        for _ in range(200):
+            status = background_jobs.get_status(job_id)
+            if status["status"] != "running":
+                break
+            time.sleep(0.02)
+        assert status["status"] == "error"
+        assert status["error"] == transcribe_service.MISSING_TRANSCRIPTION_MESSAGE
+        assert "cv2" not in status["error"]
+        background_jobs.clear_job(job_id)

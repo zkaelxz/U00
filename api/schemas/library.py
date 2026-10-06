@@ -538,6 +538,7 @@ class WorkflowProgress(BaseModel):
     flagged_count: int
     has_audio: bool
     has_dub_track: bool
+    has_narration_track: bool = False
     exported: bool
     stages: List[WorkflowStageState]
 

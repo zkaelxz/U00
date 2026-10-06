@@ -284,6 +284,7 @@ export interface WorkflowProgress {
   flagged_count: number
   has_audio: boolean
   has_dub_track: boolean
+  has_narration_track?: boolean
   exported: boolean
   stages: WorkflowStageState[]
 }
@@ -313,6 +314,7 @@ export interface CompareOptions {
   whisper_sizes: string[]
   backends: CompareBackendOption[]
   translation_engine: string
+  aligner_reason?: string | null
 }
 
 export interface CompareTranslateFields {

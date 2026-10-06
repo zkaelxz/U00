@@ -47,9 +47,14 @@ from services import (diarization_service, drama_service, settings_service, tran
                       translate_service)
 from services.review_lines_service import line_dict
 from services.review_records_service import get_line_history_snapshot
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, NotFoundError, ServiceError,
-                                      UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    ServiceError,
+    UnsupportedOperationError,
+)
 
 MAX_LINE_TEXT_CHARS = 2000
 # Lines already past the cap (merged before it existed) are not re-split by the
@@ -393,8 +398,7 @@ def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str])
             f"{engine_name} is a translation-only engine and can't suggest split points.")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=settings_service.get_gemini_free_tier(),

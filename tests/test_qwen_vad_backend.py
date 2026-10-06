@@ -290,13 +290,15 @@ def test_pipeline_reports_backend_and_keeps_span_times_and_flags(tmp_path, monke
 
 
 def test_pipeline_missing_vad_is_a_dependency_error(tmp_path, monkeypatch):
+    from services import transcribe_service
     from vad_segments import VadNotInstalledError
 
     def fake(self, *a, **k):
         raise VadNotInstalledError("No module named 'faster_whisper'")
     out = _pipeline(_Rep(), tmp_path, monkeypatch, fake)
     assert out["failed_reason"] == "dependency_missing"
-    assert "pip install faster-whisper" in out["detail"]
+    assert out["detail"] == transcribe_service._MISSING_VAD_MESSAGE
+    assert "faster_whisper" not in out["detail"]
 
 
 def test_pipeline_cancel_before_start_returns_cancelled(tmp_path, monkeypatch):

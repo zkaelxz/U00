@@ -57,6 +57,16 @@ class DependencyUnavailableError(ServiceError):
     code = "dependency_unavailable"
 
 
+class MissingKeyError(DependencyUnavailableError):
+    """An engine needs an API key that isn't set. Same 503 as any missing
+    dependency, but `details` lets a UI say "add the key" instead of
+    "install something"."""
+
+    def __init__(self, engine: str):
+        super().__init__(f"No {engine} key is configured. Set one in Settings first.",
+                         details={"reason": "no_key", "engine": engine})
+
+
 class ConflictError(ServiceError):
     """The request is well-formed and the record exists, but the record's
     current state won't allow it right now -- e.g. a job is already
