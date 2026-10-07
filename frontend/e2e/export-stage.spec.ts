@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { openExportBlocks } from './exportBlocks'
+import { DEFAULT_OPEN, expectExpanded, mockSoftsubRun, toggle } from './exportBlocksCases'
 import { withExportLines } from './stageLineMocks'
 
 // Reads, the ASS/subtitle text and the flag actions hit the real seeded API
@@ -19,7 +21,10 @@ const withTracks = (page: Page) =>
   })
 
 const openGroup = (page: Page, name: string) => page.getByText(name, { exact: true }).click()
-const openMedia = (page: Page) => openGroup(page, 'Video and audio')
+const openMedia = async (page: Page) => {
+  await openGroup(page, 'Video and audio')
+  await openExportBlocks(page)
+}
 
 async function mockJob(page: Page, startPath: string, finalStatus: 'done' | 'cancelled') {
   const bodies: unknown[] = []
@@ -228,4 +233,51 @@ test('when nothing can copy, Copy selects the text and says so', async ({ page }
   const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '')
   expect(selected).toContain('[Script Info]')
   expect(errors).toEqual([])
+})
+
+test.describe('media export blocks fold under their headings', () => {
+  test('only the subtitle-track video starts open, and the toggle is a real button', async ({ page }) => {
+    await page.goto('/#/drama/1/export')
+    await openGroup(page, 'Video and audio')
+    await expectExpanded(page, DEFAULT_OPEN)
+    await expect(page.getByRole('button', { name: 'Start subtitle-track video export' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Start audiobook export' })).toBeHidden()
+    // The explanatory text lives in the folded content.
+    await expect(page.getByText('Encodes the narration audio')).toBeHidden()
+  })
+
+  test('Enter and Space on the focused heading fold and unfold it', async ({ page }) => {
+    await page.goto('/#/drama/1/export')
+    await openGroup(page, 'Video and audio')
+    const audiobook = toggle(page, 'Audiobook')
+    await audiobook.focus()
+    await page.keyboard.press('Enter')
+    await expect(audiobook).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByText('Encodes the narration audio')).toBeVisible()
+    await page.keyboard.press('Space')
+    await expect(audiobook).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  test('each choice survives a reload', async ({ page }) => {
+    await page.goto('/#/drama/1/export')
+    await openGroup(page, 'Video and audio')
+    await toggle(page, 'Video with a subtitle track').click()
+    await toggle(page, 'Burned-in video').click()
+    await page.reload()
+    await expectExpanded(page, { ...DEFAULT_OPEN, 'Video with a subtitle track': false, 'Burned-in video': true })
+  })
+
+  test('a running job and its download link stay visible while the block is folded', async ({ page }) => {
+    const { finish } = await mockSoftsubRun(page)
+    await page.goto('/#/drama/1/export')
+    await openGroup(page, 'Video and audio')
+    const group = page.getByRole('group', { name: 'Video with a subtitle track' })
+    await group.getByRole('button', { name: 'Start subtitle-track video export' }).click()
+    await expect(group.getByTestId('job-status')).toContainText('Running')
+    await toggle(page, 'Video with a subtitle track').click()
+    await expect(group.getByRole('button', { name: 'Start subtitle-track video export' })).toBeHidden()
+    await expect(group.getByTestId('job-status')).toContainText('Running')
+    finish()
+    await expect(page.getByTestId('artifact-softsub').getByRole('link')).toHaveText('Download softsub_video_1.mkv')
+  })
 })
