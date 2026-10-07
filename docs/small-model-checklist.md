@@ -33,7 +33,7 @@ Short window (16-32K tokens): search first, read little, change little.
 ## Running with a local model (Windows)
 
 Install OpenCode once with `npm i -g opencode-ai`. Then, from PowerShell in the
-repo, run `.\tools\start-local-coder.ps1` (add `-LlamaDir <dir>` if
+repo, run `.\tools\start-local-coder.ps1` (or double-click `start-local-coder.bat`; add `-LlamaDir <dir>` if
 `llama-server.exe` is not in `E:\llama`). It starts llama-server on port 8080,
 waits for `/health`, and opens OpenCode's web UI in the browser (add `-Terminal` for
 the terminal UI; the web UI needs the repo added once via Add project). It reads `opencode.json` and
