@@ -175,7 +175,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // The last structural edit, while it can still be undone.
   // `at` is the edited line's position before the edit, where focus goes after an undo.
   const [undo, setUndo] = useUndoOffer<{ handle: UndoHandle; message: string; kind: UndoKind; at: number }>('lines', dramaId)
-  useEffect(() => setUndo(null), [dramaId])
+  useEffect(() => setUndo(null), [dramaId, setUndo])
   const [keysOpen, setKeysOpen] = useState(false)
   // Row density is a per-viewer choice, remembered in localStorage.
   const [compact, setCompact] = usePersistedState('review.compact', false)
