@@ -23,6 +23,7 @@ import sys
 # where the loader uses it. Low on purpose: see the module docstring.
 MODEL_VRAM_MB = {
     "OmniVoice": 2000,
+    "PaddleOCR-VL-For-Manga": 3000,
 }
 
 
