@@ -29,6 +29,8 @@ export interface LiveSessionStatus {
   session_id: string
   status: LiveStatus | string
   message: string
+  engine?: string | null
+  model?: string | null
   progress: number
   cues: LiveCue[]
   next_index: number
@@ -38,6 +40,7 @@ export interface LiveSessionSummary {
   session_id: string
   status: LiveStatus | string
   engine: string | null
+  model?: string | null
   cue_count: number
 }
 

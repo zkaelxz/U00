@@ -5,6 +5,7 @@
  * reading is `library.read`, stopping `jobs.cancel`. Sessions live in the
  * API process only: a 404 after a restart means the session is gone.
  */
+import type { TranslateEngine } from '../types/translate'
 import type {
   LiveCue,
   LiveSessionStart,
@@ -39,6 +40,8 @@ export interface LiveForm {
   url: string
   source_language: string
   engine: string
+  // '' = the engine's own default model.
+  model: string
   whisper_size: string
   segment_seconds: number
   overlap_seconds: number
@@ -50,6 +53,7 @@ export const DEFAULT_FORM: LiveForm = {
   url: '',
   source_language: 'zh',
   engine: '',
+  model: '',
   whisper_size: 'small',
   segment_seconds: 20,
   overlap_seconds: 3,
@@ -92,6 +96,14 @@ export function checkLiveUrl(url: string): string | null {
 const clamp = (v: number, [lo, hi]: [number, number], fallback: number) =>
   Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback
 
+/** The remembered model if the engine still offers it, else '' (its default);
+ *  `fellBack` is true when a remembered choice had to be dropped. */
+export function resolveModel(engine: Pick<TranslateEngine, 'models'> | undefined, saved: string): { model: string; fellBack: boolean } {
+  if (!saved) return { model: '', fellBack: false }
+  const ok = !!engine?.models?.includes(saved)
+  return { model: ok ? saved : '', fellBack: !ok }
+}
+
 /** The POST body: numbers clamped as the service would, overlap at most half the chunk. */
 export function buildStartBody(form: LiveForm): LiveSessionStart {
   const segment = Math.round(clamp(form.segment_seconds, SEGMENT_RANGE, DEFAULT_FORM.segment_seconds))
@@ -103,6 +115,7 @@ export function buildStartBody(form: LiveForm): LiveSessionStart {
     segment_seconds: segment,
     overlap_seconds: overlap,
     engine: form.engine || null,
+    model: form.model || null,
     max_minutes: clamp(form.max_minutes, MAX_MINUTES_RANGE, DEFAULT_FORM.max_minutes),
     use_gpu: form.use_gpu === true,
   }
@@ -136,8 +149,8 @@ export function pickSession(list: LiveSessionSummary[]): string | null {
 }
 
 /** One status line for the session. */
-export function statusLine(s: Pick<LiveSessionStatus, 'status' | 'message'>, lines: number): string {
-  const n = `${lines} line${lines === 1 ? '' : 's'}`
+export function statusLine(s: Pick<LiveSessionStatus, 'status' | 'message'> & { model?: string | null }, lines: number): string {
+  const n = `${lines} line${lines === 1 ? '' : 's'}${s.model ? ` · ${s.model}` : ''}`
   switch (s.status) {
     case 'queued':
       return s.message || 'Waiting for the GPU…'

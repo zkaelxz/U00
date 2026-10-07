@@ -21,10 +21,11 @@ import { ApiError } from '../api/client'
 import {
   DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, WHISPER_SIZES,
   advancedSummary, appendCues, buildStartBody, checkLiveUrl, describeLiveError, feedCues, fmtTs, getLive, isActive,
-  listLive, pickSession, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
+  listLive, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
 import { Field } from '../components/Field'
+import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
 import { useEventStream } from '../hooks/useEventStream'
@@ -52,6 +53,7 @@ export default function LivePage() {
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
 
   const [engines, setEngines] = useState<TranslateEngine[] | null>(null)
+  const [enginesFailed, setEnginesFailed] = useState(false)
   const [session, setSession] = useState<Session | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -63,7 +65,10 @@ export default function LivePage() {
   }, [session])
 
   useEffect(() => {
-    translateApi.engines().then(setEngines, () => setEngines([]))
+    translateApi.engines().then(setEngines, () => {
+      setEngines([])
+      setEnginesFailed(true)
+    })
     listLive().then(
       (list) => {
         const id = pickSession(list)
@@ -75,6 +80,12 @@ export default function LivePage() {
 
   const usable = engines ? usableEngines(engines) : []
   const engine = usable.some((e) => e.name === form.engine) ? form.engine : (usable[0]?.name ?? '')
+
+  const engineEntry = usable.find((e) => e.name === engine)
+  const { model, fellBack } = resolveModel(engineEntry, form.model)
+  const modelNote = enginesFailed
+    ? "Couldn't load the model list; the engine's default model will be used."
+    : fellBack ? "That model isn't offered any more; the engine's default model will be used." : null
 
   // Poll the shown session: at once, then every POLL_MS while it is active.
   const sessionId = session?.id
@@ -148,7 +159,7 @@ export default function LivePage() {
     setBusy(true)
     setError(null)
     try {
-      const { session_id } = await startLive(buildStartBody({ ...form, engine }))
+      const { session_id } = await startLive(buildStartBody({ ...form, engine, model }))
       setStopping(false)
       setSession({ id: session_id, status: null, cues: [], next: 0 })
     } catch (err) {
@@ -217,7 +228,10 @@ export default function LivePage() {
               ))}
             </select>
           </Field>
+          <ModelSelect engine={engineEntry} value={model} disabled={active} onChange={(m) => setOpt('model', m)}
+            help="Engine default uses the model the engine runs on its own." />
         </div>
+        {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
         <Section storageKey="live.advanced" title="Advanced" summary={advancedSummary(form)}>
           <div className="field-row">
             <Field label="Whisper model" help="Smaller is faster per chunk, closer to real time; medium is usually too slow for short chunks.">
