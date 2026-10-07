@@ -258,7 +258,7 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
     ...config,
     translation_engine: 'nllb',
     engines: [
-      { name: 'claude', models: ['claude-sonnet-5', 'claude-opus-4-8'] },
+      { name: 'claude', models: ['claude-sonnet-5-5', 'claude-opus-5-5'] },
       { name: 'deepseek', models: null },
       { name: 'nllb', models: null },
     ],
@@ -266,7 +266,7 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
   } as unknown as TranslateRunConfig
   const release: WorkflowTierApplied = {
     drama_id: 1, tier: 'release', label: 'Release', translation_engine: 'claude',
-    engine_model: 'claude-opus-4-8', reflect: true, auto_qc: true,
+    engine_model: 'claude-opus-5-5', reflect: true, auto_qc: true,
   }
   const draft: WorkflowTierApplied = {
     drama_id: 1, tier: 'draft', label: 'Draft', translation_engine: 'deepseek',
@@ -276,14 +276,14 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
   it('fills engine, model and Reflect and leaves the rest alone', () => {
     const base = { ...initialForm(withEngines), style_note: 'keep', locale: 'en-GB', genre_notes: false }
     const f = applyTierToForm(base, release, withEngines)
-    expect(f).toMatchObject({ engine: 'claude', model: 'claude-opus-4-8', reflect: true })
+    expect(f).toMatchObject({ engine: 'claude', model: 'claude-opus-5-5', reflect: true })
     expect(f).toMatchObject({ style_note: 'keep', locale: 'en-GB', genre_notes: false, force: false })
     const d = applyTierToForm(f, draft, withEngines)
     expect(d).toMatchObject({ engine: 'deepseek', model: '', reflect: false })
   })
 
   it('drops an unlisted model and a bulk choice that no longer fits', () => {
-    const noOpus = { ...withEngines, engines: [{ name: 'claude', models: ['claude-sonnet-5'] }] } as unknown as TranslateRunConfig
+    const noOpus = { ...withEngines, engines: [{ name: 'claude', models: ['claude-sonnet-5-5'] }] } as unknown as TranslateRunConfig
     expect(applyTierToForm(initialForm(noOpus), release, noOpus).model).toBe('')
     const bulky = { ...initialForm(withEngines), engine: 'claude', bulk: true }
     // Release: Reflect + bulk needs a batch API; claude has one.

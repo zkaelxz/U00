@@ -345,7 +345,7 @@ class TestModelSelection:
         import inspect
         import translate_engines as te
         default = inspect.signature(te.ClaudeEngine.__init__).parameters["model"].default
-        assert default == "claude-sonnet-5"
+        assert default == "claude-sonnet-5-5"
 
     def test_every_selectable_model_has_pricing(self):
         import translate_engines as te

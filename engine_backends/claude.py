@@ -20,7 +20,7 @@ class ClaudeEngine:
     name = "claude"
     supports_reference = True
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-5"):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-5-5"):
         import anthropic
         self.client = anthropic.Anthropic(api_key=api_key, timeout=SDK_REQUEST_TIMEOUT)
         self.model = model

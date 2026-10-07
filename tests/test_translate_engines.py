@@ -490,6 +490,30 @@ class TestEstimateCost:
         assert abs(large - small * 10) < 0.0001  # linear scaling
 
 
+class TestClaude55Pricing:
+    def test_new_ids_use_their_own_table_rows(self):
+        assert te.estimate_cost("claude-sonnet-5-5", 1_000_000, 500_000) == pytest.approx(2.0 + 5.0)
+        assert te.estimate_cost("claude-opus-5-5", 1_000_000, 500_000) == pytest.approx(4.0 + 10.0)
+
+    def test_opus_5_5_costs_less_than_opus_4_8(self):
+        assert (te.estimate_cost("claude-opus-5-5", 1_000_000, 1_000_000)
+                < te.estimate_cost("claude-opus-4-8", 1_000_000, 1_000_000))
+
+    def test_sonnet_5_5_costs_the_same_as_sonnet_5(self):
+        assert (te.estimate_cost("claude-sonnet-5-5", 1_000_000, 1_000_000)
+                == te.estimate_cost("claude-sonnet-5", 1_000_000, 1_000_000))
+
+    def test_cache_read_is_never_estimated_below_the_published_rate(self):
+        # Anthropic bills 5.5 cache reads at 5% of input; the flat 10% factor
+        # must stay at or above that so cost caps are not undercut.
+        full = te.estimate_cost("claude-opus-5-5", 1_000_000, 0)
+        cached = te.estimate_cost("claude-opus-5-5", 1_000_000, 0, cache_read_tokens=1_000_000)
+        assert cached >= full * 0.05
+
+    def test_an_unknown_claude_id_is_still_costed_at_its_tier_ceiling(self):
+        assert te.estimate_cost("claude-opus-9-9", 1_000_000, 0) == pytest.approx(5.0)
+
+
 class TestRecentContextInPrompt:
     def test_recent_context_included_when_provided(self):
         block = te.build_batch_context(recent_context=[("她昨天来了", "She came yesterday.")])

@@ -14,7 +14,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
     await route.fulfill({
       json: {
         drama_id: 1, tier: 'release', label: 'Release -- best quality, checked before export',
-        translation_engine: 'claude', engine_model: 'claude-opus-4-8', reflect: true, auto_qc: true,
+        translation_engine: 'claude', engine_model: 'claude-opus-5-5', reflect: true, auto_qc: true,
       },
     })
   })
