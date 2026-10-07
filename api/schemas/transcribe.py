@@ -134,6 +134,8 @@ class TranscribeConfig(BaseModel):
     audio_available: bool
     alignment_method: str
     asr_backend_choice: str
+    # Set when the saved backend was removed and the default is shown instead.
+    asr_backend_notice: Optional[str] = None
     whisper_size: str
     whisper_model_cached: bool
     # Audio seconds per second of work on the last finished run of this model and device.

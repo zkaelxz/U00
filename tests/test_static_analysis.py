@@ -654,9 +654,9 @@ class TestFfmpegRunsHaveTimeouts:
 MAX_MODULE_BYTES = 40 * 1024
 OVERSIZED_MODULE_BYTES = {
     "db.py": 299250,
-    "diagnostics.py": 115246,
-    "services/transcribe_service.py": 105684,
-    "cli.py": 90829,
+    "diagnostics.py": 113946,
+    "services/transcribe_service.py": 102430,
+    "cli.py": 90814,
     "scanlate.py": 89904,
     "background_jobs.py": 89431,
     "bulk_translate.py": 86382,

@@ -2352,6 +2352,21 @@ class TestCmdTranscribe:
         _run_main("transcribe", "--id", str(did))
         assert "NOTICE: Transcription ran on the CPU" in capsys.readouterr().out
 
+    def test_a_title_saved_with_the_removed_moss_backend_gets_a_notice(self, isolated_db, monkeypatch, capsys):
+        did = self._drama(isolated_db)
+        isolated_db.update_drama(did, asr_backend_choice="moss_td", source_language="ko")
+        self._start(monkeypatch)
+        self._fake_job(monkeypatch, {"status": "done", "result": {
+            "line_count": 1, "asr_backend_notice": "The MOSS-Transcribe-Diarize backend was removed."}})
+        _run_main("transcribe", "--id", str(did))
+        assert "MOSS-Transcribe-Diarize backend was removed" in capsys.readouterr().out
+        assert isolated_db.get_drama(did)["asr_backend_choice"] == "moss_td"
+
+    def test_moss_is_no_longer_an_asr_backend_flag_value(self, isolated_db, monkeypatch, capsys):
+        did = self._drama(isolated_db)
+        with pytest.raises(SystemExit):
+            _run_main("transcribe", "--id", str(did), "--asr-backend", "moss_td")
+
     def test_failed_job_exits_non_zero_with_redacted_error(self, isolated_db, monkeypatch, capsys):
         did = self._drama(isolated_db)
         self._start(monkeypatch)

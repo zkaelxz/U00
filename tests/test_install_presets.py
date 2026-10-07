@@ -189,17 +189,17 @@ def test_pypi_url_is_built_only_from_a_valid_name(monkeypatch):
 
 # ---- F: not offered, downgrade warning ----
 
-def test_moss_is_not_offered_and_refused():
-    reason = diagnostics.known_install_limitation_reason("moss_transcribe_diarize")
+def test_lncrawl_is_not_offered_and_refused():
+    reason = diagnostics.known_install_limitation_reason("lightnovel-crawler")
     assert reason and "not offered" in reason
-    assert "moss_transcribe_diarize" not in svc.installable_packages()
+    assert "lightnovel-crawler" not in svc.installable_packages()
     assert diagnostics.known_install_limitation_reason("jieba") is None
 
 
-def test_moss_install_is_refused_by_the_service(monkeypatch):
+def test_lncrawl_install_is_refused_by_the_service(monkeypatch):
     monkeypatch.setattr(svc, "guard", lambda confirm: None)
     with pytest.raises(svc.AdminActionUnknownPackage):
-        svc.install_dependency("moss_transcribe_diarize", confirm=True)
+        svc.install_dependency("lightnovel-crawler", confirm=True)
 
 
 @pytest.mark.parametrize("have,warned", [("5.2.0", True), ("4.57.6", False), (None, False)])
@@ -216,7 +216,7 @@ def test_qwen_asr_warns_before_downgrading_transformers(monkeypatch, have, warne
 def test_dependency_install_refuses_a_not_offered_package(monkeypatch):
     monkeypatch.setattr(diagnostics, "stream_pip_install",
                         lambda *a, **k: pytest.fail("must not run pip"))
-    items = list(diagnostics.stream_dependency_install("moss_transcribe_diarize"))
+    items = list(diagnostics.stream_dependency_install("lightnovel-crawler"))
     assert items[-1]["done"] is True and items[-1]["ok"] is False
     assert "not offered" in items[0]["line"]
 
