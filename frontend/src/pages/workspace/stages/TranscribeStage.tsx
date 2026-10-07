@@ -682,8 +682,7 @@ export default function TranscribeStage({
                 ? 'Qwen3 forced alignment lines up the transcript you supply against the audio for more exact timing.'
                 : 'Forced alignment lines up a transcript you provide; for raw audio, pick Whisper or Qwen3-ASR.',
               haveTranscript ? [] : ['qwen3_forced_align'])}
-            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(), [asrBackendHelp(asrBackendOptions()), config?.asr_backend_notice].filter(Boolean).join('
-'))}
+            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(), [asrBackendHelp(asrBackendOptions()), config?.asr_backend_notice].filter(Boolean).join('\n'))}
             {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
             {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'auto'], 'PaddleOCR reads Chinese, Korean and Japanese captions with the matching language model. Automatic uses it when installed and falls back to Tesseract, with a note.')}
           </div>

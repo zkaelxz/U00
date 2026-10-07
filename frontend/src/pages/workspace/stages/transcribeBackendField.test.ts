@@ -23,8 +23,7 @@ describe('ASR backend help', () => {
   })
 
   it('lists one line per offered backend', () => {
-    expect(asrBackendHelp(asrBackendOptions()).split('
-')).toHaveLength(asrBackendOptions().length)
+    expect(asrBackendHelp(asrBackendOptions()).split('\n')).toHaveLength(asrBackendOptions().length)
   })
 
   it('has no help line for a backend the dropdown does not offer', () => {
