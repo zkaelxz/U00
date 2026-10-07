@@ -249,19 +249,21 @@ the Qwen3 aligner and MOSS download from Hugging Face on first use; a blocked
 
 All in `dub.py`; this page only maps them.
 
-- **Stock voices:** `synthesize_line` (Edge TTS, online, the only engine in
-  `PARALLEL_SAFE_ENGINES`) and `synthesize_line_offline` (Piper, local,
-  serialized by a lock). Edge TTS falls back to Piper when blocked
-  (`EdgeTTSBlockedError`).
-- **Cloned voices:** `CLONE_ENGINES` = `f5tts` (default), `omnivoice`,
-  `gpt_sovits` (its own local server, `gpt_sovits_url`), `chatterbox`, `tada`.
-  All but Edge/Piper are in `LOCAL_MODEL_ENGINES` and run single-threaded on
-  one model. `clone_engine_supports_language` gates by language.
+- **Voices:** `CLONE_ENGINES` = `omnivoice` (default), `gpt_sovits` (its own
+  local server, `gpt_sovits_url`), `chatterbox`, `tada`. All are in
+  `LOCAL_MODEL_ENGINES` and run one clip at a time on one model.
+  `clone_engine_supports_language` gates original-language narration.
+  `clone_map_from_characters` builds one entry per speaker; a speaker with
+  no clip gets an OmniVoice designed voice or Chatterbox's built-in voice
+  from the run's engine, and GPT-SoVITS/TADA refuse the run
+  (`speakers_without_voice`).
+- **Removed engines:** `REMOVED_VOICE_ENGINES` (Edge TTS, Piper, F5-TTS). A
+  stored `clone_engine` or request naming one gets `removed_engine_message`;
+  nothing is rewritten or deleted.
 - **Timing:** `build_dub_track` fits each clip to its subtitle window with
   `stretch_for_window` (speed-up capped at `DUB_MAX_SPEEDUP`, slow-down at
   `DUB_MAX_SLOWDOWN`) and writes `pacing.json`.
-- The optional packages for these (`edge_tts`, `piper-tts`, `f5_tts`,
-  `omnivoice`, `chatterbox-tts`, `hume-tada`, `pydub`) are all in
+- The optional packages for these (`omnivoice`, `chatterbox-tts`, `hume-tada`, `pydub`) are all in
   `diagnostics.OPTIONAL_DEPENDENCIES`; OmniVoice, Chatterbox and TADA cannot
   share one environment.
 

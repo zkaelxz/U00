@@ -61,9 +61,7 @@ OPTIONAL_DEPENDENCIES = {
     "bs4": ("bs4", "metadata lookup, navigator, bulk import", "feature"),
     "pyannote.audio": ("pyannote.audio", "speaker diarization", "feature"),
     "soundfile": ("soundfile", "speaker diarization, vocal separation chunking, word-level realignment", "feature"),
-    "edge_tts": ("edge_tts", "free online dubbing", "feature"),
     "pydub": ("pydub", "dub/narration track mixing", "feature"),
-    "f5_tts": ("f5_tts", "local voice cloning", "feature"),
     # Keys are the real pip names -- Diagnostics' Install button runs
     # `pip install <key>`. These three can't share one environment (see
     # requirements-optional.txt), which the descriptions say before anyone clicks.
@@ -79,7 +77,6 @@ OPTIONAL_DEPENDENCIES = {
     "PIL": ("PIL", "OCR, Scanlate rendering, cover art upload", "feature"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
     "manga_ocr": ("manga_ocr", "OCR (Japanese manga backend)", "feature"),
-    "piper-tts": ("piper", "offline TTS", "feature"),
     "jieba": ("jieba", "Chinese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pypinyin": ("pypinyin", "Chinese pinyin (Reader)", "feature"),
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
@@ -199,9 +196,9 @@ def canonical_dist(name: str) -> str:
 APPROX_DOWNLOAD_MB = {
     "faster-whisper": 80, "ctranslate2": 40, "opencv-python": 45, "anthropic": 2, "openai": 2,
     "requests": 1, "beautifulsoup4": 1, "pyannote-audio": 20, "soundfile": 2,
-    "edge-tts": 1, "pydub": 1, "f5-tts": 60, "omnivoice": 60, "chatterbox-tts": 60,
+    "pydub": 1, "omnivoice": 60, "chatterbox-tts": 60,
     "hume-tada": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "manga-ocr": 20,
-    "piper-tts": 30, "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3,
+    "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3,
     "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
     "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
     "sudachidict-core": 70, "safetensors": 1, "huggingface-hub": 1, "pypdf": 1,
@@ -211,7 +208,7 @@ APPROX_DOWNLOAD_MB = {
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
     "jiwer": 3, "sacrebleu": 2,
 }
-PULLS_TORCH = {"pyannote-audio", "f5-tts", "omnivoice", "chatterbox-tts", "hume-tada",
+PULLS_TORCH = {"pyannote-audio", "omnivoice", "chatterbox-tts", "hume-tada",
                "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
 
 
@@ -313,16 +310,6 @@ INSTALL_TASKS = [
     {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
      "help": "Re-align lines to individual words (experimental).",
      "packages": ["torch", "torchaudio", "uroman", "soundfile"]},
-    {"id": "tts_online", "group": "Dubbing", "label": "Dubbing: free online voice (edge-tts)",
-     "help": "Microsoft-hosted voices; needs internet, no GPU.",
-     "packages": ["edge_tts", "pydub", "numpy"],
-     "recommended": ["numpy"]},
-    {"id": "tts_piper", "group": "Dubbing", "label": "Dubbing: offline voice (Piper)",
-     "help": "Small offline voices, no cloning.",
-     "packages": ["piper-tts", "pydub"]},
-    {"id": "tts_f5", "group": "Dubbing", "label": "Voice cloning: F5-TTS",
-     "help": "Clone a character's voice locally.",
-     "packages": ["f5_tts", "torch", "pydub", "huggingface_hub"]},
     {"id": "tts_omnivoice", "group": "Dubbing", "label": "Voice cloning: OmniVoice",
      "help": "Clone or design a voice locally. Can't share an install with Chatterbox/TADA.",
      "packages": ["omnivoice", "torch", "pydub", "huggingface_hub"]},
@@ -596,7 +583,7 @@ def check_library_writable(library_dir: str):
 # ---------------------------------------------------------------------------
 # Hugging Face model-cache visibility & cleanup.
 #
-# Whisper/pyannote/Qwen3-ASR/ForcedAligner/F5-TTS weights live in
+# Whisper/pyannote/Qwen3-ASR/ForcedAligner/OmniVoice weights live in
 # huggingface_hub's own cache (~/.cache/huggingface by default), entirely
 # separate from storage.py's own accounting of this app's `library/`
 # folder -- across several backends this can reach tens of GB with no
@@ -646,55 +633,6 @@ def delete_hf_cache_revision(revision: str, cache_dir: str = None) -> bool:
         strategy.execute()
         return True
     except Exception:
-        return False
-
-
-def scan_piper_voices(voices_dir: str = None) -> list:
-    """[{"voice", "size_bytes"}, ...] for every downloaded Piper voice
-    model, largest first. This panel only ever scanned
-    the Hugging Face model cache above -- Piper voices (the
-    offline-voice picker) download to `library/piper_voices` instead, so
-    they were invisible here and to whatever cleanup/disk-usage view
-    relies on this. [] if the directory doesn't exist yet -- never
-    raises, same reasoning as scan_hf_cache above."""
-    if voices_dir is None:
-        import dub
-        voices_dir = dub.piper_voices_dir()
-    try:
-        if not os.path.isdir(voices_dir):
-            return []
-        entries = []
-        for fname in os.listdir(voices_dir):
-            if not fname.endswith(".onnx"):
-                continue
-            onnx_path = os.path.join(voices_dir, fname)
-            size = os.path.getsize(onnx_path)
-            json_path = onnx_path + ".json"
-            if os.path.exists(json_path):
-                size += os.path.getsize(json_path)
-            entries.append({"voice": fname[:-len(".onnx")], "size_bytes": size})
-        return sorted(entries, key=lambda e: -e["size_bytes"])
-    except OSError:
-        return []
-
-
-def delete_piper_voice(voice: str, voices_dir: str = None) -> bool:
-    """Deletes one downloaded Piper voice's .onnx + .onnx.json. False,
-    not raised, if neither file exists or the delete fails for any
-    reason (permissions, a file already gone)."""
-    if voices_dir is None:
-        import dub
-        voices_dir = dub.piper_voices_dir()
-    onnx_path = os.path.join(voices_dir, f"{voice}.onnx")
-    json_path = onnx_path + ".json"
-    try:
-        deleted = False
-        for path in (onnx_path, json_path):
-            if os.path.exists(path):
-                os.remove(path)
-                deleted = True
-        return deleted
-    except OSError:
         return False
 
 
@@ -804,10 +742,6 @@ MODEL_ENGINE_REGISTRY = [
     {"name": "Demucs", "kind": "package", "package": "demucs",
      "url": "https://github.com/facebookresearch/demucs",
      "help": "A fallback background-music remover, used when audio-separator isn't installed."},
-    {"name": "F5-TTS", "kind": "package", "package": "f5-tts",
-     "url": "https://github.com/SWivid/F5-TTS",
-     "help": "A local text-to-speech engine that can clone a character's voice for dubbing or "
-             "novel narration."},
     {"name": "OmniVoice", "kind": "package", "package": "omnivoice",
      "url": "https://github.com/k2-fsa/OmniVoice",
      "help": "A local voice-cloning engine that can also design a new voice from a text "
@@ -825,10 +759,6 @@ MODEL_ENGINE_REGISTRY = [
      "url": "https://github.com/HumeAI/tada",
      "help": "A local voice engine tuned for long narration (e.g. novel narration) rather than "
              "short dubbed lines."},
-    {"name": "edge-tts", "kind": "package", "package": "edge-tts",
-     "url": "https://github.com/rany2/edge-tts",
-     "help": "A free, online (Microsoft-hosted) text-to-speech engine used for dubbing when no "
-             "local voice-cloning engine is set up."},
 ]
 
 

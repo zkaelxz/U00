@@ -788,8 +788,8 @@ class TestCmdDubFlagPreservation:
 
         calls = []
 
-        def fake_build_dub_track(lines, drama_dir, voice_map, character_clone_map=None,
-                                 progress_cb=None, emotion_map=None, **stretch):
+        def fake_build_dub_track(lines, drama_dir, character_clone_map, progress_cb=None,
+                                 emotion_map=None, **stretch):
             calls.append(lines)
             return "fake_dub.wav", []
         monkeypatch.setattr(dub_module, "build_dub_track", fake_build_dub_track)
@@ -805,26 +805,25 @@ class TestCmdDubFlagPreservation:
 
 
 class TestCmdDubVoiceFallback:
-    def test_unvoiced_characters_get_different_voices(self, isolated_db, monkeypatch):
+    def test_unvoiced_characters_get_different_designed_voices(self, isolated_db, monkeypatch):
         did = isolated_db.create_drama(title_en="Test", status="translated")
-        isolated_db.upsert_character(did, "SPEAKER_00", tts_voice="en-US-AvaNeural")
+        isolated_db.upsert_character(did, "SPEAKER_00", voice_design="male, low pitch")
         isolated_db.save_lines(did, [
             Line(idx=i, start=float(i), end=i + 1.0, zh="你好", en="Hello", speaker=s)
             for i, s in enumerate(["SPEAKER_00", "SPEAKER_01", "SPEAKER_02"])])
         seen = {}
 
-        def fake_build_dub_track(lines, drama_dir, voice_map, offline_voice_map=None, **kw):
-            seen.update(voice_map=voice_map, offline_voice_map=offline_voice_map)
+        def fake_build_dub_track(lines, drama_dir, character_clone_map, **kw):
+            seen.update(clone_map=character_clone_map)
             return "fake_dub.wav", []
         monkeypatch.setattr(dub_module, "build_dub_track", fake_build_dub_track)
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))
 
-        voices = seen["voice_map"]
-        assert voices["SPEAKER_00"] == "en-US-AvaNeural"
-        assert len({voices[s] for s in ("SPEAKER_00", "SPEAKER_01", "SPEAKER_02")}) == 3
-        offline = seen["offline_voice_map"]
-        assert offline["SPEAKER_01"] != offline["SPEAKER_02"]
+        voices = seen["clone_map"]
+        assert voices["SPEAKER_00"] == {"engine": "omnivoice", "instruct": "male, low pitch"}
+        assert {v["engine"] for v in voices.values()} == {"omnivoice"}
+        assert len({v["instruct"] for v in voices.values()}) == 3
 
 
 class TestCmdDubStretchLimits:
@@ -852,11 +851,8 @@ class TestCmdDubStretchLimits:
 
 
 class TestCmdDubTtsEngineFlag:
-    """Step 25d item 10: this command had no --tts-engine flag at all, so
-    it could only ever use edge-tts from the command line, regardless of
-    what's configured for the drama's characters -- Workspace's own
-    "8. AI dub / narration" section always lets you pick edge_tts or
-    offline/Piper as the fallback engine."""
+    """--tts-engine is the CLI's version of the Dub stage's engine picker:
+    the engine for speakers whose character has none of its own."""
 
     def _run(self, isolated_db, monkeypatch, **overrides):
         did = isolated_db.create_drama(title_en="Test", status="translated")
@@ -868,13 +864,62 @@ class TestCmdDubTtsEngineFlag:
             cli.cmd_dub(_dub_args(id=did, **overrides))
         return seen
 
-    def test_defaults_to_edge_tts(self, isolated_db, monkeypatch):
-        seen = self._run(isolated_db, monkeypatch)
-        assert seen["tts_engine"] == "edge_tts"
+    def _engines(self, isolated_db, monkeypatch, **overrides):
+        did = isolated_db.create_drama(title_en="Test", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello", speaker="A")])
+        seen = {}
+        monkeypatch.setattr(dub_module, "build_dub_track",
+                            lambda lines, drama_dir, clone_map, **k: seen.update(clone_map=clone_map)
+                            or ("fake_dub.wav", []))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_dub(_dub_args(id=did, **overrides))
+        return seen["clone_map"]
 
-    def test_offline_flag_passes_through(self, isolated_db, monkeypatch):
-        seen = self._run(isolated_db, monkeypatch, tts_engine="offline")
-        assert seen["tts_engine"] == "offline"
+    def test_defaults_to_omnivoice(self, isolated_db, monkeypatch):
+        assert dub_module.DEFAULT_CLONE_ENGINE == "omnivoice"
+        assert self._engines(isolated_db, monkeypatch)["A"]["engine"] == "omnivoice"
+
+    def test_the_flag_picks_the_engine(self, isolated_db, monkeypatch):
+        assert self._engines(isolated_db, monkeypatch, tts_engine="chatterbox")["A"] == {
+            "engine": "chatterbox", "ref_audio": None}
+
+
+class TestCmdDubRemovedEngines:
+    """The CLI refuses in the same words as the API, and never rewrites what
+    is stored."""
+
+    @pytest.mark.parametrize("engine,label", [("edge_tts", "Edge TTS"), ("offline", "Piper"),
+                                              ("f5tts", "F5-TTS")])
+    def test_a_removed_engine_flag_stops_before_any_drama_runs(self, isolated_db, monkeypatch, engine, label):
+        did = isolated_db.create_drama(title_en="Test", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        built = []
+        monkeypatch.setattr(dub_module, "build_dub_track", lambda *a, **k: built.append(1) or ("x.wav", []))
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_dub(_dub_args(id=did, tts_engine=engine))
+        assert str(exc.value) == f"dub: The {label} engine was removed. Pick another voice engine in Dub."
+        assert not built
+
+    def test_a_character_stored_with_a_removed_engine_fails_that_drama(self, isolated_db, monkeypatch, capsys):
+        did = isolated_db.create_drama(title_en="Test", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello", speaker="A")])
+        isolated_db.upsert_character(did, "A", character_name="Lin", clone_engine="f5tts")
+        built = []
+        monkeypatch.setattr(dub_module, "build_dub_track", lambda *a, **k: built.append(1) or ("x.wav", []))
+        cli.cmd_dub(_dub_args(id=did))
+        err = capsys.readouterr()
+        assert "Lin: The F5-TTS engine was removed. Pick another voice engine in Dub." in err.err
+        assert "1 failed" in err.out and not built
+        assert isolated_db.list_characters(did)[0]["clone_engine"] == "f5tts"
+        assert isolated_db.get_drama(did)["status"] == "translated"
+
+    def test_an_engine_that_needs_clips_fails_a_drama_with_clipless_speakers(
+            self, isolated_db, monkeypatch, capsys):
+        did = isolated_db.create_drama(title_en="Test", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello", speaker="A")])
+        monkeypatch.setattr(dub_module, "build_dub_track", lambda *a, **k: ("x.wav", []))
+        cli.cmd_dub(_dub_args(id=did, tts_engine="tada"))
+        assert "needs a reference clip for every speaker" in capsys.readouterr().err
 
 
 class TestCmdDubNarration:
@@ -896,10 +941,8 @@ class TestCmdDubNarration:
         did = self._narration_drama(isolated_db)
         seen = {}
 
-        def fake_build_narration_track(lines, drama_dir, voice_map, default_voice=None,
-                                       character_clone_map=None, progress_cb=None, emotion_map=None,
-                                       offline_voice_map=None, tts_engine=None,
-                                       narrate_original=False, source_language=None):
+        def fake_build_narration_track(lines, drama_dir, character_clone_map, progress_cb=None,
+                                       emotion_map=None, narrate_original=False, source_language=None):
             seen.update(clone_map=character_clone_map, emotion_map=emotion_map)
             for i, ln in enumerate(lines):
                 ln.start, ln.end, ln.dub_filename = 10.0 + i, 10.5 + i, "dub_clips/line_0000-0001.wav"
@@ -934,12 +977,10 @@ class TestCmdDubNarration:
         isolated_db.update_drama(did, narration_language="original")
         seen = {}
 
-        def fake_build_narration_track(lines, drama_dir, voice_map, default_voice=None,
-                                       character_clone_map=None, progress_cb=None, emotion_map=None,
-                                       offline_voice_map=None, tts_engine=None,
-                                       narrate_original=False, source_language=None):
+        def fake_build_narration_track(lines, drama_dir, character_clone_map, progress_cb=None,
+                                       emotion_map=None, narrate_original=False, source_language=None):
             seen.update(narrate_original=narrate_original, source_language=source_language,
-                       default_voice=default_voice)
+                        clone_map=character_clone_map)
             return "narration_track.wav", []
         monkeypatch.setattr(dub_module, "build_narration_track", fake_build_narration_track)
 
@@ -948,7 +989,17 @@ class TestCmdDubNarration:
 
         assert seen["narrate_original"] is True
         assert seen["source_language"] == "ja"
-        assert seen["default_voice"] in dub_module.DEFAULT_VOICE_POOL_BY_LANGUAGE["ja"]
+        # the designed voice, not a per-language stock voice, speaks the source text
+        assert seen["clone_map"]["Hero"] == {"engine": "omnivoice", "instruct": "male, low pitch"}
+
+    def test_original_mode_with_an_engine_that_cannot_speak_it_fails_plainly(
+            self, isolated_db, monkeypatch, capsys):
+        did = self._narration_drama(isolated_db)
+        isolated_db.update_drama(did, narration_language="original")
+        monkeypatch.setattr(dub_module, "build_narration_track",
+                            lambda *a, **k: pytest.fail("must not start"))
+        cli.cmd_dub(_dub_args(id=did, tts_engine="chatterbox"))
+        assert "can't speak the original language" in capsys.readouterr().err
 
     def test_original_mode_still_narrates_a_drama_with_no_translation_at_all(
             self, isolated_db, monkeypatch):
@@ -2069,8 +2120,8 @@ class TestCmdDubValidatesLikeTheService:
         monkeypatch.setattr(dub_service, "_missing_engine_dependency",
                             lambda engine: f"The {engine} package is not installed.")
         with pytest.raises(SystemExit) as exc:
-            cli.cmd_dub(_dub_args(id=did, tts_engine="offline"))
-        assert "The offline package is not installed." in str(exc.value)
+            cli.cmd_dub(_dub_args(id=did, tts_engine="chatterbox"))
+        assert "The chatterbox package is not installed." in str(exc.value)
 
 
 class TestCmdTranslateValidatesLikeTheService:

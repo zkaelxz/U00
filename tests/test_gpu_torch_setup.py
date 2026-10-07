@@ -151,7 +151,7 @@ def test_other_installs_carry_a_torch_pins_file_that_is_removed(monkeypatch):
     seen, pins = [], []
     _fake_pip(monkeypatch, seen, read_pins=pins)
     for fn in (svc.install_dependency, svc.upgrade_dependency):
-        assert fn("f5-tts", confirm=True)["ok"] is True
+        assert fn("chatterbox-tts", confirm=True)["ok"] is True
     assert len(seen) == 2 and len(pins) == 2
     for path, text in pins:
         assert text.split() == ["torch==2.11.0+cu128", "torchvision==0.26.0+cu128"]
@@ -164,8 +164,8 @@ def test_no_pins_file_without_torch(monkeypatch):
     _versions(monkeypatch)
     seen = []
     _fake_pip(monkeypatch, seen)
-    svc.install_dependency("edge_tts", confirm=True)
-    assert seen[0][0][3:] == ["install", *FLAGS, "edge_tts"]
+    svc.install_dependency("pydub", confirm=True)
+    assert seen[0][0][3:] == ["install", *FLAGS, "pydub"]
 
 
 def test_a_package_needing_another_torch_is_refused_with_a_plain_hint(monkeypatch):

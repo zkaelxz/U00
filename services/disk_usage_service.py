@@ -122,7 +122,7 @@ _LIBRARY_FOLDERS = {
     "source_review_tmp": ("Import review scratch", "Images kept while an import review is open."),
     "updates": ("Downloaded updates", "Installers already downloaded; download again if needed."),
     "logs": ("Log files", "Diagnostic logs; new ones are written as the app runs."),
-    "piper_voices": ("Downloaded voices", "Text-to-speech voices; downloaded again when used."),
+    "piper_voices": ("Old voices", "Voices of the removed Piper engine; unused."),
 }
 _REPLACEABLE_FOLDERS = {
     "voice_bank": "Your saved voice samples.",

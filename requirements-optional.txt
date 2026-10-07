@@ -42,11 +42,10 @@ qwen-asr>=0.0.6         # Step 76: >=0.1 could never install -- pip index shows 
                         # wheel yet" problem as the PaddlePaddle note below, but silent
                         # instead of a clear pip error, so it's worth checking explicitly.
 
-# --- voice cloning ---
-f5-tts>=0.9             # local, GPU recommended
-
-# Novel narration voices (optional, local; GPU strongly recommended). Pick
-# one per character in Workspace section 6; each downloads its own model on
+# --- local voices ---
+# Dubbing and novel narration voices (optional, local; GPU strongly
+# recommended). Pick one per character in Workspace section 6, or one for
+# the whole run in Dub; each downloads its own model on
 # first use. Left commented out because they can't all share one
 # environment: OmniVoice needs transformers>=5.3, Chatterbox pins
 # transformers==5.2.0 and torch==2.6.0, and TADA needs transformers<5 and
@@ -77,9 +76,6 @@ demucs>=4.0
 # Downloads its own model (~1.1GB) on first use.
 torchaudio>=2.0
 uroman>=1.2
-
-# --- offline TTS ---
-piper-tts>=1.2
 
 # --- OCR ---
 pytesseract>=0.3        # also needs the Tesseract binary + language packs

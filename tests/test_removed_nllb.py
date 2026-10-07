@@ -184,12 +184,21 @@ class TestCli:
             cli._parse_fallback_arg("deepseek,nllb", reflect=False)
         assert MESSAGE in str(exc.value)
 
-    def test_the_engine_flag_no_longer_accepts_it(self, monkeypatch, capsys):
+    def test_the_engine_flag_refuses_it_with_the_api_message(self, isolated_db, monkeypatch):
+        built = []
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda name, *a, **k: built.append(name) or object())
         monkeypatch.setattr("sys.argv", ["cli.py", "translate", "--id", "1", "--engine", "nllb"])
         with pytest.raises(SystemExit) as exc:
             cli.main()
-        assert exc.value.code == 2
-        assert "nllb" in capsys.readouterr().err
+        assert str(exc.value) == f"translate: {MESSAGE}"
+        assert not built
+
+    def test_an_unknown_engine_flag_is_still_refused(self, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["cli.py", "translate", "--engine", "nope"])
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+        assert str(exc.value) == "translate: Unknown engine."
 
     def test_the_default_model_is_the_same_in_the_cli_and_the_app(self, isolated_db):
         assert translate_engines.builtin_default_model("ollama") == "gemma4:12b"
