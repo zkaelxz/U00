@@ -400,16 +400,13 @@ def torch_conflict_hint(lines, pins: list) -> str:
     return None
 
 
-def _run_commands(cmds: list, torch_pins: list = None, sox_watch=None) -> dict:
+def _run_commands(cmds: list, torch_pins: list = None) -> dict:
     """Runs each (command, timeout) through _stream_tree; ok only if every
-    one exits 0 in time. Stops at the first failure. `sox_watch` (a
-    diagnostics.SoxBuildWatch) sees every raw output line."""
+    one exits 0 in time. Stops at the first failure."""
     tail, ok, hint, raw = [], True, None, []
     for cmd, timeout in cmds:
         for item in stream_tree(cmd, timeout):
             if "line" in item:
-                if sox_watch:
-                    sox_watch.feed(item["line"])
                 # Checked on the raw line: redaction rewrites the cache path.
                 hint = hint or diagnostics.pip_cache_permission_hint([item["line"]])
                 if torch_pins:
@@ -452,7 +449,7 @@ def _under_install_hold(fn):
         background_jobs.release_exclusive()
 
 
-def _run_pip(name: str, confirm, cmds_for, sox_watch=None) -> dict:
+def _run_pip(name: str, confirm, cmds_for) -> dict:
     """One whitelisted package's pip run under the install hold. Unless the
     package is itself torch/torchvision/torchaudio, every command also gets
     a constraints file pinning the installed torch family exactly, so pip
@@ -466,11 +463,11 @@ def _run_pip(name: str, confirm, cmds_for, sox_watch=None) -> dict:
         cmds = cmds_for(name)
         pins = [] if name in diagnostics.TORCH_FAMILY else diagnostics.torch_pin_lines()
         if not pins:
-            return _run_commands(cmds, sox_watch=sox_watch)
+            return _run_commands(cmds)
         path = _write_torch_pins(pins)
         try:
             return _run_commands([(cmd + ["-c", path], t) for cmd, t in cmds],
-                                 torch_pins=pins, sox_watch=sox_watch)
+                                 torch_pins=pins)
         finally:
             try:
                 os.remove(path)
@@ -481,30 +478,8 @@ def _run_pip(name: str, confirm, cmds_for, sox_watch=None) -> dict:
     return result
 
 
-def _qwen_asr_fallback_commands(_name: str) -> list:
-    return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)
-            for args in diagnostics.qwen_asr_fallback_pip_args()]
-
-
-def _install_qwen_asr(confirm) -> dict:
-    """The normal install; if it fails building `sox` (see
-    diagnostics.QWEN_ASR_FALLBACK_DEPS), installs qwen-asr without it."""
-    watch = diagnostics.SoxBuildWatch()
-    result = _run_pip("qwen-asr", confirm, _install_commands, sox_watch=watch)
-    if result["ok"] or not watch.failed:
-        return result
-    retry = _run_pip("qwen-asr", confirm, _qwen_asr_fallback_commands)
-    note = "Installing Qwen3-ASR without its `sox` dependency, which Baihe doesn't use."
-    retry["output_tail"] = ([note] + retry["output_tail"])[-_ADMIN_OUTPUT_TAIL:]
-    if not retry["ok"]:
-        retry["hint"] = retry["hint"] or diagnostics.SOX_BUILD_HINT
-    return retry
-
-
 def install_dependency(name: str, confirm: bool = False) -> dict:
     try:
-        if name == "qwen-asr":
-            return _install_qwen_asr(confirm)
         return _run_pip(name, confirm, _install_commands)
     finally:
         _clear_update_cache()      # a new package can hold back (or allow) others

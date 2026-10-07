@@ -41,7 +41,7 @@ def start_retime(drama_id: int, line_ids: list) -> dict:
 
     NotFoundError for an unknown drama; UnsupportedOperationError with no audio
     pipeline or stored audio; InvalidInputError for a bad or over-cap
-    selection; DependencyUnavailableError when qwen-asr/torch are missing;
+    selection; DependencyUnavailableError when torch or transformers 5.15+ is missing;
     ConflictError while a re-time run is active, or while a transcription,
     fix-flagged, re-segment, narration or compare run is running or queued."""
     drama = compare._drama_or_404(drama_id)

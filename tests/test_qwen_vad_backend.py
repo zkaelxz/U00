@@ -144,7 +144,6 @@ def test_cancel_between_batches_stops_the_run(fakes):
 
 def test_batch_size_follows_the_qwen_batching_rules(fakes, monkeypatch):
     model = fakes(["a", "b"])
-    monkeypatch.setattr(ab, "installed_qwen_asr_version", lambda: ab.QWEN_ASR_BATCH_TESTED_VERSION)
     run(vad([(0, 2), (5, 7)]), batch_size=2)
     assert model.calls == [2]
 

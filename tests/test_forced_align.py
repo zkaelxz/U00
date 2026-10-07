@@ -1,7 +1,7 @@
 """
 tests/test_forced_align.py -- forced_align.py's pure logic (bucketing,
 chunk-to-line reconstruction, model-loading fallback/error classification),
-exercised against fake qwen_asr/torch modules and a monkeypatched audio
+exercised against fake qwen3_native/torch modules and a monkeypatched audio
 slicer, since the real model needs a GPU/network this sandbox doesn't have.
 """
 import os
@@ -408,21 +408,29 @@ class TestAlignWithQwen3:
 
 class TestLoadQwen3Aligner:
     def _install_fake_qwen_asr(self, from_pretrained):
+        """from_pretrained keeps the (model_id, dtype, device_map) shape the
+        tests below were written with; the native loader is called with
+        (model_id, device, dtype)."""
         fake_torch = types.ModuleType("torch")
         fake_torch.bfloat16 = "bfloat16"
+        fake_torch.float16 = "float16"
+        fake_torch.cuda = types.SimpleNamespace(is_bf16_supported=lambda: True)
         sys.modules["torch"] = fake_torch
 
-        fake_module = types.ModuleType("qwen_asr")
-
-        class FakeAligner:
-            pass
-        FakeAligner.from_pretrained = staticmethod(from_pretrained)
-        fake_module.Qwen3ForcedAligner = FakeAligner
-        sys.modules["qwen_asr"] = fake_module
+        import qwen3_native
+        self._native_saved = (qwen3_native.NativeQwen3Aligner.__dict__["from_pretrained"],
+                              qwen3_native.installed_transformers_version)
+        qwen3_native.NativeQwen3Aligner.from_pretrained = staticmethod(
+            lambda model_id, device, dtype: from_pretrained(model_id, dtype, device))
+        qwen3_native.installed_transformers_version = lambda: "5.19.0"
 
     def teardown_method(self):
         sys.modules.pop("torch", None)
-        sys.modules.pop("qwen_asr", None)
+        saved = getattr(self, "_native_saved", None)
+        if saved:
+            import qwen3_native
+            qwen3_native.NativeQwen3Aligner.from_pretrained = saved[0]
+            qwen3_native.installed_transformers_version = saved[1]
         import forced_align
         forced_align._aligner_model_cache.clear()
 

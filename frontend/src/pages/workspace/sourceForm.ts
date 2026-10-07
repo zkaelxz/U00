@@ -239,6 +239,7 @@ export interface AdvancedValues {
   whisper_fast_mode: boolean
   whisper_repeat_guard: boolean
   split_by_sentences: boolean
+  vocabulary_hint: boolean
   use_groq: boolean
   prompt: string
 }
@@ -262,6 +263,7 @@ export function advancedSummary(v: AdvancedValues): string {
   if (v.whisper_fast_mode) parts.push('fast mode')
   if (v.whisper_repeat_guard) parts.push('repeat guard')
   if (v.split_by_sentences) parts.push('lines by sentence')
+  if (v.vocabulary_hint) parts.push('name hint')
   if (v.use_groq) parts.push('Groq')
   if (v.prompt.trim()) parts.push('replacement prompt')
   return parts.length ? parts.join(' · ') : 'defaults'

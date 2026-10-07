@@ -20,7 +20,9 @@ import pytest
 
 import background_jobs
 import core as core_module
+import qwen3_native
 from services import transcribe_service
+from services.qwen3_requirements_service import MISSING_QWEN_MESSAGE
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 
@@ -110,6 +112,7 @@ class TestGetTranscribeConfig:
             "whisper_fast_mode": False,
             "whisper_repeat_guard": False,
             "split_by_sentences": False,
+            "vocabulary_hint": False,
             "use_groq": False,
             "has_video_source": False,
             "hardsub_ocr_backend": "paddle",
@@ -124,12 +127,23 @@ class TestGetTranscribeConfig:
             self, isolated_db, monkeypatch, language, installed, expected):
         monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
                             lambda name, *a: object() if installed else None)
+        monkeypatch.setattr(qwen3_native, "installed_transformers_version",
+                            lambda: "5.19.0" if installed else None)
         did = isolated_db.create_drama(title_en="D", source_language=language)
         assert transcribe_service.get_transcribe_config(did)["asr_backend_choice"] == expected
+
+    def test_default_backend_stays_whisper_on_a_transformers_too_old_for_qwen3(
+            self, isolated_db, monkeypatch):
+        monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
+                            lambda name, *a: object())
+        monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: "5.14.1")
+        did = isolated_db.create_drama(title_en="D", source_language="zh")
+        assert transcribe_service.get_transcribe_config(did)["asr_backend_choice"] == "whisper"
 
     def test_default_backend_leaves_a_groq_title_on_whisper(self, isolated_db, monkeypatch):
         monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
                             lambda name, *a: object())
+        monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: "5.19.0")
         did = isolated_db.create_drama(title_en="D", source_language="zh", use_groq=1)
         assert transcribe_service.get_transcribe_config(did)["asr_backend_choice"] == "whisper"
 
@@ -1229,17 +1243,38 @@ class TestQwen3Backends:
 
         class Broken:
             def transcribe(self, *a, **k):
-                raise ImportError("No module named 'qwen_asr'")
+                raise ImportError("No module named 'torchaudio_secret_module'")
         monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", Broken)
 
         job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr")
 
         result = background_jobs.get_status(job_id)["result"]
         assert result["failed_reason"] == "dependency_missing"
-        assert result["detail"] == transcribe_service._MISSING_QWEN_MESSAGE
-        assert "qwen_asr" not in result["detail"]
+        assert result["detail"] == MISSING_QWEN_MESSAGE
+        assert "torchaudio_secret_module" not in result["detail"]
         assert isolated_db.load_lines(did) == []
         assert not os.path.exists(os.path.join(ddir, "raw_transcript.json"))
+        _clear(job_id)
+
+    def test_a_too_old_transformers_at_load_time_says_what_to_update(self, isolated_db, monkeypatch):
+        import asr_backend
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+
+        class TooOld:
+            def transcribe(self, *a, **k):
+                raise qwen3_native.TransformersUnavailableError(
+                    "Qwen3-ASR needs transformers 5.15 or newer (this is 4.57.6); "
+                    "update it in Diagnostics.")
+        monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", TooOld)
+
+        job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr")
+
+        result = background_jobs.get_status(job_id)["result"]
+        assert result["failed_reason"] == "dependency_missing"
+        assert result["detail"].startswith("Qwen3-ASR needs transformers 5.15 or newer")
+        assert "Traceback" not in result["detail"]
         _clear(job_id)
 
     def test_forced_align_choice_uses_true_alignment(self, isolated_db, monkeypatch):
@@ -1324,19 +1359,35 @@ class TestQwen3Backends:
         import importlib.util
         real_find = importlib.util.find_spec
         monkeypatch.setattr(importlib.util, "find_spec",
-                            lambda name, *a, **k: None if name == "qwen_asr" else real_find(name, *a, **k))
+                            lambda name, *a, **k: None if name == "torch" else real_find(name, *a, **k))
+        monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: "5.19.0")
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper",
                                    asr_backend_choice="qwen3_asr")
         with pytest.raises(DependencyUnavailableError, match="Open Diagnostics to install it"):
             transcribe_service.start_transcribe_run(did)
+
+    @pytest.mark.parametrize("version,message", [
+        (None, "needs transformers 5.15 or newer, which isn't installed"),
+        ("4.57.6", r"needs transformers 5.15 or newer \(this is 4.57.6\); update it in Diagnostics"),
+        ("5.14.1", r"\(this is 5.14.1\)")])
+    def test_start_with_missing_or_old_transformers_is_dependency_unavailable(
+            self, isolated_db, monkeypatch, version, message):
+        import importlib.util
+        monkeypatch.setattr(importlib.util, "find_spec", lambda *a, **k: object())
+        monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: version)
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper",
+                                   asr_backend_choice="qwen3_asr")
+        with pytest.raises(DependencyUnavailableError, match=message):
+            transcribe_service.start_transcribe_run(did)
         did2, _ = _drama_with_audio(isolated_db, transcript_mode="have_transcript",
                                     alignment_method="qwen3_forced_align")
-        with pytest.raises(DependencyUnavailableError, match="qwen-asr"):
+        with pytest.raises(DependencyUnavailableError, match="Qwen3 forced alignment needs transformers"):
             transcribe_service.start_transcribe_run(did2, transcript_text="hi")
 
     def test_start_passes_choices_to_the_job_when_packages_present(self, isolated_db, monkeypatch):
         import importlib.util
         monkeypatch.setattr(importlib.util, "find_spec", lambda *a, **k: object())
+        monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: "5.19.0")
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper",
                                    asr_backend_choice="qwen3_asr")
         captured = _capture_worker_start(monkeypatch)
@@ -1702,7 +1753,7 @@ def test_the_worker_reads_the_groq_key_from_its_environment(isolated_db, monkeyp
     transcribe_service._transcribe_worker(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         False, "auto", False, False, True, "", False, "whisper", "whisper_diff", None, 1,
-        False, False, 2.0, 0.35, False, False, "normal", str(tmp_path / "scratch"), result_queue)
+        False, False, 2.0, 0.35, False, False, "normal", None, str(tmp_path / "scratch"), result_queue)
     items = []
     while not result_queue.empty():
         items.append(result_queue.get_nowait())
@@ -1798,7 +1849,7 @@ def test_the_worker_pickles_and_runs_in_a_spawned_process(tmp_path):
     proc = ctx.Process(target=transcribe_service._transcribe_worker, daemon=True, args=(
         str(tmp_path / "audio.wav"), "whisper", None, "zh", "simplified", "medium", 5, 300, 0.5,
         True, "no_such_backend", False, False, False, "", False, "whisper", "whisper_diff", None,
-        1, False, False, 2.0, 0.35, False, False, "normal", str(tmp_path / "scratch"), result_queue))
+        1, False, False, 2.0, 0.35, False, False, "normal", None, str(tmp_path / "scratch"), result_queue))
     proc.start()
     items = [result_queue.get(timeout=60)]
     while items[-1][0] == "progress":
@@ -2055,7 +2106,7 @@ class TestMissingPackageOutcome:
         transcribe_service._transcribe_worker(
             "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
             False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
-            False, False, "normal", str(tmp_path / "scratch"), q)
+            False, False, "normal", None, str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
         assert kind == "ok"
         assert outcome == {"failed_reason": "dependency_missing",

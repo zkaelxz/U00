@@ -42,7 +42,7 @@ Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB.
 | Setting | `qwen_asr_batch_size`, 1-16, default 1 (1 = the original one-segment-at-a-time run) | `moss_experimental`, default off |
 | Applies when | a drama's ASR backend is **Qwen3 ASR** in Whisper-text mode | a drama's ASR backend is **MOSS-Transcribe-Diarize (experimental)** in Whisper-text mode |
 | Code | `asr_backend.Qwen3ASRBackend.transcribe(batch_size=...)` | `asr_backend.MossTranscribeDiarizeBackend`, `BACKENDS`/`get_backend` |
-| Written against | qwen-asr **0.0.6** (`transcribe(list)` returns one result per input, in order); any other installed version runs one segment per call | OpenMOSS/MOSS-Transcribe-Diarize commit **61bc29c** (package 0.1.0), HF model revision **704aa4a** |
+| Written against | transformers **5.15+**'s native Qwen3-ASR (`qwen3_native.py`; a batch returns one result per input, in order, and the count is checked) | OpenMOSS/MOSS-Transcribe-Diarize commit **61bc29c** (package 0.1.0), HF model revision **704aa4a** |
 | Safety | results keyed back by segment index; a batch with the wrong result count is redone one segment at a time; timing is always Whisper's | never picked automatically; refused unless the toggle is on and the package is installed; its own speaker labels are kept and pyannote is not chained over them |
 
 ### Before turning MOSS on
@@ -57,49 +57,49 @@ Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB.
 - **Household members can start it.** The toggle is PC-only, but once it is on,
   anyone with `lines.edit` + `jobs.start` can set a drama to MOSS and run it
   (a multi-GB model download on first use), the same as Qwen3-ASR.
-- **It replaces Qwen3.** It is not on PyPI; install it into the app's own
+- **Install.** It is not on PyPI; install it into the app's own
   environment from the tested commit:
   `pip install "git+https://github.com/OpenMOSS/MOSS-Transcribe-Diarize@61bc29cd4120be7b5d3b761b64cd5dff57263642"`.
-  That upgrades Transformers to 5.x, which qwen-asr (pinned to 4.57.6) can't
-  use, so Qwen3-ASR and Qwen3 forced alignment stop working until you go back
-  (`pip install qwen-asr`). Diagnostics lists it (`moss-transcribe-diarize`) but
-  doesn't offer a pip install.
+  It needs Transformers 5.6 or newer, which the Qwen3 models' transformers 5.15+
+  already satisfies, so it no longer conflicts with Qwen3-ASR. Diagnostics lists
+  it (`moss-transcribe-diarize`) but doesn't offer a pip install, and nothing
+  here turns it on or recommends it.
 - A run can't be stopped part-way (one blocking call); a Stop takes effect
   when it returns, before any line is replaced.
 
-- **Batching needs the tested qwen-asr.** With any version other than 0.0.6
-  installed, Qwen3-ASR sends one line at a time whatever the saved batch size;
-  the Settings card says which applies.
+- **Batching follows the saved size.** Qwen3-ASR needs transformers 5.15 or
+  newer (below that it can't run at all); the Settings card says which applies.
 
-### Installing qwen-asr (the `sox` dependency)
+### Qwen3 on transformers' own classes
 
-Diagnostics' Install button runs `python -m pip install --no-cache-dir
---disable-pip-version-check qwen-asr` with the app's own interpreter (plus a
-temporary constraints file pinning the installed torch family). qwen-asr 0.0.6
-depends on `sox`, a pure-Python package published only as a source archive, so
-pip has to build it with setuptools. That fails when build isolation is off or
-unavailable and the environment's setuptools is missing or too old, or when
-pip can't download its build tools. Baihe doesn't need `sox` (nothing in
-qwen-asr, librosa or transformers imports it, and no SoX program is used), so
-when the install fails building it the app installs qwen-asr with `--no-deps`
-and its other pinned dependencies instead (`diagnostics.QWEN_ASR_FALLBACK_DEPS`).
-If that also fails, the result carries a plain hint (`SOX_BUILD_HINT`).
+Qwen3-ASR and Qwen3-ForcedAligner run on `Qwen/Qwen3-ASR-1.7B-hf`,
+`Qwen/Qwen3-ASR-0.6B-hf` and `Qwen/Qwen3-ForcedAligner-0.6B-hf` (Apache-2.0)
+through `qwen3_native.py`, not the `qwen-asr` package. The `qwen-asr` package
+pinned transformers to 4.57.6; the native classes need **transformers 5.15 or
+newer**. The floor is 5.15, not the 5.13 the model cards say: the released
+5.13 and 5.14 wheels contain the classes but force the language through the
+system prompt and have no `prompt=` argument, while 5.15 prefills
+`language <NAME><asr_text>` as the models were trained and adds `prompt=`
+(checked against the wheels). The aligner card's "install from source" note is
+out of date: the released 5.13+ wheels include `Qwen3ASRForTokenClassification`,
+its auto-mapping and `prepare_forced_aligner_inputs` / `decode_forced_alignment`.
 
-The Windows installer's hash-pinned `wheels/` cover `requirements-core.txt`
-only. qwen-asr and its dependencies are optional and deliberately outside that
-lock; they install from PyPI at click time.
-
-Manual check on Windows (the owner's PC):
-
-1. Start Baihe and open Diagnostics > Packages. If Qwen3-ASR is installed,
-   uninstall it first (`python -m pip uninstall qwen-asr sox`).
-2. Click Install on Qwen3-ASR and wait for it (several GB with PyTorch). Either
-   the plain install finishes, or the output starts with "Installing Qwen3-ASR
-   without its `sox` dependency" and then finishes; both are fine. A red result
-   should show the plain hint above.
-3. Run `python -c "import qwen_asr.inference.qwen3_asr"` in Baihe's Python, then
-   transcribe a short clip with Qwen3-ASR selected; the package row should show
-   installed.
+- **Downloads are new.** Weights cached for the old `Qwen/Qwen3-ASR-1.7B` and
+  `Qwen/Qwen3-ForcedAligner-0.6B` repos are not reused. First use downloads about
+  4.1 GB (1.7B), 1.6 GB (0.6B) and 1.8 GB (the aligner) from Hugging Face; the old
+  folders can be deleted in Diagnostics > Model cache.
+- **Japanese and Korean alignment** need `nagisa` and `soynlp`; a missing one is
+  reported in plain words, not as an ImportError.
+- **Name hint (off by default).** A per-title switch in the Transcribe stage's
+  Advanced section (CLI: `transcribe --vocab-hint` / `--no-vocab-hint`) sends
+  `Vocabulary: a, b, c` as the processor's `prompt=`, built from the title's
+  character names and series glossary (`services/vocabulary_hint_service.py`).
+  At most 40 terms and 300 characters, because every segment's request carries
+  it and a long list makes the model write the words where they weren't said.
+  With the switch off, or no names, the request is exactly as without the feature.
+- **Mixing with other voice engines.** OmniVoice (transformers >= 5.3) can share
+  an environment with it. Chatterbox (`transformers==5.2.0`), TADA (`<5`) and
+  qwen-tts (`==4.57.3`) cannot.
 
 ### Remote-code check (lead security review, 2026-09-30)
 

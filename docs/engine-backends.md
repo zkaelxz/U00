@@ -214,7 +214,7 @@ speech spans and cuts long ones at the quietest point. `Qwen3ASRVadBackend`
 (`asr_backend_choice` `qwen3_asr_vad`, opt-in) uses it to feed Qwen3 spans of
 at most about 15 s instead of Whisper's segments. `Qwen3ASRLongBackend`
 (`qwen3_asr_long`, the default for Chinese and Japanese titles that never chose
-a backend, when qwen-asr is installed) runs the same stages with gentler speech
+a backend, when transformers 5.15+, torch and faster-whisper are installed) runs the same stages with gentler speech
 detection (threshold 0.35, no minimum span, 300 ms padding), spans packed into
 windows of up to 30 s, one line per sentence (`asr_backend.SENTENCE_SPLIT_RULES`) and
 the forced aligner always on, so line length comes from the text and aligned

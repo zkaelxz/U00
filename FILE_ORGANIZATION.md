@@ -30,7 +30,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `check_setup.py`, `process_guard.py`, `portable.py`, `storage.py`, `benchmark.py`, `action_tiers.py`
 
 **ASR, transcription & alignment**: `asr_backend.py`, `asr_benchmark.py`, `audio_preprocess.py`, `mixed_language.py`, `vad_segments.py`,
-`forced_align.py`, `word_align.py`, `raw_transcript.py`, `resegment.py`, `sensevoice_tags.py`, `sensitivity_preset.py`, `diarize.py`,
+`forced_align.py`, `qwen3_native.py`, `word_align.py`, `raw_transcript.py`, `resegment.py`, `sensevoice_tags.py`, `sensitivity_preset.py`, `diarize.py`,
 `voice_id.py`
 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**: `translate_engines.py`, `translation_guide.py`, `translation_memory.py`, `auto_qc.py`, `en_cleanup.py`,
@@ -64,7 +64,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `metadata_research_service.py`, `metadata_service.py`, `model_reeval_service.py`, `model_registry_service.py`,
 `narration_service.py`, `notification_service.py`, `notion_service.py`, `novel_attach_service.py`,
 `novel_files_service.py`, `oidc_service.py`, `ownership_service.py`, `page_import_limits.py`,
-`reader_service.py`, `remote_health_service.py`, `restructure_service.py`, `retime_service.py`,
+`qwen3_requirements_service.py`, `reader_service.py`, `remote_health_service.py`, `restructure_service.py`, `retime_service.py`,
 `review_extras_service.py`, `review_jobs_service.py`, `review_lines_service.py`, `review_records_service.py`,
 `safe_fetch.py`, `saved_comics_service.py`, `scanlate_pages_service.py`, `scanlate_render_service.py`,
 `scanlate_run_service.py`, `series_people_service.py`, `service_errors.py`, `settings_service.py`,
@@ -75,7 +75,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `stronger_engine_service.py`,
 `transcribe_service.py`, `translate_run_service.py`, `translate_service.py`, `translation_version_service.py`,
 `update_service.py`, `url_guard.py`, `url_media_service.py`, `usage_recost_service.py`,
-`voice_bank_audio_service.py`, `voice_clone_service.py`, `vram_service.py`, `web_search_service.py`,
+`vocabulary_hint_service.py`, `voice_bank_audio_service.py`, `voice_clone_service.py`, `vram_service.py`, `web_search_service.py`,
 `workflow_service.py`, `workspace_job_service.py`
 
 ## api/

@@ -624,16 +624,7 @@ def test_pip_rechecks_other_process_jobs_under_the_hold(monkeypatch):
     assert background_jobs.exclusive_active() is False
 
 
-# --- qwen-asr: `sox` is an sdist-only dependency that fails to build in some environments ---
-
-SOX_FETCH = ["Collecting sox", "  Downloading sox-1.5.0.tar.gz (63 kB)"]
-# What pip printed in a real venv without setuptools and with --no-build-isolation.
-SOX_NO_SETUPTOOLS = SOX_FETCH + ["  Preparing metadata (pyproject.toml): started",
-                                 "ModuleNotFoundError: No module named 'setuptools'",
-                                 "ERROR: Exception:"]
-SOX_BUILT = SOX_FETCH + ["  Building wheel for sox (pyproject.toml): finished with status 'done'",
-                         "Successfully built sox"]
-
+# --- transformers (Qwen3-ASR's runtime) installs as plain pip; no qwen-asr special case ---
 
 def _scripted_pip(monkeypatch, outputs):
     """stream_tree stand-in: each pip run takes the next (lines, returncode)."""
@@ -650,58 +641,19 @@ def _scripted_pip(monkeypatch, outputs):
     return seen
 
 
-def test_sox_watch_tells_a_sox_build_failure_from_other_failures():
-    def watch(lines):
-        w = diagnostics.SoxBuildWatch()
-        for line in lines:
-            w.feed(line)
-        return w.failed
-    assert watch(SOX_NO_SETUPTOOLS) is True
-    assert watch(SOX_BUILT + ["ERROR: Could not install torch"]) is False
-    assert watch(["Collecting torch", "ERROR: No matching distribution"]) is False
-
-
-def test_qwen_asr_fallback_deps_match_the_published_pins_minus_sox():
-    assert "sox" not in " ".join(diagnostics.QWEN_ASR_FALLBACK_DEPS)
-    assert {"transformers==4.57.6", "accelerate==1.12.0", "nagisa==0.2.11"} <= set(
-        diagnostics.QWEN_ASR_FALLBACK_DEPS)
-    assert diagnostics.KNOWN_EXACT_PINS["qwen-asr"]["transformers"] == "4.57.6"
-    assert diagnostics.qwen_asr_fallback_pip_args()[-1] == ["--no-deps", "qwen-asr"]
-
-
-def test_qwen_asr_install_is_plain_pip_when_it_works(monkeypatch):
+def test_transformers_install_is_one_plain_pip_run(monkeypatch):
     _no_jobs(monkeypatch)
-    seen = _scripted_pip(monkeypatch, [(SOX_BUILT, 0)])
-    out = svc.install_dependency("qwen-asr", confirm=True)
+    seen = _scripted_pip(monkeypatch, [(["Successfully installed transformers-5.19.0"], 0)])
+    out = svc.install_dependency("transformers", confirm=True)
     assert out["ok"] is True and out["hint"] is None
     assert [c[3:] for c in seen] == [["install", "--no-cache-dir", "--disable-pip-version-check",
-                                      "qwen-asr"]]
+                                      "transformers"]]
 
 
-def test_qwen_asr_sox_build_failure_falls_back_to_installing_without_sox(monkeypatch):
-    _no_jobs(monkeypatch)
-    seen = _scripted_pip(monkeypatch, [(SOX_NO_SETUPTOOLS, 1), (["Successfully installed x"], 0),
-                                       (["Successfully installed qwen-asr-0.0.6"], 0)])
-    out = svc.install_dependency("qwen-asr", confirm=True)
-    assert out["ok"] is True and out["package"] == "qwen-asr"
-    assert "without its `sox` dependency" in out["output_tail"][0]
-    assert len(seen) == 3
-    assert seen[1][-len(diagnostics.QWEN_ASR_FALLBACK_DEPS):] == list(
-        diagnostics.QWEN_ASR_FALLBACK_DEPS)
-    assert seen[2][-2:] == ["--no-deps", "qwen-asr"]
-    assert all("sox" not in " ".join(c[3:]) for c in seen[1:])
-
-
-def test_qwen_asr_fallback_failure_gives_the_plain_hint_without_leaking(monkeypatch):
-    _no_jobs(monkeypatch)
-    _scripted_pip(monkeypatch, [(SOX_NO_SETUPTOOLS, 1), ([DIRTY], 1)])
-    out = svc.install_dependency("qwen-asr", confirm=True)
-    assert out["ok"] is False and out["hint"] == diagnostics.SOX_BUILD_HINT
-    _assert_clean(out)
-
-
-def test_qwen_asr_other_failures_are_not_retried(monkeypatch):
+def test_a_failed_install_is_not_retried_and_the_sox_fallback_is_gone(monkeypatch):
     _no_jobs(monkeypatch)
     seen = _scripted_pip(monkeypatch, [(["Collecting torch", "ERROR: no matching distribution"], 1)])
-    out = svc.install_dependency("qwen-asr", confirm=True)
+    out = svc.install_dependency("transformers", confirm=True)
     assert out["ok"] is False and out["hint"] is None and len(seen) == 1
+    assert not hasattr(diagnostics, "SoxBuildWatch") and not hasattr(svc, "_install_qwen_asr")
+

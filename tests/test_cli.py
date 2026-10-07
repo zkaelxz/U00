@@ -626,13 +626,15 @@ class TestCmdAlignUsesDramaSettings:
     def test_missing_qwen3_fails_clearly_before_transcribing(self, isolated_db, monkeypatch):
         """Parity with the API (checked up front, dependency_missing): a
         drama saved to use Qwen3 forced alignment must not silently get
-        the default method when qwen-asr isn't installed, and shouldn't
+        the default method when transformers is too old for Qwen3, and shouldn't
         spend a whole Whisper pass finding that out."""
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
         import importlib.util
         real_find_spec = importlib.util.find_spec
         monkeypatch.setattr(importlib.util, "find_spec",
-                            lambda name, *a: None if name == "qwen_asr" else real_find_spec(name, *a))
+                            lambda name, *a: object() if name == "torch" else real_find_spec(name, *a))
+        import qwen3_native
+        monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: "4.57.6")
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: pytest.fail("transcribed before the dependency check"))
 
@@ -640,8 +642,8 @@ class TestCmdAlignUsesDramaSettings:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             cli.cmd_align(self._args(id=did))
         text = out.getvalue() + err.getvalue()
-        assert "Qwen3-ASR isn't installed" in text and "Diagnostics" in text
-        assert "1 failed" in text
+        assert "needs transformers 5.15 or newer (this is 4.57.6)" in text
+        assert "update it in Diagnostics" in text and "1 failed" in text
         assert isolated_db.load_lines(did) == []
         assert isolated_db.get_drama(did)["status"] != "aligned"
 
@@ -653,7 +655,10 @@ class TestCmdAlignUsesDramaSettings:
         import forced_align
 
         def missing(*a, **k):
-            raise ImportError("No module named 'qwen_asr'")
+            import qwen3_native
+            raise qwen3_native.TransformersUnavailableError(
+                "Japanese forced alignment needs the nagisa package, which isn't installed; "
+                "install it in Diagnostics.")
         monkeypatch.setattr(forced_align, "align_with_qwen3", missing)
         monkeypatch.setattr(cli, "align_transcript_to_timing",
                             lambda *a, **k: pytest.fail("fell back to the default method"))
@@ -664,7 +669,7 @@ class TestCmdAlignUsesDramaSettings:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             cli.cmd_align(self._args(id=did))
         text = out.getvalue() + err.getvalue()
-        assert "Qwen3-ASR isn't installed" in text and "1 failed" in text
+        assert "needs the nagisa package" in text and "1 failed" in text
         assert released == [True]
         assert isolated_db.load_lines(did) == []
 

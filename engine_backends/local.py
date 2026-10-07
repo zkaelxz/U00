@@ -31,6 +31,27 @@ NLLB_MODELS = {
 _nllb_pipeline_cache = {}
 
 
+class _NllbTranslator:
+    """texts -> [{"translation_text": str}], the shape transformers'
+    pipeline("translation") returned. That pipeline task no longer exists in
+    transformers 5, so the tokenizer and model are used directly."""
+
+    def __init__(self, model_name: str, src_lang: str, tgt_lang: str):
+        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, src_lang=src_lang)
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name).eval()
+        self.forced_bos_token_id = self.tokenizer.convert_tokens_to_ids(tgt_lang)
+
+    def __call__(self, texts):
+        import torch
+        inputs = self.tokenizer(list(texts), return_tensors="pt", padding=True, truncation=True)
+        with torch.inference_mode():
+            generated = self.model.generate(
+                **inputs, forced_bos_token_id=self.forced_bos_token_id)
+        return [{"translation_text": t}
+                for t in self.tokenizer.batch_decode(generated, skip_special_tokens=True)]
+
+
 class NLLBEngine:
     """Fully local, offline neural machine translation via Meta's NLLB-200
     -- no API key, no network once the model's downloaded once, no
@@ -71,11 +92,9 @@ class NLLBEngine:
         # One .get(): release_gpu_models() may clear the cache at any moment.
         pipe = _nllb_pipeline_cache.get(cache_key)
         if pipe is None:
-            from transformers import pipeline
-            src_lang = _NLLB_LANG_CODES.get(source_language, "zho_Hans")
-            tgt_lang = _NLLB_LANG_CODES.get(target_language, "eng_Latn")
-            pipe = pipeline(
-                "translation", model=self.model_name, src_lang=src_lang, tgt_lang=tgt_lang)
+            pipe = _NllbTranslator(
+                self.model_name, _NLLB_LANG_CODES.get(source_language, "zho_Hans"),
+                _NLLB_LANG_CODES.get(target_language, "eng_Latn"))
             _nllb_pipeline_cache[cache_key] = pipe
         return pipe
 

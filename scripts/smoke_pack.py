@@ -45,7 +45,7 @@ PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
 EXIT_PASS, EXIT_FAIL, EXIT_ERROR, EXIT_WARN = 0, 1, 2, 3
 
 KEY_PACKAGES = ("faster-whisper", "ctranslate2", "torch", "torchaudio", "transformers",
-                "qwen-asr", "pyannote.audio", "audio-separator", "demucs", "onnxruntime",
+                "nagisa", "soynlp", "pyannote.audio", "audio-separator", "demucs", "onnxruntime",
                 "numpy", "huggingface_hub", "yt-dlp", "opencv-python", "pillow")
 
 DEFAULT_TOLERANCES = {

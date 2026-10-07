@@ -25,7 +25,7 @@ KNOWN_PYPI_DISTS = {
     "pypdf", "genanki", "ebooklib", "plyer", "playwright",
     "lightnovel-crawler",
     "trafilatura", "audio-separator", "funasr", "demucs", "cryptography", "authlib",
-    "numpy", "httpx", "qwen-asr", "jiwer", "sacrebleu",
+    "numpy", "httpx", "nagisa", "soynlp", "jiwer", "sacrebleu",
 }
 # Import names whose PyPI project is something else (or a squatter).
 IMPORT_ONLY_NAMES = {"cv2", "pil", "bs4", "sklearn", "yaml", "skimage", "dateutil",
@@ -202,15 +202,19 @@ def test_moss_install_is_refused_by_the_service(monkeypatch):
         svc.install_dependency("moss_transcribe_diarize", confirm=True)
 
 
-@pytest.mark.parametrize("have,warned", [("5.2.0", True), ("4.57.6", False), (None, False)])
-def test_qwen_asr_warns_before_downgrading_transformers(monkeypatch, have, warned):
+@pytest.mark.parametrize("have,warned", [("5.19.0", True), ("5.2.0", False), ("4.57.6", False),
+                                         (None, False)])
+def test_chatterbox_warns_before_downgrading_transformers(monkeypatch, have, warned):
+    """chatterbox-tts declares transformers==5.2.0 (PyPI metadata), which would
+    take Qwen3-ASR's transformers 5.15+ down with it."""
     monkeypatch.setattr(diagnostics, "get_installed_version",
                         lambda dist: have if dist == "transformers" else None)
-    w = diagnostics.install_downgrade_warning("qwen-asr")
+    w = diagnostics.install_downgrade_warning("chatterbox-tts")
     assert (w is not None) is warned
     if warned:
-        assert "5.2.0" in w and "4.57.6" in w
+        assert "5.19.0" in w and "5.2.0" in w and "Qwen3-ASR" in w
     assert diagnostics.install_downgrade_warning("jieba") is None
+    assert diagnostics.install_downgrade_warning("qwen-asr") is None
 
 
 def test_dependency_install_refuses_a_not_offered_package(monkeypatch):

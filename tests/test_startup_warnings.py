@@ -37,31 +37,6 @@ def test_deno_absent(monkeypatch):
     assert diagnostics._warn_deno_old() is None
 
 
-def test_qwen_with_transformers_5(monkeypatch):
-    _versions(monkeypatch, **{"qwen-asr": "0.1", "transformers": "5.6.0"})
-    assert diagnostics._warn_qwen_transformers()
-    _versions(monkeypatch, **{"qwen-asr": "0.1", "transformers": "4.57.6"})
-    assert diagnostics._warn_qwen_transformers() is None
-    _versions(monkeypatch, **{"transformers": "5.6.0"})
-    assert diagnostics._warn_qwen_transformers() is None
-
-
-@pytest.mark.parametrize("system,path,qwen,warn", [
-    ("Windows", "C:\\Users\\用户\\Baihe", True, True),
-    ("Windows", "C:\\Users\\bob\\Baihe", True, False),
-    ("Windows", "C:\\Users\\用户\\Baihe", False, False),
-    ("Linux", "/home/用户", True, False)])
-def test_qwen_nonascii_path(monkeypatch, system, path, qwen, warn):
-    import portable
-    monkeypatch.setattr(diagnostics.platform, "system", lambda: system)
-    monkeypatch.setattr(portable, "data_dir", lambda: path)
-    _versions(monkeypatch, **({"qwen-asr": "0.1"} if qwen else {}))
-    msg = diagnostics._warn_qwen_nonascii_path()
-    assert bool(msg) is warn
-    if msg:
-        assert "Baihe" not in msg and "用户" not in msg and "\\" not in msg
-
-
 @pytest.mark.parametrize("pyannote,gpu,warn", [
     ("4.0.1", {"available": True, "vram_total_gb": 8.0}, True),
     ("4.0.1", {"available": True, "vram_total_gb": 12.0}, False),
@@ -88,5 +63,6 @@ def test_startup_warnings_never_raise(monkeypatch):
 def test_startup_warnings_collects(monkeypatch):
     monkeypatch.setattr(diagnostics.shutil, "which", lambda n: None)
     monkeypatch.setattr(diagnostics.platform, "system", lambda: "Linux")
-    _versions(monkeypatch, **{"qwen-asr": "0.1", "transformers": "5.0.0"})
+    _versions(monkeypatch, **{"yt-dlp": "2020.01.01"})
     assert len(diagnostics.startup_warnings()) == 1
+    assert not hasattr(diagnostics, "_warn_qwen_transformers")

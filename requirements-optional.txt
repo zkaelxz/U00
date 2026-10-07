@@ -3,13 +3,17 @@
 
 # --- alternative translation engines ---
 openai>=1.30            # DeepSeek (OpenAI-compatible API)
-transformers>=4.46      # local NLLB-200 engine -- genuinely free, fully
-                         # offline, no API key ever. Downloads a model
-                         # (2.4-5.2GB depending on size picked) on first use.
-                         # (bumped from >=4.40: also loads Scanlate's ML
-                         # bubble detector and PaddleOCR-VL-For-Manga --
-                         # both need RT-DETR-v2/current VLM support only
-                         # present in more recent releases.)
+transformers>=5.15      # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
+                         # transformers' own classes; 5.13/5.14 lack `prompt=` and the
+                         # language prefill, so 5.15 is the floor), the local NLLB-200 engine
+                         # (genuinely free, fully offline, no API key ever; downloads a model,
+                         # 2.4-5.2GB depending on size picked on first use), Scanlate's ML
+                         # bubble detector and PaddleOCR-VL-For-Manga.
+                         # Chatterbox (==5.2.0), TADA (<5) and qwen-tts (==4.57.3) pin other
+                         # transformers versions and can't share this environment.
+                         # On Python 3.13/3.14, verify torch installs a CUDA build before relying
+                         # on GPU inference:
+                         #   python -c "import torch; print(torch.cuda.is_available())"
 sentencepiece>=0.2.1      # tokenizer NLLB-200 needs
 
 # --- download audio/video directly from a URL (video_download.py) ---
@@ -26,32 +30,19 @@ soundfile>=0.12         # diarize.py reads the normalized audio.wav through
 
 # --- Qwen3-ASR: alternative transcription model (asr_backend.py) and
 # --- Qwen3-ForcedAligner: alternative timing method (forced_align.py) ---
-# One package ships both -- see those two modules for what each does and
-# why they're kept as separate opt-in choices rather than the default.
-qwen-asr>=0.0.6         # Step 76: >=0.1 could never install -- pip index shows the real
-                        # published releases top out at 0.0.6 (0.0.1-0.0.6), nothing at or
-                        # above 0.1 has ever shipped. Confirmed 0.0.6 is what this app
-                        # actually needs, not just what happens to install: in a throwaway
-                        # venv, both asr_backend.load_qwen3_asr()/Qwen3ASRModel.transcribe()
-                        # and forced_align.load_qwen3_aligner()/Qwen3ForcedAligner.align()
-                        # ran for real against it (real HF download, real inference, this
-                        # app's own code unchanged) -- their signatures match exactly.
-                        # Still recommends a clean Python 3.12 env. On Python 3.13/3.14,
-                        # verify torch actually installs a CUDA build before relying on GPU
-                        # inference:
-                        #   python -c "import torch; print(torch.cuda.is_available())"
-                        # PyTorch's Python 3.14 wheels have had reported gaps where a CUDA
-                        # install silently resolves to CPU-only -- the same class of "no
-                        # wheel yet" problem as the PaddlePaddle note below, but silent
-                        # instead of a clear pip error, so it's worth checking explicitly.
+# Both run on the transformers line above (see those two modules for what each
+# does and why they're kept as separate opt-in choices rather than the default).
+# These two only split Japanese and Korean text for the aligner.
+nagisa>=0.2
+soynlp>=0.0.493
 
-# --- voice cloning ---
 f5-tts>=0.9             # local, GPU recommended
 
 # Novel narration voices (optional, local; GPU strongly recommended). Pick
 # one per character in Workspace section 6; each downloads its own model on
 # first use. Left commented out because they can't all share one
-# environment: OmniVoice needs transformers>=5.3, Chatterbox pins
+# environment: OmniVoice needs transformers>=5.3 (it shares an environment
+# with Qwen3-ASR), Chatterbox pins
 # transformers==5.2.0 and torch==2.6.0, and TADA needs transformers<5 and
 # torch>=2.7 -- pip can't satisfy any two of them together. Uncomment the
 # one you want (or give each its own venv).

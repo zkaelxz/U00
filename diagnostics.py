@@ -37,7 +37,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "story_context.py", "storage.py", "universe_wiki.py", "background_jobs.py",
     "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "en_cleanup.py", "page_fetch.py",
     "page_server.py",
-    "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
+    "forced_align.py", "asr_backend.py", "qwen3_native.py", "asr_benchmark.py", "video_download.py",
     # This list had drifted -- these were all real,
     # hard-imported modules missing from it, which meant the missing-file
     # health check below could no longer actually catch one of them going
@@ -70,10 +70,12 @@ OPTIONAL_DEPENDENCIES = {
     "omnivoice": ("omnivoice", "local voice cloning + voice design (OmniVoice; can't share an "
                                "install with Chatterbox/TADA)", "feature"),
     "chatterbox-tts": ("chatterbox", "emotion-aware local voice (Chatterbox; adds a PerTh "
-                                     "watermark; can't share an install with OmniVoice/TADA)",
+                                     "watermark; needs transformers 5.2.0, so it can't share an install "
+                                     "with OmniVoice/TADA or Qwen3-ASR)",
                        "feature"),
     "hume-tada": ("tada", "long-narration local voice (TADA; model weights under the Llama 3.2 "
-                          "Community License; can't share an install with OmniVoice/Chatterbox)",
+                          "Community License; needs transformers below 5, so it can't share an "
+                          "install with OmniVoice/Chatterbox or Qwen3-ASR)",
                   "feature"),
     "pytesseract": ("pytesseract", "OCR (Tesseract backend)", "feature"),
     "PIL": ("PIL", "OCR, Scanlate rendering, cover art upload", "feature"),
@@ -85,7 +87,8 @@ OPTIONAL_DEPENDENCIES = {
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pykakasi": ("pykakasi", "Japanese furigana (Reader)", "feature"),
     "kiwipiepy": ("kiwipiepy", "Korean word segmentation (Reader)", "feature"),
-    "transformers": ("transformers", "local NLLB-200 translation engine, ML bubble detection "
+    "transformers": ("transformers", "Qwen3-ASR and Qwen3 forced alignment (5.15 or newer), "
+                                     "local NLLB-200 translation engine, ML bubble detection "
                                      "(Scanlate), PaddleOCR-VL-For-Manga", "feature"),
     "torch": ("torch", "ML bubble detection/inpainting (Scanlate), PaddleOCR-VL-For-Manga, "
                         "word-level realignment, several TTS/ASR backends", "feature"),
@@ -122,14 +125,16 @@ OPTIONAL_DEPENDENCIES = {
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
-    "qwen-asr": ("qwen_asr", "Qwen3-ASR transcription engine and Qwen3 forced alignment "
-                             "(line timing); best in its own Python 3.12 environment", "feature"),
+    # Qwen3's own tokenisation for forced alignment; transformers' processor
+    # raises if the package for the title's language is missing.
+    "nagisa": ("nagisa", "Qwen3 forced alignment of Japanese (word splitting)", "feature"),
+    "soynlp": ("soynlp", "Qwen3 forced alignment of Korean (word splitting)", "feature"),
     # Not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
-    # and needs transformers>=5.6, which qwen-asr's transformers==4.57.6 pin rules out.
+    # and needs transformers>=5.6, which the Qwen3 backends' transformers 5.15+ meets.
     "moss-transcribe-diarize": ("moss_transcribe_diarize",
                                 "experimental one-pass transcription + speaker labels "
-                                "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
-                                "can't share an install with Qwen3-ASR)", "experimental"),
+                                "(MOSS-Transcribe-Diarize; Settings > Transcription experiments)",
+                                "experimental"),
     "cryptography": ("cryptography", "Google sign-in token checks, live capture of AES-128 "
                                      "encrypted HLS streams", "feature"),
     "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
@@ -208,11 +213,11 @@ APPROX_DOWNLOAD_MB = {
     "genanki": 1, "ebooklib": 1, "plyer": 1,
     "lightnovel-crawler": 30,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
-    "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
+    "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "nagisa": 22, "soynlp": 1,
     "jiwer": 3, "sacrebleu": 2,
 }
 PULLS_TORCH = {"pyannote-audio", "f5-tts", "omnivoice", "chatterbox-tts", "hume-tada",
-               "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
+               "manga-ocr", "audio-separator", "funasr", "demucs", "torchaudio"}
 
 
 def approx_download_mb(name: str):
@@ -254,8 +259,7 @@ def package_source_url(name: str):
 NOT_OFFERED_FOR_INSTALL = {
     "moss-transcribe-diarize": "not offered: it isn't on PyPI. It installs from its GitHub "
                                "repository (OpenMOSS/MOSS-Transcribe-Diarize) into this app's "
-                               "environment, and it upgrades Transformers to 5.x, which stops "
-                               "Qwen3-ASR and Qwen3 forced alignment working.",
+                               "environment, and it needs Transformers 5.6 or newer.",
     "lightnovel-crawler": "not offered: it's a separate program under the GPL-3.0 licence that "
                           "you install yourself, e.g. `pipx install lightnovel-crawler` (or "
                           "`pip install lightnovel-crawler` in its own environment). Baihe only "
@@ -266,14 +270,15 @@ NOT_OFFERED_FOR_INSTALL = {
 # Exact pins a package declares on another one the app shares, for a
 # "this would downgrade X" warning before installing (package -> {dep: pin}).
 KNOWN_EXACT_PINS = {
-    "qwen-asr": {"transformers": "4.57.6"},
+    # chatterbox-tts 0.1.7 declares transformers==5.2.0 (PyPI metadata).
+    "chatterbox-tts": {"transformers": "5.2.0"},
 }
 
 
 def install_downgrade_warning(name: str):
     """None, or a plain-English warning when installing `name` would move an
     already-installed shared package to an older pinned version (e.g.
-    qwen-asr pins transformers==4.57.6 while 5.x is installed). Read-only:
+    chatterbox-tts pins transformers==5.2.0 while a newer one is installed). Read-only:
     checks the installed version only."""
     pins = KNOWN_EXACT_PINS.get(canonical_dist(pip_install_name(name)))
     if not pins:
@@ -282,7 +287,7 @@ def install_downgrade_warning(name: str):
         have = get_installed_version(dep)
         if have and _version_sort_key(have) > _version_sort_key(pin):
             return (f"installing this would downgrade {dep} from {have} to {pin}, which "
-                    f"other features (NLLB translation, Scanlate, voice engines) use -- "
+                    f"other features (Qwen3-ASR, NLLB translation, Scanlate) use -- "
                     f"they may stop working until {dep} is upgraded again.")
     return None
 
@@ -308,8 +313,8 @@ INSTALL_TASKS = [
      "packages": ["pyannote.audio", "soundfile", "torch"]},
     {"id": "alt_asr", "group": "Audio", "label": "Qwen3-ASR / SenseVoice transcription",
      "help": "Alternative transcription engines; SenseVoice also tags emotion and sounds.",
-     "packages": ["qwen-asr", "funasr", "torch"],
-     "recommended": ["qwen-asr", "funasr"]},
+     "packages": ["transformers", "nagisa", "soynlp", "funasr", "torch"],
+     "recommended": ["transformers", "nagisa", "soynlp", "funasr"]},
     {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
      "help": "Re-align lines to individual words (experimental).",
      "packages": ["torch", "torchaudio", "uroman", "soundfile"]},
@@ -327,10 +332,11 @@ INSTALL_TASKS = [
      "help": "Clone or design a voice locally. Can't share an install with Chatterbox/TADA.",
      "packages": ["omnivoice", "torch", "pydub", "huggingface_hub"]},
     {"id": "tts_chatterbox", "group": "Dubbing", "label": "Voice cloning: Chatterbox",
-     "help": "Emotion-aware local voice. Can't share an install with OmniVoice/TADA.",
+     "help": "Emotion-aware local voice. Can't share an install with OmniVoice/TADA or Qwen3-ASR.",
      "packages": ["chatterbox-tts", "torch", "pydub", "huggingface_hub"]},
     {"id": "tts_tada", "group": "Dubbing", "label": "Long narration: TADA",
-     "help": "Local voice for novel narration. Can't share an install with OmniVoice/Chatterbox.",
+     "help": "Local voice for novel narration. Can't share an install with OmniVoice/Chatterbox "
+             "or Qwen3-ASR.",
      "packages": ["hume-tada", "torch", "pydub", "huggingface_hub"]},
     {"id": "hardsub_ocr", "group": "Video", "label": "Read burned-in captions (OCR)",
      "help": "Pull hard-coded subtitles out of video frames.",
@@ -464,24 +470,6 @@ def _warn_deno_old():
     return None
 
 
-def _warn_qwen_transformers():
-    if not (get_installed_version("qwen-asr") and
-            (_ints(get_installed_version("transformers"), 1) or (0,))[0] >= 5):
-        return None
-    return ("Qwen3-ASR and transformers 5 or newer don't work together. "
-            "Uninstall Qwen3-ASR, or install transformers 4.57.6.")
-
-
-def _warn_qwen_nonascii_path():
-    if platform.system() != "Windows" or not get_installed_version("qwen-asr"):
-        return None
-    import portable
-    if portable.data_dir().isascii():
-        return None
-    return ("The data folder's name has non-English characters, which stops Qwen3-ASR "
-            "from loading. Move the data folder to a plain English path, or uninstall Qwen3-ASR.")
-
-
 def _warn_low_vram_pyannote():
     pyannote = _ints(get_installed_version("pyannote.audio"), 1)
     if not pyannote or pyannote[0] < 4:
@@ -498,8 +486,7 @@ def startup_warnings() -> list:
     """Short, path-free warnings about risky dependency combinations. Each
     check is local and cheap; one that fails for any reason adds nothing."""
     out = []
-    for check in (_warn_ytdlp_old, _warn_deno_old, _warn_qwen_transformers,
-                  _warn_qwen_nonascii_path, _warn_low_vram_pyannote):
+    for check in (_warn_ytdlp_old, _warn_deno_old, _warn_low_vram_pyannote):
         try:
             msg = check()
         except Exception:
@@ -777,10 +764,13 @@ MODEL_ENGINE_REGISTRY = [
      "url": "https://github.com/SYSTRAN/faster-whisper",
      "help": "The default speech-to-text engine used to transcribe dialogue when you start a "
              "new drama."},
-    {"name": "Qwen3-ASR", "kind": "package", "package": "qwen-asr",
-     "url": "https://github.com/QwenLM/Qwen3-ASR",
-     "help": "An alternative speech-to-text engine to Whisper, used for transcription when "
-             "selected in Settings."},
+    {"name": "Qwen3-ASR", "kind": "package", "package": "transformers",
+     "url": "https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf",
+     "help": "An alternative speech-to-text engine to Whisper, run by transformers 5.15 or "
+             "newer. Models download from Hugging Face on first use: about 4.1 GB for 1.7B, "
+             "1.6 GB for 0.6B and 1.8 GB for the forced aligner. Weights cached by the older "
+             "qwen-asr package (Qwen/Qwen3-ASR-1.7B, ...) aren't reused, so the first run "
+             "downloads them again."},
     {"name": "SenseVoice (FunASR)", "kind": "package", "package": "funasr",
      "url": "https://github.com/modelscope/FunASR",
      "help": "An alternate transcription engine that also tags emotion and non-speech sounds "
@@ -1086,57 +1076,6 @@ def pip_cache_permission_hint(lines) -> str:
     return None
 
 
-# qwen-asr 0.0.6 declares exactly these runtime dependencies besides `sox`
-# (its pyproject.toml), and the app's Qwen3 paths run without `sox`: nothing
-# in qwen_asr, librosa (uses `soxr`) or transformers imports it, and it needs
-# no SoX program either. `sox` is the only dependency pip must build from
-# source (sdist only), so it is the one that breaks in environments with a
-# missing, old or unreachable setuptools. Kept here, in one place, for the
-# fallback install; bump together with requirements-optional.txt's qwen-asr.
-QWEN_ASR_FALLBACK_DEPS = (
-    "transformers==4.57.6", "accelerate==1.12.0", "nagisa==0.2.11", "soynlp==0.0.493",
-    "qwen-omni-utils", "librosa", "soundfile", "gradio", "flask", "pytz",
-)
-
-SOX_BUILD_HINT = (
-    "pip couldn't build the small `sox` helper that Qwen3-ASR lists as a dependency "
-    "(Baihe doesn't use it). Usually Python's build tools are too old or can't be "
-    "downloaded: update them with `python -m pip install --upgrade pip setuptools wheel`, "
-    "check your internet connection or proxy, then try again.")
-
-_SOX_SDIST_RE = re.compile(r"\bsox-\d[\w.]*\.tar\.gz", re.IGNORECASE)
-_SOX_BUILT_RE = re.compile(r"Successfully built sox\b|Building wheel for sox .*status 'done'",
-                           re.IGNORECASE)
-
-
-class SoxBuildWatch:
-    """Feed it pip's output lines; `failed` is True when pip fetched the `sox`
-    source package (the only reason it does) and never reported building it,
-    so a failed run that shows this is the sox build failure. Judged on pip's
-    own output because the failure text varies (a traceback, a missing
-    setuptools or distutils, or build dependencies that couldn't be
-    downloaded)."""
-
-    def __init__(self):
-        self._fetched = self._built = False
-
-    def feed(self, line: str):
-        line = line or ""
-        self._fetched = self._fetched or bool(_SOX_SDIST_RE.search(line))
-        self._built = self._built or bool(_SOX_BUILT_RE.search(line))
-
-    @property
-    def failed(self) -> bool:
-        return self._fetched and not self._built
-
-
-def qwen_asr_fallback_pip_args() -> list:
-    """pip args, in order, for installing qwen-asr without its `sox`
-    dependency: its other dependencies first, then qwen-asr itself with
-    --no-deps, so a failure part-way leaves no half-working qwen-asr."""
-    return [list(QWEN_ASR_FALLBACK_DEPS), ["--no-deps", "qwen-asr"]]
-
-
 def stream_pip_install(pip_args: list, python_executable: str = None):
     """Yields {"line": str} for each line of combined stdout/stderr as
     `<python> -m pip install <pip_args>` runs, then a final
@@ -1338,13 +1277,14 @@ KNOWN_UPGRADE_LIMITATIONS = {
     # imports the real transformers, so only pip's own conflict report
     # caught it. Applies only while the installed transformers still
     # declares that cap, so it lifts itself once a transformers release
-    # accepts huggingface_hub 2.x.
+    # accepts huggingface_hub 2.x: transformers 5.15.0 declares
+    # huggingface-hub<2.0,>=1.5 and 5.19.0 declares <3.0,>=1.31 (wheel METADATA).
     "huggingface-hub": {
         "blocked_from": 2,
         "while_required_below_by": "transformers",
         "reason": "the installed transformers (NLLB translation, Scanlate's ML bubble "
                   "detector) requires huggingface_hub below 2.0 and refuses to import "
-                  "with 2.x -- upgrade transformers first once a release accepts it.",
+                  "with 2.x -- upgrade transformers (5.19 or newer accepts it) first.",
     },
 }
 

@@ -73,7 +73,7 @@ export function sentenceCase(value: Code): string {
 }
 
 // Lower-case product names that stay as written when they start a text.
-const KEEP_LOWER = /^(ffmpeg|ffprobe|yt-dlp|pyannote|torch\w*|lightnovel-crawler|lncrawl|qwen-asr|ntfy|npm|pip|pytest|faster-whisper|demucs|jiwer)\b/
+const KEEP_LOWER = /^(ffmpeg|ffprobe|yt-dlp|pyannote|torch\w*|lightnovel-crawler|lncrawl|ntfy|npm|pip|pytest|faster-whisper|demucs|jiwer)\b/
 
 /** Capitalise the first letter of a display string ("none saved" -> "None saved"); leaves identifiers and tool names alone. */
 export function capFirst(text: string): string {

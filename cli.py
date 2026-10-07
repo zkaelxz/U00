@@ -426,11 +426,8 @@ def cmd_diarize(args):
 def _qwen3_missing(exc) -> RuntimeError:
     """Same as the API (dependency_missing): a drama saved to use Qwen3
     forced alignment fails rather than quietly using a method nobody chose."""
-    detail = translate_engines.redact_secrets(str(exc))
     return RuntimeError(
-        "Qwen3-ASR isn't installed, so Qwen3 forced alignment can't run. "
-        "Install qwen-asr from Diagnostics (or: pip install qwen-asr torch), "
-        f"or change this drama's alignment method. ({detail})")
+        f"Qwen3 forced alignment: {translate_engines.redact_secrets(str(exc))}")
 
 
 def _read_transcript_option(args):
@@ -1158,7 +1155,7 @@ def cmd_transcribe(args):
         min_pause_sec=args.min_pause,
         vad_threshold=args.vad_threshold, sensitivity_preset=args.sensitivity,
         separation_backend=args.separation_backend,
-        separate_vocals_first=args.separate_vocals)
+        separate_vocals_first=args.separate_vocals, vocabulary_hint=args.vocab_hint)
     transcript_text = _read_transcript_option(args)
     try:
         if any(v is not None for v in tuning.values()):
@@ -1525,6 +1522,8 @@ def main():
                               help="Separate vocals from music before recognising.")
     p_transcribe.add_argument("--separation-backend", default=None,
                               choices=["auto", "audio_separator", "demucs"])
+    p_transcribe.add_argument("--vocab-hint", action=argparse.BooleanOptionalAction,
+                              default=None, help="Hint Qwen3-ASR with the title's names.")
     p_transcribe.add_argument("--diarize", action="store_true",
                               help="Detect speakers afterwards (needs a Hugging Face token in Settings).")
     p_transcribe.add_argument("--num-speakers", type=int, default=None)

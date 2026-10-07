@@ -104,7 +104,7 @@ The table has 174 rows. 10 are not pending (listed at the end), leaving **163**.
 | 68 | Dark mode: App Assistant and Translate history | Turn on Developer mode, open Assistant in dark theme, and check Translate page history shows a Translation column value. The generic dark sweep did not cover Assistant. |
 | 71 | Confirm before deleting versions, presets, glossary terms, characters | Try deleting a translation version, a preset, a glossary term (single and bulk) and a series character; each should ask first. The saved bug bundle helper was removed (#638). |
 | 75 | Install paths on a fresh clone | On a fresh clone run the install path(s) (`start.bat` / installer) and check no `ModuleNotFoundError`. The mangaz.com part is moot (adapter removed). |
-| 76 | `pip install qwen-asr` works | In a clean venv run `pip install qwen-asr` and open the Qwen3-ASR option; it should work or be marked not functional. |
+| 76 | Qwen3-ASR runs on transformers 5.15+ | In a clean venv run `pip install "transformers>=5.15" torch` and open the Qwen3-ASR option; it should transcribe a short clip, or say plainly what to update in Diagnostics. |
 | 77 | Voice bank delete needs confirmation | In the clone/voice bank panel try to delete an entry; one click must not delete it. |
 | 81 | Post-cleanup click-through | Click through Workspace transcribe, translate, export, Library and the comic reader once and note any error. |
 

@@ -23,7 +23,7 @@ const overview = {
   library_writable: true,
   gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
   model_engine_versions: [
-    { name: 'Qwen3-ASR', version: 'not installed', url: '', installed: false, package: 'qwen-asr', help: 'Alternative ASR.' },
+    { name: 'Qwen3-ASR', version: 'not installed', url: '', installed: false, package: 'transformers', help: 'Alternative ASR.' },
   ],
   recent_log_lines: [],
 }
@@ -63,8 +63,8 @@ const presets = {
       required_missing: [], optional_missing: ['paddleocr'], to_install: [], approx_mb: 0,
     },
     {
-      id: 'alt_asr', group: 'Audio', label: 'Qwen3-ASR / SenseVoice transcription', help: 'Alternative engines.',
-      packages: ['qwen-asr'], installed_count: 0, to_install: ['qwen-asr'], approx_mb: 30,
+      id: 'tts_chatterbox', group: 'Dubbing', label: 'Voice cloning: Chatterbox', help: 'Emotion-aware local voice.',
+      packages: ['chatterbox-tts'], installed_count: 0, to_install: ['chatterbox-tts'], approx_mb: 60,
     },
   ],
   packages: {
@@ -82,9 +82,9 @@ const presets = {
       installable: false, approx_mb: 5, source_url: 'https://pypi.org/project/pypdf/',
       not_offered_reason: 'not offered: it fails to set up with this app\'s pinned dependencies.',
     }),
-    'qwen-asr': pkg('qwen-asr', {
-      approx_mb: 30, pulls_torch: true,
-      warning: 'installing this would downgrade transformers from 5.2.0 to 4.57.6',
+    'chatterbox-tts': pkg('chatterbox-tts', {
+      approx_mb: 60, pulls_torch: true,
+      warning: 'installing this would downgrade transformers from 5.19.0 to 5.2.0',
     }),
   },
 }
@@ -188,7 +188,7 @@ test('tasks list what they need, sizes, links, and install one package at a time
   await expect(zh).toContainText('approx. 21 MB to download')
   await expect(page.getByTestId('task-scanlate')).toContainText('approx. 2.5 GB to download')
   await expect(page.getByTestId('task-scanlate')).toContainText('pypdf: not offered')
-  await expect(page.getByTestId('task-alt_asr')).toContainText('would downgrade transformers')
+  await expect(page.getByTestId('task-tts_chatterbox')).toContainText('would downgrade transformers')
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/packages-by-task.png`, fullPage: true })
 
   await page.getByRole('button', { name: 'Install for Chinese reader tools' }).click()

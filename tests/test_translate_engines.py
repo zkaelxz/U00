@@ -1575,17 +1575,18 @@ class TestOllamaReachability:
 class TestNLLBEngine:
     """NLLBEngine: fully local/offline MT via Meta's NLLB-200. transformers
     is a real installed dependency in this environment, but downloading an
-    actual model isn't something a test suite should do -- transformers.pipeline
-    is faked at that boundary, the same way GeminiEngine's tests fake
-    requests.post rather than hitting a real API."""
+    actual model isn't something a test suite should do -- the translator
+    (engine_backends.local._NllbTranslator, which wraps the tokenizer and
+    model) is faked at that boundary, the same way GeminiEngine's tests fake
+    requests.post rather than hitting a real API. The translator itself is
+    covered below against fake transformers classes."""
 
     def _install_fake_pipeline(self, monkeypatch):
-        import sys, types
+        import engine_backends.local as local
         captured = {}
 
         class FakePipeline:
-            def __init__(self, task, model, src_lang, tgt_lang):
-                captured["task"] = task
+            def __init__(self, model, src_lang, tgt_lang):
                 captured["model"] = model
                 captured["src_lang"] = src_lang
                 captured["tgt_lang"] = tgt_lang
@@ -1593,10 +1594,7 @@ class TestNLLBEngine:
             def __call__(self, texts):
                 return [{"translation_text": f"EN:{t}"} for t in texts]
 
-        fake_module = types.ModuleType("transformers")
-        fake_module.pipeline = lambda task, model, src_lang, tgt_lang: FakePipeline(
-            task, model, src_lang, tgt_lang)
-        monkeypatch.setitem(sys.modules, "transformers", fake_module)
+        monkeypatch.setattr(local, "_NllbTranslator", FakePipeline)
         return captured
 
     def setup_method(self):
@@ -1635,20 +1633,18 @@ class TestNLLBEngine:
         assert engine.model_name == "facebook/nllb-200-distilled-600M"
 
     def test_pipeline_is_cached_per_model_and_language(self, monkeypatch):
-        import sys, types
+        import engine_backends.local as local
         build_calls = []
 
         class FakePipeline:
             def __call__(self, texts):
                 return [{"translation_text": f"EN:{t}"} for t in texts]
 
-        def fake_pipeline_factory(task, model, src_lang, tgt_lang):
+        def fake_pipeline_factory(model, src_lang, tgt_lang):
             build_calls.append((model, src_lang))
             return FakePipeline()
 
-        fake_module = types.ModuleType("transformers")
-        fake_module.pipeline = fake_pipeline_factory
-        monkeypatch.setitem(sys.modules, "transformers", fake_module)
+        monkeypatch.setattr(local, "_NllbTranslator", fake_pipeline_factory)
 
         engine = te.NLLBEngine()
         engine.translate_batch(["a"], {"source_language": "zh"})
@@ -1656,6 +1652,70 @@ class TestNLLBEngine:
         engine.translate_batch(["c"], {"source_language": "ja"})
 
         assert len(build_calls) == 2  # zh built once and reused; ja built separately
+
+    def test_translator_uses_the_tokenizer_and_model_not_the_removed_pipeline_task(
+            self, monkeypatch):
+        """transformers 5 has no pipeline("translation"); the translator loads
+        the tokenizer with the source language, forces the target-language
+        token and decodes the generated ids."""
+        import sys, types
+        import engine_backends.local as local
+        seen = {}
+
+        class FakeTokenizer:
+            @classmethod
+            def from_pretrained(cls, name, src_lang):
+                seen["tokenizer"] = (name, src_lang)
+                return cls()
+
+            def convert_tokens_to_ids(self, token):
+                seen["target_token"] = token
+                return 4242
+
+            def __call__(self, texts, return_tensors, padding, truncation):
+                seen["batch"] = list(texts)
+                return {"input_ids": ["ids"]}
+
+            def batch_decode(self, generated, skip_special_tokens):
+                seen["decode_skip_special"] = skip_special_tokens
+                return [f"EN:{g}" for g in generated]
+
+        class FakeModel:
+            @classmethod
+            def from_pretrained(cls, name):
+                seen["model"] = name
+                return cls()
+
+            def eval(self):
+                return self
+
+            def generate(self, **kwargs):
+                seen["generate"] = kwargs
+                return ["g1", "g2"]
+
+        fake_tf = types.ModuleType("transformers")
+        fake_tf.AutoTokenizer, fake_tf.AutoModelForSeq2SeqLM = FakeTokenizer, FakeModel
+        fake_torch = types.ModuleType("torch")
+
+        class _NoGrad:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+        fake_torch.inference_mode = lambda: _NoGrad()
+        monkeypatch.setitem(sys.modules, "transformers", fake_tf)
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+        translator = local._NllbTranslator("facebook/nllb-200-distilled-600M",
+                                           "zho_Hans", "eng_Latn")
+        out = translator(["你好", "再见"])
+        assert out == [{"translation_text": "EN:g1"}, {"translation_text": "EN:g2"}]
+        assert seen["tokenizer"] == ("facebook/nllb-200-distilled-600M", "zho_Hans")
+        assert seen["model"] == "facebook/nllb-200-distilled-600M"
+        assert seen["target_token"] == "eng_Latn"
+        assert seen["generate"]["forced_bos_token_id"] == 4242
+        assert seen["batch"] == ["你好", "再见"] and seen["decode_skip_special"] is True
 
     def test_is_registered_in_engines_and_notes(self):
         assert te.ENGINES["nllb"] is te.NLLBEngine
@@ -1677,17 +1737,15 @@ class TestNLLBEngine:
         """The (model, source, target) pair, not just source, decides
         which cached pipeline is reused -- otherwise English -> Chinese
         would collide with the existing Chinese -> English pipeline."""
-        import sys, types
+        import engine_backends.local as local
         build_calls = []
 
         class FakePipeline:
             def __call__(self, texts):
                 return [{"translation_text": f"OUT:{t}"} for t in texts]
 
-        fake_module = types.ModuleType("transformers")
-        fake_module.pipeline = lambda task, model, src_lang, tgt_lang: (
-            build_calls.append((src_lang, tgt_lang)) or FakePipeline())
-        monkeypatch.setitem(sys.modules, "transformers", fake_module)
+        monkeypatch.setattr(local, "_NllbTranslator", lambda model, src_lang, tgt_lang: (
+            build_calls.append((src_lang, tgt_lang)) or FakePipeline()))
 
         engine = te.NLLBEngine()
         engine.translate_batch(["你好"], {"source_language": "zh", "target_language": "en"})
