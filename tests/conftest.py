@@ -157,7 +157,9 @@ def _fake_engine_installed():
     not part of the app (see tests/fake_engine.py)."""
     from tests import fake_engine
     fake_engine.install()
+    fake_engine.install_mt()
     yield
+    fake_engine.uninstall_mt()
     fake_engine.uninstall()
 
 

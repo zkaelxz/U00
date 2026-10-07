@@ -40,7 +40,7 @@ def _preset_body(**kw):
 def test_service_apply_tier_matches_streamlit(isolated_db):
     """apply_workflow_tier in tabs/workspace_tab.py: engine onto the drama row;
     model/reflect/auto_qc into the form (returned here)."""
-    did = db.create_drama(title_zh="D", translation_engine="nllb")
+    did = db.create_drama(title_zh="D", translation_engine="fake_mt")
     for key, t in translate_engines.WORKFLOW_TIERS.items():
         r = translate_run_service.apply_workflow_tier(did, key)
         assert r == {"drama_id": did, "tier": key, "label": t["label"],
@@ -245,7 +245,7 @@ APPLY = "/api/translate-run/dramas/{}/apply-preset"
 def test_apply_preset_saves_engine_and_returns_form_values(client, isolated_db, monkeypatch):
     monkeypatch.setattr(background_jobs, "start_job",
                         lambda *a, **k: pytest.fail("applying a preset must not start a job"))
-    did = db.create_drama(title_zh="D", translation_engine="nllb")
+    did = db.create_drama(title_zh="D", translation_engine="fake_mt")
     pid = db.save_preset("Mine", translation_engine="gemini", engine_model="gemini-2.5-pro",
                          style_preset="subtitle", locale="en-GB",
                          default_female_pronouns=True, include_genre_notes=False)
@@ -259,7 +259,7 @@ def test_apply_preset_saves_engine_and_returns_form_values(client, isolated_db, 
     assert d["translation_engine"] == "gemini" and d["title_zh"] == "D"
 
 
-@pytest.mark.parametrize("engine", ["deepl", "libretranslate"])
+@pytest.mark.parametrize("engine", ["deepl", "libretranslate", "nllb"])
 def test_a_stored_preset_naming_a_removed_engine_still_lists_and_applies(client, isolated_db, engine):
     did = db.create_drama(title_zh="D", translation_engine="claude")
     pid = db.save_preset("Old", translation_engine=engine, style_preset="subtitle")
@@ -272,13 +272,13 @@ def test_a_stored_preset_naming_a_removed_engine_still_lists_and_applies(client,
 
 
 def test_apply_preset_without_engine_keeps_the_drama_engine(client, isolated_db):
-    did = db.create_drama(title_zh="D", translation_engine="nllb")
+    did = db.create_drama(title_zh="D", translation_engine="fake_mt")
     pid = db.save_preset("Bare", style_preset="bogus", locale="xx")
     body = client.post(APPLY.format(did), json={"preset_id": pid}).json()
     assert body["translation_engine"] is None and body["engine_model"] is None
     assert body["style_preset"] is None and body["locale"] is None
     assert body["include_genre_notes"] is True and body["default_female_pronouns"] is False
-    assert db.get_drama(did)["translation_engine"] == "nllb"
+    assert db.get_drama(did)["translation_engine"] == "fake_mt"
 
 
 @pytest.mark.parametrize("body", [{}, {"preset_id": "1"}, {"preset_id": 0}, {"preset_id": 1, "x": 1}])

@@ -34,7 +34,8 @@ export interface RunForm {
 
 // Engines that only translate (no free-form prompting) cannot run Reflect.
 // Mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
-const TRANSLATION_ONLY = ['nllb']
+// Mutable only so tests can register a stand-in; the app never changes it.
+export const TRANSLATION_ONLY: string[] = []
 
 export function isTranslationOnly(engine: string): boolean {
   return TRANSLATION_ONLY.includes(engine)

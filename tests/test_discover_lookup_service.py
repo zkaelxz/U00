@@ -74,7 +74,7 @@ def test_chinese_query_skips_engine(paid):
     assert paid == []
 
 
-@pytest.mark.parametrize("engine", ["nllb", "nllb", "nope", 5])
+@pytest.mark.parametrize("engine", ["fake_mt", "fake_mt", "nope", 5])
 def test_unknown_or_non_reference_engine_is_422(paid, engine):
     with pytest.raises(InvalidInputError):
         svc.translate_query("q", engine)

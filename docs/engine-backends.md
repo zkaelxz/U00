@@ -22,7 +22,7 @@ name from the `engine_backends/` package so `import translate_engines` and
 | `claude.py` | `ClaudeEngine` (Anthropic SDK) |
 | `openai_compat.py` | `DeepSeekEngine` (OpenAI SDK pointed at `api.deepseek.com`), `OpenAIEngine` (plain `requests` call to Chat Completions) |
 | `gemini.py` | `GeminiEngine` (plain `requests` call to `generateContent`), free-tier pacing and rate status |
-| `local.py` | `OllamaEngine` (REST to a local server), `NLLBEngine` (offline, `transformers` pipeline), `check_ollama_reachable` |
+| `local.py` | `OllamaEngine` (REST to a local server), `check_ollama_reachable` |
 | `llm_tasks.py` | `call_llm_json` and the single-prompt helpers (speaker tagging, pacing rewrite, consistency check, episode summary, flagging) |
 | `engine_registry.py` | `ENGINES`, capability tags, notes, model overrides, `get_engine` |
 | `fallback.py` | `FallbackEngine`, the translate fallback chain |
@@ -38,7 +38,6 @@ Engine map today:
 | `openai` | `OpenAIEngine` | `requests` | key |
 | `gemini` | `GeminiEngine` | `requests` | key (free-tier keys are paced client-side) |
 | `ollama` | `OllamaEngine` | `requests` to the local server | none; a running Ollama |
-| `nllb` | `NLLBEngine` | local `transformers` pipeline | none; model downloads once |
 
 The `deepseek` engine needs the `openai` package, which is why
 `diagnostics.OPTIONAL_DEPENDENCIES["openai"]` is described as "DeepSeek
@@ -109,17 +108,17 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
   hand: `ENV_NAMES` in `services/settings_service.py` against `SECRET_ENGINES`
   in `frontend/src/pages/settingsKeys.ts`, and `tests/test_engine_key_lists.py`
   fails if they drift.
-- **Free vs paid.** `FREE_ENGINES = {"ollama", "nllb"}` are free every time.
+- **Free vs paid.** `FREE_ENGINES = {"ollama"}` is free every time.
   Gemini is not in it because free or paid depends on the key; the per-run
   "Gemini free tier" setting decides, and `engine_picker_label` swaps in
-  `GEMINI_FREE_TIER_NOTE`. `KEYLESS_ENGINES` (the same two) skip key checks.
+  `GEMINI_FREE_TIER_NOTE`. `KEYLESS_ENGINES` (the same one) skips key checks.
   Callers without `engines.paid` are limited to `FREE_ENGINES`
   (`translate_run_service`, `discover_lookup_service`).
 - **Capabilities.** `ENGINE_CAPABILITIES` tags (`translate`, `instructions`,
   `long_context`, `local`, `cheap`, `grounded_search`) feed
   `services/engine_routing_service`, which resolves a task such as "episode
   summary" to an engine. Nothing switches engine on its own.
-- **"Can't do this" messages.** `TRANSLATION_ONLY_ENGINES = {"nllb"}` has no
+- **"Can't do this" messages.** `TRANSLATION_ONLY_ENGINES` (empty now) names engines with no
   instruction following. Services that need it refuse with
   "`<engine>` is a translation-only engine and can't do this." (see
   `line_ai_service`, `reader_service`, `restructure_service`,
@@ -173,7 +172,7 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
    outside those goes on that list. Bodies of unknown size are read with
    `read_json_capped` (see above).
 4. **Patch the module that uses a name, not the front door.** A test patches
-   `engine_backends.llm_tasks.call_llm_json`, `engine_backends.local._nllb_pipeline_cache`,
+   `engine_backends.llm_tasks.call_llm_json`, `engine_backends.local._ollama_reachability_cache`,
    and so on. Patching `translate_engines.X` only affects code that reads `X`
    from `translate_engines` at call time, so it silently does nothing for
    engine-internal callers.
@@ -183,8 +182,9 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
 6. **Ollama context.** `estimate_ollama_num_ctx` sizes `num_ctx` per request
    (floor `OLLAMA_MIN_NUM_CTX = 16384`) because an undersized window truncates
    the prompt from the start, silently dropping instructions and glossary.
-7. **Ollama models and reasoning.** The picker list is `OLLAMA_MODELS`; the API
-   and CLI also accept any tag typed by hand. Models too big for a 12 GB card
+7. **Ollama models and reasoning.** The picker list is `OLLAMA_MODELS` (default `OLLAMA_DEFAULT_MODEL`,
+   `gemma4:12b`); the API and CLI also accept any tag typed by hand, and a title
+   or preset that saved an older tag (Qwen, say) keeps it. Models too big for a 12 GB card
    (`gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
    `<think>` blocks in a reply are stripped before parsing; a separate
    `thinking` field is never read.
