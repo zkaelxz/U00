@@ -64,7 +64,6 @@ export const ENGINE_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   hf_token: 'Hugging Face token',
   ollama_url: 'Ollama URL',
-  gpt_sovits_url: 'GPT-SoVITS URL',
 }
 
 /** "new_thing" / "new-thing" / "new thing" -> "New thing". */

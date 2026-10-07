@@ -2,6 +2,8 @@
 job is faked: start_process_job is captured so no subprocess, TTS, GPU or
 network is used; the on_done hook is called by hand."""
 
+import os
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -13,12 +15,11 @@ import background_jobs
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import dub_service, settings_service
+from services import dub_service
 
 
 @pytest.fixture
-def client(isolated_db, monkeypatch):
-    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: None)
+def client(isolated_db):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
@@ -51,7 +52,7 @@ def test_start_ok_and_args(client, isolated_db, started):
     assert r.status_code == 200
     assert r.json() == {"job_id": f"dub_{did}"}
     call = started[0]
-    lines, _, clone_map, is_narration, _, max_speedup, _ = call["args"]
+    lines, _, clone_map, is_narration, max_speedup, _ = call["args"]
     assert max_speedup == 1.5 and is_narration is False
     # No clip or description anywhere: each speaker gets its own designed
     # voice from the default engine (OmniVoice), never a stock voice.
@@ -138,20 +139,34 @@ def test_picking_another_engine_for_that_character_unblocks_the_run(client, isol
     assert client.post(f"/api/dub/dramas/{did}/run", json={}).status_code == 200
 
 
-@pytest.mark.parametrize("engine", ["tada", "gpt_sovits"])
-def test_an_engine_that_needs_clips_names_the_speakers_without_one(client, isolated_db, started, engine):
+@pytest.mark.parametrize("engine,label", [("tada", "TADA"), ("chatterbox", "Chatterbox"),
+                                          ("gpt_sovits", "GPT-SoVITS")])
+def test_a_run_naming_a_removed_engine_is_refused_and_starts_nothing(
+        client, isolated_db, started, engine, label):
     did = _seed(isolated_db)
     r = client.post(f"/api/dub/dramas/{did}/run", json={"tts_engine": engine})
     assert r.status_code == 422
-    message = r.json()["error"]["message"]
-    assert "needs a reference clip for every speaker" in message and "S1, S2" in message
+    assert r.json()["error"]["message"] == f"The {label} engine was removed. Pick another voice engine in Dub."
     assert started == []
 
 
-def test_chatterbox_voices_everyone_with_its_built_in_voice(client, isolated_db, started):
+@pytest.mark.parametrize("engine,label", [("tada", "TADA"), ("chatterbox", "Chatterbox"),
+                                          ("gpt_sovits", "GPT-SoVITS")])
+def test_a_character_stored_with_each_removed_engine_is_refused_and_left_untouched(
+        client, isolated_db, started, engine, label):
     did = _seed(isolated_db)
-    assert client.post(f"/api/dub/dramas/{did}/run", json={"tts_engine": "chatterbox"}).status_code == 200
-    assert set(next(iter(started[0]["args"][2].values()))) == {"engine", "ref_audio"}
+    isolated_db.upsert_character(did, "S1", character_name="Lin", clone_engine=engine,
+                                 ref_audio_filename="ref.wav", ref_text="hi", voice_design="calm")
+    cfg = client.get(f"/api/dub/dramas/{did}/config").json()
+    removed = f"The {label} engine was removed. Pick another voice engine in Dub."
+    assert cfg["blocker"] == f"Lin: {removed}"
+    r = client.post(f"/api/dub/dramas/{did}/run", json={})
+    assert r.status_code == 422 and r.json()["error"]["message"] == f"Lin: {removed}"
+    assert started == []
+    row = next(c for c in isolated_db.list_characters(did) if c["speaker_label"] == "S1")
+    assert (row["clone_engine"], row["ref_audio_filename"], row["ref_text"], row["voice_design"]) == (
+        engine, "ref.wav", "hi", "calm")
+    assert not os.path.exists(os.path.join(isolated_db.drama_dir(did), "dub_clips"))
 
 
 def test_engine_unavailable_503(client, isolated_db, started, monkeypatch):

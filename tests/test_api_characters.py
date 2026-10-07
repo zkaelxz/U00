@@ -247,10 +247,10 @@ def test_h1_hostile_text_never_echoed(client, isolated_db):
     hostile = "evil\n" + "x" * 5000 + "\u202e\u2603"
     for payload in ({"speaker_label": hostile, "pronouns": "x"},
                     {"speaker_label": "A", "clone_engine": hostile},
-                    {"speaker_label": "A", "clone_engine": "chatterbox"}):
+                    {"speaker_label": "A", "clone_engine": "nope_engine"}):
         r = client.post(f"/api/characters/dramas/{did}/character", json=payload)
         assert r.status_code in (404, 422)
-        assert "evil" not in r.text and "xxxx" not in r.text and "chatterbox" not in r.text
+        assert "evil" not in r.text and "xxxx" not in r.text and "nope_engine" not in r.text
     r = client.post(f"/api/characters/dramas/{did}/voice-bank/apply",
                     json={"speaker_label": hostile, "voice_bank_id": 1})
     assert r.status_code in (404, 422) and "evil" not in r.text

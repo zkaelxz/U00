@@ -329,7 +329,7 @@ def _create_library_tables(conn):
             ref_audio_filename TEXT, -- reference clip for voice cloning (relative to drama dir)
             ref_text TEXT,           -- transcript of what's said in the reference clip
             elevenlabs_voice_id TEXT,-- hosted clone (engine removed); kept as a record, unused
-            clone_engine TEXT,       -- local voice engine (dub.CLONE_ENGINES key); NULL = the engine picked for the run; a removed key (f5tts) is refused
+            clone_engine TEXT,       -- local voice engine (dub.CLONE_ENGINES key); NULL = the engine picked for the run; a removed key (f5tts, tada, chatterbox, gpt_sovits) is refused
             voice_design TEXT,       -- described voice (OmniVoice voice design) for a character with no clip
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
             UNIQUE(drama_id, speaker_label)
