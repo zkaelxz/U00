@@ -82,8 +82,8 @@ OPTIONAL_DEPENDENCIES = {
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pykakasi": ("pykakasi", "Japanese furigana (Reader)", "feature"),
     "kiwipiepy": ("kiwipiepy", "Korean word segmentation (Reader)", "feature"),
-    "transformers": ("transformers", "ML bubble detection (Scanlate), PaddleOCR-VL-For-Manga, "
-                                     "MOSS-Transcribe-Diarize, qwen-asr", "feature"),
+    "transformers": ("transformers", "ML bubble detection (Scanlate), PaddleOCR-VL-For-Manga "
+                                     "(needs transformers 5+), MOSS-Transcribe-Diarize, qwen-asr", "feature"),
     "torch": ("torch", "ML bubble detection/inpainting (Scanlate), PaddleOCR-VL-For-Manga, "
                         "word-level realignment, several TTS/ASR backends", "feature"),
     "torchaudio": ("torchaudio", "word-level realignment (MMS forced alignment, experimental)",
@@ -702,8 +702,7 @@ def delete_model_folder_entry(kind: str, name: str, folder: str = None) -> bool:
 # ---------------------------------------------------------------------------
 # Model/engine version panel -- one row per AI model/engine
 # actually wired into the app today (not the roadmap's full aspirational
-# list; several named there, like PaddleOCR-VL-For-Manga, aren't
-# implemented yet and belong to later steps). No network call: this only
+# list; several named there aren't implemented yet and belong to later steps). No network call: this only
 # reports what pip already knows is installed locally.
 # ---------------------------------------------------------------------------
 
