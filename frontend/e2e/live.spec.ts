@@ -100,3 +100,27 @@ test('Start stays disabled until the engine list has loaded', async ({ page }) =
   release()
   await expect(start).toBeEnabled()
 })
+
+test('the status names the stage, flags a long wait on Ollama, and says what a stop is waiting on', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect(live.getByTestId('live-status')).toHaveText('Waiting for the GPU')
+
+  m.state.status = 'running'
+  m.state.message = 'Chunk 1: transcribing with Whisper small (CPU)'
+  await expect(live.getByTestId('live-status')).toHaveText('Chunk 1: transcribing with Whisper small (CPU) · 0 lines')
+  m.state.message = 'Chunk 1: translating with qwen3:8b (Ollama) Still waiting on Ollama after 75 s: it may be loading the model.'
+  await expect(live.getByTestId('live-status')).toContainText('Still waiting on Ollama after 75 s')
+
+  // A stop that can't act at once says why, instead of "finishes the current step first".
+  await page.route(`**/api/live/sessions/${SID}/stop`, (route) => {
+    m.state.message = 'Cancelling... Whisper is still transcribing chunk 1 and cannot be interrupted mid-chunk; it stops when that finishes (there is no time estimate yet).'
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ session_id: SID, stopping: true }) })
+  })
+  await live.getByRole('button', { name: 'Stop', exact: true }).click()
+  await expect(live.getByRole('button', { name: 'Stopping…' })).toBeDisabled()
+  await expect(live.getByTestId('live-status')).toContainText('cannot be interrupted mid-chunk')
+  expect(m.unmocked).toEqual([])
+})

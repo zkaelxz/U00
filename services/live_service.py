@@ -24,6 +24,7 @@ outside translate_engines.FREE_ENGINES (Gemini counts as paid: whether a key
 is free-tier isn't known server-side) additionally needs the engines.paid
 capability; stop is gated like jobs.cancel.
 """
+import functools
 import re
 import shutil
 import tempfile
@@ -35,8 +36,8 @@ import background_jobs
 import live_translate
 import translate_engines
 from core import SOURCE_LANGUAGES
-from services import (egress_proxy, jobs_service, ownership_service, settings_service,
-                      translate_service, url_guard)
+from services import (egress_proxy, job_stage_service, jobs_service, ownership_service,
+                      settings_service, translate_service, url_guard)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -162,7 +163,10 @@ def _make_target(session_id: str):
             # run_live_job stops the stream fetcher (and ffmpeg) before
             # returning, so the proxy outlives every connection it serves.
             with egress_proxy.GuardedProxy() as proxy:
-                live_translate.run_live_job(*args, proxy=proxy.url, **kwargs)
+                live_translate.run_live_job(
+                    *args, proxy=proxy.url,
+                    report_stage=functools.partial(job_stage_service.set_stage, session_id),
+                    **kwargs)
         finally:
             _remove_dir(session_id)
     return _target
@@ -276,7 +280,7 @@ def _require(session_id, principal=None) -> dict:
         entry = _sessions.get(session_id) if isinstance(session_id, str) else None
     if entry is None or not _visible(principal, session_id, entry):
         raise NotFoundError("No such live session.")
-    return background_jobs.get_status(session_id)
+    return job_stage_service.annotate(background_jobs.get_status(session_id))
 
 
 def stop_session(session_id, principal=None) -> dict:
