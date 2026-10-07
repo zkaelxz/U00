@@ -6,7 +6,7 @@
 // Any picker that chooses an AI (LLM) engine.
 export const AI_ENGINE_LABEL = 'AI engine'
 
-// Pickers that also list translation-only engines (NLLB), so they are not
+// Pickers that may also list translation-only engines, so they are not
 // "AI" engines.
 export const TRANSLATION_ENGINE_LABEL = 'Translation engine'
 

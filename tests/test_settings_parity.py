@@ -98,7 +98,7 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
 
 @pytest.mark.parametrize("key,bad", [
     ("default_engine", "not-an-engine"),
-    ("default_locale", "fr-FR"), ("episode_summary_engine", "nllb"),
+    ("default_locale", "fr-FR"), ("episode_summary_engine", "fake_mt"),
     ("monthly_cap_usd", -1), ("monthly_cap_usd", True), ("monthly_cap_usd", "5"),
     ("ollama_num_ctx_override", 1.5), ("ollama_num_ctx_override", -1),
     ("max_upload_mb", 99), ("max_upload_mb", 1_048_577), ("max_upload_mb", 0), ("max_upload_mb", -5),
@@ -327,11 +327,11 @@ def test_translate_config_uses_default_engine_locale_style_and_cap(isolated_db, 
     did = _seed(isolated_db)
     cfg = translate_run_service.get_translate_config(did)
     assert cfg["translation_engine"] == "claude" and cfg["default_locale"] == "en-US"
-    settings_service.set_settings({"default_engine": "nllb", "default_locale": "en-GB",
+    settings_service.set_settings({"default_engine": "fake_mt", "default_locale": "en-GB",
                                    "default_style_note": "Short lines.",
                                    "monthly_cap_usd": 9})
     cfg = translate_run_service.get_translate_config(did)
-    assert cfg["translation_engine"] == "nllb"
+    assert cfg["translation_engine"] == "fake_mt"
     assert cfg["default_locale"] == "en-GB" and cfg["default_style_note"] == "Short lines."
     assert cfg["monthly_cap_usd"] == 9.0
     # A drama with its own engine keeps it.

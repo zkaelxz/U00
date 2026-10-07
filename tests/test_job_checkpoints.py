@@ -580,26 +580,6 @@ def test_provenance_sentence_leaves_out_the_baihe_commit(isolated_db):
     assert "Baihe" not in line_provenance_service.describe(prov)
 
 
-def test_nllb_pipeline_survives_a_release_between_check_and_read(monkeypatch):
-    engine = translate_engines.NLLBEngine.__new__(translate_engines.NLLBEngine)
-    engine.model_name = "fake-nllb"
-    made = []
-    fake = types.ModuleType("transformers")
-    fake.pipeline = lambda *a, **k: made.append(1) or "PIPE"
-    monkeypatch.setitem(sys.modules, "transformers", fake)
-
-    class Vanishing(dict):   # release_gpu_models() clears it right after the check
-        def get(self, key, default=None):
-            value = dict.get(self, key, default)
-            self.clear()
-            return value
-
-    cache = Vanishing({("fake-nllb", "zh", "en"): "OLD"})
-    monkeypatch.setattr(translate_engines, "_nllb_pipeline_cache", cache)
-    monkeypatch.setattr("engine_backends.local._nllb_pipeline_cache", cache)
-    assert engine._get_pipeline("zh") == "OLD" and made == []
-
-
 def test_cli_narrate_prep_resumes_and_can_start_over(isolated_db, monkeypatch):
     import argparse
     import os

@@ -74,14 +74,14 @@ OPTIONAL_DEPENDENCIES = {
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pykakasi": ("pykakasi", "Japanese furigana (Reader)", "feature"),
     "kiwipiepy": ("kiwipiepy", "Korean word segmentation (Reader)", "feature"),
-    "transformers": ("transformers", "local NLLB-200 translation engine, ML bubble detection "
-                                     "(Scanlate), PaddleOCR-VL-For-Manga (needs transformers 5+)", "feature"),
+    "transformers": ("transformers", "ML bubble detection (Scanlate), PaddleOCR-VL-For-Manga "
+                                     "(needs transformers 5+), MOSS-Transcribe-Diarize, qwen-asr", "feature"),
     "torch": ("torch", "ML bubble detection/inpainting (Scanlate), PaddleOCR-VL-For-Manga, "
                         "word-level realignment, several TTS/ASR backends", "feature"),
     "torchaudio": ("torchaudio", "word-level realignment (MMS forced alignment, experimental)",
                    "feature"),
     "uroman": ("uroman", "word-level realignment (romanizing non-Latin text for MMS)", "feature"),
-    "sentencepiece": ("sentencepiece", "local NLLB-200 translation engine (tokenizer)", "feature"),
+    "sentencepiece": ("sentencepiece", "PaddleOCR-VL-For-Manga (tokenizer)", "feature"),
     "yt-dlp": ("yt_dlp", "downloading video from YouTube and other sites, live translation, "
                          "Bilibili source adapter", "feature"),
     "opencc-python-reimplemented": ("opencc", "Traditional Chinese segmentation (Reader; "
@@ -269,7 +269,7 @@ def install_downgrade_warning(name: str):
         have = get_installed_version(dep)
         if have and _version_sort_key(have) > _version_sort_key(pin):
             return (f"installing this would downgrade {dep} from {have} to {pin}, which "
-                    f"other features (NLLB translation, Scanlate, voice engines) use -- "
+                    f"other features (Scanlate, voice engines) use -- "
                     f"they may stop working until {dep} is upgraded again.")
     return None
 
@@ -334,13 +334,10 @@ INSTALL_TASKS = [
     {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
      "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
      "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
-                  "safetensors", "huggingface_hub"],
+                  "safetensors", "huggingface_hub", "sentencepiece"],
      "recommended": ["manga_ocr", "pypdf", "transformers", "torch", "safetensors",
                      "huggingface_hub"],
-     "optional": []},
-    {"id": "nllb", "group": "Translation", "label": "Free local translation (NLLB-200)",
-     "help": "Translate offline on this PC.",
-     "packages": ["transformers", "sentencepiece", "torch"]},
+     "optional": ["sentencepiece"]},
     {"id": "paid_engines", "group": "Translation", "label": "Claude and DeepSeek",
      "help": "Client libraries for the paid translation engines (keys go in Settings).",
      "packages": ["anthropic", "openai"],
@@ -1221,8 +1218,8 @@ KNOWN_UPGRADE_LIMITATIONS = {
     # Reproduced for real -- with huggingface_hub 2.0.0 installed
     # next to transformers 5.17.0, `import transformers` raises
     # "ImportError: huggingface-hub>=1.5.0,<2.0 is required ... but found
-    # huggingface-hub==2.0.0", taking NLLB translation and Scanlate's ML
-    # bubble detector down with it. This app's mocked test suite never
+    # huggingface-hub==2.0.0", taking Scanlate's ML bubble
+    # detector and the speech models down with it. This app's mocked test suite never
     # imports the real transformers, so only pip's own conflict report
     # caught it. Applies only while the installed transformers still
     # declares that cap, so it lifts itself once a transformers release
@@ -1230,8 +1227,8 @@ KNOWN_UPGRADE_LIMITATIONS = {
     "huggingface-hub": {
         "blocked_from": 2,
         "while_required_below_by": "transformers",
-        "reason": "the installed transformers (NLLB translation, Scanlate's ML bubble "
-                  "detector) requires huggingface_hub below 2.0 and refuses to import "
+        "reason": "the installed transformers (Scanlate's ML bubble detector, "
+                  "speech models) requires huggingface_hub below 2.0 and refuses to import "
                   "with 2.x -- upgrade transformers first once a release accepts it.",
     },
 }
