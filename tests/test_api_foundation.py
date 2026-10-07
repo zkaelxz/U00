@@ -475,7 +475,7 @@ class TestTranslateEndpoints:
         monkeypatch.setattr(translate_engines, "standalone_direction_support",
                             lambda *a: (False, "Not supported."))
         resp = client.post("/api/translate", json={
-            "text": "hello", "engine": "nllb",
+            "text": "hello", "engine": "fake_mt",
             "source_language": "en", "target_language": "zh",
         })
         assert resp.status_code == 400

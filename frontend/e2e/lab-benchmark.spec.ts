@@ -77,12 +77,12 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
 
   // Two engines make it an Arena run; the estimate lists each one.
   await card.getByRole('button', { name: 'Add engine' }).click()
-  await card.getByLabel('Engine 2', { exact: true }).selectOption('nllb')
+  await card.getByLabel('Engine 2', { exact: true }).selectOption('ollama')
   await card.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(card.getByTestId('bench-estimate').locator('li')).toHaveCount(2)
   await expect(card.getByRole('button', { name: 'Start arena (2 engines)' })).toBeEnabled()
   // Not started: back to one engine (the estimate no longer matches).
-  await card.getByRole('button', { name: /^Remove NLLB/ }).click()
+  await card.getByRole('button', { name: /^Remove Ollama/ }).click()
   await expect(card.getByTestId('bench-estimate')).toHaveCount(0)
 
   await runOnce(page, 'e2e A', 'v1')

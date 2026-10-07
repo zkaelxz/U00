@@ -45,7 +45,7 @@ def _session(admin):
 
 @pytest.fixture
 def world(isolated_db, monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "nllb", GoodEngine)
+    monkeypatch.setitem(translate_engines.ENGINES, "fake_good", GoodEngine)
     monkeypatch.setitem(translate_engines.ENGINES, "ollama", WeakEngine)
     settings_service.set_settings({"default_engine": "ollama"})
     lab.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv", "public")
@@ -77,7 +77,7 @@ def test_writes_are_pc_only(world):
     r = _remote()
     adm = {**_session(True), **LOCAL}
     for path, body in (("/api/models/reeval/settings", {"schedule_enabled": True, "interval_days": 30}),
-                       ("/api/models/reeval/candidates", {"engine": "nllb"}),
+                       ("/api/models/reeval/candidates", {"engine": "fake_good"}),
                        ("/api/models/reeval/run", {"confirm": True}),
                        ("/api/models/reeval/candidates/1/promote", {"confirm": True}),
                        ("/api/models/reeval/candidates/1/reject", {"reason": "x"}),
@@ -89,7 +89,7 @@ def test_writes_are_pc_only(world):
 
 def test_full_flow_needs_explicit_promotion(world):
     c = _local()
-    cand = c.post("/api/models/reeval/candidates", json={"engine": "nllb", "note": "try"}).json()
+    cand = c.post("/api/models/reeval/candidates", json={"engine": "fake_good", "note": "try"}).json()
     cid = cand["candidate"]["id"]
     assert c.post("/api/models/reeval/settings",
                   json={"schedule_enabled": False, "interval_days": 30, "tier": "public",
@@ -106,16 +106,16 @@ def test_full_flow_needs_explicit_promotion(world):
     assert c.post(f"/api/models/reeval/candidates/{cid}/promote", json={}).status_code == 422
     assert c.get("/api/models/reeval").json()["production"]["engine"] == "ollama"
     ok = c.post(f"/api/models/reeval/candidates/{cid}/promote", json={"confirm": True, "reason": "better"})
-    assert ok.status_code == 200 and ok.json()["production"]["engine"] == "nllb"
+    assert ok.status_code == 200 and ok.json()["production"]["engine"] == "fake_good"
     decisions = c.get("/api/models/reeval/decisions").json()["decisions"]
     assert decisions[0]["decision"] == "promoted" and decisions[0]["reason"] == "better"
 
 
 def test_rejected_candidate_readd_surfaces_decision(world):
     c = _local()
-    cid = c.post("/api/models/reeval/candidates", json={"engine": "nllb"}).json()["candidate"]["id"]
+    cid = c.post("/api/models/reeval/candidates", json={"engine": "fake_good"}).json()["candidate"]["id"]
     assert c.post(f"/api/models/reeval/candidates/{cid}/reject", json={"reason": "stiff"}).status_code == 200
-    again = c.post("/api/models/reeval/candidates", json={"engine": "nllb"}).json()
+    again = c.post("/api/models/reeval/candidates", json={"engine": "fake_good"}).json()
     assert again["already_registered"] is True
     assert "rejected: stiff" in again["candidate"]["last_decision"]["summary"]
     assert c.post(f"/api/models/reeval/candidates/{cid}/reopen", headers=LOCAL).status_code == 200
@@ -126,14 +126,14 @@ def test_bad_input(world):
     assert c.post("/api/models/reeval/settings", json={"schedule_enabled": True,
                                                         "interval_days": 0}).status_code == 422
     assert c.post("/api/models/reeval/candidates", json={"engine": "nope"}).status_code == 422
-    assert c.post("/api/models/reeval/candidates", json={"engine": "nllb", "x": 1}).status_code == 422
+    assert c.post("/api/models/reeval/candidates", json={"engine": "fake_good", "x": 1}).status_code == 422
     assert c.post("/api/models/reeval/candidates/999/reject", json={}).status_code == 404
 
 
 def test_enabling_the_schedule_needs_a_limit(world, monkeypatch):
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 0.0)
     c = _local()
-    c.post("/api/models/reeval/candidates", json={"engine": "nllb"})
+    c.post("/api/models/reeval/candidates", json={"engine": "fake_good"})
     body = {"schedule_enabled": True, "interval_days": 30, "tier": "public", "set_name": "g"}
     refused = c.post("/api/models/reeval/settings", json=body)
     assert refused.status_code == 422

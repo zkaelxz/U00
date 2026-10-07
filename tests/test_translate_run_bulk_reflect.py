@@ -171,7 +171,7 @@ def test_mode_validation(isolated_db, monkeypatch):
     with pytest.raises(InvalidInputError):
         svc.start_translate_run(did, bulk=True, line_ids=[db.load_lines(did)[0]["id"]])
     with pytest.raises(UnsupportedOperationError):
-        svc.start_translate_run(did, engine_name="nllb", reflect=True)
+        svc.start_translate_run(did, engine_name="fake_mt", reflect=True)
     with pytest.raises(UnsupportedOperationError):
         svc.start_translate_run(did, engine_name="ollama", bulk=True)
     with pytest.raises(UnsupportedOperationError):
@@ -203,7 +203,7 @@ def test_api_reflect_and_bulk_codes(isolated_db, monkeypatch):
     _fake_engines(monkeypatch)
     client = TestClient(create_app(), headers={"X-Baihe-Local": "1"})
     r = client.post(f"/api/translate-run/dramas/{did}/run",
-                    json={"engine": "nllb", "reflect": True})
+                    json={"engine": "fake_mt", "reflect": True})
     assert r.status_code == 400
     r = client.post(f"/api/translate-run/dramas/{did}/run",
                     json={"bulk": True, "fallback_chain": [{"engine": "gemini"}]})

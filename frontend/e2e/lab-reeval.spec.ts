@@ -41,13 +41,13 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
   await expect(c.locator('summary', { hasText: 'Decision history' })).toContainText('None yet')
   expect(posts).toEqual([])
 
-  // Add NLLB (free): a new candidate.
-  await c.getByLabel('Candidate engine', { exact: true }).selectOption('nllb')
+  // Add Fake (free): a new candidate.
+  await c.getByLabel('Candidate engine', { exact: true }).selectOption('fake')
   await c.getByLabel('Note', { exact: true }).fill('free fallback')
   await c.getByRole('button', { name: 'Add candidate' }).click()
-  await expect(c.getByTestId('reeval-added')).toHaveText('Added NLLB · facebook/nllb-200-distilled-600M as a candidate.')
+  await expect(c.getByTestId('reeval-added')).toHaveText('Added Fake · test-offline as a candidate.')
   const list = c.getByRole('list', { name: 'Candidate models' })
-  await expect(list.locator(':scope > li', { hasText: 'NLLB' })).toContainText('Open')
+  await expect(list.locator(':scope > li', { hasText: 'Fake' })).toContainText('Open')
 
   // Estimate (spends nothing); production has no key, so Run now stays off and says why.
   await c.getByRole('button', { name: 'Estimate cost' }).click()
@@ -56,18 +56,18 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
   await expect(c.getByTestId('reeval-run-reason')).toHaveText('Claude has no key. Set one in Settings.')
 
   // Reject asks for a reason first.
-  await c.getByRole('button', { name: 'Reject NLLB' }).click()
+  await c.getByRole('button', { name: 'Reject Fake' }).click()
   await c.getByLabel('Why reject it?', { exact: true }).fill('too literal')
-  await c.getByRole('button', { name: 'Reject NLLB' }).click()
-  await expect(c.getByTestId('reeval-candidate-status')).toContainText('Rejected NLLB')
-  const item = list.locator(':scope > li', { hasText: 'NLLB' })
+  await c.getByRole('button', { name: 'Reject Fake' }).click()
+  await expect(c.getByTestId('reeval-candidate-status')).toContainText('Rejected Fake')
+  const item = list.locator(':scope > li', { hasText: 'Fake' })
   await expect(item).toContainText('Rejected')
   await expect(item).toContainText('rejected: too literal')
-  await expect(item.getByRole('button', { name: 'Reopen NLLB' })).toBeVisible()
+  await expect(item.getByRole('button', { name: 'Reopen Fake' })).toBeVisible()
 
   // Re-adding it shows the recorded decision instead of "added".
   await c.getByRole('button', { name: 'Add candidate' }).click()
-  await expect(c.getByTestId('reeval-known')).toContainText(/NLLB · facebook\/nllb-200-distilled-600M: Already evaluated on \d{4}-\d{2}-\d{2}, rejected: too literal/)
+  await expect(c.getByTestId('reeval-known')).toContainText(/Fake · test-offline: Already evaluated on \d{4}-\d{2}-\d{2}, rejected: too literal/)
   await expect(c.getByTestId('reeval-added')).toHaveCount(0)
 
   // The decision is in the history.
@@ -86,7 +86,7 @@ test('estimate, then Run now (confirm: true), progress, and the report against p
   const { calls, unmocked } = await mockReeval(page, overview())
   await page.goto('/#/benchmark')
   const c = card(page)
-  await expect(c.getByTestId('reeval-production')).toContainText('Ollama · qwen3:8b')
+  await expect(c.getByTestId('reeval-production')).toContainText('Ollama · gemma4:12b')
   await expect(c.getByTestId('reeval-production')).toContainText('Promoted 2026-08-14')
   await expect(c).toContainText('No re-evaluation yet.')
 
@@ -103,11 +103,11 @@ test('estimate, then Run now (confirm: true), progress, and the report against p
   await expect(rows.locator(':scope > li').first()).toContainText('Running')
   // Finished: the report reloads with the results.
   await expect(c.getByTestId('bench-progress')).toHaveCount(0, { timeout: 10_000 })
-  const first = rows.locator(':scope > li', { hasText: 'qwen2.5:14b' })
+  const first = rows.locator(':scope > li', { hasText: 'gemma4:26b' })
   await expect(first).toContainText('+3.4 pts')
   await expect(first).toContainText('+610 ms')
   await expect(first).toContainText('+3.8 GB')
-  const second = rows.locator(':scope > li', { hasText: 'NLLB' })
+  const second = rows.locator(':scope > li', { hasText: 'Fake' })
   await expect(second).toContainText('−11.0 pts')
   await expect(second).toContainText('−900 ms')
   await expect(second).toContainText('−5.3 GB')
@@ -118,7 +118,7 @@ test('estimate, then Run now (confirm: true), progress, and the report against p
 
   // Open in Arena: production run first, then the candidate's run.
   const arenaReq = page.waitForRequest((r) => r.url().includes('/api/benchmark/arena'))
-  await first.getByRole('button', { name: 'Open Ollama · qwen2.5:14b against production in Arena' }).click()
+  await first.getByRole('button', { name: 'Open Ollama · gemma4:26b against production in Arena' }).click()
   expect(new URL((await arenaReq).url()).searchParams.getAll('run_ids')).toEqual(['100', '101'])
   await expect(page.getByRole('region', { name: 'Model Arena' })).toContainText('Baseline')
   expect(unmocked).toEqual([])
@@ -128,20 +128,20 @@ test('promote needs the second press, sends the reason, and says what changes', 
   const { calls, unmocked } = await mockReeval(page, overview({ withReport: true }))
   await page.goto('/#/benchmark')
   const c = card(page)
-  const row = c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li', { hasText: 'NLLB' })
-  await expect(row).toContainText("Settings' default engine changes from Ollama to NLLB.")
+  const row = c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li', { hasText: 'Fake' })
+  await expect(row).toContainText("Settings' default engine changes from Ollama to Fake.")
   await expect(row).toContainText('Presets keep their own model')
-  const qwen = c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li', { hasText: 'qwen2.5:14b' })
-  await expect(qwen).toContainText("Settings' default engine stays Ollama.")
+  const bigger = c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li', { hasText: 'gemma4:26b' })
+  await expect(bigger).toContainText("Settings' default engine stays Ollama.")
 
-  await qwen.getByLabel('Reason for promoting', { exact: true }).fill('better on names')
-  await qwen.getByRole('button', { name: 'Promote Ollama · qwen2.5:14b to production' }).click()
+  await bigger.getByLabel('Reason for promoting', { exact: true }).fill('better on names')
+  await bigger.getByRole('button', { name: 'Promote Ollama · gemma4:26b to production' }).click()
   // First press only arms it.
   expect(calls.filter((x) => x.path.endsWith('/promote'))).toEqual([])
-  await qwen.getByRole('button', { name: 'Confirm: make Ollama · qwen2.5:14b production' }).click()
-  await expect(c.getByTestId('reeval-promote-status')).toHaveText('Ollama · qwen2.5:14b is now the production model.')
+  await bigger.getByRole('button', { name: 'Confirm: make Ollama · gemma4:26b production' }).click()
+  await expect(c.getByTestId('reeval-promote-status')).toHaveText('Ollama · gemma4:26b is now the production model.')
   expect(calls.find((x) => x.path.endsWith('/promote'))).toEqual({ method: 'POST', path: '/candidates/1/promote', body: { confirm: true, reason: 'better on names' } })
-  await expect(c.getByTestId('reeval-production')).toContainText('Ollama · qwen2.5:14b')
+  await expect(c.getByTestId('reeval-production')).toContainText('Ollama · gemma4:26b')
   await expect(c.getByTestId('reeval-production')).toContainText('Promoted 2026-09-30')
   await c.locator('summary', { hasText: 'Decision history' }).click()
   await expect(c.getByRole('list', { name: 'Decisions' })).toContainText('better on names')
@@ -175,15 +175,15 @@ test('reject asks a reason, reopen puts it back, re-adding a rejected model show
   await gemini.getByRole('button', { name: 'Reopen Gemini · gemini-flash-latest' }).click()
   await expect(gemini).toContainText('Open')
 
-  const nllbItem = list.locator(':scope > li', { hasText: 'NLLB' })
-  await nllbItem.getByRole('button', { name: 'Reject NLLB' }).click()
-  await nllbItem.getByLabel('Why reject it?', { exact: true }).fill('worse on idioms')
-  await nllbItem.getByRole('button', { name: 'Cancel' }).click()
+  const fakeItem = list.locator(':scope > li', { hasText: 'Fake' })
+  await fakeItem.getByRole('button', { name: 'Reject Fake' }).click()
+  await fakeItem.getByLabel('Why reject it?', { exact: true }).fill('worse on idioms')
+  await fakeItem.getByRole('button', { name: 'Cancel' }).click()
   expect(calls.filter((x) => x.path.endsWith('/reject'))).toEqual([])
-  await nllbItem.getByRole('button', { name: 'Reject NLLB' }).click()
-  await nllbItem.getByLabel('Why reject it?', { exact: true }).fill('worse on idioms')
-  await nllbItem.getByRole('button', { name: 'Reject NLLB' }).click()
-  await expect(nllbItem).toContainText('rejected: worse on idioms')
+  await fakeItem.getByRole('button', { name: 'Reject Fake' }).click()
+  await fakeItem.getByLabel('Why reject it?', { exact: true }).fill('worse on idioms')
+  await fakeItem.getByRole('button', { name: 'Reject Fake' }).click()
+  await expect(fakeItem).toContainText('rejected: worse on idioms')
   expect(calls.find((x) => x.path.endsWith('/reject'))).toEqual({ method: 'POST', path: '/candidates/2/reject', body: { reason: 'worse on idioms' } })
   expect(unmocked).toEqual([])
 })

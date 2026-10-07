@@ -37,11 +37,11 @@ def _enabled_days_ago(days):
 
 
 class GoodEngine:
-    """Stands in for a 'better' candidate (as nllb): answers with the reference."""
-    name = "nllb"
+    """Stands in for a 'better' candidate (as fake_good): answers with the reference."""
+    name = "fake_good"
     answers = {"你好": "Hello", "谢谢": "Thanks"}
 
-    def __init__(self, api_key=None, model="facebook/nllb-200-distilled-600M", **kw):
+    def __init__(self, api_key=None, model="fake-good-model", **kw):
         self.model = model
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
 
@@ -59,7 +59,7 @@ class WeakEngine(GoodEngine):
 
 @pytest.fixture
 def world(isolated_db, monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "nllb", GoodEngine)
+    monkeypatch.setitem(translate_engines.ENGINES, "fake_good", GoodEngine)
     monkeypatch.setitem(translate_engines.ENGINES, "ollama", WeakEngine)
     settings_service.set_settings({"default_engine": "ollama"})
     lab.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv", "public")
@@ -81,10 +81,10 @@ class TestCandidates:
         assert (prod["engine"], prod["source"]) == ("ollama", "settings")
 
     def test_add_and_reject_is_recorded_and_surfaced(self, world):
-        c = svc.add_candidate("nllb", note="try it")["candidate"]
+        c = svc.add_candidate("fake_good", note="try it")["candidate"]
         assert c["status"] == "candidate" and c["last_decision"] is None
         svc.reject(c["id"], reason="too literal")
-        again = svc.add_candidate("nllb")
+        again = svc.add_candidate("fake_good")
         assert again["already_registered"] is True
         d = again["candidate"]["last_decision"]
         assert d["decision"] == "rejected" and d["reason"] == "too literal"
@@ -92,13 +92,13 @@ class TestCandidates:
         assert len(db.list_model_candidates("translation")) == 1
 
     def test_rejected_candidate_is_not_rerun(self, world):
-        c = svc.add_candidate("nllb")["candidate"]
+        c = svc.add_candidate("fake_good")["candidate"]
         svc.reject(c["id"], "no")
         with pytest.raises(UnsupportedOperationError):
             svc.run_now()
 
     def test_reopen_puts_it_back_but_keeps_the_decision(self, world):
-        c = svc.add_candidate("nllb")["candidate"]
+        c = svc.add_candidate("fake_good")["candidate"]
         svc.reject(c["id"], "no")
         out = svc.reopen_candidate(c["id"])
         assert out["status"] == "candidate" and out["last_decision"]["decision"] == "rejected"
@@ -110,11 +110,11 @@ class TestCandidates:
 
 class TestRunAndReport:
     def test_run_uses_the_benchmark_lab_database(self, world):
-        c = svc.add_candidate("nllb")["candidate"]
+        c = svc.add_candidate("fake_good")["candidate"]
         out = _run_now()
         assert out["arena_group"] and out["candidate_ids"] == [c["id"]]
         prod_run, cand_run = (db.get_benchmark_session(s) for s in out["session_ids"])
-        assert prod_run["engine"] == "ollama" and cand_run["engine"] == "nllb"
+        assert prod_run["engine"] == "ollama" and cand_run["engine"] == "fake_good"
         assert prod_run["arena_group"] == cand_run["arena_group"]
         assert db.list_benchmark_results(cand_run["id"])  # rows in benchmark_results
         rep = svc.report()
@@ -124,22 +124,22 @@ class TestRunAndReport:
         assert row["cost_delta_usd"] == 0
 
     def test_running_never_promotes(self, world):
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         _run_now()
         assert svc.get_production()["engine"] == "ollama"
         assert settings_service.get_default_engine() == "ollama"
         assert db.list_model_candidates("translation")[0]["status"] == "candidate"
 
     def test_promotion_needs_explicit_confirm(self, world):
-        c = svc.add_candidate("nllb")["candidate"]
+        c = svc.add_candidate("fake_good")["candidate"]
         _run_now()
         with pytest.raises(InvalidInputError):
             svc.promote(c["id"], confirm=False)
         assert svc.get_production()["engine"] == "ollama"
         out = svc.promote(c["id"], confirm=True, reason="scored higher")
-        assert out["production"]["engine"] == "nllb"
+        assert out["production"]["engine"] == "fake_good"
         assert out["default_engine_changed"] is True
-        assert settings_service.get_default_engine() == "nllb"
+        assert settings_service.get_default_engine() == "fake_good"
         (d,) = svc.list_decisions()["decisions"]
         assert d["decision"] == "promoted" and d["scores"]["aggregate_score"] is not None
         with pytest.raises(ConflictError):
@@ -148,12 +148,12 @@ class TestRunAndReport:
 
 class TestSchedule:
     def test_not_due_when_schedule_off(self, world):
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         assert svc.is_due() is False
         assert svc.run_if_due() is False
 
     def test_due_then_not_due_after_run(self, world):
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         svc.set_settings(True, 30, tier="public", set_name="g")
         # The first run is one interval after the schedule is turned on.
         assert svc.is_due() is False and svc.run_if_due() is False
@@ -168,7 +168,7 @@ class TestSchedule:
         assert svc.is_due(now=later) is True
 
     def test_scheduled_refusal_is_recorded_not_retried(self, world, monkeypatch):
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         svc.set_settings(True, 30, tier="public", set_name="nope")
         _enabled_days_ago(31)
         assert svc.run_if_due() is False
@@ -203,7 +203,7 @@ class TestScheduler:
 
 class TestReviewFixes:
     def test_failed_attempt_keeps_last_good_report(self, world):
-        c = svc.add_candidate("nllb")["candidate"]
+        c = svc.add_candidate("fake_good")["candidate"]
         _run_now()
         svc.set_settings(True, 1, tier="public", set_name="nope")
         _enabled_days_ago(2)
@@ -216,7 +216,7 @@ class TestReviewFixes:
         assert svc.list_decisions()["decisions"][0]["scores"]["aggregate_score"] is not None
 
     def test_tick_while_a_run_is_going_is_not_an_attempt(self, world):
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         svc.set_settings(True, 30, tier="public", set_name="g")
         _enabled_days_ago(31)
         with background_jobs._lock:
@@ -230,7 +230,7 @@ class TestReviewFixes:
         assert svc.is_due() is True
 
     def test_scheduled_cost_limit(self, world, monkeypatch):
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         svc.set_settings(True, 30, tier="public", set_name="g", max_cost_usd=0.0)
         _enabled_days_ago(31)
         monkeypatch.setattr(svc, "estimate_run", lambda capability="translation": {"estimated_cost_usd": 1.0})
@@ -238,7 +238,7 @@ class TestReviewFixes:
         assert "limit set for scheduled runs" in svc.report()["error"]
 
     def test_settings_change_wins_over_old_promotion(self, world):
-        c = svc.add_candidate("nllb")["candidate"]
+        c = svc.add_candidate("fake_good")["candidate"]
         _run_now()
         svc.promote(c["id"], confirm=True)
         assert svc.get_production()["source"] == "promoted"
@@ -247,13 +247,13 @@ class TestReviewFixes:
         assert (prod["engine"], prod["source"]) == ("ollama", "settings")
 
     def test_candidate_equal_to_new_production_is_left_out(self, world):
-        svc.add_candidate("nllb")
-        settings_service.set_settings({"default_engine": "nllb"})
+        svc.add_candidate("fake_good")
+        settings_service.set_settings({"default_engine": "fake_good"})
         with pytest.raises(UnsupportedOperationError):
             svc.estimate_run()
 
     def test_promoting_b_supersedes_a_which_can_be_reopened(self, world, monkeypatch):
-        a = svc.add_candidate("nllb")["candidate"]
+        a = svc.add_candidate("fake_good")["candidate"]
         _run_now()
         svc.promote(a["id"], confirm=True)
         monkeypatch.setitem(translate_engines.ENGINES, "ollama", GoodEngine)
@@ -304,7 +304,7 @@ class TestSpendAndBusyGuards:
     def test_saving_an_enabled_schedule_returns_its_estimate(self, world):
         out = svc.set_settings(True, 30, tier="public", set_name="g")
         assert out["schedule_estimate"] is None and "candidate" in out["schedule_estimate_error"]
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         out = svc.set_settings(True, 30, tier="public", set_name="g")
         assert out["schedule_estimate"]["case_count"] == 2
         assert out["schedule_estimate"]["estimated_cost_usd"] == 0
@@ -312,7 +312,7 @@ class TestSpendAndBusyGuards:
         assert off["schedule_estimate"] is None and off["schedule_estimate_error"] is None
 
     def test_enable_time_is_kept_until_turned_off(self, world):
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         svc.set_settings(True, 30, tier="public", set_name="g")
         first = svc.get_settings()["enabled_at"]
         assert first
@@ -324,7 +324,7 @@ class TestSpendAndBusyGuards:
         assert svc.get_settings()["enabled_at"] is None and svc.next_due_at() is None
 
     def test_no_limit_and_a_cost_fails_closed_without_recording(self, world, monkeypatch):
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         svc.set_settings(True, 30, tier="public", set_name="g")
         _enabled_days_ago(31)
         self._no_cap(monkeypatch)          # the cap was cleared after enabling
@@ -335,16 +335,16 @@ class TestSpendAndBusyGuards:
         assert svc.report()["error"] is None and svc.is_due() is True
 
     def test_no_limit_but_free_still_runs(self, world, monkeypatch):
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         svc.set_settings(True, 30, tier="public", set_name="g")
         _enabled_days_ago(31)
         self._no_cap(monkeypatch)
-        assert svc.run_if_due() is True     # ollama / nllb cost $0
+        assert svc.run_if_due() is True     # ollama / fake_good cost $0
         _wait()
 
     @pytest.mark.parametrize("busy", ["running", "queued", "exclusive", "maintenance"])
     def test_busy_pc_skips_without_recording(self, world, monkeypatch, busy):
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         svc.set_settings(True, 30, tier="public", set_name="g")
         _enabled_days_ago(31)
         monkeypatch.setattr(svc, "estimate_run", lambda capability="translation": pytest.fail("estimated"))
@@ -367,7 +367,7 @@ class TestSpendAndBusyGuards:
 
     def test_promote_is_serialized(self, world):
         import threading
-        c = svc.add_candidate("nllb")["candidate"]
+        c = svc.add_candidate("fake_good")["candidate"]
         results = []
         svc._decision_lock.acquire()
         t = threading.Thread(target=lambda: results.append(svc.promote(c["id"], confirm=True)))
@@ -378,13 +378,13 @@ class TestSpendAndBusyGuards:
         finally:
             svc._decision_lock.release()
         t.join(5)
-        assert results and results[0]["production"]["engine"] == "nllb"
+        assert results and results[0]["production"]["engine"] == "fake_good"
         with pytest.raises(ConflictError):
             svc.promote(c["id"], confirm=True)
         assert len(svc.list_decisions()["decisions"]) == 1
 
     def test_reject_after_promote_is_refused(self, world):
-        c = svc.add_candidate("nllb")["candidate"]
+        c = svc.add_candidate("fake_good")["candidate"]
         svc.promote(c["id"], confirm=True)
         with pytest.raises(ConflictError):
             svc.reject(c["id"])
@@ -392,7 +392,7 @@ class TestSpendAndBusyGuards:
         assert len(svc.list_decisions()["decisions"]) == 1
 
     def test_scheduled_run_passes_its_limit_to_the_lab(self, world, monkeypatch):
-        svc.add_candidate("nllb")
+        svc.add_candidate("fake_good")
         svc.set_settings(False, 30, tier="public", set_name="g", max_cost_usd=0)
         seen = []
         real = lab.start_run

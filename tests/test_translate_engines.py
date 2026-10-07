@@ -706,19 +706,6 @@ class TestPerLineLanguage:
             tp.call_llm_json = orig
         assert "(spoken in Korean) a" in prompts[0]
 
-    def test_nllb_translates_each_language_with_its_own_pipeline(self):
-        eng = te.NLLBEngine()
-        used = []
-
-        def fake_pipeline(src, tgt="en"):
-            return lambda texts: [{"translation_text": f"{src}:{t}"} for t in texts]
-
-        eng._get_pipeline = lambda src, tgt="en": (used.append(src), fake_pipeline(src, tgt))[1]
-        out = eng.translate_batch(["a", "b", "c"], {"source_language": "ja",
-                                                    "line_languages": [None, "ko", None]})
-        assert out == ["ja:a", "ko:b", "ja:c"]
-        assert sorted(used) == ["ja", "ko"]
-
 
 class TestBuildNumberedLines:
     def test_lines_with_no_speaker_names_have_no_prefix(self):
@@ -1572,139 +1559,32 @@ class TestOllamaReachability:
         assert captured["url"] == "http://localhost:11434/api/tags"
 
 
-class TestNLLBEngine:
-    """NLLBEngine: fully local/offline MT via Meta's NLLB-200. transformers
-    is a real installed dependency in this environment, but downloading an
-    actual model isn't something a test suite should do -- transformers.pipeline
-    is faked at that boundary, the same way GeminiEngine's tests fake
-    requests.post rather than hitting a real API."""
+class TestNLLBRemoved:
+    """NLLB-200 was removed: the name stays only so saved data that names it
+    is refused with the removed-engine message instead of "Unknown engine"."""
 
-    def _install_fake_pipeline(self, monkeypatch):
-        import sys, types
-        captured = {}
+    def test_is_no_longer_registered_or_exported(self):
+        assert "nllb" not in te.ENGINES
+        assert "nllb" not in te.ENGINE_NOTES
+        assert "nllb" not in te.ENGINE_CAPABILITIES
+        assert "nllb" not in te.FREE_ENGINES | te.KEYLESS_ENGINES
+        for gone in ("NLLBEngine", "NLLB_MODELS", "_NLLB_LANG_CODES", "_nllb_pipeline_cache"):
+            assert not hasattr(te, gone)
 
-        class FakePipeline:
-            def __init__(self, task, model, src_lang, tgt_lang):
-                captured["task"] = task
-                captured["model"] = model
-                captured["src_lang"] = src_lang
-                captured["tgt_lang"] = tgt_lang
-
-            def __call__(self, texts):
-                return [{"translation_text": f"EN:{t}"} for t in texts]
-
-        fake_module = types.ModuleType("transformers")
-        fake_module.pipeline = lambda task, model, src_lang, tgt_lang: FakePipeline(
-            task, model, src_lang, tgt_lang)
-        monkeypatch.setitem(sys.modules, "transformers", fake_module)
-        return captured
-
-    def setup_method(self):
-        te._nllb_pipeline_cache.clear()
-
-    def test_translates_and_defaults_to_chinese_simplified(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        engine = te.NLLBEngine()
-        result = engine.translate_batch(["你好", "再见"], {})
-        assert result == ["EN:你好", "EN:再见"]
-        assert captured["src_lang"] == "zho_Hans"
-        assert captured["tgt_lang"] == "eng_Latn"
-        assert captured["model"] == "facebook/nllb-200-distilled-600M"
-
-    def test_japanese_source_language_maps_to_nllb_code(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        engine = te.NLLBEngine()
-        engine.translate_batch(["こんにちは"], {"source_language": "ja"})
-        assert captured["src_lang"] == "jpn_Jpan"
-
-    def test_korean_source_language_maps_to_nllb_code(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        engine = te.NLLBEngine()
-        engine.translate_batch(["안녕"], {"source_language": "ko"})
-        assert captured["src_lang"] == "kor_Hang"
-
-    def test_custom_model_size_is_used(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        engine = te.NLLBEngine(model="facebook/nllb-200-distilled-1.3B")
-        engine.translate_batch(["你好"], {})
-        assert captured["model"] == "facebook/nllb-200-distilled-1.3B"
-
-    def test_needs_no_api_key(self):
-        # Must not raise/require anything -- api_key is accepted but unused.
-        engine = te.NLLBEngine(api_key=None)
-        assert engine.model_name == "facebook/nllb-200-distilled-600M"
-
-    def test_pipeline_is_cached_per_model_and_language(self, monkeypatch):
-        import sys, types
-        build_calls = []
-
-        class FakePipeline:
-            def __call__(self, texts):
-                return [{"translation_text": f"EN:{t}"} for t in texts]
-
-        def fake_pipeline_factory(task, model, src_lang, tgt_lang):
-            build_calls.append((model, src_lang))
-            return FakePipeline()
-
-        fake_module = types.ModuleType("transformers")
-        fake_module.pipeline = fake_pipeline_factory
-        monkeypatch.setitem(sys.modules, "transformers", fake_module)
-
-        engine = te.NLLBEngine()
-        engine.translate_batch(["a"], {"source_language": "zh"})
-        engine.translate_batch(["b"], {"source_language": "zh"})
-        engine.translate_batch(["c"], {"source_language": "ja"})
-
-        assert len(build_calls) == 2  # zh built once and reused; ja built separately
-
-    def test_is_registered_in_engines_and_notes(self):
-        assert te.ENGINES["nllb"] is te.NLLBEngine
-        assert "nllb" in te.ENGINE_NOTES
-
-    def test_defaults_to_english_target(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        te.NLLBEngine().translate_batch(["你好"], {})
-        assert captured["tgt_lang"] == "eng_Latn"
-
-    def test_step_26b_english_source_and_chinese_target_reach_nllb(self, monkeypatch):
-        captured = self._install_fake_pipeline(monkeypatch)
-        engine = te.NLLBEngine()
-        engine.translate_batch(["Hello"], {"source_language": "en", "target_language": "zh"})
-        assert captured["src_lang"] == "eng_Latn"
-        assert captured["tgt_lang"] == "zho_Hans"
-
-    def test_step_26b_reverse_pipeline_is_cached_separately_from_forward(self, monkeypatch):
-        """The (model, source, target) pair, not just source, decides
-        which cached pipeline is reused -- otherwise English -> Chinese
-        would collide with the existing Chinese -> English pipeline."""
-        import sys, types
-        build_calls = []
-
-        class FakePipeline:
-            def __call__(self, texts):
-                return [{"translation_text": f"OUT:{t}"} for t in texts]
-
-        fake_module = types.ModuleType("transformers")
-        fake_module.pipeline = lambda task, model, src_lang, tgt_lang: (
-            build_calls.append((src_lang, tgt_lang)) or FakePipeline())
-        monkeypatch.setitem(sys.modules, "transformers", fake_module)
-
-        engine = te.NLLBEngine()
-        engine.translate_batch(["你好"], {"source_language": "zh", "target_language": "en"})
-        engine.translate_batch(["Hello"], {"source_language": "en", "target_language": "zh"})
-        assert len(build_calls) == 2
-        assert ("zho_Hans", "eng_Latn") in build_calls
-        assert ("eng_Latn", "zho_Hans") in build_calls
+    def test_is_refused_with_the_removed_engine_message(self):
+        assert "nllb" in te.REMOVED_ENGINES
+        assert te.unknown_engine_message("nllb") == "The nllb engine was removed. Pick another engine."
+        assert te.unknown_engine_message("nope") == "Unknown engine."
 
 
 class TestFreeEngineLabelling:
     """Step 1d item 4: every free-to-use option is clearly labelled as
-    such (test_offline, ollama, nllb always; gemini only
+    such (test_offline, ollama always; gemini only
     when the per-session "free-tier key" setting is on), and paid
     engines keep their normal descriptions."""
 
     def test_free_engines_set_matches_the_roadmap_table(self):
-        assert te.FREE_ENGINES == {"fake", "ollama", "nllb"}
+        assert te.FREE_ENGINES == {"fake", "fake_mt", "ollama"}
 
     def test_gemini_is_not_unconditionally_free(self):
         # Gemini reuses one engine for free and paid keys -- whether a
@@ -1964,16 +1844,16 @@ class TestCallLlmJson:
         assert captured["timeout"] is not None
 
     def test_an_engine_with_no_recognized_shape_raises_a_clear_error(self):
-        """NLLB (translation-only, no .client,
+        """A translation-only engine (no .client,
         not Gemini/Ollama/test_offline) used to silently return the bare
         fallback here too -- the same "looks like it worked, did
         nothing" failure mode as the Ollama bug above, just for a
         different set of engines. Now raises instead of pretending to
         have produced a real (empty) result."""
         class FakeTranslationOnlyEngine:
-            name = "nllb"
+            name = "fake_mt"
 
-        with pytest.raises(RuntimeError, match="nllb can't run this feature"):
+        with pytest.raises(RuntimeError, match="fake_mt can't run this feature"):
             te.call_llm_json(FakeTranslationOnlyEngine(), "prompt", fallback="[]")
 
     def test_a_malformed_gemini_response_returns_fallback(self, monkeypatch):

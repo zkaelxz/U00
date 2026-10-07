@@ -414,7 +414,7 @@ class TestShorten:
 
     def test_translation_only_engine_refused(self, client):
         did, _ = _overlong_drama()
-        assert client.post(_shorten(did), json={"confirm": True, "engine": "nllb"}).status_code in (400, 422)
+        assert client.post(_shorten(did), json={"confirm": True, "engine": "fake_mt"}).status_code in (400, 422)
 
 
 # ---------------------------------------------------------------------------

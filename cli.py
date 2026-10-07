@@ -634,8 +634,9 @@ def _parse_fallback_arg(value, reflect=False) -> list:
     if reflect:
         raise SystemExit("translate: --fallback only applies to a normal translation run, "
                          "not --reflect.")
-    if any(n not in translate_engines.ENGINES for n in names):
-        raise SystemExit("translate: --fallback names an unknown translate engine.")
+    for n in names:
+        if n not in translate_engines.ENGINES:
+            raise SystemExit(f"translate: --fallback: {translate_engines.unknown_engine_message(n)}")
     return names
 
 
@@ -736,8 +737,7 @@ def cmd_translate(args):
         if chain_error:
             print(f"#{d['id']} skipped: {chain_error}")
             return
-        missing = [n for n in fallback_names
-                   if n != "nllb" and not translate_service.resolve_api_key(n)]
+        missing = [n for n in fallback_names if not translate_service.resolve_api_key(n)]
         if missing:
             print(f"#{d['id']} skipped: no {missing[0]} key is configured for --fallback.")
             return

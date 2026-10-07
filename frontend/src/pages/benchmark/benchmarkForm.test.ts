@@ -15,7 +15,7 @@ const options: BenchmarkOptions = {
   translation_engines: [
     { name: 'claude', label: 'x', free: false, models: ['sonnet', 'haiku'], key_configured: false },
     { name: 'ollama', label: 'x', free: true, models: null, key_configured: true },
-    { name: 'nllb', label: 'x', free: true, models: ['small'], key_configured: true },
+    { name: 'deepseek', label: 'x', free: true, models: ['small'], key_configured: true },
   ],
   whisper_sizes: ['small', 'medium', 'large-v3'],
   ocr_backends: ['tesseract', 'paddle'],
@@ -114,12 +114,12 @@ describe('run request', () => {
     const base = estimateKey(sel())
     expect(estimateKey(sel({ label: 'x', promptVersion: 'v3' }))).toBe(base)
     expect(estimateKey(sel({ tier: 'public' }))).not.toBe(base)
-    expect(estimateKey(sel({ configs: [{ engine: 'nllb' }] }))).not.toBe(base)
+    expect(estimateKey(sel({ configs: [{ engine: 'deepseek' }] }))).not.toBe(base)
   })
 
   it('default configs pick the next unused engine, usable ones first', () => {
     expect(defaultConfig('translation', options)).toEqual({ engine: 'ollama' })
-    expect(defaultConfig('translation', options, [{ engine: 'ollama' }])).toEqual({ engine: 'nllb' })
+    expect(defaultConfig('translation', options, [{ engine: 'ollama' }])).toEqual({ engine: 'deepseek' })
     expect(defaultConfig('transcription', options, [{ engine: 'whisper', model: 'small' }])).toEqual({ engine: 'whisper', model: 'medium' })
     expect(defaultConfig('ocr', options, [{ engine: 'tesseract' }, { engine: 'paddle' }])).toBeNull()
   })
@@ -135,10 +135,10 @@ describe('run request', () => {
 
   it('flags an empty or duplicated engine list', () => {
     expect(selectionProblems(sel({ configs: [] }), 4)).toEqual(['Pick at least one engine.'])
-    expect(selectionProblems(sel({ configs: [{ engine: 'nllb' }, { engine: 'nllb' }] }), 4)).toEqual([
+    expect(selectionProblems(sel({ configs: [{ engine: 'deepseek' }, { engine: 'deepseek' }] }), 4)).toEqual([
       'The same engine and model is picked twice.',
     ])
-    expect(selectionProblems(sel({ configs: [{ engine: 'nllb' }, { engine: 'nllb', model: 'small' }] }), 4)).toEqual([])
+    expect(selectionProblems(sel({ configs: [{ engine: 'deepseek' }, { engine: 'deepseek', model: 'small' }] }), 4)).toEqual([])
   })
 
   it('lists picked translation engines with no key', () => {
@@ -214,7 +214,7 @@ describe('arena', () => {
   })
 
   it('names compared runs, adding the label only when two share an engine', () => {
-    expect(arenaRunNames([run(1, { label: 'A' }), run(2, { engine: 'nllb' })])).toEqual(['Ollama', 'NLLB'])
+    expect(arenaRunNames([run(1, { label: 'A' }), run(2, { engine: 'deepseek' })])).toEqual(['Ollama', 'DeepSeek'])
     expect(arenaRunNames([run(1, { label: 'A' }), run(2)])).toEqual(['Ollama · A', 'Ollama · run 2'])
   })
 
@@ -246,9 +246,9 @@ describe('plainError', () => {
 
 describe('compare links (Model health -> Benchmark Lab)', () => {
   it('builds and reads engine:model pairs, keeping ":" and "/" inside a model', () => {
-    const configs = [{ engine: 'ollama', model: 'qwen3:8b' }, { engine: 'nllb', model: 'facebook/nllb-200-distilled-600M' }, { engine: 'ollama' }]
+    const configs = [{ engine: 'ollama', model: 'gemma4:12b' }, { engine: 'deepseek', model: 'vendor/model' }, { engine: 'ollama' }]
     const raw = compareParam(configs)
-    expect(raw).toBe('ollama:qwen3%3A8b,nllb:facebook%2Fnllb-200-distilled-600M,ollama')
+    expect(raw).toBe('ollama:gemma4%3A12b,deepseek:vendor%2Fmodel,ollama')
     expect(parseCompareParam(raw)).toEqual(configs)
     expect(parseCompareParam('claude:claude-sonnet-4-6,claude:claude-sonnet-5')).toEqual([
       { engine: 'claude', model: 'claude-sonnet-4-6' }, { engine: 'claude', model: 'claude-sonnet-5' },
@@ -258,7 +258,7 @@ describe('compare links (Model health -> Benchmark Lab)', () => {
   it('skips empty and malformed parts', () => {
     expect(parseCompareParam(null)).toEqual([])
     expect(parseCompareParam('')).toEqual([])
-    expect(parseCompareParam(',claude:,:x,%E0%A4%A:y,nllb:small')).toEqual([{ engine: 'claude' }, { engine: 'nllb', model: 'small' }])
+    expect(parseCompareParam(',claude:,:x,%E0%A4%A:y,deepseek:small')).toEqual([{ engine: 'claude' }, { engine: 'deepseek', model: 'small' }])
   })
 
   it('prefills offered configs and says what it left out', () => {
@@ -272,7 +272,7 @@ describe('compare links (Model health -> Benchmark Lab)', () => {
   })
 
   it('stops at the most engines a run may have', () => {
-    const p = comparePrefill(parseCompareParam('claude:sonnet,claude:haiku,nllb:small,ollama,claude'), { ...options, max_configs: 4 })
+    const p = comparePrefill(parseCompareParam('claude:sonnet,claude:haiku,deepseek:small,ollama,claude'), { ...options, max_configs: 4 })
     expect(p.configs).toHaveLength(4)
     expect(p.notes).toEqual(['Claude was left out: at most 4 engines at once.'])
   })
