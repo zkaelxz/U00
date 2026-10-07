@@ -201,8 +201,8 @@ def start_flag_review(drama_id: int, engine_name: str = None, model: str = None,
 
 def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
                       gemini_free_tier: bool = None,
-                      job_cost_cap_usd: float = None, include_genre_notes: bool = True,
-                      default_female_pronouns: bool = False) -> dict:
+                      job_cost_cap_usd: float = None, include_genre_notes: bool = None,
+                      default_female_pronouns: bool = None) -> dict:
     """Re-transcribes (when the drama has audio) and re-translates every
     currently flagged line, clearing the flag on lines it changed. Stops at
     the spending cap, keeping what was fixed."""
@@ -233,6 +233,9 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
                       "include_genre_notes": include_genre_notes,
                       "default_female_pronouns": default_female_pronouns,
                       "gpu_touching": bool(audio_path) or name == "ollama"}
-    return _start("fix-flagged", drama_id, engine_name, model, gemini_free_tier,
-                  workspace_job_service.run_fix_flagged_lines_job, make_args,
-                  allow_translation_only=True, precheck=precheck)
+    started = _start("fix-flagged", drama_id, engine_name, model, gemini_free_tier,
+                     workspace_job_service.run_fix_flagged_lines_job, make_args,
+                     allow_translation_only=True, precheck=precheck)
+    translate_run_service.save_style_toggles(drama_id, include_genre_notes,
+                                             default_female_pronouns)
+    return started

@@ -7,6 +7,9 @@ import type { TranslateEngine } from './translate'
 export interface TranslateRunConfig {
   drama_id: number
   translation_engine: string
+  // The owner's saved choice for this title; null/omitted = never chosen.
+  default_female_pronouns?: boolean | null
+  include_genre_notes?: boolean | null
   engines: TranslateEngine[]
   // guidance: what the style asks the translator for (parity X04)
   style_presets: { key: string; label: string; guidance?: string }[]

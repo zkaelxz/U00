@@ -275,3 +275,12 @@ def test_validate_run_options_blocks_gemini_free_tier_models():
 
 def test_validate_run_options_accepts_the_defaults():
     svc.validate_run_options("claude", None, **_OK)
+
+
+def test_config_reports_the_titles_saved_toggles_and_none_before_a_choice(isolated_db):
+    did = isolated_db.create_drama(title_zh="D")
+    cfg = svc.get_translate_config(did)
+    assert (cfg["default_female_pronouns"], cfg["include_genre_notes"]) == (None, None)
+    isolated_db.update_drama(did, default_female_pronouns=1, include_genre_notes=0)
+    cfg = svc.get_translate_config(did)
+    assert (cfg["default_female_pronouns"], cfg["include_genre_notes"]) == (True, False)

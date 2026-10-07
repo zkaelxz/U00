@@ -186,6 +186,14 @@ def test_api_passes_prompt_toggles_and_validates_them(isolated_db, monkeypatch):
                     json={"engine": "fake", "force_retranslate": True})
     assert r.status_code == 200, r.text
     _wait(r.json()["job_id"])
+    # Omitted toggles reuse what the previous run saved for the title.
+    assert seen[-1]["default_female_pronouns"] is True
+    assert seen[-1]["include_genre_notes"] is False
+    r = client.post(f"/api/translate-run/dramas/{did}/run",
+                    json={"engine": "fake", "force_retranslate": True,
+                          "default_female_pronouns": False, "include_genre_notes": True})
+    assert r.status_code == 200, r.text
+    _wait(r.json()["job_id"])
     assert seen[-1]["default_female_pronouns"] is False
     assert seen[-1]["include_genre_notes"] is True
 

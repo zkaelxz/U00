@@ -136,3 +136,18 @@ test('after a tier, Default runs and saves with the new engine', async ({ page }
   await expect.poll(() => presets.length).toBe(1)
   expect(presets[0].translation_engine).toBe(tier.translation_engine)
 })
+
+test('the she/her and genre toggles are saved for the title when changed', async ({ page }) => {
+  const saved: Record<string, unknown>[] = []
+  await page.route('**/api/dramas/1/metadata', async (route) => {
+    saved.push(route.request().postDataJSON() as Record<string, unknown>)
+    await route.fulfill({ json: {} })
+  })
+  await page.goto('/#/drama/1/translate')
+  const run = page.getByRole('region', { name: 'Translate run' })
+  await run.getByText('Advanced', { exact: true }).click()
+  await run.getByRole('switch', { name: 'Default ambiguous pronouns to she/her' }).click()
+  await expect(run.getByTestId('toggle-saved')).toHaveText('Saved for this title; every later run uses it.')
+  await run.getByRole('switch', { name: 'Include baihe/GL genre guidance' }).click()
+  await expect.poll(() => saved).toEqual([{ default_female_pronouns: false }, { include_genre_notes: false }])
+})
