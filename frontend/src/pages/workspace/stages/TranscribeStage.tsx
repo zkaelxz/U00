@@ -66,6 +66,7 @@ const OPTION_LABELS: Record<string, string> = {
   whisper: 'Whisper',
   qwen3_asr: 'Qwen3 ASR',
   qwen3_asr_vad: 'Qwen3 ASR with speech detection (no Whisper)',
+  qwen3_asr_long: 'Qwen3 ASR on long windows (no Whisper)',
   moss_td: 'MOSS-Transcribe-Diarize (experimental)',
   auto: 'Automatic',
   audio_separator: 'Audio separator',
@@ -122,6 +123,8 @@ type ConfigForm = {
   separate_vocals_first: boolean
   realign_long_segments: boolean
   whisper_fast_mode: boolean
+  whisper_repeat_guard: boolean
+  split_by_sentences: boolean
   use_groq: boolean
 }
 
@@ -140,6 +143,8 @@ const formFromConfig = (c: TranscribeConfig): ConfigForm => ({
   separate_vocals_first: c.separate_vocals_first,
   realign_long_segments: c.realign_long_segments,
   whisper_fast_mode: c.whisper_fast_mode,
+  whisper_repeat_guard: c.whisper_repeat_guard ?? false,
+  split_by_sentences: c.split_by_sentences ?? false,
   use_groq: c.use_groq,
 })
 
@@ -445,7 +450,7 @@ export default function TranscribeStage({
         <input type="number" step={step} value={cf[key]} onChange={(e) => setC(key, e.target.value)} />
       </Field>
     )
-  const toggle = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'use_groq', help?: string) =>
+  const toggle = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'whisper_repeat_guard' | 'split_by_sentences' | 'use_groq', help?: string) =>
     cf && (
       <Field label={label} help={help}>
         <Toggle checked={cf[key]} onChange={(v) => setC(key, v)} />
@@ -705,6 +710,16 @@ export default function TranscribeStage({
             )}
             {toggle('Realign long segments', 'realign_long_segments')}
             {toggle('Whisper fast mode', 'whisper_fast_mode')}
+            {toggle(
+              'Split lines by sentences',
+              'split_by_sentences',
+              'Whisper hears longer stretches of speech, then lines are cut at sentence ends and, for long ones, at pauses between words. Min silence is not used. Whisper and Qwen3 ASR only; the speech-detection backends already cut their own lines.',
+            )}
+            {toggle(
+              'Whisper repeat guard',
+              'whisper_repeat_guard',
+              'Stops Whisper repeating the same few words. Can drop or change real Chinese and Japanese speech, where short words repeat naturally. Turn on only if a title shows repeated-phrase loops.',
+            )}
             {toggle('Use Groq', 'use_groq')}
           </div>
           <div className="actions">

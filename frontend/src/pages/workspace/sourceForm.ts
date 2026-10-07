@@ -70,7 +70,7 @@ const RANGES = {
   hardsub_interval_sec: { label: 'Hardsub interval (s)', min: 0.5, max: 3.0, integer: false },
 } as const
 
-const DEFAULT_HALLUCINATION_SILENCE_SEC = 2
+const DEFAULT_HALLUCINATION_SILENCE_SEC = 0
 
 // Returns the first out-of-range knob as a sentence, or null when valid.
 export function validateConfig(update: TranscribeConfigUpdate): string | null {
@@ -235,6 +235,8 @@ export interface AdvancedValues {
   separate_vocals_first: boolean
   realign_long_segments: boolean
   whisper_fast_mode: boolean
+  whisper_repeat_guard: boolean
+  split_by_sentences: boolean
   use_groq: boolean
   prompt: string
 }
@@ -246,7 +248,7 @@ export function advancedSummary(v: AdvancedValues): string {
   if (Number(v.min_pause_sec) !== MIN_PAUSE_SEC_DEFAULT) parts.push(`split pause ${v.min_pause_sec} s`)
   if (Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
   if (Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
-    parts.push(Number(v.hallucination_silence_sec) === 0 ? 'no hallucination guard' : `hallucination guard ${v.hallucination_silence_sec} s`)
+    parts.push(`hallucination guard ${v.hallucination_silence_sec} s`)
   }
   if (Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
   if (v.alignment_method !== 'whisper_diff') parts.push(v.alignment_method)
@@ -255,6 +257,8 @@ export function advancedSummary(v: AdvancedValues): string {
   if (v.separate_vocals_first) parts.push('separate vocals')
   if (v.realign_long_segments) parts.push('realign')
   if (v.whisper_fast_mode) parts.push('fast mode')
+  if (v.whisper_repeat_guard) parts.push('repeat guard')
+  if (v.split_by_sentences) parts.push('lines by sentence')
   if (v.use_groq) parts.push('Groq')
   if (v.prompt.trim()) parts.push('replacement prompt')
   return parts.length ? parts.join(' · ') : 'defaults'

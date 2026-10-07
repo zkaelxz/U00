@@ -153,6 +153,10 @@ class TranscribeConfig(BaseModel):
     separation_backend: str
     realign_long_segments: bool
     whisper_fast_mode: bool
+    # Whisper's no-repeat and repetition-penalty decoding (off by default).
+    whisper_repeat_guard: bool = False
+    # Cut lines at sentence ends and word pauses instead of speech-detector pauses.
+    split_by_sentences: bool = False
     use_groq: bool
     has_video_source: bool
     hardsub_ocr_backend: str
@@ -177,6 +181,8 @@ class TranscribeConfigUpdate(BaseModel):
     separation_backend: Optional[str] = None
     realign_long_segments: Optional[bool] = None
     whisper_fast_mode: Optional[bool] = None
+    whisper_repeat_guard: Optional[bool] = None
+    split_by_sentences: Optional[bool] = None
     use_groq: Optional[bool] = None
     hardsub_ocr_backend: Optional[str] = None
     hardsub_interval_sec: Optional[float] = None

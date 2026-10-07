@@ -1968,7 +1968,8 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "beam_size", "hallucination_silence_sec", "min_pause_sec", "separate_vocals_first", "separation_backend", "realign_long_segments",
         "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
         "project_instructions", "notion_page_id", "reading_speed_mode", "owner_user_id",
-        "is_private", "default_female_pronouns", "include_genre_notes"),
+        "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
+        "split_by_sentences"),
     "series": ("instructions", "owner_user_id", "is_private"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
@@ -2127,6 +2128,31 @@ class TestInitDbSchema:
         _make_old_shape(isolated_db.DB_PATH)
         isolated_db.init_db()
         assert isolated_db.get_drama(1)["min_pause_sec"] == 0.35
+
+    def test_titles_on_the_old_hallucination_guard_default_are_switched_off(self, isolated_db):
+        on_default = isolated_db.create_drama(title_en="A")
+        chosen = isolated_db.create_drama(title_en="B")
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:
+            conn.execute("UPDATE dramas SET hallucination_silence_sec = 2.0 WHERE id = ?",
+                         (on_default,))
+            conn.execute("UPDATE dramas SET hallucination_silence_sec = 3.5 WHERE id = ?",
+                         (chosen,))
+            conn.execute("ALTER TABLE dramas DROP COLUMN whisper_repeat_guard")
+            conn.commit()
+        finally:
+            conn.close()
+        isolated_db.init_db()
+        assert isolated_db.get_drama(on_default)["hallucination_silence_sec"] == 0
+        assert isolated_db.get_drama(chosen)["hallucination_silence_sec"] == 3.5
+        # Once only: a title the user later sets to 2.0 keeps it.
+        isolated_db.update_drama(on_default, hallucination_silence_sec=2.0)
+        isolated_db.init_db()
+        assert isolated_db.get_drama(on_default)["hallucination_silence_sec"] == 2.0
+
+    def test_a_new_title_starts_with_the_hallucination_guard_off(self, isolated_db):
+        assert isolated_db.get_drama(isolated_db.create_drama(title_en="A"))[
+            "hallucination_silence_sec"] == 0
 
     def test_old_database_data_migrations_run(self, isolated_db):
         _make_old_shape(isolated_db.DB_PATH, share_by_default_was_on=True)
