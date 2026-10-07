@@ -194,6 +194,8 @@ export default function TranscribeStage({
   const seedSpeakers = useRef(restored.speakers === undefined)
   // D04: the stored media's length, for the time estimates (null = unknown).
   const [duration, setDuration] = useState<number | null>(null)
+  // Set by a transcription started here: the coverage panel checks its result once the job ends.
+  const [checkAfterRun, setCheckAfterRun] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -400,6 +402,7 @@ export default function TranscribeStage({
       : Promise.resolve()
     saveFirst.then(start).then((r) => {
       setError(null)
+      setCheckAfterRun(true)
       onJobStarted(r.job_id, expectedRunSeconds, !!uploadFile)
     }, fail)
   }
@@ -731,7 +734,7 @@ export default function TranscribeStage({
           />
           </>}
         </Section>
-      <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} />
+      <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} autoCheck={checkAfterRun} onAutoChecked={() => setCheckAfterRun(false)} />
       <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />
     </section>
   )
