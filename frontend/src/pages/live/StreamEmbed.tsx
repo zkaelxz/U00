@@ -9,8 +9,8 @@
 import { useEffect, useRef, useState } from 'react'
 
 import {
-  DVR_WAIT_S, NO_DELAY_NOTE, WAITING_NOTE, YT_ORIGIN, canDelay, delayNote, delayReached, embedSrc, parseYouTubeInfo, planDelay,
-  ytListenMessage, ytSeekMessage, type PlayerInfo, type StreamRef,
+  AUTOPLAY_WAIT_S, DVR_WAIT_S, MUTED_NOTE, NO_DELAY_NOTE, WAITING_NOTE, YT_ORIGIN, canDelay, delayNote, delayReached, embedSrc,
+  notStarted, parseYouTubeInfo, planDelay, ytCommand, ytListenMessage, ytSeekMessage, type PlayerInfo, type StreamRef,
 } from './embedLogic'
 
 /** Seconds to wait for the player to confirm a seek before sending it again. */
@@ -20,6 +20,8 @@ const SEEK_TRIES = 3
 export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: number }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const delayRef = useRef(delay)
+  const [muted, setMuted] = useState(false)
+  const unmuteRef = useRef<() => void>(() => {})
   const [note, setNote] = useState(canDelay(stream) ? WAITING_NOTE : NO_DELAY_NOTE)
   // Set by the effect below; re-applies the delay (seek) from the last report.
   const applyRef = useRef<() => void>(() => {})
@@ -36,12 +38,20 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
     let sinceSeek = 0
     let tries = 0
     let unsupported = false
+    let playAsked = false
+    let unstartedS = 0
     let alive = true
     setNote(WAITING_NOTE)
+    setMuted(false)
     const send = (msg: string) => frame.current?.contentWindow?.postMessage(msg, YT_ORIGIN)
     const show = () => setNote(delayNote(info, delayRef.current, { unsupported, moving }))
     const apply = () => {
       if (!alive) return
+      // An unstarted player drops seeks and reports no window, so wait for it to play.
+      if (notStarted(info)) {
+        show()
+        return
+      }
       const plan = planDelay(info, delayRef.current, waited)
       unsupported = plan.kind === 'unsupported'
       if (plan.kind === 'seek') {
@@ -55,9 +65,13 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
       show()
     }
     applyRef.current = () => {
-      appliedFor = null
-      tries = 1
+      // Not reset to null: the mount-time call must not repeat a seek already sent for this delay.
+      if (appliedFor !== delayRef.current) tries = 1
       apply()
+    }
+    unmuteRef.current = () => {
+      send(ytCommand('unMute'))
+      setMuted(false)
     }
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== YT_ORIGIN || e.source !== frame.current?.contentWindow) return
@@ -71,8 +85,21 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
     window.addEventListener('message', onMessage)
     // The player only reports once it has been told someone is listening.
     const timer = setInterval(() => {
-      waited += 1
       if (!heard) send(ytListenMessage())
+      else if (notStarted(info)) {
+        // The autoplay parameter may be ignored: ask once with sound, then fall back to muted.
+        unstartedS += 1
+        if (!playAsked) {
+          playAsked = true
+          send(ytCommand('playVideo'))
+        } else if (unstartedS === AUTOPLAY_WAIT_S) {
+          send(ytCommand('mute'))
+          send(ytCommand('playVideo'))
+          setMuted(true)
+        }
+      }
+      // The wait for a seekable window only runs while the player is playing.
+      if (!notStarted(info)) waited += 1
       if (moving && ++sinceSeek >= SEEK_CONFIRM_S) {
         // A seek sent before the player was ready is silently dropped, so ask again a few times.
         if (tries < SEEK_TRIES) {
@@ -111,6 +138,11 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
         />
       </div>
       <p className="muted live-video-note" data-testid="live-video-note" aria-live="polite">{note}</p>
+      {muted && (
+        <p className="muted live-video-note" data-testid="live-video-muted">
+          {MUTED_NOTE} <button type="button" onClick={() => unmuteRef.current()}>Unmute</button>
+        </p>
+      )}
     </>
   )
 }

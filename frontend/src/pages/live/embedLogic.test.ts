@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  DVR_WAIT_S, NO_DELAY_NOTE, WAITING_NOTE, canDelay, delayNote, delayReached, embedSrc, measuredDelay, parseStreamUrl, parseYouTubeInfo, planDelay,
+  DVR_WAIT_S, NOT_STARTED_NOTE, NO_DELAY_NOTE, WAITING_NOTE, canDelay, delayNote, delayReached, embedSrc, measuredDelay, notStarted, parseStreamUrl, parseYouTubeInfo, planDelay, ytCommand,
 } from './embedLogic'
 
 const ID = 'dQw4w9WgXcQ'
@@ -49,7 +49,7 @@ describe('parseStreamUrl', () => {
 
 describe('embedSrc', () => {
   it('builds the address from the validated parts only', () => {
-    expect(embedSrc({ kind: 'youtube', id: ID }, 'x')).toBe(`https://www.youtube-nocookie.com/embed/${ID}?enablejsapi=1&playsinline=1`)
+    expect(embedSrc({ kind: 'youtube', id: ID }, 'x')).toBe(`https://www.youtube-nocookie.com/embed/${ID}?enablejsapi=1&playsinline=1&autoplay=1`)
     expect(embedSrc({ kind: 'twitch-channel', name: 'abc' }, 'localhost')).toBe('https://player.twitch.tv/?channel=abc&parent=localhost')
     expect(embedSrc({ kind: 'twitch-video', id: '9' }, 'h.test')).toBe('https://player.twitch.tv/?video=v9&parent=h.test')
   })
@@ -153,5 +153,29 @@ describe('delayNote', () => {
   })
   it('says a stream with no rewind buffer cannot be delayed', () => {
     expect(delayNote(report({ duration: 0 }), 15, { unsupported: true, moving: false })).toBe(NO_DELAY_NOTE)
+  })
+})
+
+describe('autoplay and a player that has not started', () => {
+  it('asks for autoplay in the embed address', () => {
+    expect(embedSrc({ kind: 'youtube', id: 'dQw4w9WgXcQ' }, 'localhost')).toContain('&autoplay=1')
+    expect(embedSrc({ kind: 'twitch-channel', name: 'abc' }, 'localhost')).not.toContain('autoplay')
+  })
+  it('reads the player state and keeps it across partial messages', () => {
+    expect(report({ playerState: -1 })).toEqual({ playerState: -1 })
+    expect({ ...report({ playerState: 1 }), ...report({ currentTime: 3 }) }).toEqual({ playerState: 1, currentTime: 3 })
+  })
+  it('treats unstarted and cued as not started, and a silent player as started', () => {
+    expect(notStarted(report({ playerState: -1 }))).toBe(true)
+    expect(notStarted(report({ playerState: 5 }))).toBe(true)
+    expect(notStarted(report({ playerState: 1 }))).toBe(false)
+    expect(notStarted(report({ playerState: 2 }))).toBe(false)
+    expect(notStarted(null)).toBe(false)
+  })
+  it('says to press play rather than that the stream cannot be delayed', () => {
+    expect(delayNote(report({ playerState: -1, duration: 0 }), 15, { unsupported: true, moving: false })).toBe(NOT_STARTED_NOTE)
+  })
+  it('builds player commands', () => {
+    expect(JSON.parse(ytCommand('mute'))).toEqual({ event: 'command', func: 'mute', args: [] })
   })
 })

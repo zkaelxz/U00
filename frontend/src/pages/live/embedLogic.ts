@@ -51,7 +51,7 @@ function ytRef(id: string | null | undefined): StreamRef | null {
 export function embedSrc(ref: StreamRef, parentHost: string): string {
   switch (ref.kind) {
     case 'youtube':
-      return `${YT_ORIGIN}/embed/${ref.id}?enablejsapi=1&playsinline=1`
+      return `${YT_ORIGIN}/embed/${ref.id}?enablejsapi=1&playsinline=1&autoplay=1`
     case 'twitch-channel':
       return `https://player.twitch.tv/?channel=${ref.name}&parent=${encodeURIComponent(parentHost)}`
     case 'twitch-video':
@@ -67,7 +67,16 @@ export interface PlayerInfo {
   duration?: number
   /** Reported by the player; undefined when it does not say. */
   isLive?: boolean
+  /** YouTube's player state: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued. */
+  playerState?: number
 }
+
+/**
+ * True while the player has not started playing. It ignores seeks and reports
+ * no seekable window then, so neither a seek nor "can't be delayed" is
+ * decided yet. A player that never reports a state counts as started.
+ */
+export const notStarted = (info: PlayerInfo | null) => info?.playerState === -1 || info?.playerState === 5
 
 /** What a YouTube player message says about playback, or null if it is not an infoDelivery. */
 export function parseYouTubeInfo(data: unknown): PlayerInfo | null {
@@ -91,10 +100,12 @@ export function parseYouTubeInfo(data: unknown): PlayerInfo | null {
   // absent field must not erase one remembered from an earlier message.
   const currentTime = num(info.currentTime)
   const duration = num(info.duration)
+  const playerState = num(info.playerState)
   return {
     ...(currentTime === undefined ? {} : { currentTime }),
     ...(duration === undefined ? {} : { duration }),
     ...(isLive === undefined ? {} : { isLive }),
+    ...(playerState === undefined ? {} : { playerState }),
   }
 }
 
@@ -118,6 +129,10 @@ export function planDelay(info: PlayerInfo | null, delay: number, waitedS: numbe
 
 export const NO_DELAY_NOTE = "This stream can't be delayed, so the picture runs ahead of the lines."
 export const WAITING_NOTE = 'Waiting for the player…'
+export const NOT_STARTED_NOTE = 'Press play in the video; the delay is applied as soon as it starts.'
+export const MUTED_NOTE = 'Started muted because the browser blocks sound until you interact with the video.'
+/** Seconds the player may stay unstarted before it is started muted, which browsers allow without a gesture. */
+export const AUTOPLAY_WAIT_S = 3
 /** How far (s) the measured delay may sit from the wanted one and still count as reached. */
 export const SETTLE_TOLERANCE_S = 3
 
@@ -157,6 +172,7 @@ export function delayReached(info: PlayerInfo | null, delay: number): boolean {
  * player confirming it, so the note answers the slider before the report.
  */
 export function delayNote(info: PlayerInfo | null, delay: number, opts: { unsupported: boolean; moving: boolean }): string {
+  if (notStarted(info)) return NOT_STARTED_NOTE
   if (opts.unsupported) return NO_DELAY_NOTE
   const m = measuredDelay(info)
   if (m === null) return WAITING_NOTE
@@ -171,3 +187,4 @@ export function delayNote(info: PlayerInfo | null, delay: number, opts: { unsupp
 /** The postMessage payloads for the YouTube player. */
 export const ytListenMessage = () => JSON.stringify({ event: 'listening', id: 1, channel: 'widget' })
 export const ytSeekMessage = (to: number) => JSON.stringify({ event: 'command', func: 'seekTo', args: [to, true] })
+export const ytCommand = (func: string, args: unknown[] = []) => JSON.stringify({ event: 'command', func, args })
