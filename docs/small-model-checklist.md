@@ -29,3 +29,11 @@ Short window (16-32K tokens): search first, read little, change little.
    - Jobs save only their fields: `db.save_lines(id, lines, fields=("en",))`.
    - Every route declares exactly one permission.
    - Never grow a file on the size allowlist.
+
+## Running with a local model (Windows)
+
+Install OpenCode once with `npm i -g opencode-ai`. Then, from PowerShell in the
+repo, run `.\tools\start-local-coder.ps1` (add `-LlamaDir <dir>` if
+`llama-server.exe` is not in `E:\llama`). It starts llama-server on port 8080,
+waits for `/health`, and opens OpenCode, which reads `opencode.json` and
+`AGENTS.md`. The first start downloads the model.
