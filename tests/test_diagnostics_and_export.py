@@ -543,7 +543,7 @@ class TestStreamDependencyInstall:
         monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
 
         list(diagnostics.stream_dependency_install("torch"))
-        assert captured["pip_args"] == ["torch"]
+        assert captured["pip_args"] == ["torch", *diagnostics.constraints_pip_args()]
 
     def test_other_dependencies_always_use_a_plain_install(self, monkeypatch):
         monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
@@ -555,7 +555,7 @@ class TestStreamDependencyInstall:
         monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
 
         list(diagnostics.stream_dependency_install("audio-separator"))
-        assert captured["pip_args"] == ["audio-separator"]
+        assert captured["pip_args"] == ["audio-separator", *diagnostics.constraints_pip_args()]
 
 
 class TestPyannoteGatedAccessCheck:

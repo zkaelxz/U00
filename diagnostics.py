@@ -1220,6 +1220,16 @@ def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
     return results
 
 
+def constraints_pip_args(project_root: str = None) -> list:
+    """`["-c", <constraints.txt>]` when the file exists, else []. Every pip
+    install that resolves dependencies passes this so a transitive pull
+    can't cross a cap (e.g. av 19 breaking faster-whisper). Portable and
+    installer layouts may ship without the file, so absence is not an error."""
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    constraints_path = os.path.join(project_root, "constraints.txt")
+    return ["-c", constraints_path] if os.path.exists(constraints_path) else []
+
+
 def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     """pip args for `python -m pip install --upgrade <pip_name>`, adding
     constraints.txt's existing version caps (pyannote.audio<5,
@@ -1237,12 +1247,7 @@ def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     existing Install button doesn't either, it's caption-text-only), so
     Upgrade deliberately matches that existing behavior rather than
     inventing a new guard for just this one action."""
-    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
-    constraints_path = os.path.join(project_root, "constraints.txt")
-    args = ["--upgrade", pip_name]
-    if os.path.exists(constraints_path):
-        args += ["-c", constraints_path]
-    return args
+    return ["--upgrade", pip_name, *constraints_pip_args(project_root)]
 
 
 # ---------------------------------------------------------------------------
@@ -1864,17 +1869,13 @@ def stream_gpu_torch_reinstall(python_executable: str = None, project_root: str 
     stream_pip_install, across both subprocess calls in sequence -- only
     the LAST item has "done", so a caller can tell the whole sequence
     (uninstall + install) apart from either step finishing early."""
-    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
-    constraints_path = os.path.join(project_root, "constraints.txt")
-
     for item in stream_pip_uninstall(["torch", "torchaudio"], python_executable):
         if not item.get("done"):
             yield item
 
     index_url = f"https://download.pytorch.org/whl/{gpu_torch_cuda_index()}"
-    install_args = ["torch", "torchaudio", "--index-url", index_url]
-    if os.path.exists(constraints_path):
-        install_args += ["-c", constraints_path]
+    install_args = ["torch", "torchaudio", "--index-url", index_url,
+                    *constraints_pip_args(project_root)]
     yield from stream_pip_install(install_args, python_executable)
 
 
@@ -1897,7 +1898,8 @@ def stream_dependency_install(name: str, python_executable: str = None,
     if name == "torch" and shutil.which("nvidia-smi"):
         yield from stream_gpu_torch_reinstall(python_executable, project_root)
     else:
-        yield from stream_pip_install([pip_install_name(name)], python_executable)
+        yield from stream_pip_install(
+            [pip_install_name(name), *constraints_pip_args(project_root)], python_executable)
 
 
 # ---------------------------------------------------------------------------
@@ -2081,10 +2083,7 @@ def torch_setup_pip_args(variant: str, project_root: str = None) -> list:
     spec = TORCH_VARIANTS[variant]
     pins = [f"{n}=={spec['versions'][n]}" for n in TORCH_FAMILY]
     tail = ["--index-url", spec["index_url"]]
-    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
-    constraints = os.path.join(project_root, "constraints.txt")
-    if os.path.exists(constraints):
-        tail += ["-c", constraints]
+    tail += constraints_pip_args(project_root)
     return [["--force-reinstall", "--no-deps", *pins, *tail], [*pins, *tail]]
 
 
