@@ -1196,7 +1196,12 @@ def _migrate_drama_columns(conn):
                           ("notion_page_id", "TEXT"),
                           # Per-title reading-speed flag strictness
                           # (subtitle_formats.READING_SPEED_MODES).
-                          ("reading_speed_mode", "TEXT DEFAULT 'normal'")]:
+                          ("reading_speed_mode", "TEXT DEFAULT 'normal'"),
+                          # The Translate stage's "genre guidance" and "default to
+                          # she/her" toggles. NULL = never chosen for this title, so
+                          # the API defaults apply (genre on, she/her off).
+                          ("default_female_pronouns", "INTEGER"),
+                          ("include_genre_notes", "INTEGER")]:
         if col not in drama_cols:
             _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
 

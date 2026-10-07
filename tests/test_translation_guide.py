@@ -97,6 +97,15 @@ class TestCharacterGenderHints:
     def test_empty_list_returns_empty(self):
         assert tg.build_character_gender_hints([]) == ""
 
+    def test_she_her_default_covers_unlisted_speakers_without_changing_listed_ones(self):
+        chars = [{"character_name": "Liang", "gender": "male"}]
+        plain = tg.build_character_gender_hints(chars)
+        with_default = tg.build_character_gender_hints(chars, default_female_pronouns=True)
+        assert "not listed" not in plain
+        assert "Liang: he/him" in with_default
+        assert "not listed here: she/her" in with_default
+        assert tg.build_character_gender_hints([], default_female_pronouns=True) == ""
+
 
 class TestCharacterPronouns:
     """Step 1e: pronouns as free text (she/her, he/him, they/them, or a

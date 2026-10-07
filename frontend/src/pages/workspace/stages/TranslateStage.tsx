@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
-import { getPresets } from '../../../api/library'
+import { getPresets, updateDramaMetadata } from '../../../api/library'
 import { modelOptionLabel } from '../../../api/translate'
 import {
   applyTranslatePreset,
@@ -323,6 +323,25 @@ function RunPanel({
   const [estimate, setEstimate] = useState<TranslateRunEstimate | null>(null)
   const [estimateError, setEstimateError] = useState<unknown>(null)
   const set = <K extends keyof RunForm>(k: K, v: RunForm[K]) => setF((s) => ({ ...s, [k]: v }))
+  // The two prompt toggles are saved for the title as soon as they change, so
+  // every later run (retries, glossary re-translation, AI line actions, the
+  // CLI) uses what is shown here, not a default.
+  const [toggleSaved, setToggleSaved] = useState<boolean | null>(null)
+  const saveToggle = (key: 'female_pronouns' | 'genre_notes', v: boolean) => {
+    set(key, v)
+    setToggleSaved(null)
+    const body = key === 'female_pronouns' ? { default_female_pronouns: v } : { include_genre_notes: v }
+    updateDramaMetadata(dramaId, body).then(
+      () => setToggleSaved(true),
+      () => setToggleSaved(false),
+    )
+  }
+  const savedNote =
+    toggleSaved === true ? ' Saved for this title; every later run uses it.'
+    : toggleSaved === false ? ' Could not save this choice for the title; it applies to the next run only.'
+    : config.default_female_pronouns != null || config.include_genre_notes != null
+      ? ' Saved for this title; every run uses it.'
+      : ''
 
   const engine = config.engines.find((e) => e.name === (f.engine || config.translation_engine))
   const models = engine?.models ?? []
@@ -604,15 +623,19 @@ function RunPanel({
                 <Toggle checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(v) => set('bulk', v)} />
               </Field>
             )}
-            <Field label="Include baihe/GL genre guidance" help="Pronoun clarity, kinship-term nuance, and not softening romantic content.">
-              <Toggle checked={f.genre_notes} onChange={(v) => set('genre_notes', v)} />
+            <Field
+              label="Include baihe/GL genre guidance"
+              help={`Adds the baihe notes to the prompt: both leads are women, keep 姐姐/妹妹-style address, do not soften romance. It does not by itself turn he into she; use the she/her default for that.${savedNote}`}
+            >
+              <Toggle checked={f.genre_notes} onChange={(v) => saveToggle('genre_notes', v)} />
             </Field>
             <Field
               label="Default ambiguous pronouns to she/her"
-              help="Spoken Mandarin does not distinguish he/she; for a mostly female cast, default an ambiguous pronoun to she/her. A character's own pronouns always win."
+              help={`A soft default, not a rule: Mandarin 他/她 sound the same, so where a pronoun is ambiguous the translator is told to write she/her. Context, an honorific, or a character's own pronouns (set under Characters) still win; a character set to he/him stays he/him.${savedNote}`}
             >
-              <Toggle checked={f.female_pronouns} onChange={(v) => set('female_pronouns', v)} />
+              <Toggle checked={f.female_pronouns} onChange={(v) => saveToggle('female_pronouns', v)} />
             </Field>
+            {savedNote && <span className="muted" aria-live="polite" data-testid="toggle-saved">{savedNote.trim()}</span>}
             <Field label="Re-translate existing" help="Also replace English that is already there. You confirm it under the Translate button; a snapshot is saved first.">
               <Toggle checked={f.force} onChange={(v) => setF((s) => ({ ...s, force: v, forceConfirmed: false }))} />
             </Field>

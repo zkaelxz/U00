@@ -286,6 +286,8 @@ class DramaMetadataUpdate(BaseModel):
     project_instructions: Optional[str] = Field(default=None, max_length=5000)
     chapter_count: Optional[int] = Field(default=None, ge=0, le=2147483647)
     episode_number: Optional[int] = Field(default=None, ge=0, le=2147483647)
+    default_female_pronouns: Optional[StrictBool] = None
+    include_genre_notes: Optional[StrictBool] = None
     media_type: Optional[str] = None
     publication_status: Optional[str] = None
     series_id: Optional[int] = Field(default=None, ge=0, le=2147483647)
@@ -650,8 +652,9 @@ class LibraryBulkTranslateRequest(BaseModel):
     drama_ids: LibraryDramaIds
     # Omitted: the Settings default English variant.
     default_locale: Optional[str] = Field(None, max_length=5)
-    include_genre_notes: StrictBool = True
-    default_female_pronouns: StrictBool = False
+    # Omitted: each title's saved choice (else genre notes on, she/her off).
+    include_genre_notes: Optional[StrictBool] = None
+    default_female_pronouns: Optional[StrictBool] = None
 
 
 class LibraryExportRequest(BaseModel):
