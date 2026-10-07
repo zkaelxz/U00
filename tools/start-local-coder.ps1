@@ -1,11 +1,14 @@
 <#
 .SYNOPSIS
 Starts llama-server with Qwen3.6-35B-A3B, then OpenCode in the repo root.
-Run from PowerShell: .\tools\start-local-coder.ps1 [-LlamaDir E:\llama]
+Run from PowerShell: .\tools\start-local-coder.ps1 [-LlamaDir E:\llama] [-Terminal]
+Opens OpenCode's web UI in the browser; -Terminal uses the terminal UI instead.
+Press Ctrl+C (web) or exit OpenCode (terminal) to stop both programs.
 #>
 param(
     [string]$LlamaDir = 'E:\llama',
-    [int]$TimeoutSec = 1800
+    [int]$TimeoutSec = 1800,
+    [switch]$Terminal
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,7 +52,10 @@ try {
     if (-not $ready) { throw "llama-server not healthy after $TimeoutSec s" }
 
     Push-Location $repoRoot
-    try { opencode } finally { Pop-Location }
+    try {
+        # Fixed port so the browser address and added project stay the same between runs.
+        if ($Terminal) { opencode } else { opencode web --port 4096 }
+    } finally { Pop-Location }
 } finally {
     # Frees the GPU/RAM the model holds once the session ends.
     if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force }
