@@ -21,7 +21,7 @@ You keep Baihe's docs matched to the code on the branch the lead names.
    - `docs/STATUS.md` (merged vs in flight, checked against `git log --oneline origin/baihe-subtitler` and the open PRs)
 
    Only change a status when git or the code proves it, and cite the PR or commit.
-3. **Route table:** the table in `docs/remote-access-decision.md` matches the routes and guards in `api/routers/`.
+3. **Route table:** the table in `docs/route-permissions.md` matches the routes and guards in `api/routers/`.
 4. **Optional deps:** optional imports (in try/except or importorskip'd modules) that aren't in `OPTIONAL_DEPENDENCIES`. Report these, don't fix them.
 
 **Rules:**

@@ -33,7 +33,7 @@ HOW_TO_DECLARE = (
     "Every route needs exactly one of dependencies=[require_permission(\"x.y\")], "
     "[public_route()], [local_only()] or (own-session routes under /api/auth/ only) "
     "[authenticated()] from api/auth.py on its decorator, and a row in "
-    "the route table in docs/remote-access-decision.md.")
+    "the route table in docs/route-permissions.md.")
 
 # Starlette routes FastAPI itself adds for the interactive docs. Only served
 # with auth off (loopback-only); create_app drops them when auth is on.
@@ -125,12 +125,12 @@ class TestEveryRouteDeclared:
         assert table(household) == table(_app("on", dist))
 
     def test_doc_route_table_matches_the_app(self, dist):
-        """Every row of the route table in docs/remote-access-decision.md
+        """Every row of the route table in docs/route-permissions.md
         (declaration, count, listed METHOD /path) equals what the app declares."""
         import pathlib
         import re
         doc = (pathlib.Path(__file__).resolve().parent.parent / "docs"
-               / "remote-access-decision.md").read_text(encoding="utf-8")
+               / "route-permissions.md").read_text(encoding="utf-8")
         header = doc.index("| Declaration | Routes | Paths |")
         documented, counts = {}, {}
         for line in doc[header:].splitlines()[2:]:
@@ -170,7 +170,7 @@ class TestEveryRouteDeclared:
                 problems.append(f"{name}: missing from the doc: {r}")
             for r in sorted(doc_routes - app_routes):
                 problems.append(f"{name}: in the doc but not declared in the app: {r}")
-        assert not problems, ("docs/remote-access-decision.md route table is out of date:\n  "
+        assert not problems, ("docs/route-permissions.md route table is out of date:\n  "
                               + "\n  ".join(problems))
 
     def test_walker_sees_every_route(self, dist):

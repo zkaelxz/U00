@@ -290,7 +290,7 @@ not diverge.
    `diagnostics.OPTIONAL_DEPENDENCIES` in the same change.
 6. **Routes and permissions:** if you add an API route, give it exactly one of
    `require_permission(...)`, `public_route()` or `local_only()` and update the
-   route table in `remote-access-decision.md`.
+   route table in `route-permissions.md`.
 7. **Tests:** mocked only (no network, GPU or keys). Patch the module that uses
    a name. Cover the id-keyed path (a short reply must blank only its own
    line), the refusal signal, rate-limit backoff, secret redaction, and the

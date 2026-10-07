@@ -27,7 +27,7 @@ from services import auth_service
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "deploy" / "caddy" / "Caddyfile.template"
-DECISION_DOC = ROOT / "docs" / "remote-access-decision.md"
+DECISION_DOC = ROOT / "docs" / "route-permissions.md"
 
 UPSTREAM = "127.0.0.1:{$BAIHE_API_HOUSEHOLD_PORT}"
 SITE = "{$BAIHE_DOMAIN}"

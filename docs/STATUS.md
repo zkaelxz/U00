@@ -9,7 +9,7 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
 - Streamlit is deleted (#502). The `pre-streamlit-removal` tag and the `legacy/streamlit` branch keep the last version.
 - Remote access: sign-in (Google OIDC, #412/#413), ownership (#414, #445), deny-by-default permissions, the D5 admin and household
   listeners (#526, #528), private-by-default sharing with an admin Sharing screen (#523, #530) and the admin audit log (#522) are merged.
-  The route table in `docs/remote-access-decision.md` is enforced by `tests/test_api_permissions.py`.
+  The route table in `docs/route-permissions.md` is enforced by `tests/test_api_permissions.py`.
   Don't expose the API beyond loopback until the Caddy/LAN checks (step 140) are done. The Caddy template (`deploy/caddy/Caddyfile.template`), the Caddy helper (`installer/caddy`) and the owner-run `enable-remote` / `disable-remote` / `status` (#592) are in the repo; the certificate/DDNS health banner is merged (#568).
 - Recently merged: Steps 36-44 (#464-#476, #473 auto-backups, refined in #516), 42 maintenance assistant (#532) and 72 fix-as-draft-PR (#479),
   80b Windows installer (#498, hash-pinned wheels #514), 143 import dramas from a backup file (#534), SSE push `GET /api/events` (#494),

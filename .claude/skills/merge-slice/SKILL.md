@@ -37,7 +37,7 @@ python -m pytest -q -p no:cacheprovider tests/test_api_permissions.py tests/test
 - If `frontend/` changed, run `cd frontend && npx tsc --noEmit && npx vitest run`.
 - If `api/auth.py`, `api/server.py`, `background_jobs.py` or `db.py` changed, or the branch touches more than about 10 files, run the full suite instead: `python run_tests.py`.
 - Run anything that takes more than about 100 s in the background. Poll it with `kill -0 <pid>` (never `pgrep -f`).
-- A new route must declare exactly one of `require_permission(...)`, `public_route()` or `local_only()`, and must have a row in the route table in `docs/remote-access-decision.md`. `tests/test_api_permissions.py` enforces both.
+- A new route must declare exactly one of `require_permission(...)`, `public_route()` or `local_only()`, and must have a row in the route table in `docs/route-permissions.md`. `tests/test_api_permissions.py` enforces both.
 - A test that fails is real. Never skip, xfail or weaken a test to get the merge through.
 
 ## 4. Land it
