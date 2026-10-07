@@ -11,6 +11,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - `background_jobs.py`: thread-based jobs. The in-memory dict is the authority, with a best-effort mirror in the `job_records` table.
 - `sources/`: site adapters (`sources/adapters/`) and the fetch ladder. `cli.py`: headless batch runner.
 - Current status and what's next: `docs/STATUS.md`.
+- Small context window? Follow `docs/small-model-checklist.md`; `python tools/repo_map.py` prints the symbol map on demand.
 
 ## Tests
 - While iterating: `python -m pytest -q tests/test_<area>.py`. Full suite: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`.

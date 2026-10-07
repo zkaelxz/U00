@@ -19,6 +19,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW) | `installer/build_installer.py` |
 | `deploy/` | Caddy template for household access | `deploy/caddy/Caddyfile.template` |
 | `scripts/` | build, probe and migration helpers | per script |
+| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed) | `python tools/repo_map.py --help` |
 | `tests/` | pytest suite; tests enforce most rules in `CLAUDE.md` | `python -m pytest -q` |
 | `docs/` | design notes, status and route table; `docs/archive/` is history | `docs/README.md`, `docs/STATUS.md` |
 | `library/` | your data (gitignored, created automatically) | n/a |
