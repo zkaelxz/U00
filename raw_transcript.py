@@ -22,6 +22,8 @@ import json
 import os
 import subprocess
 
+import sensitivity_preset as presets
+
 RAW_NAME = "raw_transcript.json"
 
 # The only keys a run's "settings" object may hold. Everything is a number,
@@ -29,7 +31,7 @@ RAW_NAME = "raw_transcript.json"
 # URL or prompt text.
 SETTINGS_KEYS = (
     "asr_backend", "whisper_size", "local_model_path_set", "language", "transcript_mode",
-    "alignment_method", "min_silence_ms", "vad_threshold", "beam_size",
+    "alignment_method", "min_silence_ms", "vad_threshold", "sensitivity_preset", "beam_size",
     "hallucination_silence_sec", "min_pause_sec", "whisper_fast_mode", "use_groq", "separate_vocals_first",
     "separation_backend", "realign_long_segments", "mixed_languages", "vad_refine_timing",
     "expected_speakers", "min_speakers", "max_speakers", "gpu_requested", "gpu_used",
@@ -73,8 +75,8 @@ def current_gpu_app_settings() -> dict:
 
 def build_run_settings(*, asr_backend="", whisper_size="", local_model_path=None, language="",
                        transcript_mode="", alignment_method="", min_silence_ms=None,
-                       vad_threshold=None, beam_size=None, hallucination_silence_sec=None,
-                       min_pause_sec=None, whisper_fast_mode=False, use_groq=False, separate_vocals_first=False,
+                       vad_threshold=None, sensitivity_preset="normal", beam_size=None,
+                       hallucination_silence_sec=None, min_pause_sec=None, whisper_fast_mode=False, use_groq=False, separate_vocals_first=False,
                        separation_backend="", realign_long_segments=False, mixed_languages=False,
                        vad_refine_timing=False, expected_speakers=None, min_speakers=None,
                        max_speakers=None, use_gpu=False, gpu_fallback_msgs=(),
@@ -95,6 +97,7 @@ def build_run_settings(*, asr_backend="", whisper_size="", local_model_path=None
         "alignment_method": alignment_method or "",
         "min_silence_ms": min_silence_ms,
         "vad_threshold": vad_threshold,
+        "sensitivity_preset": presets.normalize(sensitivity_preset),
         "beam_size": beam_size,
         "hallucination_silence_sec": hallucination_silence_sec,
         "min_pause_sec": min_pause_sec,

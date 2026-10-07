@@ -29,6 +29,11 @@ __all__ = [
     "AutotuneCandidateScore",
     "AutotuneStatus",
     "AutotuneApplyRequest",
+    "SpeechCoverageRunRequest",
+    "SpeechCoverageRunResult",
+    "SpeechCoverageGap",
+    "SpeechCoverageReport",
+    "SpeechCoverageStatus",
     "RetranscribeLineRequest",
     "RetranscribeLineResult",
     "RetranscribeApplyRequest",
@@ -145,6 +150,10 @@ class TranscribeConfig(BaseModel):
     beam_size: int
     min_silence_ms: int
     vad_threshold: float
+    # "normal" or "sensitive" (see sensitivity_preset.py), and the threshold a run
+    # actually uses: the preset lowers an untouched one.
+    sensitivity_preset: str = "normal"
+    effective_vad_threshold: float
     # Seconds of silence inside a segment that make Whisper skip it; 0 = off.
     hallucination_silence_sec: float
     # Shortest silence between words at which a long line may be cut.
@@ -171,6 +180,7 @@ class TranscribeConfigUpdate(BaseModel):
     beam_size: Optional[int] = None
     min_silence_ms: Optional[int] = None
     vad_threshold: Optional[float] = None
+    sensitivity_preset: Optional[str] = None
     hallucination_silence_sec: Optional[float] = None
     min_pause_sec: Optional[float] = None
     separate_vocals_first: Optional[bool] = None
@@ -510,3 +520,49 @@ class RetimeApplyRequest(BaseModel):
 
 class RetimeApplyResult(CompareApplyResult):
     overlapping: List[int] = []
+
+
+class SpeechCoverageRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    min_gap_seconds: float = Field(default=2.0, ge=0.5, le=30.0)
+
+
+class SpeechCoverageRunResult(BaseModel):
+    job_id: str
+
+
+class SpeechCoverageGap(BaseModel):
+    """A stretch with speech and no subtitle line. raw_status: "lost_after"
+    (the raw transcript has text here), "none" (it has none), "unknown" (no
+    raw transcript for the title)."""
+    start: float
+    end: float
+    seconds: float
+    speech_seconds: float
+    raw_status: str
+    raw_text: str = ""
+    after_line_id: Optional[int] = None
+    before_line_id: Optional[int] = None
+
+
+class SpeechCoverageReport(BaseModel):
+    audio_seconds: Optional[float] = None
+    speech_seconds: Optional[float] = None
+    covered_seconds: Optional[float] = None
+    covered_percent: Optional[float] = None
+    vad_threshold: Optional[float] = None
+    min_gap_seconds: Optional[float] = None
+    raw_available: bool = False
+    gaps_total: int = 0
+    gaps: List[SpeechCoverageGap] = []
+    failed_reason: Optional[str] = None
+    detail: Optional[str] = None
+
+
+class SpeechCoverageStatus(BaseModel):
+    """This title's coverage check as held in this app session; status "idle" when none."""
+    job_id: str
+    status: str
+    progress: Optional[float] = None
+    message: str = ""
+    result: Optional[SpeechCoverageReport] = None

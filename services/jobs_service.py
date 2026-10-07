@@ -473,6 +473,7 @@ JOB_KIND_BY_PREFIX = {
     "bulk_emotion_": "review", "bulk_notes_": "review", "bulk_flag_": "review",
     "transcribe_": "transcribe", "retranscribe_": "transcribe",
     "autotune_": "transcribe", "sensevoice_": "transcribe", "comparetx_": "transcribe",
+    "speechcov_": "transcribe",
     "diarize_": "transcribe", "ocrchapter_": "transcribe",
     "resegment_": "align", "resplit_": "align", "retime_": "align", "resegpreview_": "align",
     "dub_": "dub", "narration_": "dub", "audiobook_": "dub", "voiceref_": "dub",

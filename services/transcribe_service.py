@@ -65,6 +65,7 @@ import core as core_module
 import db
 import diagnostics
 import raw_transcript
+import sensitivity_preset as presets
 import storage
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from services import asr_options_service, diarization_service, settings_service, source_service
@@ -369,6 +370,8 @@ def get_transcribe_config(drama_id: int) -> dict:
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
+        "sensitivity_preset": presets.normalize(drama.get("sensitivity_preset")),
+        "effective_vad_threshold": presets.stored_vad_threshold(drama),
         "hallucination_silence_sec": stored_hallucination_silence_sec(drama),
         "min_pause_sec": stored_min_pause_sec(drama),
         "separate_vocals_first": bool(drama.get("separate_vocals_first")),
@@ -447,6 +450,10 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
         if not 0.1 <= fields["vad_threshold"] <= 0.9:
             raise InvalidInputError("vad_threshold must be between 0.1 and 0.9.")
         updates["vad_threshold"] = fields["vad_threshold"]
+    if "sensitivity_preset" in fields and fields["sensitivity_preset"] is not None:
+        if fields["sensitivity_preset"] not in presets.PRESETS:
+            raise InvalidInputError(f"Unknown sensitivity_preset {fields['sensitivity_preset']!r}.")
+        updates["sensitivity_preset"] = fields["sensitivity_preset"]
     if "hallucination_silence_sec" in fields and fields["hallucination_silence_sec"] is not None:
         value = fields["hallucination_silence_sec"]
         if value != 0 and not 0.5 <= value <= 10:
@@ -661,7 +668,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     whisper_size = stored_whisper_size(drama)
     beam_size = drama.get("beam_size") or _DEFAULT_TUNING["beam_size"]
     min_silence_ms = drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"]
-    vad_threshold = drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"]
+    vad_threshold = presets.stored_vad_threshold(drama)
+    preset = presets.normalize(drama.get("sensitivity_preset"))
     hallucination_silence_sec = stored_hallucination_silence_sec(drama)
     min_pause_sec = stored_min_pause_sec(drama)
     separation_backend = drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"]
@@ -703,7 +711,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       asr_options_service.get_qwen_asr_batch_size(),
                       asr_options_service.get_vad_refine_timing(),
                       asr_options_service.get_mixed_languages(),
-                      hallucination_silence_sec, min_pause_sec, scratch_dir),
+                      hallucination_silence_sec, min_pause_sec, preset, scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
                 # Spawn, not Linux's default fork: a forked child of a process
                 # that has already initialised CUDA cannot use the GPU.
@@ -961,8 +969,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
                        separate_vocals_first, separation_backend, realign_long_segments,
                        whisper_fast_mode, use_groq, initial_prompt, use_gpu, asr_backend_choice,
                        alignment_method, local_model_path, qwen_batch_size, vad_refine_timing,
-                       mixed_languages, hallucination_silence_sec, min_pause_sec, scratch_dir,
-                       result_queue):
+                       mixed_languages, hallucination_silence_sec, min_pause_sec, sensitivity_preset,
+                       scratch_dir, result_queue):
     """Process-job target, started with spawn on every platform (top level
     and plain arguments only, so it pickles; nothing here may depend on
     state set up in the parent process after import): runs the pipeline for
@@ -991,7 +999,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             asr_backend_choice, alignment_method, local_model_path=local_model_path,
             qwen_batch_size=qwen_batch_size, vad_refine_timing=vad_refine_timing,
             mixed_languages=mixed_languages, vocals_work_dir=scratch_dir,
-            hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
+            hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
+            sensitivity_preset=sensitivity_preset)
         result_queue.put(("ok", outcome))
     except ImportError:
         result_queue.put(("ok", missing_package_outcome()))
@@ -1049,7 +1058,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                          hardsub_interval=1.0, tesseract_cmd=None, vocals_work_dir=None,
                          vad_refine_timing=False, mixed_languages=False,
                          hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
-                         min_pause_sec=core_module.MIN_WORD_GAP_SECONDS) -> dict:
+                         min_pause_sec=core_module.MIN_WORD_GAP_SECONDS,
+                         sensitivity_preset="normal") -> dict:
     """Runs ASR (or hardsub OCR, thread jobs only) and returns a plain dict:
     {"failed_reason", ...} when nothing should be applied, else the lines
     and everything _apply_transcription needs. Touches no database row.
@@ -1322,7 +1332,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                             core_module.short_reason(exc)),
                         progress_cb=_whisper_progress,
                         fast_mode=whisper_fast_mode,
-                        hallucination_silence_sec=hallucination_silence_sec)
+                        hallucination_silence_sec=hallucination_silence_sec,
+                        sensitivity_preset=sensitivity_preset)
                 # Not recorded for the speed estimate: a per-span detection run is slower.
                 if "t" in whisper_clock and not mixed_whisper_run:
                     whisper_clock["work"] = time.monotonic() - whisper_clock["t"]
@@ -1475,7 +1486,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 "transcript_mode": transcript_mode, "alignment_method": alignment_method,
                 "min_silence_ms": min_silence_ms, "vad_threshold": vad_threshold,
                 "beam_size": beam_size, "hallucination_silence_sec": hallucination_silence_sec,
-                "min_pause_sec": min_pause_sec, "whisper_fast_mode": whisper_fast_mode, "use_groq": use_groq,
+                "min_pause_sec": min_pause_sec, "sensitivity_preset": sensitivity_preset,
+                "whisper_fast_mode": whisper_fast_mode, "use_groq": use_groq,
                 "separate_vocals_first": separate_vocals_first,
                 "separation_backend": separation_backend,
                 "realign_long_segments": realign_long_segments,
@@ -1599,7 +1611,7 @@ def score_autotune_segments(candidate_ms, segments) -> dict:
 
 
 def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, initial_prompt,
-                         beam_size, candidates, vad_threshold, fast_mode, result_queue):
+                         beam_size, candidates, vad_threshold, fast_mode, preset, result_queue):
     """Process-job target (top-level, picklable): transcribes once per
     candidate, holding every other setting constant, and returns only the
     scores (no segments, no token)."""
@@ -1613,7 +1625,7 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
                 audio_path, model_size, language=language, use_gpu=use_gpu,
                 hf_token=hf_token, initial_prompt=initial_prompt, beam_size=beam_size,
                 min_silence_duration_ms=candidate_ms, vad_threshold=vad_threshold,
-                fast_mode=fast_mode)
+                fast_mode=fast_mode, sensitivity_preset=preset)
             results.append(score_autotune_segments(candidate_ms, segments))
         best = min(results, key=lambda r: r["long_lines"])["candidate_ms"] if results else None
         result_queue.put(("ok", {"results": results, "best_candidate_ms": best}))
@@ -1660,8 +1672,9 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
               drama.get("source_language") or "zh", settings_service.get_use_gpu(),
               settings_service.resolve_key("hf_token") or None, initial_prompt,
               drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
-              drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
-              bool(drama.get("whisper_fast_mode"))),
+              presets.stored_vad_threshold(drama),
+              bool(drama.get("whisper_fast_mode")),
+              presets.normalize(drama.get("sensitivity_preset"))),
         gpu_touching=True, description=f"Auto-tuning (drama #{drama_id})")
     if not started:
         raise ConflictError(f"Auto-tune is already running for drama {drama_id}.")
@@ -1792,9 +1805,10 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
         stored_whisper_size(drama),
         drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
-        drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
+        presets.stored_vad_threshold(drama),
         bool(drama.get("whisper_fast_mode")), settings_service.get_use_gpu(), prompt,
         stored_hallucination_silence_sec(drama),
+        presets.normalize(drama.get("sensitivity_preset")),
         gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})")
     if not started:
         raise ConflictError("A line is already being re-transcribed for this drama.")
@@ -1804,7 +1818,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
 def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end, zh_before,
                                source_language, whisper_size, beam_size, min_silence_ms,
                                vad_threshold, fast_mode, use_gpu, initial_prompt,
-                               hallucination_silence_sec):
+                               hallucination_silence_sec, preset="normal"):
     """Job body: cut [start, end) from the drama's audio and transcribe it.
     Writes nothing to the line. Result on success: {"line_id", "proposed_zh",
     "base_zh", "base_start", "base_end"} (proposed_zh capped at
@@ -1843,7 +1857,8 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
                 initial_prompt=initial_prompt, beam_size=beam_size,
                 min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
                 on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
-                fast_mode=fast_mode, hallucination_silence_sec=hallucination_silence_sec)
+                fast_mode=fast_mode, hallucination_silence_sec=hallucination_silence_sec,
+                sensitivity_preset=preset)
         except core_module.ModelDownloadError as exc:
             background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "model_download",
                                                 "detail": redact_secrets(str(exc))})

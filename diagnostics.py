@@ -45,7 +45,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "applog.py", "audio_preprocess.py", "auto_qc.py", "benchmark.py",
     "bulk_translate.py", "check_setup.py", "hardsub_ocr.py", "live_translate.py", "live_fetch.py",
     "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
-    "sensevoice_tags.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
+    "sensevoice_tags.py", "sensitivity_preset.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
     "translation_memory.py", "action_tiers.py", "media_inspect.py",
     "vad_segments.py", "mixed_language.py", "process_guard.py",   # the installed server's Job Object (python -m api imports it)
 ]

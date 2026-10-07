@@ -227,6 +227,8 @@ export interface AdvancedValues {
   min_silence_ms: string
   min_pause_sec: string
   vad_threshold: string
+  // Absent from older callers: reads as normal.
+  sensitivity_preset?: string
   hallucination_silence_sec: string
   hardsub_interval_sec: string
   alignment_method: string
@@ -245,6 +247,7 @@ export function advancedSummary(v: AdvancedValues): string {
   if (Number(v.min_silence_ms) !== 300) parts.push(`min silence ${v.min_silence_ms} ms`)
   if (Number(v.min_pause_sec) !== MIN_PAUSE_SEC_DEFAULT) parts.push(`split pause ${v.min_pause_sec} s`)
   if (Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
+  if (v.sensitivity_preset === 'sensitive') parts.push('more sensitive')
   if (Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
     parts.push(Number(v.hallucination_silence_sec) === 0 ? 'no hallucination guard' : `hallucination guard ${v.hallucination_silence_sec} s`)
   }

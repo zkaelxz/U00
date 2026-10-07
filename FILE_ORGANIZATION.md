@@ -29,7 +29,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `check_setup.py`, `process_guard.py`, `portable.py`, `storage.py`, `benchmark.py`, `action_tiers.py`
 
 **ASR, transcription & alignment**: `asr_backend.py`, `asr_benchmark.py`, `audio_preprocess.py`, `mixed_language.py`, `vad_segments.py`,
-`forced_align.py`, `word_align.py`, `raw_transcript.py`, `resegment.py`, `sensevoice_tags.py`, `diarize.py`,
+`forced_align.py`, `word_align.py`, `raw_transcript.py`, `resegment.py`, `sensevoice_tags.py`, `sensitivity_preset.py`, `diarize.py`,
 `voice_id.py`
 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**: `translate_engines.py`, `translation_guide.py`, `translation_memory.py`, `auto_qc.py`, `en_cleanup.py`,
@@ -70,7 +70,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `shutdown_service.py`, `source_domains_service.py`, `source_service.py`, `sources_extraction_service.py`,
 `sources_import_service.py`, `sources_registry_service.py`, `sources_save_service.py`,
 `sources_search_service.py`, `sources_signin_service.py`, `sources_tools_service.py`,
-`sources_tracking_service.py`, `sources_url_service.py`, `stronger_engine_service.py`,
+`sources_tracking_service.py`, `sources_url_service.py`, `speech_coverage_service.py`,
+`stronger_engine_service.py`,
 `transcribe_service.py`, `translate_run_service.py`, `translate_service.py`, `translation_version_service.py`,
 `update_service.py`, `url_guard.py`, `url_media_service.py`, `usage_recost_service.py`,
 `voice_bank_audio_service.py`, `voice_clone_service.py`, `vram_service.py`, `web_search_service.py`,
