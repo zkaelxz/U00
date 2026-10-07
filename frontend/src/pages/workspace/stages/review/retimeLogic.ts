@@ -20,7 +20,7 @@ export function retimeOutcome(job: {
   }
   if (reason === 'model_download') return { kind: 'none', text: 'The aligner model could not be downloaded.' }
   if (reason === 'dependency_missing') {
-    return { kind: 'none', text: 'The Qwen3 aligner needs qwen-asr and torch, which are not installed.' }
+    return { kind: 'none', text: "The Qwen3 aligner isn't installed yet. Open Diagnostics to install it." }
   }
   return { kind: 'none', text: 'Re-timing failed. Nothing was changed.' }
 }

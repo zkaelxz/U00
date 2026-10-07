@@ -466,6 +466,9 @@ class TestTranslateEndpoints:
         })
         assert resp.status_code == 503
         assert _error(resp)["code"] == "dependency_unavailable"
+        # A missing key is told apart from a missing package by its details.
+        assert resp.json()["error"]["details"] == {"reason": "no_key", "engine": "claude"}
+        assert "No claude key is configured" in _error(resp)["message"]
 
     def test_translate_unsupported_direction_is_400(self, client, isolated_db, monkeypatch):
         import translate_engines

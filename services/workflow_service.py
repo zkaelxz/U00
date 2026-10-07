@@ -82,6 +82,7 @@ def get_drama_progress(drama_id: int) -> dict:
     flagged = sum(1 for ln in lines if ln.flag)
     has_audio = bool(drama.get("audio_filename") or drama.get("source_video_filename"))
     has_dub_track = os.path.isfile(os.path.join(ddir, "dub_track.wav"))
+    has_narration_track = os.path.isfile(os.path.join(ddir, "narration_track.wav"))
     exported = drama.get("status") == "exported"
     current = _STAGE_FOR_INDEX[index]
     no_lines = line_count == 0
@@ -106,5 +107,6 @@ def get_drama_progress(drama_id: int) -> dict:
     return {"drama_id": drama_id, "stage_index": index, "stage": current,
             "line_count": line_count, "untranslated_count": untranslated,
             "flagged_count": flagged, "has_audio": has_audio,
-            "has_dub_track": has_dub_track, "exported": exported,
+            "has_dub_track": has_dub_track, "has_narration_track": has_narration_track,
+            "exported": exported,
             "stages": [{"key": k, "state": state(k)} for k in STAGE_KEYS]}

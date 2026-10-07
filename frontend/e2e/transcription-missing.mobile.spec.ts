@@ -16,6 +16,7 @@ test('phone: transcription note and install block fit the screen', async ({ page
   await page.goto('/#/drama/1/source')
   const link = page.locator('#transcribe-not-installed').getByRole('link', { name: 'Install transcription' })
   await expect(link).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeDisabled()
   expect((await hitHeight(link))).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(noSideScroll)).toBe(true)
 

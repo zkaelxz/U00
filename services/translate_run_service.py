@@ -41,9 +41,13 @@ import translate_engines
 import translation_guide
 from services import (engine_routing_service, library_service, settings_service,
                       translate_service, workspace_job_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, NotFoundError,
-                                      UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    UnsupportedOperationError,
+)
 
 # Engines that report usage, so the spending cap applies to them.
 _CAP_ENGINES = ("claude", "deepseek", "gemini", "openai")
@@ -448,8 +452,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         name = c["engine"]
         api_key = translate_service.resolve_api_key(name)
         if api_key is None and name != "nllb":
-            raise DependencyUnavailableError(
-                f"No {name} key is configured. Set one in Settings first.")
+            raise MissingKeyError(name)
         free_tier = name == "gemini" and gemini_free_tier
         if free_tier and c["model"] in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
             raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")

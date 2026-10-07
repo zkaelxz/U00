@@ -4,6 +4,7 @@ import type { DubConfig } from '../../../types/dub'
 import {
   NARRATION_RESUME_NOTE,
   dubAdvancedSummary,
+  dubBlocker,
   dubSettingsLine,
   initialDubForm,
   narrationResumeNote,
@@ -77,5 +78,19 @@ describe('untranslated narration warning (U01)', () => {
     expect(untranslatedNarrationWarning('original', undefined)).toBeNull()
     expect(untranslatedNarrationWarning('translation', Number.NaN)).toBeNull()
     expect(untranslatedNarrationWarning('en', 2)).toBeNull()
+  })
+})
+
+describe('dubBlocker', () => {
+  const ready = { ...cfg, speakable_line_count: 3 } as DubConfig
+  it('is null when the chosen engine can run', () => {
+    expect(dubBlocker(ready, initialDubForm(ready))).toBeNull()
+  })
+  it("gives the engine's own missing-package reason", () => {
+    const missing = {
+      ...ready,
+      tts_engines: [{ key: 'edge_tts', label: 'Edge TTS', requires_internet: true, unavailable_reason: 'The edge-tts package is not installed.' }],
+    } as DubConfig
+    expect(dubBlocker(missing, initialDubForm(missing))).toBe('The edge-tts package is not installed.')
   })
 })

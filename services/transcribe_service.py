@@ -516,8 +516,8 @@ def _require_vad_packages() -> None:
     Silero VAD and decodes the audio for it)."""
     if importlib.util.find_spec("faster_whisper") is None:
         raise DependencyUnavailableError(
-            "Qwen3 ASR with speech detection needs faster-whisper, which isn't installed. "
-            "Install it with: pip install faster-whisper")
+            "Qwen3 speech detection needs transcription, which isn't installed yet. "
+            "Open Diagnostics to install it.")
 
 
 def require_qwen3_packages(feature: str) -> None:
@@ -529,11 +529,23 @@ def require_qwen3_packages(feature: str) -> None:
                if importlib.util.find_spec(module) is None]
     if missing:
         raise DependencyUnavailableError(
-            f"{feature} needs {' and '.join(missing)}, which isn't installed. "
-            "Install it with: pip install qwen-asr torch")
+            f"{feature} needs {' and '.join(missing)}, which isn't installed yet. "
+            "Open Diagnostics to install it.")
 
 
 _CHINESE_SCRIPTS = ("simplified", "traditional")
+
+# Fixed sentences, never the ImportError text: that names a module and reads
+# as a crash. The Diagnostics page is where the install button is.
+MISSING_TRANSCRIPTION_MESSAGE = "Transcription isn't installed yet. Open Diagnostics to install it."
+_MISSING_QWEN_MESSAGE = "Qwen3 speech recognition isn't installed yet. Open Diagnostics to install it."
+_MISSING_VAD_MESSAGE = ("Qwen3 speech detection needs transcription, which isn't installed yet. "
+                        "Open Diagnostics to install it.")
+
+
+def missing_package_outcome(message: str = MISSING_TRANSCRIPTION_MESSAGE) -> dict:
+    """The pipeline outcome for a run that could not start for a missing package."""
+    return {"failed_reason": "dependency_missing", "detail": message}
 
 
 def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
@@ -923,16 +935,19 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     transcript text came from. If it's not available, diarization is
     skipped (diarize_started stays False), same as the existing
     no-hf_token case."""
-    outcome = _transcribe_pipeline(
-        _ThreadReporter(job_id), audio_path, transcript_mode, transcript_text, source_language,
-        chinese_script, whisper_size, beam_size, min_silence_ms, vad_threshold,
-        separate_vocals_first, separation_backend, realign_long_segments, whisper_fast_mode,
-        use_groq, groq_api_key, initial_prompt, use_gpu, asr_backend_choice, alignment_method,
-        local_model_path=settings_service.get_whisper_model_path(),
-        qwen_batch_size=asr_options_service.get_qwen_asr_batch_size(),
-        video_path=video_path, hardsub_ocr_backend=hardsub_ocr_backend,
-        hardsub_interval=hardsub_interval, tesseract_cmd=tesseract_cmd,
-        hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
+    try:
+        outcome = _transcribe_pipeline(
+            _ThreadReporter(job_id), audio_path, transcript_mode, transcript_text, source_language,
+            chinese_script, whisper_size, beam_size, min_silence_ms, vad_threshold,
+            separate_vocals_first, separation_backend, realign_long_segments, whisper_fast_mode,
+            use_groq, groq_api_key, initial_prompt, use_gpu, asr_backend_choice, alignment_method,
+            local_model_path=settings_service.get_whisper_model_path(),
+            qwen_batch_size=asr_options_service.get_qwen_asr_batch_size(),
+            video_path=video_path, hardsub_ocr_backend=hardsub_ocr_backend,
+            hardsub_interval=hardsub_interval, tesseract_cmd=tesseract_cmd,
+            hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
+    except ImportError:
+        outcome = missing_package_outcome()
     background_jobs.set_result(job_id, _apply_transcription(
         job_id, drama_id, outcome, source_language=source_language, whisper_size=whisper_size,
         use_gpu=use_gpu, transcript_mode=transcript_mode, alignment_method=alignment_method,
@@ -978,6 +993,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             mixed_languages=mixed_languages, vocals_work_dir=scratch_dir,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
         result_queue.put(("ok", outcome))
+    except ImportError:
+        result_queue.put(("ok", missing_package_outcome()))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
 
@@ -1198,15 +1215,12 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                     refine_timing=vad_refine_timing, mixed_languages=mixed_languages,
                     stage_cb=_vad_set_stage, on_device=_on_vad_device,
                     on_gpu_fallback=_qwen_on_fallback)
-            except vad_segments.VadNotInstalledError as exc:
+            except vad_segments.VadNotInstalledError:
                 return {"failed_reason": "dependency_missing",
-                        "detail": "Speech detection needs faster-whisper (it bundles the Silero "
-                                  "VAD): pip install faster-whisper "
-                                  f"({redact_secrets(str(exc))})"}
-            except ImportError as exc:
+                        "detail": _MISSING_VAD_MESSAGE}
+            except ImportError:
                 return {"failed_reason": "dependency_missing",
-                        "detail": "Qwen3-ASR needs qwen-asr and torch: pip install qwen-asr torch "
-                                  f"({redact_secrets(str(exc))})"}
+                        "detail": _MISSING_QWEN_MESSAGE}
             except core_module.ModelDownloadError as exc:
                 return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
             except ValueError as exc:
@@ -1226,10 +1240,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 import asr_backend
                 segments = asr_backend.get_backend("moss_td").transcribe(
                     audio_path, source_language, use_gpu=use_gpu, run_info=moss_info)
-            except ImportError as exc:
-                return {"failed_reason": "dependency_missing",
-                        "detail": "MOSS-Transcribe-Diarize isn't installed "
-                                  f"({redact_secrets(str(exc))})"}
+            except ImportError:
+                return missing_package_outcome(
+                    "MOSS-Transcribe-Diarize isn't installed yet. Open Diagnostics to install it.")
             except core_module.ModelDownloadError as exc:
                 return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
             except Exception as exc:
@@ -1386,10 +1399,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu,
                         batch_size=qwen_batch_size, progress_cb=_qwen_progress,
                         on_device=_qwen_on_device, on_gpu_fallback=_qwen_on_fallback)
-                except ImportError as exc:
+                except ImportError:
                     return {"failed_reason": "dependency_missing",
-                            "detail": "Qwen3-ASR needs qwen-asr and torch: pip install qwen-asr torch "
-                                      f"({redact_secrets(str(exc))})"}
+                            "detail": _MISSING_QWEN_MESSAGE}
                 except core_module.ModelDownloadError as exc:
                     return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
                 except ValueError as exc:
@@ -1432,10 +1444,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 except background_jobs.JobCancelled:
                     core_module.release_gpu_models()
                     raise
-                except ImportError as exc:
+                except ImportError:
                     return {"failed_reason": "dependency_missing",
-                            "detail": "Qwen3 forced alignment needs qwen-asr and torch: "
-                                      f"pip install qwen-asr torch ({redact_secrets(str(exc))})"}
+                            "detail": _MISSING_QWEN_MESSAGE}
                 except core_module.ModelDownloadError as exc:
                     return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
                 except ValueError as exc:

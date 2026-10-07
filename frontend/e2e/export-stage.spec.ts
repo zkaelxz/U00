@@ -11,6 +11,13 @@ const job = (status: string, extra: object = {}) => ({
   gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1, ...extra,
 })
 
+// The seeded drama has no narration or dub, so those two starts are disabled; these jobs need them.
+const withTracks = (page: Page) =>
+  page.route('**/api/workflow/dramas/1/progress', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), has_dub_track: true, has_narration_track: true } })
+  })
+
 const openGroup = (page: Page, name: string) => page.getByText(name, { exact: true }).click()
 const openMedia = (page: Page) => openGroup(page, 'Video and audio')
 
@@ -94,6 +101,7 @@ test('a drama that is not novel narration has no EPUB section', async ({ page })
 })
 
 test('audiobook job can be cancelled', async ({ page }) => {
+  await withTracks(page)
   await mockJob(page, '/api/export/dramas/1/audiobook', 'cancelled')
   await page.goto('/#/drama/1/export')
   await openMedia(page)
@@ -123,13 +131,17 @@ test('burned-in video sends the style and offers the artifact on done', async ({
 })
 
 test('a 422 from a job start is shown as a banner', async ({ page }) => {
+  await page.route('**/api/workflow/dramas/1/progress', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), has_narration_track: true } })
+  })
   await page.route('**/api/export/dramas/1/audiobook', (route) =>
     route.fulfill({ status: 422, json: { error: { code: 'invalid_input', message: 'No narration audio yet.' } } }),
   )
   await page.goto('/#/drama/1/export')
   await openMedia(page)
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
-  await expect(page.getByRole('alert').filter({ hasText: 'not valid' })).toBeVisible()
+  await expect(page.getByRole('alert').filter({ hasText: 'No narration audio yet.' })).toBeVisible()
 })
 
 test('subtitle-track video sends the chosen subtitles and offers the artifact', async ({ page }) => {
@@ -151,6 +163,7 @@ test('subtitle-track video sends the chosen subtitles and offers the artifact', 
 })
 
 test('dubbed video sends the mix choice and offers its own artifact', async ({ page }) => {
+  await withTracks(page)
   const { bodies, finish } = await mockJob(page, '/api/export/dramas/1/dubbed-video', 'done')
   await page.route('**/api/artifacts/dramas/1/dubbed_video/info', (route) =>
     route.fulfill({ json: { name: 'dubbed_video_1.mp4', size: 2048, kind: 'dubbed_video' } }),

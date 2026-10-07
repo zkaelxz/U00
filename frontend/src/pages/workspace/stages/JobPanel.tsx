@@ -87,7 +87,7 @@ export function JobPanel({ job, pollError, note, liveEta = false, expectedSecond
         <>
           <p data-testid="job-status">
             {capFirst(job.status)}
-            {job.message ? ` · ${job.message}` : ''}
+            {job.message && job.status !== 'error' ? ` · ${job.message}` : ''}
           </p>
           {elapsed !== null && !/\(elapsed /.test(job.message) && (
             <p className="muted" role="note" data-testid="job-elapsed">
@@ -96,7 +96,7 @@ export function JobPanel({ job, pollError, note, liveEta = false, expectedSecond
             </p>
           )}
           {note && <p className="muted" data-testid="job-note">{note}</p>}
-          {job.progress !== null && (
+          {job.progress !== null && job.status !== 'error' && (
             <p>
               <progress value={job.progress} max={1} aria-label="Job progress" />{' '}
               <span data-testid="job-percent">{Math.round(Math.min(Math.max(job.progress, 0), 1) * 100)}%</span>

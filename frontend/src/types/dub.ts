@@ -5,6 +5,7 @@ export interface DubTtsEngine {
   key: string
   label: string
   requires_internet: boolean
+  unavailable_reason?: string | null
 }
 
 export interface DubDefaults {

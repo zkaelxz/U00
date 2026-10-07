@@ -28,9 +28,13 @@ import line_tools
 import translate_engines
 from services import (engine_routing_service, settings_service, translate_run_service,
                       translate_service, workspace_job_service)
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
-                                      NotFoundError, ServiceError,
-                                      UnsupportedOperationError)
+from services.service_errors import (
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    ServiceError,
+    UnsupportedOperationError,
+)
 
 MAX_ISSUE_CHARS = 500
 
@@ -89,8 +93,7 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
         refuse_if_over_monthly_cap(engine_name, gemini_free_tier)
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,

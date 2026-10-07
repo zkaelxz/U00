@@ -37,8 +37,12 @@ import media_inspect
 import metadata_lookup
 import translate_engines
 from services import drama_service, settings_service, url_guard
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
-                                     NotFoundError)
+from services.service_errors import (
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+)
 
 SUGGEST_FIELDS = ("title_en", "title_zh", "author", "studio", "director", "voice_actors",
                   "summary")
@@ -270,8 +274,7 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
         check_public_url(url)
     api_key = _api_key(engine_name)
     if not api_key:
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     text = _fetch_page_text(url) if url else page_text[:MAX_PAGE_TEXT_CHARS]
     if not text.strip():
         return {"drama_id": drama_id, "suggestion": {}, "found": False}
@@ -321,8 +324,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
         raise InvalidInputError("Add an author, studio, director or cast first.")
     api_key = _api_key(engine_name)
     if not api_key:
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     try:
         engine = translate_engines.get_engine(
             engine_name, api_key, free_tier=settings_service.get_gemini_free_tier(),

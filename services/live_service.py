@@ -37,8 +37,14 @@ import translate_engines
 from core import SOURCE_LANGUAGES
 from services import (egress_proxy, jobs_service, ownership_service, settings_service,
                       translate_service, url_guard)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError, ServiceError)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    ServiceError,
+)
 
 WHISPER_SIZES = ("tiny", "base", "small", "medium")
 SEGMENT_RANGE = (10, 60)
@@ -93,8 +99,7 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     try:
         engine = translate_engines.get_engine(
             engine_name, api_key, model or None,

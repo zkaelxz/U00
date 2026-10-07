@@ -38,8 +38,12 @@ import db
 import translate_engines
 from services import (settings_service, transcribe_service, translate_run_service,
                       translate_service, workspace_job_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    InvalidInputError,
+    MissingKeyError,
+    UnsupportedOperationError,
+)
 
 # kind -> (job id prefix, human label)
 _KINDS = {
@@ -130,8 +134,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
         raise UnsupportedOperationError("Bulk mode needs Claude or Gemini (paid) batch APIs.")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     if bulk:
         translate_run_service.refuse_when_cap_spent(engine_name, gemini_free_tier)
         engine = translate_engines.get_engine(engine_name, api_key, model)

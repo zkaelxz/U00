@@ -578,6 +578,14 @@ def _timing_finish(job_id, token, thread_job=True):
         pass
 
 
+# A run that ended because a package it needs is missing did nothing, so it
+# must not read as "done" in the job list.
+def _missing_dependency_error(result):
+    if isinstance(result, dict) and result.get("failed_reason") == "dependency_missing":
+        return str(result.get("detail") or "A required component is not installed.")
+    return None
+
+
 def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
     def runner():
         import applog
@@ -589,18 +597,25 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             target(*args, **kwargs)
             _description = _owner = None
             _with_errors = False
+            _outcome = "done"
             with _lock:
                 if _still_running_locked(job_id):
                     _result = _jobs[job_id].get("result")
                     _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
-                    _jobs[job_id]["status"] = "done"
-                    _jobs[job_id]["progress"] = 1.0
+                    _missing = _missing_dependency_error(_result)
+                    _jobs[job_id]["status"] = "error" if _missing else "done"
+                    if _missing:
+                        _outcome = "error"
+                        _jobs[job_id]["error"] = _missing
+                        _jobs[job_id]["message"] = ""
+                    else:
+                        _jobs[job_id]["progress"] = 1.0
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
                     _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
-            _notify_job_finished(_description, "done", job_id=job_id, owner_user_id=_owner,
+            _notify_job_finished(_description, _outcome, job_id=job_id, owner_user_id=_owner,
                                  with_errors=_with_errors)
         except JobCancelled:
             with _lock:
@@ -1411,11 +1426,18 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 _jobs[job_id]["error"] = f"Completion hook failed: {hook_error}"
                 _jobs[job_id]["finished_at"] = time.time()
             elif outcome and outcome[0] == "ok":
-                _jobs[job_id]["status"] = "done"
-                _jobs[job_id]["progress"] = 1.0
                 _jobs[job_id]["result"] = result
                 _jobs[job_id]["finished_at"] = time.time()
-                logger.info(f"job {job_id} finished")
+                _missing = _missing_dependency_error(result)
+                if _missing:
+                    _jobs[job_id]["status"] = "error"
+                    _jobs[job_id]["error"] = _missing
+                    _jobs[job_id]["message"] = ""
+                    logger.error(f"job {job_id} failed: {_missing}")
+                else:
+                    _jobs[job_id]["status"] = "done"
+                    _jobs[job_id]["progress"] = 1.0
+                    logger.info(f"job {job_id} finished")
             elif outcome and outcome[0] == "error":
                 _, exc_type, msg = outcome
                 # The worker's message can carry a key (a provider's error

@@ -48,7 +48,7 @@ import { AutoTune } from './AutoTune'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
 import { TranscriptModePicker } from './SourceModes'
-import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
+import { mediaFileInputId, needsReplaceConfirm } from './stageBlockers'
 import { diarizeEstimate, measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import './source.css'
@@ -73,7 +73,6 @@ const OPTION_LABELS: Record<string, string> = {
   tesseract: 'Tesseract',
   paddle: 'PaddleOCR',
 }
-const REPLACE_NEEDED = 'a tick in "Replace the current audio/video"'
 const optionLabel = (o: string) => OPTION_LABELS[o] ?? humanizeValue(o)
 
 // advancedSummary names changed backends by their raw value; show their labels.
@@ -306,11 +305,11 @@ export default function TranscribeStage({
     ? ''
     : !file && !hasMedia && !haveTranscript
       ? 'an audio or video file'
-      : file && replaceUnconfirmed
-        ? REPLACE_NEEDED
-        : haveTranscript && !transcriptText.trim()
+      : haveTranscript && !transcriptText.trim()
         ? 'the transcript text'
         : ''
+  // A staged file that Replace is not ticked for is not part of this run: the stored media is transcribed.
+  const uploadFile = file && !replaceUnconfirmed ? file : null
 
   // Validates the options; null means "ok" (problem is set otherwise).
   const checkConfig = (): TranscribeConfigUpdate | null => {
@@ -377,14 +376,14 @@ export default function TranscribeStage({
     }
     // A file picked but not uploaded yet has no known length, and a cloud run's time isn't this PC's.
     const speed = config.whisper_size === cf.whisper_size ? config.measured_speed : null
-    const expectedRunSeconds = whisperRun && !file && !cf.use_groq
+    const expectedRunSeconds = whisperRun && !uploadFile && !cf.use_groq
       ? measuredRunSeconds({
           audioSeconds: duration, whisperSize: cf.whisper_size, useGpu, measuredSpeed: speed,
           measuredStages: speed ? config.measured_stage_seconds : undefined, separateVocals: cf.separate_vocals_first,
           realignLong: cf.realign_long_segments,
         })
       : null
-    const start = () => (file ? uploadAndTranscribe(dramaId, file, req, confirmReplace) : startTranscribe(dramaId, req))
+    const start = () => (uploadFile ? uploadAndTranscribe(dramaId, uploadFile, req, confirmReplace) : startTranscribe(dramaId, req))
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
     const changed = (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== current[k])
@@ -396,7 +395,7 @@ export default function TranscribeStage({
       : Promise.resolve()
     saveFirst.then(start).then((r) => {
       setError(null)
-      onJobStarted(r.job_id, expectedRunSeconds, !!file)
+      onJobStarted(r.job_id, expectedRunSeconds, !!uploadFile)
     }, fail)
   }
 
@@ -455,7 +454,6 @@ export default function TranscribeStage({
   // Rule 22: the reason's fix focuses the missing field.
   const fixNeeded = () => {
     if (needed === 'the transcript text') return transcriptRef.current?.focus()
-    if (needed === REPLACE_NEEDED) return document.getElementById(replaceBoxId(dramaId))?.focus()
     const input = document.getElementById(mediaFileInputId(dramaId))
     if (input) {
       input.scrollIntoView({ block: 'center' })
@@ -475,7 +473,7 @@ export default function TranscribeStage({
     : config?.transcript_mode === 'have_transcript' && cf.alignment_method === 'whisper_diff')
   // Undefined (an older server) counts as installed.
   const notInstalled = whisperRun && config?.whisper_installed === false
-  const estimate = cf && whisperRun && !file && hasMedia
+  const estimate = cf && whisperRun && !uploadFile && hasMedia
     ? transcribeEstimate({
         audioSeconds: duration,
         whisperSize: cf.whisper_size,
@@ -540,7 +538,7 @@ export default function TranscribeStage({
         <button
           type="button"
           className="primary"
-          disabled={busy || !cf || !!needed}
+          disabled={busy || !cf || !!needed || notInstalled}
           aria-describedby={[notInstalled && 'transcribe-not-installed', needed && !busy && 'transcribe-needed'].filter(Boolean).join(' ') || undefined}
           onClick={transcribe}
         >
@@ -562,11 +560,17 @@ export default function TranscribeStage({
           </ButtonLink>
         </div>
       )}
+      {file && replaceUnconfirmed && !busy && (
+        <p className="muted" role="note" data-testid="transcribe-staged-unused">
+          The chosen file is not used for this run. Transcribe uses the current audio/video; tick "Replace the current
+          audio/video" to use the new file.
+        </p>
+      )}
       {needed && !busy && (
         <div className="source-needed" id="transcribe-needed" role="note">
           <span>Still needed: {needed}.</span>
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={fixNeeded}>
-            {needed === 'the transcript text' ? 'Paste transcript' : needed === REPLACE_NEEDED ? 'Show the box' : 'Choose a file'}
+            {needed === 'the transcript text' ? 'Paste transcript' : 'Choose a file'}
           </button>
         </div>
       )}

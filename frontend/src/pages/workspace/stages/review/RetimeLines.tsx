@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { cancelJob } from '../../../../api/jobs'
-import { applyRetime, getRetimeResult, startRetime } from '../../../../api/workspace'
+import { applyRetime, getCompareOptions, getRetimeResult, startRetime } from '../../../../api/workspace'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
@@ -37,6 +37,18 @@ export function RetimeLines({
   const [result, setResult] = useState<RetimeResult | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  // Advisory: if the options cannot be read, the server's own refusal shows on start.
+  const [alignerReason, setAlignerReason] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    getCompareOptions(dramaId).then(
+      (o) => !cancelled && setAlignerReason(o.aligner_reason ?? null),
+      () => undefined,
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId])
 
   useEffect(() => {
     if (!openSignal) return
@@ -58,7 +70,7 @@ export function RetimeLines({
 
   const active = !!job && !TERMINAL_STATUSES.includes(job.status)
   const busy = starting || active || (!!jobId && !job && !pollError)
-  const blocked = retimeSelectedProblem(selectedIds.length) ?? (jobRunning && !busy ? 'Another job is running on this title. Try again when it finishes.' : null)
+  const blocked = alignerReason ?? retimeSelectedProblem(selectedIds.length) ?? (jobRunning && !busy ? 'Another job is running on this title. Try again when it finishes.' : null)
 
   const start = () => {
     setError(null)

@@ -21,8 +21,14 @@ import db
 import translate_engines
 from services import (jobs_service, settings_service, transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
-                                      NotFoundError, UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    UnsupportedOperationError,
+)
 
 MAX_LINES = 200
 _MAX_TEXT_CHARS = 2000
@@ -61,6 +67,10 @@ def _backend_problem(choice: str, language: str):
             transcribe_service._require_moss_backend()
     except (DependencyUnavailableError, InvalidInputError) as exc:
         return str(exc)
+    # Whisper hears the audio first on every other backend too.
+    if (choice in ("whisper", "qwen3_asr")
+            and not transcribe_service.diagnostics.check_dependency("faster_whisper")):
+        return transcribe_service.MISSING_TRANSCRIPTION_MESSAGE
     if choice in ("qwen3_asr", "qwen3_asr_vad") and language not in asr_backend.LANGUAGE_NAMES:
         return "Qwen3-ASR doesn't cover this title's language."
     return None
@@ -81,7 +91,13 @@ def get_options(drama_id: int) -> dict:
         problem = _backend_problem(choice, language)
         backends.append({"id": choice, "label": _BACKEND_LABELS[choice],
                          "available": problem is None, "reason": problem})
+    try:
+        transcribe_service.require_qwen3_packages("The Qwen3 forced aligner")
+        aligner_reason = None
+    except DependencyUnavailableError as exc:
+        aligner_reason = exc.message
     return {
+        "aligner_reason": aligner_reason,
         "has_audio": has_audio,
         "no_audio_reason": None if has_audio else "This title has no stored audio to re-transcribe.",
         "max_lines": MAX_LINES,
@@ -166,8 +182,7 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     cap = None
     if translate_run_service.engine_cap_applies(engine_name, gemini_free_tier):
         monthly = translate_run_service.month_cap_usd()
@@ -379,6 +394,12 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
                 break
             except core_module.ModelDownloadError as exc:
                 failed_reason, detail = "model_download", jobs_service.scrub_text(str(exc))
+                break
+            except ImportError:
+                # The same for every line, so there is nothing to retry.
+                failed_reason = "dependency_missing"
+                detail = ("This transcription backend isn't installed yet. "
+                          "Open Diagnostics to install it.")
                 break
             except Exception as exc:
                 errors.append(jobs_service.scrub_text(f"line {ln.idx + 1}: {exc}"))

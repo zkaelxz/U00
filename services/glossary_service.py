@@ -72,7 +72,10 @@ import translation_guide as tguide
 from services import job_checkpoint_service
 from translate_engines import WORKFLOW_TIERS, effective_tier
 from services.service_errors import (
-    ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError,
+    ConflictError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
     UnsupportedOperationError,
 )
 
@@ -598,8 +601,7 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
         raise UnsupportedOperationError("This drama's engine can't extract a glossary.")
     api_key = translate_service.resolve_api_key(engine_name)
     if not api_key:
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key,
         free_tier=engine_name == "gemini" and settings_service.get_gemini_free_tier(),

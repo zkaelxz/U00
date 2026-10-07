@@ -35,6 +35,9 @@ class DubTtsEngine(BaseModel):
     key: str
     label: str
     requires_internet: bool
+    # Fixed text saying what this engine needs that is missing here (its
+    # package, or ffmpeg); None when it can run.
+    unavailable_reason: Optional[str] = None
 
 
 class DubSpeaker(BaseModel):

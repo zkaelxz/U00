@@ -59,7 +59,7 @@ class TestConfig:
             assert set(s) == {"speaker_label", "character_name", "edge_voice",
                               "offline_voice", "engine", "has_clone_ref", "clone_warning"}
         for e in body["tts_engines"]:
-            assert set(e) == {"key", "label", "requires_internet"}
+            assert set(e) == {"key", "label", "requires_internet", "unavailable_reason"}
 
     def test_narration_defaults_null(self, client, isolated_db):
         did = _seed(isolated_db, content_mode="novel_narration")
@@ -136,3 +136,16 @@ def test_track_symlink_is_404(client, isolated_db, tmp_path):
     outside.write_bytes(b"x")
     os.symlink(outside, os.path.join(db.drama_dir(did), "dub_track.wav"))
     assert client.get(f"/api/dub/dramas/{did}/track").status_code == 404
+
+
+class TestEngineAvailability:
+    def test_a_missing_engine_package_is_named_on_that_engine(self, client, isolated_db, monkeypatch):
+        import importlib.util
+        did = _seed(isolated_db)
+        real = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec",
+                            lambda name, *a, **k: None if name == "edge_tts" else real(name, *a, **k))
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
+        engines = {e["key"]: e for e in client.get(f"/api/dub/dramas/{did}/config").json()["tts_engines"]}
+        assert engines["edge_tts"]["unavailable_reason"] == "The edge-tts package is not installed."
+        assert engines["offline"]["unavailable_reason"] in (None, "The piper-tts package is not installed.")

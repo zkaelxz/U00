@@ -136,7 +136,7 @@ def test_audiobook_no_lines_422(client, isolated_db):
 def test_audiobook_no_narration_422(client, drama):
     r = client.post(f"/api/export/dramas/{drama}/audiobook")
     assert r.status_code == 422
-    assert "narration" in _error(r)["message"]
+    assert _error(r)["message"] == "There is no narration yet. Create it in Dub first."
 
 
 def test_audiobook_ffmpeg_missing_503(client, drama, isolated_db, monkeypatch):
@@ -565,3 +565,10 @@ def test_video_ffmpeg_inputs_are_file_only(client, drama, isolated_db, fake_ffmp
     assert cmd[inputs[0] - 4:inputs[0]] == video_export.local_input(), cmd
     for i in inputs:
         assert cmd[i - 4:i - 1] == ["-protocol_whitelist", "file", "-format_whitelist"], cmd
+
+
+def test_dubbed_video_without_a_dub_says_so_plainly(client, isolated_db, drama):
+    _add_video(isolated_db, drama)
+    r = client.post(f"/api/export/dramas/{drama}/dubbed-video")
+    assert r.status_code == 422
+    assert _error(r)["message"] == "There is no dub yet. Create it in Dub first."

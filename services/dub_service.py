@@ -97,7 +97,8 @@ def get_dub_config(drama_id: int) -> dict:
         "narration_language": narration_language,
         "narration_language_options": list(NARRATION_LANGUAGE_OPTIONS),
         "source_language": source_language,
-        "tts_engines": [dict(e) for e in TTS_ENGINES],
+        "tts_engines": [{**e, "unavailable_reason": _missing_engine_dependency(e["key"])}
+                        for e in TTS_ENGINES],
         "defaults": None if is_narration else {
             "max_speedup": dub.DUB_MAX_SPEEDUP, "max_slowdown": dub.DUB_MAX_SLOWDOWN,
             "speedup_range": [1.0, 2.0], "slowdown_range": [0.5, 1.0]},

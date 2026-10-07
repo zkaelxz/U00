@@ -223,8 +223,9 @@ test('upload-and-transcribe waits for the replace box, also after the server ask
 
   const box = page.getByLabel(/Replace the current audio\/video/)
   await expect(box).toBeVisible()
-  await expect(transcribe).toBeDisabled()
-  await expect(page.locator('#transcribe-needed')).toContainText('Replace the current audio/video')
+  // The staged file is not part of a run until Replace is ticked, so Transcribe is not held back for it.
+  await expect(transcribe).toBeEnabled()
+  await expect(page.getByTestId('transcribe-staged-unused')).toContainText('Replace the current audio/video')
   await expect(page.getByTestId('kept-media')).toContainText('2 files, 3.5 MB')
   await expect(page.getByTestId('kept-media')).toContainText('Disk usage')
 
