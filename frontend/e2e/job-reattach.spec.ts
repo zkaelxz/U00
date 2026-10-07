@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { withExportLines, withTranslateLines } from './stageLineMocks'
+import { openExportBlocks } from './exportBlocks'
 
 // Leaving a stage while its job runs and coming back picks the job up again
 // (useReattachJob). Job starts and job reads are mocked; nothing runs.
@@ -93,6 +94,7 @@ test('Export media shows the earlier export and a running export on revisit', as
   await page.goto('/#/drama/1/translate')
   await goToStage(page, /^Export/)
   await page.getByText('Video and audio', { exact: true }).click()
+  await openExportBlocks(page)
 
   const link = page.getByTestId('artifact-video').getByRole('link')
   await expect(link).toHaveText('Download burned_video_1.mp4')

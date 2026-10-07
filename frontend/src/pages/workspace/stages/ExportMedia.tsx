@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 
 import { artifactUrl } from '../../../api/client'
 import {
@@ -12,9 +12,11 @@ import {
 } from '../../../api/export'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { writeSectionOpen } from '../../../components/sectionStorage'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { getWorkflowProgress } from '../../../api/workspace'
+import { browserStorage } from '../../../hooks/usePersistedState'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { useReattachJob } from '../../../hooks/useReattachJob'
 import { jobSucceeded } from '../../../types/jobs'
@@ -25,7 +27,7 @@ import type {
   MediaKind,
   SoftsubVideoRequest,
 } from '../../../types/export'
-import { formatBytes } from '../exportForm'
+import { formatBytes, mediaBlockOpen, mediaBlockStorageKey } from '../exportForm'
 import { mediaExportJobId } from '../stageJobIds'
 import { useStage } from '../StageContext'
 import { JobPanel } from './JobPanel'
@@ -107,6 +109,12 @@ function MediaJobSection({ title, label, kind, start, blockedReason, startError,
   const busyId = `export-busy-${testId ?? kind}`
   const blockedId = `export-blocked-${testId ?? kind}`
   const blocked = blockedReason ?? null
+  const bodyId = useId()
+  const [open, setOpen] = useState(() => mediaBlockOpen(browserStorage(), kind))
+  const toggle = () => {
+    writeSectionOpen(browserStorage(), mediaBlockStorageKey(kind), !open)
+    setOpen(!open)
+  }
 
   const run = () => {
     const p = start()
@@ -127,18 +135,25 @@ function MediaJobSection({ title, label, kind, start, blockedReason, startError,
 
   return (
     <div className="export-block" role="group" aria-label={title}>
-      <h4>{title}</h4>
-      {note && <p className="muted">{note}</p>}
-      {children}
-      <button
-        type="button"
-        className={buttonClass('secondary')}
-        disabled={busy || blocked !== null}
-        aria-describedby={busy ? busyId : blocked ? blockedId : undefined}
-        onClick={run}
-      >
-        {label}
-      </button>
+      <h4 className="export-block-heading">
+        <button type="button" className="export-block-toggle" aria-expanded={open} aria-controls={bodyId} onClick={toggle}>
+          {title}
+        </button>
+      </h4>
+      {/* Hidden, not unmounted: the job keeps polling and its fields keep their values while folded. */}
+      <div className="export-block-body" id={bodyId} hidden={!open}>
+        {note && <p className="muted">{note}</p>}
+        {children}
+        <button
+          type="button"
+          className={buttonClass('secondary')}
+          disabled={busy || blocked !== null}
+          aria-describedby={busy ? busyId : blocked ? blockedId : undefined}
+          onClick={run}
+        >
+          {label}
+        </button>
+      </div>
       {busy && <p className="muted" id={busyId}>This export is running. Progress is shown below.</p>}
       {blocked && !busy && <p className="muted" id={blockedId}>{blocked}</p>}
       {problem && <p className="error" role="alert">{problem}</p>}

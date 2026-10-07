@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { hitHeight, installHitArea } from './hitArea'
 import { mockDub, mockProgress } from './plainErrorsMocks'
+import { openExportBlocks } from './exportBlocks'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -19,6 +20,7 @@ test('phone: Export buttons are disabled with their reason and nothing scrolls s
   await mockProgress(page)
   await page.goto('/#/drama/1/export')
   await page.getByText('Video and audio', { exact: true }).click()
+  await openExportBlocks(page)
   const audiobook = page.getByRole('group', { name: 'Audiobook' })
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toBeDisabled()
   await expect(audiobook).toContainText('There is no narration yet. Create it in Dub first.')
