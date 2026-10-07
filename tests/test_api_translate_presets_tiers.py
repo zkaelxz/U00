@@ -117,9 +117,16 @@ def test_api_apply_tier(client):
     r = client.post(TIER.format(did), json={"tier": "release"})
     assert r.status_code == 200
     body = r.json()
-    assert body["translation_engine"] == "claude" and body["engine_model"] == "claude-opus-4-8"
+    assert body["translation_engine"] == "claude" and body["engine_model"] == "claude-opus-5-5"
     assert body["reflect"] is True and body["auto_qc"] is True
     assert db.get_drama(did)["translation_engine"] == "claude"
+
+
+def test_standard_and_release_tiers_resolve_to_the_5_5_models(isolated_db):
+    assert translate_engines.effective_tier("standard")["engine_model"] == "claude-sonnet-5-5"
+    assert translate_engines.effective_tier("release")["engine_model"] == "claude-opus-5-5"
+    assert translate_engines.builtin_default_model("claude") == "claude-sonnet-5-5"
+    assert translate_engines.get_engine("claude", "k").model == "claude-sonnet-5-5"
 
 
 def test_api_apply_tier_errors(client):
