@@ -687,7 +687,7 @@ export default function TranscribeStage({
               haveTranscript ? [] : ['qwen3_forced_align'])}
             {select('ASR backend', 'asr_backend_choice', asrBackendOptions(mossEnabled), asrBackendHelp(asrBackendOptions(mossEnabled)))}
             {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
-            {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
+            {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'auto'], 'PaddleOCR reads Chinese, Korean and Japanese captions with the matching language model. Automatic uses it when installed and falls back to Tesseract, with a note.')}
           </div>
           <p className="muted" data-testid="auto-prompt">
             {config?.auto_initial_prompt
