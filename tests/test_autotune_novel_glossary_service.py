@@ -85,7 +85,7 @@ class TestAutotune:
             raise RuntimeError(f"bad token {SECRET}")
         monkeypatch.setattr(core, "transcribe_for_timing", boom)
         q = _Queue()
-        ts._autotune_all_worker("a", "small", "zh", False, SECRET, "", 5, [300], 0.5, False, q)
+        ts._autotune_all_worker("a", "small", "zh", False, SECRET, "", 5, [300], 0.5, False, "normal", q)
         assert q.items[-1][0] == "error" and SECRET not in repr(q.items[-1])
 
     def test_bad_input(self, isolated_db):

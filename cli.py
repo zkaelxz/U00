@@ -523,7 +523,8 @@ def cmd_align(args):
                 local_model_path=local_model_path,
                 fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
                 initial_prompt=initial_prompt, beam_size=cfg["beam_size"],
-                min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
+                min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["effective_vad_threshold"],
+                sensitivity_preset=cfg["sensitivity_preset"],
                 hallucination_silence_sec=cfg["hallucination_silence_sec"],
                 on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
         if not segments:
@@ -589,8 +590,8 @@ def cmd_align(args):
                 asr_backend="whisper", whisper_size=whisper_size,
                 local_model_path=local_model_path, language=language,
                 transcript_mode="have_transcript", alignment_method=alignment_method,
-                min_silence_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
-                beam_size=cfg["beam_size"],
+                min_silence_ms=cfg["min_silence_ms"], vad_threshold=cfg["effective_vad_threshold"],
+                sensitivity_preset=cfg["sensitivity_preset"], beam_size=cfg["beam_size"],
                 hallucination_silence_sec=cfg["hallucination_silence_sec"],
                 whisper_fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
                 use_groq=use_groq, separate_vocals_first=cfg["separate_vocals_first"],
@@ -1153,7 +1154,8 @@ def cmd_transcribe(args):
         whisper_size=args.whisper_size, asr_backend_choice=args.asr_backend,
         beam_size=args.beam_size, min_silence_ms=args.min_silence_ms,
         min_pause_sec=args.min_pause,
-        vad_threshold=args.vad_threshold, separation_backend=args.separation_backend,
+        vad_threshold=args.vad_threshold, sensitivity_preset=args.sensitivity,
+        separation_backend=args.separation_backend,
         separate_vocals_first=args.separate_vocals)
     transcript_text = _read_transcript_option(args)
     try:
@@ -1513,6 +1515,10 @@ def main():
                                    f"{core_module.MIN_WORD_GAP_SECONDS_MAX:g}; saved on the title.")
     p_transcribe.add_argument("--vad-threshold", type=float, default=None,
                               help="VAD speech threshold (0.1-0.9).")
+    p_transcribe.add_argument("--sensitivity", choices=("normal", "sensitive"), default=None,
+                              help="'sensitive' catches quieter or fast speech (lower VAD threshold, no "
+                                   "repeat penalties) and may add false text on music or breathing; "
+                                   "saved on the title.")
     p_transcribe.add_argument("--separate-vocals", action=argparse.BooleanOptionalAction, default=None,
                               help="Separate vocals from music before recognising.")
     p_transcribe.add_argument("--separation-backend", default=None,
