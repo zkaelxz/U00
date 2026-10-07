@@ -212,3 +212,31 @@ def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
         reachable = False
     _ollama_reachability_cache[base_url] = (now, reachable)
     return reachable
+
+
+def check_ollama_model_installed(base_url: str, model: str) -> None:
+    """Raises OllamaUnavailableError (the same plain texts the chat call uses)
+    when the server is down or `model` isn't pulled, so a live session fails
+    at Start rather than on its first chunk."""
+    import requests
+    base_url = base_url.rstrip("/")
+    try:
+        resp = requests.get(f"{base_url}/api/tags", timeout=5, stream=True)
+        tags = read_json_capped(resp, 5)
+    except Exception:
+        raise OllamaUnavailableError(
+            "ollama_unreachable",
+            "Ollama isn't running. Start it, or pick another translator in Settings.") from None
+    installed = set()
+    for entry in tags.get("models") or []:
+        for key in ("name", "model"):
+            name = entry.get(key) if isinstance(entry, dict) else None
+            if isinstance(name, str):
+                installed.add(name)
+    # Ollama resolves a bare "name" to "name:latest".
+    wanted = model if ":" in model else f"{model}:latest"
+    if wanted not in installed:
+        raise OllamaUnavailableError(
+            "ollama_model_missing",
+            f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
+            "or pick another model in Settings.")
