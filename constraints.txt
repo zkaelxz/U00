@@ -10,11 +10,11 @@
 # listed here at all and stay uncapped; a plain `>=` in the requirements
 # file already covers them.
 #
-# yt-dlp and edge-tts are deliberately left OUT: both need to stay
-# current to keep working against sites/services that change often
-# (see the Step 1c JS-runtime and 403 fixes), so capping them would
-# trade a known, fixable problem (an occasional break, fixed by
-# upgrading) for a worse one (deliberately staying broken).
+# yt-dlp is deliberately left OUT: it needs to stay current to keep
+# working against sites that change often (see the Step 1c JS-runtime
+# fix), so capping it would trade a known, fixable problem (an
+# occasional break, fixed by upgrading) for a worse one (deliberately
+# staying broken).
 #
 # If make_lock.bat has been run, constraints.lock.txt (an exact
 # `pip freeze` snapshot of a setup that's known to work) takes priority

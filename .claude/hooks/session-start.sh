@@ -20,7 +20,7 @@ fi
 
 # Core app + test runner, plus the light optional libraries whose tests
 # would otherwise be skipped. Heavy/GPU extras (torch, pyannote, whisper,
-# f5-tts, paddleocr) are deliberately left out -- tests mock them.
+# omnivoice, paddleocr) are deliberately left out -- tests mock them.
 # Cloud containers' system Python can be marked "externally managed";
 # this is a throwaway container, so installing into it directly is fine.
 # --use-pep517: jieba ships only an sdist whose legacy `setup.py

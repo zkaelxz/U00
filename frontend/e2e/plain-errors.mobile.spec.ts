@@ -27,11 +27,11 @@ test('phone: Export buttons are disabled with their reason and nothing scrolls s
 })
 
 test('phone: Generate dub is disabled with the missing-package reason', async ({ page }) => {
-  await mockDub(page, 'The edge-tts package is not installed.')
+  await mockDub(page, 'OmniVoice is not installed. Install it in Diagnostics.')
   await page.goto('/#/drama/1/dub')
   const generate = page.getByRole('button', { name: 'Generate dub' })
   await expect(generate).toBeDisabled()
   expect(await hitHeight(generate)).toBeGreaterThanOrEqual(44)
-  await expect(page.getByTestId('dub-settings')).toContainText('The edge-tts package is not installed.')
+  await expect(page.getByTestId('dub-settings')).toContainText('OmniVoice is not installed. Install it in Diagnostics.')
   expect(await page.evaluate(noSideScroll)).toBe(true)
 })

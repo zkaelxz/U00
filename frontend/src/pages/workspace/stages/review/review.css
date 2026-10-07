@@ -347,7 +347,6 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-alts, .review-grammar { margin: 0; padding-left: 1.4em; display: grid; gap: var(--space-2); overflow-wrap: anywhere; min-width: 0; }
 .review-alts > li { display: grid; gap: 2px; justify-items: start; }
 .review-alts p { margin: 0; font-size: var(--text-sm); }
-.review-pronounce { width: 100%; max-width: 24rem; }
 .review-shorten { display: grid; gap: var(--space-2); margin-top: var(--space-2); justify-items: start; }
 .review-shorten p { margin: 0; }
 @media (max-width: 640px) {

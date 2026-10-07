@@ -52,7 +52,6 @@ log = logging.getLogger(__name__)
 
 MAX_NAME_LEN = 200
 MAX_PRONOUNS_LEN = 40
-MAX_VOICE_LEN = 200
 MAX_VOICE_DESIGN_LEN = 1000
 MAX_REF_TEXT_LEN = 5000
 MAX_ID = 2**31 - 1  # sqlite ints are 64-bit; anything larger is an OverflowError (500)
@@ -105,9 +104,8 @@ def _character_dict(row: dict, line_count: int, sample_lines: list = ()) -> dict
         "character_name": row.get("character_name") or "",
         "voice_actor": row.get("voice_actor") or "",
         "pronouns": row.get("pronouns") or "",
-        "tts_voice": row.get("tts_voice") or "",
-        "offline_voice": row.get("offline_voice") or "",
         "clone_engine": row.get("clone_engine") or "",
+        "clone_engine_removed": dub.removed_engine_message(row.get("clone_engine")) or "",
         "voice_design": row.get("voice_design") or "",
         "has_ref_audio": bool(row.get("ref_audio_filename")),
         "ref_text_present": bool((row.get("ref_text") or "").strip()),
@@ -165,9 +163,8 @@ def check_len(name: str, value: str, cap: int):
 
 
 def update_character(drama_id: int, speaker_label: str, *, character_name: str = None,
-                     voice_actor: str = None, pronouns: str = None, tts_voice: str = None,
-                     offline_voice: str = None, clone_engine: str = None, voice_design: str = None,
-                     ref_text: str = None) -> dict:
+                     voice_actor: str = None, pronouns: str = None,
+                     clone_engine: str = None, voice_design: str = None, ref_text: str = None) -> dict:
     """Field-scoped partial update of one speaker's character row. None
     = leave alone; "" = clear (except character_name, which must be
     non-blank). pronouns: a preset or any custom text, stripped and length
@@ -189,8 +186,6 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
         check_len("pronouns", pronouns, MAX_PRONOUNS_LEN)
         fields["pronouns"] = pronouns.strip()
     for key, value, cap in (("voice_actor", voice_actor, MAX_NAME_LEN),
-                            ("tts_voice", tts_voice, MAX_VOICE_LEN),
-                            ("offline_voice", offline_voice, MAX_VOICE_LEN),
                             ("voice_design", voice_design, MAX_VOICE_DESIGN_LEN),
                             ("ref_text", ref_text, MAX_REF_TEXT_LEN)):
         if value is not None:
@@ -199,7 +194,8 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
     if clone_engine is not None:
         if clone_engine != "":
             if clone_engine not in dub.CLONE_ENGINES:
-                raise InvalidInputError("Unknown clone_engine.")
+                raise InvalidInputError(dub.removed_engine_message(clone_engine)
+                                        or "Unknown clone_engine.")
             lang = _source_language(drama)
             if not dub.clone_engine_supports_language(clone_engine, lang):
                 raise InvalidInputError(

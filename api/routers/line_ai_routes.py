@@ -10,18 +10,16 @@ services/line_ai_service.py. Both take a slot from the shared LLM cap
 Also here (review parity R17-R19): "Alternatives" and "Grammar" are
 read-only (`lines.read`) but call an LLM, so the handler also runs
 `require_engines_allowed` on the engine the call will use: the named one,
-else the drama's own translation engine (resolved here, then passed on). "Pronounce" returns an edge-tts MP3 of the line's source
-text (free service, bounded length and time; services/line_tools_service.py).
-All three take an LLM slot, since each holds a worker thread on a network call.
+else the drama's own translation engine (resolved here, then passed on).
+Both take an LLM slot, since each holds a worker thread on a network call.
 """
 
 from fastapi import APIRouter, Path, Request
-from fastapi.responses import Response
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import (ErrorResponse, LineAlternatives, LineExplainRequest, LineExplanation,
                          LineGrammar, LineImproveRequest, LineImprovement)
-from services import line_ai_service, line_tools_service
+from services import line_ai_service
 
 router = APIRouter(prefix="/api/line-ai", tags=["line-ai"])
 
@@ -74,14 +72,3 @@ def post_grammar(body: LineExplainRequest, request: Request, drama_id: int = Pat
     with llm_slot(request):
         return line_ai_service.grammar_for_line(drama_id, line_id, engine, body.model,
                                                 body.gemini_free_tier)
-
-
-@router.post("/dramas/{drama_id}/lines/{line_id}/pronounce", dependencies=[require_permission("lines.read")],
-             response_class=Response,
-             summary="An MP3 of one line's source text read aloud (writes nothing)",
-             responses={200: {"content": {"audio/mpeg": {}}}, **_ERRORS})
-def post_pronounce(request: Request, drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
-    with llm_slot(request, "Another audio or AI request is running; try again in a moment."):
-        audio = line_tools_service.pronounce_line(drama_id, line_id)
-    return Response(content=audio, media_type="audio/mpeg",
-                    headers={"Cache-Control": "no-store"})

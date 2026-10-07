@@ -20,7 +20,8 @@ const cfg = (over: Partial<DubConfig> = {}): DubConfig => ({
   narration_language: 'en',
   narration_language_options: ['en', 'zh'],
   source_language: 'zh',
-  tts_engines: [{ key: 'edge_tts', label: 'Edge', requires_internet: true }],
+  tts_engines: [{ key: 'omnivoice', label: 'OmniVoice' }],
+  default_engine: 'omnivoice',
   defaults: { max_speedup: 1.3, max_slowdown: 0.85, speedup_range: [1, 2], slowdown_range: [0.5, 1] },
   gpu_required: false,
   speakable_line_count: 4,
@@ -41,14 +42,14 @@ describe('dub request logic', () => {
   it('sends pacing limits for timed dubs, clamped, and never keep_background unless allowed', () => {
     const form = { ...initialDubForm(cfg()), maxSpeedup: 5, maxSlowdown: 0.1, keepBackground: true }
     expect(buildDubRequest(cfg(), form)).toEqual({
-      tts_engine: 'edge_tts', max_speedup: 2, max_slowdown: 0.5, keep_background: false,
+      tts_engine: 'omnivoice', max_speedup: 2, max_slowdown: 0.5, keep_background: false,
     })
     expect(buildDubRequest(cfg({ can_keep_background: true }), form).keep_background).toBe(true)
   })
   it('sends the language instead of pacing for narration', () => {
     const c = cfg({ is_narration: true, defaults: null })
     expect(buildDubRequest(c, initialDubForm(c))).toEqual({
-      tts_engine: 'edge_tts', narration_language: 'en', keep_background: false,
+      tts_engine: 'omnivoice', narration_language: 'en', keep_background: false,
     })
   })
   it('explains why a run is blocked', () => {
@@ -73,10 +74,10 @@ describe('dub request logic', () => {
 describe('dub api', () => {
   it('posts the run body and returns the job id', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
-    const r = await dubApi.run(7, { tts_engine: 'edge_tts', keep_background: false }, fakeFetch(200, { job_id: 'j' }, calls))
+    const r = await dubApi.run(7, { tts_engine: 'omnivoice', keep_background: false }, fakeFetch(200, { job_id: 'j' }, calls))
     expect(r.job_id).toBe('j')
     expect(calls[0].url).toContain('/api/dub/dramas/7/run')
-    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ tts_engine: 'edge_tts', keep_background: false })
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ tts_engine: 'omnivoice', keep_background: false })
   })
   it('starts narration fresh only when asked, keeping the body', async () => {
     const calls: { url: string; init?: RequestInit }[] = []

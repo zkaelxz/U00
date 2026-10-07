@@ -21,7 +21,7 @@ no longer says so), the GPU
 PyTorch setup (a fixed variant; versions and index come from diagnostics.py's
 static table, never the request) and the
 library reset (Q20, also `confirm_text` "RESET"). Each refuses while any
-background job runs (409). Deleting a cached model, Piper voice or model
+background job runs (409). Deleting a cached model or model
 file (torch.hub checkpoints, audio-separator models) is also
 `local_only()` + `confirm=true`, refused while a job runs, and takes only a
 name the cache scan lists. The benchmark and the App Assistant are not
@@ -60,7 +60,7 @@ def get_setup_checks():
 
 @router.get("/model-cache", dependencies=[require_permission("admin.diagnostics")],
             response_model=DiagnosticsModelCache,
-            summary="Hugging Face cache revisions, Piper voices, torch.hub checkpoints and "
+            summary="Hugging Face cache revisions, torch.hub checkpoints and "
                     "audio-separator models (names and sizes)")
 def get_model_cache():
     return svc.get_model_cache()
@@ -162,16 +162,6 @@ def post_reset_library(body: DiagnosticsResetRequest):
 def post_delete_hf_revision(body: DiagnosticsAdminConfirm,
                             revision: str = Path(pattern=r"^[0-9a-f]{40}$")):
     return svc.delete_hf_revision(revision, confirm=body.confirm)
-
-
-@router.post("/model-cache/piper/{voice}/delete", dependencies=[local_only()],
-             response_model=DiagnosticsCacheDeleteResult,
-             summary="PC only: delete one downloaded Piper voice (confirm=true)",
-             responses=_ERRS)
-def post_delete_piper_voice(body: DiagnosticsAdminConfirm,
-                            voice: str = Path(min_length=1, max_length=120,
-                                              pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")):
-    return svc.delete_piper_voice(voice, confirm=body.confirm)
 
 
 @router.post("/model-cache/files/{kind}/{name}/delete", dependencies=[local_only()],

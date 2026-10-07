@@ -78,7 +78,7 @@ map), [`docs/README.md`](docs/README.md) (docs index),
 - **Transcription** with Whisper (optional Qwen3-ASR), **speaker diarization**, OCR for page scans and burned-in captions, and **Live** near-live stream translation.
 - **Multi-engine translation**: Claude, DeepSeek, Gemini, OpenAI, Ollama or NLLB, with glossaries, term policies, style presets, emotion tags, a review queue and a consistency checker.
 - **Review and polish**: line merging, pacing checks with one-click LLM shortening, translation versions, undo, locale variants (American/British/Australian English).
-- **AI dubbing** with free TTS (edge-tts) and optional voice cloning; audiobook (.m4b) export.
+- **AI dubbing** with local voice engines (OmniVoice, Chatterbox, TADA, GPT-SoVITS), including voice cloning; audiobook (.m4b) export.
 - **Export**: SRT/VTT/ASS, burned-in (hardsub) or toggleable (softsub) video, dub track mixing, EPUB, bulk zip.
 - **Interactive Reader** with pinyin/furigana, click-to-define, in-app Q&A, in-app playback and Anki vocabulary export.
 - **Scanlate** (manga/comic typesetting): detect bubbles, clean, translate, place text, adjust, render.
@@ -137,7 +137,7 @@ pip install -r requirements-optional.txt -c constraints.txt   # per feature; ins
 
 ### Portable mode
 
-`library/` is saved inside the app folder, so copying the folder carries your data. Portable mode also redirects the model caches (Whisper, pyannote, F5-TTS, the audio separator) into a `model_cache/` folder there, so the whole folder works from a USB stick or another PC. Turn it on with `start.bat --portable` (`.\start.ps1 -Portable`) or an empty file named `PORTABLE` next to `start.bat`. The other PC still needs its own Python and `ffmpeg`.
+`library/` is saved inside the app folder, so copying the folder carries your data. Portable mode also redirects the model caches (Whisper, pyannote, OmniVoice, the audio separator) into a `model_cache/` folder there, so the whole folder works from a USB stick or another PC. Turn it on with `start.bat --portable` (`.\start.ps1 -Portable`) or an empty file named `PORTABLE` next to `start.bat`. The other PC still needs its own Python and `ffmpeg`.
 
 ### Access from other devices
 
@@ -284,10 +284,9 @@ With no source audio, line timings come from each generated TTS clip, so downloa
 
 ## Dubbing & voice cloning
 
-- **edge-tts** (default, free, online): a fixed voice list, one voice per character.
-- **Piper** (`pip install piper-tts`): offline; choose "Offline / Piper" as the fallback engine.
-- **F5-TTS** voice cloning (`pip install f5-tts`): per character, a clean reference clip and its exact text. "Auto-extract reference clips" pulls clips from a diarized audio drama. Not verified end to end in development: test on one short line first.
-- **Other engines, picked per character**: OmniVoice (`pip install omnivoice`; clones from a 3-10s clip or designs a voice from a description), GPT-SoVITS (not a pip package: run its `api_v2.py`; default server `http://127.0.0.1:9880`, changeable in Settings), Chatterbox (`pip install chatterbox-tts`; emotion-aware, carries a PerTh watermark; run emotion detection first), TADA (`pip install hume-tada`; weights under Meta's Llama 3.2 licence, accept it on Hugging Face and run `huggingface-cli login`). OmniVoice, Chatterbox and TADA pin conflicting `transformers`/`torch` versions, so install only one per environment.
+- **Voice engines**: no engine is bundled; install one in Diagnostics, then pick it in the Dub stage (OmniVoice is the default). A speaker with no clip gets a designed voice (OmniVoice) or Chatterbox's built-in voice; GPT-SoVITS and TADA need a clean reference clip and its exact text for every speaker. "Auto-extract reference clips" pulls clips from a diarized audio drama. Not verified end to end in development: test on one short line first.
+- **Removed engines**: Edge TTS, Piper and F5-TTS were removed. A title or character that still names one shows a plain "removed" message and will not generate until you pick another engine; saved settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no longer used and can be deleted by hand.
+- **Engines, picked per character or per run**: OmniVoice (`pip install omnivoice`; clones from a 3-10s clip or designs a voice from a description), GPT-SoVITS (not a pip package: run its `api_v2.py`; default server `http://127.0.0.1:9880`, changeable in Settings), Chatterbox (`pip install chatterbox-tts`; emotion-aware, carries a PerTh watermark; run emotion detection first), TADA (`pip install hume-tada`; weights under Meta's Llama 3.2 licence, accept it on Hugging Face and run `huggingface-cli login`). OmniVoice, Chatterbox and TADA pin conflicting `transformers`/`torch` versions, so install only one per environment.
 - **Fitting to timing**: a dubbed clip longer than its slot is sped up at most 1.4x (pitch kept), a shorter one slowed at most 0.85x; past the limit the line runs over, so shorten it with the pacing check. Both limits are adjustable (`--max-speedup` / `--max-slowdown` on `cli.py dub`). Editing a line and generating again re-voices only that line.
 - **Narration**: consecutive lines from the same speaker in a paragraph are voiced in one call; each stays its own cue.
 - **Audiobook export**: "Generate audiobook (.m4b)" in Export builds an M4B with chapter markers from the novel's headings (or one per paragraph); CLI: `python cli.py dub --id N --m4b`.
@@ -307,7 +306,7 @@ Raw and translated text side by side, for proofing and language learning.
 - **Spoiler-free mode** (Settings, on by default) limits every AI feature (character lookups, recaps, relationship maps, the wiki) to the page you have reached.
 - **Universe wiki**: an encyclopedia built as you read (characters, places, sects, artifacts, events), updated on re-extraction and exportable as Markdown.
 - **Story tools**: who is this character, relationship map (Mermaid), spoiler-safe recap, explain an idiom or reference; **Ask about this drama** answers from the lines loaded so far. These need an API key.
-- **Line tools**: Why this?, Alternatives, Grammar, Pronounce, Improve this line (feeds the adaptive style profile) and Re-transcribe this line (re-runs Whisper on that line's audio only).
+- **Line tools**: Why this?, Alternatives, Grammar, Improve this line (feeds the adaptive style profile) and Re-transcribe this line (re-runs Whisper on that line's audio only).
 - **Vocabulary export**: looked-up words export as Anki-importable CSV or a `.apkg` deck.
 
 ### Library

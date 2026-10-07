@@ -238,9 +238,9 @@ def test_deno_winget_on_windows(client, env, monkeypatch):
     assert b.json()["last_result"]["needs_restart"] is True and env["requests"] == []
 
 
-def _cache_update(name="edge_tts", target="2.0.0"):
+def _cache_update(name="pydub", target="2.0.0"):
     gaps._UPDATES.update(checked_at=time.time(), packages={
-        name: {"name": name, "dist": "edge-tts", "installed_version": "1.0.0",
+        name: {"name": name, "dist": "pydub", "installed_version": "1.0.0",
                "status": "update", "latest": target, "target": target, "reason": ""}})
 
 
@@ -250,13 +250,13 @@ def test_upgrade_check_runs_the_cached_target(client, env, monkeypatch):
     def fake_check(pip_name, version=None, project_root=None, **kw):
         calls.append((pip_name, version))
         yield {"line": "Creating a throwaway environment -- your real install isn't touched."}
-        yield {"line": f"Installing edge-tts=={version} into it... {SECRET} {ABS_PATH}"}
-        yield {"line": "Running this app's test suite against edge-tts 2.0.0..."}
+        yield {"line": f"Installing pydub=={version} into it... {SECRET} {ABS_PATH}"}
+        yield {"line": "Running this app's test suite against pydub 2.0.0..."}
         yield {"done": True, "ok": True, "verdict": "safe", "reason": "every test passed",
                "version": version, "new_failures": [], "preexisting_failures": [],
                "conflicts": []}
     monkeypatch.setattr(diagnostics, "check_upgrade_candidate", fake_check)
-    url = "/api/diagnostics/dependencies/edge_tts/test-upgrade"
+    url = "/api/diagnostics/dependencies/pydub/test-upgrade"
     assert client.post(url, json={"confirm": True, "target": "2.0.0"}).status_code == 409
     _cache_update()
     assert client.post(url, json={"confirm": True, "target": "1.5.0"}).status_code == 409
@@ -266,11 +266,11 @@ def test_upgrade_check_runs_the_cached_target(client, env, monkeypatch):
     r = client.post(url, json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 200 and r.json()["job_id"] == "upgrade_check"
     assert _wait(svc.UPGRADE_CHECK_JOB_ID)["status"] == "done"
-    assert calls == [("edge-tts", "2.0.0")]
+    assert calls == [("pydub", "2.0.0")]
     s = client.get("/api/diagnostics/upgrade-check")
     assert SECRET not in s.text and ABS_PATH not in s.text
     b = s.json()
-    assert b["package"] == "edge_tts" and b["target"] == "2.0.0"
+    assert b["package"] == "pydub" and b["target"] == "2.0.0"
     assert b["result"]["verdict"] == "safe" and b["result"]["ok"] is True
     assert len(b["output_tail"]) == 3
 
@@ -284,7 +284,7 @@ def test_upgrade_check_refusals(client, env, monkeypatch):
     assert client.post("/api/diagnostics/dependencies/torch/test-upgrade",
                        json={"confirm": True, "target": "2.0.0"}).status_code == 422
     env["running"] = True
-    r = client.post("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+    r = client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                     json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 409
     assert background_jobs.get_status(svc.UPGRADE_CHECK_JOB_ID) is None
@@ -302,7 +302,7 @@ def test_upgrade_check_cancel_stops_the_run(client, env, monkeypatch):
             closed.append(True)
     monkeypatch.setattr(diagnostics, "check_upgrade_candidate", fake_check)
     _cache_update()
-    client.post("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+    client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                 json={"confirm": True, "target": "2.0.0"})
     background_jobs.request_cancel(svc.UPGRADE_CHECK_JOB_ID)
     assert _wait(svc.UPGRADE_CHECK_JOB_ID)["status"] == "cancelled"
@@ -332,7 +332,7 @@ def test_auth_on_reads_admin_writes_pc_only(env):
         assert remote.get(path, headers=_h(kid)).status_code == 403
         assert remote.get(path, headers=_h(admin)).status_code == 200
     writes = (("/api/diagnostics/deno/install", {"confirm": True}),
-              ("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+              ("/api/diagnostics/dependencies/pydub/test-upgrade",
                {"confirm": True, "target": "2.0.0"}))
     for path, body in writes:
         assert remote.post(path, json=body, headers=_h(admin)).status_code == 403, path
@@ -376,7 +376,7 @@ def test_upgrade_check_state_only_changes_when_the_job_starts(client, env, monke
     svc._UPGRADE_CHECK.update(package="jieba", target="1.0", tail=["a"],
                               last={"ok": True, "verdict": "safe"})
     monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
-    r = client.post("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+    r = client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                     json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 409
     s = client.get("/api/diagnostics/upgrade-check").json()

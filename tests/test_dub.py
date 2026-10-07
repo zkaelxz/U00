@@ -1,11 +1,11 @@
 """
-tests/test_dub.py -- dub.py, previously entirely untested despite being a
-core, fully-wired feature (voice cloning via F5-TTS, plain
-edge-tts/Piper TTS, dub-track and narration-track assembly).
+tests/test_dub.py -- dub.py: voice routing per speaker (OmniVoice,
+Chatterbox, TADA, GPT-SoVITS), dub-track and narration-track assembly, the
+removed Edge TTS / Piper / F5-TTS engines and the clip cache.
 
-pydub, edge_tts and f5_tts aren't installed in this sandbox (no ffmpeg-
-backed audio library, no network, no GPU) -- each is faked at its own
-import boundary, the same way other tests here fake faster_whisper or
+pydub and the engines' packages aren't installed in this sandbox (no
+ffmpeg-backed audio library, no network, no GPU) -- each is faked at its
+own import boundary, the same way other tests here fake faster_whisper or
 paddleocr. FakeAudioSegment models just enough of pydub's real API
 (silent/from_file/overlay/export/+=/len) to exercise build_dub_track's
 and build_narration_track's actual timing/routing/error-isolation logic
@@ -88,25 +88,21 @@ def _install_fake_pydub(monkeypatch, clip_lengths=None):
     return ConfiguredFakeAudioSegment
 
 
-def _install_fake_edge_tts(monkeypatch, save_exception=None):
-    """Registers a fake edge_tts module -- real edge_tts isn't installed
-    in this sandbox (no network). Communicate(...).save(out_path) either
-    writes a placeholder file, or raises save_exception if one is given,
-    the same way a real blocked/failed request would."""
-    fake_module = types.ModuleType("edge_tts")
+VOICE = {"engine": "omnivoice", "instruct": "female, young adult, moderate pitch"}
+# Every speaker label these tests use (None: a line with no speaker) gets a voice.
+ALL = {label: dict(VOICE) for label in ("A", "B", "N", None)}
 
-    class FakeCommunicate:
-        def __init__(self, text, voice, rate="+0%"):
-            self.text, self.voice = text, voice
 
-        async def save(self, out_path):
-            if save_exception:
-                raise save_exception
-            with open(out_path, "w") as f:
-                f.write("fake-audio")
-
-    fake_module.Communicate = FakeCommunicate
-    monkeypatch.setitem(sys.modules, "edge_tts", fake_module)
+def _fake_omnivoice(calls=None, fail_on=None):
+    """Stands in for synthesize_line_omnivoice: records (text, instruct),
+    raises for the text `fail_on`, otherwise writes an empty clip."""
+    def synth(text, out_path, ref_audio_path=None, ref_text=None, instruct=None):
+        if calls is not None:
+            calls.append((text, instruct))
+        if fail_on is not None and text == fail_on:
+            raise RuntimeError("TTS down")
+        open(out_path, "w").close()
+    return synth
 
 
 def _install_fake_requests(monkeypatch, captured):
@@ -138,184 +134,154 @@ def _install_fake_requests(monkeypatch, captured):
     monkeypatch.setitem(sys.modules, "requests", fake_module)
 
 
-class TestEdgeTTSBlockedErrorHandling:
-    """Regression coverage for a real, periodic Microsoft-side block:
-    edge-tts's WebSocket handshake gets rejected with a 403 (latest
-    reported January 2026). Before this, that surfaced as a raw,
-    unhelpful exception per failed line."""
+class TestRemovedEngines:
+    """Edge TTS, Piper and F5-TTS were removed: nothing of them is left to
+    call, and anything stored under their names is refused in plain words,
+    never silently handed to another engine."""
 
-    def test_a_403_error_is_wrapped_with_a_clear_message(self, monkeypatch, tmp_path):
-        _install_fake_edge_tts(monkeypatch, save_exception=Exception(
-            "server rejected WebSocket connection: HTTP 403"))
-        with pytest.raises(dub.EdgeTTSBlockedError, match="pip install -U edge-tts"):
-            dub.synthesize_line("hello", "en-US-AvaNeural", str(tmp_path / "out.wav"))
+    @pytest.mark.parametrize("name", ["synthesize_line", "edge_tts_synthesize", "EdgeTTSBlockedError",
+                                      "synthesize_line_offline", "piper_voices_dir", "piper_model_path",
+                                      "synthesize_line_cloned", "DEFAULT_VOICE_POOL",
+                                      "DEFAULT_OFFLINE_VOICE_POOL", "PARALLEL_SAFE_ENGINES"])
+    def test_their_code_is_gone(self, name):
+        assert not hasattr(dub, name)
 
-    def test_a_non_403_error_passes_through_unwrapped(self, monkeypatch, tmp_path):
-        _install_fake_edge_tts(monkeypatch, save_exception=RuntimeError("network unreachable"))
-        with pytest.raises(RuntimeError, match="network unreachable"):
-            dub.synthesize_line("hello", "en-US-AvaNeural", str(tmp_path / "out.wav"))
+    @pytest.mark.parametrize("key,label", [("edge_tts", "Edge TTS"), ("offline", "Piper"),
+                                           ("f5tts", "F5-TTS"), ("f5", "F5-TTS")])
+    def test_a_stored_key_gets_the_plain_removal_message(self, key, label):
+        assert dub.removed_engine_message(key) == (
+            f"The {label} engine was removed. Pick another voice engine in Dub.")
+        assert dub.engine_refusal(key) == dub.removed_engine_message(key)
 
-    def test_success_is_unaffected(self, monkeypatch, tmp_path):
-        _install_fake_edge_tts(monkeypatch)
-        out_path = str(tmp_path / "out.wav")
-        dub.synthesize_line("hello", "en-US-AvaNeural", out_path)
-        assert os.path.exists(out_path)
+    def test_remaining_and_unknown_engines(self):
+        for engine in dub.CLONE_ENGINES:
+            assert dub.engine_refusal(engine) is None and dub.removed_engine_message(engine) is None
+        assert dub.engine_refusal("nope") == "Unknown voice engine."
+        assert set(dub.CLONE_ENGINES) == {"omnivoice", "gpt_sovits", "chatterbox", "tada"}
+        assert dub.DEFAULT_CLONE_ENGINE == "omnivoice"
 
+    @pytest.mark.parametrize("key", ["edge_tts", "offline", "f5tts"])
+    def test_routing_a_removed_engine_entry_raises_the_message_not_a_traceback(self, key, tmp_path):
+        with pytest.raises(RuntimeError, match="was removed. Pick another voice engine in Dub"):
+            dub._synthesize_cloned({"engine": key, "ref_audio": "/r.wav", "ref_text": "x"}, "Hi",
+                                   str(tmp_path / "o.wav"))
 
-class TestSynthesizeEdgeTTSWithPiperFallback:
-    """When Piper is installed, a blocked edge-tts request should fall
-    back to it automatically rather than losing the line -- an upstream
-    block outside anyone's control shouldn't need per-line manual
-    intervention when an offline alternative is already available."""
+    def test_an_entry_with_no_engine_is_refused_not_sent_to_f5(self, tmp_path):
+        with pytest.raises(RuntimeError, match="Unknown voice engine"):
+            dub._synthesize_cloned({"ref_audio": "/r.wav", "ref_text": "x"}, "Hi", str(tmp_path / "o.wav"))
 
-    def test_falls_back_to_piper_when_installed(self, monkeypatch, tmp_path):
-        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
-        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
-        offline_calls = []
-        monkeypatch.setattr(
-            dub, "synthesize_line_offline",
-            lambda text, voice, out_path: offline_calls.append((text, voice, out_path))
-            or open(out_path, "w").close())
+    def test_a_package_that_will_not_load_reads_as_a_plain_sentence(self, monkeypatch, tmp_path):
+        def broken(*a, **k):
+            raise ImportError("cannot import name 'x' from 'transformers'")
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", broken)
+        with pytest.raises(RuntimeError) as err:
+            dub._synthesize_cloned(dict(VOICE), "Hi", str(tmp_path / "o.wav"))
+        assert str(err.value) == "The OmniVoice engine could not start. Check it in Diagnostics."
 
-        out_path = str(tmp_path / "out.wav")
-        dub._synthesize_edge_tts_with_piper_fallback(
-            "hello", "en-US-AvaNeural", out_path, {}, "SPEAKER_00")
+    def test_engine_blockers_name_the_run_engine_and_each_character(self):
+        chars = [{"speaker_label": "A", "character_name": "Lin", "clone_engine": "f5tts"},
+                 {"speaker_label": "B", "character_name": "", "clone_engine": "omnivoice"},
+                 {"speaker_label": "C", "character_name": "", "clone_engine": None}]
+        assert dub.engine_blockers(chars, "omnivoice") == [
+            "Lin: The F5-TTS engine was removed. Pick another voice engine in Dub."]
+        assert dub.engine_blockers(chars, "edge_tts")[0] == (
+            "The Edge TTS engine was removed. Pick another voice engine in Dub.")
+        assert dub.engine_blockers([], "omnivoice") == []
 
-        assert offline_calls == [("hello", dub.DEFAULT_OFFLINE_VOICE_POOL[0], out_path)]
-
-    def test_uses_the_speakers_configured_offline_voice_if_set(self, monkeypatch, tmp_path):
-        # The map is the speaker's own offline (Piper) voice from section 6
-        # -- a separate setting since Step 25c, not the edge-tts voice map.
-        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
-        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
-        voices_used = []
-        monkeypatch.setattr(
-            dub, "synthesize_line_offline",
-            lambda text, voice, out_path: voices_used.append(voice) or open(out_path, "w").close())
-
-        out_path = str(tmp_path / "out.wav")
-        dub._synthesize_edge_tts_with_piper_fallback(
-            "hello", "en-US-AvaNeural", out_path,
-            {"SPEAKER_00": "en_GB-alba-medium"}, "SPEAKER_00")
-
-        assert voices_used == ["en_GB-alba-medium"]
-
-    def test_reraises_the_blocked_error_when_piper_is_not_installed(self, monkeypatch, tmp_path):
-        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
-        # piper genuinely isn't installed in this sandbox -- no mocking needed
-        # to exercise the real ImportError path.
-        out_path = str(tmp_path / "out.wav")
-        with pytest.raises(dub.EdgeTTSBlockedError):
-            dub._synthesize_edge_tts_with_piper_fallback(
-                "hello", "en-US-AvaNeural", out_path, {}, "SPEAKER_00")
-
-    def test_a_non_blocked_error_propagates_without_trying_piper(self, monkeypatch, tmp_path):
-        _install_fake_edge_tts(monkeypatch, save_exception=RuntimeError("network down"))
-        out_path = str(tmp_path / "out.wav")
-        with pytest.raises(RuntimeError, match="network down"):
-            dub._synthesize_edge_tts_with_piper_fallback(
-                "hello", "en-US-AvaNeural", out_path, {}, "SPEAKER_00")
-
-    def test_reports_when_piper_actually_rendered_it(self, monkeypatch, tmp_path):
-        """Step 29 bug 2: callers need to know which engine actually
-        produced the audio, not just which one was intended -- see
-        _piper_fallback_path."""
-        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
-        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
-        monkeypatch.setattr(dub, "synthesize_line_offline",
-                             lambda text, voice, out_path: open(out_path, "w").close())
-
-        used_piper = dub._synthesize_edge_tts_with_piper_fallback(
-            "hello", "en-US-AvaNeural", str(tmp_path / "out.wav"), {}, "SPEAKER_00")
-
-        assert used_piper is True
-
-    def test_reports_false_when_edge_tts_itself_succeeded(self, monkeypatch, tmp_path):
-        _install_fake_edge_tts(monkeypatch)
-        used_piper = dub._synthesize_edge_tts_with_piper_fallback(
-            "hello", "en-US-AvaNeural", str(tmp_path / "out.wav"), {}, "SPEAKER_00")
-        assert used_piper is False
+    def test_a_removed_engine_character_gets_no_clone_entry(self, tmp_path):
+        chars = [{"speaker_label": "A", "clone_engine": "f5tts", "ref_audio_filename": "a.wav"}]
+        assert dub.clone_map_from_characters(chars, str(tmp_path)) == {}
 
 
-class TestAssignVoicesToCharacters:
-    def test_round_robins_through_the_pool(self):
-        result = dub.assign_voices_to_characters(["A", "B", "C"], voice_pool=["v1", "v2"])
-        assert result == {"A": "v1", "B": "v2", "C": "v1"}
+class TestFallbackVoices:
+    """A speaker with no clip or description of their own is voiced by the
+    engine picked for the run, never by a removed stock voice."""
 
-    def test_sorted_for_deterministic_assignment(self):
-        result = dub.assign_voices_to_characters(["Zed", "Amy"], voice_pool=["v1", "v2"])
-        assert result == {"Amy": "v1", "Zed": "v2"}
+    def test_omnivoice_designs_a_distinct_voice_per_speaker(self, tmp_path):
+        out = dub.clone_map_from_characters([], str(tmp_path), default_engine="omnivoice",
+                                            speaker_labels=["B", "A", None])
+        assert {k: v["engine"] for k, v in out.items()} == {None: "omnivoice", "A": "omnivoice",
+                                                            "B": "omnivoice"}
+        assert len({v["instruct"] for v in out.values()}) == 3
+        assert out[None]["instruct"] == dub.DEFAULT_VOICE_DESCRIPTIONS[0]  # unlabelled sorts first
 
-    def test_defaults_to_the_default_voice_pool(self):
-        result = dub.assign_voices_to_characters(["A"])
-        assert result["A"] == dub.DEFAULT_VOICE_POOL[0]
+    def test_a_described_voice_is_not_reused_for_a_fallback_speaker(self, tmp_path):
+        chars = [{"speaker_label": "A", "voice_design": dub.DEFAULT_VOICE_DESCRIPTIONS[0]}]
+        out = dub.clone_map_from_characters(chars, str(tmp_path), speaker_labels=["A", "B"])
+        assert out["A"]["instruct"] == dub.DEFAULT_VOICE_DESCRIPTIONS[0]
+        assert out["B"]["instruct"] == dub.DEFAULT_VOICE_DESCRIPTIONS[1]
+
+    def test_the_pool_wraps_when_there_are_more_speakers_than_voices(self, tmp_path):
+        labels = [f"S{i}" for i in range(len(dub.DEFAULT_VOICE_DESCRIPTIONS) + 1)]
+        out = dub.clone_map_from_characters([], str(tmp_path), speaker_labels=labels)
+        assert len(out) == len(labels)
+
+    def test_chatterbox_uses_its_built_in_voice(self, tmp_path):
+        out = dub.clone_map_from_characters([], str(tmp_path), default_engine="chatterbox",
+                                            speaker_labels=["A"])
+        assert out == {"A": {"engine": "chatterbox", "ref_audio": None}}
+
+    @pytest.mark.parametrize("engine", ["tada", "gpt_sovits"])
+    def test_engines_that_need_a_clip_leave_a_clipless_speaker_without_a_voice(self, engine, tmp_path):
+        chars = [{"speaker_label": "A", "ref_audio_filename": "a.wav", "ref_text": "hi"}]
+        out = dub.clone_map_from_characters(chars, str(tmp_path), default_engine=engine,
+                                            speaker_labels=["A", "B", None])
+        assert set(out) == {"A"} and out["A"]["engine"] == engine
+        assert dub.speakers_without_voice(out, ["A", "B", None]) == [None, "B"]
+
+    def test_a_character_without_its_own_engine_follows_the_runs_engine(self, tmp_path):
+        chars = [{"speaker_label": "A", "ref_audio_filename": "a.wav", "ref_text": "hi"},
+                 {"speaker_label": "B", "ref_audio_filename": "b.wav", "clone_engine": "tada"}]
+        out = dub.clone_map_from_characters(chars, str(tmp_path), default_engine="chatterbox")
+        assert out["A"]["engine"] == "chatterbox" and out["B"]["engine"] == "tada"
 
 
-class TestFillMissingVoices:
-    """Step 25g item 4: the fallback both `cli.py dub` and Workspace
-    section 8 use for characters with no voice picked."""
-
-    def test_unvoiced_speakers_get_distinct_voices(self):
-        result = dub.fill_missing_voices({}, {"A", "B"}, voice_pool=["v1", "v2", "v3"])
-        assert result == {"A": "v1", "B": "v2"}
-
-    def test_picked_voices_are_kept_and_not_reused_while_the_pool_allows(self):
-        result = dub.fill_missing_voices({"A": "v1"}, {"A", "B", "C"}, voice_pool=["v1", "v2", "v3"])
-        assert result == {"A": "v1", "B": "v2", "C": "v3"}
-
-    def test_falls_back_to_the_whole_pool_once_it_is_used_up(self):
-        result = dub.fill_missing_voices({"A": "v1"}, {"A", "B"}, voice_pool=["v1"])
-        assert result == {"A": "v1", "B": "v1"}
-
-
-class TestBuildDubTrackClonePriority:
+class TestBuildDubTrackVoiceRouting:
     """The core routing logic in both build_dub_track and
-    build_narration_track: F5-TTS clone > offline/
-    edge-tts fallback, and one line's synthesis failure must never lose
-    every other line's already-generated audio."""
+    build_narration_track: each speaker is voiced by their own clone-map
+    entry, and one line's synthesis failure must never lose every other
+    line's already-generated audio."""
 
-    def test_uses_f5tts_cloning_when_a_clone_ref_is_set(self, monkeypatch, tmp_path):
+    def test_each_speaker_uses_their_own_entry(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
         calls = []
-        monkeypatch.setattr(dub, "synthesize_line_cloned",
-                             lambda text, ref_audio, ref_text, out_path: calls.append(
-                                 ("cloned", text, ref_audio, ref_text)) or open(out_path, "w").close())
-        monkeypatch.setattr(dub, "synthesize_line",
-                             lambda *a, **k: calls.append(("plain",)) or open(a[2], "w").close())
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
+                            lambda text, out_path, ref_audio_path=None, ref_text=None, instruct=None:
+                            calls.append(("omnivoice", text, ref_audio_path, ref_text, instruct))
+                            or open(out_path, "w").close())
+        monkeypatch.setattr(dub, "synthesize_line_chatterbox",
+                            lambda text, out_path, ref_audio_path=None, exaggeration=0.5:
+                            calls.append(("chatterbox", text, ref_audio_path)) or open(out_path, "w").close())
 
-        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
-        out_path, errors = dub.build_dub_track(
-            lines, str(tmp_path), {}, character_clone_map={
-                "A": {"ref_audio": "/refs/a.wav", "ref_text": "你好"}})
+        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A"),
+                 Line(idx=1, start=1, end=2, zh="y", en="Bye", speaker="B")]
+        _, errors = dub.build_dub_track(lines, str(tmp_path), {
+            "A": {"engine": "omnivoice", "ref_audio": "/refs/a.wav", "ref_text": "你好"},
+            "B": {"engine": "chatterbox", "ref_audio": None}})
 
         assert errors == []
-        assert calls == [("cloned", "Hello", "/refs/a.wav", "你好")]
+        assert calls == [("omnivoice", "Hello", "/refs/a.wav", "你好", None),
+                         ("chatterbox", "Bye", None)]
 
-    def test_falls_back_to_plain_tts_with_no_clone_ref(self, monkeypatch, tmp_path):
+    def test_a_speaker_with_no_entry_stays_silent_with_a_plain_error(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
         calls = []
-        monkeypatch.setattr(dub, "synthesize_line",
-                             lambda text, voice, out_path, rate="+0%": calls.append(
-                                 ("plain", text, voice)) or open(out_path, "w").close())
-
-        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
-        dub.build_dub_track(lines, str(tmp_path), {"A": "en-US-AvaNeural"})
-
-        assert calls == [("plain", "Hello", "en-US-AvaNeural")]
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
+        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A"),
+                 Line(idx=1, start=1, end=2, zh="y", en="Bye", speaker="B")]
+        _, errors = dub.build_dub_track(lines, str(tmp_path), {"A": dict(VOICE)})
+        assert calls == [("Hello", VOICE["instruct"])]
+        assert errors == [{"line_idx": 1, "error": dub.NO_VOICE_ERROR}]
+        assert lines[1].dub_filename is None
 
     def test_a_failed_line_does_not_lose_other_lines_audio(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
-
-        def flaky_synthesize(text, voice, out_path, rate="+0%"):
-            if text == "fails":
-                raise RuntimeError("TTS API down")
-            open(out_path, "w").close()
-        monkeypatch.setattr(dub, "synthesize_line", flaky_synthesize)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(fail_on="fails"))
 
         lines = [Line(idx=0, start=0, end=1, zh="x", en="ok one", speaker="A"),
                  Line(idx=1, start=1, end=2, zh="y", en="fails", speaker="A"),
                  Line(idx=2, start=2, end=3, zh="z", en="ok two", speaker="A")]
-        out_path, errors = dub.build_dub_track(lines, str(tmp_path), {})
+        out_path, errors = dub.build_dub_track(lines, str(tmp_path), ALL)
 
         assert len(errors) == 1
         assert errors[0]["line_idx"] == 1
@@ -327,11 +293,10 @@ class TestBuildDubTrackClonePriority:
     def test_lines_with_no_translation_are_skipped_silently(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
         calls = []
-        monkeypatch.setattr(dub, "synthesize_line",
-                             lambda *a, **k: calls.append(1) or open(a[2], "w").close())
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
 
         lines = [Line(idx=0, start=0, end=1, zh="x", en="", speaker="A")]
-        out_path, errors = dub.build_dub_track(lines, str(tmp_path), {})
+        out_path, errors = dub.build_dub_track(lines, str(tmp_path), ALL)
 
         assert calls == []
         assert errors == []
@@ -340,14 +305,14 @@ class TestBuildDubTrackClonePriority:
         _install_fake_pydub(monkeypatch)
         clips_dir = tmp_path / "dub_clips"
         clips_dir.mkdir()
-        name = f"line_0000_{dub.clip_signature('Hello', {'engine': 'edge_tts', 'voice': 'en-US-AvaNeural'})}.wav"
+        name = f"line_0000_{dub.clip_signature('Hello', VOICE)}.wav"
         (clips_dir / name).write_text("already here")
 
         calls = []
-        monkeypatch.setattr(dub, "synthesize_line", lambda *a, **k: calls.append(1))
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
 
         lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
-        dub.build_dub_track(lines, str(tmp_path), {})
+        dub.build_dub_track(lines, str(tmp_path), ALL)
 
         assert calls == []  # never re-synthesized
         assert lines[0].dub_filename == os.path.join("dub_clips", name)
@@ -359,14 +324,14 @@ class TestBuildNarrationTrack:
             str(tmp_path / "dub_clips" / "line_0000.wav"): 2000,
             str(tmp_path / "dub_clips" / "line_0001.wav"): 3000,
         })
-        monkeypatch.setattr(dub, "synthesize_line",
-                             lambda text, voice, out_path, **kwargs: open(out_path, "w").close())
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
+                             lambda text, out_path, **kwargs: open(out_path, "w").close())
 
         # Different speakers, so each line is its own TTS call (same-speaker
         # lines would share one -- see TestNarrationTTSUnits).
         lines = [Line(idx=0, start=0, end=0, zh="x", en="First", speaker="A"),
                  Line(idx=1, start=0, end=0, zh="y", en="Second", speaker="B")]
-        dub.build_narration_track(lines, str(tmp_path), {}, gap_ms=350)
+        dub.build_narration_track(lines, str(tmp_path), ALL, gap_ms=350)
 
         assert lines[0].start == 0.0
         assert lines[0].end == 2.0
@@ -376,16 +341,16 @@ class TestBuildNarrationTrack:
     def test_a_blank_line_advances_the_cursor_by_nothing_and_records_a_point_in_time(self, tmp_path, monkeypatch):
         _install_fake_pydub(monkeypatch)
         lines = [Line(idx=0, start=0, end=0, zh="x", en="")]
-        dub.build_narration_track(lines, str(tmp_path), {})
+        dub.build_narration_track(lines, str(tmp_path), ALL)
         assert lines[0].start == lines[0].end == 0.0
 
     def test_a_failed_line_still_advances_the_timeline_with_a_silent_gap(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "synthesize_line",
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
                              lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
 
         lines = [Line(idx=0, start=0, end=0, zh="x", en="fails")]
-        out_path, errors = dub.build_narration_track(lines, str(tmp_path), {}, gap_ms=350)
+        out_path, errors = dub.build_narration_track(lines, str(tmp_path), ALL, gap_ms=350)
 
         assert len(errors) == 1
         assert lines[0].end == pytest.approx(0.35)
@@ -397,12 +362,12 @@ class TestNarrateOriginalLanguage:
 
     def test_original_mode_speaks_source_text_not_translation(self, timed, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), {}, narrate_original=True)
+        dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True)
         assert timed.synth == ["你好"]
 
     def test_translation_mode_still_speaks_the_translation_by_default(self, timed, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), {})
+        dub.build_narration_track(lines, str(tmp_path), ALL)
         assert timed.synth == ["Hello"]
 
     def test_original_mode_generates_audio_with_no_translation_at_all(self, timed, tmp_path):
@@ -410,14 +375,14 @@ class TestNarrateOriginalLanguage:
         mode -- only the exported bilingual subtitle needs it (warned
         about at the UI level, see tabs/workspace_tab.py)."""
         lines = [Line(idx=0, start=0, end=0, zh="你好世界", en="", speaker="A")]
-        out_path, errors = dub.build_narration_track(lines, str(tmp_path), {}, narrate_original=True)
+        out_path, errors = dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True)
         assert timed.synth == ["你好世界"]
         assert errors == []
         assert lines[0].dub_filename is not None
 
     def test_a_line_with_no_source_text_is_still_treated_as_blank_in_original_mode(self, timed, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), {}, narrate_original=True)
+        dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True)
         assert timed.synth == []
         assert lines[0].start == lines[0].end == 0.0
 
@@ -428,11 +393,11 @@ class TestNarrateOriginalLanguage:
         noun), switching narration language must still regenerate the
         clip rather than silently reusing the other mode's cached audio."""
         lines_translation = [Line(idx=0, start=0, end=0, zh="Amy", en="Amy", speaker="A")]
-        dub.build_narration_track(lines_translation, str(tmp_path), {})
+        dub.build_narration_track(lines_translation, str(tmp_path), ALL)
         translation_clip = lines_translation[0].dub_filename
 
         lines_original = [Line(idx=0, start=0, end=0, zh="Amy", en="Amy", speaker="A")]
-        dub.build_narration_track(lines_original, str(tmp_path), {}, narrate_original=True,
+        dub.build_narration_track(lines_original, str(tmp_path), ALL, narrate_original=True,
                                   source_language="zh")
         original_clip = lines_original[0].dub_filename
 
@@ -445,13 +410,13 @@ class TestNarrateOriginalLanguage:
         _install_fake_pydub(monkeypatch, clip_lengths={
             str(tmp_path / "dub_clips" / "line_0000-0001.wav"): 1000,
         })
-        monkeypatch.setattr(dub, "synthesize_line",
-                             lambda text, voice, out_path, **kwargs: open(out_path, "w").close())
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
+                             lambda text, out_path, **kwargs: open(out_path, "w").close())
         # Source text lengths are 1:3 -- very different from the (unused)
         # English lengths, so a pass that still split by ln.en would fail.
         lines = [Line(idx=0, start=0, end=0, zh="a", en="Same length", speaker="A"),
                  Line(idx=1, start=0, end=0, zh="bbb", en="Same length", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), {}, narrate_original=True, source_language="zh")
+        dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True, source_language="zh")
         assert lines[0].end < lines[1].end
         # roughly 1/4 vs 3/4 of the clip -- not a 50/50 split
         assert lines[0].end < 0.4
@@ -463,7 +428,7 @@ class TestNarrateOriginalLanguage:
         clone_map = {"A": {"engine": "gpt_sovits", "ref_audio": "/ref.wav", "ref_text": "hi",
                            "ref_language": "zh"}}
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), {}, character_clone_map=clone_map,
+        dub.build_narration_track(lines, str(tmp_path), clone_map,
                                   narrate_original=True, source_language="zh")
         assert captured[0]["text"] == "你好"
         assert captured[0]["text_lang"] == "zh"
@@ -475,14 +440,14 @@ class TestNarrateOriginalLanguage:
         clone_map = {"A": {"engine": "gpt_sovits", "ref_audio": "/ref.wav", "ref_text": "hi",
                            "ref_language": "zh"}}
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), {}, character_clone_map=clone_map)
+        dub.build_narration_track(lines, str(tmp_path), clone_map)
         assert captured[0]["text"] == "Hello"
         assert captured[0]["text_lang"] == "en"
 
     def test_original_mode_narration_lines_still_export_bilingual_subtitles(self, timed, tmp_path):
         import subtitle_formats
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), {}, narrate_original=True, source_language="zh")
+        dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True, source_language="zh")
         vtt = subtitle_formats.lines_to_vtt(lines, field="bilingual")
         assert "Hello" in vtt
         assert "你好" in vtt
@@ -563,9 +528,8 @@ class TestCloneEngineOriginalLanguages:
             assert not dub.clone_engine_supports_language("chatterbox", lang)
 
     def test_engines_outside_the_table_are_unrestricted(self):
-        # F5-TTS and GPT-SoVITS are already language-aware on their own
-        # terms (ref_language/text_lang) -- not gated by this table.
-        assert dub.clone_engine_supports_language("f5tts", "ko")
+        # GPT-SoVITS is already language-aware on its own terms
+        # (ref_language/text_lang) -- not gated by this table.
         assert dub.clone_engine_supports_language("gpt_sovits", "ko")
 
 
@@ -636,18 +600,17 @@ class TestBuildTrackSubprocessWorker:
 
     def test_matches_a_direct_dub_track_call_on_success(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "synthesize_line",
-                             lambda text, voice, out_path, **kwargs: open(out_path, "w").close())
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
+                             lambda text, out_path, **kwargs: open(out_path, "w").close())
 
         direct_lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
         direct_out_path, direct_errors = dub.build_dub_track(
-            direct_lines, str(tmp_path), {"A": "en-US-AvaNeural"})
+            direct_lines, str(tmp_path), ALL)
 
         worker_lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            worker_lines, str(tmp_path), {"A": "en-US-AvaNeural"}, "en-US-AvaNeural",
-            {}, "edge_tts", False, {}, 1.4, 0.85, None, result_queue)
+            worker_lines, str(tmp_path), ALL, False, {}, 1.4, 0.85, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("ok", {"lines": worker_lines, "out_path": direct_out_path,
@@ -658,13 +621,13 @@ class TestBuildTrackSubprocessWorker:
         _install_fake_pydub(monkeypatch, clip_lengths={
             str(tmp_path / "dub_clips" / "line_0000.wav"): 2000,
         })
-        monkeypatch.setattr(dub, "synthesize_line",
-                             lambda text, voice, out_path, **kwargs: open(out_path, "w").close())
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
+                             lambda text, out_path, **kwargs: open(out_path, "w").close())
 
         lines = [Line(idx=0, start=0, end=0, zh="x", en="First")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", True, {}, 1.4, 0.85, None, result_queue)
+            lines, str(tmp_path), ALL, True, {}, 1.4, 0.85, result_queue)
         outcome = result_queue.get_nowait()
 
         # only build_narration_track rewrites .start/.end onto the lines
@@ -673,7 +636,7 @@ class TestBuildTrackSubprocessWorker:
 
     def test_reports_an_exception_instead_of_raising(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "synthesize_line",
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
                              lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
         monkeypatch.setattr(dub, "build_dub_track",
                              lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
@@ -681,7 +644,7 @@ class TestBuildTrackSubprocessWorker:
         lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", False, {}, 1.4, 0.85, None, result_queue)
+            lines, str(tmp_path), ALL, False, {}, 1.4, 0.85, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("error", "RuntimeError", "boom")
@@ -718,7 +681,7 @@ def timed(monkeypatch):
     monkeypatch.setitem(sys.modules, "pydub", fake_module)
     record = types.SimpleNamespace(synth=[], stretch=[])
 
-    def fake_synth(text, voice, out_path):
+    def fake_synth(text, out_path, ref_audio_path=None, ref_text=None, instruct=None):
         record.synth.append(text)
         _write_ms(out_path, len(text) * 100)
 
@@ -727,7 +690,7 @@ def timed(monkeypatch):
         _write_ms(out_path, _TimedAudio.from_file(in_path)._length / factor)
         return out_path
 
-    monkeypatch.setattr(dub, "synthesize_line", fake_synth)
+    monkeypatch.setattr(dub, "synthesize_line_omnivoice", fake_synth)
     monkeypatch.setattr(dub, "time_stretch", fake_stretch)
     return record
 
@@ -796,7 +759,7 @@ class TestDubTrackTimeStretch:
 
     def test_a_modest_overflow_is_sped_up_by_a_clamped_factor(self, timed, tmp_path):
         lines = [_line(0, "x" * 12)]  # 1.2s of speech in a 1s window
-        _, errors = dub.build_dub_track(lines, str(tmp_path), {})
+        _, errors = dub.build_dub_track(lines, str(tmp_path), ALL)
         assert errors == [] and timed.stretch == [1.2]
         assert lines[0].dub_filename.endswith("_x1.200.wav")
         rec = dub.pacing_for_line(lines[0], dub.load_pacing(str(tmp_path)))
@@ -804,14 +767,14 @@ class TestDubTrackTimeStretch:
 
     def test_a_clip_that_already_fits_is_left_untouched(self, timed, tmp_path):
         lines = [_line(0, "x" * 10)]  # exactly 1s
-        dub.build_dub_track(lines, str(tmp_path), {})
+        dub.build_dub_track(lines, str(tmp_path), ALL)
         assert timed.stretch == []
         assert "_x" not in lines[0].dub_filename
         assert dub.load_pacing(str(tmp_path))[0]["status"] == dub.PACING_FIT
 
     def test_past_the_cap_it_is_capped_and_overflows_not_crushed(self, timed, tmp_path):
         lines = [_line(0, "x" * 30)]  # 3s of speech in a 1s window
-        dub.build_dub_track(lines, str(tmp_path), {})
+        dub.build_dub_track(lines, str(tmp_path), ALL)
         assert timed.stretch == [dub.DUB_MAX_SPEEDUP]
         rec = dub.load_pacing(str(tmp_path))[0]
         assert rec["status"] == dub.PACING_OVERFLOW
@@ -819,13 +782,13 @@ class TestDubTrackTimeStretch:
 
     def test_the_clamp_passed_in_is_the_one_used(self, timed, tmp_path):
         lines = [_line(0, "x" * 12)]
-        dub.build_dub_track(lines, str(tmp_path), {}, max_speedup=1.1)
+        dub.build_dub_track(lines, str(tmp_path), ALL, max_speedup=1.1)
         assert timed.stretch == [1.1]
         assert dub.load_pacing(str(tmp_path))[0]["status"] == dub.PACING_OVERFLOW
 
     def test_all_three_states_map_to_their_indicator(self, timed, tmp_path):
         lines = [_line(0, "x" * 10, 0, 1), _line(1, "x" * 12, 1, 2), _line(2, "x" * 30, 2, 3)]
-        dub.build_dub_track(lines, str(tmp_path), {})
+        dub.build_dub_track(lines, str(tmp_path), ALL)
         pacing = dub.load_pacing(str(tmp_path))
         assert [dub.PACING_ICONS[dub.pacing_for_line(ln, pacing)["status"]] for ln in lines] == [
             "🟢", "🟡", "🔴"]
@@ -834,7 +797,7 @@ class TestDubTrackTimeStretch:
         monkeypatch.setattr(dub, "time_stretch",
                             lambda *a: (_ for _ in ()).throw(FileNotFoundError("ffmpeg")))
         lines = [_line(0, "x" * 12)]
-        _, errors = dub.build_dub_track(lines, str(tmp_path), {})
+        _, errors = dub.build_dub_track(lines, str(tmp_path), ALL)
         assert errors == []
         assert "_x" not in lines[0].dub_filename
         rec = dub.load_pacing(str(tmp_path))[0]
@@ -845,7 +808,7 @@ class TestDubTrackTimeStretch:
         import translate_engines
         long_text = "x" * 30  # 3s -- would hit the cap and overflow
         lines = [_line(0, long_text)]
-        dub.build_dub_track(lines, str(tmp_path), {})
+        dub.build_dub_track(lines, str(tmp_path), ALL)
         assert dub.load_pacing(str(tmp_path))[0]["status"] == dub.PACING_OVERFLOW
 
         # Section 7's pacing rewrite, with a fake LLM, shortens the line...
@@ -857,14 +820,14 @@ class TestDubTrackTimeStretch:
         # ...so the next dub voices the rewritten line (not the old clip) and
         # only stretches the 10% gap the rewrite left.
         timed.stretch.clear()
-        dub.build_dub_track(lines, str(tmp_path), {})
+        dub.build_dub_track(lines, str(tmp_path), ALL)
         assert timed.synth[-1] == "x" * 11
         assert timed.stretch == [1.1]
         assert dub.load_pacing(str(tmp_path))[0]["status"] == dub.PACING_STRETCHED
 
     def test_a_pacing_record_goes_stale_once_the_line_points_elsewhere(self, timed, tmp_path):
         lines = [_line(0, "x" * 12)]
-        dub.build_dub_track(lines, str(tmp_path), {})
+        dub.build_dub_track(lines, str(tmp_path), ALL)
         pacing = dub.load_pacing(str(tmp_path))
         lines[0].dub_filename = "dub_clips/something_else.wav"
         assert dub.pacing_for_line(lines[0], pacing) is None
@@ -882,37 +845,37 @@ class TestClipCacheFollowsTheText:
 
     def test_editing_a_dubbed_line_re_voices_it(self, timed, tmp_path):
         lines = [_line(0, "Helo there")]
-        dub.build_dub_track(lines, str(tmp_path), {})
+        dub.build_dub_track(lines, str(tmp_path), ALL)
         stale = lines[0].dub_filename
 
         lines[0].en = "Hello there"  # typo fixed after dubbing
-        dub.build_dub_track(lines, str(tmp_path), {})
+        dub.build_dub_track(lines, str(tmp_path), ALL)
 
         assert timed.synth == ["Helo there", "Hello there"]
         assert lines[0].dub_filename != stale
 
     def test_changing_a_characters_voice_re_voices_their_lines(self, timed, tmp_path):
         lines = [_line(0, "x" * 10)]
-        dub.build_dub_track(lines, str(tmp_path), {"A": "en-US-AvaNeural"})
-        dub.build_dub_track(lines, str(tmp_path), {"A": "en-GB-SoniaNeural"})
+        dub.build_dub_track(lines, str(tmp_path), {"A": {**VOICE, "instruct": "female, low pitch"}})
+        dub.build_dub_track(lines, str(tmp_path), {"A": {**VOICE, "instruct": "male, high pitch"}})
         assert len(timed.synth) == 2
 
     def test_a_cancelled_run_still_resumes_from_its_finished_clips(self, timed, monkeypatch, tmp_path):
         lines = [_line(i, f"Line {i}.", i, i + 1) for i in range(4)]
-        real_synth = dub.synthesize_line
+        real_synth = dub.synthesize_line_omnivoice
 
-        def killed_on_line_2(text, voice, out_path):
+        def killed_on_line_2(text, out_path, **kwargs):
             if text == "Line 2.":
                 raise _Killed()
-            real_synth(text, voice, out_path)
-        monkeypatch.setattr(dub, "synthesize_line", killed_on_line_2)
+            real_synth(text, out_path, **kwargs)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", killed_on_line_2)
         with pytest.raises(_Killed):
-            dub.build_dub_track(lines, str(tmp_path), {})
+            dub.build_dub_track(lines, str(tmp_path), ALL)
         assert timed.synth == ["Line 0.", "Line 1."]
 
-        monkeypatch.setattr(dub, "synthesize_line", real_synth)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", real_synth)
         fresh = [_line(i, f"Line {i}.", i, i + 1) for i in range(4)]
-        _, errors = dub.build_dub_track(fresh, str(tmp_path), {})
+        _, errors = dub.build_dub_track(fresh, str(tmp_path), ALL)
         assert errors == []
         assert timed.synth == ["Line 0.", "Line 1.", "Line 2.", "Line 3."]  # 0 and 1 reused
         assert all(ln.dub_filename for ln in fresh)
@@ -925,83 +888,36 @@ class TestClipCacheFollowsTheText:
         header) to its out_path before being killed. Before the fix, that
         landed straight on clip_path and survived as a corrupted-but-
         loadable clip; now it can only ever land on a .partial.wav."""
-        fixture_synth = dub.synthesize_line  # the timed fixture's fake, restored below
+        fixture_synth = dub.synthesize_line_omnivoice  # the timed fixture's fake, restored below
 
-        def killed_after_writing_a_header(text, voice, out_path):
+        def killed_after_writing_a_header(text, out_path, **kwargs):
             with open(out_path, "w") as f:
                 f.write("only-a-header")
             raise _Killed()
-        monkeypatch.setattr(dub, "synthesize_line", killed_after_writing_a_header)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", killed_after_writing_a_header)
 
         lines = [_line(0, "Hello")]
         with pytest.raises(_Killed):
-            dub.build_dub_track(lines, str(tmp_path), {})
+            dub.build_dub_track(lines, str(tmp_path), ALL)
 
         clips_dir = tmp_path / "dub_clips"
         assert all(f.endswith(".partial.wav") for f in os.listdir(clips_dir))
 
-        monkeypatch.setattr(dub, "synthesize_line", fixture_synth)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", fixture_synth)
         fresh = [_line(0, "Hello")]
-        _, errors = dub.build_dub_track(fresh, str(tmp_path), {})
+        _, errors = dub.build_dub_track(fresh, str(tmp_path), ALL)
         assert errors == []
         assert timed.synth == ["Hello"]  # retried for real, not reused as the corrupted clip
         assert fresh[0].dub_filename is not None
 
     def test_an_edited_narration_unit_is_re_voiced_too(self, timed, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="x", en="Helo.", speaker="N")]
-        dub.build_narration_track(lines, str(tmp_path), {})
+        dub.build_narration_track(lines, str(tmp_path), ALL)
         lines[0].en = "Hello."
-        dub.build_narration_track(lines, str(tmp_path), {})
+        dub.build_narration_track(lines, str(tmp_path), ALL)
         assert timed.synth == ["Helo.", "Hello."]
-        dub.build_narration_track(lines, str(tmp_path), {})
+        dub.build_narration_track(lines, str(tmp_path), ALL)
         assert timed.synth == ["Helo.", "Hello."]  # unchanged -- reused
-
-
-class TestPiperFallbackClipCaching:
-    """Step 29 bug 2: a clip actually rendered by the Piper fallback must
-    be cached under a path distinct from its edge-tts signature, so a
-    later run retries edge-tts instead of reusing the stale Piper audio
-    forever once the block lifts."""
-
-    def test_dub_track_retries_edge_tts_once_it_recovers(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
-        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
-        monkeypatch.setattr(dub, "synthesize_line_offline",
-                             lambda text, voice, out_path: open(out_path, "w").close())
-
-        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
-        _, errors = dub.build_dub_track(lines, str(tmp_path), {})
-        assert errors == []
-        piper_clip = lines[0].dub_filename
-        assert piper_clip.endswith(".piper_fallback.wav")
-
-        # edge-tts recovers -- must be retried, not served the stale Piper clip.
-        _install_fake_edge_tts(monkeypatch)  # no save_exception this time
-        fresh = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
-        _, errors2 = dub.build_dub_track(fresh, str(tmp_path), {})
-        assert errors2 == []
-        assert not fresh[0].dub_filename.endswith(".piper_fallback.wav")
-        assert fresh[0].dub_filename != piper_clip
-        # the old Piper clip is simply left behind, not deleted or reused
-        assert os.path.exists(os.path.join(str(tmp_path), piper_clip))
-
-    def test_narration_track_retries_edge_tts_once_it_recovers(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
-        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
-        monkeypatch.setattr(dub, "synthesize_line_offline",
-                             lambda text, voice, out_path: open(out_path, "w").close())
-
-        lines = [Line(idx=0, start=0, end=0, zh="x", en="Hello there.", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), {})
-        piper_clip = lines[0].dub_filename
-        assert piper_clip.endswith(".piper_fallback.wav")
-
-        _install_fake_edge_tts(monkeypatch)
-        fresh = [Line(idx=0, start=0, end=0, zh="x", en="Hello there.", speaker="A")]
-        dub.build_narration_track(fresh, str(tmp_path), {})
-        assert not fresh[0].dub_filename.endswith(".piper_fallback.wav")
 
 
 class TestHostedCloningRemoved:
@@ -1036,168 +952,19 @@ class TestHostedCloningRemoved:
         did = isolated_db.create_drama(title_en="Old dub")
         isolated_db.upsert_character(did, "A", elevenlabs_voice_id="v1")
         chars = isolated_db.list_characters(did)
-        clone_map = dub.clone_map_from_characters(chars, str(tmp_path))
+        clone_map = dub.clone_map_from_characters(chars, str(tmp_path), speaker_labels=["A"])
         lines = [_line(0, "x" * 10)]
-        _, errors = dub.build_dub_track(lines, str(tmp_path), {}, character_clone_map=clone_map)
-        assert errors == [] and timed.synth == ["x" * 10]  # plain TTS, no clone
+        _, errors = dub.build_dub_track(lines, str(tmp_path), clone_map)
+        # the hosted id is ignored: a designed voice from the run's engine, no clone
+        assert errors == [] and timed.synth == ["x" * 10]
+        assert set(clone_map["A"]) == {"engine", "instruct"}
         assert "has been removed" in dub.clone_removed_message(chars[0])
-
-
-# ---------------------------------------------------------------------------
-# Step 25c item 1: the offline/Piper path, against both real piper-tts APIs
-# ---------------------------------------------------------------------------
-
-def _install_fake_piper(monkeypatch, api="1.3+"):
-    """Fakes piper-tts at its import boundary in the shape each real
-    release has: 1.3+ (piper.download_voices.download_voice, and
-    PiperVoice.synthesize_wav(text, wave_writer)) or 1.2
-    (piper.download.get_voices/ensure_voice_exists, and
-    PiperVoice.synthesize(text, wave_writer)). PiperVoice.load only
-    accepts a model path that really exists on disk, like the real one."""
-    record = {"loaded": [], "downloaded": [], "synthesized": []}
-
-    def write_model(voice, download_dir):
-        record["downloaded"].append((voice, str(download_dir)))
-        for ext in (".onnx", ".onnx.json"):
-            with open(os.path.join(str(download_dir), voice + ext), "w") as f:
-                f.write("model")
-
-    class FakePiperVoice:
-        @staticmethod
-        def load(model_path, config_path=None, use_cuda=False):
-            if not os.path.exists(model_path) or not os.path.exists(f"{model_path}.json"):
-                raise FileNotFoundError(model_path)
-            record["loaded"].append(model_path)
-            return FakePiperVoice()
-
-        def _write(self, text, wav_file):
-            wav_file.setframerate(22050)
-            wav_file.setsampwidth(2)
-            wav_file.setnchannels(1)
-            wav_file.writeframes(b"\x00\x00" * 10)
-            record["synthesized"].append(text)
-
-    piper_mod = types.ModuleType("piper")
-    if api == "1.3+":
-        FakePiperVoice.synthesize_wav = FakePiperVoice._write
-        dv = types.ModuleType("piper.download_voices")
-        dv.download_voice = lambda voice, download_dir, force_redownload=False: write_model(
-            voice, download_dir)
-        monkeypatch.setitem(sys.modules, "piper.download_voices", dv)
-        monkeypatch.delitem(sys.modules, "piper.download", raising=False)
-    else:
-        FakePiperVoice.synthesize = FakePiperVoice._write
-        dl = types.ModuleType("piper.download")
-        dl.get_voices = lambda download_dir, update_voices=False: {}
-        dl.ensure_voice_exists = lambda name, data_dirs, download_dir, voices_info: write_model(
-            name, download_dir)
-        monkeypatch.setitem(sys.modules, "piper.download", dl)
-        monkeypatch.setitem(sys.modules, "piper.download_voices", None)  # 1.2 has no such module
-    piper_mod.PiperVoice = FakePiperVoice
-    monkeypatch.setitem(sys.modules, "piper", piper_mod)
-    monkeypatch.setattr(dub, "_piper_voices", {})
-    return record
-
-
-class TestSynthesizeLineOffline:
-    @pytest.mark.parametrize("api", ["1.3+", "1.2"])
-    def test_downloads_the_model_then_writes_a_real_wav(self, monkeypatch, tmp_path, api):
-        import wave
-        monkeypatch.setattr(dub, "piper_voices_dir", lambda: str(tmp_path / "voices"))
-        record = _install_fake_piper(monkeypatch, api)
-
-        out_path = str(tmp_path / "out.wav")
-        dub.synthesize_line_offline("hello", "en_US-lessac-medium", out_path)
-
-        model = str(tmp_path / "voices" / "en_US-lessac-medium.onnx")
-        assert record["downloaded"] == [("en_US-lessac-medium", str(tmp_path / "voices"))]
-        assert record["loaded"] == [model]
-        with wave.open(out_path, "rb") as wav:
-            assert wav.getframerate() == 22050 and wav.getnframes() == 10
-
-    def test_an_already_downloaded_model_is_not_downloaded_again(self, monkeypatch, tmp_path):
-        voices = tmp_path / "voices"
-        voices.mkdir()
-        (voices / "en_US-amy-medium.onnx").write_text("m")
-        (voices / "en_US-amy-medium.onnx.json").write_text("{}")
-        monkeypatch.setattr(dub, "piper_voices_dir", lambda: str(voices))
-        record = _install_fake_piper(monkeypatch)
-
-        dub.synthesize_line_offline("hi", "en_US-amy-medium", str(tmp_path / "out.wav"))
-
-        assert record["downloaded"] == []
-        assert record["loaded"] == [str(voices / "en_US-amy-medium.onnx")]
-
-    def test_an_edge_tts_voice_name_is_refused_with_a_clear_message(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(dub, "piper_voices_dir", lambda: str(tmp_path / "voices"))
-        record = _install_fake_piper(monkeypatch)
-        with pytest.raises(ValueError, match="isn't a Piper voice name"):
-            dub.synthesize_line_offline("hi", "en-US-AvaNeural", str(tmp_path / "out.wav"))
-        assert record["downloaded"] == [] and record["loaded"] == []
-
-
-class TestOfflineEngineUsesOfflineVoices:
-    """The real bug: section 6 only saved edge-tts names (tts_voice), and
-    the offline engine / edge->Piper fallback read that same map, so Piper
-    was asked to load 'en-US-AvaNeural'."""
-
-    def test_offline_dub_calls_piper_with_a_resolvable_model_not_the_edge_voice(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "piper_voices_dir", lambda: str(tmp_path / "voices"))
-        record = _install_fake_piper(monkeypatch)
-
-        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A"),
-                 Line(idx=1, start=1, end=2, zh="y", en="Bye", speaker="B")]
-        _, errors = dub.build_dub_track(
-            lines, str(tmp_path), {"A": "en-US-AvaNeural", "B": "en-GB-SoniaNeural"},
-            tts_engine="offline", offline_voice_map={"A": "en_GB-alba-medium"})
-
-        assert errors == []
-        assert record["loaded"] == [
-            str(tmp_path / "voices" / "en_GB-alba-medium.onnx"),
-            str(tmp_path / "voices" / f"{dub.DEFAULT_OFFLINE_VOICE_POOL[0]}.onnx"),
-        ]
-        assert record["synthesized"] == ["Hello", "Bye"]
-
-    def test_offline_narration_uses_the_offline_voice_too(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        voices = []
-        monkeypatch.setattr(dub, "synthesize_line_offline",
-                             lambda text, voice, out_path: voices.append(voice) or open(out_path, "w").close())
-
-        lines = [Line(idx=0, start=0, end=0, zh="x", en="Once upon a time.", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), {"A": "en-US-AvaNeural"},
-                                  tts_engine="offline", offline_voice_map={"A": "en_US-amy-medium"})
-
-        assert voices == ["en_US-amy-medium"]
-
-    def test_edge_fallback_never_hands_piper_the_edge_voice(self, monkeypatch, tmp_path):
-        _install_fake_pydub(monkeypatch)
-        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
-        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
-        voices = []
-        monkeypatch.setattr(dub, "synthesize_line_offline",
-                             lambda text, voice, out_path: voices.append(voice) or open(out_path, "w").close())
-
-        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
-        _, errors = dub.build_dub_track(lines, str(tmp_path), {"A": "en-US-AvaNeural"})
-
-        assert errors == []
-        assert voices == [dub.DEFAULT_OFFLINE_VOICE_POOL[0]]
-
-
-def test_offline_voice_is_saved_separately_from_the_edge_voice(isolated_db):
-    did = isolated_db.create_drama(title_en="t")
-    isolated_db.upsert_character(did, "A", tts_voice="en-US-AvaNeural")
-    isolated_db.upsert_character(did, "A", offline_voice="en_GB-alba-medium")
-    (c,) = isolated_db.list_characters(did)
-    assert (c["tts_voice"], c["offline_voice"]) == ("en-US-AvaNeural", "en_GB-alba-medium")
 
 
 class TestDubWorkerArgumentBinding:
     """background_jobs appends result_queue as the LAST positional argument
     (`args=(*args, result_queue)`), but build_track_subprocess_worker
-    declares result_queue right after offline_voice_map, before its
+    declares result_queue right after max_slowdown, before its
     keyword-default parameters. The Streamlit tab used to pass
     narrate_original/source_language positionally, which put the real queue
     in the wrong slot and broke dub generation from the tab (Step 26c
@@ -1209,7 +976,7 @@ class TestDubWorkerArgumentBinding:
         queue = object()
         bound = functools.partial(dub.build_track_subprocess_worker,
                                   narrate_original=True, source_language="ja")
-        positional = ([], "/d", {}, "v", {}, "edge_tts", False, {}, 1.4, 0.85, None)
+        positional = ([], "/d", {}, False, {}, 1.4, 0.85)
         call = inspect.signature(bound).bind(*positional, queue)
         call.apply_defaults()  # partial-bound keywords show up as defaults
         assert call.arguments["result_queue"] is queue

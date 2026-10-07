@@ -99,11 +99,6 @@ export const deleteHfRevision = (revision: string, f?: Fetch) =>
     `${BASE}/model-cache/hf/${encodeURIComponent(revision)}/delete`, { confirm: true }, pcOnlyFetch(f),
   )
 
-export const deletePiperVoice = (voice: string, f?: Fetch) =>
-  postJson<DiagnosticsCacheDeleteResult>(
-    `${BASE}/model-cache/piper/${encodeURIComponent(voice)}/delete`, { confirm: true }, pcOnlyFetch(f),
-  )
-
 export const deleteModelFile = (folder: DiagnosticsModelFolder, name: string, f?: Fetch) =>
   postJson<DiagnosticsCacheDeleteResult>(
     `${BASE}/model-cache/files/${encodeURIComponent(folder)}/${encodeURIComponent(name)}/delete`,

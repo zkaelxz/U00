@@ -59,10 +59,10 @@ describe('describeError for a missing key', () => {
     expect(describeError(noKey({ x: 1 })).title).toBe('No key is set for this engine. Add it in Settings.')
   })
   it('keeps the package heading for a real missing package', () => {
-    const err = new ApiError(503, { code: 'dependency_unavailable', message: 'The edge-tts package is not installed.' })
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: 'OmniVoice is not installed. Install it in Diagnostics.' })
     expect(describeError(err)).toEqual({
       title: 'A tool or package this needs is not installed or not reachable. See Diagnostics.',
-      detail: 'The edge-tts package is not installed.',
+      detail: 'OmniVoice is not installed. Install it in Diagnostics.',
     })
   })
 })

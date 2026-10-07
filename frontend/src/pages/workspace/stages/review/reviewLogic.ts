@@ -172,12 +172,12 @@ export function suggestionPatch(line: ReviewLine, suggestion: string): LinePatch
   return { en: suggestion, expected: { en: line.en } }
 }
 
-// The line's panel slot: the AI panel (LineAi) or a study tool (LineTools, R17-R19).
-export type ToolMode = 'alternatives' | 'grammar' | 'pronounce'
+// The line's panel slot: the AI panel (LineAi) or a study tool (LineTools, R17-R18).
+export type ToolMode = 'alternatives' | 'grammar'
 export type PanelMode = 'improve' | 'explain' | ToolMode
 
 export const isToolMode = (m: PanelMode): m is ToolMode =>
-  m === 'alternatives' || m === 'grammar' || m === 'pronounce'
+  m === 'alternatives' || m === 'grammar'
 
 // The suggestion was made for current_en; if the row shows something else now
 // it is stale and must not be applied.

@@ -50,8 +50,6 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda *a, **k: [
         {"repo_id": "org/model", "repo_type": "model", "revision": "abc123",
          "size_bytes": 10, "path": ABS_PATH}])
-    monkeypatch.setattr(diagnostics, "scan_piper_voices", lambda *a, **k: [
-        {"voice": "en_US-amy", "size_bytes": 5, "path": ABS_PATH}])
     monkeypatch.setattr(diagnostics, "scan_model_folder", lambda kind, *a, **k: [
         {"name": f"{kind}.bin", "size_bytes": 3, "path": ABS_PATH}])
     monkeypatch.setattr(settings_service, "resolve_key",
@@ -103,8 +101,8 @@ def test_reads(client):
     assert b["browser"] == {"found": True, "name": "Chrome"}
     assert "path" not in json.dumps(b)
     m = _clean(client.get("/api/diagnostics/model-cache"))
-    assert m["hf_total_bytes"] == 10 and m["piper_voices"] == [{"voice": "en_US-amy",
-                                                                 "size_bytes": 5}]
+    assert m["hf_total_bytes"] == 10
+    assert "piper_voices" not in m and "piper_total_bytes" not in m
     assert m["model_files"] == [
         {"folder": "torch", "name": "torch.bin", "size_bytes": 3},
         {"folder": "audio_separator", "name": "audio_separator.bin", "size_bytes": 3}]
@@ -150,14 +148,14 @@ def test_log_bounds_422(client):
 
 def test_install_and_upgrade(client, fakes):
     for action in ("install", "upgrade"):
-        r = client.post(f"/api/diagnostics/dependencies/edge_tts/{action}", json={"confirm": True})
+        r = client.post(f"/api/diagnostics/dependencies/pydub/{action}", json={"confirm": True})
         b = _clean(r)
-        assert r.status_code == 200 and b["ok"] is True and b["package"] == "edge_tts"
+        assert r.status_code == 200 and b["ok"] is True and b["package"] == "pydub"
     assert len(fakes) == 2
 
 
 def test_install_refusals(client, fakes, monkeypatch):
-    url = "/api/diagnostics/dependencies/edge_tts/install"
+    url = "/api/diagnostics/dependencies/pydub/install"
     for body in ({}, {"confirm": False}, {"confirm": "yes"}, {"confirm": 1}):
         assert client.post(url, json=body).status_code == 422, body
     assert client.post(url, json={"confirm": True, "extra": 1}).status_code == 422
@@ -201,9 +199,9 @@ READS = ("/api/diagnostics/setup-checks", "/api/diagnostics/model-cache",
          "/api/diagnostics/pyannote",
          "/api/diagnostics/log", "/api/diagnostics/support-report",
          "/api/diagnostics/install-presets", "/api/diagnostics/gpu-torch")
-WRITES = (("/api/diagnostics/dependencies/edge_tts/install", {"confirm": True}),
+WRITES = (("/api/diagnostics/dependencies/pydub/install", {"confirm": True}),
           ("/api/diagnostics/gpu-torch/setup", {"confirm": True, "variant": "cu128"}),
-          ("/api/diagnostics/dependencies/edge_tts/upgrade", {"confirm": True}),
+          ("/api/diagnostics/dependencies/pydub/upgrade", {"confirm": True}),
           ("/api/diagnostics/reset-library", {"confirm": True, "confirm_text": "RESET"}))
 
 
@@ -289,8 +287,8 @@ def test_package_updates_check_needs_admin_and_asks_only_when_called(fakes, monk
     r = c.post(url, json={}, headers=_h(admin))
     b = _clean(r)
     assert r.status_code == 200 and asked
-    assert b["packages"]["edge_tts"]["status"] == "update"
-    assert b["packages"]["edge_tts"]["target"] == "99.0.0"
+    assert b["packages"]["pydub"]["status"] == "update"
+    assert b["packages"]["pydub"]["target"] == "99.0.0"
     assert c.post("/api/diagnostics/gpu-torch/check", json={}).status_code in (401, 403)
     svc._UPDATES.update(checked_at=None, packages={})
 
@@ -300,12 +298,12 @@ def test_upgrade_binds_the_confirmed_target(client, fakes, monkeypatch):
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: "1.0.0")
     svc._UPDATES.update(checked_at=None, packages={})
     assert client.post("/api/diagnostics/package-updates/check", json={}).status_code == 200
-    url = "/api/diagnostics/dependencies/edge_tts/upgrade"
+    url = "/api/diagnostics/dependencies/pydub/upgrade"
     for bad in ("--index-url=x", "1.0 --pre", "", "a" * 65):
         assert client.post(url, json={"confirm": True, "target": bad}).status_code == 422, bad
     r = client.post(url, json={"confirm": True, "target": "1.5.0"})
     assert r.status_code == 409 and fakes == []
     r = client.post(url, json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 200
-    assert "edge_tts==2.0.0" in fakes[0][1] or "edge-tts==2.0.0" in fakes[0][1]
+    assert "pydub==2.0.0" in fakes[0][1] or "pydub==2.0.0" in fakes[0][1]
     svc._UPDATES.update(checked_at=None, packages={})

@@ -3,6 +3,5 @@
 # Install:  pip install -r requirements-media.txt
 faster-whisper>=1.0
 pydub>=0.25
-edge-tts>=6.1
 opencv-python>=4.8.1.78
 pillow>=12.3

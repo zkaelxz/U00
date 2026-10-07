@@ -946,10 +946,11 @@ def cmd_translate(args):
 def cmd_dub(args):
     # Up front, as the API does: a bad pacing limit or missing TTS package
     # would otherwise fail the same way for every drama in the batch.
+    tts_engine = getattr(args, "tts_engine", None) or dub_module.DEFAULT_CLONE_ENGINE
     try:
         max_speedup, max_slowdown = dub_service.resolve_pacing_limits(
             getattr(args, "max_speedup", None), getattr(args, "max_slowdown", None))
-        dub_service.require_engine_dependency(getattr(args, "tts_engine", None) or "edge_tts")
+        dub_service.require_can_generate(tts_engine, [])
     except ServiceError as e:
         raise SystemExit(f"dub: {e.message}")
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="translated")
@@ -968,21 +969,15 @@ def cmd_dub(args):
         ddir = db.drama_dir(d["id"])
 
         source_lang = d.get("source_language") or "zh"
-        default_voice_pool = (dub_module.DEFAULT_VOICE_POOL_BY_LANGUAGE.get(
-            source_lang, dub_module.DEFAULT_VOICE_POOL) if narrate_original
-            else dub_module.DEFAULT_VOICE_POOL)
         chars = db.list_characters(d["id"])
-        voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c.get("tts_voice")}
-        offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
-                             if c.get("offline_voice")}
+        # Raised, not skipped, so _run_batch counts the drama as failed.
+        dub_service.require_can_generate(tts_engine, chars, narrate_original, source_lang)
         clone_map = dub_module.clone_map_from_characters(
             chars, ddir, gpt_sovits_url=(getattr(args, "gpt_sovits_url", None)
                                           or settings_service.resolve_key("gpt_sovits_url") or None),
-            ref_language=source_lang)
-        speakers = {ln.speaker for ln in lines if ln.speaker}
-        voice_map = dub_module.fill_missing_voices(voice_map, speakers, default_voice_pool)
-        offline_voice_map = dub_module.fill_missing_voices(
-            offline_voice_map, speakers, dub_module.DEFAULT_OFFLINE_VOICE_POOL)
+            ref_language=source_lang, default_engine=tts_engine,
+            speaker_labels={ln.speaker or None for ln in lines})
+        dub_service.require_every_speaker_voiced(clone_map, lines)
 
         build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
         stretch = {} if is_narration else dict(
@@ -1001,8 +996,7 @@ def cmd_dub(args):
         # Same clone_map_uses_local_model check the Workspace tab's
         # own Dub job uses to decide gpu_touching -- only some clone/TTS
         # backends actually load a local model onto the GPU (GPT-SoVITS,
-        # OmniVoice, ...); edge-tts/cloud backends don't, and don't need to
-        # wait on the cross-process GPU lock at all.
+        # OmniVoice, ...); only an empty map skips the cross-process GPU lock.
         _gpu_holder_box = [None]
 
         def _progress(frac, did=d["id"]):
@@ -1015,10 +1009,8 @@ def cmd_dub(args):
                         else contextlib.nullcontext(None))
         with _dub_gpu_ctx as _gpu_holder_box[0]:
             out_path, dub_errors = build_fn(
-                lines, ddir, voice_map, default_voice=default_voice_pool[0],
-                character_clone_map=clone_map,
-                emotion_map=db.load_emotions(d["id"]), offline_voice_map=offline_voice_map,
-                tts_engine=getattr(args, "tts_engine", None) or "edge_tts",
+                lines, ddir, clone_map,
+                emotion_map=db.load_emotions(d["id"]),
                 progress_cb=_progress,
                 **stretch, **narration_kwargs,
             )
@@ -1487,10 +1479,12 @@ def main():
                        help="Dub (not narration): mix the original's background music/ambience "
                             "(the source audio minus its vocals, via the drama's separation "
                             "backend) back under the dub track")
-    p_dub.add_argument("--tts-engine", default="edge_tts", choices=["edge_tts", "offline"],
-                       help="Fallback TTS engine used where a character has no cloned voice "
-                            "reference set (same choice as Workspace's own 8. AI dub / "
-                            "narration section). Defaults to edge-tts.")
+    # No argparse choices: a removed engine name gets the same plain refusal
+    # as the API instead of a generic "invalid choice" error.
+    p_dub.add_argument("--tts-engine", default=dub_module.DEFAULT_CLONE_ENGINE,
+                       help="Voice engine for speakers whose character has none of its own "
+                            f"({', '.join(dub_module.CLONE_ENGINES)}; same choice as the Dub "
+                            f"stage). Defaults to {dub_module.DEFAULT_CLONE_ENGINE}.")
     p_dub.add_argument("--gpt-sovits-url", default=None,
                        help="GPT-SoVITS server for characters using it "
                             f"(default {dub_module.GPT_SOVITS_DEFAULT_URL})")

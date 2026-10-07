@@ -1,8 +1,7 @@
 """Review per-line tools and navigation (review parity R17 alternatives,
-R18 grammar, R19 pronounce, R28 auto-shorten, R08 flagged navigation across
-pages). Fully mocked: fake engine, stubbed LLM helpers
-and edge-tts, no network."""
-import asyncio
+R18 grammar, R28 auto-shorten, R08 flagged navigation across
+pages). Fully mocked: fake engine, stubbed LLM helpers,
+no network."""
 import json
 
 import pytest
@@ -13,7 +12,6 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import db
-import dub
 import line_tools
 import translate_engines
 from api import auth as api_auth
@@ -142,80 +140,14 @@ class TestGrammar:
 
 
 # ---------------------------------------------------------------------------
-# R19 pronounce
+# R19 pronounce was removed with the Edge TTS engine
 # ---------------------------------------------------------------------------
 
-class TestPronounce:
-    def _fake_tts(self, monkeypatch, record=None):
-        async def fake(text, voice, out_path):
-            if record is not None:
-                record.update(text=text, voice=voice)
-            with open(out_path, "wb") as f:
-                f.write(b"ID3fake-mp3")
-        monkeypatch.setattr(dub, "edge_tts_synthesize", fake)
-
-    @pytest.fixture(autouse=True)
-    def _edge_tts_importable(self, monkeypatch):
-        import sys
-        import types
-        monkeypatch.setitem(sys.modules, "edge_tts", types.ModuleType("edge_tts"))
-
-    def test_returns_audio_of_the_stored_source_text(self, client, monkeypatch):
+class TestPronounceRemoved:
+    def test_route_is_gone(self, client):
         did, ids = _seed()
-        seen = {}
-        self._fake_tts(monkeypatch, seen)
         r = client.post(_ai(did, ids[1], "pronounce"), headers=LOCAL)
-        assert r.status_code == 200
-        assert r.headers["content-type"] == "audio/mpeg"
-        assert r.headers["cache-control"] == "no-store"
-        assert r.content == b"ID3fake-mp3"
-        assert seen["text"] == "再见"
-        assert seen["voice"] in line_tools.SOURCE_LANG_VOICES.values()
-
-    def test_too_long_is_refused_before_any_call(self, client, monkeypatch):
-        did, ids = _seed([Line(idx=0, start=0, end=1, zh="字" * 201, en="x")])
-
-        async def never(*a):
-            raise AssertionError("must not call edge-tts")
-        monkeypatch.setattr(dub, "edge_tts_synthesize", never)
-        r = client.post(_ai(did, ids[0], "pronounce"), headers=LOCAL)
-        assert r.status_code == 400
-
-    def test_timeout_is_bounded(self, client, monkeypatch):
-        did, ids = _seed()
-        monkeypatch.setattr(line_tools_service, "PRONOUNCE_TIMEOUT_S", 0.05)
-
-        async def slow(text, voice, out_path):
-            await asyncio.sleep(5)
-        monkeypatch.setattr(dub, "edge_tts_synthesize", slow)
-        r = client.post(_ai(did, ids[0], "pronounce"), headers=LOCAL)
-        assert r.status_code == 500 and "too long" in r.json()["error"]["message"]
-
-    def test_missing_edge_tts_is_503(self, client, monkeypatch):
-        import sys
-        monkeypatch.setitem(sys.modules, "edge_tts", None)
-        did, ids = _seed()
-        assert client.post(_ai(did, ids[0], "pronounce"), headers=LOCAL).status_code == 503
-
-    def test_blocked_is_503_and_errors_are_redacted(self, client, monkeypatch):
-        did, ids = _seed()
-
-        async def blocked(*a):
-            raise dub.EdgeTTSBlockedError("403")
-        monkeypatch.setattr(dub, "edge_tts_synthesize", blocked)
-        assert client.post(_ai(did, ids[0], "pronounce"), headers=LOCAL).status_code == 503
-
-        async def leak(*a):
-            raise RuntimeError(f"boom {SECRET}")
-        monkeypatch.setattr(dub, "edge_tts_synthesize", leak)
-        r = client.post(_ai(did, ids[0], "pronounce"), headers=LOCAL)
-        assert r.status_code == 500 and SECRET not in r.text
-
-    def test_oversized_audio_refused(self, client, monkeypatch):
-        did, ids = _seed()
-        monkeypatch.setattr(line_tools_service, "MAX_AUDIO_BYTES", 4)
-        self._fake_tts(monkeypatch)
-        assert client.post(_ai(did, ids[0], "pronounce"), headers=LOCAL).status_code == 500
+        assert r.status_code in (404, 405)
 
 
 # ---------------------------------------------------------------------------
@@ -569,10 +501,9 @@ class TestPermissions:
         # the call runs on the engine the gate checked
         assert built == ["ollama"]
 
-    def test_pronounce_and_navigation_need_lines_read(self, remote):
+    def test_navigation_needs_lines_read(self, remote):
         did, ids = _seed()
         nobody = _user("n@example.com")
-        assert remote.post(_ai(did, ids[0], "pronounce"), headers={**_h(nobody), **LOCAL}).status_code == 403
         assert remote.get(f"/api/review/dramas/{did}/flagged-adjacent",
                           headers=_h(nobody)).status_code == 403
         reader = _user("r@example.com", "lines.read")

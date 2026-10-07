@@ -454,19 +454,20 @@ class TestBankLinkActor:
 class TestDubWarning:
     def test_warns_when_clone_engine_has_no_source(self, client, isolated_db, tools):
         did = _drama(speakers=("A", "B", "C", "D"))
-        db.upsert_character(did, "A", clone_engine="f5tts")                 # no clip/design: falls back
+        db.upsert_character(did, "A", clone_engine="gpt_sovits")            # no clip/design: falls back
         db.upsert_character(did, "B", clone_engine="omnivoice", voice_design="low, calm")
         db.upsert_character(did, "C", clone_engine="chatterbox")            # built-in voice, fine
-        db.upsert_character(did, "D", clone_engine="f5tts", ref_audio_filename="gone.wav")
+        db.upsert_character(did, "D", clone_engine="gpt_sovits", ref_audio_filename="gone.wav")
         body = client.get(f"/api/dub/dramas/{did}/config").json()
         by = {s["speaker_label"]: s for s in body["speakers"]}
-        assert "plain TTS" in by["A"]["clone_warning"] and by["A"]["engine"] == "edge"
+        assert "voice of the engine picked in Dub" in by["A"]["clone_warning"]
+        assert by["A"]["engine"] == "omnivoice"
         assert by["B"]["clone_warning"] is None and by["C"]["clone_warning"] is None
         assert "missing" in by["D"]["clone_warning"] and "gone.wav" not in json.dumps(body)
 
     def test_no_warning_after_upload(self, client, isolated_db, tools):
         did = _drama()
-        db.upsert_character(did, "A", clone_engine="f5tts")
+        db.upsert_character(did, "A", clone_engine="gpt_sovits")
         _upload(client, did)
         by = {s["speaker_label"]: s for s in client.get(f"/api/dub/dramas/{did}/config").json()["speakers"]}
         assert by["A"]["clone_warning"] is None and by["A"]["has_clone_ref"] is True

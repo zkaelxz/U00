@@ -28,7 +28,7 @@ import { VOICE_CLIP_NOTE, leavesVoiceClip, mergeChoices, mergeSummary, readMerge
 import { readRenameUndo, renameProblem, saveRenameUndo, takenNames } from './renameSpeaker'
 import './characters.css'
 
-const COLUMNS = 7
+const COLUMNS = 6
 
 function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip, onSaved, onRemembered, onRenamed, onMerged }: {
   entry: CharacterEntry
@@ -148,7 +148,6 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
             )}
           </div>
         </td>
-        <td role="cell" data-label="Voice" className="card-half"><input aria-label={`Voice for ${label}`} value={form.tts_voice} onChange={(e) => set('tts_voice', e.target.value)} /></td>
         <td role="cell" data-label="Lines" className="card-meta">{entry.line_count}</td>
         <td role="cell" data-label="Reference" className="card-meta">{reference}</td>
         <td role="cell" className="card-action">
@@ -228,18 +227,22 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
           <details className="voice-details">
             <summary>Voice settings for {label}{form.clone_engine ? ` (${form.clone_engine})` : ''}</summary>
             <div className="voice-grid">
-              <Field label="Offline voice" help="Voice used by the offline TTS engine.">
-                <input aria-label={`Offline voice for ${label}`} value={form.offline_voice} onChange={(e) => set('offline_voice', e.target.value)} />
-              </Field>
               <Field label="Clone engine" help={engines ? `Engines usable for ${engines.source_language || 'this source language'}.` : undefined}>
                 <select aria-label={`Clone engine for ${label}`} value={form.clone_engine} onChange={(e) => set('clone_engine', e.target.value)}>
                   <option value="">Default{engines?.default_engine ? ` (${engines.default_engine})` : ''}</option>
                   {form.clone_engine && !engineIds.includes(form.clone_engine) && (
-                    <option value={form.clone_engine}>{form.clone_engine}</option>
+                    <option value={form.clone_engine}>
+                      {entry.clone_engine_removed ? `${form.clone_engine} (removed)` : form.clone_engine}
+                    </option>
                   )}
                   {engines?.engines.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
                 </select>
               </Field>
+              {entry.clone_engine_removed && (
+                <p className="voice-warning voice-wide" role="note" data-testid={`engine-removed-${label}`}>
+                  {entry.clone_engine_removed}
+                </p>
+              )}
               <Field label="Voice design" help="Describe the voice for engines that design one from text.">
                 <input aria-label={`Voice design for ${label}`} value={form.voice_design} onChange={(e) => set('voice_design', e.target.value)} />
               </Field>
@@ -410,7 +413,7 @@ export function CharactersPanel({ focusReady }: { focusReady?: boolean }) {
       {entries && entries.length > 0 && (
         <div className="table-scroll"><table role="table" className="card-table">
           <thead>
-            <tr role="row"><th role="columnheader">Speaker</th><th role="columnheader">Name</th><th role="columnheader">Gender</th><th role="columnheader">Voice</th><th role="columnheader">Lines</th><th role="columnheader">Reference</th><th role="columnheader"><span className="visually-hidden">Save</span></th></tr>
+            <tr role="row"><th role="columnheader">Speaker</th><th role="columnheader">Name</th><th role="columnheader">Gender</th><th role="columnheader">Lines</th><th role="columnheader">Reference</th><th role="columnheader"><span className="visually-hidden">Save</span></th></tr>
           </thead>
           <tbody>
             {entries.map((e) => (

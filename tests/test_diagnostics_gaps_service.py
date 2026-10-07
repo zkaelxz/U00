@@ -99,8 +99,6 @@ def test_model_versions_shape():
 def test_model_cache_names_and_sizes_only(monkeypatch, tmp_path):
     monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda d=None: [
         {"repo_id": "org/model", "repo_type": "model", "revision": "abc", "size_bytes": 100}])
-    (tmp_path / "en_US-voice.onnx").write_bytes(b"x" * 10)
-    (tmp_path / "en_US-voice.onnx.json").write_bytes(b"x" * 5)
     import audio_preprocess
     checkpoints = tmp_path / "torch" / "hub" / "checkpoints"
     checkpoints.mkdir(parents=True)
@@ -110,9 +108,9 @@ def test_model_cache_names_and_sizes_only(monkeypatch, tmp_path):
     sep.mkdir()
     (sep / "vocals_mel_band_roformer.ckpt").write_bytes(b"x" * 20)
     monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(sep))
-    out = svc.get_model_cache(piper_voices_dir=str(tmp_path))
+    out = svc.get_model_cache()
     assert out["hf_total_bytes"] == 100
-    assert out["piper_voices"] == [{"voice": "en_US-voice", "size_bytes": 15}]
+    assert "piper_voices" not in out and "piper_total_bytes" not in out
     assert out["model_files"] == [
         {"folder": "torch", "name": "htdemucs.th", "size_bytes": 7},
         {"folder": "audio_separator", "name": "vocals_mel_band_roformer.ckpt", "size_bytes": 20}]
@@ -238,8 +236,8 @@ def test_log_keyword_filter_runs_on_redacted_text(dirty_log):
 
 
 @pytest.mark.parametrize("call", [
-    lambda c: svc.install_dependency("edge_tts", confirm=c),
-    lambda c: svc.upgrade_dependency("edge_tts", confirm=c),
+    lambda c: svc.install_dependency("pydub", confirm=c),
+    lambda c: svc.upgrade_dependency("pydub", confirm=c),
     lambda c: svc.reset_library(confirm=c),
 ])
 def test_admin_requires_confirm(call, monkeypatch):
@@ -258,7 +256,7 @@ def test_admin_refuses_while_jobs_run_here_or_elsewhere(monkeypatch):
     with pytest.raises(svc.AdminActionJobsRunning):
         svc.reset_library(confirm=True)
     with pytest.raises(svc.AdminActionJobsRunning):
-        svc.install_dependency("edge_tts", confirm=True)
+        svc.install_dependency("pydub", confirm=True)
 
 
 def test_guard_sees_queued_jobs_and_other_process_records(isolated_db, monkeypatch):
@@ -291,12 +289,12 @@ def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
     seen = []
     _fake_pip(monkeypatch, seen=seen)
     for fn in (svc.install_dependency, svc.upgrade_dependency):
-        out = fn("edge_tts", confirm=True)
-        assert out["ok"] is True and out["package"] == "edge_tts"
+        out = fn("pydub", confirm=True)
+        assert out["ok"] is True and out["package"] == "pydub"
         _assert_clean(out)
     assert all(t == svc.PIP_TIMEOUT_SECONDS for _c, t in seen)
     assert seen[0][0][3:] == ["install", "--no-cache-dir", "--disable-pip-version-check",
-                              "edge_tts"]
+                              "pydub"]
 
 
 def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_file(monkeypatch):
@@ -312,7 +310,7 @@ def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_fi
         contents["path"] = path
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
-    assert svc.install_dependency("edge_tts", confirm=True)["ok"] is True
+    assert svc.install_dependency("pydub", confirm=True)["ok"] is True
     assert contents["pins"] == ["torch==2.11.0+cpu", "torchaudio==2.11.0+cpu"]
     assert not os.path.exists(contents["path"])      # removed after the run
 
@@ -320,7 +318,7 @@ def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_fi
 def test_pip_timeout_or_failure_is_not_ok(monkeypatch):
     _no_jobs(monkeypatch)
     _fake_pip(monkeypatch, returncode=-9, timed_out=True)
-    out = svc.install_dependency("edge_tts", confirm=True)
+    out = svc.install_dependency("pydub", confirm=True)
     assert out["ok"] is False and "took too long" in out["output_tail"][-1]
 
 
@@ -393,7 +391,7 @@ def test_pip_holds_the_library_exclusively(monkeypatch):
         seen["maintenance"] = background_jobs.enter_maintenance()
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(svc, "stream_tree", fake)
-    assert svc.install_dependency("edge_tts", confirm=True)["ok"] is True
+    assert svc.install_dependency("pydub", confirm=True)["ok"] is True
     assert seen == {"exclusive": True, "job_started": False, "maintenance": False}
     assert background_jobs.exclusive_active() is False
     background_jobs.clear_job("l7_probe")
@@ -405,7 +403,7 @@ def test_pip_refused_while_another_hold_is_active(monkeypatch):
     # a hold taken between _guard and the acquire (e.g. a restore) -> 409
     monkeypatch.setattr(background_jobs, "acquire_exclusive", lambda label: False)
     with pytest.raises(svc.AdminActionJobsRunning):
-        svc.install_dependency("edge_tts", confirm=True)
+        svc.install_dependency("pydub", confirm=True)
 
 
 def test_pip_releases_the_hold_when_it_fails(monkeypatch):
@@ -416,7 +414,7 @@ def test_pip_releases_the_hold_when_it_fails(monkeypatch):
         yield  # noqa
     monkeypatch.setattr(svc, "stream_tree", boom)
     with pytest.raises(OSError):
-        svc.install_dependency("edge_tts", confirm=True)
+        svc.install_dependency("pydub", confirm=True)
     assert background_jobs.exclusive_active() is False
 
 
@@ -465,7 +463,7 @@ def test_admin_refuses_during_exclusive_hold_or_maintenance(monkeypatch):
     assert background_jobs.acquire_exclusive("Library restore")
     try:
         for call in (lambda: svc.reset_library(confirm=True, confirm_text="RESET"),
-                     lambda: svc.install_dependency("edge_tts", confirm=True)):
+                     lambda: svc.install_dependency("pydub", confirm=True)):
             with pytest.raises(svc.AdminActionJobsRunning):
                 call()
     finally:
@@ -607,7 +605,7 @@ def test_hold_released_when_a_hung_install_is_cut_off(monkeypatch, tmp_path):
     monkeypatch.setattr(svc, "stream_tree",
                         lambda cmd, timeout: real(cmd, timeout, drain_seconds=1.0))
     try:
-        out = svc.install_dependency("edge_tts", confirm=True)
+        out = svc.install_dependency("pydub", confirm=True)
         assert out["ok"] is False
         assert background_jobs.exclusive_active() is False
     finally:
@@ -620,7 +618,7 @@ def test_pip_rechecks_other_process_jobs_under_the_hold(monkeypatch):
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: next(answers))
     monkeypatch.setattr(svc, "stream_tree", lambda *a, **k: pytest.fail("must not run"))
     with pytest.raises(svc.AdminActionJobsRunning):
-        svc.install_dependency("edge_tts", confirm=True)
+        svc.install_dependency("pydub", confirm=True)
     assert background_jobs.exclusive_active() is False
 
 

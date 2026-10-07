@@ -34,16 +34,6 @@ describe('per-line tool api', () => {
     expect(calls.every((c) => c.init?.method === 'POST' && c.init?.body === '{}')).toBe(true)
   })
 
-  it('reads the pronounce clip as a blob, with the local header', async () => {
-    const calls: { url: string; init?: RequestInit }[] = []
-    const blob = await review.pronounceLine(2, 9, fakeFetch(200, 'ID3', calls, true))
-    expect(await blob.text()).toBe('ID3')
-    expect(calls[0].url).toBe('/api/line-ai/dramas/2/lines/9/pronounce')
-    expect(calls[0].init?.method).toBe('POST')
-    const headers = (calls[0].init?.headers ?? {}) as Record<string, string>
-    expect(headers['X-Baihe-Local']).toBe('1')
-  })
-
   it('shortens every overlong line, or only the given ids', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     await review.shortenOverlong(2, undefined, fakeFetch(200, {}, calls))
@@ -105,7 +95,7 @@ describe('translation-memory dismiss', () => {
 
 describe('panel modes', () => {
   it('tells the study tools from the AI panel', () => {
-    expect(['alternatives', 'grammar', 'pronounce'].every((m) => isToolMode(m as never))).toBe(true)
+    expect(['alternatives', 'grammar'].every((m) => isToolMode(m as never))).toBe(true)
     expect(isToolMode('improve')).toBe(false)
     expect(isToolMode('explain')).toBe(false)
   })

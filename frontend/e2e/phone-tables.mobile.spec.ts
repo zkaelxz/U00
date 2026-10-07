@@ -59,7 +59,7 @@ for (const size of sizes) {
       await expect(region.getByLabel('Name for SPEAKER_00', { exact: true })).toBeVisible()
       await noSideways(region)
       for (const label of ['SPEAKER_00', 'SPEAKER_01']) {
-        for (const name of ['Name for', 'Gender for', 'Voice for']) await expectTappable(region.getByLabel(`${name} ${label}`, { exact: true }), 40)
+        for (const name of ['Name for', 'Gender for']) await expectTappable(region.getByLabel(`${name} ${label}`, { exact: true }), 40)
       }
       await expect(region.getByLabel('Custom pronouns for SPEAKER_01')).toBeVisible()
       // Labels come from the cells; the header row is no longer painted.

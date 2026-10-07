@@ -50,9 +50,9 @@ def test_pip_can_never_run(stubbed, monkeypatch):
     assert diag._run_commands([(["pip", "install", "x"], 1)]) == {"ok": False, "output_tail": ["stubbed in e2e"]}
     client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     for action in ("install", "upgrade"):
-        r = client.post(f"/api/diagnostics/dependencies/edge_tts/{action}", json={"confirm": True})
+        r = client.post(f"/api/diagnostics/dependencies/pydub/{action}", json={"confirm": True})
         assert r.status_code == 409
-    r = client.post("/api/diagnostics/dependencies/edge_tts/upgrade",
+    r = client.post("/api/diagnostics/dependencies/pydub/upgrade",
                     json={"confirm": True, "target": "9.9.9"})
     assert r.status_code == 409
     for path, body in (("/api/diagnostics/gpu-torch/setup", {"confirm": True}),

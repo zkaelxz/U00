@@ -160,7 +160,7 @@ The table has 174 rows. 10 are not pending (listed at the end), leaving **163**.
 | 23k | Authenticated browser-assisted extraction | real account |
 | 23l | zerosumonline adapter, generic import of five sites | real sites (the mangaz half is gone, #648) |
 | 25 | Transcript paste then Transcribe & Align after closing the tab | real audio and alignment model |
-| 25c | Offline Piper voice produces audio | real Piper voice |
+| 25c | Offline Piper voice produces audio | nothing to check: Piper was removed |
 | 25f | Navigator translate-page, baihehub search | real key and site |
 | 25g | ToS-refused import; two unvoiced characters dub differently | real TTS for the second half |
 | 25u | Discover translation with Ollama and no key | real Ollama |

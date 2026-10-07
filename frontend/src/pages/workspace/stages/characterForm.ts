@@ -11,8 +11,6 @@ export interface CharacterForm {
   /** '' (unspecified / series default), a preset, or CUSTOM. */
   pronoun_choice: string
   custom_pronouns: string
-  tts_voice: string
-  offline_voice: string
   clone_engine: string
   voice_design: string
   /** Write-only on the API: blank means "leave the stored text alone". */
@@ -27,8 +25,6 @@ export function toCharacterForm(e: CharacterEntry): CharacterForm {
     character_name: e.character_name,
     pronoun_choice: isPreset(p) ? p : CUSTOM,
     custom_pronouns: isPreset(p) ? '' : p,
-    tts_voice: e.tts_voice,
-    offline_voice: e.offline_voice,
     clone_engine: e.clone_engine,
     voice_design: e.voice_design,
     ref_text: '',
@@ -42,7 +38,7 @@ export function formPronouns(f: CharacterForm, fallback = ''): string {
   return f.custom_pronouns.trim() || fallback
 }
 
-const EDITABLE = ['tts_voice', 'offline_voice', 'clone_engine', 'voice_design'] as const
+const EDITABLE = ['clone_engine', 'voice_design'] as const
 
 /** Only changed fields are sent (omitted = leave alone, "" = clear). */
 export function buildCharacterUpdate(entry: CharacterEntry, f: CharacterForm): CharacterUpdate {

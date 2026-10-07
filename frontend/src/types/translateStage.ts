@@ -243,9 +243,9 @@ export interface CharacterEntry {
   // Optional: older mocks and servers may omit it.
   voice_actor?: string
   pronouns: string
-  tts_voice: string
-  offline_voice: string
   clone_engine: string
+  // Why the stored engine can no longer generate (it was removed); "" when fine.
+  clone_engine_removed?: string
   voice_design: string
   has_ref_audio: boolean
   ref_text_present: boolean
@@ -264,8 +264,6 @@ export interface CharacterUpdate {
   character_name?: string
   voice_actor?: string
   pronouns?: string
-  tts_voice?: string
-  offline_voice?: string
   clone_engine?: string
   voice_design?: string
   ref_text?: string
