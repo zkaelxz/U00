@@ -634,8 +634,9 @@ def _parse_fallback_arg(value, reflect=False) -> list:
     if reflect:
         raise SystemExit("translate: --fallback only applies to a normal translation run, "
                          "not --reflect.")
-    if any(n not in translate_engines.ENGINES for n in names):
-        raise SystemExit("translate: --fallback names an unknown translate engine.")
+    for n in names:
+        if n not in translate_engines.ENGINES:
+            raise SystemExit(f"translate: --fallback: {translate_engines.unknown_engine_message(n)}")
     return names
 
 
@@ -660,6 +661,8 @@ def _resolve_glossary_terms(drama: dict, refs) -> list:
 
 
 def cmd_translate(args):
+    if args.engine and args.engine not in translate_engines.ENGINES:
+        raise SystemExit(f"translate: {translate_engines.unknown_engine_message(args.engine)}")
     fallback_names = _parse_fallback_arg(getattr(args, "fallback", None),
                                          reflect=getattr(args, "reflect", False))
     glossary_affected = getattr(args, "glossary_affected", False)
@@ -736,8 +739,7 @@ def cmd_translate(args):
         if chain_error:
             print(f"#{d['id']} skipped: {chain_error}")
             return
-        missing = [n for n in fallback_names
-                   if n != "nllb" and not translate_service.resolve_api_key(n)]
+        missing = [n for n in fallback_names if not translate_service.resolve_api_key(n)]
         if missing:
             print(f"#{d['id']} skipped: no {missing[0]} key is configured for --fallback.")
             return
@@ -1374,7 +1376,10 @@ def main():
     p_translate = sub.add_parser("translate")
     p_translate.add_argument("--id", type=int, default=None)
     p_translate.add_argument("--status", default=None)
-    p_translate.add_argument("--engine", default=None, choices=list(translate_engines.ENGINES))
+    # No argparse choices: a removed engine name gets the same plain refusal
+    # as the API instead of a generic "invalid choice" error.
+    p_translate.add_argument("--engine", default=None,
+                             help=f"Translate engine ({', '.join(translate_engines.ENGINES)}).")
     p_translate.add_argument("--api-key", default=None,
                              help="Key for --engine; omit to use the saved key.")
     p_translate.add_argument("--model", default=None)

@@ -183,7 +183,7 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
             and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
+    if api_key is None:
         raise MissingKeyError(engine_name)
     cap = None
     if translate_run_service.engine_cap_applies(engine_name, gemini_free_tier):

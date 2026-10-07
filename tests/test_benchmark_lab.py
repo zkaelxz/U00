@@ -463,7 +463,7 @@ class TestReviewFixes:
     def test_cancel_marks_current_and_later_runs(self, isolated_db, monkeypatch):
         svc.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv")
         monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda job_id: True)
-        started = _run(configs=[{"engine": "fake"}, {"engine": "nllb"}])
+        started = _run(configs=[{"engine": "fake"}, {"engine": "fake_mt"}])
         statuses = [svc.get_run(s)["run"]["status"] for s in started["session_ids"]]
         assert statuses == ["cancelled", "cancelled"]
 

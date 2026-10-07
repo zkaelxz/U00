@@ -542,13 +542,13 @@ class TestTranslatingCapturedText:
                             lambda *a: (False, "Not supported."))
 
         class _FakeEngine:
-            name = "nllb"
+            name = "fake_mt"
 
             def translate_batch(self, chunks, context):
                 return list(chunks)
 
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _FakeEngine())
-        page_server.set_translation_config(engine="nllb", api_key="local")
+        page_server.set_translation_config(engine="fake_mt", api_key="local")
         handler = self._post_text(token, text="hello there", source_language="en",
                                   target_language="zh")
         assert handler.status == 422

@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { openBenchSections } from './benchSections'
 import { installHitArea } from './hitArea'
 
 test.beforeEach(async ({ page }) => {
@@ -58,6 +59,7 @@ test('Benchmark Lab on a phone: run cards, stacked Arena, 44px targets, no sidew
   await seedRun(request, setName, 'phone B')
 
   await page.goto('/#/benchmark')
+  await openBenchSections(page)
   await expect(page.getByRole('heading', { name: 'Benchmark Lab' })).toBeVisible()
   const runs = page.getByRole('region', { name: 'Recent runs' })
   // Phones get cards, not the table.

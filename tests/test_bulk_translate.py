@@ -361,6 +361,15 @@ class TestRestartCancelAuth:
         assert all(r["en"] == f"EN[{r['zh']}]" for r in isolated_db.load_lines(did))
         background_jobs.clear_job(bt.poll_job_id(bulk_id))
 
+    def test_resume_rebuilds_the_engine_with_the_model_id_stored_on_the_job(self, isolated_db):
+        did = _drama(isolated_db, n=2)
+        bulk_id = isolated_db.create_bulk_job(did, "claude", "claude-opus-4-8", "submitted", [])
+        background_jobs.clear_all_jobs()
+        seen = []
+        bt.resume_pending(did, lambda e, m: seen.append((e, m)))
+        assert seen == [("claude", "claude-opus-4-8")]
+        assert bulk_id
+
     def test_resume_without_a_key_reports_it_instead_of_polling(self, isolated_db):
         engine = _claude_engine()
         did = _drama(isolated_db, n=2)
