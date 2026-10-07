@@ -3,7 +3,7 @@
 import inspect
 import re
 from .claude import ClaudeEngine
-from .gemini import GEMINI_FREE_TIER_LIMITS, GEMINI_FREE_TIER_TPM, GeminiEngine
+from .gemini import GeminiEngine
 from .local import OllamaEngine
 from .openai_compat import DeepSeekEngine, OpenAIEngine
 
@@ -108,28 +108,22 @@ FREE_ENGINES = {"ollama"}
 KEYLESS_ENGINES = {"ollama"}
 
 
+# One short sentence each: the closed engine <select> shows it verbatim, and
+# the Translate page shows its first sentence. Longer detail (rate limits,
+# pricing caveats) lives in docs/engine-backends.md.
 ENGINE_NOTES = {
-    "claude": "Best for tone/character voice, supports novel reference + prompt caching.",
-    "deepseek": "Far and away the cheapest capable option -- roughly 5-10 cents per drama on V4 Flash, and its prompt caching makes the repeated glossary/style block nearly free. Strong on Chinese, supports novel reference. OpenAI-compatible API.",
-    "gemini": "Cheap and strong on Chinese/Japanese, close to DeepSeek pricing on Flash-Lite. Supports novel reference. Google model naming/pricing changes often -- double check GEMINI_MODELS if a run starts failing.",
-    "openai": "OpenAI GPT models over the Chat Completions API (key from platform.openai.com). Pay per token; supports novel reference. Model names and prices change -- check OPENAI_MODELS if a run starts failing.",
-    "ollama": "🧪 Free — for testing: local AI on your GPU. Private and unlimited, but lower quality than paid engines.",
+    "claude": "Paid, cloud; best tone and character voice.",
+    "deepseek": "Paid, cloud, very cheap; strong on Chinese.",
+    "gemini": "Paid, cloud, cheap; strong on Chinese/Japanese.",
+    "openai": "Paid, cloud; GPT-5 models, billed per token.",
+    "ollama": "Free and private; local Gemma 4 on your GPU.",
 }
 
 # Shown instead of ENGINE_NOTES["gemini"] when the "My Gemini key is
 # free-tier" checkbox (Settings) is ticked -- Gemini itself isn't in
 # FREE_ENGINES since this only applies conditionally. See
 # engine_picker_label, the one place that decides which note to show.
-GEMINI_FREE_TIER_NOTE = (
-    "🧪 Free — for testing: Google free tier. Rate-limited -- Flash: "
-    f"{GEMINI_FREE_TIER_LIMITS['flash']['rpm']} requests/min, "
-    f"{GEMINI_FREE_TIER_LIMITS['flash']['rpd']}/day; Flash-Lite: "
-    f"{GEMINI_FREE_TIER_LIMITS['flash-lite']['rpm']}/min, "
-    f"{GEMINI_FREE_TIER_LIMITS['flash-lite']['rpd']}/day; shared "
-    f"{GEMINI_FREE_TIER_TPM:,} tokens/min across models. Pro isn't available "
-    "on the free tier. Google may use your text to improve its products, "
-    "and people may read it."
-)
+GEMINI_FREE_TIER_NOTE = "Free tier, rate-limited; Google may use your text."
 
 
 def engine_picker_label(engine_name: str, gemini_free_tier: bool = False) -> str:
