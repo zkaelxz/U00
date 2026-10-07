@@ -133,6 +133,10 @@ class TranslateRunConfig(BaseModel):
     # parity X24; never the URL. None when the drama's engine isn't Ollama
     # (not probed).
     ollama_reachable: Optional[bool] = None
+    # The owner's saved choice for this title; None = never chosen (the form
+    # then starts from the preset values, else genre notes on, she/her off).
+    default_female_pronouns: Optional[bool] = None
+    include_genre_notes: Optional[bool] = None
 
 
 class TranslateRunEstimate(BaseModel):

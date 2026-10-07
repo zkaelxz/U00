@@ -33,15 +33,32 @@ def _id_by_idx(lines):
     return {ln.idx: ln.id for ln in lines}
 
 
+def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronouns=None):
+    """(include_genre_notes, default_female_pronouns) for one run: a value the
+    caller passes wins, else what the owner saved on the title, else the API
+    defaults (genre notes on, she/her off). Every path that builds a prompt
+    goes through this, so a run that is not handed the toggles (retry, resume,
+    glossary re-translate, line AI) uses the owner's choice, not a default."""
+    saved_genre = (drama or {}).get("include_genre_notes")
+    saved_female = (drama or {}).get("default_female_pronouns")
+    if include_genre_notes is None:
+        include_genre_notes = True if saved_genre is None else bool(saved_genre)
+    if default_female_pronouns is None:
+        default_female_pronouns = False if saved_female is None else bool(saved_female)
+    return bool(include_genre_notes), bool(default_female_pronouns)
+
+
 def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True,
-                            include_genre_notes=True, default_female_pronouns=False):
+                            include_genre_notes=None, default_female_pronouns=None):
     """(glossary_terms, style_guidelines, character_names) for one drama --
     the one builder shared by translate_run_service.start_translate_run,
     `cli.py translate`, line_ai_service and the review jobs: series
     glossary, the learned style profile, emotion guidance for `lines` and
     character gender hints in custom_notes, and named-speaker labels.
-    include_genre_notes/default_female_pronouns are the Translate toggles
-    (defaults as the API: genre notes on, she/her off)."""
+    include_genre_notes/default_female_pronouns are the Translate toggles;
+    None means the title's saved choice (resolve_style_toggles)."""
+    include_genre_notes, default_female_pronouns = resolve_style_toggles(
+        drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")
     glossary_terms = db.list_glossary_terms(series_id) if series_id else None
     series_chars = db.list_series_characters(series_id) if series_id else []
@@ -52,11 +69,12 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
     style_guidelines = tguide.build_style_guidelines(
         style_preset, glossary_terms=glossary_terms,
-        include_genre_notes=bool(include_genre_notes),
-        default_female_pronouns=bool(default_female_pronouns),
+        include_genre_notes=include_genre_notes,
+        default_female_pronouns=default_female_pronouns,
         custom_notes="\n\n".join(b for b in (
             learned, emotion_block,
-            tguide.build_character_gender_hints(series_chars, drama_chars)) if b))
+            tguide.build_character_gender_hints(
+                series_chars, drama_chars, default_female_pronouns)) if b))
     character_names = tguide.build_speaker_labels(drama_chars, series_chars)
     return glossary_terms, style_guidelines, character_names
 
@@ -495,8 +513,8 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
 
 def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
                                source_language, engine, engine_choice, cost_cap_usd=None,
-                               locale="en-US", include_genre_notes=True,
-                               default_female_pronouns=False, style_note=""):
+                               locale="en-US", include_genre_notes=None,
+                               default_female_pronouns=None, style_note=""):
     """
     Bulk version of the single-line 🔧 tools in Review & edit: for every
     currently-flagged line, re-transcribes its own timing window from the
@@ -1055,8 +1073,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                                   ollama_base_url: str = None, gemini_free_tier: bool = False,
                                   models: dict = None, monthly_cap: float = 0,
                                   expected_engines: dict = None, allow_paid_summary: bool = True,
-                                  include_genre_notes: bool = True,
-                                  default_female_pronouns: bool = False):
+                                  include_genre_notes: bool = None,
+                                  default_female_pronouns: bool = None):
     """Translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
     GPU/API-load reasoning as everywhere else in this app that queues

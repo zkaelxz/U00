@@ -212,6 +212,20 @@ describe('preset start values', () => {
     expect(buildRunBody(f)).toMatchObject({ default_female_pronouns: true, include_genre_notes: false })
   })
 
+  it("starts the toggles from the title's saved choice before a preset or the defaults", () => {
+    const saved = { ...config, default_female_pronouns: true, include_genre_notes: false } as TranslateRunConfig
+    expect(initialForm(saved)).toMatchObject({ female_pronouns: true, genre_notes: false })
+    expect(initialForm(saved, { default_female_pronouns: false, include_genre_notes: true })).toMatchObject({
+      female_pronouns: true,
+      genre_notes: false,
+    })
+    const half = { ...config, default_female_pronouns: false, include_genre_notes: null } as TranslateRunConfig
+    expect(initialForm(half, { default_female_pronouns: true, include_genre_notes: false })).toMatchObject({
+      female_pronouns: false,
+      genre_notes: false,
+    })
+  })
+
   it('prefills the preset model only when the drama engine offers it', () => {
     const withEngines = {
       ...config,

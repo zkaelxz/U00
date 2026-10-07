@@ -16,9 +16,10 @@ source_service), any *_filename, `translation_engine`, and
 
 Preset handling: only the preset's `translation_engine` has a per-drama
 DB home, so only it is persisted. `style_preset`, `locale`,
-`default_female_pronouns` and `include_genre_notes` are not saved on the
-drama, so create_drama returns them as `preset_defaults` for the client to
-hold.
+`default_female_pronouns` and `include_genre_notes` are not saved by
+create_drama, so it returns them as `preset_defaults` for the client to
+hold; the owner's later choice is saved on the drama (a run's toggles, or
+update_drama_metadata) and every run reads it from there.
 
 No FastAPI import: plain dicts in, plain dicts out.
 """
@@ -48,6 +49,8 @@ _TEXT_FIELDS = ("title_en", "title_zh", "author", "studio", "director", "voice_a
                 "summary", "genre", "custom_tags", "source_url", "episode_summary",
                 "project_instructions")
 _INT_FIELDS = ("chapter_count", "episode_number")
+# The Translate stage's two toggles, stored 0/1 (translate_run_service.save_style_toggles).
+_BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes")
 
 # Hardening H1: sqlite ints are 64-bit and a Python int above that raises
 # OverflowError (a 500), so every id/count the client sends is capped well
@@ -60,7 +63,7 @@ _TEXT_CAPS = {"summary": MAX_LONG_TEXT_LEN, "episode_summary": MAX_LONG_TEXT_LEN
               "project_instructions": MAX_LONG_TEXT_LEN, "source_url": MAX_URL_LEN,
               "custom_tags": MAX_URL_LEN}
 _STRIPPED = ("title_en", "title_zh")
-_UPDATABLE = frozenset(_TEXT_FIELDS + _INT_FIELDS
+_UPDATABLE = frozenset(_TEXT_FIELDS + _INT_FIELDS + _BOOL_FIELDS
                        + ("media_type", "publication_status", "series_id",
                           "new_series_name"))
 
@@ -226,6 +229,10 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
             if value > MAX_ID:
                 raise InvalidInputError(f"{key} is out of range.")
             value = value or None  # 0 = "not set", stored NULL
+        elif key in _BOOL_FIELDS:
+            if not isinstance(value, bool):
+                raise InvalidInputError(f"{key} must be true or false.")
+            value = int(value)
         elif key == "media_type":
             _check_media_type(value)
         elif key == "publication_status":
