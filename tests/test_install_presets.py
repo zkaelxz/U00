@@ -3,7 +3,7 @@ tests/test_install_presets.py -- Diagnostics "Packages" install fixes and
 presets: pip flags (--no-cache-dir, --disable-pip-version-check), the
 pip-cache permission hint, install names that are real PyPI distributions,
 the task map, approx. sizes, PyPI links, the not-offered canvas package
-and the qwen-asr transformers downgrade warning. No network, no real pip.
+and the Chatterbox/TADA transformers downgrade warnings. No network, no real pip.
 """
 import pytest
 

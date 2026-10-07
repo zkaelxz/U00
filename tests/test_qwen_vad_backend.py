@@ -216,7 +216,7 @@ def test_run_start_and_validate_refuse_vad_backend_without_faster_whisper(isolat
     os.makedirs(ddir, exist_ok=True)
     open(os.path.join(ddir, "audio.wav"), "wb").close()
     real_find_spec = importlib.util.find_spec
-    monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature: None)
+    monkeypatch.setattr(transcribe_service, "require_qwen3_packages", lambda feature, language=None: None)
     monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
                         lambda name, *a: None if name == "faster_whisper" else real_find_spec(name, *a))
     with pytest.raises(DependencyUnavailableError, match="Open Diagnostics"):

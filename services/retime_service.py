@@ -51,7 +51,8 @@ def start_retime(drama_id: int, line_ids: list) -> dict:
     if audio_path is None:
         raise UnsupportedOperationError("This title has no stored audio to re-time against.")
     picked = compare.select_lines(drama_id, {"kind": "line_ids", "line_ids": line_ids})
-    transcribe_service.require_qwen3_packages("The Qwen3 forced aligner")
+    transcribe_service.require_qwen3_packages(
+        "The Qwen3 forced aligner", drama.get("source_language") or "zh")
     for prefix in _BLOCKING_PREFIXES:
         other = background_jobs.get_status(f"{prefix}{drama_id}")
         if other and other.get("status") in ("running", "queued"):

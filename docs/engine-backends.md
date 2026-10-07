@@ -193,7 +193,7 @@ root modules below.
 | Choice | Code | What it does |
 |---|---|---|
 | `whisper` (default) | `asr_backend.WhisperBackend` -> `core.transcribe_for_timing` | local faster-whisper with VAD segmentation; `core.load_whisper_model` falls back from GPU to CPU |
-| `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; needs `qwen-asr`; batching (`qwen_asr_batch_size`) is honoured only on the tested qwen-asr version (`effective_qwen_batch_size`) |
+| `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; runs on transformers 5.15+ through `qwen3_native.py` (the `-hf` checkpoints; no `qwen-asr` package); batching (`qwen_asr_batch_size`) is honoured whenever it can run (`effective_qwen_batch_size`). `qwen3_asr_vad` and `qwen3_asr_long` are the speech-detection variants; none is picked unless the title saves it |
 | `moss_td` | `asr_backend.MossTranscribeDiarizeBackend` | experimental one-pass transcript with speaker labels; refused unless `moss_experimental` is on; downloads pinned remote code (see `asr-experiments.md`) |
 | Groq (`use_groq` flag, not a backend choice) | `core.transcribe_with_groq` | uploads the whole file to Groq's hosted Whisper; needs a Groq key; one blocking call with `timeout=600` |
 

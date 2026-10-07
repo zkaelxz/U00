@@ -65,7 +65,8 @@ def _backend_problem(choice: str, language: str):
         if choice == "qwen3_asr":
             transcribe_service.require_qwen3_packages("Qwen3-ASR")
         elif choice in _VAD_BACKENDS:
-            transcribe_service.require_qwen3_packages("Qwen3-ASR")
+            transcribe_service.require_qwen3_packages(
+                "Qwen3-ASR", language if choice == "qwen3_asr_long" else None)
             transcribe_service._require_vad_packages()
         elif choice == "moss_td":
             transcribe_service._require_moss_backend()

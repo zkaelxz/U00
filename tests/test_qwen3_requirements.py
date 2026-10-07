@@ -12,6 +12,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import importlib.metadata
+
 import diagnostics
 import qwen3_native
 
@@ -76,3 +78,112 @@ def test_chatterbox_pin_is_a_known_downgrade_of_transformers(monkeypatch):
     warning = diagnostics.install_downgrade_warning("chatterbox-tts")
     assert warning and "5.2.0" in warning and "Qwen3-ASR" in warning
     assert diagnostics.install_downgrade_warning("omnivoice") is None
+
+
+# ---------------------------------------------------------------------------
+# Start-time checks, the old qwen-asr package, and the version parser
+# ---------------------------------------------------------------------------
+
+import importlib.util
+import types
+
+import pytest
+
+from services import qwen3_requirements_service as reqs
+from services.service_errors import DependencyUnavailableError
+
+
+def _fake_installed(monkeypatch, missing=(), transformers="5.19.0", qwen_asr=None):
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name, *a: None if name in missing
+                        else (object() if name in ("torch", "nagisa", "soynlp") else real(name, *a)))
+    monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: transformers)
+    monkeypatch.setattr(qwen3_native, "installed_qwen_asr_version", lambda: qwen_asr)
+
+
+@pytest.mark.parametrize("language,package", [("ja", "nagisa"), ("ko", "soynlp")])
+def test_start_check_names_the_missing_tokeniser_package(monkeypatch, language, package):
+    _fake_installed(monkeypatch, missing=(package,))
+    with pytest.raises(DependencyUnavailableError) as err:
+        reqs.require_qwen3_packages("Qwen3 forced alignment", language)
+    assert package in err.value.message and "Diagnostics" in err.value.message
+    reqs.require_qwen3_packages("Qwen3 forced alignment", "zh")
+    reqs.require_qwen3_packages("Qwen3-ASR")          # no aligner, no tokeniser needed
+
+
+def test_a_japanese_long_run_is_refused_at_start_without_nagisa(monkeypatch):
+    from services import transcribe_service
+    _fake_installed(monkeypatch, missing=("nagisa",))
+    monkeypatch.setattr(transcribe_service, "_require_vad_packages", lambda: None)
+    with pytest.raises(DependencyUnavailableError, match="nagisa"):
+        transcribe_service._check_run_choices("whisper", "qwen3_asr_long", "whisper_diff", "ja")
+    transcribe_service._check_run_choices("whisper", "qwen3_asr", "whisper_diff", "ja")
+    transcribe_service._check_run_choices("whisper", "qwen3_asr_long", "whisper_diff", "zh")
+
+
+@pytest.mark.parametrize("version,too_old", [
+    ("5.14.1", True), ("5.15.0rc1", True), ("5.15.0.dev0", True),
+    ("5.15.0", False), ("5.19.2", False), ("6.0.0", False)])
+def test_prereleases_of_the_floor_are_too_old(monkeypatch, version, too_old):
+    _fake_installed(monkeypatch, transformers=version)
+    assert (qwen3_native.transformers_problem() is not None) is too_old
+
+
+def test_old_transformers_with_qwen_asr_installed_says_how_to_get_out(monkeypatch):
+    _fake_installed(monkeypatch, transformers="4.57.6", qwen_asr="0.0.6")
+    problem = qwen3_native.transformers_problem("Qwen3-ASR")
+    assert "pip uninstall qwen-asr" in problem and "holds it back" in problem
+    with pytest.raises(DependencyUnavailableError, match="pip uninstall qwen-asr"):
+        reqs.require_qwen3_packages("Qwen3-ASR")
+    _fake_installed(monkeypatch, transformers="4.57.6", qwen_asr=None)
+    assert "qwen-asr" not in qwen3_native.transformers_problem("Qwen3-ASR")
+
+
+@pytest.mark.parametrize("qwen_asr,transformers,warns", [
+    ("0.0.6", "4.57.6", True), ("0.0.6", "5.15.0", False),
+    (None, "4.57.6", False), ("0.0.6", None, False)])
+def test_startup_warns_about_qwen_asr_while_it_holds_transformers_back(
+        monkeypatch, qwen_asr, transformers, warns):
+    installed = {"qwen-asr": qwen_asr, "transformers": transformers}
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: installed.get(name))
+    message = diagnostics._warn_qwen_asr_package()
+    assert bool(message) is warns
+    if warns:
+        assert "pip uninstall qwen-asr" in message and "Diagnostics" in message
+
+
+def _fake_dist(name, requires):
+    return types.SimpleNamespace(metadata={"Name": name}, requires=requires)
+
+
+def test_diagnostics_does_not_hold_transformers_back_for_qwen_asrs_pin(monkeypatch):
+    monkeypatch.setattr(importlib.metadata, "distributions", lambda: [
+        _fake_dist("qwen-asr", ["transformers==4.57.6"]),
+        _fake_dist("other", ["transformers<6"])])
+    required_by = diagnostics.installed_requirements_on()
+    assert [r for r, _ in required_by["transformers"]] == ["other"]
+    result = diagnostics.classify_update("transformers", "4.57.6", ["4.57.6", "5.15.0"],
+                                         {}, required_by)
+    assert result["status"] == "update" and result["target"] == "5.15.0"
+
+
+def test_diagnostics_row_shows_a_too_old_transformers_as_not_ready(monkeypatch):
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: "4.57.6")
+    row = next(r for r in diagnostics.get_model_engine_versions() if r["name"] == "Qwen3-ASR")
+    assert "4.57.6" in row["version"] and "needs 5.15 or newer" in row["version"]
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: "5.19.0")
+    row = next(r for r in diagnostics.get_model_engine_versions() if r["name"] == "Qwen3-ASR")
+    assert row["version"] == "5.19.0"
+
+
+@pytest.mark.parametrize("have,warned", [("5.19.0", True), ("5.0.0", True), ("4.57.6", False),
+                                         (None, False)])
+def test_tada_warns_before_taking_transformers_below_5(monkeypatch, have, warned):
+    """hume-tada declares transformers<5,>=4.57.1 (PyPI metadata)."""
+    monkeypatch.setattr(diagnostics, "get_installed_version",
+                        lambda dist: have if dist == "transformers" else None)
+    warning = diagnostics.install_downgrade_warning("hume-tada")
+    assert (warning is not None) is warned
+    if warned:
+        assert have in warning and "Qwen3-ASR" in warning

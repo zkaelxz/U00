@@ -13,7 +13,7 @@ settings, stored in db.app_settings like use_gpu.
 - mixed_languages: detect the spoken language per speech span and write it on
   each line that differs from the title's language (mixed_language.py). Off by
   default; slower (one detection per span).
-- stored_asr_backend: a title's backend, or the default for its language.
+- stored_asr_backend: a title's saved backend, Whisper when none is saved.
 
 UI-free. Writes are PC-only (the router uses local_only()).
 """
@@ -32,12 +32,6 @@ MIN_BATCH_SIZE = 1
 MAX_BATCH_SIZE = 16
 
 ASR_BACKEND_CHOICES = ("whisper", "qwen3_asr", "qwen3_asr_vad", "qwen3_asr_long", "moss_td")
-# Languages whose default backend is Qwen3-ASR on long windows, when it is
-# installed: the Qwen3-ASR model card reports about a third of Whisper
-# large-v3's character error rate on Chinese benchmarks and a lower one on
-# Japanese. The only Japanese clip measured here (docs/asr-experiments.md) was
-# run before this backend existed, on the short-span one.
-QWEN_LONG_DEFAULT_LANGUAGES = ("zh", "ja")
 
 
 def get_qwen_asr_batch_size() -> int:
@@ -139,18 +133,8 @@ def set_asr_options(qwen_asr_batch_size=None, moss_experimental=None,
 
 
 def stored_asr_backend(drama) -> str:
-    """The drama's saved backend; one that never saved a choice gets Qwen3-ASR
-    on long windows for Chinese and Japanese when transformers 5.15+, torch and
-    faster-whisper (its speech detector) are installed, else Whisper. A title
-    with Groq on keeps Whisper: the VAD backends run locally and would
-    silently bypass Groq."""
-    saved = drama.get("asr_backend_choice")
-    if saved:
-        return saved
-    if (not drama.get("use_groq")
-            and (drama.get("source_language") or "zh") in QWEN_LONG_DEFAULT_LANGUAGES
-            and qwen3_native.transformers_problem() is None
-            and all(importlib.util.find_spec(m) is not None
-                    for m in ("torch", "faster_whisper"))):
-        return "qwen3_asr_long"
-    return "whisper"
+    """The drama's saved backend, else Whisper. A title that never chose Qwen3
+    stays on Whisper: Qwen3-ASR downloads several GB of weights on first use,
+    and transformers 5.15+ alone (which other features install) is no sign the
+    user wants that."""
+    return drama.get("asr_backend_choice") or "whisper"

@@ -608,7 +608,7 @@ class TestCmdAlignUsesDramaSettings:
 
     def test_qwen3_forced_align_is_used_when_saved_on_the_drama(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
-        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature, language=None: None)
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         import forced_align
@@ -642,14 +642,31 @@ class TestCmdAlignUsesDramaSettings:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             cli.cmd_align(self._args(id=did))
         text = out.getvalue() + err.getvalue()
-        assert "needs transformers 5.15 or newer (this is 4.57.6)" in text
-        assert "update it in Diagnostics" in text and "1 failed" in text
+        assert ("Qwen3 forced alignment needs transformers 5.15 or newer (this is 4.57.6); "
+                "update it in Diagnostics.") in text
+        assert "Qwen3 forced alignment: Qwen3" not in text and "1 failed" in text
         assert isolated_db.load_lines(did) == []
         assert isolated_db.get_drama(did)["status"] != "aligned"
 
+    def test_japanese_title_without_nagisa_fails_before_transcribing(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align",
+                                          source_language="ja")
+        import qwen3_native
+        monkeypatch.setattr(qwen3_native, "transformers_problem", lambda feature="x": None)
+        import importlib.util
+        real_find_spec = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: (
+            object() if name == "torch" else None if name == "nagisa" else real_find_spec(name, *a)))
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: pytest.fail("transcribed before the dependency check"))
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli.cmd_align(self._args(id=did))
+        assert "Japanese forced alignment needs the nagisa package" in out.getvalue() + err.getvalue()
+
     def test_a_late_qwen3_import_error_still_fails_and_frees_the_gpu(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
-        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature, language=None: None)
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         import forced_align
@@ -669,7 +686,9 @@ class TestCmdAlignUsesDramaSettings:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             cli.cmd_align(self._args(id=did))
         text = out.getvalue() + err.getvalue()
-        assert "needs the nagisa package" in text and "1 failed" in text
+        assert ("Japanese forced alignment needs the nagisa package, which isn't installed; "
+                "install it in Diagnostics.") in text and "1 failed" in text
+        assert "Qwen3 forced alignment: " not in text
         assert released == [True]
         assert isolated_db.load_lines(did) == []
 
@@ -690,7 +709,7 @@ class TestCmdAlignUsesDramaSettings:
 
     def test_qwen3_fallback_message_redacts_the_error(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
-        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli.transcribe_service, "require_qwen3_packages", lambda feature, language=None: None)
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         import forced_align

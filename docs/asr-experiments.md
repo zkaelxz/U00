@@ -84,12 +84,30 @@ system prompt and have no `prompt=` argument, while 5.15 prefills
 out of date: the released 5.13+ wheels include `Qwen3ASRForTokenClassification`,
 its auto-mapping and `prepare_forced_aligner_inputs` / `decode_forced_alignment`.
 
+- **Upgrading from `qwen-asr`.** The package is no longer used, but while it stays
+  installed its exact `transformers==4.57.6` pin holds transformers below the floor.
+  A startup warning and the job-start message say so; the fix is
+  `pip uninstall qwen-asr` in the app's Python, then update transformers in
+  Diagnostics. Diagnostics' update check ignores the pin (`IGNORED_REQUIRERS`).
+- **No automatic Qwen3 default.** A title that never saved a backend uses Whisper.
+  Before this change, having `qwen-asr` installed made Chinese and Japanese titles
+  default to Qwen3 on long windows; with a plain transformers install that would
+  have started a ~6 GB download nobody asked for, so Qwen3 is now only used when
+  the title's backend is set to it.
+- **Non-ASCII data folder (unchecked).** The old startup warning for a Windows data
+  folder with non-English characters fired only when `qwen-asr` was installed, and
+  its root cause isn't recorded in the repo, so it can't be ruled out for the
+  native path. That path reads audio with soundfile (`qwen3_native.load_audio_16k`)
+  and loads the models through Hugging Face, whose cache is under the data folder
+  (`HF_HOME`). The warning was dropped with the package; nobody has run a Qwen3
+  transcription from a non-ASCII Windows path since. Owner check: do that once.
 - **Downloads are new.** Weights cached for the old `Qwen/Qwen3-ASR-1.7B` and
   `Qwen/Qwen3-ForcedAligner-0.6B` repos are not reused. First use downloads about
   4.1 GB (1.7B), 1.6 GB (0.6B) and 1.8 GB (the aligner) from Hugging Face; the old
   folders can be deleted in Diagnostics > Model cache.
 - **Japanese and Korean alignment** need `nagisa` and `soynlp`; a missing one is
-  reported in plain words, not as an ImportError.
+  reported in plain words, at job start (app and CLI), not as an ImportError after
+  the recognition pass.
 - **Name hint (off by default).** A per-title switch in the Transcribe stage's
   Advanced section (CLI: `transcribe --vocab-hint` / `--no-vocab-hint`) sends
   `Vocabulary: a, b, c` as the processor's `prompt=`, built from the title's

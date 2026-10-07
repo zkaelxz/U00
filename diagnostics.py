@@ -274,21 +274,33 @@ KNOWN_EXACT_PINS = {
     "chatterbox-tts": {"transformers": "5.2.0"},
 }
 
+# Upper bounds a package declares on a shared one (package -> {dep: first
+# version it cannot use}): installing it moves a newer dep below the bound.
+KNOWN_VERSION_CEILINGS = {
+    # hume-tada 0.1.9 declares transformers<5,>=4.57.1 (PyPI metadata).
+    "hume-tada": {"transformers": "5"},
+}
+
 
 def install_downgrade_warning(name: str):
     """None, or a plain-English warning when installing `name` would move an
     already-installed shared package to an older pinned version (e.g.
     chatterbox-tts pins transformers==5.2.0 while a newer one is installed). Read-only:
     checks the installed version only."""
-    pins = KNOWN_EXACT_PINS.get(canonical_dist(pip_install_name(name)))
-    if not pins:
-        return None
-    for dep, pin in pins.items():
+    dist = canonical_dist(pip_install_name(name))
+    for dep, pin in (KNOWN_EXACT_PINS.get(dist) or {}).items():
         have = get_installed_version(dep)
         if have and _version_sort_key(have) > _version_sort_key(pin):
             return (f"installing this would downgrade {dep} from {have} to {pin}, which "
                     f"other features (Qwen3-ASR, NLLB translation, Scanlate) use -- "
                     f"they may stop working until {dep} is upgraded again.")
+    for dep, ceiling in (KNOWN_VERSION_CEILINGS.get(dist) or {}).items():
+        have = get_installed_version(dep)
+        if have and _version_sort_key(have) >= _version_sort_key(ceiling):
+            return (f"installing this would downgrade {dep} from {have} to a release older "
+                    f"than {ceiling}, which other features (Qwen3-ASR, NLLB translation, "
+                    f"Scanlate) can't run on -- they may stop working until {dep} is "
+                    f"upgraded again.")
     return None
 
 
@@ -470,6 +482,19 @@ def _warn_deno_old():
     return None
 
 
+def _warn_qwen_asr_package():
+    """The removed qwen-asr package pins transformers to 4.57.6, so while it
+    is installed Diagnostics cannot move transformers up to what Qwen3-ASR
+    now needs."""
+    if not get_installed_version("qwen-asr"):
+        return None
+    if not below_min_version(get_installed_version("transformers"), "5.15"):
+        return None
+    return ("Qwen3-ASR no longer uses the qwen-asr package, which holds transformers back "
+            "from the version it needs. Run `pip uninstall qwen-asr` in this app's Python, "
+            "then update transformers in Diagnostics.")
+
+
 def _warn_low_vram_pyannote():
     pyannote = _ints(get_installed_version("pyannote.audio"), 1)
     if not pyannote or pyannote[0] < 4:
@@ -486,7 +511,8 @@ def startup_warnings() -> list:
     """Short, path-free warnings about risky dependency combinations. Each
     check is local and cheap; one that fails for any reason adds nothing."""
     out = []
-    for check in (_warn_ytdlp_old, _warn_deno_old, _warn_low_vram_pyannote):
+    for check in (_warn_ytdlp_old, _warn_deno_old, _warn_qwen_asr_package,
+                  _warn_low_vram_pyannote):
         try:
             msg = check()
         except Exception:
@@ -764,7 +790,7 @@ MODEL_ENGINE_REGISTRY = [
      "url": "https://github.com/SYSTRAN/faster-whisper",
      "help": "The default speech-to-text engine used to transcribe dialogue when you start a "
              "new drama."},
-    {"name": "Qwen3-ASR", "kind": "package", "package": "transformers",
+    {"name": "Qwen3-ASR", "kind": "package", "package": "transformers", "min_version": "5.15",
      "url": "https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf",
      "help": "An alternative speech-to-text engine to Whisper, run by transformers 5.15 or "
              "newer. Models download from Hugging Face on first use: about 4.1 GB for 1.7B, "
@@ -861,6 +887,10 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
             try:
                 version = importlib.metadata.version(entry["package"])
                 installed = True
+                # Still "installed" (the Update button fixes it), but the row
+                # must not read as ready.
+                if below_min_version(version, entry.get("min_version")):
+                    version += f" (needs {entry['min_version']} or newer)"
             except importlib.metadata.PackageNotFoundError:
                 version = "not installed"
                 installed = False
@@ -2233,6 +2263,12 @@ def constraint_specifiers(project_root: str = None) -> dict:
     return out
 
 
+# Installed packages whose declared requirements never hold another package
+# back: qwen-asr pins transformers==4.57.6, and the app no longer uses it
+# (the startup warning tells the user to uninstall it).
+IGNORED_REQUIRERS = {"qwen-asr"}
+
+
 def installed_requirements_on() -> dict:
     """{canonical dist: [(requirer dist, SpecifierSet)]} from every
     installed distribution's own requirements (markers evaluated for this
@@ -2243,6 +2279,8 @@ def installed_requirements_on() -> dict:
     for d in importlib.metadata.distributions():
         requirer = (d.metadata or {}).get("Name")
         if not requirer:
+            continue
+        if canonical_dist(requirer) in IGNORED_REQUIRERS:
             continue
         for text in d.requires or []:
             try:

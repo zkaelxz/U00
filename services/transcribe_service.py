@@ -72,7 +72,8 @@ from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from services import (asr_options_service, diarization_service, settings_service, source_service,
                       vocabulary_hint_service)
-from services.qwen3_requirements_service import import_failure_message, require_qwen3_packages
+from services.qwen3_requirements_service import (
+    import_failure_message, require_qwen3_packages, require_vad_backend_packages)
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -480,7 +481,7 @@ _MOSS_OFF_MESSAGE = ("MOSS-Transcribe-Diarize is experimental and turned off. Tu
                      "Settings > Transcription experiments first.")
 
 
-def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) -> None:
+def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, language) -> None:
     """Refusals shared by start_transcribe_run and validate_transcribe_options."""
     if transcript_mode == "whisper":
         if alignment_method == "qwen3_forced_align":
@@ -491,12 +492,12 @@ def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) ->
         if asr_backend_choice == "qwen3_asr":
             require_qwen3_packages("Qwen3-ASR")
         elif asr_backend_choice in VAD_BACKENDS:
-            require_qwen3_packages("Qwen3-ASR")
+            require_vad_backend_packages(asr_backend_choice, language)
             _require_vad_packages()
         elif asr_backend_choice == "moss_td":
             _require_moss_backend()
     elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
-        require_qwen3_packages("Qwen3 forced alignment")
+        require_qwen3_packages("Qwen3 forced alignment", language)
 
 
 def _require_moss_backend() -> None:
@@ -619,7 +620,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
 
     asr_backend_choice = asr_options_service.stored_asr_backend(drama)
     alignment_method = drama.get("alignment_method") or "whisper_diff"
-    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method)
+    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, source_language)
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
     groq_api_key = settings_service.resolve_key("groq") if drama.get("use_groq") else None
@@ -723,7 +724,8 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
         raise UnsupportedOperationError(
             f"Drama {drama_id} has no audio pipeline (content mode "
             f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
-    if (source_language or drama.get("source_language") or "zh") not in SOURCE_LANGUAGES:
+    language = source_language or drama.get("source_language") or "zh"
+    if language not in SOURCE_LANGUAGES:
         raise InvalidInputError(f"Unknown source_language {source_language!r}.")
     if (chinese_script or drama.get("chinese_script") or "simplified") not in _CHINESE_SCRIPTS:
         raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
@@ -733,7 +735,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
             "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
     asr_backend_choice = asr_options_service.stored_asr_backend(drama)
     alignment_method = drama.get("alignment_method") or "whisper_diff"
-    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method)
+    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method, language)
     if drama.get("use_groq") and not settings_service.resolve_key("groq"):
         raise DependencyUnavailableError(
             "use_groq is on but no Groq API key is configured. Set one in Settings first.")

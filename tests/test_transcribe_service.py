@@ -120,31 +120,14 @@ class TestGetTranscribeConfig:
             "auto_initial_prompt": "",
         }
 
-    @pytest.mark.parametrize("language,installed,expected", [
-        ("zh", True, "qwen3_asr_long"), ("ja", True, "qwen3_asr_long"),
-        ("ko", True, "whisper"), ("zh", False, "whisper")])
-    def test_default_backend_follows_language_and_installed_qwen(
-            self, isolated_db, monkeypatch, language, installed, expected):
-        monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
-                            lambda name, *a: object() if installed else None)
-        monkeypatch.setattr(qwen3_native, "installed_transformers_version",
-                            lambda: "5.19.0" if installed else None)
-        did = isolated_db.create_drama(title_en="D", source_language=language)
-        assert transcribe_service.get_transcribe_config(did)["asr_backend_choice"] == expected
-
-    def test_default_backend_stays_whisper_on_a_transformers_too_old_for_qwen3(
-            self, isolated_db, monkeypatch):
-        monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
-                            lambda name, *a: object())
-        monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: "5.14.1")
-        did = isolated_db.create_drama(title_en="D", source_language="zh")
-        assert transcribe_service.get_transcribe_config(did)["asr_backend_choice"] == "whisper"
-
-    def test_default_backend_leaves_a_groq_title_on_whisper(self, isolated_db, monkeypatch):
+    @pytest.mark.parametrize("language", ["zh", "ja", "ko"])
+    def test_a_title_with_no_saved_backend_stays_on_whisper(self, isolated_db, monkeypatch, language):
+        # transformers 5.15+, torch and faster-whisper are all present, which
+        # a plain Diagnostics install provides; that must not pick Qwen3-ASR.
         monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
                             lambda name, *a: object())
         monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: "5.19.0")
-        did = isolated_db.create_drama(title_en="D", source_language="zh", use_groq=1)
+        did = isolated_db.create_drama(title_en="D", source_language=language)
         assert transcribe_service.get_transcribe_config(did)["asr_backend_choice"] == "whisper"
 
     def test_an_explicit_long_backend_still_wins_over_groq(self, isolated_db):

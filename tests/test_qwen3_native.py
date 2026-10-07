@@ -107,7 +107,7 @@ def _asr(parsed):
 
 @pytest.mark.parametrize("version,ok", [
     ("5.15.0", True), ("5.19.0", True), ("6.0.0", True), ("5.14.1", False),
-    ("5.13.0", False), ("4.57.6", False), ("5.15.0.dev0", True), ("5.15rc1", True)])
+    ("5.13.0", False), ("4.57.6", False), ("5.15.0.dev0", False), ("5.15rc1", False)])
 def test_the_minimum_transformers_is_5_15(monkeypatch, version, ok):
     monkeypatch.setattr(qwen3_native, "installed_transformers_version", lambda: version)
     assert (qwen3_native.transformers_problem() is None) is ok
@@ -761,3 +761,65 @@ def test_the_huggingface_hub_limit_stays_conditional_on_the_installed_transforme
     known = diagnostics.KNOWN_UPGRADE_LIMITATIONS["huggingface-hub"]
     assert known["blocked_from"] == 2 and known["while_required_below_by"] == "transformers"
     assert "5.19" in known["reason"]
+
+
+# ---------------------------------------------------------------------------
+# Against the real library (skipped where transformers isn't installed or is
+# older than the floor): the names and shapes qwen3_native assumes, so a
+# transformers change fails here rather than in a user's transcription.
+# ---------------------------------------------------------------------------
+
+def _real_transformers():
+    pytest.importorskip("transformers")
+    problem = qwen3_native.transformers_problem()
+    if problem:
+        pytest.skip(problem)
+    import transformers
+    return transformers
+
+
+def test_the_real_transformers_has_the_classes_and_arguments_qwen3_native_uses():
+    import inspect
+    transformers = _real_transformers()
+    from transformers.models.qwen3_asr.configuration_qwen3_asr import Qwen3ASRConfig
+    from transformers.models.qwen3_asr.processing_qwen3_asr import Qwen3ASRProcessor
+    assert transformers.AutoModelForMultimodalLM and transformers.AutoModelForTokenClassification
+    assert transformers.AutoProcessor
+    assert {"audio", "language", "prompt"} <= set(
+        inspect.signature(Qwen3ASRProcessor.apply_transcription_request).parameters)
+    assert "return_format" in inspect.signature(Qwen3ASRProcessor.decode).parameters
+    assert {"audio", "transcript", "language"} <= set(
+        inspect.signature(Qwen3ASRProcessor.prepare_forced_aligner_inputs).parameters)
+    assert {"logits", "input_ids", "word_lists", "timestamp_token_id"} <= set(
+        inspect.signature(Qwen3ASRProcessor.decode_forced_alignment).parameters)
+    assert isinstance(Qwen3ASRProcessor.unused_input_names, property)
+    assert "timestamp_token_id" in Qwen3ASRConfig.__dataclass_fields__ \
+        or hasattr(Qwen3ASRConfig, "timestamp_token_id")
+
+
+def test_the_real_parser_reports_the_language_as_a_name_that_mixed_language_maps():
+    _real_transformers()
+    from transformers.models.qwen3_asr.processing_qwen3_asr import Qwen3ASRProcessor
+    import mixed_language
+    processor = object.__new__(Qwen3ASRProcessor)   # parse_output uses no state
+    parsed = processor.parse_output(["language Chinese<asr_text>你好", "language Japanese<asr_text>はい"])
+    assert [p["language"] for p in parsed] == ["Chinese", "Japanese"]
+    assert [p["transcription"] for p in parsed] == ["你好", "はい"]
+    assert [mixed_language.qwen_language_code(p["language"]) for p in parsed] == ["zh", "ja"]
+    assert processor.parse_output("language None<asr_text>")["language"] is None
+
+
+def test_the_real_aligner_decoding_returns_seconds():
+    _real_transformers()
+    torch = pytest.importorskip("torch")
+    from transformers.models.qwen3_asr.processing_qwen3_asr import Qwen3ASRProcessor
+    processor = object.__new__(Qwen3ASRProcessor)
+    processor.timestamp_segment_time = 80.0     # ms per class, as shipped
+    marker = 7
+    input_ids = torch.tensor([[1, marker, marker, 2, marker, marker]])
+    classes = [0, 5, 6, 0, 10, 12]               # the marker positions hold 5, 6, 10, 12
+    logits = torch.nn.functional.one_hot(torch.tensor([classes]), 16).float()
+    (words,) = processor.decode_forced_alignment(
+        logits, input_ids, [["你", "好"]], timestamp_token_id=marker)
+    assert [(w["text"], w["start_time"], w["end_time"]) for w in words] == [
+        ("你", 0.4, 0.48), ("好", 0.8, 0.96)]

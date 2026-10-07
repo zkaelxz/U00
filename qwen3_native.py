@@ -40,6 +40,19 @@ SAMPLE_RATE = 16000
 
 # Forced alignment tokenises these two languages with their own packages.
 ALIGNER_LANGUAGE_PACKAGES = {"Japanese": "nagisa", "Korean": "soynlp"}
+ALIGNER_LANGUAGE_NAMES = {"ja": "Japanese", "ko": "Korean", "zh": "Chinese"}
+
+
+def aligner_language_problem(language: Optional[str]) -> Optional[str]:
+    """None, or a plain sentence when the forced aligner needs a tokeniser
+    package for `language` (a name like "Japanese" or a code like "ja")
+    that isn't installed."""
+    name = ALIGNER_LANGUAGE_NAMES.get(language, language)
+    package = ALIGNER_LANGUAGE_PACKAGES.get(name)
+    if package and importlib.util.find_spec(package) is None:
+        return (f"{name} forced alignment needs the {package} package, which isn't "
+                "installed; install it in Diagnostics.")
+    return None
 
 
 class TransformersUnavailableError(ImportError):
@@ -61,21 +74,37 @@ class AlignedUnit:
     end_time: float
 
 
-def _version_tuple(version: str) -> tuple:
-    parts = []
-    for piece in (version or "").split(".")[:3]:
-        digits = "".join(ch for ch in piece if ch.isdigit())
-        if not digits:
-            break
-        parts.append(int(digits))
-    return tuple(parts + [0] * (3 - len(parts)))
-
-
 def installed_transformers_version() -> Optional[str]:
     try:
         return importlib.metadata.version("transformers")
     except importlib.metadata.PackageNotFoundError:
         return None
+
+
+def installed_qwen_asr_version() -> Optional[str]:
+    """The old qwen-asr package's version, or None. It pins transformers to
+    4.57.6, so while it stays installed pip holds transformers below what the
+    native classes need."""
+    try:
+        return importlib.metadata.version("qwen-asr")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+QWEN_ASR_REMOVAL_STEP = ("run `pip uninstall qwen-asr` in the app's Python, then update "
+                         "transformers in Diagnostics")
+
+
+def _older_than_minimum(version: str) -> bool:
+    # Real version ordering: "5.15.0rc1" sorts before 5.15.0, which splitting
+    # on dots and reading digits would call 5.15.
+    import diagnostics  # lazy: it imports a lot, and this module loads on every transcription path
+    version_mod = diagnostics._packaging()[0]
+    try:
+        return version_mod.Version(version) < version_mod.Version(
+            ".".join(str(n) for n in MIN_TRANSFORMERS))
+    except version_mod.InvalidVersion:
+        return True
 
 
 def transformers_problem(feature: str = "Qwen3-ASR") -> Optional[str]:
@@ -86,7 +115,12 @@ def transformers_problem(feature: str = "Qwen3-ASR") -> Optional[str]:
     if version is None:
         return (f"{feature} needs transformers {need} or newer, which isn't installed; "
                 "install it in Diagnostics.")
-    if _version_tuple(version) < MIN_TRANSFORMERS:
+    if _older_than_minimum(version):
+        if installed_qwen_asr_version():
+            # Diagnostics can't move transformers while qwen-asr's exact pin
+            # is installed, so "update it" alone would be a dead end.
+            return (f"{feature} needs transformers {need} or newer (this is {version}), and "
+                    f"the old qwen-asr package holds it back: {QWEN_ASR_REMOVAL_STEP}.")
         return (f"{feature} needs transformers {need} or newer (this is {version}); "
                 "update it in Diagnostics.")
     return None
@@ -193,11 +227,9 @@ class NativeQwen3Aligner:
     def align(self, audio, text, language=None) -> list:
         """One list of AlignedUnit per input (words, or characters for CJK)."""
         import torch
-        package = ALIGNER_LANGUAGE_PACKAGES.get(language)
-        if package and importlib.util.find_spec(package) is None:
-            raise TransformersUnavailableError(
-                f"{language} forced alignment needs the {package} package, which isn't "
-                "installed; install it in Diagnostics.")
+        problem = aligner_language_problem(language)
+        if problem:
+            raise TransformersUnavailableError(problem)
         arrays = _audio_list(audio)
         texts = [text] if isinstance(text, str) else list(text)
         inputs, word_lists = self.processor.prepare_forced_aligner_inputs(
