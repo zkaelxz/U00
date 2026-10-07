@@ -34,6 +34,7 @@ function overview() {
     engine_keys: { claude: false, ollama_url: false, gpt_sovits_url: false },
     gpu_limit_enabled: true,
     gpu_max_parallel: 1,
+    unload_ollama_before_transcribe: true,
     notify_on_completion: false,
     use_gpu: false,
     gemini_free_tier: false,

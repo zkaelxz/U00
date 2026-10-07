@@ -15,6 +15,7 @@ import threading
 from typing import Optional
 
 import background_jobs
+import ollama_unload
 import portable
 from services.service_errors import InvalidInputError
 
@@ -209,6 +210,7 @@ def get_settings_overview(env_path: str = None) -> dict:
         "engine_keys": key_status(env_path),
         "gpu_limit_enabled": background_jobs.get_gpu_limit_enabled(),
         "gpu_max_parallel": background_jobs.get_gpu_max_parallel(),
+        "unload_ollama_before_transcribe": ollama_unload.is_enabled(),
         "notify_on_completion": background_jobs.get_notify_on_completion(),
         "use_gpu": get_use_gpu(),
         "gemini_free_tier": get_gemini_free_tier(),
@@ -238,6 +240,7 @@ def _set_app_bool(key: str, enabled: bool):
 # _PREFERENCES below, endpoint URLs go through set_endpoint_url.
 _WRITABLE_SETTINGS = {
     "gpu_limit_enabled": background_jobs.set_gpu_limit_enabled,
+    "unload_ollama_before_transcribe": ollama_unload.set_enabled,
     "notify_on_completion": background_jobs.set_notify_on_completion,
     "use_gpu": lambda v: _set_app_bool("use_gpu", v),
     "gemini_free_tier": lambda v: _set_app_bool("gemini_free_tier", v),

@@ -329,6 +329,15 @@ def _testclient_defaults_to_loopback():
 
 
 @pytest.fixture(autouse=True)
+def _no_ollama_unload_requests(request, monkeypatch):
+    """A GPU model load asks a local Ollama to free its memory; no test but
+    test_ollama_unload.py (which fakes the HTTP calls) may reach one."""
+    if not request.module.__name__.endswith("test_ollama_unload"):
+        import ollama_unload
+        monkeypatch.setattr(ollama_unload, "prepare_gpu_for_transcription", lambda use_gpu: None)
+
+
+@pytest.fixture(autouse=True)
 def _isolated_page_server_config():
     """page_server keeps the extension's translation config and the API's
     config provider (services/extension_service.push_translation_config) in
