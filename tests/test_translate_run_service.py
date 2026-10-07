@@ -284,3 +284,21 @@ def test_config_reports_the_titles_saved_toggles_and_none_before_a_choice(isolat
     isolated_db.update_drama(did, default_female_pronouns=1, include_genre_notes=0)
     cfg = svc.get_translate_config(did)
     assert (cfg["default_female_pronouns"], cfg["include_genre_notes"]) == (True, False)
+
+
+def test_translate_by_sentence_is_off_until_chosen_then_round_trips(isolated_db):
+    from services import drama_service
+    did = isolated_db.create_drama(title_zh="D")
+    assert svc.get_translate_config(did)["translate_by_sentence"] is None
+    drama_service.update_drama_metadata(did, translate_by_sentence=True)
+    assert svc.get_translate_config(did)["translate_by_sentence"] is True
+    assert isolated_db.get_drama(did)["translate_by_sentence"] == 1
+    drama_service.update_drama_metadata(did, translate_by_sentence=False)
+    assert svc.get_translate_config(did)["translate_by_sentence"] is False
+
+
+def test_save_style_toggles_stores_translate_by_sentence_and_none_keeps_it(isolated_db):
+    did = isolated_db.create_drama(title_zh="D")
+    svc.save_style_toggles(did, translate_by_sentence=True)
+    svc.save_style_toggles(did, include_genre_notes=False)
+    assert isolated_db.get_drama(did)["translate_by_sentence"] == 1

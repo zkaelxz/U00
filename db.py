@@ -1201,7 +1201,10 @@ def _migrate_drama_columns(conn):
                           # she/her" toggles. NULL = never chosen for this title, so
                           # the API defaults apply (genre on, she/her off).
                           ("default_female_pronouns", "INTEGER"),
-                          ("include_genre_notes", "INTEGER")]:
+                          ("include_genre_notes", "INTEGER"),
+                          # NULL = off: translate whole sentences, then split the English
+                          # across the short timed lines (sentence_groups.py).
+                          ("translate_by_sentence", "INTEGER")]:
         if col not in drama_cols:
             _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
 

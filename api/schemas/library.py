@@ -288,6 +288,7 @@ class DramaMetadataUpdate(BaseModel):
     episode_number: Optional[int] = Field(default=None, ge=0, le=2147483647)
     default_female_pronouns: Optional[StrictBool] = None
     include_genre_notes: Optional[StrictBool] = None
+    translate_by_sentence: Optional[StrictBool] = None
     media_type: Optional[str] = None
     publication_status: Optional[str] = None
     series_id: Optional[int] = Field(default=None, ge=0, le=2147483647)

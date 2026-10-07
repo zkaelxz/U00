@@ -336,6 +336,17 @@ function RunPanel({
       () => setToggleSaved(false),
     )
   }
+  // Per title only (not part of a preset or a run): saved as soon as it changes.
+  const [bySentence, setBySentence] = useState<boolean>(config.translate_by_sentence ?? false)
+  const [bySentenceSaved, setBySentenceSaved] = useState<boolean | null>(null)
+  const saveBySentence = (v: boolean) => {
+    setBySentence(v)
+    setBySentenceSaved(null)
+    updateDramaMetadata(dramaId, { translate_by_sentence: v }).then(
+      () => setBySentenceSaved(true),
+      () => setBySentenceSaved(false),
+    )
+  }
   const savedNote =
     toggleSaved === true ? ' Saved for this title; every later run uses it.'
     : toggleSaved === false ? ' Could not save this choice for the title; it applies to the next run only.'
@@ -635,6 +646,17 @@ function RunPanel({
             >
               <Toggle checked={f.female_pronouns} onChange={(v) => saveToggle('female_pronouns', v)} />
             </Field>
+            <Field
+              label="Translate by sentence"
+              help="Translate whole sentences, then split the English across the short subtitle lines. Slower and uses more tokens; helps when lines were split a lot."
+            >
+              <Toggle checked={bySentence} onChange={saveBySentence} />
+            </Field>
+            {bySentenceSaved !== null && (
+              <span className="muted" aria-live="polite" data-testid="by-sentence-saved">
+                {bySentenceSaved ? 'Saved for this title; every later run uses it.' : 'Could not save this choice for the title; it will not apply to later runs.'}
+              </span>
+            )}
             {savedNote && <span className="muted" aria-live="polite" data-testid="toggle-saved">{savedNote.trim()}</span>}
             <Field label="Re-translate existing" help="Also replace English that is already there. You confirm it under the Translate button; a snapshot is saved first.">
               <Toggle checked={f.force} onChange={(v) => setF((s) => ({ ...s, force: v, forceConfirmed: false }))} />

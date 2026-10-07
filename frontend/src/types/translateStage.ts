@@ -10,6 +10,7 @@ export interface TranslateRunConfig {
   // The owner's saved choice for this title; null/omitted = never chosen.
   default_female_pronouns?: boolean | null
   include_genre_notes?: boolean | null
+  translate_by_sentence?: boolean | null
   engines: TranslateEngine[]
   // guidance: what the style asks the translator for (parity X04)
   style_presets: { key: string; label: string; guidance?: string }[]

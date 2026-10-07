@@ -137,6 +137,7 @@ class TranslateRunConfig(BaseModel):
     # then starts from the preset values, else genre notes on, she/her off).
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
+    translate_by_sentence: Optional[bool] = None
 
 
 class TranslateRunEstimate(BaseModel):
