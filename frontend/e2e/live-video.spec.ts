@@ -78,7 +78,12 @@ test('when sound is blocked the video starts muted, says so, and can be unmuted'
   expect(all.filter((c) => c.func === 'seekTo')).toHaveLength(1)
   await muted.getByRole('button', { name: 'Unmute' }).click()
   await expect(muted).toHaveCount(0)
-  expect((await cmds(page)).at(-1)?.func).toBe('unMute')
+  // The note goes away at the click but the command reaches the other frame later, so wait for it.
+  await expect.poll(async () => (await cmds(page)).some((c) => c.func === 'unMute')).toBe(true)
+  // Unmuting must not move the picture: no seek after the unMute.
+  const after = (await cmds(page)).map((c) => c.func)
+  expect(after.slice(after.lastIndexOf('unMute') + 1)).not.toContain('seekTo')
+  expect(after.filter((f) => f === 'seekTo')).toHaveLength(1)
 })
 
 test('a player that never starts asks the user to press play and does not call the stream undelayable', async ({ page }) => {
