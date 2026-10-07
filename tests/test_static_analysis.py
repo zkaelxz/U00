@@ -653,7 +653,7 @@ class TestFfmpegRunsHaveTimeouts:
 # when the split of that file lands. A listed file may shrink but never grow.
 MAX_MODULE_BYTES = 40 * 1024
 OVERSIZED_MODULE_BYTES = {
-    "db.py": 298987,
+    "db.py": 298957,
     "diagnostics.py": 112173,
     "services/transcribe_service.py": 105634,
     "cli.py": 90622,
