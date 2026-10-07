@@ -124,6 +124,7 @@ from engine_backends.local import (  # noqa: F401
     _nllb_pipeline_cache,
     _ollama_chat,
     _ollama_reachability_cache,
+    check_ollama_model_installed,
     check_ollama_reachable,
     estimate_ollama_num_ctx,
 )
