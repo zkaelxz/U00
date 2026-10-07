@@ -60,6 +60,8 @@ class WeakEngine(GoodEngine):
 @pytest.fixture
 def world(isolated_db, monkeypatch):
     monkeypatch.setitem(translate_engines.ENGINES, "fake_good", GoodEngine)
+    monkeypatch.setattr(translate_engines, "KEYLESS_ENGINES", translate_engines.KEYLESS_ENGINES | {"fake_good"})
+    monkeypatch.setitem(translate_engines.ENGINE_NOTES, "fake_good", "stand-in")
     monkeypatch.setitem(translate_engines.ENGINES, "ollama", WeakEngine)
     settings_service.set_settings({"default_engine": "ollama"})
     lab.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv", "public")
