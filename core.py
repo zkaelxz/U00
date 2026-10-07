@@ -4,11 +4,16 @@ imported by both the API services and cli.py (headless batch mode)
 without pulling in a UI framework.
 """
 
+import bisect
+import hashlib
+import json
+import math
 import os
 import re
 import difflib
 import tempfile
 from dataclasses import dataclass, field, replace
+from typing import Optional
 
 
 # The source languages the app handles, and the full names LLM and aligner
@@ -51,6 +56,10 @@ class Line:
     lang: str = None
     # Permanent row id (lines.id). None for a line not saved yet.
     id: int = field(default=None, compare=False)
+    # encode_line_words' stored form, read through line_words. None means "not
+    # loaded": db.save_lines then leaves the column alone (and clears it when the
+    # text changes), so a caller that never loads it can't wipe or keep stale words.
+    word_timings: str = field(default=None, compare=False, repr=False)
     # Field values as last loaded from / saved to the database. db.save_lines
     # only writes a field whose value differs from this, so two writers
     # (a background job and the page) can't clobber each other's fields.
@@ -108,8 +117,11 @@ def line_from_row(row) -> "Line":
               en=row.get("en") or "", speaker=row.get("speaker"),
               dub_filename=row.get("dub_filename"), flag=row.get("flag"),
               flag_note=row.get("flag_note") or "", speaker_manual=bool(row.get("speaker_manual")),
-              sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"))
+              sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"),
+              word_timings=row.get("word_timings"))
     ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
+    if "word_timings" in row:
+        ln.orig["word_timings"] = ln.word_timings
     return ln
 
 
@@ -172,13 +184,15 @@ def adopt_ids(restored, current, recorded=()) -> list:
 
 def lines_from_saved(rows) -> list:
     """A saved line-history snapshot's or translation version's line dicts
-    (db.get_line_history_snapshot / get_translation_version) -> Lines."""
+    (db.get_line_history_snapshot / get_translation_version) -> Lines. A
+    line's word timings come back only when they were stored for its text."""
     return [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r.get("zh") or "",
                  en=r.get("en") or "", speaker=r.get("speaker"),
                  dub_filename=r.get("dub_filename"), flag=r.get("flag") or None,
                  flag_note=r.get("flag_note") or "", sfx=bool(r.get("sfx")),
                  speaker_manual=bool(r.get("speaker_manual")),
-                 lang=_stored_line_lang(r.get("lang")), id=r.get("id"))
+                 lang=_stored_line_lang(r.get("lang")), id=r.get("id"),
+                 word_timings=words_for_text(r.get("word_timings"), r.get("zh") or ""))
             for r in rows]
 
 
@@ -288,6 +302,12 @@ WHISPER_MODELS = {
     "large-v3-turbo": "large-v3-turbo -- default; close to large-v3 in our tests, about 2x faster",
 }
 DEFAULT_WHISPER_SIZE = "large-v3-turbo"
+# Bounds of the "Speech-splitting sensitivity" (min_silence_ms) setting, enforced
+# for the saved value and for auto-tune candidates. Keep in sync with
+# frontend/src/pages/workspace/sourceForm.ts. 100 ms is about three Silero VAD
+# windows, so shorter values stop being distinguishable from the detector's noise.
+MIN_SILENCE_MS_MIN = 100
+MIN_SILENCE_MS_MAX = 3000
 # Auto-tune's default candidate min_silence_duration_ms values -- spans the
 # "Speech-splitting sensitivity" slider's real range meaningfully (300 is the
 # app's default, services/transcribe_service._DEFAULT_TUNING; 3000 the
@@ -295,13 +315,18 @@ DEFAULT_WHISPER_SIZE = "large-v3-turbo"
 DEFAULT_AUTOTUNE_CANDIDATES_MS = [300, 800, 1500]
 
 
-# Decoder settings that stop Whisper's repeated-phrase loops at the source
-# (the same line echoed for minutes after music or silence): don't feed
-# each segment's text into the next one's prompt, forbid repeating any
-# 3-token sequence, and mildly penalise repeats. filter_hallucinated_segments
-# stays as the backstop for whatever still slips through.
-WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False, "no_repeat_ngram_size": 3,
-                            "repetition_penalty": 1.1}
+# Stops Whisper's repeated-phrase loops after music or silence;
+# filter_hallucinated_segments is the backstop.
+WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False}
+# The per-title repeat guard. Off by default: a 3-token CJK sequence is often
+# one common particle (的, の), so the ban rewrites or cuts real speech.
+WHISPER_REPEAT_GUARD_KWARGS = {"no_repeat_ngram_size": 3, "repetition_penalty": 1.1}
+
+
+# Seconds of silence inside a segment's word timings above which faster-whisper
+# drops that segment as a likely hallucination. Off by default: it dropped real
+# fast or quiet CJK lines.
+DEFAULT_HALLUCINATION_SILENCE_SEC = 0.0
 
 
 def release_gpu_models():
@@ -594,6 +619,46 @@ def build_initial_prompt(terms, max_terms: int = 40) -> str:
     return "、".join(names[:max_terms]) + "。"
 
 
+# Credit/outro lines Whisper emits on silence because its training subtitles
+# ended with them. Matched against the whole segment text only, after
+# _stock_key() strips case, spaces and punctuation.
+_STOCK_PHRASE_RES = [re.compile(p) for p in (
+    r"subtitlesbytheamaraorgcommunity",
+    r"amaraorg.{0,8}",
+    r"thanks?youforwatching",
+    r"thanksforwatching",
+    r"字幕由.{0,30}提供",
+    r"请不吝点赞.*",
+    r"ご視聴ありがとうございま(?:した|す)",
+    r"ご清聴ありがとうございま(?:した|す)",
+    r"mbc뉴스.{0,12}입니다",
+    r"시청해주셔서감사합니다",
+)]
+# A stock phrase is only dropped with at least this much silence on each side
+# (a missing neighbour counts as silence), so dialogue that happens to say
+# "thanks for watching" between other lines survives.
+STOCK_PHRASE_ISOLATION_SEC = 5.0
+
+
+def _stock_key(text):
+    return "".join(ch for ch in (text or "").casefold() if ch.isalnum())
+
+
+def _is_isolated_stock_phrase(segments, i):
+    key = _stock_key(segments[i]["text"])
+    if not any(rx.fullmatch(key) for rx in _STOCK_PHRASE_RES):
+        return False
+    seg = segments[i]
+    try:
+        if i > 0 and seg["start"] - segments[i - 1]["end"] < STOCK_PHRASE_ISOLATION_SEC:
+            return False
+        if i + 1 < len(segments) and segments[i + 1]["start"] - seg["end"] < STOCK_PHRASE_ISOLATION_SEC:
+            return False
+    except KeyError:
+        return False
+    return True
+
+
 def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
     """
     Whisper is well known to loop a short phrase across MANY separate
@@ -623,6 +688,10 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
     defaults conservatively high (4) to keep that risk low -- lower it if
     loops are still getting through on your content, raise it if you've
     actually hit the false-positive case.
+
+    Also drops a segment whose WHOLE text is a stock credit/outro phrase
+    ("Thanks for watching", "字幕由…提供", "ご視聴ありがとうございました") when it
+    has at least STOCK_PHRASE_ISOLATION_SEC of silence on each side.
     """
     if not segments:
         return segments
@@ -643,7 +712,7 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
         else:
             out.extend(segments[i:j])
         i = j
-    return out
+    return [seg for k, seg in enumerate(out) if not _is_isolated_stock_phrase(out, k)]
 
 
 # A transcribed line longer than either limit is cut into subtitle-sized pieces.
@@ -658,11 +727,97 @@ _CJK_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
 _CJK_SPACE_RE = re.compile(r"(?<=[぀-ヿ㐀-鿿가-힯])\s+|\s+(?=[぀-ヿ㐀-鿿가-힯])")
 
 
-def _cut_after(text: str, pattern) -> list:
-    """Cuts text after every match of pattern; the pieces concatenate back to text."""
+# Pieces under either floor are folded into a neighbour when SplitRules is in use:
+# a sub-second or two-word subtitle flashes by too fast to read.
+MIN_PIECE_SECONDS = 0.8
+MIN_PIECE_CJK_CHARS = 4
+MIN_PIECE_WORDS = 2
+# A silence between two Whisper words at least this long is a place a line with no
+# punctuation may be cut; shorter ones are ordinary breathing inside a phrase. The
+# per-title "Pause that can split a long line" setting; keep the bounds in sync
+# with frontend/src/pages/workspace/sourceForm.ts.
+MIN_WORD_GAP_SECONDS = 0.35
+MIN_WORD_GAP_SECONDS_MIN = 0.1
+MIN_WORD_GAP_SECONDS_MAX = 2.0
+# Gaps this close to the largest candidate count as equally good, so the cut that
+# lands nearest the middle wins and a line is not peeled one stub at a time.
+_SIMILAR_GAP_RATIO = 0.75
+
+# Words whose trailing "." is not a sentence end.
+_ABBREVIATIONS = frozenset((
+    "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "mt", "vs", "etc", "inc", "ltd", "co",
+    "gen", "col", "lt", "sgt", "capt", "rev", "hon", "fig", "vol", "pp", "approx", "dept"))
+_NUMBERED_BEFORE_DIGIT = frozenset(("no", "nos", "fig", "vol", "ch", "p", "pp"))
+_QUOTE_PAIRS = (("「", "」"), ("『", "』"), ("“", "”"))
+
+
+@dataclass(frozen=True)
+class SplitRules:
+    """Per-line limits for the re-split sensitivity presets. None leaves that
+    limit off. max_chars counts CJK characters, or all non-edge characters in
+    text with none (English). per_sentence cuts at every sentence end instead of
+    packing sentences up to the limits."""
+    max_seconds: Optional[float] = SPLIT_MAX_SECONDS
+    max_chars: Optional[int] = None
+    per_sentence: bool = False
+    # False keeps the fixed-limit rule that only CJK characters count, so a
+    # duration cap alone never starts cutting English lines by length.
+    count_latin: bool = True
+
+    def measure(self, text: str) -> int:
+        cjk = len(_CJK_RE.findall(text))
+        return cjk or (len(text.strip()) if self.count_latin else 0)
+
+
+_QUOTE_CHARS = ('"',) + tuple(c for pair in _QUOTE_PAIRS for c in pair)
+# Abbreviations, initials and list numbers are far shorter than this; a bound
+# keeps the backward scan linear on a line with no whitespace.
+_WORD_LOOKBACK = 64
+
+
+def _sentence_keep():
+    """A `keep` callback for _cut_after that tracks open quotes incrementally.
+    Matches arrive in order, so each call counts only the text since the last
+    one; rescanning the head per match is quadratic on a long line."""
+    seen = 0
+    counts = dict.fromkeys(_QUOTE_CHARS, 0)
+
+    def keep(text: str, m) -> bool:
+        nonlocal seen
+        chunk = text[seen:m.end()]
+        seen = m.end()
+        for ch in _QUOTE_CHARS:
+            counts[ch] += chunk.count(ch)
+        inside = (counts['"'] % 2 == 1
+                  or any(counts[o] > counts[c] for o, c in _QUOTE_PAIRS))
+        return not inside and _real_sentence_end(text, m)
+    return keep
+
+
+def _real_sentence_end(text: str, m) -> bool:
+    """False for an English "." that only looks like a sentence end: after an
+    abbreviation, initial or list number, or before a lowercase continuation.
+    Quote state is the caller's (_sentence_keep)."""
+    if not m.group().startswith("."):
+        return True
+    word = re.search(r"(\S+)$", text[max(0, m.start() - _WORD_LOOKBACK):m.start()])
+    word = word.group(1).strip("\"'“‘([").lower() if word else ""
+    if word.rstrip(".") in _ABBREVIATIONS or word.isdigit() or re.fullmatch(r"(?:[a-z]\.)+[a-z]", word):
+        return False
+    if len(word) == 1 and word != "i":
+        return False
+    after = text[m.end():m.end() + 1]
+    if after.islower():
+        return False
+    return not (after.isdigit() and word in _NUMBERED_BEFORE_DIGIT)
+
+
+def _cut_after(text: str, pattern, keep=None) -> list:
+    """Cuts text after every match of pattern (that `keep` accepts, if given);
+    the pieces concatenate back to text."""
     pieces, last = [], 0
     for m in pattern.finditer(text):
-        if m.end() > last:
+        if m.end() > last and (keep is None or keep(text, m)):
             pieces.append(text[last:m.end()])
             last = m.end()
     if last < len(text):
@@ -670,60 +825,429 @@ def _cut_after(text: str, pattern) -> list:
     return pieces
 
 
+def exceeds_limits(seg, rules: SplitRules) -> bool:
+    """Whether a segment is longer than `rules` allow."""
+    text = seg.get("text") or ""
+    dur = seg["end"] - seg["start"]
+    return (bool(text.strip()) and dur > 0
+            and ((rules.max_seconds is not None and dur > rules.max_seconds)
+                 or (rules.max_chars is not None and rules.measure(text) > rules.max_chars)))
+
+
 def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
-                        max_cjk_chars: int = SPLIT_MAX_CJK_CHARS) -> list:
+                        max_cjk_chars: int = SPLIT_MAX_CJK_CHARS, *,
+                        rules: Optional[SplitRules] = None,
+                        min_pause: float = MIN_WORD_GAP_SECONDS) -> list:
     """Cuts over-long segments ({"start","end","text",...}) at sentence-ending
     punctuation, then at commas, then at spaces next to CJK text, packing
     neighbouring pieces up to the limits.
 
-    Whisper segments carry no word timing at this point, so each piece gets a
-    share of the original span proportional to its character count: boundaries
-    are estimates, but pieces stay contiguous, increasing and inside the span.
+    When a segment carries Whisper word timings that spell exactly its text,
+    pieces are timed by their own first and last word, and a line with no
+    punctuation is cut at the real pauses between words. Without words, or when
+    they cannot be mapped onto the text exactly, the old estimate is the
+    fallback: each piece gets a share of the original span proportional to its
+    character count, so boundaries are guesses but pieces stay contiguous,
+    increasing and inside the span. That fallback still cuts at punctuation
+    (a failed word mapping does not leave a punctuated line whole, because a
+    punctuation cut is what this function did before words existed); a line
+    with no punctuation is left whole.
     Text with no usable cut, and short segments, are returned as they are.
-    Other keys (speaker) are copied onto every piece."""
+    Other keys (speaker) are copied onto every piece.
+
+    `rules` (the re-split presets) replaces the two limits and also skips cuts
+    inside quotes or after abbreviations, and folds pieces under the
+    MIN_PIECE_* floors into a neighbour; without it behaviour is unchanged.
+
+    `min_pause`: the shortest silence between words a line with no punctuation
+    may be cut at."""
     out = []
     for seg in segments:
         text = seg.get("text") or ""
         dur = seg["end"] - seg["start"]
         total = len("".join(text.split()))
-        if total == 0 or dur <= 0 or (
-                dur <= max_seconds and len(_CJK_RE.findall(text)) <= max_cjk_chars):
+        if rules:
+            limit_s, limit_c, count = rules.max_seconds, rules.max_chars, rules.measure
+        else:
+            limit_s, limit_c = max_seconds, max_cjk_chars
+            count = lambda t: len(_CJK_RE.findall(t))  # noqa: E731
+        over = ((limit_s is not None and dur > limit_s)
+                or (limit_c is not None and count(text) > limit_c))
+        wants_cut = over or bool(rules and rules.per_sentence)
+        if total == 0 or dur <= 0 or not wants_cut:
             out.append(seg)
             continue
 
-        def fits(piece):
+        def estimated_fits(piece, at=0):
             n = len("".join(piece.split()))
-            return (dur * n / total <= max_seconds
-                    and len(_CJK_RE.findall(piece)) <= max_cjk_chars)
+            return ((limit_s is None or dur * n / total <= limit_s)
+                    and (limit_c is None or count(piece) <= limit_c))
 
-        def pack(units):
-            chunks, cur = [], ""
-            for u in units:
-                if cur and not fits(cur + u):
+        def cut(fits):
+            """The punctuation pieces (strings that concatenate to `text`); `fits`
+            gets the piece and its character offset in `text`."""
+            def pack(units, at):
+                chunks, cur, start = [], "", at
+                for u in units:
+                    if cur and not fits(cur + u, start):
+                        chunks.append(cur)
+                        start += len(cur)
+                        cur = ""
+                    cur += u
+                if cur:
                     chunks.append(cur)
-                    cur = ""
-                cur += u
-            if cur:
-                chunks.append(cur)
-            return chunks
+                return chunks
 
-        pieces = []
-        for chunk in pack(_cut_after(text, _SENTENCE_END_RE)):
-            # one sentence that is still too long: fall back to its commas
-            for sub in [chunk] if fits(chunk) else pack(_cut_after(chunk, _CLAUSE_END_RE)):
-                # Whisper often separates CJK phrases with plain spaces instead of commas
-                pieces.extend([sub] if fits(sub) else pack(_cut_after(sub, _CJK_SPACE_RE)))
+            sentences = _cut_after(text, _SENTENCE_END_RE, _sentence_keep() if rules else None)
+            pieces, at = [], 0
+            for chunk in sentences if rules and rules.per_sentence else pack(sentences, 0):
+                # one sentence that is still too long: fall back to its commas
+                subs = [chunk] if fits(chunk, at) else pack(_cut_after(chunk, _CLAUSE_END_RE), at)
+                sub_at = at
+                for sub in subs:
+                    # Whisper often separates CJK phrases with plain spaces instead of commas
+                    pieces.extend([sub] if fits(sub, sub_at)
+                                  else pack(_cut_after(sub, _CJK_SPACE_RE), sub_at))
+                    sub_at += len(sub)
+                at += len(chunk)
+            return pieces
+
+        index = _WordIndex.build(text, seg.get("words")) if seg.get("words") else None
+        if index:
+            def fits_words(i, j):
+                return ((limit_s is None or index.seconds(i, j) <= limit_s)
+                        and (limit_c is None or index.measure(i, j, rules) <= limit_c))
+
+            def fits_real(piece, at):
+                words = index.word_range(at, at + len(piece))
+                return estimated_fits(piece) if words is None else fits_words(*words)
+
+            split = _split_on_words(seg, text, cut(fits_real), index, fits_words, rules,
+                                    min_pause)
+            if split is not None:
+                out.extend(split)
+                continue
+        pieces = cut(estimated_fits)
         pieces = [p for p in pieces if p.strip()]
+        if rules:
+            pieces = _fold_small(
+                pieces, lambda p: _is_stub(p, dur * len("".join(p.split())) / total))
         if len(pieces) < 2:
             out.append(seg)
             continue
+        bare = {k: v for k, v in seg.items() if k != "words"}
         done = 0
         for i, p in enumerate(pieces):
             start = seg["start"] + dur * done / total
             done += len("".join(p.split()))
             end = seg["end"] if i == len(pieces) - 1 else seg["start"] + dur * done / total
-            out.append({**seg, "start": start, "end": end, "text": p.strip()})
+            # estimated cuts: the words no longer line up with the text
+            out.append({**bare, "start": start, "end": end, "text": p.strip()})
     return out
+
+
+def _fold_small(pieces: list, small, join="".join) -> list:
+    """Merges each piece for which small(piece) holds into its previous
+    neighbour (the next one for the first piece), so no stub survives. A merged
+    piece may pass the max limits; that beats an unreadable flash."""
+    # One forward pass: a piece that is not small stays so once a neighbour is
+    # appended, so only the incoming piece ever needs checking. Parts are joined
+    # at the end to keep a run of stubs linear.
+    out, carry = [], []
+    for p in pieces:
+        parts = carry + [p]
+        carry = []
+        if not small(join(parts)):
+            out.append(parts)
+        elif out:
+            out[-1].extend(parts)
+        else:
+            carry = parts
+    if carry:
+        out.append(carry)
+    return [join(parts) for parts in out]
+
+
+def _is_stub(text: str, seconds: float) -> bool:
+    cjk = len(_CJK_RE.findall(text))
+    return (cjk < MIN_PIECE_CJK_CHARS if cjk else len(text.split()) < MIN_PIECE_WORDS) \
+        or seconds < MIN_PIECE_SECONDS
+
+
+class _WordIndex:
+    """A segment's Whisper words laid over the character offsets of its text.
+
+    `build` returns None unless the words' text, apart from whitespace, is exactly
+    the segment's text and their times are numbers: then a cut chosen by the
+    words can never reword, add or drop text. Word i spans text[cs[i]:ce[i]] and
+    ts[i]..te[i] seconds; ends and starts are clamped to be non-decreasing because
+    Whisper's neighbouring words overlap a little."""
+
+    def __init__(self, kept, cs, ce, ts, te, cjk):
+        self.kept, self.cs, self.ce, self.ts, self.te, self.cjk = kept, cs, ce, ts, te, cjk
+        self._sparse = None
+
+    @classmethod
+    def build(cls, text: str, words):
+        kept, cs, ce, ts, te, cjk = [], [], [], [], [], [0]
+        pos, size = 0, len(text)
+        for w in words or ():
+            try:
+                token = str(w["word"]).strip()
+                start, end = float(w["start"]), float(w["end"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            if not token:
+                continue
+            if not (math.isfinite(start) and math.isfinite(end) and end >= start):
+                return None
+            while pos < size and text[pos].isspace():
+                pos += 1
+            if not text.startswith(token, pos):
+                return None
+            kept.append(w)
+            cs.append(pos)
+            pos += len(token)
+            ce.append(pos)
+            ts.append(max(start, ts[-1]) if ts else start)
+            te.append(max(end, ts[-1], te[-1]) if te else end)
+            cjk.append(cjk[-1] + len(_CJK_RE.findall(token)))
+        if not kept or text[pos:].strip():
+            return None
+        return cls(kept, cs, ce, ts, te, cjk)
+
+    def word_range(self, a: int, b: int):
+        """(i, j) of the words inside text[a:b], or None when a word straddles
+        either edge or the range holds none."""
+        i, j = bisect.bisect_left(self.cs, a), bisect.bisect_left(self.cs, b)
+        if j <= i or (i and self.ce[i - 1] > a) or self.ce[j - 1] > b:
+            return None
+        return i, j
+
+    def seconds(self, i: int, j: int) -> float:
+        return self.te[j - 1] - self.ts[i]
+
+    def measure(self, i: int, j: int, rules: Optional["SplitRules"]) -> int:
+        cjk = self.cjk[j] - self.cjk[i]
+        if rules is None:
+            return cjk
+        return cjk or ((self.ce[j - 1] - self.cs[i]) if rules.count_latin else 0)
+
+    def _max_gap(self, lo: int, hi: int) -> float:
+        """Largest silence before any of the words lo..hi (inclusive), by a sparse
+        table so a cut is found in O(log n) however many words the line has."""
+        if self._sparse is None:
+            table = [[-math.inf] + [self.ts[k] - self.te[k - 1] for k in range(1, len(self.ts))]]
+            width = 1
+            while 2 * width <= len(self.ts):
+                prev = table[-1]
+                table.append([max(prev[k], prev[k + width]) for k in range(len(prev) - width)])
+                width *= 2
+            self._sparse = table
+        level = (hi - lo + 1).bit_length() - 1
+        row = self._sparse[level]
+        return max(row[lo], row[hi - (1 << level) + 1])
+
+    def _nearest_gap(self, i: int, j: int, lo: int, hi: int, threshold: float):
+        """The word k in lo..hi whose preceding silence is at least `threshold`
+        and sits nearest the middle of words i..j-1, or None."""
+        middle = (self.ts[i] + self.te[j - 1]) / 2
+        pivot = min(max(bisect.bisect_left(self.ts, middle), lo), hi)
+        found = []
+        if self._max_gap(lo, pivot) >= threshold:
+            a, b = lo, pivot
+            while a < b:  # largest x with a qualifying gap in x..pivot
+                mid = (a + b + 1) // 2
+                a, b = (mid, b) if self._max_gap(mid, pivot) >= threshold else (a, mid - 1)
+            found.append(a)
+        if pivot < hi and self._max_gap(pivot + 1, hi) >= threshold:
+            a, b = pivot + 1, hi
+            while a < b:  # smallest y with a qualifying gap in pivot+1..y
+                mid = (a + b) // 2
+                a, b = (a, mid) if self._max_gap(pivot + 1, mid) >= threshold else (mid + 1, b)
+            found.append(a)
+        return min(found, key=lambda k: abs((self.te[k - 1] + self.ts[k]) / 2 - middle),
+                   default=None)
+
+    def gap_cuts(self, i: int, j: int, fits, min_pause: float = MIN_WORD_GAP_SECONDS) -> list:
+        """Word ranges covering i..j-1 that fit, cut only at pauses of at least
+        `min_pause` and never leaving a side under the MIN_PIECE_* floors.
+        A range with no admissible pause is returned as it is."""
+        done, stack = [], [(i, j)]
+        while stack:
+            a, b = stack.pop()
+            k = None if fits(a, b) or b - a < 2 else self._pick_cut(a, b, min_pause)
+            if k is None:
+                done.append((a, b))
+            else:
+                stack.extend(((k, b), (a, k)))
+        return done
+
+    def _pick_cut(self, i: int, j: int, min_pause: float):
+        cjk = self.cjk[j] - self.cjk[i]
+        if cjk:
+            lo = bisect.bisect_left(self.cjk, self.cjk[i] + MIN_PIECE_CJK_CHARS)
+            hi = bisect.bisect_right(self.cjk, self.cjk[j] - MIN_PIECE_CJK_CHARS) - 1
+        else:
+            lo, hi = i + MIN_PIECE_WORDS, j - MIN_PIECE_WORDS
+        lo = max(lo, i + 1, bisect.bisect_left(self.te, self.ts[i] + MIN_PIECE_SECONDS) + 1)
+        hi = min(hi, j - 1, bisect.bisect_right(self.ts, self.te[j - 1] - MIN_PIECE_SECONDS) - 1)
+        if lo > hi:
+            return None
+        biggest = self._max_gap(lo, hi)
+        if biggest < min_pause:
+            return None
+        return self._nearest_gap(i, j, lo, hi, max(min_pause,
+                                                   biggest * _SIMILAR_GAP_RATIO))
+
+
+def _split_on_words(seg, text, pieces, index, fits, rules, min_pause=MIN_WORD_GAP_SECONDS):
+    """Cuts `seg` where its punctuation pieces (strings that concatenate to
+    `text`) and then the largest pauses between words say, with each piece timed
+    by its own first and last word and its text sliced from `text`. Returns None
+    when a cut would fall inside a word or a piece has no usable word time, so the
+    caller can fall back to the character-share estimate."""
+    ranges, pos = [], 0
+    for p in pieces:
+        if p.strip():
+            words = index.word_range(pos, pos + len(p))
+            if words is None:
+                return None
+            ranges.append((pos, pos + len(p)) + words)
+        pos += len(p)
+    if not ranges:
+        return None
+
+    def join(parts):
+        return parts[0][0], parts[-1][1], parts[0][2], parts[-1][3]
+
+    if rules:
+        ranges = _fold_small(
+            ranges, lambda r: _is_stub(text[r[0]:r[1]], index.seconds(r[2], r[3])), join)
+
+    cut = []
+    for a, b, i, j in ranges:
+        parts = sorted(index.gap_cuts(i, j, fits, min_pause))
+        for n, (pi, pj) in enumerate(parts):
+            cut.append((a if n == 0 else index.cs[pi], b if n == len(parts) - 1 else index.cs[pj],
+                        pi, pj))
+    if len(cut) < 2:
+        return [seg]
+    out, floor = [], seg["start"]
+    for a, b, i, j in cut:
+        start = max(index.ts[i], floor)
+        end = min(index.te[j - 1], seg["end"])
+        piece = text[a:b].strip()
+        if end <= start or not piece:
+            return None
+        out.append({**seg, "start": start, "end": end, "text": piece,
+                    "words": index.kept[i:j]})
+        floor = end
+    return out
+
+
+# A line's Whisper words are stored with it (lines.word_timings) only up to these
+# sizes: a Whisper line has a few dozen words, and a line merged far past that is
+# not worth a large row on every save.
+MAX_STORED_WORDS = 1000
+MAX_STORED_WORD_BYTES = 32_000
+# Far past any real recording; a stored time beyond it can only be a hand-made row.
+_MAX_WORD_MS = 100 * 3600 * 1000
+
+
+def text_fingerprint(text: str) -> str:
+    return hashlib.sha1((text or "").encode("utf-8")).hexdigest()[:16]
+
+
+def encode_line_words(text: str, words) -> Optional[str]:
+    """The stored form of a line's words: its text's fingerprint and, per word,
+    [first char, end char, start ms, end ms]. None when the words don't spell
+    exactly `text` or pass the MAX_STORED_* caps."""
+    if not words or len(words) > MAX_STORED_WORDS:
+        return None
+    index = _WordIndex.build(text, words)
+    if index is None:
+        return None
+    rows = [[a, b, round(t0 * 1000), round(t1 * 1000)]
+            for a, b, t0, t1 in zip(index.cs, index.ce, index.ts, index.te)]
+    payload = json.dumps({"h": text_fingerprint(text), "w": rows}, separators=(",", ":"))
+    return payload if len(payload) <= MAX_STORED_WORD_BYTES else None
+
+
+def words_for_text(payload, text: str) -> Optional[str]:
+    """`payload` (a stored word_timings value) when it was computed against
+    exactly `text`, else None: for carrying words through a snapshot without
+    ever attaching them to other text. line_words checks the rest on use."""
+    if not isinstance(payload, str) or len(payload) > MAX_STORED_WORD_BYTES:
+        return None
+    try:
+        data = json.loads(payload)
+        return payload if isinstance(data, dict) and data.get("h") == text_fingerprint(text) else None
+    except (ValueError, RecursionError):
+        return None
+
+
+def line_words(ln) -> Optional[list]:
+    """A line's stored words as {start, end, word} dicts, or None unless they
+    were computed against exactly its current text and fall inside its time.
+    Any text edit changes the fingerprint, so stale words are never used."""
+    payload, text = getattr(ln, "word_timings", None), ln.zh or ""
+    if not isinstance(payload, str) or len(payload) > MAX_STORED_WORD_BYTES:
+        return None
+    try:
+        data = json.loads(payload)
+        if data["h"] != text_fingerprint(text):
+            return None
+        words, pos = [], 0
+        for a, b, t0, t1 in data["w"]:
+            # encode_line_words writes only ints, so anything else (a float,
+            # inf/nan, a bool) is a hand-made backup row, never a transcription.
+            if not (all(type(v) is int for v in (a, b, t0, t1))
+                    and pos <= a < b <= len(text) and 0 <= t0 <= t1 <= _MAX_WORD_MS):
+                return None
+            words.append({"word": text[a:b], "start": t0 / 1000, "end": t1 / 1000})
+            pos = b
+    # A backup can carry any string: deep nesting makes json.loads recurse.
+    except (ValueError, TypeError, KeyError, RecursionError, OverflowError):
+        return None
+    index = _WordIndex.build(text, words)
+    # Times are absolute audio times, so a re-timed line keeps its words; a row
+    # whose words lie wholly outside its span describes some other audio.
+    if index is None or index.te[-1] <= ln.start or index.ts[0] >= ln.end:
+        return None
+    return words
+
+
+def line_word_index(ln) -> Optional["_WordIndex"]:
+    words = line_words(ln)
+    return _WordIndex.build(ln.zh or "", words) if words else None
+
+
+def span_words(index: "_WordIndex", a: int, b: int, piece: str) -> Optional[str]:
+    """Stored words for a piece cut from text[a:b] (`piece` is that slice,
+    stripped or not), or None when a word straddles a cut."""
+    found = index.word_range(a, b)
+    return encode_line_words(piece, index.kept[found[0]:found[1]]) if found else None
+
+
+def pause_offsets(index: "_WordIndex", min_pause: float = MIN_WORD_GAP_SECONDS) -> set:
+    """Character offsets where a word starts after a silence of at least
+    `min_pause`: real pauses a line may be cut at."""
+    return {index.cs[k] for k in range(1, len(index.cs))
+            if index.ts[k] - index.te[k - 1] >= min_pause}
+
+
+def word_cut_times(index: "_WordIndex", spans, start: float, end: float) -> Optional[list]:
+    """Cut times between consecutive (a, b) character spans of a line: each
+    is the next piece's first word start. None unless every span holds whole
+    words and the cuts increase strictly inside (start, end)."""
+    ranges = [index.word_range(a, b) for a, b in spans]
+    if any(r is None for r in ranges):
+        return None
+    cuts = [index.ts[i] for i, _j in ranges[1:]]
+    if all(start < c < end for c in cuts) and all(x < y for x, y in zip(cuts, cuts[1:])):
+        return cuts
+    return None
 
 
 def tighten_to_words(start: float, end: float, words) -> tuple:
@@ -742,12 +1266,34 @@ def tighten_to_words(start: float, end: float, words) -> tuple:
     return (new_start, new_end) if new_end > new_start else (start, end)
 
 
+def _word_dicts(words) -> list:
+    """faster-whisper Word objects as plain {start, end, word} dicts; empty when
+    the segment has none (word timestamps off, or an older release)."""
+    try:
+        return [{"start": w.start, "end": w.end, "word": w.word} for w in words or ()]
+    except AttributeError:
+        return []
+
+
+def _accepts_transcribe_kwarg(model, name):
+    """False for a faster-whisper release that predates `name`, which would
+    otherwise fail the whole run with a TypeError."""
+    import inspect
+    try:
+        params = inspect.signature(model.transcribe).parameters
+    except (TypeError, ValueError):
+        return False
+    return name in params or any(p.kind is p.VAR_KEYWORD for p in params.values())
+
+
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
                            use_gpu: bool = False, local_model_path: str = None,
                            hf_token: str = None, initial_prompt: str = "",
                            beam_size: int = 5, min_silence_duration_ms: int = 2000,
                            vad_threshold: float = 0.5, filter_hallucination_repeats: int = 4,
-                           on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False):
+                           on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False,
+                           hallucination_silence_sec: float = DEFAULT_HALLUCINATION_SILENCE_SEC,
+                           repeat_guard: bool = False, sensitivity_preset: str = "normal"):
     """
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
@@ -791,6 +1337,12 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     failure mode on silence/music that its own per-segment decoding
     thresholds don't catch. Set to 0 or None to disable entirely.
 
+    hallucination_silence_sec: faster-whisper's hallucination_silence_threshold --
+    a segment with a silent gap this long inside its word timings is
+    skipped as a likely hallucination. 0 or None turns it off. Not passed
+    when faster-whisper is too old to know it, and ignored by faster-whisper
+    itself in fast_mode (its batched pipeline hard-codes it off).
+
     on_gpu_fallback: optional callback invoked with the original exception
     if a requested GPU run fails at actual inference time and this
     transparently retries on CPU -- so the caller can tell the person
@@ -810,6 +1362,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     which decodes several VAD chunks at once (roughly 4x faster on a GPU).
     Same settings, same output shape; uses more VRAM while it runs.
     """
+    # Imported here: db.py's import check copies core.py alone into a temp folder.
+    from sensitivity_preset import decode_kwargs
     model = load_whisper_model(model_size, use_gpu=use_gpu, local_model_path=local_model_path,
                                 hf_token=hf_token)
     kwargs = {
@@ -817,10 +1371,13 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
                             "threshold": vad_threshold},
         "word_timestamps": True,
-        **WHISPER_ANTI_LOOP_KWARGS,
+        **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard),
     }
     if initial_prompt.strip():
         kwargs["initial_prompt"] = initial_prompt.strip()
+    if hallucination_silence_sec and not fast_mode and _accepts_transcribe_kwarg(
+            model, "hallucination_silence_threshold"):
+        kwargs["hallucination_silence_threshold"] = float(hallucination_silence_sec)
 
     def _collect(segments, info):
         duration = getattr(info, "duration", None) or 0
@@ -831,7 +1388,11 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             # a cut-off sound tag, "...", a dash) is not a subtitle.
             if any(ch.isalnum() for ch in text):
                 start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
-                result.append({"start": start, "end": end, "text": text})
+                seg = {"start": start, "end": end, "text": text}
+                words = _word_dicts(getattr(s, "words", None))
+                if words:
+                    seg["words"] = words
+                result.append(seg)
             if progress_cb:
                 progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
         if filter_hallucination_repeats:

@@ -60,13 +60,13 @@ RESULT_ALLOWED_KEYS = (
 _MAX_STR = 500
 _MAX_LIST = 20
 _MAX_JSON = 8000
-_URL_PATTERN = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+URL_PATTERN = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 
 
 def scrub_text(text: str) -> str:
     # URLs first: a fetched URL can carry a token or a private host that the
     # path and key redaction wouldn't recognise.
-    return redact_text(_URL_PATTERN.sub("[URL]", text or ""))
+    return redact_text(URL_PATTERN.sub("[URL]", text or ""))
 
 
 def _safe_scalar(value):
@@ -473,8 +473,9 @@ JOB_KIND_BY_PREFIX = {
     "bulk_emotion_": "review", "bulk_notes_": "review", "bulk_flag_": "review",
     "transcribe_": "transcribe", "retranscribe_": "transcribe",
     "autotune_": "transcribe", "sensevoice_": "transcribe", "comparetx_": "transcribe",
+    "speechcov_": "transcribe",
     "diarize_": "transcribe", "ocrchapter_": "transcribe",
-    "resegment_": "align", "resplit_": "align", "resegpreview_": "align",
+    "resegment_": "align", "resplit_": "align", "retime_": "align", "resegpreview_": "align",
     "dub_": "dub", "narration_": "dub", "audiobook_": "dub", "voiceref_": "dub",
     "burned_video_": "export", "softsub_video_": "export",
     "dubbed_video_": "export", "burnpreview_": "export", "notion_export_": "export",

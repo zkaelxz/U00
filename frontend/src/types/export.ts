@@ -16,6 +16,18 @@ export interface FlagActionResult {
   flagged_count: number
 }
 
+export type ReadingSpeedMode = 'normal' | 'relaxed' | 'off'
+
+export interface ReadingSpeedModeResult {
+  mode: ReadingSpeedMode
+}
+
+export interface ClearReadingSpeedFlagsResult {
+  cleared_count: number
+  flagged_count: number
+  history_id: number | null
+}
+
 export interface AutoQcFlagResult {
   flagged: number
   cleared: number

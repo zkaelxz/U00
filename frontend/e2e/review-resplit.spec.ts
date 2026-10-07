@@ -79,3 +79,29 @@ test('shows speaking time per speaker from the saved detection', async ({ page }
     'Bo  0:40 · 15.4% · 1 turn',
   ])
 })
+
+test('sends the sensitivity and duration cap with the split', async ({ page }) => {
+  const calls = await mockResplit(page, () => ({ json: SUMMARY }))
+  const group = await openResplit(page)
+  await group.getByRole('combobox', { name: 'Split sensitivity' }).selectOption('sentence')
+  await group.getByRole('combobox', { name: 'Also split by duration' }).selectOption('15')
+  await group.getByRole('button', { name: 'Re-split long lines' }).click()
+  await expect(group.getByTestId('resplit-summary')).toBeVisible()
+  expect(calls.resplits[0]).toMatchObject({ sensitivity: 'sentence', max_seconds: 15, dry_run: false })
+})
+
+test('previews the split without writing, and the empty note names the sensitivity', async ({ page }) => {
+  const calls = await mockResplit(page, (b) =>
+    b.sensitivity === 'more'
+      ? { json: { dry_run: true, split_lines: 31, pieces: 118, lines_before: 260, line_count: 347 } }
+      : { json: { split_lines: 0, note: 'No line is over the limits at Normal sensitivity. Try "More" or "Sentence by sentence".' } },
+  )
+  const group = await openResplit(page)
+  await group.getByRole('button', { name: 'Preview split' }).click()
+  await expect(group.getByTestId('resplit-summary')).toContainText('at Normal sensitivity. Try "More"')
+  await group.getByRole('combobox', { name: 'Split sensitivity' }).selectOption('more')
+  await group.getByRole('button', { name: 'Preview split' }).click()
+  await expect(group.getByTestId('resplit-summary')).toHaveText('Preview: 31 lines would be split into 118.')
+  expect(calls.resplits.map((b) => [b.sensitivity, b.dry_run])).toEqual([['normal', true], ['more', true]])
+  expect(calls.reassigns).toBe(0)
+})

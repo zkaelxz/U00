@@ -217,7 +217,18 @@ aligner returns zero-length or out-of-order spans.
 `vad_segments.py` (`speech_spans`, `merge_close`, `cap_spans`) builds Silero
 speech spans and cuts long ones at the quietest point. `Qwen3ASRVadBackend`
 (`asr_backend_choice` `qwen3_asr_vad`, opt-in) uses it to feed Qwen3 spans of
-at most about 15 s instead of Whisper's segments.
+at most about 15 s instead of Whisper's segments. `Qwen3ASRLongBackend`
+(`qwen3_asr_long`, the default for Chinese and Japanese titles that never chose
+a backend, when qwen-asr is installed) runs the same stages with gentler speech
+detection (threshold 0.35, no minimum span, 300 ms padding), spans packed into
+windows of up to 30 s, one line per sentence (`asr_backend.SENTENCE_SPLIT_RULES`) and
+the forced aligner always on, so line length comes from the text and aligned
+timings rather than from where the detector found a pause.
+
+The per-title "Split lines by sentences" option (`split_by_sentences`) does the
+same for Whisper and Qwen3 ASR: Whisper's speech detection splits only at 2 s
+pauses (`asr_backend.SENTENCE_SPLIT_MIN_SILENCE_MS`, faster-whisper's default) and the
+lines are cut by `asr_backend.SENTENCE_SPLIT_RULES` using Whisper's word timings.
 
 `mixed_language.py` backs the "mixed languages" option (`mixed_languages` in
 the ASR options): language is detected per speech span, the text's script is
@@ -295,7 +306,7 @@ not diverge.
    `diagnostics.OPTIONAL_DEPENDENCIES` in the same change.
 6. **Routes and permissions:** if you add an API route, give it exactly one of
    `require_permission(...)`, `public_route()` or `local_only()` and update the
-   route table in `remote-access-decision.md`.
+   route table in `route-permissions.md`.
 7. **Tests:** mocked only (no network, GPU or keys). Patch the module that uses
    a name. Cover the id-keyed path (a short reply must blank only its own
    line), the refusal signal, rate-limit backoff, secret redaction, and the

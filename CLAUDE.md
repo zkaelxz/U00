@@ -11,6 +11,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - `background_jobs.py`: thread-based jobs. The in-memory dict is the authority, with a best-effort mirror in the `job_records` table.
 - `sources/`: site adapters (`sources/adapters/`) and the fetch ladder. `cli.py`: headless batch runner.
 - Current status and what's next: `docs/STATUS.md`.
+- Small context window? Follow `docs/small-model-checklist.md`; `python tools/repo_map.py` prints the symbol map on demand.
 
 ## Tests
 - While iterating: `python -m pytest -q tests/test_<area>.py`. Full suite: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`.
@@ -25,7 +26,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - Every outbound HTTP call has a `timeout=`. `tests/test_static_analysis.py` enforces this for every file under `services/` and `api/` plus the other modules it lists; add a new HTTP-calling module outside those two packages to its list.
 - Background jobs write only the fields they own: `db.save_lines(drama_id, lines, fields=("en",))`. A full sync (`fields=None`) makes the list the drama's lines: rows are updated in place by id, rows missing from the list are deleted, and a field is written when it differs from the Line's `orig`. Build Lines with `core.line_from_row` (it carries every field and `orig`) so flags, speaker and the like aren't wiped.
 - `db.create_drama` / `db.update_drama` interpolate kwarg keys into SQL: services must whitelist any keys a client can choose (`drama_service` does); other services pass fixed literal keys. Services check drama/series ownership (`services/ownership_service.py`).
-- Every API route declares exactly one of `require_permission(...)`, `public_route()` or `local_only()`; `tests/test_api_permissions.py` enforces it along with the route table in `docs/remote-access-decision.md`.
+- Every API route declares exactly one of `require_permission(...)`, `public_route()` or `local_only()`; `tests/test_api_permissions.py` enforces it along with the route table in `docs/route-permissions.md`.
 - CLI and app must behave the same (glossary, style guide, locale, character names). When you change one, check the other.
 - A new optional dependency is registered in `diagnostics.OPTIONAL_DEPENDENCIES` in the same change.
 

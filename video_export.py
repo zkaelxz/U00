@@ -16,6 +16,22 @@ import os
 import subprocess
 import tempfile
 
+# What a stored source (an upload or a download with one of
+# media_upload_service's AUDIO/VIDEO_EXTENSIONS) is read as, plus aac,
+# mpegts and flv, which a mislabelled download often really is, and avi,
+# asf, mpeg, aiff, w64 and caf, which a library from before the extension
+# check can still hold. Not hls, dash, concat or any other format that
+# names further files or URLs.
+LOCAL_MEDIA_FORMATS = "mov,matroska,mp3,wav,flac,ogg,aac,mpegts,flv,avi,asf,mpeg,aiff,w64,caf"
+
+
+def local_input(formats: str = LOCAL_MEDIA_FORMATS) -> list:
+    """Input options for the -i after them. A file named .mp4 could
+    really be a playlist or manifest naming network URLs, so ffmpeg may
+    open only local files, and only as `formats`: the protocol whitelist
+    alone is not enough, since ffmpeg 6.1's DASH demuxer opens http
+    fragment URLs even under `-protocol_whitelist file`."""
+    return ["-protocol_whitelist", "file", "-format_whitelist", formats]
 
 
 def render_vertical_clip(video_path: str, ass_text: str, out_path: str,
@@ -76,10 +92,8 @@ def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: fl
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(ass_text)
     try:
-        # -protocol_whitelist file: the input is only ever read as a local
-        # file (never a playlist/concat reaching out over http or another
-        # protocol); -fs bounds the output size.
-        cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file",
+        # -fs bounds the output size.
+        cmd = ["ffmpeg", "-y", *local_input(),
                "-ss", str(max(start, 0.0)), "-i", video_path,
                "-t", str(max(end - start, 0.1)),
                "-vf", f"subtitles='{_escape_filter_path(ass_path)}'",
@@ -158,9 +172,12 @@ def burn_ass(video_path: str, ass_text: str, out_path: str):
     return out_path
 
 
-# An input option, so it goes before each -i: a file named .mp4 could really
-# be an HLS playlist naming network URLs; ffmpeg may only open local files.
-_FILE_ONLY = ("-protocol_whitelist", "file")
+def softsub_output_extension(video_path: str) -> str:
+    """.mp4 and .mkv sources keep their container; everything else becomes
+    .mkv, because MP4 refuses stream-copied VP8/VP9/Opus and the like while
+    Matroska accepts whatever codec the source holds."""
+    ext = os.path.splitext(video_path)[1].lower()
+    return ext if ext in (".mp4", ".mkv") else ".mkv"
 
 
 def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
@@ -170,7 +187,7 @@ def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
     ext = os.path.splitext(out_path)[1].lower()
     sub_codec = "mov_text" if ext == ".mp4" else "srt"
     return [
-        "ffmpeg", "-y", *_FILE_ONLY, "-i", video_path, *_FILE_ONLY, "-i", srt_path,
+        "ffmpeg", "-y", *local_input(), "-i", video_path, *local_input("srt"), "-i", srt_path,
         "-map", "0:v", "-map", "0:a", "-map", "1:s",
         "-c:v", "copy", "-c:a", "copy", "-c:s", sub_codec,
         "-metadata:s:s:0", f"language={language}",
@@ -180,7 +197,8 @@ def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
 
 def mux_soft_subtitles(video_path: str, srt_text: str, out_path: str, language: str = "eng"):
     """Softsub: subtitles added as a selectable/toggleable track.
-    Output must be .mp4 (mov_text codec) or .mkv (srt codec passthrough)."""
+    Output must be .mp4 (mov_text codec) or .mkv (srt codec); pick the
+    extension with softsub_output_extension."""
     srt_path = _write_srt_tempfile(srt_text)
     try:
         subprocess.run(mux_soft_subtitles_cmd(video_path, srt_path, out_path, language),
@@ -196,13 +214,15 @@ def replace_audio_with_dub_cmd(video_path: str, dub_audio_path: str, out_path: s
     the API's dubbed-video export job)."""
     if keep_original_at_db is not None:
         return [
-            "ffmpeg", "-y", *_FILE_ONLY, "-i", video_path, *_FILE_ONLY, "-i", dub_audio_path,
+            "ffmpeg", "-y", *local_input(), "-i", video_path, *local_input("wav"),
+            "-i", dub_audio_path,
             "-filter_complex",
             f"[0:a]volume={float(keep_original_at_db)}dB[orig];[orig][1:a]amix=inputs=2:duration=first[aout]",
             "-map", "0:v", "-map", "[aout]", "-c:v", "copy", out_path,
         ]
     return [
-        "ffmpeg", "-y", *_FILE_ONLY, "-i", video_path, *_FILE_ONLY, "-i", dub_audio_path,
+        "ffmpeg", "-y", *local_input(), "-i", video_path, *local_input("wav"),
+        "-i", dub_audio_path,
         "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-shortest", out_path,
     ]
 

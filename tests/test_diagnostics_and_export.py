@@ -887,6 +887,11 @@ class TestRedactForSupport:
         assert "/home/bob" not in text
         assert "audio.wav" in text
 
+    def test_repr_escaped_windows_paths_are_redacted(self):
+        text = diagnostics.redact_for_support(
+            "Command '['ffmpeg', '-i', 'C:\\\\Users\\\\bob\\\\U00\\\\audio.wav']' failed")
+        assert "bob" not in text and "Users" not in text and ".../audio.wav" in text
+
     def test_collapses_windows_paths_to_the_last_segment(self):
         text = diagnostics.redact_for_support(r"saved to C:\Users\bob\U00\library\drama_3\audio.wav")
         assert "bob" not in text
@@ -901,6 +906,29 @@ class TestRedactForSupport:
         text = diagnostics.redact_for_support(
             "saved to /home/x/My Documents/Baihe Data/library/12/audio.wav, retrying")
         assert text == "saved to .../audio.wav, retrying"
+
+    def test_collapses_windows_paths_with_spaces_in_folders_and_filename(self):
+        text = diagnostics.redact_for_support(
+            r"saved to C:\Users\x\My Documents\my file name.wav, retrying")
+        assert text == "saved to .../my file name.wav, retrying"
+
+    def test_collapses_posix_paths_with_spaces_in_folders_and_filename(self):
+        text = diagnostics.redact_for_support(
+            "saved to /home/x/My Documents/my file name.wav then stopped")
+        assert text == "saved to .../my file name.wav then stopped"
+
+    def test_prose_after_an_unspaced_filename_is_kept(self):
+        text = diagnostics.redact_for_support(
+            r"failed to open C:\a\b.wav because the disk is full")
+        assert text == "failed to open .../b.wav because the disk is full"
+        text = diagnostics.redact_for_support(
+            "failed to open /a/b.wav because the disk is full, see notes.txt")
+        assert text == "failed to open .../b.wav because the disk is full, see notes.txt"
+
+    def test_two_paths_in_one_sentence_stay_separate(self):
+        text = diagnostics.redact_for_support(
+            r"copy C:\a\b.wav to C:\c d\e f.txt now")
+        assert text == "copy .../b.wav to .../e f.txt now"
 
     def test_empty_text_is_safe(self):
         assert diagnostics.redact_for_support("") == ""

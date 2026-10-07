@@ -22,6 +22,7 @@ an edit made meanwhile is kept.
 import datetime
 import hashlib
 import json
+import logging
 import threading
 import time
 import uuid
@@ -704,7 +705,8 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
 
     if counts["applied"]:
         import subtitle_formats
-        changed_flag = subtitle_formats.flag_dense_lines(current) > 0 or changed_flag
+        mode = subtitle_formats.reading_speed_mode_of(db.get_drama(job["drama_id"]))
+        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
     if counts["applied"] or changed_flag:
         db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
     if counts["applied"]:
@@ -719,6 +721,8 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
         if untranslated_line_count(job["drama_id"]) == 0:
             _status["status"] = "translated"
         db.update_drama(job["drama_id"], **_status)
+    # Nothing newly applied can still complete the title (lines typed meanwhile).
+    mark_translated_if_complete(job["drama_id"])
     return counts
 
 
@@ -1020,7 +1024,8 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
 
     if counts["applied"]:
         import subtitle_formats
-        changed_flag = subtitle_formats.flag_dense_lines(current) > 0 or changed_flag
+        mode = subtitle_formats.reading_speed_mode_of(db.get_drama(job["drama_id"]))
+        changed_flag = subtitle_formats.flag_dense_lines(current, mode=mode) > 0 or changed_flag
     if counts["applied"] or changed_flag:
         db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
     if counts["applied"]:
@@ -1032,6 +1037,7 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
         if untranslated_line_count(job["drama_id"]) == 0:
             _status["status"] = "translated"
         db.update_drama(job["drama_id"], **_status)
+    mark_translated_if_complete(job["drama_id"])
     if notes:
         db.save_translation_notes(job["drama_id"], notes)
     return counts
@@ -1507,6 +1513,36 @@ def untranslated_line_count(drama_id: int) -> int:
                if (r.get("zh") or "").strip() and not (r.get("en") or "").strip())
 
 
+def mark_translated_if_complete(drama_id: int) -> bool:
+    """Moves a title from "aligned" to "translated" once every line with
+    source text has a translation. Called after any write that can fill the
+    last blank, so the status follows the lines whichever path wrote them.
+    Only an exact "aligned" is promoted: "dubbed" and "exported" are later
+    stages and must never go back, and a title with no source text has
+    nothing translated."""
+    drama = db.get_drama(drama_id)
+    if not drama or drama.get("status") != "aligned":
+        return False
+    rows = db.load_lines(drama_id)
+    if not any((r.get("zh") or "").strip() for r in rows):
+        return False
+    if untranslated_line_count(drama_id) != 0:
+        return False
+    return db.set_status_if(drama_id, "aligned", "translated")
+
+
+def repair_stale_aligned_statuses() -> int:
+    """One-time, idempotent startup repair for titles left at "aligned" with
+    every line already translated; touches no other status. Returns how
+    many were corrected."""
+    fixed = sum(1 for d in db.list_dramas(status="aligned")
+                if mark_translated_if_complete(d["id"]))
+    if fixed:
+        logging.getLogger(__name__).info(
+            "Corrected %d title(s) stuck at 'aligned' with every line translated.", fixed)
+    return fixed
+
+
 def _summary_engine_is_paid(summary_engine, summary_engine_choice) -> bool:
     name = summary_engine_choice or getattr(summary_engine, "name", "")
     return (name not in translate_engines.FREE_ENGINES
@@ -1640,7 +1676,8 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # on some lines, and that has to reach the database too, or it
     # only ever exists on this run's in-memory copies.
     import subtitle_formats
-    subtitle_formats.flag_dense_lines(lines)
+    subtitle_formats.flag_dense_lines(
+        lines, mode=subtitle_formats.reading_speed_mode_of(db.get_drama(drama_id)))
     if landed is None:
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     else:

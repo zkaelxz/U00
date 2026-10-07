@@ -12,8 +12,10 @@ export interface SettingsPreferences {
   default_engine: string
   default_locale: string
   default_style_note: string
+  scene_aware_batches: boolean // translate batches start at scene breaks
   episode_summary_engine: string
   monthly_cap_usd: number | null // null: BAIHE_MONTHLY_CAP_USD from .env applies
+  max_upload_mb: number // media/backup upload cap; BAIHE_MAX_UPLOAD_MB wins when set
   ollama_num_ctx_override: number // 0: sized from the prompt
   whisper_model_path: string
   ocr_backend: string
@@ -50,6 +52,8 @@ export interface SettingsOverview extends Record<SettingsToggleKey, boolean> {
   gpu_max_parallel: number // 1..4; 1 = one GPU job at a time
   preferences: SettingsPreferences
   endpoints: Record<EndpointName, string | null>
+  upload_max_mb_from_env: boolean // true: the environment sets the limit, the saved one is ignored
+  effective_upload_max_mb: number
   monthly_cap_env_usd: number
   effective_monthly_cap_usd: number
   // Full month vs what the cap counts since an active reset (UTC ISO time).

@@ -28,7 +28,8 @@
 .review-editor:has(.review-player-panel[hidden]) .review-watch { display: none; }
 .review-watch { position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2)); padding: var(--space-3); gap: var(--space-2); }
 .review-watch .card-title { font-size: var(--text-md); }
-.review-watch .review-video { max-height: 40vh; aspect-ratio: auto 16 / 9; cursor: pointer; }
+.review-watch .review-stage { max-height: 40vh; }
+.review-watch .review-video { cursor: pointer; }
 .review-watch .review-player-tools .review-jump { flex: 1 1 10rem; }
 
 /* ---- sticky toolbar ---- */
@@ -68,6 +69,11 @@ button.review-clear { position: absolute; right: 2px; top: 50%; transform: trans
 .review-goto input { width: 5.5em; }
 .review-status { margin: 0; min-height: 1.2em; font-size: var(--text-sm); color: var(--muted); }
 .review-status:empty { min-height: 0; }
+/* Sticky: a split scrolls the list to the new line, which would leave the Undo behind. */
+.review-undo { position: sticky; bottom: var(--space-2); z-index: 5; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius, 8px); background: var(--surface, Canvas); box-shadow: 0 2px 8px rgb(0 0 0 / 0.18); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.review-undo-text { flex: 1 1 14rem; min-width: 0; }
+.review-undo-actions { display: inline-flex; gap: var(--space-2); }
+.review-undo-actions button { min-height: var(--touch, 44px); min-width: var(--touch, 44px); }
 
 /* ---- player strip ---- */
 .review-player { display: grid; gap: var(--space-1); border-top: 1px solid var(--border); padding-top: var(--space-2); }
@@ -79,7 +85,26 @@ button.review-play { min-width: 44px; padding-inline: 10px; }
 /* On/off options inside Review panels: the kit's setting rows, without the page-level margin. */
 .stage-review .setting-list.review-toggles { margin: 0; }
 .stage-review .setting-list.review-toggles > .field-item { padding: var(--space-2) var(--space-3); min-height: 44px; }
-.review-video { width: 100%; max-height: 22vh; background: black; border-radius: var(--radius-sm); }
+/* The stage has the picture's shape and its own fixed size: the video and the
+   subtitle overlay are both absolutely placed in it, so a longer subtitle can
+   never move or resize the video or push the controls down. */
+.review-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 22vh; container-type: size; background: black; border-radius: var(--radius-sm); overflow: hidden; }
+.review-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: black; }
+/* Fixed dark box and white text, so it reads on any picture in both themes. */
+.review-overlay { position: absolute; left: 50%; bottom: 4cqh; transform: translateX(-50%); box-sizing: border-box; max-width: 90cqw; max-height: 85cqh; overflow: hidden; padding: 0.15em 0.6em; border-radius: 0.3em; background: rgba(0, 0, 0, 0.75); color: #fff; font-size: clamp(14px, 4cqw, 56px); line-height: 1.3; text-align: center; text-shadow: 0 1px 2px #000; white-space: pre-line; overflow-wrap: anywhere; pointer-events: none; }
+.review-player-frame { display: grid; gap: var(--space-1); min-width: 0; }
+.review-player-frame:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.review-fs { min-width: 44px; }
+.review-fs-play { display: none; }
+.review-player-frame.is-fullscreen { position: relative; display: block; width: 100%; height: 100%; background: black; outline-offset: -2px; }
+.review-player-frame.is-fullscreen .review-stage { position: absolute; inset: 0; max-height: none; aspect-ratio: auto; border-radius: 0; }
+.review-player-frame.is-fullscreen .review-overlay { bottom: 14cqh; font-size: clamp(20px, 3.2cqw, 64px); }
+.review-player-frame.is-fullscreen .review-player-controls { position: absolute; left: 0; right: 0; bottom: 0; padding: var(--space-4) var(--space-3) var(--space-3); background: linear-gradient(transparent, rgba(0, 0, 0, 0.85)); color: #fff; transition: opacity 0.2s; }
+.review-player-frame.is-fullscreen .review-fs-play { display: inline-flex; min-width: 44px; }
+.review-player-frame.is-fullscreen .review-jump,
+.review-player-frame.is-fullscreen .review-player-tools > button:not(.review-fs) { display: none; }
+.review-player-frame.is-fullscreen.is-idle { cursor: none; }
+.review-player-frame.is-fullscreen.is-idle .review-player-controls { opacity: 0; visibility: hidden; transition: opacity 0.2s, visibility 0s 0.2s; }
 .review-player-panel { display: grid; gap: var(--space-1); min-width: 0; }
 .review-player-panel[hidden] { display: none; }
 .review-player-controls { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: center; min-width: 0; }
@@ -93,16 +118,20 @@ button.review-play { min-width: 44px; padding-inline: 10px; }
 html.review-popout body { max-width: none; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; }
 html.review-popout .review-player-host { display: flex; flex: 1 1 auto; min-height: 0; }
 html.review-popout .review-player-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; }
-html.review-popout .review-video { flex: 1 1 auto; min-height: 0; max-height: none; width: 100%; object-fit: contain; }
+html.review-popout .review-player-frame { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+html.review-popout .review-stage { flex: 1 1 auto; min-height: 0; max-height: none; aspect-ratio: auto; }
+/* Dark bar with white text keeps the large caption readable over any theme; the
+   cap keeps three or more wrapped lines from squeezing the video away. */
+html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-caption-size, 1rem); line-height: 1.3; max-height: 35vh; overflow-y: auto; background: rgba(0, 0, 0, 0.88); color: #fff; }
 .review-player-dock .review-player-panel { padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
 .review-player-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; font-size: var(--text-sm); min-width: 0; }
 .review-jump { display: inline-flex; gap: var(--space-1); min-width: 0; }
 .review-jump input { width: 6.5em; }
 .review-subs { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
-/* Audio only: the current subtitle as text (a video draws its own). */
+/* Audio and the pop-out window: the current subtitle as text (an inline video draws it over the picture). */
 .review-caption { margin: 0; min-height: 1.5em; padding: var(--space-1) var(--space-2); white-space: pre-line; text-align: center; overflow-wrap: anywhere; background: var(--field-bg); border-radius: var(--radius-sm); }
 @media (pointer: coarse), (max-width: 640px) {
-  .review-video { max-height: 22vh; }
+  .review-stage { max-height: 22vh; }
   .review-seek { height: var(--touch, 44px); }
   .review-player-tools button, .review-player-tools select, .review-jump input { min-height: var(--touch, 44px); }
   button.review-player-toggle { min-height: var(--touch, 44px); }
@@ -136,8 +165,14 @@ html.review-popout .review-video { flex: 1 1 auto; min-height: 0; max-height: no
 @media (prefers-reduced-motion: reduce) { .review-line.is-jumped { animation: none; background: var(--accent-soft); } }
 .review-line-meta { font-size: var(--text-sm); color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: center; min-width: 0; }
 .review-idx { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* In the nowrap meta row the flag chip is the only item that may shrink; otherwise a long note squeezes "#2 3" onto two lines. */
+.review-idx, .review-time { flex: none; white-space: nowrap; }
 .review-time { font-variant-numeric: tabular-nums; }
 .review-flag { color: var(--warn); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
+.review-flag-toggle { display: block; max-width: 100%; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: inherit; }
+.review-flag-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.review-flag-note { margin: var(--space-1) 0 0; padding: 2px var(--space-2); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.4; color: var(--warn); background: var(--warn-soft); overflow-wrap: anywhere; white-space: normal; }
+.review-flag-open { margin: 2px 0 0; color: var(--warn); font-size: var(--text-sm); overflow-wrap: anywhere; white-space: normal; }
 .review-flag .pill { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 button.review-more { margin-left: auto; min-width: 36px; padding: 2px 10px; font-size: var(--text-lg); line-height: 1.2; border-color: transparent; background: none; color: var(--muted); font-weight: 700; }
 .review-line.is-active button.review-more, button.review-more:focus-visible { border-color: var(--border); color: var(--text); }
@@ -176,6 +211,15 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-lang-scope legend { padding: 0; margin-bottom: var(--space-1); font-size: var(--text-sm); font-weight: 600; color: var(--muted); }
 .review-lang-scope label { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 32px; }
 .review-preview { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); overflow-wrap: anywhere; }
+.split-cut { display: grid; gap: var(--space-2); }
+.split-cut-text { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); line-height: 2; overflow-wrap: anywhere; cursor: pointer; }
+.split-cut-text > span { position: relative; }
+.split-cut-a { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.split-cut-b { background: color-mix(in srgb, var(--ok) 22%, transparent); }
+.split-cut-mark { display: inline-block; width: 3px; height: 1.4em; margin: 0 1px; vertical-align: middle; border-radius: 2px; background: var(--text); }
+.split-cut-nudge { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.split-cut-nudge button { min-height: 44px; min-width: 44px; }
+.split-note { margin: 0; font-weight: 600; }
 .review-keys-list > div { grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr); }
 .review-keys-list kbd { font: inherit; font-size: var(--text-sm); padding: 1px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
 
@@ -247,7 +291,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* Keep the first text line clear of the ⋯ corner: a float carves out only the part the button covers. */
   .review-body { display: block; }
   .stage-review button.review-en { display: block; width: 100%; }
-  .review-flag-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: calc(var(--touch) - var(--space-2)); }
+  /* The margin keeps the flag button clear of the ⋯ button's padded hit area. */
+  .review-flag-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: var(--space-2); padding-right: calc(var(--touch) - var(--space-2)); }
 }
 
 .review-hidden-edit { align-items: center; flex-wrap: wrap; border-color: var(--warn); }
@@ -375,3 +420,21 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* Clear of the fixed phone action bar. */
   .review-selbar { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* ---- waveform timeline ---- */
+.review-wave-section { display: grid; gap: var(--space-1); }
+.review-wave { display: grid; gap: var(--space-1); min-width: 0; }
+.review-wave-tools { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; font-size: var(--text-sm); }
+.review-wave-range { margin-left: auto; font-variant-numeric: tabular-nums; }
+.review-wave-box { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); cursor: crosshair; touch-action: pan-y; user-select: none; }
+.review-wave-canvas { position: absolute; inset: 0; display: block; }
+.review-wave-cue { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--info) 14%, transparent); border-left: 1px solid var(--info); border-right: 1px solid var(--info); pointer-events: none; overflow: hidden; }
+.review-wave-cue.is-active { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+.review-wave-cue-label { font-size: var(--text-xs); padding: 0 var(--space-1); color: var(--text); }
+/* A wide hit area around a 2px line: easy to grab with a finger or a mouse. */
+.review-wave-handle { position: absolute; top: 0; bottom: 0; width: 18px; margin-left: -9px; cursor: ew-resize; touch-action: none; z-index: 1; }
+.review-wave-handle::after { content: ''; position: absolute; top: 0; bottom: 0; left: 8px; width: 2px; background: var(--accent); }
+.review-wave-handle:focus-visible { outline: none; }
+.review-wave-handle:focus-visible::after, .review-wave-handle.is-dragging::after { width: 4px; left: 7px; box-shadow: 0 0 0 3px var(--focus); }
+.review-wave-head { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--bad); pointer-events: none; display: none; }
+.review-wave-note { position: absolute; inset: auto var(--space-2) var(--space-1) var(--space-2); margin: 0; font-size: var(--text-xs); }

@@ -5,7 +5,41 @@ import type { TranscribeConfigUpdate } from '../../types/workspace'
 // re-validates everything; these only save a round trip and mirror
 // services/media_upload_service.py and services/transcribe_service.py.
 
-export const UPLOAD_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4', '.mkv', '.mov', '.webm']
+// tests/test_frontend_limit_parity.py keeps both lists equal to media_upload_service's.
+export const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac', '.ogg']
+const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.mov', '.webm']
+export const UPLOAD_EXTENSIONS = [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS]
+
+export const isVideoFile = (name: string) => VIDEO_EXTENSIONS.some((e) => name.toLowerCase().endsWith(e))
+
+// Audio replaces the title's media as a whole: the server unnames the old video too.
+export const UPLOAD_SETS_VIDEO_ASIDE =
+  "Uploading audio also sets the current video aside (kept in this title's folder), so the title will have no source video for Review or video export."
+export const URL_SETS_VIDEO_ASIDE =
+  "This link will give audio only, so it also sets the current video aside (kept in this title's folder). The title will have no source video for Review or video export."
+export const SWITCHES_FROM_BURNED_IN =
+  ' It also switches this title from reading burned-in subtitles to transcribing the audio.'
+
+// A direct link to an audio file is installed as audio only even with Audio only off
+// (services/url_media_service.py); the server reads the extension of the URL path.
+export function isDirectAudioUrl(url: string): boolean {
+  let path: string
+  try {
+    path = new URL(url.trim()).pathname
+  } catch {
+    return false
+  }
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const dot = name.lastIndexOf('.')
+  return dot > 0 && AUDIO_EXTENSIONS.includes(name.slice(dot).toLowerCase())
+}
+
+// The link target for "Change it in Settings"; the server's error text names the same place.
+export const UPLOAD_LIMIT_SETTINGS_HREF = '#/settings?section=uploads'
+
+export function isUploadLimitProblem(message: string): boolean {
+  return message.includes('upload limit')
+}
 
 export function checkUploadFile(name: string, sizeBytes: number, maxMb: number): string | null {
   const dot = name.lastIndexOf('.')
@@ -18,13 +52,25 @@ export function checkUploadFile(name: string, sizeBytes: number, maxMb: number):
   return null
 }
 
+// Keep in sync with MIN_SILENCE_MS_MIN/MAX in core.py.
+export const MIN_SILENCE_MS_MIN = 100
+export const MIN_SILENCE_MS_MAX = 3000
+
+// Keep in sync with MIN_WORD_GAP_SECONDS (default) and its _MIN/_MAX in core.py.
+export const MIN_PAUSE_SEC_DEFAULT = 0.35
+export const MIN_PAUSE_SEC_MIN = 0.1
+export const MIN_PAUSE_SEC_MAX = 2.0
+
 // Labels match the Transcribe stage's fields.
 const RANGES = {
   beam_size: { label: 'Beam size', min: 1, max: 10, integer: true },
-  min_silence_ms: { label: 'Min silence (ms)', min: 300, max: 3000, integer: true },
+  min_silence_ms: { label: 'Min silence (ms)', min: MIN_SILENCE_MS_MIN, max: MIN_SILENCE_MS_MAX, integer: true },
+  min_pause_sec: { label: 'Pause that can split a long line (s)', min: MIN_PAUSE_SEC_MIN, max: MIN_PAUSE_SEC_MAX, integer: false },
   vad_threshold: { label: 'VAD threshold', min: 0.1, max: 0.9, integer: false },
   hardsub_interval_sec: { label: 'Hardsub interval (s)', min: 0.5, max: 3.0, integer: false },
 } as const
+
+const DEFAULT_HALLUCINATION_SILENCE_SEC = 0
 
 // Returns the first out-of-range knob as a sentence, or null when valid.
 export function validateConfig(update: TranscribeConfigUpdate): string | null {
@@ -34,6 +80,10 @@ export function validateConfig(update: TranscribeConfigUpdate): string | null {
     if (!Number.isFinite(v) || v < r.min || v > r.max || (r.integer && !Number.isInteger(v))) {
       return `${r.label} must be ${r.integer ? 'a whole number ' : ''}between ${r.min} and ${r.max}.`
     }
+  }
+  const h = update.hallucination_silence_sec
+  if (h !== undefined && (!Number.isFinite(h) || (h !== 0 && (h < 0.5 || h > 10)))) {
+    return 'Hallucination guard must be 0 (off) or between 0.5 and 10 seconds.'
   }
   return null
 }
@@ -175,7 +225,11 @@ export function saveSourceForm(dramaId: number, state: SourceFormState): void {
 export interface AdvancedValues {
   beam_size: string
   min_silence_ms: string
+  min_pause_sec: string
   vad_threshold: string
+  // Absent from older callers: reads as normal.
+  sensitivity_preset?: string
+  hallucination_silence_sec: string
   hardsub_interval_sec: string
   alignment_method: string
   asr_backend_choice: string
@@ -183,6 +237,8 @@ export interface AdvancedValues {
   separate_vocals_first: boolean
   realign_long_segments: boolean
   whisper_fast_mode: boolean
+  whisper_repeat_guard: boolean
+  split_by_sentences: boolean
   use_groq: boolean
   prompt: string
 }
@@ -191,7 +247,12 @@ export function advancedSummary(v: AdvancedValues): string {
   const parts: string[] = []
   if (Number(v.beam_size) !== 5) parts.push(`beam ${v.beam_size}`)
   if (Number(v.min_silence_ms) !== 300) parts.push(`min silence ${v.min_silence_ms} ms`)
+  if (Number(v.min_pause_sec) !== MIN_PAUSE_SEC_DEFAULT) parts.push(`split pause ${v.min_pause_sec} s`)
   if (Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
+  if (v.sensitivity_preset === 'sensitive') parts.push('more sensitive')
+  if (Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
+    parts.push(`hallucination guard ${v.hallucination_silence_sec} s`)
+  }
   if (Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
   if (v.alignment_method !== 'whisper_diff') parts.push(v.alignment_method)
   if (v.asr_backend_choice !== 'whisper') parts.push(v.asr_backend_choice)
@@ -199,6 +260,8 @@ export function advancedSummary(v: AdvancedValues): string {
   if (v.separate_vocals_first) parts.push('separate vocals')
   if (v.realign_long_segments) parts.push('realign')
   if (v.whisper_fast_mode) parts.push('fast mode')
+  if (v.whisper_repeat_guard) parts.push('repeat guard')
+  if (v.split_by_sentences) parts.push('lines by sentence')
   if (v.use_groq) parts.push('Groq')
   if (v.prompt.trim()) parts.push('replacement prompt')
   return parts.length ? parts.join(' · ') : 'defaults'

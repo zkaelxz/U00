@@ -4,6 +4,8 @@ import { ApiError } from '../../api/client'
 import {
   advancedSummary,
   checkOcrImages,
+  isDirectAudioUrl,
+  isVideoFile,
   ocrBackendOptions,
   runOptionProblem,
   runProblemFromError,
@@ -12,9 +14,10 @@ import {
 } from './sourceForm'
 
 const base: AdvancedValues = {
-  beam_size: '5', min_silence_ms: '300', vad_threshold: '0.5', hardsub_interval_sec: '1',
+  beam_size: '5', min_silence_ms: '300', min_pause_sec: '0.35', vad_threshold: '0.5', hallucination_silence_sec: '0', hardsub_interval_sec: '1',
   alignment_method: 'whisper_diff', asr_backend_choice: 'whisper', separation_backend: 'auto',
-  separate_vocals_first: false, realign_long_segments: false, whisper_fast_mode: false, use_groq: false, prompt: '',
+  separate_vocals_first: false, realign_long_segments: false, whisper_fast_mode: false,
+  whisper_repeat_guard: false, split_by_sentences: false, use_groq: false, prompt: '',
 }
 
 describe('advancedSummary', () => {
@@ -23,6 +26,19 @@ describe('advancedSummary', () => {
   })
   it('lists only the values that differ', () => {
     expect(advancedSummary({ ...base, beam_size: '8', use_groq: true, prompt: ' x ' })).toBe('beam 8 · Groq · replacement prompt')
+  })
+  it('mentions a changed split pause only when it differs from 0.35', () => {
+    expect(advancedSummary({ ...base, min_pause_sec: '0.5' })).toBe('split pause 0.5 s')
+    expect(advancedSummary({ ...base, min_pause_sec: '0.350' })).toBe('defaults')
+    expect(advancedSummary({ ...base, sensitivity_preset: 'sensitive' })).toBe('more sensitive')
+    expect(advancedSummary({ ...base, sensitivity_preset: 'normal' })).toBe('defaults')
+  })
+  it('mentions the hallucination guard only when it is on', () => {
+    expect(advancedSummary({ ...base, hallucination_silence_sec: '3' })).toBe('hallucination guard 3 s')
+  })
+  it('mentions the repeat guard and sentence lines when on', () => {
+    expect(advancedSummary({ ...base, whisper_repeat_guard: true, split_by_sentences: true }))
+      .toBe('repeat guard · lines by sentence')
   })
 })
 
@@ -73,5 +89,25 @@ describe('runProblemFromError', () => {
     expect(runProblemFromError(err('validation_error', 'Invalid transcribe options.'))).toBeNull()
     expect(runProblemFromError(err('validation_error', 'forced alignment failed at /home/me/x'))).toBeNull()
     expect(runProblemFromError(null)).toBeNull()
+  })
+})
+
+describe('isVideoFile', () => {
+  it('tells a video upload from an audio one by extension, any case', () => {
+    expect(isVideoFile('Episode 1.WEBM')).toBe(true)
+    expect(isVideoFile('clip.mkv')).toBe(true)
+    expect(isVideoFile('dub.mp3')).toBe(false)
+    expect(isVideoFile('mp4.wav')).toBe(false)
+  })
+})
+
+describe('isDirectAudioUrl', () => {
+  it('reads the extension of the URL path, as the server does', () => {
+    expect(isDirectAudioUrl('https://a.example/x/ep.MP3?t=1')).toBe(true)
+    expect(isDirectAudioUrl(' https://a.example/x/ep.flac ')).toBe(true)
+    expect(isDirectAudioUrl('https://a.example/x/ep.mp4')).toBe(false)
+    expect(isDirectAudioUrl('https://a.example/watch?v=x.mp3')).toBe(false)
+    expect(isDirectAudioUrl('https://a.example/.mp3')).toBe(false)
+    expect(isDirectAudioUrl('not a url')).toBe(false)
   })
 })

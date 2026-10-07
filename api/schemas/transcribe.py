@@ -29,11 +29,22 @@ __all__ = [
     "AutotuneCandidateScore",
     "AutotuneStatus",
     "AutotuneApplyRequest",
+    "SpeechCoverageRunRequest",
+    "SpeechCoverageRunResult",
+    "SpeechCoverageGap",
+    "SpeechCoverageReport",
+    "SpeechCoverageStatus",
     "RetranscribeLineRequest",
     "RetranscribeLineResult",
     "RetranscribeApplyRequest",
     "RetranscribeApplyResult",
     "RetranscribeResult",
+    "RetimeRunRequest",
+    "RetimeProposal",
+    "RetimeResult",
+    "RetimeApplyItem",
+    "RetimeApplyRequest",
+    "RetimeApplyResult",
     "CompareSelection",
     "CompareBackendOption",
     "CompareOptions",
@@ -139,10 +150,22 @@ class TranscribeConfig(BaseModel):
     beam_size: int
     min_silence_ms: int
     vad_threshold: float
+    # "normal" or "sensitive" (see sensitivity_preset.py), and the threshold a run
+    # actually uses: the preset lowers an untouched one.
+    sensitivity_preset: str = "normal"
+    effective_vad_threshold: float
+    # Seconds of silence inside a segment that make Whisper skip it; 0 = off.
+    hallucination_silence_sec: float
+    # Shortest silence between words at which a long line may be cut.
+    min_pause_sec: float
     separate_vocals_first: bool
     separation_backend: str
     realign_long_segments: bool
     whisper_fast_mode: bool
+    # Whisper's no-repeat and repetition-penalty decoding (off by default).
+    whisper_repeat_guard: bool = False
+    # Cut lines at sentence ends and word pauses instead of speech-detector pauses.
+    split_by_sentences: bool = False
     use_groq: bool
     has_video_source: bool
     hardsub_ocr_backend: str
@@ -161,10 +184,15 @@ class TranscribeConfigUpdate(BaseModel):
     beam_size: Optional[int] = None
     min_silence_ms: Optional[int] = None
     vad_threshold: Optional[float] = None
+    sensitivity_preset: Optional[str] = None
+    hallucination_silence_sec: Optional[float] = None
+    min_pause_sec: Optional[float] = None
     separate_vocals_first: Optional[bool] = None
     separation_backend: Optional[str] = None
     realign_long_segments: Optional[bool] = None
     whisper_fast_mode: Optional[bool] = None
+    whisper_repeat_guard: Optional[bool] = None
+    split_by_sentences: Optional[bool] = None
     use_groq: Optional[bool] = None
     hardsub_ocr_backend: Optional[str] = None
     hardsub_interval_sec: Optional[float] = None
@@ -365,6 +393,8 @@ class CompareOptions(BaseModel):
     whisper_sizes: List[str]
     backends: List[CompareBackendOption]
     translation_engine: str
+    # Why the Qwen3 forced aligner (Re-time) can't run here, or None.
+    aligner_reason: Optional[str] = None
 
 
 class _CompareTranslateFields(BaseModel):
@@ -452,3 +482,93 @@ class CompareApplyRequest(BaseModel):
 class CompareApplyResult(BaseModel):
     applied: List[int]
     skipped: List[int]
+
+
+# --- Re-time with the Qwen3 aligner (Review) ---------------------------------
+class RetimeRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_ids: List[StrictInt] = Field(..., min_length=1, max_length=1000)
+
+
+class RetimeProposal(BaseModel):
+    line_id: int
+    number: int
+    base_zh: str
+    start: float
+    end: float
+    new_start: float
+    new_end: float
+    uncertain: bool
+
+
+class RetimeResult(BaseModel):
+    job_id: str
+    proposals: List[RetimeProposal]
+    line_count: int
+    partial: bool
+    device: Optional[str] = None
+    device_notice: Optional[str] = None
+    errors: List[str]
+
+
+class RetimeApplyItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_id: StrictInt = Field(..., ge=1)
+    expected_new_start: float
+    expected_new_end: float
+
+
+class RetimeApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    job_id: str = Field(..., min_length=1, max_length=100)
+    items: List[RetimeApplyItem] = Field(..., min_length=1, max_length=200)
+
+
+class RetimeApplyResult(CompareApplyResult):
+    overlapping: List[int] = []
+
+
+class SpeechCoverageRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    min_gap_seconds: float = Field(default=2.0, ge=0.5, le=30.0)
+
+
+class SpeechCoverageRunResult(BaseModel):
+    job_id: str
+
+
+class SpeechCoverageGap(BaseModel):
+    """A stretch with speech and no subtitle line. raw_status: "lost_after"
+    (the raw transcript has text here), "none" (it has none), "unknown" (no
+    raw transcript for the title)."""
+    start: float
+    end: float
+    seconds: float
+    speech_seconds: float
+    raw_status: str
+    raw_text: str = ""
+    after_line_id: Optional[int] = None
+    before_line_id: Optional[int] = None
+
+
+class SpeechCoverageReport(BaseModel):
+    audio_seconds: Optional[float] = None
+    speech_seconds: Optional[float] = None
+    covered_seconds: Optional[float] = None
+    covered_percent: Optional[float] = None
+    vad_threshold: Optional[float] = None
+    min_gap_seconds: Optional[float] = None
+    raw_available: bool = False
+    gaps_total: int = 0
+    gaps: List[SpeechCoverageGap] = []
+    failed_reason: Optional[str] = None
+    detail: Optional[str] = None
+
+
+class SpeechCoverageStatus(BaseModel):
+    """This title's coverage check as held in this app session; status "idle" when none."""
+    job_id: str
+    status: str
+    progress: Optional[float] = None
+    message: str = ""
+    result: Optional[SpeechCoverageReport] = None

@@ -38,9 +38,15 @@ import db
 import translate_engines
 from services import settings_service, translate_service
 from services.review_lines_service import line_dict
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, NotFoundError, ServiceError,
-                                      UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    ServiceError,
+    UnsupportedOperationError,
+)
 
 BLOCKED_FLAG = "content_blocked"
 DEFAULT_ENGINE = "ollama"   # local, no cloud moderation
@@ -87,8 +93,7 @@ def _build_engine(engine_name: str):
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     try:
         return translate_engines.get_engine(
             engine_name, api_key, None,

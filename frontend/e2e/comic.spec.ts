@@ -77,6 +77,7 @@ test('leaving the comic mid-scroll stays on the library', async ({ page }) => {
     w.__io[w.__io.length - 1]([{ isIntersecting: true, target } as unknown as IntersectionObserverEntry], null as never)
   })
   await expect(page).toHaveURL('/#/library')
+  // Proving a non-event: a late redirect back to the comic would arrive after the fake intersection, so give it a window.
   await page.waitForTimeout(300)
   await expect(page).toHaveURL('/#/library')
 })
@@ -185,6 +186,7 @@ test('a failed saved-page read never overwrites it; moving still saves', async (
   await page.goto('/#/comic/14')
   await expect(page).toHaveURL(/#\/comic\/14\?page=1$/)
   await expect(page.getByTestId('comic-page').locator('img')).toHaveJSProperty('complete', true)
+  // Proving a non-event: no progress save may follow arrival, and the save is debounced, so wait past it.
   await page.waitForTimeout(2500)
   expect(s.calls.filter((c) => c.method === 'GET' && c.path.endsWith('/progress')).length).toBe(1)
   expect(s.progressPosts).toEqual([])
@@ -199,6 +201,7 @@ test('a failed saved-page read never overwrites it; moving still saves', async (
   await page.goto('/#/comic/16')
   await expect(page).toHaveURL(/#\/comic\/16\?page=1$/)
   await expect(page.getByTestId('comic-page').first().locator('img')).toHaveJSProperty('complete', true)
+  // Proving a non-event: same as above for the vertical reader.
   await page.waitForTimeout(2500)
   expect(v.progressPosts).toEqual([])
   await page.keyboard.press('End')
@@ -242,7 +245,7 @@ test('screenshots: desktop vertical, paged right to left and the text panel', as
     const v = await mockComic(page, { id: 21, mediaType: 'manhwa', lastPage: 2, rendered: [1, 2] })
     await page.goto('/#/comic/21')
     await expect(page.getByTestId('comic-page').nth(1).locator('img')).toHaveJSProperty('complete', true)
-    await page.waitForTimeout(300)
+    await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
     await page.screenshot({ path: `${SHOTS_DIR}/desktop-vertical-${scheme}.png` })
 
     await page.unrouteAll({ behavior: 'ignoreErrors' })

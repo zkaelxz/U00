@@ -23,3 +23,5 @@ print(','.join(str(l.id) for l in db.load_line_objects(3)))
 export const tickBox = (page: Page, n: number) => page.getByRole('checkbox', { name: `Select line #${n}`, exact: true })
 export const compareAction = (page: Page) =>
   page.getByTestId('selection-bar').getByRole('button', { name: 'Compare transcription…' })
+export const retimeAction = (page: Page) =>
+  page.getByTestId('selection-bar').getByRole('button', { name: 'Re-time with Qwen3 aligner…' })

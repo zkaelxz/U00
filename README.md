@@ -96,6 +96,16 @@ Run the Setup installer (`BaiheStudio-Setup-<version>.exe`, built by the "Window
 
 `start.bat` also accepts `--portable`, `--server-only` (don't open a window), `--ci`, and `--python-version 3.12` (or a `PYTHON_VERSION` marker file); `start.ps1` is the PowerShell equivalent (`-Portable`, `-PythonVersion`, `-BuildFrontend`). It uses `constraints.lock.txt` instead of `constraints.txt` if you made one with `make_lock.bat`. `uninstall.bat` removes the shortcut and virtual environment and asks separately (default no) before touching your library or your user PATH entries for ffmpeg/Tesseract.
 
+**Automatic updates (source checkouts).** Before it starts, `start.bat` brings a git clone up to date with `origin/baihe-subtitler`, so you don't have to `git pull` and restart by hand. It only ever fast-forwards: it never discards, stashes or overwrites your changes, and it leaves untracked and ignored files (`library\`, `.env`, `venv\`, `frontend\dist`, the marker files) alone. When it updates it says `Updated to <commit>: N new commits` and lists the latest subjects. If `requirements-core.txt` or the constraints files changed it installs the new dependencies in the same launch, and if the screens' source changed it rebuilds `frontend\dist` when Node.js (`npm`) is installed; otherwise it tells you to run `start.bat --build-frontend` or unzip the release's frontend zip.
+
+It prints one line and starts the version already on disk, without updating, when:
+
+- the copy is not on the `baihe-subtitler` branch (including local commits that aren't on origin);
+- a tracked file was edited (`git status` shows changes to files git knows about);
+- Baihe Studio is already running. The running app keeps its old code and screens until it is restarted, so close it and run `start.bat` again to pick up an update.
+
+(It also does nothing without a `.git` folder, such as an installed copy or release zip, without `git` on PATH, or when GitHub can't be reached.) Turn it off for one run with `start.bat --no-update`, or for good with an empty file named `NOUPDATE` next to `start.bat`. `--ci` and `--server-only` never update. `start.ps1` does not update; use `start.bat`.
+
 ### Prerequisites
 
 Python 3.10+ (CI uses 3.11; the installer ships 3.12) and `ffmpeg` with libass (for burning subtitles; most builds have it). Node.js 22 is only needed to build the frontend yourself. Other tools (Tesseract and so on) are covered where each feature is described.
@@ -152,6 +162,9 @@ python cli.py narrate-prep --engine claude --api-key $KEY     # novel-narration 
 python cli.py translate --status aligned --engine claude --api-key $KEY
 python cli.py dub --status translated
 python cli.py export-video --subs english
+python cli.py transcribe --id 3 --language zh --whisper-size large-v3 --diarize   # same service as the app; options are saved on the title
+python cli.py qc --id 3                                       # Auto QC: flags number/name/banned-term slips, no engine
+python cli.py glossary list --id 3                            # also add / remove / import FILE / export (the series glossary)
 ```
 Without `--transcript`, put the transcript at `library/dramas/<id>/transcript.txt` and the media at `library/dramas/<id>/source.<ext>`. For novel narration, put the text at `library/dramas/<id>/novel_narration_source.txt` and set `content_mode = 'novel_narration'` on the drama row (the app does all this for you).
 
@@ -231,7 +244,7 @@ Whisper often mishears proper nouns in Chinese without it showing. In order of v
 4. **Wider beam search** (8-10): costs time only.
 
 Other Transcribe options (Workspace > Transcribe):
-- **Speech-splitting sensitivity** (default 300 ms, range 300-3000 ms; 300 is the floor) and **speech detection sensitivity** (the Silero VAD threshold): the first controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing phantom lines.
+- **Speech-splitting sensitivity** (default 300 ms, range 100-3000 ms; lower values split at shorter pauses and can cut mid-sentence) and **speech detection sensitivity** (the Silero VAD threshold): the first controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing phantom lines.
 - **Remove background music before transcribing**: vocal separation with `audio-separator` (preferred) or Demucs. Adds a full extra pass; skip it unless the background is music alone (in the benchmark it hurt with noise and did nothing on clean audio).
 - **Split long merged lines using word-level alignment** (experimental, off by default): re-aligns a line against its own audio with Meta's MMS aligner (`pip install torchaudio uroman`, ~1.1GB model on first use). It only re-times text Whisper already produced.
 - **Review > Check line coverage** (run before translating) flags overlong lines, large gaps, blank source text and untranslated lines.
@@ -440,7 +453,7 @@ supply it.
 - **Run.** Pick a stage (translation, transcription or OCR), a set, and one to
   four engine/model configs; two or more run the same cases side by side
   (Model Arena). Press "Estimate cost" first: paid engines stop at the monthly cap.
-- **Scores.** Translation uses text similarity; transcription and OCR use
+- **Scores.** Translation uses chrF via `sacrebleu` when installed, else a text similarity ratio; transcription and OCR use
   1 - CER (1 - WER for space-delimited languages), via `jiwer` when installed,
   else a built-in scorer. Each result records its metric and scorer.
 - **Results.** Every run is saved (engine, model, score, latency, cost, peak VRAM,

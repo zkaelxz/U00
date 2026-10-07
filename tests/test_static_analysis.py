@@ -129,6 +129,14 @@ class TestHttpCallsHaveTimeouts:
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 
+    def test_live_fetch(self):
+        # The live stream fetcher's GETs run on a background thread for the
+        # whole session; its stall handling relies on the read timeout.
+        path = os.path.join(PROJECT_ROOT, "live_fetch.py")
+        assert _find_requests_calls_missing_timeout(path, session_verbs=True) == []
+        assert "session.get(" in open(path, encoding="utf-8").read(), \
+            "the timeout check no longer sees the fetcher's GET"
+
     def test_installer_service_helper(self):
         # installer/service.py's loopback health check goes through an
         # opener's .open(), which the name-based check above doesn't match,
@@ -638,3 +646,68 @@ class TestFfmpegRunsHaveTimeouts:
         good = bad.replace("check=True", "check=True, timeout=5")
         assert _find_ffmpeg_runs_missing_timeout(bad) == [4]
         assert _find_ffmpeg_runs_missing_timeout(good) == []
+
+
+# Smaller files are easier for a small-context model (and a reviewer) to hold
+# in one read. Each entry is the file's size in bytes today; remove an entry
+# when the split of that file lands. A listed file may shrink but never grow.
+MAX_MODULE_BYTES = 40 * 1024
+OVERSIZED_MODULE_BYTES = {
+    "db.py": 299250,
+    "diagnostics.py": 118507,
+    "services/transcribe_service.py": 105684,
+    "cli.py": 91305,
+    "scanlate.py": 89904,
+    "background_jobs.py": 89431,
+    "bulk_translate.py": 86382,
+    "installer/service.py": 83445,
+    "core.py": 84228,
+    "services/auto_backup_service.py": 83022,
+    "services/disk_usage_service.py": 73729,
+    "services/workspace_job_service.py": 65680,
+    "dub.py": 64679,
+    "services/maintenance_assistant_service.py": 61272,
+    "services/library_admin_service.py": 55556,
+    "sources/http.py": 52622,
+    "services/restructure_service.py": 52468,
+    "sources/ai_extract.py": 50796,
+    "services/translate_run_service.py": 45837,
+    "services/diagnostics_gaps_service.py": 45495,
+    "services/glossary_service.py": 44595,
+    "page_fetch.py": 44114,
+    "sources/adaptive.py": 42520,
+    "translation_guide.py": 41109,
+}
+
+
+class TestModuleSize:
+    @staticmethod
+    def _module_sizes():
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__"}
+        sizes = {}
+        for root, dirs, files in os.walk(PROJECT_ROOT):
+            dirs[:] = [d for d in dirs if d not in skip]
+            for name in files:
+                if name.endswith(".py") and not name.startswith("test_"):
+                    path = os.path.join(root, name)
+                    sizes[os.path.relpath(path, PROJECT_ROOT).replace(os.sep, "/")] = os.path.getsize(path)
+        return sizes
+
+    def test_no_module_over_the_limit_unless_allowlisted(self):
+        too_big = {p: s for p, s in self._module_sizes().items()
+                   if s > MAX_MODULE_BYTES and p not in OVERSIZED_MODULE_BYTES}
+        assert too_big == {}, (
+            f"Python modules over {MAX_MODULE_BYTES} bytes: {too_big}. Split the module; "
+            "do not add it to OVERSIZED_MODULE_BYTES.")
+
+    def test_allowlisted_modules_never_grow(self):
+        sizes = self._module_sizes()
+        grown = {p: (limit, sizes[p]) for p, limit in OVERSIZED_MODULE_BYTES.items()
+                 if sizes.get(p, 0) > limit}
+        assert grown == {}, f"allowlisted modules grew past their recorded size (limit, now): {grown}"
+
+    def test_allowlist_has_no_stale_entries(self):
+        sizes = self._module_sizes()
+        stale = sorted(p for p in OVERSIZED_MODULE_BYTES
+                       if p not in sizes or sizes[p] <= MAX_MODULE_BYTES)
+        assert stale == [], f"remove from OVERSIZED_MODULE_BYTES (split or deleted): {stale}"

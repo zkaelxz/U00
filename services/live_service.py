@@ -9,7 +9,12 @@ still queued). Every start gets its own id and directory, use_gpu reaches the
 pipeline, and max_minutes is a hard stop.
 
 Decisions (spec): any public http(s) URL yt-dlp can resolve is accepted
-(host checked by services.url_guard.resolve_public, no fetch here); no
+(host checked by services.url_guard.resolve_public, no fetch here). The
+job runs yt-dlp and the stream fetcher (live_fetch, which pipes the
+stream into ffmpeg; ffmpeg itself opens nothing) through a
+services.egress_proxy.GuardedProxy, so every connection they make
+afterwards (redirects, playlist variants, segments, keys) is checked and
+pinned to a public address too; no
 browser cookies over the API (a start at the PC uses the saved Settings
 cookies; see start_session); keys are resolved server-side, never taken
 from the caller. No FastAPI import.
@@ -30,9 +35,16 @@ import background_jobs
 import live_translate
 import translate_engines
 from core import SOURCE_LANGUAGES
-from services import ownership_service, settings_service, translate_service, url_guard
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError, ServiceError)
+from services import (egress_proxy, jobs_service, ownership_service, settings_service,
+                      translate_service, url_guard)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    ServiceError,
+)
 
 WHISPER_SIZES = ("tiny", "base", "small", "medium")
 SEGMENT_RANGE = (10, 60)
@@ -41,9 +53,6 @@ MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
-# ffmpeg input protocols for a resolved live stream (HLS over https needs
-# tcp, tls and crypto for encrypted segments); no file, pipe, data, etc.
-FFMPEG_PROTOCOL_WHITELIST = "http,https,tcp,tls,crypto"
 
 _lock = threading.Lock()
 # session_id -> {"dir": str or None, "engine": str}
@@ -55,11 +64,14 @@ _PATH_RE = re.compile(r"""(?:(?<=^)|(?<=[\s'"(=]))(?:[A-Za-z]:[\\/]|\\\\|/)[^\s'
 
 
 def clean_message(text) -> str:
-    """Redacted, path-stripped, single-line text safe to return to a client."""
+    """Redacted, URL- and path-stripped, single-line text safe to return to
+    a client (a yt-dlp or proxy error can name the stream or proxy URL)."""
     if not text:
         return ""
-    text = translate_engines.redact_secrets(str(text))
-    text = _PATH_RE.sub("<path>", text)
+    # Not jobs_service.scrub_text: its username redaction rewrites ordinary
+    # words in transcripts and errors ("li" -> "[USER]kely").
+    text = jobs_service.URL_PATTERN.sub("[URL]", str(text))
+    text = _PATH_RE.sub("<path>", translate_engines.redact_secrets(text))
     return text.splitlines()[0][:500] if text.strip() else ""
 
 
@@ -87,8 +99,7 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     try:
         engine = translate_engines.get_engine(
             engine_name, api_key, model or None,
@@ -124,8 +135,8 @@ def _active_session_locked():
 
 
 def check_stream_url(stream_url) -> None:
-    """Run on the direct stream URL yt-dlp resolved, before ffmpeg opens
-    it: services.url_guard.resolve_public (http/https only, no userinfo,
+    """Run on the direct stream URL yt-dlp resolved, before it is
+    fetched: services.url_guard.resolve_public (http/https only, no userinfo,
     every resolved address public), on the full URL (no length cap: a
     signed stream URL can be long). The error never echoes the URL, which
     can carry a signed token."""
@@ -148,7 +159,10 @@ def _require_public(url, bad_message: str) -> None:
 def _make_target(session_id: str):
     def _target(*args, **kwargs):
         try:
-            live_translate.run_live_job(*args, **kwargs)
+            # run_live_job stops the stream fetcher (and ffmpeg) before
+            # returning, so the proxy outlives every connection it serves.
+            with egress_proxy.GuardedProxy() as proxy:
+                live_translate.run_live_job(*args, proxy=proxy.url, **kwargs)
         finally:
             _remove_dir(session_id)
     return _target
@@ -232,7 +246,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
             max_seconds=max_minutes * 60,
-            stream_url_check=check_stream_url, protocol_whitelist=FFMPEG_PROTOCOL_WHITELIST,
+            stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
             gpu_touching=bool(use_gpu), description="Live capture (local Whisper)")
     except Exception:
