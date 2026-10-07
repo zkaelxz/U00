@@ -25,6 +25,7 @@ MODEL_VRAM_MB = {
     "OmniVoice": 2000,
     "Chatterbox": 2000,
     "TADA 3B": 6500,
+    "PaddleOCR-VL-For-Manga": 3000,
 }
 
 
