@@ -452,8 +452,9 @@ class EmotionJobStart(ReviewJobStart):
 
 class FixFlaggedJobStart(ReviewJobStart):
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
-    include_genre_notes: StrictBool = True
-    default_female_pronouns: StrictBool = False
+    # Omitted: the title's saved choice (else genre notes on, she/her off).
+    include_genre_notes: Optional[StrictBool] = None
+    default_female_pronouns: Optional[StrictBool] = None
     bulk: Literal[False] = False   # there is no batch variant of fix-flagged
 
 

@@ -207,7 +207,8 @@ def _series_pronouns_by_name(series_characters) -> dict:
             for sc in (series_characters or []) if normalize_pronouns(sc.get("gender"))}
 
 
-def build_character_gender_hints(series_characters, drama_characters=None) -> str:
+def build_character_gender_hints(series_characters, drama_characters=None,
+                                 default_female_pronouns: bool = False) -> str:
     """series_characters: rows from db.list_series_characters() (pronoun
     text in their `gender` column). drama_characters: rows from
     db.list_characters_with_series_names() (pronoun text in `pronouns`),
@@ -217,6 +218,10 @@ def build_character_gender_hints(series_characters, drama_characters=None) -> st
     rather than from Mandarin's homophone-ambiguous 他/她/它. Empty
     string if nobody has pronouns set -- callers should skip adding this
     block entirely rather than inject an empty header.
+
+    default_female_pronouns: also says what a speaker or character NOT listed
+    gets (she/her), so a block naming only the he/him characters can't read
+    as "everyone else is male". Never changes a listed character's pronouns.
     """
     series_by_name = _series_pronouns_by_name(series_characters)
     merged = {}
@@ -235,6 +240,9 @@ def build_character_gender_hints(series_characters, drama_characters=None) -> st
              "accordingly, overriding any other default):"]
     for name, p in merged.values():
         lines.append(f"  {name}: {p}")
+    if default_female_pronouns:
+        lines.append("  Any speaker or character not listed here: she/her, unless context "
+                     "or an honorific says otherwise.")
     return "\n".join(lines)
 
 
