@@ -103,10 +103,6 @@ def _app_rows() -> dict:
         for key in list(getattr(aligner, "_aligner_model_cache", {})):
             models.append({"name": "Qwen3 forced aligner", "kind": "Alignment",
                            "device": _device_label(key)})
-        local = sys.modules.get("engine_backends.local")
-        for key in list(getattr(local, "_nllb_pipeline_cache", {})):
-            models.append({"name": _model_label(str(key[0])), "kind": "Translation",
-                           "device": "Unknown"})
     except Exception:
         return {"state": "unavailable", "models": []}
     return {"state": "ok", "models": models}

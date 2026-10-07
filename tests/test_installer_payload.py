@@ -47,7 +47,7 @@ def fake_repo(tmp_path):
         ".github/workflows/x.yml", ".claude/settings.json", ".github/CODEOWNERS",
         "start.bat", "start.ps1", "uninstall.bat", "uninstall_path_cleanup.ps1",
         "make_shortcut.bat", "make_lock.bat", "pytest.ini", "conftest.py",
-        "tools/.env/pip.ini", ".env.venv/Scripts/python.exe",
+        "tools/.env/pip.ini", "tools/repo_map.py", ".env.venv/Scripts/python.exe",
         "CLAUDE.md", "FILE_ORGANIZATION.md", ".gitignore",
         "PORTABLE", "PYTHON_VERSION", "INSTALLED",
         "api/__pycache__/server.cpython-312.pyc", "services/x.pyc",
@@ -145,6 +145,7 @@ class TestIsExcluded:
         "model_cache/x", "tests/test_a.py", "docs/a.md", "frontend/src/a.ts",
         "venv/x", "x/__pycache__/y.pyc", "start.bat", "INSTALLED", "cookies.txt",
         "a.pem", "a.log", "library.db", "installer/baihe.iss", "installer\\build_installer.py",
+        "tools/repo_map.py",
     ])
     def test_excluded(self, rel):
         assert bi.is_excluded(rel)

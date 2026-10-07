@@ -26,12 +26,12 @@ describe('loadedRows', () => {
     const rows = loadedRows({
       ...base,
       ollama: { state: 'running', models: [{ name: 'gemma4:12b', size_bytes: 8_000_000_000, vram_bytes: 8_000_000_000 }] },
-      app: { state: 'ok', models: [{ name: 'large-v3-turbo', kind: 'Whisper', device: 'GPU' }, { name: 'nllb', kind: 'Translation', device: 'Unknown' }] },
+      app: { state: 'ok', models: [{ name: 'large-v3-turbo', kind: 'Whisper', device: 'GPU' }, { name: 'Qwen3 forced aligner', kind: 'Alignment', device: 'Unknown' }] },
     })
     expect(rows.map((r) => [r.name, r.where, r.size])).toEqual([
       ['gemma4:12b', 'Ollama · GPU', '8.0 GB'],
       ['large-v3-turbo', 'This app · GPU', '—'],
-      ['nllb', 'This app · device unknown', '—'],
+      ['Qwen3 forced aligner', 'This app · device unknown', '—'],
     ])
   })
   it('is empty when nothing is loaded', () => expect(loadedRows(base)).toEqual([]))

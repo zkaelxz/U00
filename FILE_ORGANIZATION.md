@@ -19,6 +19,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | `installer/` | Windows installer build (Inno Setup, bundled Python/Caddy/WinSW) | `installer/build_installer.py` |
 | `deploy/` | Caddy template for household access | `deploy/caddy/Caddyfile.template` |
 | `scripts/` | build, probe and migration helpers | per script |
+| `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed) | `python tools/repo_map.py --help` |
 | `tests/` | pytest suite; tests enforce most rules in `CLAUDE.md` | `python -m pytest -q` |
 | `docs/` | design notes, status and route table; `docs/archive/` is history | `docs/README.md`, `docs/STATUS.md` |
 | `library/` | your data (gitignored, created automatically) | n/a |
@@ -55,7 +56,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `diagnostics_service.py`, `diarization_service.py`, `discover_catalog_service.py`,
 `discover_lookup_service.py`, `disk_usage_service.py`, `drama_service.py`, `dub_service.py`,
 `egress_proxy.py`, `engine_routing_service.py`, `event_stream_service.py`, `export_service.py`,
-`extension_service.py`, `glossary_retranslate_service.py`, `glossary_service.py`, `jellyfin_service.py`,
+`extension_service.py`, `fixflag_transcribe.py`, `glossary_retranslate_service.py`, `glossary_service.py`, `jellyfin_service.py`,
 `job_checkpoint_service.py`, `job_timing_service.py`, `jobs_service.py`, `library_admin_service.py`, `loaded_models_service.py`,
 `library_service.py`, `line_ai_service.py`, `line_provenance_service.py`, `line_tools_service.py`,
 `lines_service.py`, `live_service.py`, `lncrawl_service.py`, `maintenance_assistant_service.py`,

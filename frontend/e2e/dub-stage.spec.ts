@@ -6,7 +6,8 @@ import { expect, test, type Page } from '@playwright/test'
 const dubConfig = (over: object = {}) => ({
   drama_id: 1, content_mode: null, is_narration: false, narration_language: 'en',
   narration_language_options: ['en', 'zh'], source_language: 'zh',
-  tts_engines: [{ key: 'edge_tts', label: 'Edge TTS', requires_internet: true }],
+  tts_engines: [{ key: 'omnivoice', label: 'OmniVoice' }],
+  default_engine: 'omnivoice',
   defaults: { max_speedup: 1.3, max_slowdown: 0.85, speedup_range: [1, 2], slowdown_range: [0.5, 1] },
   speakers: [], gpu_required: false, speakable_line_count: 3, track_available: false,
   gpt_sovits_configured: false, can_keep_background: true, ...over,
@@ -56,7 +57,7 @@ test('shows config and null-safe pacing, then starts a dub with the right body a
   await page.getByRole('switch', { name: 'Keep background music' }).click()
   await page.getByRole('button', { name: 'Generate dub' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
-  expect(bodies[0]).toEqual({ tts_engine: 'edge_tts', max_speedup: 1.5, max_slowdown: 0.85, keep_background: true })
+  expect(bodies[0]).toEqual({ tts_engine: 'omnivoice', max_speedup: 1.5, max_slowdown: 0.85, keep_background: true })
 
   await page.getByRole('button', { name: 'Cancel job' }).click()
   await expect(page.getByTestId('job-status')).toContainText('Cancelled')

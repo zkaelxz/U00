@@ -599,6 +599,15 @@ def choose_candidate(drama_id: int, candidate_id: str) -> dict:
 
 # --- C13: save to the voice bank ------------------------------------------------
 
+def _bank_engine(engine):
+    """The engine to store with a bank entry: the default when unset, and
+    blank (unspecified) for one that was removed, so the entry never names
+    an engine that can't run."""
+    if not engine:
+        return dub.DEFAULT_CLONE_ENGINE
+    return engine if engine in dub.CLONE_ENGINES else ""
+
+
 def save_to_voice_bank(drama_id: int, speaker_label, name, notes: str = "") -> dict:
     """Copies this speaker's clip into the library voice bank with its
     transcript, clone engine (the default when unset), voice design, the drama's source language, and provenance
@@ -618,7 +627,7 @@ def save_to_voice_bank(drama_id: int, speaker_label, name, notes: str = "") -> d
                     if c["speaker_label"] == speaker_label and c.get("character_name")), "")
     entry_id = db.save_voice_bank_entry(
         name.strip(), clip, ref_text=row.get("ref_text") or "",
-        clone_engine=row.get("clone_engine") or dub.DEFAULT_CLONE_ENGINE,
+        clone_engine=_bank_engine(row.get("clone_engine")),
         voice_design=row.get("voice_design") or "",
         language=drama.get("source_language") or "zh", notes=(notes or "").strip(),
         source_drama=drama.get("title_en") or drama.get("title_zh") or f"drama #{drama_id}",

@@ -100,8 +100,8 @@ class TestParseRequirementsFile:
         # requirements-optional.txt's own pattern: three TTS engines whose
         # deps conflict, only one ever uncommented at a time.
         p = tmp_path / "reqs.txt"
-        p.write_text("# omnivoice>=0.2\nf5-tts>=0.9\n")
-        assert diagnostics.parse_requirements_file(str(p)) == ["f5-tts>=0.9"]
+        p.write_text("# omnivoice>=0.2\nchatterbox-tts>=0.9\n")
+        assert diagnostics.parse_requirements_file(str(p)) == ["chatterbox-tts>=0.9"]
 
     def test_missing_file_returns_empty_list(self, tmp_path):
         assert diagnostics.parse_requirements_file(str(tmp_path / "nope.txt")) == []
