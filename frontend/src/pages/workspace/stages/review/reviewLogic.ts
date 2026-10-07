@@ -385,15 +385,27 @@ export function undoHandleOf(r: { history_id?: number | null; lines_fingerprint?
 
 export const UNDO_CHANGED_MESSAGE = 'The lines changed since. Restore from Records → Line history instead.'
 export const UNDO_GONE_MESSAGE = 'This change can no longer be undone here. Records → Line history has the saved versions.'
+// Not "use Records instead": a Records restore would delete that note or tag without asking.
+export const UNDO_NOTES_MESSAGE =
+  'A note or emotion tag was added to a line this undo would remove, so nothing was changed. Restoring from Records would delete it: move or copy the note first.'
+
+/** The Records restore warning: it removes those lines and deletes their notes and tags. */
+export function restoreLossText(lines: number): string {
+  return lines === 1
+    ? '1 line this would remove has a note or emotion tag. Restoring deletes them. Move or copy the note first to keep it.'
+    : `${lines} lines this would remove have notes or emotion tags. Restoring deletes them. Move or copy the notes first to keep them.`
+}
 
 export type UndoKind = 'split' | 'merge' | 'delete' | 'resplit'
 
 /** What an undo really brings back: notes and emotion tags live outside the snapshot, so a
- *  deleted line's are gone and a merge's stay on the line they were merged into. */
+ *  deleted line's are gone and a merge's stay on the line they were merged into (except where
+ *  that line had its own tag, or a note on the same term, which won). */
 export function undoDoneMessage(kind: UndoKind): string {
   if (kind === 'delete')
     return 'Undone. The line is back with its text, translation, timing, speaker and flag, but not its notes or emotion tag.'
-  if (kind === 'merge') return 'Undone. The merged lines are back; their notes and emotion tags stay on the line they were merged into.'
+  if (kind === 'merge')
+    return 'Undone. The merged lines are back. Their notes and emotion tags stay on the line they were merged into, unless that line already had its own tag or a note on the same word.'
   return 'Undone. The lines are back as they were before.'
 }
 
@@ -403,6 +415,8 @@ export function undoRefusal(e: unknown): { text: string; keepOffer: boolean } | 
   if (!(e instanceof ApiError)) return null
   if (e.status === 404) return { text: UNDO_GONE_MESSAGE, keepOffer: false }
   if (e.status !== 409) return null
+  if ((e.details as { reason?: unknown } | undefined)?.reason === 'notes_on_removed_lines')
+    return { text: UNDO_NOTES_MESSAGE, keepOffer: false }
   return /job/i.test(e.message) ? { text: JOB_RUNNING_MESSAGE, keepOffer: true } : { text: UNDO_CHANGED_MESSAGE, keepOffer: false }
 }
 

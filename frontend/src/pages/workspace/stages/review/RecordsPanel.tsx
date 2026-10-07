@@ -4,6 +4,7 @@ import {
   acceptTm,
   activateVersion,
   deleteNote,
+  getHistorySnapshot,
   listHistory,
   listNotes,
   listTmSuggestions,
@@ -15,7 +16,8 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
-import { JOB_RUNNING_MESSAGE, keptNote, structureErrorText } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE, keptNote, restoreLossText, structureErrorText } from './reviewLogic'
+import { retireUndoOffer } from './undoOffer'
 import type { GoToLine } from './reviewResults'
 import { dismissTmEverywhere, useTmDismissed, visibleTm } from './tmDismiss'
 import { lineNumber } from '../../../../lineNumber'
@@ -47,6 +49,8 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
   const [records, setRecords] = useState<Records | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [restoring, setRestoring] = useState<HistoryItem | null>(null)
+  // How many lines with notes or emotion tags the restore being confirmed would remove.
+  const [loss, setLoss] = useState<{ id: number; lines: number } | null>(null)
   const [previewing, setPreviewing] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [restored, setRestored] = useState<string | null>(null)
@@ -145,12 +149,25 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
         () => {
           setError(null)
           setRestoring(null)
+          // The lines changed shape: any one-click Undo would now be refused.
+          retireUndoOffer()
           setRestored(`Restored “${h.label ?? `Snapshot ${h.id}`}”. The lines before it are saved as a new snapshot.`)
           onChanged()
         },
         setError,
       )
       .finally(() => setBusy(false))
+  }
+
+  const askRestore = (h: HistoryItem) => {
+    setRestored(null)
+    setRestoring(h)
+    setLoss(null)
+    // Only a warning: the confirm works without it (an older server sends no count).
+    getHistorySnapshot(dramaId, h.id).then(
+      (snap) => setLoss({ id: h.id, lines: snap.lines_with_notes_removed ?? 0 }),
+      () => {},
+    )
   }
 
   // A note's line (R43): the editor above opens it, on whatever page it is.
@@ -285,7 +302,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                 </button>{' '}
                 {previewing === h.id && <SnapshotPreview dramaId={dramaId} historyId={h.id} />}
                 {restoring?.id !== h.id && (
-                  <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setRestored(null); setRestoring(h) }}>
+                  <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => askRestore(h)}>
                     Restore…
                   </button>
                 )}
@@ -302,6 +319,9 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                       Replaces every line with “{h.label ?? `Snapshot ${h.id}`}” ({h.created_at}). Your current lines
                       are saved as a snapshot first.
                     </p>
+                    {loss?.id === h.id && loss.lines > 0 && (
+                      <p className="error" data-testid="restore-loss">{restoreLossText(loss.lines)}</p>
+                    )}
                   </TypedConfirm>
                 )}
               </li>

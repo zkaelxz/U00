@@ -481,13 +481,102 @@ class TestSplitAndMerge:
         svc.merge_lines(did, ids, ids)
         assert _stored(did) == [None]
 
-    def test_undo_restores_text_without_stale_words(self):
+    def test_undo_brings_back_the_words_so_a_second_split_cuts_at_the_pause(self):
+        did, ids = _seed()
+        out = svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]), expected_zh=TEXT)
+        svc.restore_version(did, out["history_id"], out["line_ids"], out["lines_fingerprint"])
+        assert db.load_lines(did)[0]["zh"] == TEXT
+        assert _stored(did) == [core.encode_line_words(TEXT, WORDS)]
+        svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]) + len(PHRASES[1]),
+                       expected_zh=TEXT)
+        assert db.load_lines(did)[0]["end"] == pytest.approx(_phrase_times()[2][0])
+        assert all(_valid_words(did))
+
+    def test_records_restore_brings_back_the_words_too(self):
         did, ids = _seed()
         svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]), expected_zh=TEXT)
         history = db.list_line_history(did)[0]["id"]
         svc.restore_version(did, history, [r["id"] for r in db.load_lines(did)])
+        assert _stored(did) == [core.encode_line_words(TEXT, WORDS)]
+
+    def test_merge_undo_brings_back_each_lines_own_words(self):
+        did, ids = _seed()
+        svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]), expected_zh=TEXT)
+        pieces = _stored(did)
+        ids = [r["id"] for r in db.load_lines(did)]
+        out = svc.merge_lines(did, ids, ids)
+        svc.restore_version(did, out["history_id"], out["line_ids"], out["lines_fingerprint"])
+        assert _stored(did) == pieces and all(_valid_words(did))
+
+    def test_a_snapshot_without_words_still_restores(self):
+        """Snapshots saved before words were carried have no word_timings key."""
+        did, ids = _seed()
+        svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]), expected_zh=TEXT)
+        history = db.list_line_history(did)[0]["id"]
+        rows = db.get_line_history_snapshot(history)
+        for r in rows:
+            r.pop("word_timings")
+        _set_snapshot(history, rows)
+        svc.restore_version(did, history, [r["id"] for r in db.load_lines(did)])
         assert db.load_lines(did)[0]["zh"] == TEXT
         assert _valid_words(did) == [None]
+
+    @pytest.mark.parametrize("words", [
+        core.encode_line_words(PHRASES[0], WORDS[:len(PHRASES[0]) // 2]),  # another text's
+        '{"h": 1', "x" * (core.MAX_STORED_WORD_BYTES + 1), 7])
+    def test_words_that_dont_match_the_snapshot_text_never_come_back(self, words):
+        did, ids = _seed()
+        svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]), expected_zh=TEXT)
+        history = db.list_line_history(did)[0]["id"]
+        rows = db.get_line_history_snapshot(history)
+        rows[0]["word_timings"] = words
+        _set_snapshot(history, rows)
+        svc.restore_version(did, history, [r["id"] for r in db.load_lines(did)])
+        assert _stored(did) == [None]
+
+    def test_a_snapshot_keeps_only_words_for_its_own_text(self):
+        did, ids = _seed()
+        line = db.load_line_objects(did)[0]
+        line.zh = "别的"   # an in-memory edit: the row's words describe the old text
+        history = db.save_line_history_snapshot(did, [line], "test")
+        assert "word_timings" not in db.get_line_history_snapshot(history)[0]
+
+    def test_snapshot_words_stop_at_the_budget_and_pruning_still_works(self, monkeypatch):
+        did, ids = _seed(extra=[Line(idx=1, start=END + 1, end=END + 20, zh=TEXT,
+                                     word_timings=core.encode_line_words(TEXT, WORDS))])
+        one = len(core.encode_line_words(TEXT, WORDS))
+        monkeypatch.setattr(db, "MAX_SNAPSHOT_WORD_BYTES", one + one // 2)
+        lines = db.load_line_objects(did)
+        history = db.save_line_history_snapshot(did, lines, "test")
+        assert ["word_timings" in r for r in db.get_line_history_snapshot(history)] == [True, False]
+        for _ in range(12):
+            db.save_line_history_snapshot(did, lines, "test", keep_last=10)
+        assert len(db.list_line_history(did)) == 10
+
+    def test_api_views_of_history_carry_no_words(self):
+        pytest.importorskip("fastapi")
+        pytest.importorskip("httpx")
+        from fastapi.testclient import TestClient
+        from api.api_config import ApiSettings
+        from api.server import create_app
+        did, ids = _seed()
+        out = svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]), expected_zh=TEXT)
+        assert "word_timings" in db.get_line_history_snapshot(out["history_id"])[0]
+        client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+        for url in (f"/api/review/dramas/{did}/history",
+                    f"/api/review/dramas/{did}/history/{out['history_id']}"):
+            r = client.get(url)
+            assert r.status_code == 200 and "word_timings" not in r.text and '"w":' not in r.text
+        r = client.post(f"/api/restructure/dramas/{did}/history/{out['history_id']}/restore",
+                        json={"expected_line_ids": out["line_ids"]})
+        assert r.status_code == 200 and "word_timings" not in r.text
+
+
+def _set_snapshot(history_id, rows):
+    with contextlib.closing(sqlite3.connect(db.DB_PATH)) as c:
+        c.execute("UPDATE line_history SET snapshot_json = ? WHERE id = ?",
+                  (json.dumps(rows, ensure_ascii=False), history_id))
+        c.commit()
 
 
 # ---- transcription and backups -----------------------------------------------------

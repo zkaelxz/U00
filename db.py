@@ -2594,40 +2594,44 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
     return unwritten
 
 
+# Every per-line table a full sync touches, and what it does to a removed
+# line's rows there: notes and emotions are deleted with the line; a reading
+# position only loses its line_id (its line_idx still shows where it was).
+# _repoint_line_refs and _delete_line_refs both read this, so a new per-line
+# table is handled by both or neither.
+_LINE_REF_TABLES = {"translation_notes": "delete", "line_emotions": "delete",
+                    "reading_history": "unlink"}
+
+
 def _repoint_line_refs(conn, drama_id, from_id, to_id):
     """Moves notes/emotions/reading history from a merged-away line onto
     the line it was merged into. Where the target already has an emotion
     (one per line) or a note on the same term, the target's own wins."""
-    conn.execute("UPDATE OR IGNORE translation_notes SET line_id = ? WHERE line_id = ? AND drama_id = ?",
-                 (to_id, from_id, drama_id))
-    conn.execute("UPDATE OR IGNORE line_emotions SET line_id = ? WHERE line_id = ? AND drama_id = ?",
-                 (to_id, from_id, drama_id))
-    conn.execute("UPDATE reading_history SET line_id = ? WHERE line_id = ? AND drama_id = ?",
-                 (to_id, from_id, drama_id))
-
-
-# Every per-line table _delete_line_refs cleans: a line removed by a full sync
-# loses its rows there, so an undo checks them first (line_ids_with_refs).
-_LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history")
+    for table in _LINE_REF_TABLES:
+        conn.execute(f"UPDATE OR IGNORE {table} SET line_id = ? WHERE line_id = ? AND drama_id = ?",
+                     (to_id, from_id, drama_id))
 
 
 def line_ids_with_refs(drama_id: int, line_ids) -> set:
-    """Which of `line_ids` have a row in any _LINE_REF_TABLES table."""
-    ids = list(line_ids)
+    """Which of `line_ids` have a row that a full sync removing them would
+    delete (a note or emotion tag; a reading position is only unlinked)."""
+    ids = set(line_ids)
     if not ids:
         return set()
-    marks = ", ".join("?" for _ in ids)
-    query = " UNION ".join(f"SELECT line_id FROM {t} WHERE drama_id = ? AND line_id IN ({marks})"
-                           for t in _LINE_REF_TABLES)
+    # Read per drama and intersect here: a restore can remove thousands of
+    # lines, past SQLite's bound-parameter limit for an IN list.
+    tables = [t for t, how in _LINE_REF_TABLES.items() if how == "delete"]
+    query = " UNION ".join(f"SELECT line_id FROM {t} WHERE drama_id = ?" for t in tables)
     with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(query, [v for _t in _LINE_REF_TABLES for v in (drama_id, *ids)])
-        return {r[0] for r in rows}
+        return {r[0] for r in conn.execute(query, [drama_id] * len(tables))} & ids
 
 
 def _delete_line_refs(conn, line_id):
-    conn.execute("DELETE FROM translation_notes WHERE line_id = ?", (line_id,))
-    conn.execute("DELETE FROM line_emotions WHERE line_id = ?", (line_id,))
-    conn.execute("UPDATE reading_history SET line_id = NULL WHERE line_id = ?", (line_id,))
+    for table, how in _LINE_REF_TABLES.items():
+        if how == "delete":
+            conn.execute(f"DELETE FROM {table} WHERE line_id = ?", (line_id,))
+        else:
+            conn.execute(f"UPDATE {table} SET line_id = NULL WHERE line_id = ?", (line_id,))
 
 
 def load_lines(drama_id: int, with_words: bool = False):
@@ -4630,11 +4634,22 @@ def delete_preset(preset_id: int):
 # instead of losing translation work with no way back.
 # ---------------------------------------------------------------------------
 
+# Word timings a snapshot carries, in total: about 3 MB for a three-hour,
+# 9,000-line title. Past it the remaining lines are saved without words, so a
+# restore re-splits them proportionally rather than growing every snapshot.
+MAX_SNAPSHOT_WORD_BYTES = 4_000_000
+
+
 def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int = 10):
     """Saves a full snapshot of the current lines before a risky bulk
     operation. Keeps only the most recent `keep_last` snapshots per
     drama to avoid unbounded growth -- older ones are pruned. Returns the
-    new snapshot's id."""
+    new snapshot's id.
+
+    Each line's stored word timings are read from its row and kept only when
+    they were computed for the snapshot's own text (up to
+    MAX_SNAPSHOT_WORD_BYTES in all), so a restore brings back real pauses."""
+    from core import words_for_text
     snapshot = [
         {"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
          "zh": ln.zh, "en": ln.en,
@@ -4646,7 +4661,19 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
     ]
     conn = get_conn()
     try:
-        conn.execute("BEGIN")
+        # IMMEDIATE: this reads the lines' words before it writes, and a
+        # deferred BEGIN's upgrade to a write fails at once ("database is
+        # locked") if another connection commits in between.
+        conn.execute("BEGIN IMMEDIATE")
+        stored = dict(conn.execute(
+            "SELECT id, word_timings FROM lines WHERE drama_id = ? AND word_timings IS NOT NULL",
+            (drama_id,)).fetchall())
+        budget = MAX_SNAPSHOT_WORD_BYTES
+        for row in snapshot:
+            words = words_for_text(stored.get(row["id"]), row["zh"])
+            if words is not None and len(words) <= budget:
+                row["word_timings"] = words
+                budget -= len(words)
         history_id = conn.execute(
             "INSERT INTO line_history (drama_id, label, snapshot_json, created_at) VALUES (?, ?, ?, ?)",
             (drama_id, label, json.dumps(snapshot, ensure_ascii=False),

@@ -139,7 +139,16 @@ def test_undo_over_the_api(monkeypatch):
     url = f"{base}/history/{body['history_id']}/restore"
     stale = client.post(url, json={"expected_line_ids": body["line_ids"],
                                    "expected_fingerprint": "0" * 64})
-    assert stale.status_code == 409
+    assert stale.status_code == 409 and "details" not in stale.json()["error"]
+    piece = _new_piece(did, ids)
+    lines_service.add_note(did, piece, "好", "idiom", "n")
+    noted = client.post(url, json={"expected_line_ids": body["line_ids"],
+                                   "expected_fingerprint": body["lines_fingerprint"]})
+    assert noted.status_code == 409
+    assert noted.json()["error"]["details"] == {"reason": "notes_on_removed_lines"}
+    view = client.get(f"/api/review/dramas/{did}/history/{body['history_id']}").json()
+    assert view["lines_with_notes_removed"] == 1
+    db.delete_translation_note(db.list_translation_notes(did)[0]["id"])
     ok = client.post(url, json={"expected_line_ids": body["line_ids"],
                                 "expected_fingerprint": body["lines_fingerprint"]})
     assert ok.status_code == 200 and len(ok.json()["line_ids"]) == 4
@@ -217,19 +226,71 @@ def test_undo_refused_after_a_field_edit(edit):
     assert [dict(r) for r in db.load_lines(did)] == after
 
 
-def test_undo_refused_when_a_split_piece_got_a_reading_position():
+def test_a_reading_position_on_a_split_piece_does_not_block_undo():
+    """A reading position only loses its line_id when its line goes (its
+    line_idx still places it), so it isn't a reason to refuse."""
     did, ids = _seed(ROWS)
     out = svc.split_line(did, ids[1], ids, at_char=1, expected_zh="我很好")
+    piece = _new_piece(did, ids)
     db.save_progress(did, last_line_idx=2)
+    _undo(did, out)
+    assert [r["id"] for r in db.load_lines(did)] == ids
+    with contextlib.closing(db.get_conn()) as conn:
+        assert [tuple(r) for r in conn.execute(
+            "SELECT line_id, line_idx FROM reading_history WHERE drama_id = ?", (did,))] == [(None, 2)]
+    assert piece not in db.load_line_ids(did)
+
+
+def test_a_merge_repoints_a_reading_position_onto_the_head():
+    did, ids = _seed(ROWS)
+    db.save_progress(did, last_line_idx=3)
+    svc.merge_lines(did, ids[2:], ids)
+    with contextlib.closing(db.get_conn()) as conn:
+        assert [r[0] for r in conn.execute(
+            "SELECT line_id FROM reading_history WHERE drama_id = ?", (did,))] == [ids[2]]
+
+
+def test_notes_refusal_carries_a_reason_and_the_records_view_counts_them():
+    did, ids = _seed(ROWS)
+    out = svc.split_line(did, ids[1], ids, at_char=1, expected_zh="我很好")
+    piece = _new_piece(did, ids)
+    from services import review_records_service
+    assert review_records_service.get_line_history_snapshot(
+        did, out["history_id"])["lines_with_notes_removed"] == 0
+    lines_service.add_note(did, piece, "好", "idiom", "A note on the new piece")
+    with pytest.raises(ConflictError) as err:
+        _undo(did, out)
+    assert err.value.details == {"reason": "notes_on_removed_lines"}
+    assert review_records_service.get_line_history_snapshot(
+        did, out["history_id"])["lines_with_notes_removed"] == 1
+    # an edit refusal has no reason: only the notes refusal does
+    lines_service.patch_line(did, ids[0], speaker="B")
+    with pytest.raises(ConflictError) as err:
+        _undo(did, out)
+    assert err.value.details is None
+    # Records (no fingerprint) still restores, and the note goes with its line
+    svc.restore_version(did, out["history_id"], [r["id"] for r in db.load_lines(did)])
+    assert [r["id"] for r in db.load_lines(did)] == ids and db.list_translation_notes(did) == []
+
+
+def test_records_view_counts_only_lines_the_restore_removes():
+    did, ids = _seed(ROWS)
+    lines_service.add_note(did, ids[0], "你", "idiom", "On a line every snapshot keeps")
+    out = svc.split_line(did, ids[1], ids, at_char=1, expected_zh="我很好")
+    piece = _new_piece(did, ids)
+    db.save_emotions(did, {2: {"emotion": "joy"}}, id_by_idx={2: piece})
+    from services import review_records_service
+    view = review_records_service.get_line_history_snapshot(did, out["history_id"])
+    assert view["lines_with_notes_removed"] == 1
     with pytest.raises(ConflictError):
         _undo(did, out)
-    assert len(db.load_lines(did)) == 5
 
 
 def test_what_undo_of_a_delete_or_merge_brings_back():
     """Pins the wording of the undo confirmations: a deleted line comes back
     with a fresh id and its own fields but not its notes or emotion tag; a
-    merge's notes and emotion tags stay on the line they were merged into."""
+    merge's notes and emotion tags stay on the line they were merged into
+    (that line had none of its own here)."""
     did, ids = _seed(ROWS)
     line = db.load_line_objects(did)[2]
     line.flag, line.flag_note, line.dub_filename = "check", "why", "c.wav"
@@ -254,3 +315,18 @@ def test_what_undo_of_a_delete_or_merge_brings_back():
     assert back[2]["id"] == ids[2] and back[3]["id"] != ids[3]
     assert [n["line_id"] for n in db.list_translation_notes(did)] == [ids[2]]
     assert _emotions(did) == {ids[2]}
+
+
+def test_merge_keeps_the_heads_own_tag_and_same_term_note():
+    """Why the merge wording says "unless that line already had its own": one
+    emotion per line, one note per term, and the head's own wins."""
+    did, ids = _seed(ROWS)
+    db.save_emotions(did, {2: {"emotion": "joy"}, 3: {"emotion": "sad"}},
+                     id_by_idx={2: ids[2], 3: ids[3]})
+    lines_service.add_note(did, ids[2], "好", "idiom", "head")
+    lines_service.add_note(did, ids[3], "好", "idiom", "absorbed, same term")
+    lines_service.add_note(did, ids[3], "再见", "cultural", "absorbed, other term")
+    svc.merge_lines(did, ids[2:], ids)
+    assert _emotions(did) == {ids[2]}
+    assert sorted((n["line_id"], n["note"]) for n in db.list_translation_notes(did)) == [
+        (ids[2], "absorbed, other term"), (ids[2], "head")]
