@@ -10,7 +10,6 @@ import {
 } from '../../api/reeval'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
-import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
@@ -23,10 +22,11 @@ import { usePersistedState } from '../../hooks/usePersistedState'
 import { routeHref } from '../../router'
 import type { JobRecord } from '../../types/jobs'
 import { engineOptionLabel } from '../translatePage'
+import { BenchSection } from './BenchSection'
 import { EstimateBlock, JobProgress } from './RunCard'
 import {
   TIER_LABELS, deltaTone, formatCost, formatDelta, formatLatency, formatScore, formatWhen, plainError, runStatusLabel,
-  runStatusTone, setOptions, tierLabel,
+  runStatusTone, runningStatus, setOptions, tierLabel,
 } from './benchmarkForm'
 import {
   MAX_NOTE_CHARS, MAX_REASON_CHARS, addOutcome, canPromote, canReopen, candidateBody, candidateEngines, candidateStatusLabel,
@@ -96,7 +96,7 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
 
   if (!overview) {
     return (
-      <Card title="Model re-evaluation" className="reeval" aria-label="Model re-evaluation">
+      <BenchSection id="reeval" className="reeval">
         {loadError ? (
           <p className="error" role="alert">
             {loadError}
@@ -104,7 +104,7 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
         ) : (
           <p className="muted">Loading…</p>
         )}
-      </Card>
+      </BenchSection>
     )
   }
 
@@ -112,11 +112,11 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
   const showProgress = running && (ownRun || reportActive(overview))
 
   return (
-    <Card
-      title="Model re-evaluation"
+    <BenchSection
+      id="reeval"
       meta={`${open.length} open ${open.length === 1 ? 'candidate' : 'candidates'} · schedule ${overview.settings.schedule_enabled ? 'on' : 'off'}`}
+      status={showProgress ? runningStatus(job) : null}
       className="reeval"
-      aria-label="Model re-evaluation"
     >
       <p className="muted reeval-intro">
         Is a newer model better than the one in production? Add candidate models, run them against production on a
@@ -159,7 +159,7 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
         }}
       />
       <HistorySection decisions={decisions} candidates={overview.candidates} />
-    </Card>
+    </BenchSection>
   )
 }
 

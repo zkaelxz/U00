@@ -245,3 +245,116 @@ class TestExtractTextFromImagesUsesResolvedLang:
                                                 source_language="ja")
         assert called == ["/fake/page1.png"]
         assert result == "x"
+
+
+class _FakeTensor:
+    def __init__(self, rows):
+        self.rows = rows
+        self.shape = (len(rows), len(rows[0]))
+
+    def __getitem__(self, key):
+        _, cols = key
+        return _FakeTensor([r[cols] for r in self.rows])
+
+
+class _FakeInputs(dict):
+    def to(self, device, dtype=None):
+        self.moved_to = (device, dtype)
+        return self
+
+
+def _install_fake_transformers(monkeypatch, version="5.19.0"):
+    import types
+    calls = {}
+    inputs = _FakeInputs(input_ids=_FakeTensor([[1, 2, 3]]))
+
+    class FakeModel:
+        device, dtype = "cpu", "float32"
+
+        def eval(self):
+            calls["eval"] = True
+
+        def generate(self, **kwargs):
+            calls["generate"] = kwargs
+            return _FakeTensor([[1, 2, 3, 40, 41]])
+
+    class FakeProcessor:
+        def apply_chat_template(self, messages, **kwargs):
+            calls["messages"], calls["template_kwargs"] = messages, kwargs
+            return inputs
+
+        def batch_decode(self, ids, skip_special_tokens):
+            calls["decoded"] = ids.rows
+            return ["  今日はいい天気ですね \n"]
+
+    def load_processor(repo, **kwargs):
+        calls["processor"] = (repo, kwargs)
+        return FakeProcessor()
+
+    def load_model(repo, **kwargs):
+        calls["model"] = (repo, kwargs)
+        return FakeModel()
+
+    fake_tf = types.SimpleNamespace(
+        AutoProcessor=types.SimpleNamespace(from_pretrained=load_processor),
+        AutoModelForImageTextToText=types.SimpleNamespace(from_pretrained=load_model))
+    fake_torch = types.SimpleNamespace(
+        cuda=types.SimpleNamespace(is_available=lambda: False),
+        bfloat16="bf16", float32="float32")
+    monkeypatch.setitem(sys.modules, "transformers", fake_tf)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setattr("importlib.metadata.version", lambda name: version)
+    for name in ("_paddle_vl_manga_model", "_paddle_vl_manga_processor"):
+        monkeypatch.delitem(vars(ocr), name, raising=False)
+    return calls
+
+
+class TestPaddleVlMangaNative:
+    @pytest.fixture
+    def page(self, tmp_path):
+        Image = pytest.importorskip("PIL.Image")
+        path = tmp_path / "bubble.png"
+        Image.new("RGB", (8, 8), "white").save(path)
+        return str(path)
+
+    def test_loads_native_classes_without_remote_code(self, monkeypatch, page):
+        calls = _install_fake_transformers(monkeypatch)
+        ocr.extract_text_paddle_vl_manga(page)
+        assert calls["processor"] == ("PaddlePaddle/PaddleOCR-VL", {"trust_remote_code": False})
+        repo, kwargs = calls["model"]
+        assert repo == "jzhang533/PaddleOCR-VL-For-Manga"
+        assert kwargs["trust_remote_code"] is False
+        assert calls["eval"]
+
+    def test_builds_chat_template_input_and_decodes_only_new_tokens(self, monkeypatch, page):
+        calls = _install_fake_transformers(monkeypatch)
+        text = ocr.extract_text_paddle_vl_manga(page)
+        content = calls["messages"][0]["content"]
+        assert [part["type"] for part in content] == ["image", "text"]
+        assert content[1]["text"] == "OCR:"
+        assert calls["template_kwargs"]["add_generation_prompt"] is True
+        assert calls["generate"]["max_new_tokens"] == 256
+        assert calls["decoded"] == [[40, 41]]
+        assert text == "今日はいい天気ですね"
+
+    def test_model_is_cached_between_calls(self, monkeypatch, page):
+        calls = _install_fake_transformers(monkeypatch)
+        ocr.extract_text_paddle_vl_manga(page)
+        calls.pop("model")
+        ocr.extract_text_paddle_vl_manga(page)
+        assert "model" not in calls
+
+    def test_old_transformers_raises_plain_dependency_error(self, monkeypatch, page):
+        from services.service_errors import DependencyUnavailableError
+        _install_fake_transformers(monkeypatch, version="4.57.1")
+        with pytest.raises(DependencyUnavailableError, match="transformers 5 or newer") as exc:
+            ocr.extract_text_paddle_vl_manga(page)
+        assert str(exc.value) == ocr.paddle_vl_manga_problem()
+
+    def test_native_model_is_registered_in_installed_transformers(self):
+        transformers = pytest.importorskip("transformers")
+        if int(transformers.__version__.split(".")[0]) < 5:
+            pytest.skip("transformers 5 ships paddleocr_vl; this install is older")
+        from transformers.models.auto.modeling_auto import MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES
+        assert "paddleocr_vl" in MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES
+        assert hasattr(transformers, "PaddleOCRVLProcessor")

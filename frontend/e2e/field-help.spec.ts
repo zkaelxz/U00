@@ -23,13 +23,12 @@ test('hover opens the (i) and leaving closes it', async ({ page }) => {
   await expect(text).toBeHidden()
 })
 
-test('a mouse click on the hovered (i) closes it, as before', async ({ page }) => {
+test('a mouse click on the hovered (i) keeps it open', async ({ page }) => {
   await openAdvanced(page)
   const { button, text } = help(page)
-  // The hover that precedes a click has already opened it, so the click closes it.
   await button.click()
-  await expect(text).toBeHidden()
-  await expect(button).toHaveAttribute('aria-expanded', 'false')
+  await expect(text).toBeVisible()
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
 })
 
 test('keyboard: Tab opens, Enter and Space toggle, Escape and blur close', async ({ page }) => {
