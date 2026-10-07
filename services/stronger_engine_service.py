@@ -260,7 +260,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
                 "model": None, "text": line.zh.strip(), "based_on_en": line.en or "",
                 "cost_usd": 0.0}
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
+    if api_key is None:
         raise MissingKeyError(engine_name)
     free_tier = engine_name == "gemini" and settings_service.get_gemini_free_tier()
     context, character_names = _run_context(drama_id, drama, lines, _Probe(engine_name))

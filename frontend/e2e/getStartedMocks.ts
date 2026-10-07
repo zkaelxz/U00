@@ -11,7 +11,7 @@ export async function mockFirstRun(page: Page, total = 0) {
   await page.route('**/api/library/stats', (r) => r.fulfill({ json: STATS(total) }))
   await page.route('**/api/translate/engines', (r) => r.fulfill({
     json: {
-      items: [ENGINE('claude', false, false), ENGINE('gemini', false, false), ENGINE('ollama', true, true), ENGINE('nllb', true, true)],
+      items: [ENGINE('claude', false, false), ENGINE('gemini', false, false), ENGINE('ollama', true, true), ENGINE('deepseek', true, true)],
       default_engine: 'claude',
     },
   }))

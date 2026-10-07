@@ -3,14 +3,11 @@
 
 # --- alternative translation engines ---
 openai>=1.30            # DeepSeek (OpenAI-compatible API)
-transformers>=4.46      # local NLLB-200 engine -- genuinely free, fully
-                         # offline, no API key ever. Downloads a model
-                         # (2.4-5.2GB depending on size picked) on first use.
-                         # (bumped from >=4.40: also loads Scanlate's ML
-                         # bubble detector and PaddleOCR-VL-For-Manga --
-                         # both need RT-DETR-v2/current VLM support only
-                         # present in more recent releases.)
-sentencepiece>=0.2.1      # tokenizer NLLB-200 needs
+transformers>=4.46      # loads Scanlate's ML bubble detector and
+                         # PaddleOCR-VL-For-Manga -- both need RT-DETR-v2/
+                         # current VLM support only present in recent releases.
+sentencepiece>=0.2.1      # tokenizer PaddleOCR-VL-For-Manga declares (LlamaTokenizer,
+                         # tokenizer.model)
 
 # --- download audio/video directly from a URL (video_download.py) ---
 yt-dlp>=2026.7.4          # YouTube and many other sites. Update often
