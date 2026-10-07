@@ -1,5 +1,7 @@
 """Local engines: NLLB-200 and Ollama."""
 
+import re
+
 from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import read_json_capped, request_translations_with_retry
 
@@ -134,6 +136,9 @@ OLLAMA_DEFAULT_MODEL = "qwen3:8b"
 OLLAMA_MODELS = {
     "qwen3:8b": "Qwen3 8B -- recommended default, fits a typical 8 GB GPU",
     "qwen2.5:14b": "Qwen2.5 14B -- may not fit in 8 GB; expect CPU offload (much slower)",
+    "gemma4:12b": "Gemma 4 12B -- about 8 GB, fits fully on a 12 GB GPU; too big for 8 GB",
+    "gemma4:26b": "Gemma 4 26B (MoE) -- about 16-19 GB, won't fit a 12 GB GPU; offloads to the CPU and runs slower",
+    "gemma4:31b": "Gemma 4 31B -- about 19-20 GB, won't fit a 12 GB GPU; offloads to the CPU and runs much slower",
 }
 
 
@@ -151,6 +156,30 @@ class OllamaUnavailableError(Exception):
 # Local models can be slow, especially CPU-only or larger ones.
 OLLAMA_CHAT_TIMEOUT = 300
 
+# With "stream": False Ollama sends nothing until the whole reply is done,
+# so this is also the wait for the first byte. Models too big for a 12 GB
+# card split across GPU and CPU and can need far longer than 300 s for a
+# long batch; the cap stays finite so a hung server still fails.
+OLLAMA_SLOW_MODEL_CHAT_TIMEOUT = 900
+_OLLAMA_SLOW_MODELS = frozenset({"gemma4:26b", "gemma4:31b"})
+
+
+def ollama_chat_timeout(model: str) -> int:
+    return OLLAMA_SLOW_MODEL_CHAT_TIMEOUT if model in _OLLAMA_SLOW_MODELS else OLLAMA_CHAT_TIMEOUT
+
+
+# Thinking-capable models (Qwen3, Gemma 4) may put reasoning inline in
+# `content` as <think>...</think> instead of the separate `thinking` field.
+# Braces inside it would otherwise be picked up by the first-JSON-value scan.
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_THINK_OPEN_RE = re.compile(r"<think>.*\Z", re.DOTALL | re.IGNORECASE)
+
+
+def strip_ollama_thinking(content: str) -> str:
+    content = _THINK_BLOCK_RE.sub("", content)
+    # An unterminated block means the reply was cut off mid-reasoning: no answer.
+    return _THINK_OPEN_RE.sub("", content).strip()
+
 
 def _ollama_chat(base_url: str, payload: dict) -> dict:
     """POST /api/chat with the slow-local-model timeout; returns the JSON
@@ -158,9 +187,10 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
     server and a model that isn't pulled become OllamaUnavailableError;
     requests' own messages embed the URL, so none of that text is kept."""
     import requests
+    timeout = ollama_chat_timeout(str(payload.get("model") or ""))
     try:
         resp = requests.post(f"{base_url}/api/chat", json=payload, stream=True,
-                             timeout=OLLAMA_CHAT_TIMEOUT)
+                             timeout=timeout)
     except requests.ConnectionError:  # includes ConnectTimeout and DNS failures
         raise OllamaUnavailableError(
             "ollama_unreachable",
@@ -181,7 +211,7 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
             f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
             "or pick another model in Settings.") from None
     try:
-        return read_json_capped(resp, OLLAMA_CHAT_TIMEOUT)
+        return read_json_capped(resp, timeout)
     except (requests.ConnectionError, requests.exceptions.ChunkedEncodingError) as exc:
         # The body is read after the headers now, so a stall or reset there
         # raises from the read, not from post(), and its text names the host.
@@ -241,7 +271,7 @@ class OllamaEngine:
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
                 "options": {"num_ctx": num_ctx},
             })
-            return resp["message"]["content"].strip()
+            return strip_ollama_thinking(resp["message"]["content"])
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="ollama",
