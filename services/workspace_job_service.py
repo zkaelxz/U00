@@ -21,7 +21,7 @@ import bulk_translate
 import emotion
 import core as core_module
 from core import transcribe_for_timing
-from services import job_timing_service, line_provenance_service, settings_service
+from services import fixflag_transcribe, job_timing_service, line_provenance_service, settings_service
 
 
 def _id_by_idx(lines):
@@ -575,9 +575,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                 slice_path = os.path.join(os.path.dirname(audio_path), f"_fixflag_slice_{ln.idx}.wav")
                 try:
                     core_module.extract_audio_slice(audio_path, ln.start, ln.end, slice_path)
-                    segments = core_module.transcribe_for_timing(
-                        slice_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu)
-                    new_zh = " ".join(s["text"] for s in segments).strip()
+                    new_zh = fixflag_transcribe.text_for_slice(
+                        slice_path, drama_id, drama, whisper_size, source_language, use_gpu)
                     if new_zh:
                         ln.zh = new_zh
                 except Exception as e:

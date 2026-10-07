@@ -493,6 +493,7 @@ def cmd_align(args):
         # Same saved tuning the service's transcribe job uses
         # (transcribe_service.get_transcribe_config); --fast still wins.
         cfg = transcribe_service.get_transcribe_config(d["id"])
+        fast = getattr(args, "fast", False) or cfg["whisper_fast_mode"]
         use_gpu = settings_service.get_use_gpu()
         language = d.get("source_language") or "zh"
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
@@ -522,11 +523,12 @@ def cmd_align(args):
             segments = transcribe_for_timing(
                 audio_path, whisper_size, language=language, use_gpu=use_gpu,
                 local_model_path=local_model_path,
-                fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
+                fast_mode=fast,
                 initial_prompt=initial_prompt, beam_size=cfg["beam_size"],
                 min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["effective_vad_threshold"],
                 sensitivity_preset=cfg["sensitivity_preset"],
                 hallucination_silence_sec=cfg["hallucination_silence_sec"],
+                repeat_guard=cfg["whisper_repeat_guard"],
                 on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
         if "ollama_notice" in (notice := ollama_unload.take_notice_result()):
             print(f"#{d['id']} WARNING: {notice['ollama_notice']}")
@@ -544,8 +546,7 @@ def cmd_align(args):
         if gpu_fallback:
             print(f"#{d['id']} WARNING: "
                   f"{core_module.gpu_fallback_notice('Transcription', gpu_fallback[0])}")
-        elif (segments and not use_groq and not cfg["whisper_fast_mode"]
-              and not getattr(args, "fast", False)):
+        elif segments and not use_groq and not fast:
             # Same history the app's estimate reads; fast mode runs at another speed.
             transcribe_service.record_transcribe_speed(
                 whisper_size, bool(use_gpu), transcribe_service._audio_duration_seconds(audio_path),
@@ -596,11 +597,12 @@ def cmd_align(args):
                 min_silence_ms=cfg["min_silence_ms"], vad_threshold=cfg["effective_vad_threshold"],
                 sensitivity_preset=cfg["sensitivity_preset"], beam_size=cfg["beam_size"],
                 hallucination_silence_sec=cfg["hallucination_silence_sec"],
-                whisper_fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
-                use_groq=use_groq, separate_vocals_first=cfg["separate_vocals_first"],
+                whisper_fast_mode=fast,
+                whisper_repeat_guard=cfg["whisper_repeat_guard"], use_groq=use_groq,
+                separate_vocals_first=cfg["separate_vocals_first"],
                 separation_backend=cfg["separation_backend"],
                 realign_long_segments=cfg["realign_long_segments"],
-                mixed_languages=False, use_gpu=use_gpu, gpu_fallback_msgs=gpu_fallback,
+                use_gpu=use_gpu, gpu_fallback_msgs=gpu_fallback,
                 initial_prompt=initial_prompt, **app_gpu_settings))
         db.update_drama(d["id"], status="aligned")
         print(f"#{d['id']} aligned {len(lines)} lines.")
@@ -947,10 +949,11 @@ def cmd_translate(args):
 def cmd_dub(args):
     # Up front, as the API does: a bad pacing limit or missing TTS package
     # would otherwise fail the same way for every drama in the batch.
+    tts_engine = getattr(args, "tts_engine", None) or dub_module.DEFAULT_CLONE_ENGINE
     try:
         max_speedup, max_slowdown = dub_service.resolve_pacing_limits(
             getattr(args, "max_speedup", None), getattr(args, "max_slowdown", None))
-        dub_service.require_engine_dependency(getattr(args, "tts_engine", None) or "edge_tts")
+        dub_service.require_can_generate(tts_engine, [])
     except ServiceError as e:
         raise SystemExit(f"dub: {e.message}")
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="translated")
@@ -969,21 +972,15 @@ def cmd_dub(args):
         ddir = db.drama_dir(d["id"])
 
         source_lang = d.get("source_language") or "zh"
-        default_voice_pool = (dub_module.DEFAULT_VOICE_POOL_BY_LANGUAGE.get(
-            source_lang, dub_module.DEFAULT_VOICE_POOL) if narrate_original
-            else dub_module.DEFAULT_VOICE_POOL)
         chars = db.list_characters(d["id"])
-        voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c.get("tts_voice")}
-        offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
-                             if c.get("offline_voice")}
+        # Raised, not skipped, so _run_batch counts the drama as failed.
+        dub_service.require_can_generate(tts_engine, chars, narrate_original, source_lang)
         clone_map = dub_module.clone_map_from_characters(
             chars, ddir, gpt_sovits_url=(getattr(args, "gpt_sovits_url", None)
                                           or settings_service.resolve_key("gpt_sovits_url") or None),
-            ref_language=source_lang)
-        speakers = {ln.speaker for ln in lines if ln.speaker}
-        voice_map = dub_module.fill_missing_voices(voice_map, speakers, default_voice_pool)
-        offline_voice_map = dub_module.fill_missing_voices(
-            offline_voice_map, speakers, dub_module.DEFAULT_OFFLINE_VOICE_POOL)
+            ref_language=source_lang, default_engine=tts_engine,
+            speaker_labels={ln.speaker or None for ln in lines})
+        dub_service.require_every_speaker_voiced(clone_map, lines)
 
         build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
         stretch = {} if is_narration else dict(
@@ -1002,8 +999,7 @@ def cmd_dub(args):
         # Same clone_map_uses_local_model check the Workspace tab's
         # own Dub job uses to decide gpu_touching -- only some clone/TTS
         # backends actually load a local model onto the GPU (GPT-SoVITS,
-        # OmniVoice, ...); edge-tts/cloud backends don't, and don't need to
-        # wait on the cross-process GPU lock at all.
+        # OmniVoice, ...); only an empty map skips the cross-process GPU lock.
         _gpu_holder_box = [None]
 
         def _progress(frac, did=d["id"]):
@@ -1016,10 +1012,8 @@ def cmd_dub(args):
                         else contextlib.nullcontext(None))
         with _dub_gpu_ctx as _gpu_holder_box[0]:
             out_path, dub_errors = build_fn(
-                lines, ddir, voice_map, default_voice=default_voice_pool[0],
-                character_clone_map=clone_map,
-                emotion_map=db.load_emotions(d["id"]), offline_voice_map=offline_voice_map,
-                tts_engine=getattr(args, "tts_engine", None) or "edge_tts",
+                lines, ddir, clone_map,
+                emotion_map=db.load_emotions(d["id"]),
                 progress_cb=_progress,
                 **stretch, **narration_kwargs,
             )
@@ -1488,10 +1482,12 @@ def main():
                        help="Dub (not narration): mix the original's background music/ambience "
                             "(the source audio minus its vocals, via the drama's separation "
                             "backend) back under the dub track")
-    p_dub.add_argument("--tts-engine", default="edge_tts", choices=["edge_tts", "offline"],
-                       help="Fallback TTS engine used where a character has no cloned voice "
-                            "reference set (same choice as Workspace's own 8. AI dub / "
-                            "narration section). Defaults to edge-tts.")
+    # No argparse choices: a removed engine name gets the same plain refusal
+    # as the API instead of a generic "invalid choice" error.
+    p_dub.add_argument("--tts-engine", default=dub_module.DEFAULT_CLONE_ENGINE,
+                       help="Voice engine for speakers whose character has none of its own "
+                            f"({', '.join(dub_module.CLONE_ENGINES)}; same choice as the Dub "
+                            f"stage). Defaults to {dub_module.DEFAULT_CLONE_ENGINE}.")
     p_dub.add_argument("--gpt-sovits-url", default=None,
                        help="GPT-SoVITS server for characters using it "
                             f"(default {dub_module.GPT_SOVITS_DEFAULT_URL})")
@@ -1507,7 +1503,7 @@ def main():
     p_transcribe.add_argument("--whisper-size", default=None,
                               help="Whisper model size, saved on the title.")
     p_transcribe.add_argument("--asr-backend", default=None,
-                              choices=["whisper", "qwen3_asr", "qwen3_asr_vad", "moss_td"],
+                              choices=transcribe_service.ASR_BACKEND_CHOICES,
                               help="Speech recognition backend, saved on the title.")
     p_transcribe.add_argument("--beam-size", type=int, default=None, help="Whisper beam size (1-10).")
     p_transcribe.add_argument("--min-silence-ms", type=int, default=None,

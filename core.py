@@ -315,19 +315,18 @@ MIN_SILENCE_MS_MAX = 3000
 DEFAULT_AUTOTUNE_CANDIDATES_MS = [300, 800, 1500]
 
 
-# Decoder settings that stop Whisper's repeated-phrase loops at the source
-# (the same line echoed for minutes after music or silence): don't feed
-# each segment's text into the next one's prompt, forbid repeating any
-# 3-token sequence, and mildly penalise repeats. filter_hallucinated_segments
-# stays as the backstop for whatever still slips through.
-WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False, "no_repeat_ngram_size": 3,
-                            "repetition_penalty": 1.1}
+# Stops Whisper's repeated-phrase loops after music or silence;
+# filter_hallucinated_segments is the backstop.
+WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False}
+# The per-title repeat guard. Off by default: a 3-token CJK sequence is often
+# one common particle (的, の), so the ban rewrites or cuts real speech.
+WHISPER_REPEAT_GUARD_KWARGS = {"no_repeat_ngram_size": 3, "repetition_penalty": 1.1}
 
 
 # Seconds of silence inside a segment's word timings above which faster-whisper
-# drops that segment as a likely hallucination. Conservative on purpose: a
-# lower value starts dropping real lines that follow a long pause.
-DEFAULT_HALLUCINATION_SILENCE_SEC = 2.0
+# drops that segment as a likely hallucination. Off by default: it dropped real
+# fast or quiet CJK lines.
+DEFAULT_HALLUCINATION_SILENCE_SEC = 0.0
 
 
 def release_gpu_models():
@@ -1296,7 +1295,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            vad_threshold: float = 0.5, filter_hallucination_repeats: int = 4,
                            on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False,
                            hallucination_silence_sec: float = DEFAULT_HALLUCINATION_SILENCE_SEC,
-                           sensitivity_preset: str = "normal"):
+                           repeat_guard: bool = False, sensitivity_preset: str = "normal"):
     """
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
@@ -1374,7 +1373,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
                             "threshold": vad_threshold},
         "word_timestamps": True,
-        **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS),
+        **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard),
     }
     if initial_prompt.strip():
         kwargs["initial_prompt"] = initial_prompt.strip()

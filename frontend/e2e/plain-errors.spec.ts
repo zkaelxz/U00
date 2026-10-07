@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { openExportBlocks } from './exportBlocks'
 import { mockDub, mockProgress } from './plainErrorsMocks'
 
 // Plain reasons instead of generic or raw errors: Export and Dub buttons that
@@ -9,7 +10,10 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
-const openMedia = (page: import('@playwright/test').Page) => page.getByText('Video and audio', { exact: true }).click()
+const openMedia = async (page: import('@playwright/test').Page) => {
+  await page.getByText('Video and audio', { exact: true }).click()
+  await openExportBlocks(page)
+}
 
 test('audiobook and dubbed video are disabled with the reason when there is no narration or dub', async ({ page }) => {
   await mockProgress(page)
@@ -55,10 +59,26 @@ test('the soft-subtitle help says anything else becomes MKV', async ({ page }) =
 })
 
 test('Generate dub is disabled with the reason when the voice package is missing', async ({ page }) => {
-  await mockDub(page, 'The edge-tts package is not installed.')
+  await mockDub(page, 'OmniVoice is not installed. Install it in Diagnostics.')
   await page.goto('/#/drama/1/dub')
   await expect(page.getByRole('button', { name: 'Generate dub' })).toBeDisabled()
-  await expect(page.getByTestId('dub-settings')).toContainText('The edge-tts package is not installed.')
+  await expect(page.getByTestId('dub-settings')).toContainText('OmniVoice is not installed. Install it in Diagnostics.')
+})
+
+test('Generate dub says no voice engine is installed, in plain words', async ({ page }) => {
+  const message = 'No voice engine is installed. Install one in Diagnostics.'
+  await mockDub(page, 'OmniVoice is not installed. Install it in Diagnostics.', message)
+  await page.goto('/#/drama/1/dub')
+  await expect(page.getByRole('button', { name: 'Generate dub' })).toBeDisabled()
+  await expect(page.getByTestId('dub-settings')).toContainText(message)
+})
+
+test('Generate dub refuses a character stored with a removed engine', async ({ page }) => {
+  const message = 'Wei Ying: The F5-TTS engine was removed. Pick another voice engine in Dub.'
+  await mockDub(page, null, message)
+  await page.goto('/#/drama/1/dub')
+  await expect(page.getByRole('button', { name: 'Generate dub' })).toBeDisabled()
+  await expect(page.getByTestId('dub-settings')).toContainText('The F5-TTS engine was removed.')
 })
 
 test('a missing key has its own heading in Dub, not the missing-package one', async ({ page }) => {

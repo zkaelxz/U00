@@ -65,10 +65,10 @@ class TestUpdate:
 
     def test_partial_update_leaves_other_fields(self, isolated_db):
         did = _drama(isolated_db)
-        cs.update_character(did, "A", character_name="Mei", tts_voice="v1", pronouns="she/her")
-        out = cs.update_character(did, "A", offline_voice="off")
-        assert out["character_name"] == "Mei" and out["tts_voice"] == "v1"
-        assert out["pronouns"] == "she/her" and out["offline_voice"] == "off"
+        cs.update_character(did, "A", character_name="Mei", voice_design="v1", pronouns="she/her")
+        out = cs.update_character(did, "A", voice_actor="off")
+        assert out["character_name"] == "Mei" and out["voice_design"] == "v1"
+        assert out["pronouns"] == "she/her" and out["voice_actor"] == "off"
 
     def test_none_vs_empty(self, isolated_db):
         did = _drama(isolated_db)
@@ -83,23 +83,36 @@ class TestUpdate:
     def test_validation(self, isolated_db):
         did = _drama(isolated_db)
         for kw in ({"character_name": "   "}, {"character_name": ""},
-                   {"tts_voice": "x" * 1000}, {"pronouns": "p" * 100},
+                   {"voice_design": "x" * 1001}, {"pronouns": "p" * 100},
                    {"clone_engine": "nope"}):
             with pytest.raises(InvalidInputError):
                 cs.update_character(did, "A", **kw)
 
     def test_write_never_touches_other_drama(self, isolated_db):
         d1, d2 = _drama(isolated_db), _drama(isolated_db)
-        isolated_db.upsert_character(d2, "A", character_name="Other", tts_voice="keep")
-        cs.update_character(d1, "A", character_name="Mine", tts_voice="mine")
+        isolated_db.upsert_character(d2, "A", character_name="Other", voice_design="keep")
+        cs.update_character(d1, "A", character_name="Mine", voice_design="mine")
         b = _by_label(cs.list_characters(d2), "A")
-        assert b["character_name"] == "Other" and b["tts_voice"] == "keep"
+        assert b["character_name"] == "Other" and b["voice_design"] == "keep"
         assert _by_label(cs.list_characters(d1), "A")["character_name"] == "Mine"
 
     def test_clear_clone_engine_allowed(self, isolated_db):
         did = _drama(isolated_db)
-        cs.update_character(did, "A", clone_engine="f5tts")
+        cs.update_character(did, "A", clone_engine="omnivoice")
         assert cs.update_character(did, "A", clone_engine="")["clone_engine"] == ""
+
+    def test_a_removed_engine_cannot_be_picked_but_a_stored_one_lists_as_removed(self, isolated_db):
+        did = _drama(isolated_db)
+        with pytest.raises(InvalidInputError,
+                           match="The F5-TTS engine was removed. Pick another voice engine in Dub."):
+            cs.update_character(did, "A", clone_engine="f5tts")
+        isolated_db.upsert_character(did, "A", clone_engine="f5tts")  # as saved before the removal
+        out = cs.list_characters(did)
+        entry = next(c for c in out if c["speaker_label"] == "A")
+        assert entry["clone_engine"] == "f5tts"
+        assert entry["clone_engine_removed"] == "The F5-TTS engine was removed. Pick another voice engine in Dub."
+        # picking another engine replaces it; the same call clears the notice
+        assert cs.update_character(did, "A", clone_engine="omnivoice")["clone_engine_removed"] == ""
 
 
 @pytest.mark.parametrize("lang", ["zh", "ja", "ko"])

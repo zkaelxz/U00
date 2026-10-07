@@ -39,11 +39,12 @@ docstring.
 
 import os
 import tempfile
+from typing import Optional
 
 import ollama_unload
 from core import (
-    ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname,
-    extract_audio_slice, transcribe_for_timing,
+    SPLIT_MAX_CJK_CHARS, SPLIT_MAX_SECONDS, ModelDownloadError, SplitRules, is_gpu_error,
+    is_network_error, diagnose_hostname, extract_audio_slice, transcribe_for_timing,
 )
 from forced_align import LANGUAGE_NAMES
 
@@ -64,6 +65,64 @@ SEGMENT_DURATION_WARNING_SECONDS = 300.0
 CONTEXT_PAD_S = 2.0
 MERGE_GAP_S = 1.0
 MERGE_GAP_MIXED_S = 0.3
+
+# Long-window backend. Silero's 0.5 threshold, dropping spans under 250 ms and
+# 100 ms of padding lost quiet speech, short interjections and word edges; the
+# whole file in one call was the best Qwen3-ASR score in every language tried
+# (docs/asr-experiments.md), so spans are packed into windows as long as the
+# forced aligner keeps in sync (forced_align.MAX_CHUNK_SECONDS notes drift
+# past ~30 s). A pause up to LONG_MERGE_GAP_S stays inside a window; a longer
+# one is mostly music or silence, which is where Qwen3-ASR invents text.
+LONG_VAD_KWARGS = {"threshold": 0.35, "min_speech_ms": 0, "pad_ms": 300}
+LONG_MERGE_GAP_S = 3.0
+LONG_WINDOW_S = 30.0
+LONG_CUT_SEARCH_S = 8.0
+
+# The "Split lines by sentences" option and the long-window backend: a line
+# ends at every sentence end; one still too long is cut at commas, then at the
+# longest pauses between words.
+SENTENCE_SPLIT_RULES = SplitRules(max_seconds=SPLIT_MAX_SECONDS, max_chars=SPLIT_MAX_CJK_CHARS,
+                                  per_sentence=True, count_latin=False)
+# Whisper's speech-detection pause in that mode (faster-whisper's own default):
+# shorter pauses feed it sentence fragments; lines are cut afterwards instead.
+SENTENCE_SPLIT_MIN_SILENCE_MS = 2000
+
+# Below this much audio a low figure says little (a short clip can be one line).
+COVERAGE_MIN_AUDIO_SECONDS = 30.0
+COVERAGE_WARN_FRACTION = 0.15
+
+
+def audio_coverage_fraction(segments, audio_seconds) -> Optional[float]:
+    """Share (0-1) of the audio covered by segments that have text, overlaps
+    counted once; None when the audio length is unknown."""
+    if not audio_seconds or audio_seconds <= 0:
+        return None
+    spans = sorted((max(0.0, float(s["start"])), min(float(s["end"]), audio_seconds))
+                   for s in segments if (s.get("text") or "").strip())
+    covered, cur_end = 0.0, 0.0
+    for start, end in spans:
+        start = max(start, cur_end)
+        if end > start:
+            covered += end - start
+            cur_end = end
+    return min(covered / audio_seconds, 1.0)
+
+
+def coverage_warning(segments, audio_seconds, qwen3_asr: bool = False) -> Optional[str]:
+    """A sentence when transcribed lines cover very little of a long enough
+    audio file (speech missed, e.g. singing or music the speech detector
+    skipped), else None."""
+    fraction = audio_coverage_fraction(segments, audio_seconds)
+    if fraction is None or audio_seconds < COVERAGE_MIN_AUDIO_SECONDS \
+            or fraction >= COVERAGE_WARN_FRACTION:
+        return None
+    msg = (f"Only {fraction * 100:.0f}% of the audio has text: try another engine, "
+           "turn vocal separation on, or check the language.")
+    if qwen3_asr:
+        msg += (" Qwen3-ASR only re-transcribes the speech Whisper found, "
+                "so it cannot add lines Whisper missed.")
+    return msg
+
 
 # Loaded models stay cached across calls; core.release_gpu_models() clears
 # this dict by name (it never imports this module), so keep the name.
@@ -306,6 +365,7 @@ class Qwen3ASRVadBackend:
     with estimated times), or, with refine_timing, the forced aligner's times.
     Opt-in only (asr_backend_choice "qwen3_asr_vad")."""
     name = "qwen3_asr_vad"
+    long_windows = False
 
     def __init__(self, model_size: str = "1.7B"):
         self.model_size = model_size
@@ -342,7 +402,7 @@ class Qwen3ASRVadBackend:
                 f"Qwen3-ASR doesn't cover language={language!r} in this project's usage "
                 f"(supported: {sorted(LANGUAGE_NAMES)}) -- use WhisperBackend instead."
             )
-        # Uses vad_segments' defaults, not the drama's saved vad_threshold/min_silence_ms,
+        # Uses this class's VAD settings, not the drama's saved vad_threshold/min_silence_ms,
         # which are tuned for Whisper's own VAD.
         if stage_cb:
             stage_cb("Loading audio (CPU)")
@@ -353,11 +413,16 @@ class Qwen3ASRVadBackend:
         # A short pause inside a sentence is not a place to cut: Qwen3-ASR does
         # worse on the halves. Language detection keeps the finer spans so a
         # quick change of speaker and language is not merged into one.
+        long_windows = self.long_windows and not mixed_languages
         spans = vad_segments.cap_spans(
             vad_segments.merge_close(
-                vad_segments.speech_spans(audio, sr, vad_fn=vad_fn),
-                gap_s=MERGE_GAP_MIXED_S if mixed_languages else MERGE_GAP_S),
-            audio, sr)
+                vad_segments.speech_spans(audio, sr, vad_fn=vad_fn,
+                                          **(LONG_VAD_KWARGS if long_windows else {})),
+                gap_s=(LONG_MERGE_GAP_S if long_windows
+                       else MERGE_GAP_MIXED_S if mixed_languages else MERGE_GAP_S)),
+            audio, sr,
+            **({"max_s": LONG_WINDOW_S, "search_window_s": LONG_CUT_SEARCH_S}
+               if long_windows else {}))
         windows = vad_segments.context_windows(spans, len(audio) / sr, CONTEXT_PAD_S)
         del audio
         if not spans:
@@ -367,7 +432,9 @@ class Qwen3ASRVadBackend:
         if stage_cb:
             stage_cb("Loading the Qwen3-ASR model")
         span_segments = [{"start": w.start_s, "end": w.end_s, "text": ""} for w in windows]
-        refine_timing = refine_timing and not mixed_languages
+        # A long window holds many lines whose split times are only estimates
+        # until the aligner places them.
+        refine_timing = (refine_timing or long_windows) and not mixed_languages
         scale = 0.9 if refine_timing else 1.0
 
         def _progress(frac):
@@ -394,7 +461,8 @@ class Qwen3ASRVadBackend:
             text = (seg["text"] or "").strip()
             if text:
                 pieces.extend({**p, "span": n} for p in split_long_segments(
-                    [{**seg, "text": text}]))
+                    [{**seg, "text": text}],
+                    **({"rules": SENTENCE_SPLIT_RULES} if long_windows else {})))
         pieces = filter_hallucinated_segments(pieces)
         groups = {}
         for p in pieces:
@@ -445,6 +513,19 @@ class Qwen3ASRVadBackend:
                 spans, language, run_span,
                 lambda span, lang: transcribe(span, mixed_language.QWEN_LANGUAGE_NAMES[lang])[0],
                 cancel_check=cancel_check, progress_cb=progress_cb)
+
+
+class Qwen3ASRLongBackend(Qwen3ASRVadBackend):
+    """Qwen3-ASR on long windows: gentle speech detection that keeps short and
+    quiet speech, neighbouring spans packed into windows of up to
+    LONG_WINDOW_S, every window cut into sentence lines and timed by the
+    forced aligner. Subtitle line length comes from the text and the aligned
+    timings, not from where the speech detector found a pause, so the model
+    always hears whole sentences with their context. With mixed_languages it
+    runs exactly as the "qwen3_asr_vad" backend (per-span language detection
+    needs the short spans)."""
+    name = "qwen3_asr_long"
+    long_windows = True
 
 
 # ---------------------------------------------------------------------------
@@ -569,6 +650,7 @@ BACKENDS = {
     WhisperBackend.name: WhisperBackend,
     Qwen3ASRBackend.name: Qwen3ASRBackend,
     Qwen3ASRVadBackend.name: Qwen3ASRVadBackend,
+    Qwen3ASRLongBackend.name: Qwen3ASRLongBackend,
     MossTranscribeDiarizeBackend.name: MossTranscribeDiarizeBackend,
 }
 EXPERIMENTAL_BACKENDS = frozenset({MossTranscribeDiarizeBackend.name})
