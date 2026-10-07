@@ -39,6 +39,8 @@ export function buildDubRequest(cfg: DubConfig, form: DubForm): DubRunRequest {
 export function dubBlocker(cfg: DubConfig, form: DubForm): string | null {
   if (cfg.speakable_line_count === 0) return 'There is no text to speak yet.'
   if (!form.engine) return 'No voice engine is available.'
+  const missing = cfg.tts_engines.find((t) => t.key === form.engine)?.unavailable_reason
+  if (missing) return missing
   return null
 }
 

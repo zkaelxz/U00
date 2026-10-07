@@ -75,8 +75,13 @@ import db
 import translate_engines
 from services import page_import_limits as limits
 from services import settings_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+)
 from services.sources_registry_service import scrub, safe_url
 from services.sources_search_service import JobFailed
 from sources import adaptive, ai_extract, pipeline, profiles
@@ -134,8 +139,7 @@ def build_ai_engine(name: Optional[str]):
     else:
         key, base_url = settings_service.resolve_key(name), None
         if not key:
-            raise DependencyUnavailableError(
-                f"No {name} key is configured. Set one in Settings first.")
+            raise MissingKeyError(name)
     try:
         return translate_engines.get_engine(
             name, key, base_url=base_url,

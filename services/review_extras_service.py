@@ -48,9 +48,15 @@ import subtitle_formats
 import translate_engines
 from services import (export_service, media_playback_service, restructure_service, settings_service,
                       translate_run_service, translate_service, workspace_job_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, NotFoundError, ServiceError,
-                                      UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    ServiceError,
+    UnsupportedOperationError,
+)
 
 # ---------------------------------------------------------------------------
 # Shared
@@ -287,8 +293,7 @@ def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,

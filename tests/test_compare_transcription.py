@@ -16,8 +16,9 @@ import translate_engines
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import compare_transcription_service as svc, translate_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from services import compare_transcription_service as svc, transcribe_service, translate_service
+from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+                                     NotFoundError,
                                      UnsupportedOperationError)
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
@@ -39,6 +40,7 @@ class FakeEngine:
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
+    monkeypatch.setattr(transcribe_service.diagnostics, "check_dependency", lambda name: True)
     engine = FakeEngine()
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
     calls = {"slices": [], "transcribe": [], "text": "新的"}
@@ -361,6 +363,30 @@ class TestTranslation:
         est = svc.estimate_compare(did, {"kind": "range", "from_number": 1, "to_number": 3},
                                    translate=True, engine="claude")
         assert est["line_count"] == 3 and est["estimated_usd"] > 0 and est["cap_applies"]
+
+
+class TestMissingPackage:
+    def test_whisper_backend_is_unavailable_with_a_plain_reason(self, monkeypatch):
+        monkeypatch.setattr(transcribe_service.diagnostics, "check_dependency", lambda name: False)
+        did, _ = _drama()
+        by_id = {b["id"]: b for b in svc.get_options(did)["backends"]}
+        assert by_id["whisper"]["available"] is False
+        assert by_id["whisper"]["reason"] == transcribe_service.MISSING_TRANSCRIPTION_MESSAGE
+        with pytest.raises(DependencyUnavailableError, match="Open Diagnostics"):
+            svc.start_compare(did, selection=ALL)
+
+    def test_import_error_mid_run_fails_the_job_without_the_module_text(self, monkeypatch):
+        did, _ = _drama()
+
+        def boom(*a, **k):
+            raise ModuleNotFoundError("No module named 'faster_whisper'")
+        monkeypatch.setattr(core, "transcribe_for_timing", boom)
+        out = svc.start_compare(did, selection=ALL)
+        job = _wait(out)
+        assert job["status"] == "error"
+        assert job["result"]["failed_reason"] == "dependency_missing"
+        assert "faster_whisper" not in job["error"] and "No module" not in job["error"]
+        assert "Diagnostics" in job["error"]
 
 
 class TestApply:

@@ -37,8 +37,13 @@ import translate_engines
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
 from services import settings_service, translate_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    UnsupportedOperationError,
+)
 
 MODES = ("missing", "page", "all")
 _CONFIRM_ALL = ("Redo all replaces the text regions of every page, including any you "
@@ -50,8 +55,7 @@ def _build_engine(engine_name: str):
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+        raise MissingKeyError(engine_name)
     try:
         return translate_engines.get_engine(
             engine_name, api_key,

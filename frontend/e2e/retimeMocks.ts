@@ -23,6 +23,11 @@ export interface RetimeSeen {
 export async function mockRetime(page: Page): Promise<RetimeSeen> {
   const seen: RetimeSeen = { runs: [], applies: [] }
   const base = '**/api/transcribe/dramas/3/retime'
+  // The aligner's package is not installed on the e2e machine; the panel reads this to enable Start.
+  await page.route('**/api/transcribe/dramas/3/compare-transcription/options', async (r) => {
+    const resp = await r.fetch()
+    await r.fulfill({ response: resp, json: { ...(await resp.json()), aligner_reason: null } })
+  })
   let polls = 0
   await page.route(`${base}/run`, (r) => {
     seen.runs.push(r.request().postDataJSON())

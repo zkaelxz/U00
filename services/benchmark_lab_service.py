@@ -54,9 +54,13 @@ import db
 import translate_engines
 from core import SOURCE_LANGUAGES
 from services import settings_service, translate_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError,
-                                     UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    UnsupportedOperationError,
+)
 
 JOB_ID = "benchmark_lab"
 TIERS = ("public", "application", "regression")
@@ -535,8 +539,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
         for cfg in checked:
             key = translate_service.resolve_api_key(cfg["engine"])
             if key is None and cfg["engine"] != "nllb":
-                raise DependencyUnavailableError(
-                    f"No {cfg['engine']} key is configured. Set one in Settings first.")
+                raise MissingKeyError(cfg['engine'])
             engines.append(key)
     if _job_active():
         raise ConflictError("A benchmark run is already going.")
