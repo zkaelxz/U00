@@ -127,6 +127,17 @@ class TestGetTranscribeConfig:
         did = isolated_db.create_drama(title_en="D", source_language=language)
         assert transcribe_service.get_transcribe_config(did)["asr_backend_choice"] == expected
 
+    def test_default_backend_leaves_a_groq_title_on_whisper(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
+                            lambda name, *a: object())
+        did = isolated_db.create_drama(title_en="D", source_language="zh", use_groq=1)
+        assert transcribe_service.get_transcribe_config(did)["asr_backend_choice"] == "whisper"
+
+    def test_an_explicit_long_backend_still_wins_over_groq(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D", source_language="zh", use_groq=1,
+                                       asr_backend_choice="qwen3_asr_long")
+        assert transcribe_service.get_transcribe_config(did)["asr_backend_choice"] == "qwen3_asr_long"
+
     def test_a_saved_backend_is_never_replaced_by_the_default(self, isolated_db, monkeypatch):
         monkeypatch.setattr(transcribe_service.importlib.util, "find_spec",
                             lambda name, *a: object())

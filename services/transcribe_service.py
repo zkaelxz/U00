@@ -1287,7 +1287,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         beam_size=beam_size,
                         on_gpu_fallback=lambda exc: gpu_fallback_msg.append(
                             core_module.short_reason(exc)),
-                        progress_cb=_whisper_progress, cancel_check=rep.raise_if_cancelled)
+                        progress_cb=_whisper_progress, cancel_check=rep.raise_if_cancelled,
+                        repeat_guard=repeat_guard, sensitivity_preset=sensitivity_preset)
                 else:
                     segments = transcribe_for_timing(
                         audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
@@ -1456,12 +1457,13 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 "min_silence_ms": min_silence_ms, "vad_threshold": vad_threshold,
                 "beam_size": beam_size, "hallucination_silence_sec": hallucination_silence_sec,
                 "min_pause_sec": min_pause_sec, "sensitivity_preset": sensitivity_preset,
-                "whisper_fast_mode": whisper_fast_mode, "use_groq": use_groq,
+                "whisper_fast_mode": whisper_fast_mode, "use_groq": use_groq and not vad_run,
                 "whisper_repeat_guard": repeat_guard, "split_by_sentences": split_by_sentences,
                 "separate_vocals_first": separate_vocals_first,
                 "separation_backend": separation_backend,
                 "realign_long_segments": realign_long_segments,
-                "mixed_languages": mixed_languages, "vad_refine_timing": vad_refine_timing,
+                "mixed_languages": mixed_languages, "vad_refine_timing": (vad_refine_timing
+                                      or asr_backend_choice == "qwen3_asr_long"),
                 "use_gpu": use_gpu, "initial_prompt": initial_prompt}}
 
 
@@ -1581,7 +1583,7 @@ def score_autotune_segments(candidate_ms, segments) -> dict:
 
 
 def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, initial_prompt,
-                         beam_size, candidates, vad_threshold, fast_mode, preset, result_queue):
+                         beam_size, candidates, vad_threshold, fast_mode, preset, repeat_guard, result_queue):
     """Process-job target (top-level, picklable): transcribes once per
     candidate, holding every other setting constant, and returns only the
     scores (no segments, no token)."""
@@ -1595,7 +1597,8 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
                 audio_path, model_size, language=language, use_gpu=use_gpu,
                 hf_token=hf_token, initial_prompt=initial_prompt, beam_size=beam_size,
                 min_silence_duration_ms=candidate_ms, vad_threshold=vad_threshold,
-                fast_mode=fast_mode, sensitivity_preset=preset)
+                fast_mode=fast_mode, repeat_guard=repeat_guard,
+                sensitivity_preset=preset)
             results.append(score_autotune_segments(candidate_ms, segments))
         best = min(results, key=lambda r: r["long_lines"])["candidate_ms"] if results else None
         result_queue.put(("ok", {"results": results, "best_candidate_ms": best}))
@@ -1634,6 +1637,12 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
         raise InvalidInputError(
             f"candidates must be 1-6 distinct whole numbers between {core_module.MIN_SILENCE_MS_MIN} "
             f"and {core_module.MIN_SILENCE_MS_MAX} (ms).")
+    if (drama.get("split_by_sentences")
+            and asr_options_service.stored_asr_backend(drama) in ("whisper", "qwen3_asr")):
+        # The run then splits on a fixed silence, so a tuned min_silence would not apply.
+        raise UnsupportedOperationError(
+            "Auto-tune is unavailable while 'Split lines by sentences' is on: that mode "
+            "ignores the minimum silence setting.")
     initial_prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
     job_id = autotune_job_id(drama_id)
     started = background_jobs.start_process_job(
@@ -1644,7 +1653,8 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
               drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
               presets.stored_vad_threshold(drama),
               bool(drama.get("whisper_fast_mode")),
-              presets.normalize(drama.get("sensitivity_preset"))),
+              presets.normalize(drama.get("sensitivity_preset")),
+              bool(drama.get("whisper_repeat_guard"))),
         gpu_touching=True, description=f"Auto-tuning (drama #{drama_id})")
     if not started:
         raise ConflictError(f"Auto-tune is already running for drama {drama_id}.")

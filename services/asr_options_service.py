@@ -143,11 +143,14 @@ def set_asr_options(qwen_asr_batch_size=None, moss_experimental=None,
 def stored_asr_backend(drama) -> str:
     """The drama's saved backend; one that never saved a choice gets Qwen3-ASR
     on long windows for Chinese and Japanese when qwen-asr, torch and
-    faster-whisper (its speech detector) are installed, else Whisper."""
+    faster-whisper (its speech detector) are installed, else Whisper. A title
+    with Groq on keeps Whisper: the VAD backends run locally and would
+    silently bypass Groq."""
     saved = drama.get("asr_backend_choice")
     if saved:
         return saved
-    if ((drama.get("source_language") or "zh") in QWEN_LONG_DEFAULT_LANGUAGES
+    if (not drama.get("use_groq")
+            and (drama.get("source_language") or "zh") in QWEN_LONG_DEFAULT_LANGUAGES
             and all(importlib.util.find_spec(m) is not None
                     for m in ("qwen_asr", "torch", "faster_whisper"))):
         return "qwen3_asr_long"

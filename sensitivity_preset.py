@@ -52,3 +52,13 @@ def decode_kwargs(preset, anti_loop_kwargs: dict, repeat_guard_kwargs: dict | No
     elif normalize(preset) != NORMAL:
         kwargs = {k: v for k, v in kwargs.items() if k not in _REPEAT_PENALTIES}
     return kwargs
+
+
+def older_row(drama: dict) -> dict:
+    """A copy of a dramas row read from a backup. One from before the repeat-guard column
+    still holds the old 2.0 s silence default, so it gets init_db's one-time reset to 0:
+    a restore or import copies rows into a schema that is already current."""
+    row = dict(drama)
+    if "whisper_repeat_guard" not in drama and row.get("hallucination_silence_sec") == 2:
+        row["hallucination_silence_sec"] = 0
+    return row
