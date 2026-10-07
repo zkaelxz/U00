@@ -6,12 +6,10 @@ single line, rather than whole-drama batch operations.
   - alternative_translations(): other valid ways to render the same line
   - improve_line():          targeted re-translation of one awkward line
   - grammar_breakdown():     word-by-word structure of the source
-  - pronunciation_audio():   hear a name or phrase in the source language
 """
 
 import re
 import json
-import os
 from core import LANGUAGE_NAMES  # noqa: F401  (tests/test_shared_constants.py pins this to core's)
 from translate_engines import call_llm_json, language_name, matching_glossary_terms
 
@@ -114,31 +112,3 @@ def grammar_breakdown(zh: str, engine, source_language: str = "zh"):
         return parts if isinstance(parts, list) else []
     except json.JSONDecodeError:
         return []
-
-
-# ---------------------------------------------------------------------------
-# Pronunciation -- reuses the existing TTS stack, no new dependency
-# ---------------------------------------------------------------------------
-
-SOURCE_LANG_VOICES = {
-    "zh": "zh-CN-XiaoxiaoNeural",
-    "ja": "ja-JP-NanamiNeural",
-    "ko": "ko-KR-SunHiNeural",
-}
-
-
-def pronunciation_audio(text: str, out_path: str, source_language: str = "zh"):
-    """Generates audio of a name or phrase in the SOURCE language, so you
-    can hear how 沈清疑 is actually said. Uses edge-tts (free, already a
-    dependency for dubbing). Returns the path, or None on failure --
-    pronunciation is a nice-to-have, so a failure here shouldn't
-    interrupt reading."""
-    try:
-        import dub
-        voice = SOURCE_LANG_VOICES.get(source_language, SOURCE_LANG_VOICES["zh"])
-        dub.synthesize_line(text, voice, out_path)
-        return out_path if os.path.exists(out_path) else None
-    except Exception:
-        return None
-
-

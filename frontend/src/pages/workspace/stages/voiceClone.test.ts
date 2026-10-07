@@ -14,7 +14,7 @@ import {
 } from './voiceClone'
 
 const entry = (over: Partial<CharacterEntry> = {}): CharacterEntry => ({
-  speaker_label: 'A', character_name: '', voice_actor: '', pronouns: '', tts_voice: '', offline_voice: '',
+  speaker_label: 'A', character_name: '', voice_actor: '', pronouns: '',
   clone_engine: '', voice_design: '', has_ref_audio: false, ref_text_present: false,
   series_character_id: null, series_character_name: '', line_count: 2, ...over,
 })

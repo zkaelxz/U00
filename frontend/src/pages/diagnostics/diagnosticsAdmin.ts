@@ -172,7 +172,7 @@ export const hfModelUrl = (model: string) => `https://huggingface.co/${model.spl
 // ---- Model cache ----
 
 export const hasModelCache = (c: DiagnosticsModelCache | null) =>
-  !!c && (c.hf_cache.length > 0 || c.piper_voices.length > 0 || c.model_files.length > 0)
+  !!c && (c.hf_cache.length > 0 || c.model_files.length > 0)
 
 export const MODEL_FOLDER_LABELS: Record<DiagnosticsModelFolder, string> = {
   torch: 'PyTorch hub',
@@ -186,7 +186,6 @@ const ENGINE_REPO_HINTS: Record<string, RegExp> = {
   'Whisper (faster-whisper)': /whisper/i,
   'Qwen3-ASR': /qwen/i,
   'SenseVoice (FunASR)': /sensevoice|funasr|funaudio/i,
-  'F5-TTS': /f5-?tts/i,
   OmniVoice: /omnivoice/i,
   Chatterbox: /chatterbox/i,
   TADA: /tada/i,
@@ -221,11 +220,10 @@ export function reconcileModels(engines: ModelEngineVersion[], hf: DiagnosticsHf
   return { rows, other: left }
 }
 
-/** "12.4 GB · 7 models · 2 voices · 3 model files". */
+/** "12.4 GB · 7 models · 3 model files". */
 export function modelCacheSummary(c: DiagnosticsModelCache): string {
-  const parts = [formatBytes(c.hf_total_bytes + c.piper_total_bytes + c.model_files_total_bytes)]
+  const parts = [formatBytes(c.hf_total_bytes + c.model_files_total_bytes)]
   if (c.hf_cache.length) parts.push(`${c.hf_cache.length} ${c.hf_cache.length === 1 ? 'model' : 'models'}`)
-  if (c.piper_voices.length) parts.push(`${c.piper_voices.length} ${c.piper_voices.length === 1 ? 'voice' : 'voices'}`)
   if (c.model_files.length) {
     parts.push(`${c.model_files.length} ${c.model_files.length === 1 ? 'model file' : 'model files'}`)
   }

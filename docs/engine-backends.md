@@ -183,6 +183,11 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
 6. **Ollama context.** `estimate_ollama_num_ctx` sizes `num_ctx` per request
    (floor `OLLAMA_MIN_NUM_CTX = 16384`) because an undersized window truncates
    the prompt from the start, silently dropping instructions and glossary.
+7. **Ollama models and reasoning.** The picker list is `OLLAMA_MODELS`; the API
+   and CLI also accept any tag typed by hand. Models too big for a 12 GB card
+   (`gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
+   `<think>` blocks in a reply are stripped before parsing; a separate
+   `thinking` field is never read.
 
 ## 3. Transcription (ASR)
 
@@ -212,7 +217,18 @@ aligner returns zero-length or out-of-order spans.
 `vad_segments.py` (`speech_spans`, `merge_close`, `cap_spans`) builds Silero
 speech spans and cuts long ones at the quietest point. `Qwen3ASRVadBackend`
 (`asr_backend_choice` `qwen3_asr_vad`, opt-in) uses it to feed Qwen3 spans of
-at most about 15 s instead of Whisper's segments.
+at most about 15 s instead of Whisper's segments. `Qwen3ASRLongBackend`
+(`qwen3_asr_long`, the default for Chinese and Japanese titles that never chose
+a backend, when qwen-asr is installed) runs the same stages with gentler speech
+detection (threshold 0.35, no minimum span, 300 ms padding), spans packed into
+windows of up to 30 s, one line per sentence (`asr_backend.SENTENCE_SPLIT_RULES`) and
+the forced aligner always on, so line length comes from the text and aligned
+timings rather than from where the detector found a pause.
+
+The per-title "Split lines by sentences" option (`split_by_sentences`) does the
+same for Whisper and Qwen3 ASR: Whisper's speech detection splits only at 2 s
+pauses (`asr_backend.SENTENCE_SPLIT_MIN_SILENCE_MS`, faster-whisper's default) and the
+lines are cut by `asr_backend.SENTENCE_SPLIT_RULES` using Whisper's word timings.
 
 `mixed_language.py` backs the "mixed languages" option (`mixed_languages` in
 the ASR options): language is detected per speech span, the text's script is
@@ -233,19 +249,21 @@ the Qwen3 aligner and MOSS download from Hugging Face on first use; a blocked
 
 All in `dub.py`; this page only maps them.
 
-- **Stock voices:** `synthesize_line` (Edge TTS, online, the only engine in
-  `PARALLEL_SAFE_ENGINES`) and `synthesize_line_offline` (Piper, local,
-  serialized by a lock). Edge TTS falls back to Piper when blocked
-  (`EdgeTTSBlockedError`).
-- **Cloned voices:** `CLONE_ENGINES` = `f5tts` (default), `omnivoice`,
-  `gpt_sovits` (its own local server, `gpt_sovits_url`), `chatterbox`, `tada`.
-  All but Edge/Piper are in `LOCAL_MODEL_ENGINES` and run single-threaded on
-  one model. `clone_engine_supports_language` gates by language.
+- **Voices:** `CLONE_ENGINES` = `omnivoice` (default), `gpt_sovits` (its own
+  local server, `gpt_sovits_url`), `chatterbox`, `tada`. All are in
+  `LOCAL_MODEL_ENGINES` and run one clip at a time on one model.
+  `clone_engine_supports_language` gates original-language narration.
+  `clone_map_from_characters` builds one entry per speaker; a speaker with
+  no clip gets an OmniVoice designed voice or Chatterbox's built-in voice
+  from the run's engine, and GPT-SoVITS/TADA refuse the run
+  (`speakers_without_voice`).
+- **Removed engines:** `REMOVED_VOICE_ENGINES` (Edge TTS, Piper, F5-TTS). A
+  stored `clone_engine` or request naming one gets `removed_engine_message`;
+  nothing is rewritten or deleted.
 - **Timing:** `build_dub_track` fits each clip to its subtitle window with
   `stretch_for_window` (speed-up capped at `DUB_MAX_SPEEDUP`, slow-down at
   `DUB_MAX_SLOWDOWN`) and writes `pacing.json`.
-- The optional packages for these (`edge_tts`, `piper-tts`, `f5_tts`,
-  `omnivoice`, `chatterbox-tts`, `hume-tada`, `pydub`) are all in
+- The optional packages for these (`omnivoice`, `chatterbox-tts`, `hume-tada`, `pydub`) are all in
   `diagnostics.OPTIONAL_DEPENDENCIES`; OmniVoice, Chatterbox and TADA cannot
   share one environment.
 

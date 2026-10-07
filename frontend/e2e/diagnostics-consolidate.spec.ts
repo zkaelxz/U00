@@ -76,9 +76,8 @@ test('Setup holds speaker detection and one model list with sizes and Delete', a
   await expect(setup.getByRole('list', { name: 'pyannote diarization model downloads' })).toContainText('speaker-diarization-3.1')
   await expect(setup.locator('li', { hasText: 'SenseVoice (FunASR): 1.2.0' })).toContainText('not downloaded')
   await expect(setup.locator('li', { hasText: 'Qwen3-ASR: not installed' })).not.toContainText('not downloaded')
-  // Downloads no engine claims, Piper voices and other model files keep their own groups.
+  // Downloads no engine claims and other model files keep their own groups.
   await expect(setup.getByRole('list', { name: 'Downloaded models' })).toContainText('someone/unknown-model')
-  await expect(setup.getByRole('list', { name: 'Piper voices' })).toContainText('en_US-amy-medium')
   await expect(setup.getByRole('list', { name: 'Model files' })).toContainText('model.pt (PyTorch hub)')
   await expect(setup).toContainText('A deleted model downloads again the next time a feature needs it.')
 
