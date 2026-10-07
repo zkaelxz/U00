@@ -133,7 +133,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
                  or (engine_name == "gemini" and gemini_free_tier)):
         raise UnsupportedOperationError("Bulk mode needs Claude or Gemini (paid) batch APIs.")
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
+    if api_key is None:
         raise MissingKeyError(engine_name)
     if bulk:
         translate_run_service.refuse_when_cap_spent(engine_name, gemini_free_tier)

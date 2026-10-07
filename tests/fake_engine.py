@@ -71,3 +71,42 @@ def uninstall():
         table.clear()
         table.update(original)
     _saved = None
+
+
+# A second stand-in that is translation-only (no instruction following), so the
+# guards that refuse such an engine stay covered now that no real one exists.
+MT_ENGINE_ID = "fake_mt"
+
+
+class FakeMTEngine(FakeEngine):
+    name = MT_ENGINE_ID
+    supports_reference = False
+
+
+_mt_installed = False
+
+
+def install_mt():
+    global _mt_installed
+    if _mt_installed:
+        return
+    te.ENGINES[MT_ENGINE_ID] = FakeMTEngine
+    te.ENGINE_CAPABILITIES[MT_ENGINE_ID] = frozenset({te.CAP_TRANSLATE, te.CAP_LOCAL, te.CAP_CHEAP})
+    te.FREE_ENGINES.add(MT_ENGINE_ID)
+    te.KEYLESS_ENGINES.add(MT_ENGINE_ID)
+    te.ENGINE_NOTES[MT_ENGINE_ID] = "🧪 Free: fake translation-only output for tests."
+    te.TRANSLATION_ONLY_ENGINES.add(MT_ENGINE_ID)
+    _mt_installed = True
+
+
+def uninstall_mt():
+    global _mt_installed
+    if not _mt_installed:
+        return
+    te.ENGINES.pop(MT_ENGINE_ID, None)
+    te.ENGINE_CAPABILITIES.pop(MT_ENGINE_ID, None)
+    te.FREE_ENGINES.discard(MT_ENGINE_ID)
+    te.KEYLESS_ENGINES.discard(MT_ENGINE_ID)
+    te.ENGINE_NOTES.pop(MT_ENGINE_ID, None)
+    te.TRANSLATION_ONLY_ENGINES.discard(MT_ENGINE_ID)
+    _mt_installed = False

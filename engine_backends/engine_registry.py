@@ -4,7 +4,7 @@ import inspect
 import re
 from .claude import ClaudeEngine
 from .gemini import GEMINI_FREE_TIER_LIMITS, GEMINI_FREE_TIER_TPM, GeminiEngine
-from .local import NLLBEngine, OllamaEngine
+from .local import OllamaEngine
 from .openai_compat import DeepSeekEngine, OpenAIEngine
 
 
@@ -40,19 +40,19 @@ ENGINES = {
     "gemini": GeminiEngine,
     "openai": OpenAIEngine,
     "ollama": OllamaEngine,
-    "nllb": NLLBEngine,
 }
 
-# Pure machine-translation engines: no instruction-following ability at
-# all, so they can only ever translate. Any other feature must refuse them
-# rather than silently produce nothing (each feature's own
-# `supports_reference` guard declines; call_llm_json raises).
-TRANSLATION_ONLY_ENGINES = {"nllb"}
+# Pure machine-translation engines (no instruction-following, so every
+# non-translate feature refuses them). None are offered now; the guards that
+# read this set stay so adding one back needs no changes in the services.
+# A set, not a frozenset: tests/fake_engine.py registers a stand-in in place,
+# since fallback.py and the services hold references to this same object.
+TRANSLATION_ONLY_ENGINES = set()
 
 # Engines that used to be offered. Saved presets, routing rules, fallback
 # chains and history rows may still name them; they are no longer in ENGINES,
 # so running with one is refused with unknown_engine_message().
-REMOVED_ENGINES = frozenset({"deepl", "google", "libretranslate"})
+REMOVED_ENGINES = frozenset({"deepl", "google", "libretranslate", "nllb"})
 
 
 def unknown_engine_message(engine_name) -> str:
@@ -83,7 +83,6 @@ ENGINE_CAPABILITIES = {
                          CAP_GROUNDED_SEARCH}),
     "openai": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT}),
     "ollama": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LOCAL, CAP_CHEAP}),
-    "nllb": frozenset({CAP_TRANSLATE, CAP_LOCAL, CAP_CHEAP}),
 }
 
 
@@ -103,10 +102,10 @@ def engines_with_capability(tag: str) -> list:
 # "My Gemini key is free-tier" setting (services/settings_service.py
 # get_gemini_free_tier), not on which engine was picked. See
 # engine_picker_label / estimate_cost_for_engine.
-FREE_ENGINES = {"ollama", "nllb"}
+FREE_ENGINES = {"ollama"}
 
 # Engines that run without an API key: a local model or a local server.
-KEYLESS_ENGINES = {"ollama", "nllb"}
+KEYLESS_ENGINES = {"ollama"}
 
 
 ENGINE_NOTES = {
@@ -115,7 +114,6 @@ ENGINE_NOTES = {
     "gemini": "Cheap and strong on Chinese/Japanese, close to DeepSeek pricing on Flash-Lite. Supports novel reference. Google model naming/pricing changes often -- double check GEMINI_MODELS if a run starts failing.",
     "openai": "OpenAI GPT models over the Chat Completions API (key from platform.openai.com). Pay per token; supports novel reference. Model names and prices change -- check OPENAI_MODELS if a run starts failing.",
     "ollama": "🧪 Free — for testing: local AI on your GPU. Private and unlimited, but lower quality than paid engines.",
-    "nllb": "🧪 Free — for testing: offline, translation only. Non-commercial licence.",
 }
 
 # Shown instead of ENGINE_NOTES["gemini"] when the "My Gemini key is

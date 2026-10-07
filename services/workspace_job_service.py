@@ -1143,7 +1143,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         engine_choice = drama.get("translation_engine") or settings_service.get_default_engine()
         # expected_engines: what the caller was checked against; an engine
         # changed since then is skipped rather than used unchecked.
-        if expected_engines is not None and expected_engines.get(did) != engine_choice:
+        if (engine_choice not in translate_engines.ENGINES
+                or expected_engines is not None and expected_engines.get(did) != engine_choice):
             results["skipped_engine_changed"].append(did)
             continue
         needs_key = engine_choice not in translate_engines.KEYLESS_ENGINES

@@ -12,7 +12,7 @@ translate_engines at call time.
   claude.py             ClaudeEngine
   openai_compat.py      DeepSeekEngine, OpenAIEngine
   gemini.py             GeminiEngine, rate-limit status, free-tier limits
-  local.py              NLLBEngine, OllamaEngine, Ollama reachability
+  local.py              OllamaEngine, Ollama reachability
   llm_tasks.py          call_llm_json and the single-prompt features (speaker
                         tagging, pacing, consistency, summaries, flagging)
   engine_registry.py    ENGINES, capability tags, notes, model overrides, get_engine

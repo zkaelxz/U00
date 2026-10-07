@@ -377,7 +377,7 @@ class TestLearnStyle:
 
     def test_translation_only_engine_refused(self, client, fake_engine):
         did, _ = _style_drama()
-        _error(client.post(f"{BASE}/{did}/style/learn", json={"engine": "nllb"}), 400,
+        _error(client.post(f"{BASE}/{did}/style/learn", json={"engine": "fake_mt"}), 400,
                "unsupported_operation")
 
     def test_apply_toggle_pauses_the_profile_everywhere(self, client, monkeypatch, fake_engine):

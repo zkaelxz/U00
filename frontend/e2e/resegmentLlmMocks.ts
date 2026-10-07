@@ -81,11 +81,10 @@ export async function mockAiResegment(
           engines: [
             { name: 'claude', label: 'Claude', free: false, models: null, key_configured: true },
             { name: 'gemini', label: 'Gemini', free: false, models: ['flash', 'pro'], key_configured: true },
-            { name: 'nllb', label: 'NLLB', free: false, models: null, key_configured: true },
           ],
           month_spend: 1.25,
           monthly_cap_usd: 20,
-          cap_applies_by_engine: { claude: true, gemini: true, nllb: true },
+          cap_applies_by_engine: { claude: true, gemini: true },
         },
       })
     }),

@@ -123,8 +123,6 @@ def resolved_translation_config() -> dict:
         return {"engine": None, "model": None, "api_key": "", "free_tier": False,
                 "base_url": None, **ocr}
     key = translate_service.resolve_api_key(engine)
-    if key is None and engine == "nllb":
-        key = "local"       # NLLB needs no key; page_server only wants a non-empty one
     return {
         "engine": engine,
         "model": model,

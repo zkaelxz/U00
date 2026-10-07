@@ -26,7 +26,7 @@ export interface EngineTestOutcome {
 export interface EngineRouteStatus {
   engine: string
   tags: string[]
-  test_blocked?: string | null // why Test isn't offered (e.g. NLLB downloads a model)
+  test_blocked?: string | null // why Test isn't offered (e.g. a large first-use download)
   needs_key: boolean
   key_configured: boolean
   status: EngineStatus

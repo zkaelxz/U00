@@ -45,7 +45,7 @@ const ENGINE_DISPLAY_NAMES: Record<string, string> = {
   gemini: 'Gemini',
   openai: 'OpenAI',
   ollama: 'Ollama (local)',
-  nllb: 'NLLB (offline)',
+  nllb: 'NLLB (removed)', // still shown for old history rows
 }
 
 // The API's `label` is a long description, not a name, so the picker shows

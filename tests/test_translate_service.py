@@ -41,7 +41,7 @@ def test_list_engines_keyless_engines_report_configured(tmp_path):
     env_path = _write_env(tmp_path, "")
     engines = {e["name"]: e for e in translate_service.list_engines(env_path)}
     assert engines["fake"]["key_configured"] is True
-    assert engines["nllb"]["key_configured"] is True
+    assert engines["fake_mt"]["key_configured"] is True
     assert engines["ollama"]["key_configured"] is True
 
 
@@ -65,7 +65,6 @@ def test_list_engines_models_match_translate_engines_dicts(tmp_path):
     assert engines["claude"]["models"] == list(translate_engines.CLAUDE_MODELS.keys())
     assert engines["gemini"]["models"] == list(translate_engines.GEMINI_MODELS.keys())
     assert engines["ollama"]["models"] == list(translate_engines.OLLAMA_MODELS.keys())
-    assert engines["nllb"]["models"] == list(translate_engines.NLLB_MODELS.keys())
     assert engines["fake"]["models"] is None
 
 
@@ -118,11 +117,12 @@ class TestTranslate:
         monkeypatch.setattr(translate_engines, "standalone_direction_support",
                             lambda *a: (False, "Not supported."))
         with pytest.raises(UnsupportedOperationError):
-            translate_service.translate("hello", "nllb", "en", "zh")
+            translate_service.translate("hello", "fake_mt", "en", "zh")
 
-    def test_a_removed_engine_is_refused_with_a_clear_message(self, isolated_db):
-        with pytest.raises(InvalidInputError, match="was removed"):
-            translate_service.translate("hello", "libretranslate", "zh", "en")
+    @pytest.mark.parametrize("engine", ["libretranslate", "nllb"])
+    def test_a_removed_engine_is_refused_with_a_clear_message(self, isolated_db, engine):
+        with pytest.raises(InvalidInputError, match=f"The {engine} engine was removed"):
+            translate_service.translate("hello", engine, "zh", "en")
 
     def test_missing_key_raises_dependency_unavailable(self, isolated_db, tmp_path, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -131,12 +131,10 @@ class TestTranslate:
             translate_service.translate(
                 "hi", "claude", "zh", "en", env_path=str(tmp_path / "no-such-.env"))
 
-    def test_resolve_api_key_nllb_is_none_not_missing(self):
-        # nllb has no ENV_NAMES entry at all -- resolve_key returns None for
-        # it, and translate() must not treat that as a "missing key" the
-        # way it would for claude/deepseek/etc. (checked in translate()'s
-        # own `api_key is None and engine_name != "nllb"` guard).
-        assert translate_service.resolve_api_key("nllb") is None
+    def test_a_keyless_engine_never_resolves_to_a_missing_key(self):
+        # fake_mt has no ENV_NAMES entry, but a keyless engine resolves to the
+        # literal "local" so translate()'s `api_key is None` guard never fires.
+        assert translate_service.resolve_api_key("fake_mt") == "local"
 
     def test_resolve_api_key_ollama_defaults_to_local(self, tmp_path):
         env_path = _write_env(tmp_path, "")

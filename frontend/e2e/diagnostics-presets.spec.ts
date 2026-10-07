@@ -17,7 +17,7 @@ const overview = {
     pypdf: { installed: false, powers: 'Scanlate PDF import', tier: 'feature' },
     torch: { installed: false, powers: 'ML backends', tier: 'feature' },
     pandas: { installed: true, powers: 'tables', tier: 'required' },
-    transformers: { installed: true, powers: 'local NLLB-200', tier: 'feature' },
+    transformers: { installed: true, powers: 'ML bubble detection (Scanlate)', tier: 'feature' },
   },
   file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
   library_writable: true,

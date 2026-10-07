@@ -25,7 +25,6 @@ const NEEDS: Record<string, string> = {
   gemini: 'Cloud. Needs a Google Gemini API key. Has a free tier with daily limits.',
   openai: 'Cloud. Needs an OpenAI API key. Pay per use.',
   ollama: 'Runs on this PC. Free. Needs Ollama installed and running with a model pulled.',
-  nllb: 'Runs on this PC, offline. Free. Plainer English than the cloud engines; the model downloads on first use.',
 }
 
 export function engineNeeds(name: string): string {

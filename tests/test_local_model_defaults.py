@@ -1,6 +1,6 @@
 """
 tests/test_local_model_defaults.py -- Step 5 (R3-lite): the local
-translation default is qwen3:8b (14B opt-in, labelled), Ollama requests
+translation default is gemma4:12b (Qwen is no longer offered but a saved tag keeps working), Ollama requests
 have a timeout, and GPU model caches are emptied once a stage finishes.
 """
 import sys
@@ -14,14 +14,32 @@ from tests.http_fakes import StreamedBody
 
 
 class TestOllamaDefaults:
-    def test_default_model_is_qwen3_8b(self):
-        assert te.OllamaEngine().model == "qwen3:8b"
-        assert te.get_engine("ollama").model == "qwen3:8b"
-        assert list(te.OLLAMA_MODELS)[0] == "qwen3:8b"
+    def test_default_model_is_gemma4_12b(self):
+        assert te.OLLAMA_DEFAULT_MODEL == "gemma4:12b"
+        assert te.OllamaEngine().model == "gemma4:12b"
+        assert te.get_engine("ollama").model == "gemma4:12b"
+        assert te.builtin_default_model("ollama") == "gemma4:12b"
+        assert list(te.OLLAMA_MODELS)[0] == "gemma4:12b"
 
-    def test_14b_is_opt_in_and_says_it_may_not_fit(self):
-        assert "may not fit in 8 GB" in te.OLLAMA_MODELS["qwen2.5:14b"]
-        assert te.get_engine("ollama", None, "qwen2.5:14b").model == "qwen2.5:14b"
+    def test_qwen_is_not_offered_but_a_saved_tag_still_builds_an_engine(self):
+        assert not any(t.startswith("qwen") for t in te.OLLAMA_MODELS)
+        for tag in ("qwen3:8b", "qwen2.5:14b"):
+            assert te.get_engine("ollama", None, tag).model == tag
+
+    def test_a_saved_qwen_tag_still_passes_the_run_option_check(self):
+        from services import translate_run_service as svc
+        svc._require_offered_model("ollama", "qwen3:8b")
+        svc._require_offered_model("ollama", "qwen2.5:14b")
+
+    def test_a_saved_qwen_tag_is_kept_by_a_preset(self, isolated_db):
+        from services import translate_run_service as svc
+        saved = svc.save_translate_preset("Qwen preset", "ollama", engine_model="qwen3:8b")
+        did = isolated_db.create_drama(title_zh="D")
+        applied = svc.apply_translate_preset(did, saved["preset"]["id"])
+        assert applied["translation_engine"] == "ollama"
+        assert applied["engine_model"] == "qwen3:8b"
+        row = next(p for p in isolated_db.list_presets() if p["id"] == saved["preset"]["id"])
+        assert row["engine_model"] == "qwen3:8b"
 
     def test_translate_requests_have_a_timeout_and_use_the_default_model(self, monkeypatch):
         seen = {}
@@ -37,7 +55,7 @@ class TestOllamaDefaults:
             return Resp()
         monkeypatch.setattr("requests.post", fake_post)
         assert te.OllamaEngine().translate_batch(["你好"], {}) == ["Hello."]
-        assert seen["model"] == "qwen3:8b"
+        assert seen["model"] == "gemma4:12b"
         assert seen["timeout"] and seen["timeout"] > 0
 
 
@@ -48,7 +66,6 @@ def loaded_models(monkeypatch):
     import forced_align
     import translate_engines
     monkeypatch.setitem(core._whisper_model_cache, ("medium", "cuda"), object())
-    monkeypatch.setitem(translate_engines._nllb_pipeline_cache, ("nllb", "zh", "en"), object())
     monkeypatch.setitem(asr_backend._asr_model_cache, "qwen3-asr", object())
     monkeypatch.setitem(forced_align._aligner_model_cache, "aligner", object())
     emptied = []
@@ -57,7 +74,7 @@ def loaded_models(monkeypatch):
                                        empty_cache=lambda: emptied.append(True))
     monkeypatch.setitem(sys.modules, "torch", torch)
     return {"asr": asr_backend._asr_model_cache, "aligner": forced_align._aligner_model_cache,
-            "nllb": translate_engines._nllb_pipeline_cache, "emptied": emptied}
+            "emptied": emptied}
 
 
 class TestReleaseGpuModels:
@@ -65,7 +82,6 @@ class TestReleaseGpuModels:
         core.release_gpu_models()
         assert core._whisper_model_cache == {}
         assert loaded_models["asr"] == {} and loaded_models["aligner"] == {}
-        assert loaded_models["nllb"] == {}   # Step 41 item 8
         assert loaded_models["emptied"] == [True]
 
     def test_does_not_import_torch_just_to_clear_it(self, monkeypatch):
@@ -157,8 +173,8 @@ class TestGemma4Models:
         assert not any(t.startswith("gemma4:e") for t in te.OLLAMA_MODELS)
 
     def test_default_and_existing_choices_are_unchanged(self):
-        assert list(te.OLLAMA_MODELS)[:2] == ["qwen3:8b", "qwen2.5:14b"]
-        assert te.OllamaEngine().model == "qwen3:8b"
+        assert list(te.OLLAMA_MODELS) == ["gemma4:12b", "gemma4:26b", "gemma4:31b"]
+        assert te.OllamaEngine().model == "gemma4:12b"
 
     def test_service_lists_the_tags_for_the_picker(self, isolated_db):
         from services import translate_service
@@ -191,7 +207,7 @@ class TestGemma4Models:
                                               cost_cap=None, monthly_cap=None))
         assert seen["model"] == tag
 
-    def test_request_shape_is_the_same_as_for_qwen(self, monkeypatch):
+    def test_request_shape_is_the_same_as_for_a_hand_typed_qwen_tag(self, monkeypatch):
         sent = []
 
         def fake_post(url, json=None, timeout=None, stream=None):

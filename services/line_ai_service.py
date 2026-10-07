@@ -41,8 +41,7 @@ MAX_ISSUE_CHARS = 500
 
 def _drama_tool_engine(drama: dict) -> str:
     """The drama's own translation engine when it can follow instructions;
-    otherwise (none saved, a translation-only engine such as NLLB, or one that
-    was removed) the
+    otherwise (none saved, a translation-only engine, or one that was removed) the
     engine Settings picks for line helpers (capability
     "llm.instructions"). Configuration only: never a switch on failure."""
     own = drama.get("translation_engine")
@@ -92,7 +91,7 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
     if check_cap:
         refuse_if_over_monthly_cap(engine_name, gemini_free_tier)
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
+    if api_key is None:
         raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key, model,

@@ -22,7 +22,6 @@ describe('labels', () => {
     expect(engineLabel('deepseek')).toBe('DeepSeek')
     expect(engineLabel('gemini')).toBe('Gemini')
     expect(engineLabel('ollama')).toBe('Ollama')
-    expect(engineLabel('nllb')).toBe('NLLB')
   })
   it('sentence-cases unknown codes and leaves empty values empty', () => {
     expect(mediaTypeLabel('radio_play')).toBe('Radio play')

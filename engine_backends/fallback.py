@@ -80,10 +80,10 @@ def fallback_chain_error(names):
         return f"A fallback chain takes at most {MAX_FALLBACK_ENGINES} fallback engines."
     if len(set(names)) != len(names):
         return "A fallback chain can't repeat an engine."
+    for n in names:
+        if n not in ENGINES:
+            return unknown_engine_message(n).replace("Unknown engine.", "Unknown translate engine.")
     if len(names) > 1:
-        for n in names:
-            if n not in ENGINES:
-                return unknown_engine_message(n).replace("Unknown engine.", "Unknown translate engine.")
         if len({n in TRANSLATION_ONLY_ENGINES for n in names}) > 1:
             return ("A fallback chain can't mix instruction-following engines with "
                     "translation-only ones.")

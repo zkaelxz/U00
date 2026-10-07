@@ -124,7 +124,7 @@ def test_ollama_runs_in_a_process_job_and_stores_on_done(monkeypatch):
 def test_refusals(monkeypatch):
     did = _seed()
     with pytest.raises(UnsupportedOperationError):
-        svc.start_llm_resegment_preview(did, engine="nllb")   # translation-only
+        svc.start_llm_resegment_preview(did, engine="fake_mt")   # translation-only
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 1.0)
     monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.0)
     with pytest.raises(UnsupportedOperationError):

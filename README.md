@@ -76,7 +76,7 @@ map), [`docs/README.md`](docs/README.md) (docs index),
 - **Library** of titles, filterable by title, author, studio, director, voice actor, status, source language (zh/ja/ko) and content type (audio drama, video drama, novel, manhwa, manga, manhua, ASMR, streamer VOD); series share glossaries, styles and characters.
 - **Three content modes**: audio drama (your audio or video plus a transcript, aligned to real timing), novel narration (paste the text; the app chunks it, tags speakers with the LLM, translates, and can generate a narration/dub) and streamer VOD (see [Streamer VODs and series](#streamer-vods-and-series)).
 - **Transcription** with Whisper (optional Qwen3-ASR), **speaker diarization**, OCR for page scans and burned-in captions, and **Live** near-live stream translation.
-- **Multi-engine translation**: Claude, DeepSeek, Gemini, OpenAI, Ollama or NLLB, with glossaries, term policies, style presets, emotion tags, a review queue and a consistency checker.
+- **Multi-engine translation**: Claude, DeepSeek, Gemini, OpenAI or Ollama, with glossaries, term policies, style presets, emotion tags, a review queue and a consistency checker.
 - **Review and polish**: line merging, pacing checks with one-click LLM shortening, translation versions, undo, locale variants (American/British/Australian English).
 - **AI dubbing** with local voice engines (OmniVoice, Chatterbox, TADA, GPT-SoVITS), including voice cloning; audiobook (.m4b) export.
 - **Export**: SRT/VTT/ASS, burned-in (hardsub) or toggleable (softsub) video, dub track mixing, EPUB, bulk zip.
@@ -133,7 +133,7 @@ pip install -r requirements-optional.txt -c constraints.txt   # per feature; ins
 
 `requirements.txt` is those three files combined. The Diagnostics page's Install buttons do the same picking without typing. `-c constraints.txt` caps packages at major versions known not to break the app (it installs nothing itself); use `constraints.lock.txt` instead to reproduce your own working setup.
 
-**First run:** open **Settings** and add the API key for your translation engine, or use a free local one (Ollama, NLLB). Keys are read from `.env` next to `start.bat` (copy `.env.example`; it is not versioned) or from environment variables. Models such as Whisper download on first use.
+**First run:** open **Settings** and add the API key for your translation engine, or use a free local one (Ollama). Keys are read from `.env` next to `start.bat` (copy `.env.example`; it is not versioned) or from environment variables. Models such as Whisper download on first use.
 
 ### Portable mode
 
@@ -195,11 +195,10 @@ Diagnostics > Danger zone > **Reset everything** deletes every drama, translatio
 | `gemini` | Paid, close to DeepSeek (Flash-Lite tier); key from aistudio.google.com | Strong on Chinese/Japanese. Translation only: transcription still uses Whisper. Lineup changes often; see `GEMINI_MODELS`. |
 | `openai` | Paid per token; `BAIHE_OPENAI_KEY` | GPT models (default `gpt-5-mini`) over Chat Completions. Newer GPT-5+ models appear in the picker after Diagnostics > Model health with "offer provider models" on, costed at a high ceiling ($5 in / $40 out per 1M tokens) because their real price is unknown; see `OPENAI_MODELS`. |
 | `ollama` | Free, uses your hardware | Local via [Ollama](https://ollama.com); a usable model wants real RAM/VRAM; rougher on nuance. |
-| `nllb` | Free, fully offline | Meta's [NLLB-200](https://github.com/facebookresearch/fairseq/tree/nllb) (`pip install transformers sentencepiece`); downloads 2.4GB (600M) or 5.2GB (1.3B) once. Pure machine translation: rougher on idiom and tone, and no speaker attribution. |
 
-Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration mode and take the novel reference; pure-MT engines tag everything "Narrator".
+Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration mode and take the novel reference; an engine that can't follow instructions tags everything "Narrator".
 
-**Context from recent lines.** The "Context lines shown from before each batch" slider (default 6, or 10 for novels; 0 turns it off) shows LLM engines how the preceding lines were already translated, so pronouns and relation-only references stay consistent across batches. It does not apply to NLLB. Consistency across separate VODs of one streamer comes from assigning them to the same series.
+**Context from recent lines.** The "Context lines shown from before each batch" slider (default 6, or 10 for novels; 0 turns it off) shows LLM engines how the preceding lines were already translated, so pronouns and relation-only references stay consistent across batches. Consistency across separate VODs of one streamer comes from assigning them to the same series.
 
 ### Translation guide (style, terms, and notes)
 
@@ -391,7 +390,7 @@ The app already retries on CPU. The cause is usually a CPU-only PyTorch/ctransla
 
 ### If your exported subtitles are blank
 
-A `.srt` with correct timestamps but no text means the lines aren't translated yet (an aligned but untranslated drama exports every entry empty). Check "Lines translated X / Y" and press Translate first (Ollama and NLLB are free). The export buttons warn before this: zero translated lines disables the English/bilingual downloads, and a partial translation shows how many lines will export blank.
+A `.srt` with correct timestamps but no text means the lines aren't translated yet (an aligned but untranslated drama exports every entry empty). Check "Lines translated X / Y" and press Translate first (Ollama is free). The export buttons warn before this: zero translated lines disables the English/bilingual downloads, and a partial translation shows how many lines will export blank.
 
 ## Testing & diagnostics
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { ApiError } from './client'
 import {
@@ -9,6 +9,7 @@ import {
   readerEngines,
   vocabApkgUrl,
   wikiMarkdownUrl,
+  TRANSLATION_ONLY,
 } from './reader'
 import type { TranslateEngine } from '../types/translate'
 
@@ -29,6 +30,10 @@ const engine = (name: string, free: boolean, key_configured = true): TranslateEn
   models: null,
   key_configured,
 })
+
+// No translation-only engine is offered now; the filter still applies to one.
+beforeEach(() => TRANSLATION_ONLY.add('fake_mt'))
+afterEach(() => TRANSLATION_ONLY.clear())
 
 describe('reader api', () => {
   it('builds the page query, leaving max_width out when not given', () => {
@@ -115,7 +120,7 @@ describe('reader api', () => {
   })
 
   it('offers only configured engines that can answer questions', () => {
-    const all = [engine('ollama', true), engine('claude', false), engine('nllb', true), engine('gemini', false, false)]
+    const all = [engine('ollama', true), engine('claude', false), engine('fake_mt', true), engine('gemini', false, false)]
     expect(readerEngines(all).map((e) => e.name)).toEqual(['ollama', 'claude'])
   })
 })

@@ -22,7 +22,7 @@ describe('Bulk review engine gating (R49)', () => {
     expect(reviewBulkAvailable('claude', FREE_TIER)).toBe(true)
   })
   it('refuses DeepSeek (bulk translation only) and every other engine', () => {
-    for (const e of ['deepseek', 'openai', 'ollama', 'nllb', '']) expect(reviewBulkAvailable(e, PAID)).toBe(false)
+    for (const e of ['deepseek', 'openai', 'ollama', 'fake_mt', '']) expect(reviewBulkAvailable(e, PAID)).toBe(false)
   })
   it('refuses when the server lists no bulk engines', () => {
     expect(reviewBulkAvailable('claude', [])).toBe(false)

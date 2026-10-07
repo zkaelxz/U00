@@ -17,7 +17,7 @@ describe('showGetStarted', () => {
 })
 
 describe('translator options', () => {
-  const list = [eng('claude', false), eng('gemini', true), eng('ollama', true, true), eng('nllb', true, true)]
+  const list = [eng('claude', false), eng('gemini', true), eng('ollama', true, true), eng('deepseek', true, true)]
   it('says what each needs and whether it is ready', () => {
     const o = translatorOptions(list)
     expect(o.map((x) => x.readyText)).toEqual(['Needs a key', 'Key added', 'Ready', 'Ready'])

@@ -53,7 +53,7 @@ def _make(name):
 @pytest.fixture
 def engines(monkeypatch):
     background_jobs.clear_all_jobs()
-    made = {n: _make(n) for n in ("claude", "deepseek", "nllb", "ollama")}
+    made = {n: _make(n) for n in ("claude", "deepseek", "fake_mt", "ollama")}
     for n, cls in made.items():
         monkeypatch.setitem(translate_engines.ENGINES, n, cls)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda n: "k")
@@ -127,9 +127,9 @@ def test_no_fallback_on_content_moderation(isolated_db, engines, monkeypatch):
 def test_chain_must_not_cross_engine_class_or_repeat(isolated_db, engines):
     did = _seed(1)
     with pytest.raises(InvalidInputError):
-        svc.start_translate_run(did, engine_name="claude", fallback_chain=[{"engine": "nllb"}])
+        svc.start_translate_run(did, engine_name="claude", fallback_chain=[{"engine": "fake_mt"}])
     with pytest.raises(InvalidInputError):
-        svc.start_translate_run(did, engine_name="nllb", fallback_chain=[{"engine": "claude"}])
+        svc.start_translate_run(did, engine_name="fake_mt", fallback_chain=[{"engine": "claude"}])
     with pytest.raises(InvalidInputError):
         svc.start_translate_run(did, engine_name="claude", fallback_chain=[{"engine": "claude"}])
     with pytest.raises(InvalidInputError):
@@ -137,12 +137,12 @@ def test_chain_must_not_cross_engine_class_or_repeat(isolated_db, engines):
 
 
 def test_translation_only_chain_allowed(isolated_db, engines, monkeypatch):
-    # nllb is the only real translation-only engine, so a second one is faked.
-    monkeypatch.setattr(translate_engines, "TRANSLATION_ONLY_ENGINES", {"nllb", "ollama"})
-    monkeypatch.setattr("engine_backends.fallback.TRANSLATION_ONLY_ENGINES", {"nllb", "ollama"})
-    engines["nllb"].fail = AuthError("401")
+    # fake_mt is the only real translation-only engine, so a second one is faked.
+    monkeypatch.setattr(translate_engines, "TRANSLATION_ONLY_ENGINES", {"fake_mt", "ollama"})
+    monkeypatch.setattr("engine_backends.fallback.TRANSLATION_ONLY_ENGINES", {"fake_mt", "ollama"})
+    engines["fake_mt"].fail = AuthError("401")
     did = _seed(1)
-    _wait(svc.start_translate_run(did, engine_name="nllb",
+    _wait(svc.start_translate_run(did, engine_name="fake_mt",
                                   fallback_chain=[{"engine": "ollama"}])["job_id"])
     assert db.load_lines(did)[0]["en"] == "ollama:z0"
 
@@ -175,7 +175,7 @@ def test_api_accepts_fallback_chain_and_rejects_bad_shape(isolated_db, engines):
     assert client.post(url, json={"engine": "claude", "fallback_chain": [
         {"engine": "deepseek", "key": "x"}]}).status_code == 422
     assert client.post(url, json={"engine": "claude", "fallback_chain": [
-        {"engine": "nllb"}]}).status_code == 422
+        {"engine": "fake_mt"}]}).status_code == 422
     r = client.post(url, json={"engine": "claude", "fallback_chain": [{"engine": "deepseek"}]})
     assert r.status_code == 200 and r.json()["fallback_engines"] == ["deepseek"]
     _wait(r.json()["job_id"])

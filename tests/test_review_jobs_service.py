@@ -248,7 +248,7 @@ def test_validation_errors(monkeypatch):
     with pytest.raises(InvalidInputError):
         svc.start_flag_review(did, engine_name="nope")
     with pytest.raises(UnsupportedOperationError):
-        svc.start_emotion_tagging(did, engine_name="nllb")
+        svc.start_emotion_tagging(did, engine_name="fake_mt")
     with pytest.raises(UnsupportedOperationError):
         svc.start_flag_review(_seed((("你好", "", None),)), engine_name="claude")
     with pytest.raises(InvalidInputError):

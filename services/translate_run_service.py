@@ -312,8 +312,7 @@ def _require_offered_model(engine_name: str, model) -> None:
     (translate_service.list_engines, the same list preset saving checks);
     ollama takes any safe-shaped name (_is_safe_ollama_model); an engine
     without a model list allows only its own default. A free-form model
-    string would otherwise reach the engine as is (nllb hands it to
-    transformers.pipeline as a Hugging Face repo id)."""
+    string would otherwise reach the engine as is."""
     if model is None:
         return
     if engine_name == "ollama":
@@ -451,7 +450,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     for c in chain:
         name = c["engine"]
         api_key = translate_service.resolve_api_key(name)
-        if api_key is None and name != "nllb":
+        if api_key is None:
             raise MissingKeyError(name)
         free_tier = name == "gemini" and gemini_free_tier
         if free_tier and c["model"] in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
