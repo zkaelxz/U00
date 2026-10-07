@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { openExportBlocks } from './exportBlocks'
 import { mockDub, mockProgress } from './plainErrorsMocks'
 
 // Plain reasons instead of generic or raw errors: Export and Dub buttons that
@@ -9,7 +10,10 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
-const openMedia = (page: import('@playwright/test').Page) => page.getByText('Video and audio', { exact: true }).click()
+const openMedia = async (page: import('@playwright/test').Page) => {
+  await page.getByText('Video and audio', { exact: true }).click()
+  await openExportBlocks(page)
+}
 
 test('audiobook and dubbed video are disabled with the reason when there is no narration or dub', async ({ page }) => {
   await mockProgress(page)

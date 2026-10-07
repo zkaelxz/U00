@@ -4,8 +4,10 @@ import type {
   AssExportRequest,
   AssStyleOptions,
   AssStyleOverrides,
+  MediaKind,
   SubtitleField,
 } from '../../types/export'
+import { readSectionOpen, type StorageLike } from '../../components/sectionStorage'
 
 export const MAX_SPEAKER_COLORS = 200
 const MAX_LABEL_CHARS = 100
@@ -223,4 +225,16 @@ export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Which media export blocks start open: the subtitle-track video is the one used most.
+const MEDIA_BLOCK_DEFAULT_OPEN: Partial<Record<MediaKind, boolean>> = { softsub_video: true }
+
+export function mediaBlockStorageKey(kind: MediaKind): string {
+  return `export.media.${kind}`
+}
+
+/** The remembered open state of a media block, else its default. */
+export function mediaBlockOpen(storage: StorageLike | null, kind: MediaKind): boolean {
+  return readSectionOpen(storage, mediaBlockStorageKey(kind), MEDIA_BLOCK_DEFAULT_OPEN[kind] === true)
 }

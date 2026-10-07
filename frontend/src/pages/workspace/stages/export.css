@@ -8,6 +8,14 @@
 .export-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin: var(--space-2) 0; }
 .export-text { max-height: 20rem; overflow: auto; white-space: pre-wrap; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .export-block { display: grid; gap: var(--space-2); justify-items: start; min-width: 0; }
+.export-block-heading { justify-self: stretch; }
+.export-block-body { display: grid; gap: var(--space-2); justify-items: start; min-width: 0; }
+.export-block-body[hidden] { display: none; }
+/* A heading-sized button that folds its block; the chevron turns when open. */
+.export-block-toggle { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 44px; padding: var(--space-1) 0; border: 0; background: none; color: inherit; font: inherit; font-weight: var(--weight-medium); text-align: left; cursor: pointer; }
+.export-block-toggle::before { content: ''; flex: none; width: 0.45em; height: 0.45em; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform var(--dur-2, 120ms) ease; }
+.export-block-toggle[aria-expanded='true']::before { transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { .export-block-toggle::before { transition: none; } }
 .export-block + .export-block { border-top: 1px solid var(--border); padding-top: var(--space-3); }
 /* Stand-in for video: dark in both themes on purpose, so it is not a theme token. */
 .ass-preview { --ass-preview-video-bg: #333; display: flex; justify-content: center; padding: var(--space-3); margin-bottom: var(--space-2); background: var(--ass-preview-video-bg); border-radius: var(--radius-sm); overflow: hidden; }
