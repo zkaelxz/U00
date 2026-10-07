@@ -27,6 +27,8 @@ describe('job outcome helpers', () => {
     )
     const notice = 'Transcription ran on the CPU because the GPU couldn\'t be used (RuntimeError: cuDNN failed). This was slower than on the GPU.'
     expect(jobOutcomeText({ outcome: 'partial', outcome_message: notice })).toBe(`Finished with problems: ${notice}`)
+    const ollama = 'Ollama still has a model loaded (gemma4:26b), which may make transcription run out of GPU memory and fall back to the CPU. Free it with: ollama stop gemma4:26b.'
+    expect(jobOutcomeText({ outcome: 'partial', outcome_message: ollama })).toBe(`Finished with problems: ${ollama}`)
     expect(jobOutcomeText({ outcome: 'kept_existing', outcome_message: null })).toBe('Nothing new; existing lines kept')
     expect(jobOutcomeText({ outcome: null })).toBeNull()
     expect(jobOutcomeText({})).toBeNull()

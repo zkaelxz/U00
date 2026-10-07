@@ -61,6 +61,7 @@ import time
 from typing import Optional
 
 import background_jobs
+import ollama_unload
 import core as core_module
 import db
 import diagnostics
@@ -1479,6 +1480,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             "whisper_clock": whisper_clock, "stage_seconds": stage_seconds,
             "word_align_error": word_align_error,
             "forced_align_error": forced_align_error, "coverage_warning": coverage_msg,
+            **ollama_unload.take_notice_result(),
             "moss_run": moss_run, "moss_truncated": bool(moss_info.get("truncated")),
             "run_config": {
                 "asr_backend": asr_backend_choice, "whisper_size": whisper_size,
@@ -1585,6 +1587,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                              and not forced_align_error else "whisper_diff"),
         "forced_align_error": forced_align_error,
         "coverage_warning": outcome["coverage_warning"],
+        "ollama_notice": outcome.get("ollama_notice"),
         "diarize_started": diarize_started,
         **({"partial": True, "errors": [
             "MOSS stopped at its output limit; the end of the audio may be missing."]}
@@ -1881,7 +1884,8 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
             "detail": "The line was merged, split or deleted meanwhile; nothing was changed."})
         return
     result = {"line_id": line_id, "proposed_zh": new_zh[:_RETRANSCRIBE_MAX_CHARS],
-              "base_zh": zh_before or "", "base_start": start, "base_end": end}
+              "base_zh": zh_before or "", "base_start": start, "base_end": end,
+              **ollama_unload.take_notice_result()}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
         result["device_notice"] = core_module.gpu_fallback_notice(

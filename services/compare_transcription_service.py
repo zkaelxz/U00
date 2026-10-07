@@ -16,6 +16,7 @@ import threading
 
 import asr_backend
 import background_jobs
+import ollama_unload
 import core as core_module
 import db
 import sensitivity_preset as presets
@@ -430,7 +431,8 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     result = {"proposals": proposals, "line_count": len(lines), "candidate_count": len(proposals),
               "errors": errors[:20], "cap_reached": cap_reached,
               "asr_backend": cfg["backend"], "whisper_size": cfg["whisper_size"],
-              "translated": bool(translation), "partial": bool(cancelled or cap_reached)}
+              "translated": bool(translation), "partial": bool(cancelled or cap_reached),
+              **ollama_unload.take_notice_result()}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
         result["device_notice"] = core_module.gpu_fallback_notice(
