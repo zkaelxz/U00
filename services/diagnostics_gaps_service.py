@@ -108,24 +108,20 @@ def get_model_versions(ollama_model: str = None) -> list:
             for m in diagnostics.get_model_engine_versions(ollama_model)]
 
 
-def get_model_cache(hf_cache_dir: str = None, piper_voices_dir: str = None) -> dict:
-    """Hugging Face cache revisions, Piper voices and the files in the other
+def get_model_cache(hf_cache_dir: str = None) -> dict:
+    """Hugging Face cache revisions and the files in the other
     model folders (torch.hub checkpoints under TORCH_HOME, the
     audio-separator models) by name and size -- no directory is ever
     included."""
     hf = [{"repo_id": e["repo_id"], "repo_type": e["repo_type"],
            "revision": e["revision"], "size_bytes": int(e["size_bytes"])}
           for e in diagnostics.scan_hf_cache(hf_cache_dir)]
-    piper = [{"voice": e["voice"], "size_bytes": int(e["size_bytes"])}
-             for e in diagnostics.scan_piper_voices(piper_voices_dir)]
     files = [{"folder": kind, "name": e["name"], "size_bytes": int(e["size_bytes"])}
              for kind in diagnostics.MODEL_FOLDERS
              for e in diagnostics.scan_model_folder(kind)]
     return {
         "hf_cache": hf,
         "hf_total_bytes": sum(e["size_bytes"] for e in hf),
-        "piper_voices": piper,
-        "piper_total_bytes": sum(e["size_bytes"] for e in piper),
         "model_files": files,
         "model_files_total_bytes": sum(e["size_bytes"] for e in files),
     }
@@ -943,18 +939,6 @@ def delete_hf_revision(revision: str, confirm: bool = False) -> dict:
     _exclusive_delete(lambda: diagnostics.delete_hf_cache_revision(revision),
                       "Couldn't delete that model; see the log for details.")
     return {"deleted": True, "name": revision}
-
-
-def delete_piper_voice(voice: str, confirm: bool = False) -> dict:
-    """Deletes one downloaded Piper voice (its .onnx and .onnx.json). Only a
-    name the scan lists is accepted, so no path can be built from input."""
-    if not isinstance(voice, str) or not any(
-            e["voice"] == voice for e in diagnostics.scan_piper_voices()):
-        raise NotFoundError("No downloaded voice with that name.")
-    guard(confirm)
-    _exclusive_delete(lambda: diagnostics.delete_piper_voice(voice),
-                      "Couldn't delete that voice; see the log for details.")
-    return {"deleted": True, "name": voice}
 
 
 def delete_model_file(folder: str, name: str, confirm: bool = False) -> dict:

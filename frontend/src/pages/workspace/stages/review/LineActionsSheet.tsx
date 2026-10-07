@@ -246,11 +246,6 @@ export function LineActionsSheet(p: Props) {
                 </button>
               </li>
               <li>
-                <button type="button" disabled={!line.zh} onClick={() => p.onTool('pronounce')}>
-                  Pronounce the source
-                </button>
-              </li>
-              <li>
                 <button type="button" disabled={!!blocked} onClick={() => p.onView('split')}>
                   Split line…
                   {blocked && <span className="sheet-reason">{blocked}</span>}

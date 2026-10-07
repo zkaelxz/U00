@@ -11,24 +11,25 @@ export const SCREENS = '/tmp/claude-0/-home-user-U00/0474fa7c-90c2-5302-85f6-dd0
 export const CAND_ID = 'ab'.repeat(16)
 
 const character = (over: object = {}) => ({
-  speaker_label: 'SPEAKER_00', character_name: 'Wei Ying', voice_actor: '', pronouns: '', tts_voice: '',
-  offline_voice: '', clone_engine: 'f5tts', voice_design: '', has_ref_audio: false, ref_text_present: false,
+  speaker_label: 'SPEAKER_00', character_name: 'Wei Ying', voice_actor: '', pronouns: '',
+  clone_engine: 'gpt_sovits', voice_design: '', has_ref_audio: false, ref_text_present: false,
   series_character_id: null, series_character_name: '', line_count: 12, ...over,
 })
 
 const dubConfig = (over: object = {}) => ({
   drama_id: 1, content_mode: null, is_narration: false, narration_language: 'translation',
   narration_language_options: ['translation', 'original'], source_language: 'zh',
-  tts_engines: [{ key: 'edge_tts', label: 'Edge TTS', requires_internet: true }],
+  tts_engines: [{ key: 'omnivoice', label: 'OmniVoice' }],
+  default_engine: 'omnivoice',
   defaults: { max_speedup: 1.4, max_slowdown: 0.85, speedup_range: [1, 2], slowdown_range: [0.5, 1] },
   speakers: [
     {
-      speaker_label: 'SPEAKER_00', character_name: 'Wei Ying', edge_voice: 'x', offline_voice: 'y',
-      engine: 'edge', has_clone_ref: false,
-      clone_warning: 'F5-TTS is chosen, but this speaker has no reference clip or voice description, so it will use the plain TTS voice.',
+      speaker_label: 'SPEAKER_00', character_name: 'Wei Ying',
+      engine: 'omnivoice', has_clone_ref: false,
+      clone_warning: 'GPT-SoVITS is chosen, but this speaker has no reference clip or voice description, so it will use the voice of the engine picked in Dub.',
     },
     {
-      speaker_label: 'SPEAKER_01', character_name: 'Lan Zhan', edge_voice: 'x', offline_voice: 'y',
+      speaker_label: 'SPEAKER_01', character_name: 'Lan Zhan',
       engine: 'omnivoice', has_clone_ref: false, clone_warning: null,
     },
   ],
@@ -93,7 +94,7 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
   await page.route('**/api/dub/dramas/1/pacing', (route) => json(route, { available: false, counts: {}, lines: [] }))
   await page.route('**/api/characters/dramas/1', (route) => json(route, m.state.entries))
   await page.route('**/api/characters/voice-bank', (route) =>
-    json(route, [{ id: 3, name: 'Calm narrator', clone_engine: 'f5tts', voice_design: '', language: 'zh', notes: '', ref_text_present: true }]))
+    json(route, [{ id: 3, name: 'Calm narrator', clone_engine: 'omnivoice', voice_design: '', language: 'zh', notes: '', ref_text_present: true }]))
   await page.route('**/api/characters/series/7/characters', (route) =>
     json(route, [{ id: 11, character_name: 'Wei Wuxian', aliases: '', notes: '', pronouns: 'he/him' }]))
   await page.route('**/api/characters/dramas/1/reference-clips/candidates', (route) =>
@@ -159,7 +160,7 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
   })
   await page.route('**/api/characters/dramas/1/voice-bank/save', (route) => {
     record(route)
-    return json(route, { id: 9, name: 'Wei voice', clone_engine: 'f5tts', voice_design: '', language: 'zh', notes: '', ref_text_present: true })
+    return json(route, { id: 9, name: 'Wei voice', clone_engine: 'omnivoice', voice_design: '', language: 'zh', notes: '', ref_text_present: true })
   })
   await page.route('**/api/characters/dramas/1/voice-bank/apply', (route) => {
     record(route)

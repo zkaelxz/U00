@@ -17,9 +17,9 @@ FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
 # after checking its real distribution name.
 KNOWN_PYPI_DISTS = {
     "faster-whisper", "ctranslate2", "opencv-python", "anthropic", "openai", "requests",
-    "beautifulsoup4", "pyannote-audio", "soundfile", "edge-tts", "pydub", "f5-tts",
+    "beautifulsoup4", "pyannote-audio", "soundfile", "pydub",
     "omnivoice", "chatterbox-tts", "hume-tada", "pytesseract", "pillow", "paddleocr",
-    "manga-ocr", "piper-tts", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
+    "manga-ocr", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
     "transformers", "torch", "torchaudio", "uroman", "sentencepiece", "yt-dlp",
     "opencc-python-reimplemented", "sudachidict-core", "safetensors", "huggingface-hub",
     "pypdf", "genanki", "ebooklib", "plyer", "playwright",

@@ -298,7 +298,7 @@ checkout, the repo root).
     benchmark_cases/             uploaded benchmark case files
     backups/                     manual and auto/ backups, exports/
     tmp/                         job work folders, partial files (swept at startup)
-    source_cache/, source_review_tmp/, updates/, logs/, piper_voices/
+    source_cache/, source_review_tmp/, updates/, logs/, piper_voices/ (old, unused)
     profiles/, source_profiles/  saved site sign-ins and approved profiles
     cedict.txt                   downloaded dictionary
   model_cache/                   downloaded models (installed or portable copy)
