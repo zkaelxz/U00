@@ -183,6 +183,11 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
 6. **Ollama context.** `estimate_ollama_num_ctx` sizes `num_ctx` per request
    (floor `OLLAMA_MIN_NUM_CTX = 16384`) because an undersized window truncates
    the prompt from the start, silently dropping instructions and glossary.
+7. **Ollama models and reasoning.** The picker list is `OLLAMA_MODELS`; the API
+   and CLI also accept any tag typed by hand. Models too big for a 12 GB card
+   (`gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
+   `<think>` blocks in a reply are stripped before parsing; a separate
+   `thinking` field is never read.
 
 ## 3. Transcription (ASR)
 
