@@ -27,8 +27,8 @@ async function openSection(page: Page, title: string) {
 }
 
 const entry = (over: object = {}) => ({
-  speaker_label: 'SPEAKER_00', character_name: '', voice_actor: '', pronouns: '', tts_voice: '',
-  offline_voice: '', clone_engine: '', voice_design: '', has_ref_audio: false, ref_text_present: false,
+  speaker_label: 'SPEAKER_00', character_name: '', voice_actor: '', pronouns: '',
+  clone_engine: '', voice_design: '', has_ref_audio: false, ref_text_present: false,
   series_character_id: null as number | null, series_character_name: '', line_count: 3,
   series_pronouns: '', sample_lines: ['你好，师兄', '我们走吧'], ...over,
 })
@@ -81,7 +81,7 @@ async function mockAll(page: Page) {
   })
   await page.route('**/api/characters/dramas/1', (route) => json(route, entries))
   await page.route('**/api/characters/dramas/1/clone-engines', (route) =>
-    json(route, { source_language: 'zh', default_engine: 'f5tts', engines: [] }))
+    json(route, { source_language: 'zh', default_engine: 'omnivoice', engines: [] }))
   await page.route('**/api/characters/voice-bank', (route) => json(route, []))
   await page.route('**/api/characters/series/7/characters', (route) => json(route, cast))
   await page.route('**/api/characters/dramas/1/voice-suggestions', (route) => json(route, suggestions))

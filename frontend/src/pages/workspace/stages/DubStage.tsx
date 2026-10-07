@@ -118,7 +118,6 @@ export default function DubStage() {
               {cfg.tts_engines.map((t) => (
                 <option key={t.key} value={t.key}>
                   {t.label}
-                  {t.requires_internet && !/online/i.test(t.label) ? ' (online)' : ''}
                 </option>
               ))}
             </select>

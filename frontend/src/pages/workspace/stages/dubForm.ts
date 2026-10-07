@@ -10,7 +10,9 @@ export interface DubForm {
 
 export function initialDubForm(cfg: DubConfig): DubForm {
   return {
-    engine: cfg.tts_engines[0]?.key ?? '',
+    engine: cfg.tts_engines.some((t) => t.key === cfg.default_engine)
+      ? cfg.default_engine
+      : (cfg.tts_engines[0]?.key ?? ''),
     maxSpeedup: cfg.defaults?.max_speedup ?? 1.3,
     maxSlowdown: cfg.defaults?.max_slowdown ?? 0.85,
     language: cfg.narration_language,
@@ -38,6 +40,7 @@ export function buildDubRequest(cfg: DubConfig, form: DubForm): DubRunRequest {
 // Null when a dub can be started, otherwise the plain reason it cannot.
 export function dubBlocker(cfg: DubConfig, form: DubForm): string | null {
   if (cfg.speakable_line_count === 0) return 'There is no text to speak yet.'
+  if (cfg.blocker) return cfg.blocker
   if (!form.engine) return 'No voice engine is available.'
   const missing = cfg.tts_engines.find((t) => t.key === form.engine)?.unavailable_reason
   if (missing) return missing
