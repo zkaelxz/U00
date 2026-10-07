@@ -2145,3 +2145,81 @@ class TestInitDbSchema:
                 "SELECT translation_engine, is_private FROM dramas").fetchone() == ("claude", 0)
         finally:
             conn.close()
+
+
+# Tables with a line_id that a full sync deliberately leaves alone when a line
+# is removed or merged. A new per-line table must go here or in
+# db._LINE_REF_TABLES, so a merge moves its rows and a delete cleans them.
+_LINE_ID_TABLES_NOT_FOLLOWED = {
+    "bug_reports": "a frozen debugging bundle; its line_id is only a hint",
+    "bulk_job_lines": "results are applied by line id and skipped once the line is gone",
+    "line_provenance": "keyed by line id and read against the current lines",
+}
+
+
+def test_every_line_id_table_is_followed_or_listed(isolated_db):
+    with contextlib.closing(db.get_conn()) as conn:
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+        with_line_id = {t for t in tables
+                        if "line_id" in {c[1] for c in conn.execute(f'PRAGMA table_info("{t}")')}}
+    assert with_line_id == set(db._LINE_REF_TABLES) | set(_LINE_ID_TABLES_NOT_FOLLOWED)
+    assert set(db._LINE_REF_TABLES.values()) <= {"delete", "unlink"}
+
+
+def test_line_refs_follow_a_merge_and_go_with_a_delete(isolated_db):
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=i, start=float(i), end=i + 0.5, zh=z) for i, z in enumerate("甲乙丙")])
+    a, b, c = db.load_line_objects(did)
+    db.save_translation_notes(did, [{"line_id": b.id, "line_idx": 1, "term": "乙",
+                                     "note_type": "idiom", "note": "n"}])
+    db.save_emotions(did, {2: {"emotion": "joy"}}, id_by_idx={2: c.id})
+    db.save_progress(did, last_line_idx=1)
+
+    def history():
+        with contextlib.closing(db.get_conn()) as conn:
+            return [r[0] for r in conn.execute(
+                "SELECT line_id FROM reading_history WHERE drama_id = ?", (did,))]
+    a.merged_ids = [b.id]
+    db.save_lines(did, [a, c])
+    assert [n["line_id"] for n in db.list_translation_notes(did)] == [a.id]
+    assert history() == [a.id]
+    # a reading position never blocks: it is only unlinked
+    assert db.line_ids_with_refs(did, [a.id, c.id]) == {a.id, c.id}
+    db.save_lines(did, [ln for ln in db.load_line_objects(did) if ln.id == c.id])
+    assert db.list_translation_notes(did) == [] and history() == [None]
+    assert db.line_ids_with_refs(did, [c.id]) == {c.id}
+
+
+def test_line_ids_with_refs_takes_more_ids_than_sqlite_binds(isolated_db):
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="甲")])
+    [line] = db.load_line_objects(did)
+    db.save_emotions(did, {0: {"emotion": "joy"}}, id_by_idx={0: line.id})
+    assert db.line_ids_with_refs(did, range(line.id, line.id + 40_000)) == {line.id}
+    assert db.line_ids_with_refs(did + 1, [line.id]) == set()
+
+
+def test_snapshot_waits_for_a_concurrent_writer_instead_of_failing(isolated_db):
+    """The snapshot reads the lines' words before it writes; a deferred BEGIN
+    would fail at once with "database is locked" when another connection
+    commits in between."""
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=i, start=float(i), end=i + 0.5, zh="甲") for i in range(50)])
+    lines = db.load_line_objects(did)
+    stop, errors = threading.Event(), []
+
+    def writer():
+        while not stop.is_set():
+            db.set_app_setting("busy", 1)
+    t = threading.Thread(target=writer)
+    t.start()
+    try:
+        for _ in range(150):
+            try:
+                db.save_line_history_snapshot(did, lines, "t")
+            except sqlite3.OperationalError as e:
+                errors.append(e)
+    finally:
+        stop.set()
+        t.join()
+    assert errors == []

@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test'
 
 import { openResplit } from './resplitMocks'
-import { SENTENCE, editEnglishBehindTheUi, openReview, rows, seedLines, splitSecondLine, zhTexts } from './reviewUndo'
+import { openFoldFor } from './reviewFolds'
+import { SENTENCE, editEnglishBehindTheUi, noteBehindTheUi, openReview, rows, seedLines, splitSecondLine, zhTexts } from './reviewUndo'
 
 // One-click Undo on the confirmation of a structural edit. Real lines, real API.
 
@@ -43,6 +44,53 @@ test('delete, then Undo; the next structural edit replaces the offer', async ({ 
   expect(await zhTexts(page)).toEqual(BEFORE)
   await expect(page.getByRole('status').filter({ hasText: 'but not its notes or emotion tag' })).toBeVisible()
   await expect(rows(page).nth(2)).toBeFocused()
+
+  // Delete again, then split: the split's offer replaces the delete's, and Undo undoes the split.
+  await rows(page).nth(2).getByRole('button', { name: 'More actions for line 3' }).click()
+  await sheet.getByRole('button', { name: 'Delete line…' }).click()
+  await sheet.getByRole('button', { name: /^Confirm delete #/ }).click()
+  await expect(rows(page)).toHaveCount(2)
+  await expect(page.getByTestId('undo-notice')).toContainText('Deleted #3.')
+  await splitSecondLine(page, 3)
+  await expect(page.getByTestId('undo-notice')).toHaveCount(1)
+  await expect(page.getByTestId('undo-notice')).toContainText('Split #2 into #2–#3.')
+  await expect(page.getByTestId('undo-notice')).not.toContainText('Deleted')
+  await page.getByTestId('undo-notice').getByRole('button', { name: 'Undo' }).click()
+  await expect(rows(page)).toHaveCount(2)
+  expect(await zhTexts(page)).toEqual(['你好', '再见朋友'])
+})
+
+test('a change in another panel retires the Lines Undo', async ({ page }) => {
+  seedLines(true)
+  await openReview(page, 4)
+  await splitSecondLine(page, 5)
+  await expect(page.getByTestId('undo-notice')).toBeVisible()
+  // Opened in place: openResplit reloads the page, which drops every offer anyway.
+  await openFoldFor(page, 'Re-split long lines')
+  const group = page.getByRole('group', { name: 'Re-split long lines' })
+  await group.locator('summary', { hasText: 'Re-split long lines' }).click()
+  await expect(page.getByTestId('undo-notice')).toBeVisible()
+  await group.getByRole('button', { name: 'Re-split long lines' }).click()
+  await expect(group.getByTestId('resplit-summary')).toContainText('Split 1 line into 3')
+  await expect(group.getByTestId('resplit-summary').getByRole('button', { name: 'Undo' })).toBeVisible()
+  await expect(page.getByTestId('undo-notice')).toHaveCount(0)
+})
+
+test('Undo refused for a note added since says so, and Records warns before deleting it', async ({ page }) => {
+  await openReview(page, 3)
+  await splitSecondLine(page)
+  noteBehindTheUi('朋友')
+  await page.getByTestId('undo-notice').getByRole('button', { name: 'Undo' }).click()
+  const refused = page.getByRole('status').filter({ hasText: 'A note or emotion tag was added to a line this undo would remove' })
+  await expect(refused).toContainText('Restoring from Records would delete it: move or copy the note first.')
+  await expect(page.getByTestId('undo-notice')).toHaveCount(0)
+  expect(await zhTexts(page)).toEqual(['你好', '再见', '朋友', '谢谢'])
+
+  await openFoldFor(page, 'Records')
+  await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }).click()
+  await page.getByTestId('history-list').getByRole('button', { name: 'Restore…' }).first().click()
+  await expect(page.getByTestId('restore-loss')).toHaveText(
+    '1 line this would remove has a note or emotion tag. Restoring deletes them. Move or copy the note first to keep it.')
 })
 
 test('Undo is refused, and says why, when the lines were edited elsewhere in the meantime', async ({ page }) => {

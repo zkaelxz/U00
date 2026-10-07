@@ -18,10 +18,15 @@ const job = (status: string, extra: Record<string, unknown> = {}) => ({
 export interface RetimeSeen {
   runs: unknown[]
   applies: unknown[]
+  // With `hold`, the job reports running until this is called.
+  release: () => void
 }
 
-export async function mockRetime(page: Page): Promise<RetimeSeen> {
-  const seen: RetimeSeen = { runs: [], applies: [] }
+// `hold` keeps the job running until `release()`: a test that asserts the progress line
+// must see it before the next poll finishes the job, which a slow runner can miss.
+export async function mockRetime(page: Page, { hold = false } = {}): Promise<RetimeSeen> {
+  let held = hold
+  const seen: RetimeSeen = { runs: [], applies: [], release: () => { held = false } }
   const base = '**/api/transcribe/dramas/3/retime'
   // The aligner's package is not installed on the e2e machine; the panel reads this to enable Start.
   await page.route('**/api/transcribe/dramas/3/compare-transcription/options', async (r) => {
@@ -35,7 +40,7 @@ export async function mockRetime(page: Page): Promise<RetimeSeen> {
   })
   await page.route('**/api/jobs/retime_3', (r) => {
     polls += 1
-    return r.fulfill({ json: polls < 2 ? job('running') : job('done', { outcome: 'ok', result: { line_count: 3, candidate_count: 2 } }) })
+    return r.fulfill({ json: held || polls < 2 ? job('running') : job('done', { outcome: 'ok', result: { line_count: 3, candidate_count: 2 } }) })
   })
   await page.route(`${base}/result`, (r) =>
     r.fulfill({ json: { job_id: 'retime_3', proposals: RETIME_PROPOSALS, line_count: 3, partial: false, device: 'CPU',

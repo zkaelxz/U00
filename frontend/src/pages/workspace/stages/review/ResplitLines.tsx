@@ -31,6 +31,7 @@ import {
   type UndoHandle,
 } from './reviewLogic'
 import { UndoNotice } from './UndoNotice'
+import { retireUndoOffer, useUndoOffer } from './undoOffer'
 
 interface Props {
   dramaId: number
@@ -50,7 +51,7 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
   const [error, setError] = useState<unknown>(null)
   const [needsConfirm, setNeedsConfirm] = useState(false)
   const [summary, setSummary] = useState<string | null>(null)
-  const [undo, setUndo] = useState<UndoHandle | null>(null)
+  const [undo, setUndo] = useUndoOffer<UndoHandle>('resplit', dramaId)
   const undoing = useRef(false)
   // Set when the Undo notice (and the button that had focus) goes away, so the
   // status line that replaces it takes focus instead of the page body.
@@ -82,7 +83,9 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
     const r = (j.result ?? {}) as ResplitResult & { failed_reason?: string; detail?: string }
     if (jobSucceeded(j) && !r.failed_reason) {
       setSummary(resplitSummary(r))
-      if (startedHere.current) setUndo(undoHandleOf(r))
+      const handle = startedHere.current ? undoHandleOf(r) : null
+      if (handle) setUndo(handle)
+      else if (r.split_lines) retireUndoOffer()
     }
     else if (r.failed_reason === 'not_applied') setSummary(`Nothing was changed. ${r.detail ?? ''}`.trim())
     onJobDone()
@@ -108,7 +111,9 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
         setJobId(r.job_id)
       } else {
         setSummary(resplitSummary(r))
-        setUndo(undoHandleOf(r))
+        const handle = undoHandleOf(r)
+        if (handle) setUndo(handle)
+        else if (r.split_lines) retireUndoOffer()
         if (r.split_lines) onChanged()
         void loadSpeakers()
       }

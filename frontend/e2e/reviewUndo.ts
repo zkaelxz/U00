@@ -40,6 +40,15 @@ db.save_lines(3, lines, fields=('en',))
 `)
 }
 
+/** Adds a translation note to the line with this text straight in the library (another device). */
+export function noteBehindTheUi(zh: string) {
+  python(`
+from services import lines_service
+line = next(ln for ln in db.load_line_objects(3) if ln.zh == ${JSON.stringify(zh)})
+lines_service.add_note(3, line.id, line.zh, 'cultural', 'Added on another device')
+`)
+}
+
 export const rows = (page: Page) => page.locator('.review-line:not(.review-skeleton)')
 
 export async function openReview(page: Page, count: number) {
@@ -47,14 +56,14 @@ export async function openReview(page: Page, count: number) {
   await expect(rows(page)).toHaveCount(count)
 }
 
-/** Splits line 2 ("再见朋友") after two characters from its actions sheet. */
-export async function splitSecondLine(page: Page) {
+/** Splits line 2 ("再见朋友") after two characters from its actions sheet; `after` is the row count then. */
+export async function splitSecondLine(page: Page, after = 4) {
   await rows(page).nth(1).getByRole('button', { name: 'More actions for line 2' }).click()
   await page.getByRole('dialog', { name: 'Line #2' }).getByRole('button', { name: 'Split line…' }).click()
   const split = page.getByRole('dialog', { name: 'Split line #2' })
   await split.getByLabel('Break after (chars)').fill('2')
   await split.getByRole('button', { name: 'Split line' }).click()
-  await expect(rows(page)).toHaveCount(4)
+  await expect(rows(page)).toHaveCount(after)
 }
 
 export const zhTexts = (page: Page) => rows(page).locator('.review-zh').allTextContents()

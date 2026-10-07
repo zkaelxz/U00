@@ -795,7 +795,8 @@ baihe-subtitler/
 │   │                              AiExtrasBurnPreview, aiExtrasLogic.ts pure): auto-merge short lines, learn my
 │   │                              style, SenseVoice tags, burned preview clip; API in src/api/reviewExtras.ts;
 │   │                              LineTools (alternatives, grammar, pronounce), ShortenOverlong (pacing
-│   │                              auto-shorten), tmDismiss.ts (per-session TM dismissals)
+│   │                              auto-shorten), tmDismiss.ts (per-session TM dismissals), undoOffer.ts
+│   │                              (the one Undo offer shared by Lines, merge-short and re-split)
 │   ├── src/pages/Reader.tsx       Reader page (#/read/<id>[?page=N]) over /api/reader: page HTML in a sandboxed
 │   │                              iframe, pager, resume, Watch / listen; api/reader.ts, types/reader.ts
 │   ├── src/pages/reader/          ReaderPrefs (Aa popover/sheet), ReaderWords (Words, Vocabulary, Glossary),

@@ -13,7 +13,7 @@ test.afterEach(async ({ page }) => {
 
 test('tick 3 lines, re-time them, review the proposals and use one', async ({ page }) => {
   const ids = seedLines(50)
-  const seen = await mockRetime(page)
+  const seen = await mockRetime(page, { hold: true })
   await page.goto('/#/drama/3/review')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
   for (const n of [2, 5, 9]) await tickBox(page, n).check()
@@ -27,6 +27,7 @@ test('tick 3 lines, re-time them, review the proposals and use one', async ({ pa
   await panel.getByRole('button', { name: 'Re-time ticked lines' }).click()
   await expect(panel.getByTestId('retime-progress')).toBeVisible()
   expect(seen.runs).toEqual([{ line_ids: [ids[1], ids[4], ids[8]] }])
+  seen.release()
 
   const rows = panel.getByTestId('retime-row')
   await expect(rows).toHaveCount(2)

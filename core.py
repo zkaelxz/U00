@@ -184,13 +184,15 @@ def adopt_ids(restored, current, recorded=()) -> list:
 
 def lines_from_saved(rows) -> list:
     """A saved line-history snapshot's or translation version's line dicts
-    (db.get_line_history_snapshot / get_translation_version) -> Lines."""
+    (db.get_line_history_snapshot / get_translation_version) -> Lines. A
+    line's word timings come back only when they were stored for its text."""
     return [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r.get("zh") or "",
                  en=r.get("en") or "", speaker=r.get("speaker"),
                  dub_filename=r.get("dub_filename"), flag=r.get("flag") or None,
                  flag_note=r.get("flag_note") or "", sfx=bool(r.get("sfx")),
                  speaker_manual=bool(r.get("speaker_manual")),
-                 lang=_stored_line_lang(r.get("lang")), id=r.get("id"))
+                 lang=_stored_line_lang(r.get("lang")), id=r.get("id"),
+                 word_timings=words_for_text(r.get("word_timings"), r.get("zh") or ""))
             for r in rows]
 
 
@@ -1171,6 +1173,19 @@ def encode_line_words(text: str, words) -> Optional[str]:
             for a, b, t0, t1 in zip(index.cs, index.ce, index.ts, index.te)]
     payload = json.dumps({"h": text_fingerprint(text), "w": rows}, separators=(",", ":"))
     return payload if len(payload) <= MAX_STORED_WORD_BYTES else None
+
+
+def words_for_text(payload, text: str) -> Optional[str]:
+    """`payload` (a stored word_timings value) when it was computed against
+    exactly `text`, else None: for carrying words through a snapshot without
+    ever attaching them to other text. line_words checks the rest on use."""
+    if not isinstance(payload, str) or len(payload) > MAX_STORED_WORD_BYTES:
+        return None
+    try:
+        data = json.loads(payload)
+        return payload if isinstance(data, dict) and data.get("h") == text_fingerprint(text) else None
+    except (ValueError, RecursionError):
+        return None
 
 
 def line_words(ln) -> Optional[list]:
