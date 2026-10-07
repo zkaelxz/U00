@@ -50,6 +50,9 @@ export interface TranscribeConfig {
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
+  // "normal" or "sensitive"; the threshold a run uses (the preset lowers an untouched one).
+  sensitivity_preset: string
+  effective_vad_threshold: number
   // Shortest silence between words at which a long line may be cut.
   min_pause_sec: number
   // Seconds of silence inside a segment that make Whisper skip it; 0 = off.
@@ -82,6 +85,7 @@ export type TranscribeConfigUpdate = Partial<
     | 'measured_diarize_runs'
     | 'whisper_installed'
     | 'has_video_source'
+    | 'effective_vad_threshold'
   >
 >
 

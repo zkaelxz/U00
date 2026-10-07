@@ -29,7 +29,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `check_setup.py`, `process_guard.py`, `portable.py`, `storage.py`, `benchmark.py`, `action_tiers.py`
 
 **ASR, transcription & alignment**: `asr_backend.py`, `asr_benchmark.py`, `audio_preprocess.py`, `mixed_language.py`, `vad_segments.py`,
-`forced_align.py`, `word_align.py`, `raw_transcript.py`, `resegment.py`, `sensevoice_tags.py`, `diarize.py`,
+`forced_align.py`, `word_align.py`, `raw_transcript.py`, `resegment.py`, `sensevoice_tags.py`, `sensitivity_preset.py`, `diarize.py`,
 `voice_id.py`
 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**: `translate_engines.py`, `translation_guide.py`, `translation_memory.py`, `auto_qc.py`, `en_cleanup.py`,

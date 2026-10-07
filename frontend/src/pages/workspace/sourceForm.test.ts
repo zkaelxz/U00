@@ -29,6 +29,8 @@ describe('advancedSummary', () => {
   it('mentions a changed split pause only when it differs from 0.35', () => {
     expect(advancedSummary({ ...base, min_pause_sec: '0.5' })).toBe('split pause 0.5 s')
     expect(advancedSummary({ ...base, min_pause_sec: '0.350' })).toBe('defaults')
+    expect(advancedSummary({ ...base, sensitivity_preset: 'sensitive' })).toBe('more sensitive')
+    expect(advancedSummary({ ...base, sensitivity_preset: 'normal' })).toBe('defaults')
   })
   it('mentions a changed hallucination guard', () => {
     expect(advancedSummary({ ...base, hallucination_silence_sec: '0' })).toBe('no hallucination guard')

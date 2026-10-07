@@ -69,6 +69,8 @@ const OPTION_LABELS: Record<string, string> = {
   qwen3_asr_vad: 'Qwen3 ASR with speech detection (no Whisper)',
   moss_td: 'MOSS-Transcribe-Diarize (experimental)',
   auto: 'Automatic',
+  normal: 'Normal (default)',
+  sensitive: 'More sensitive',
   audio_separator: 'Audio separator',
   demucs: 'Demucs',
   tesseract: 'Tesseract',
@@ -118,6 +120,7 @@ type ConfigForm = {
   min_silence_ms: string
   min_pause_sec: string
   vad_threshold: string
+  sensitivity_preset: string
   hallucination_silence_sec: string
   hardsub_interval_sec: string
   separate_vocals_first: boolean
@@ -136,6 +139,7 @@ const formFromConfig = (c: TranscribeConfig): ConfigForm => ({
   min_silence_ms: String(c.min_silence_ms),
   min_pause_sec: String(c.min_pause_sec),
   vad_threshold: String(c.vad_threshold),
+  sensitivity_preset: c.sensitivity_preset,
   hallucination_silence_sec: String(c.hallucination_silence_sec),
   hardsub_interval_sec: String(c.hardsub_interval_sec),
   separate_vocals_first: c.separate_vocals_first,
@@ -426,7 +430,7 @@ export default function TranscribeStage({
 
   const select = (
     label: string,
-    key: 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend',
+    key: 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend' | 'sensitivity_preset',
     options: string[],
     help?: string,
     disabled: string[] = [],
@@ -659,6 +663,8 @@ export default function TranscribeStage({
         >
           {cf && <>
           <div className="source-grid">
+            {select('Sensitivity', 'sensitivity_preset', ['normal', 'sensitive'],
+              'Catches quieter or faster speech, but may add false text on music or breathing.')}
             {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
             {num('Min silence', 'min_silence_ms', 50, `${MIN_SILENCE_MS_MIN}-${MIN_SILENCE_MS_MAX}. Silence that splits lines; longer gives fewer, longer lines. Lower values split at shorter pauses and can cut mid-sentence. Auto-tune below can pick it.`, 'ms')}
             {num('Pause that can split a long line', 'min_pause_sec', 0.05, `${MIN_PAUSE_SEC_MIN}-${MIN_PAUSE_SEC_MAX}. Longer lines are only cut where the speaker pauses at least this long. Higher gives fewer, longer lines. Lower cuts more.`, 's')}

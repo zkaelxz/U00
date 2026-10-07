@@ -150,6 +150,10 @@ class TranscribeConfig(BaseModel):
     beam_size: int
     min_silence_ms: int
     vad_threshold: float
+    # "normal" or "sensitive" (see sensitivity_preset.py), and the threshold a run
+    # actually uses: the preset lowers an untouched one.
+    sensitivity_preset: str = "normal"
+    effective_vad_threshold: float
     # Seconds of silence inside a segment that make Whisper skip it; 0 = off.
     hallucination_silence_sec: float
     # Shortest silence between words at which a long line may be cut.
@@ -176,6 +180,7 @@ class TranscribeConfigUpdate(BaseModel):
     beam_size: Optional[int] = None
     min_silence_ms: Optional[int] = None
     vad_threshold: Optional[float] = None
+    sensitivity_preset: Optional[str] = None
     hallucination_silence_sec: Optional[float] = None
     min_pause_sec: Optional[float] = None
     separate_vocals_first: Optional[bool] = None
