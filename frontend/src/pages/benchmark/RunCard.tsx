@@ -127,6 +127,7 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
       id="run"
       meta={`${caseCount} ${caseCount === 1 ? 'case' : 'cases'} selected${arena ? ' · Model Arena' : ''}`}
       status={running ? runningStatus(job) : null}
+      openSignal={compare}
       className="bench-run"
     >
       <div className="field-row">

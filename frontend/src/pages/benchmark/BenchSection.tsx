@@ -20,16 +20,23 @@ type Props = {
   actions?: ReactNode
   // One line shown on the heading while a job runs.
   status?: string | null
+  // Opens the section (without remembering it) when this value is set or changes, e.g. a Model health compare link.
+  openSignal?: string
   className?: string
   children: ReactNode
 }
 
-export function BenchSection({ id, meta, actions, status, className, children }: Props) {
+export function BenchSection({ id, meta, actions, status, openSignal, className, children }: Props) {
   const copy = BENCH_SECTIONS[id]
   const base = useId()
   const bodyId = `${base}-body`
   const helpId = `${base}-help`
-  const [open, setOpen] = useState(() => benchSectionOpen(browserStorage(), id))
+  const [open, setOpen] = useState(() => !!openSignal || benchSectionOpen(browserStorage(), id))
+  const [seenSignal, setSeenSignal] = useState(openSignal)
+  if (seenSignal !== openSignal) {
+    setSeenSignal(openSignal)
+    if (openSignal && !open) setOpen(true)
+  }
   const toggle = () => {
     writeSectionOpen(browserStorage(), benchSectionStorageKey(id), !open)
     setOpen(!open)
