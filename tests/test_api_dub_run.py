@@ -51,8 +51,13 @@ def test_start_ok_and_args(client, isolated_db, started):
     assert r.status_code == 200
     assert r.json() == {"job_id": f"dub_{did}"}
     call = started[0]
-    assert call["args"][5] == "edge_tts" and call["args"][8] == 1.5
-    assert call["gpu"] is False
+    lines, _, clone_map, is_narration, _, max_speedup, _ = call["args"]
+    assert max_speedup == 1.5 and is_narration is False
+    # No clip or description anywhere: each speaker gets its own designed
+    # voice from the default engine (OmniVoice), never a stock voice.
+    assert {k: v["engine"] for k, v in clone_map.items()} == {"S1": "omnivoice", "S2": "omnivoice"}
+    assert clone_map["S1"]["instruct"] != clone_map["S2"]["instruct"]
+    assert call["gpu"] is True
 
 
 def test_on_done_applies_field_scoped(client, isolated_db, started):
@@ -94,6 +99,59 @@ def test_no_translation_400(client, isolated_db, started):
 def test_bad_engine_400(client, isolated_db, started):
     did = _seed(isolated_db)
     assert client.post(f"/api/dub/dramas/{did}/run", json={"tts_engine": "nope"}).status_code == 422
+
+
+def test_the_run_defaults_to_omnivoice(client, isolated_db, started):
+    did = _seed(isolated_db)
+    assert client.post(f"/api/dub/dramas/{did}/run", json={}).status_code == 200
+    assert {v["engine"] for v in started[0]["args"][2].values()} == {"omnivoice"}
+
+
+@pytest.mark.parametrize("engine,label", [("edge_tts", "Edge TTS"), ("offline", "Piper"),
+                                          ("f5tts", "F5-TTS")])
+def test_a_removed_engine_is_refused_in_plain_words(client, isolated_db, started, engine, label):
+    did = _seed(isolated_db)
+    r = client.post(f"/api/dub/dramas/{did}/run", json={"tts_engine": engine})
+    assert r.status_code == 422
+    assert r.json()["error"]["message"] == f"The {label} engine was removed. Pick another voice engine in Dub."
+    assert started == []
+
+
+def test_a_character_stored_with_a_removed_engine_refuses_to_generate_but_keeps_its_row(
+        client, isolated_db, started):
+    did = _seed(isolated_db)
+    isolated_db.upsert_character(did, "S1", character_name="Lin", clone_engine="f5tts",
+                                 ref_audio_filename="ref.wav", ref_text="hi")
+    r = client.post(f"/api/dub/dramas/{did}/run", json={})
+    assert r.status_code == 422
+    assert r.json()["error"]["message"] == (
+        "Lin: The F5-TTS engine was removed. Pick another voice engine in Dub.")
+    assert started == []
+    row = next(c for c in isolated_db.list_characters(did) if c["speaker_label"] == "S1")
+    assert (row["clone_engine"], row["ref_audio_filename"]) == ("f5tts", "ref.wav")  # nothing rewritten
+
+
+def test_picking_another_engine_for_that_character_unblocks_the_run(client, isolated_db, started):
+    did = _seed(isolated_db)
+    isolated_db.upsert_character(did, "S1", clone_engine="f5tts", ref_audio_filename="ref.wav")
+    isolated_db.upsert_character(did, "S1", clone_engine="omnivoice")
+    assert client.post(f"/api/dub/dramas/{did}/run", json={}).status_code == 200
+
+
+@pytest.mark.parametrize("engine", ["tada", "gpt_sovits"])
+def test_an_engine_that_needs_clips_names_the_speakers_without_one(client, isolated_db, started, engine):
+    did = _seed(isolated_db)
+    r = client.post(f"/api/dub/dramas/{did}/run", json={"tts_engine": engine})
+    assert r.status_code == 422
+    message = r.json()["error"]["message"]
+    assert "needs a reference clip for every speaker" in message and "S1, S2" in message
+    assert started == []
+
+
+def test_chatterbox_voices_everyone_with_its_built_in_voice(client, isolated_db, started):
+    did = _seed(isolated_db)
+    assert client.post(f"/api/dub/dramas/{did}/run", json={"tts_engine": "chatterbox"}).status_code == 200
+    assert set(next(iter(started[0]["args"][2].values()))) == {"engine", "ref_audio"}
 
 
 def test_engine_unavailable_503(client, isolated_db, started, monkeypatch):

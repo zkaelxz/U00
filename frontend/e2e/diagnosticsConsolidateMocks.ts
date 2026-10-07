@@ -74,8 +74,6 @@ export function cacheMock() {
       { repo_id: 'someone/unknown-model', repo_type: 'model', revision: REV_OTHER, size_bytes: 1_000_000 },
     ],
     hf_total_bytes: 3_121_000_000,
-    piper_voices: [{ voice: 'en_US-amy-medium', size_bytes: 63_000_000 }],
-    piper_total_bytes: 63_000_000,
     model_files: [{ folder: 'torch', name: 'model.pt', size_bytes: 84_000_000 }],
     model_files_total_bytes: 84_000_000,
   }

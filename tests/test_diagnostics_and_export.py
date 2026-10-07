@@ -85,7 +85,7 @@ class TestDiagnostics:
         expected = {"yt-dlp": "yt_dlp", "torchaudio": "torchaudio", "uroman": "uroman",
                     "sentencepiece": "sentencepiece",
                     "opencc-python-reimplemented": "opencc",
-                    "sudachidict_core": "sudachidict_core", "piper-tts": "piper"}
+                    "sudachidict_core": "sudachidict_core"}
         for pip_name, import_name in expected.items():
             assert pip_name in deps, pip_name
             assert deps[pip_name][0] == import_name
@@ -135,7 +135,7 @@ class TestDiagnostics:
         requirements-media.txt, not requirements-core.txt, so the Core
         panel (which shows "required" as "needed for the app to run at
         all") must not list them -- they belong in "feature", same tier
-        as edge_tts (also media-only)."""
+        as pydub (also media-only)."""
         deps = diagnostics.OPTIONAL_DEPENDENCIES
         assert deps["faster_whisper"][2] == "feature"
         assert deps["cv2"][2] == "feature"
@@ -328,50 +328,6 @@ class TestHfCacheScanAndDelete:
         monkeypatch.setitem(sys.modules, "huggingface_hub", None)
         assert diagnostics.scan_hf_cache() == []
         assert diagnostics.delete_hf_cache_revision("x") is False
-
-
-class TestPiperVoiceScanAndDelete:
-    """Step 25d item 14: this disk-management panel only ever scanned the
-    Hugging Face model cache -- Piper voices (Step 25c item 1's
-    offline-voice picker) download to library/piper_voices instead, so
-    they were invisible to it and to whatever cleanup/disk-usage view
-    relies on it."""
-
-    def _make_voice(self, voices_dir, name, onnx_bytes=b"x" * 5000, with_json=True):
-        os.makedirs(voices_dir, exist_ok=True)
-        with open(os.path.join(voices_dir, f"{name}.onnx"), "wb") as f:
-            f.write(onnx_bytes)
-        if with_json:
-            with open(os.path.join(voices_dir, f"{name}.onnx.json"), "wb") as f:
-                f.write(b"{}")
-
-    def test_lists_voices_with_real_sizes_largest_first(self, tmp_path_str):
-        self._make_voice(tmp_path_str, "en_US-amy-medium", b"x" * 5000)
-        self._make_voice(tmp_path_str, "en_US-ryan-low", b"x" * 1000)
-        entries = diagnostics.scan_piper_voices(tmp_path_str)
-        assert [e["voice"] for e in entries] == ["en_US-amy-medium", "en_US-ryan-low"]
-        assert entries[0]["size_bytes"] >= 5000
-        assert entries[1]["size_bytes"] >= 1000
-
-    def test_empty_when_the_directory_does_not_exist_yet(self, tmp_path_str):
-        missing = os.path.join(tmp_path_str, "does_not_exist")
-        assert diagnostics.scan_piper_voices(missing) == []
-
-    def test_only_onnx_files_are_counted_as_voices(self, tmp_path_str):
-        self._make_voice(tmp_path_str, "en_US-amy-medium")
-        with open(os.path.join(tmp_path_str, "README.txt"), "w") as f:
-            f.write("not a voice")
-        entries = diagnostics.scan_piper_voices(tmp_path_str)
-        assert [e["voice"] for e in entries] == ["en_US-amy-medium"]
-
-    def test_delete_removes_both_the_model_and_its_config(self, tmp_path_str):
-        self._make_voice(tmp_path_str, "en_US-amy-medium")
-        assert diagnostics.delete_piper_voice("en_US-amy-medium", tmp_path_str) is True
-        assert not os.path.exists(os.path.join(tmp_path_str, "en_US-amy-medium.onnx"))
-        assert not os.path.exists(os.path.join(tmp_path_str, "en_US-amy-medium.onnx.json"))
-
-    def test_delete_of_an_unknown_voice_fails_cleanly(self, tmp_path_str):
-        assert diagnostics.delete_piper_voice("does-not-exist", tmp_path_str) is False
 
 
 class TestModelFolders:
