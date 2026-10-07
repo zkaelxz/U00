@@ -4,6 +4,16 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel
 
+__all__ = [
+    "OllamaLoadedModel",
+    "OllamaLoaded",
+    "AppLoadedModel",
+    "AppLoaded",
+    "GpuMemory",
+    "LoadedModels",
+    "FreeAppModelsRequest",
+]
+
 
 class OllamaLoadedModel(BaseModel):
     name: str
