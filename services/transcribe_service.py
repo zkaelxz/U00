@@ -68,6 +68,7 @@ import raw_transcript
 import sensitivity_preset as presets
 import storage
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
+from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
 from services import asr_options_service, diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
@@ -297,12 +298,6 @@ def _drama_video_path(drama_id: int, drama: dict) -> Optional[str]:
     return os.path.join(db.drama_dir(drama_id), video_filename)
 
 
-def _default_hardsub_backend(source_language: str) -> str:
-    """PaddleOCR for Chinese (confirmed more accurate on
-    stylized/small captions), Tesseract otherwise."""
-    return "paddle" if source_language == "zh" else "tesseract"
-
-
 def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     """Whisper's automatic initial_prompt for one drama: the series
     glossary's names
@@ -381,7 +376,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "use_groq": bool(drama.get("use_groq")),
         "has_video_source": source["has_video_source"],
         "hardsub_ocr_backend": drama.get("hardsub_ocr_backend")
-                               or _default_hardsub_backend(source["source_language"]),
+                               or default_hardsub_backend(source["source_language"]),
         "hardsub_interval_sec": drama.get("hardsub_interval_sec") or 1.0,
         "auto_initial_prompt": build_auto_initial_prompt(drama_id),
     }
@@ -473,7 +468,7 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
             raise InvalidInputError(f"Unknown separation_backend {fields['separation_backend']!r}.")
         updates["separation_backend"] = fields["separation_backend"]
     if "hardsub_ocr_backend" in fields and fields["hardsub_ocr_backend"] is not None:
-        if fields["hardsub_ocr_backend"] not in ("tesseract", "paddle"):
+        if fields["hardsub_ocr_backend"] not in HARDSUB_OCR_BACKEND_OPTIONS:
             raise InvalidInputError(f"Unknown hardsub_ocr_backend {fields['hardsub_ocr_backend']!r}.")
         updates["hardsub_ocr_backend"] = fields["hardsub_ocr_backend"]
     if "hardsub_interval_sec" in fields and fields["hardsub_interval_sec"] is not None:
@@ -686,7 +681,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             bool(drama.get("realign_long_segments")), bool(drama.get("whisper_fast_mode")),
             bool(drama.get("use_groq")), groq_api_key, hf_token, expected_speakers,
             prompt, video_path,
-            drama.get("hardsub_ocr_backend") or _default_hardsub_backend(source_language),
+            drama.get("hardsub_ocr_backend") or default_hardsub_backend(source_language),
             drama.get("hardsub_interval_sec") or 1.0,
             tesseract_cmd or settings_service.get_tesseract_cmd(), diarize_audio_path,
             use_gpu, asr_backend_choice, alignment_method,
@@ -1124,10 +1119,11 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
 
     if transcript_mode == "hardsub_ocr":
         import hardsub_ocr
+        hardsub_info = {}
         segments = hardsub_ocr.extract_hardsub_subtitles(
             video_path, language=source_language, sample_interval=hardsub_interval,
             ocr_backend=hardsub_ocr_backend, chinese_script=chinese_script,
-            tesseract_cmd=tesseract_cmd, job_id=rep.job_id,
+            tesseract_cmd=tesseract_cmd, job_id=rep.job_id, info=hardsub_info,
             cancel_check=rep.raise_if_cancelled,
             progress_cb=lambda frac: rep.progress(
                 frac, f"Reading captions from video... {frac * 100:.0f}%"))
@@ -1138,7 +1134,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         # text-override branch below, just sourced from captions.
         lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
                  for i, seg in enumerate(segments) if seg["text"].strip()]
-        raw_backend, raw_model, raw_mode = "hardsub_ocr", hardsub_ocr_backend, "hardsub_ocr"
+        raw_backend, raw_model, raw_mode = "hardsub_ocr", hardsub_info.get("backend", hardsub_ocr_backend), "hardsub_ocr"
+        coverage_msg = hardsub_info.get("note")
     else:
         if separate_vocals_first:
             import audio_preprocess

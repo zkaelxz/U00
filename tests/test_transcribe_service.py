@@ -162,6 +162,18 @@ class TestUpdateTranscribeConfig:
         with pytest.raises(InvalidInputError):
             transcribe_service.update_transcribe_config(did, asr_backend_choice="nonsense")
 
+    @pytest.mark.parametrize("choice", ["tesseract", "paddle", "auto"])
+    def test_hardsub_ocr_backend_choices_are_saved(self, isolated_db, choice):
+        did = isolated_db.create_drama(title_en="D")
+        result = transcribe_service.update_transcribe_config(did, hardsub_ocr_backend=choice)
+        assert result["hardsub_ocr_backend"] == choice
+
+    @pytest.mark.parametrize("choice", ["manga_ocr", "paddle_vl_manga", "nonsense"])
+    def test_unknown_hardsub_ocr_backend_raises(self, isolated_db, choice):
+        did = isolated_db.create_drama(title_en="D")
+        with pytest.raises(InvalidInputError):
+            transcribe_service.update_transcribe_config(did, hardsub_ocr_backend=choice)
+
     def test_beam_size_out_of_range_raises(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         with pytest.raises(InvalidInputError):
@@ -924,6 +936,32 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
         assert captured["ocr_backend"] == "paddle"
         assert captured["sample_interval"] == 2.5
         assert captured["tesseract_cmd"] == "/usr/bin/tesseract"
+        _clear(job_id)
+
+    def test_auto_fallback_records_the_engine_that_ran_and_surfaces_the_note(
+            self, isolated_db, monkeypatch):
+        import raw_transcript
+        hardsub_ocr = pytest.importorskip("hardsub_ocr")
+        did, ddir = _drama_with_video(isolated_db)
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        note = "PaddleOCR isn't installed, so Tesseract was used."
+
+        def fake_extract(video_path, **kwargs):
+            assert kwargs["ocr_backend"] == "auto"
+            kwargs["info"].update(backend="tesseract", note=note)
+            return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+        monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", fake_extract)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, None, "hardsub_ocr", None, "ko", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None,
+            video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="auto",
+            hardsub_interval=1.0)
+
+        assert background_jobs.get_status(job_id)["result"]["coverage_warning"] == note
+        raw = raw_transcript.load_latest(ddir)
+        assert (raw["backend"], raw["model"]) == ("hardsub_ocr", "tesseract")
         _clear(job_id)
 
     def test_diarization_chains_off_the_dramas_own_audio_not_the_video(
