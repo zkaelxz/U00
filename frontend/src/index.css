@@ -405,9 +405,15 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .field-unit { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .field-help { position: relative; display: inline-flex; }
 .field-help-btn { width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 999px; font-size: var(--text-xs); line-height: 1; font-style: italic; color: var(--muted); }
-.field-help-text { position: absolute; z-index: 5; top: calc(100% + var(--space-1)); left: 0; width: max-content; max-width: min(18rem, 80vw); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: var(--text-sm); font-weight: 400; box-shadow: var(--shadow-pop); }
+.field-help-text { position: absolute; z-index: 5; top: calc(100% + var(--space-1)); left: 0; width: max-content; max-width: min(18rem, 80vw); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: var(--text-sm); font-weight: 400; box-shadow: var(--shadow-pop); white-space: pre-line; }
 .panel:has(.field-help-text:not([hidden])) { overflow: visible; }
 .field-help-text[hidden] { display: none; }
+/* Anchored to the label row, not the small (i), so long help stays inside a phone screen. */
+@media (max-width: 640px) {
+  .field-label-row { position: relative; }
+  .field-help { position: static; }
+  .field-help-text { left: 0; right: 0; width: auto; max-width: none; }
+}
 .field-error { margin: 0; font-size: var(--text-sm); }
 
 /* Settings/Diagnostics */

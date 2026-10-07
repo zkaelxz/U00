@@ -50,7 +50,7 @@ import { NovelFilePanel } from './NovelFilePanel'
 import { SpeechCoverage } from './SpeechCoverage'
 import { TranscriptModePicker } from './SourceModes'
 import { mediaFileInputId, needsReplaceConfirm } from './stageBlockers'
-import { withoutUntouchedBackend } from './transcribeBackendField'
+import { asrBackendHelp, GROQ_HELP, withoutUntouchedBackend } from './transcribeBackendField'
 import { diarizeEstimate, measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import './source.css'
@@ -685,7 +685,7 @@ export default function TranscribeStage({
                 ? 'Qwen3 forced alignment lines up the transcript you supply against the audio for more exact timing.'
                 : 'Forced alignment lines up a transcript you provide; for raw audio, pick Whisper or Qwen3-ASR.',
               haveTranscript ? [] : ['qwen3_forced_align'])}
-            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(mossEnabled), mossEnabled ? 'MOSS is experimental: it transcribes and labels speakers in one pass, replacing Whisper and speaker detection for this drama.' : undefined)}
+            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(mossEnabled), asrBackendHelp(asrBackendOptions(mossEnabled)))}
             {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
             {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
           </div>
@@ -731,7 +731,7 @@ export default function TranscribeStage({
               'whisper_repeat_guard',
               'Stops Whisper repeating the same few words. Can drop or change real Chinese and Japanese speech, where short words repeat naturally. Turn on only if a title shows repeated-phrase loops.',
             )}
-            {toggle('Use Groq', 'use_groq')}
+            {toggle('Use Groq', 'use_groq', GROQ_HELP)}
           </div>
           <div className="actions">
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={saveOptions}>Save options</button>
