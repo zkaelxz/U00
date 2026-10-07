@@ -30,9 +30,11 @@ from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunRe
                          CompareResult, CompareRunRequest, CompareRunResult, ErrorResponse, RetimeApplyRequest, RetimeApplyResult,
                          RetimeResult, RetimeRunRequest, RetranscribeApplyRequest,
                          RetranscribeApplyResult, RetranscribeLineRequest,
-                         RetranscribeLineResult, RetranscribeResult, TranscribeConfig, TranscribeConfigUpdate,
+                         RetranscribeLineResult, RetranscribeResult, SpeechCoverageRunRequest,
+                         SpeechCoverageRunResult, SpeechCoverageStatus, TranscribeConfig, TranscribeConfigUpdate,
                          TranscribeRunRequest, TranscribeRunResult)
-from services import compare_transcription_service, retime_service, transcribe_service
+from services import (compare_transcription_service, retime_service, speech_coverage_service,
+                      transcribe_service)
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
@@ -76,6 +78,26 @@ def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
         min_speakers=payload.min_speakers, max_speakers=payload.max_speakers,
         initial_prompt=payload.initial_prompt, tesseract_cmd=payload.tesseract_cmd,
         extra_names=payload.extra_names)
+
+
+# --- Speech coverage: speech the lines don't cover (read-only, CPU) ----------
+
+@router.post("/dramas/{drama_id}/speech-coverage", dependencies=[require_permission("jobs.start")],
+             response_model=SpeechCoverageRunResult,
+             summary="Start the speech coverage check: speech in the audio that has no subtitle line",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_start_speech_coverage(payload: SpeechCoverageRunRequest, drama_id: int = Path(ge=1)):
+    return speech_coverage_service.start_speech_coverage(
+        drama_id, min_gap_seconds=payload.min_gap_seconds)
+
+
+@router.get("/dramas/{drama_id}/speech-coverage", dependencies=[require_permission("library.read")],
+            response_model=SpeechCoverageStatus,
+            summary="Status and (when done) the gaps of this title's speech coverage check",
+            responses={404: {"model": ErrorResponse}})
+def get_speech_coverage(drama_id: int = Path(ge=1)):
+    return speech_coverage_service.get_speech_coverage(drama_id)
 
 
 # --- Route batch 2C: auto-tune speech-splitting sensitivity -----------------

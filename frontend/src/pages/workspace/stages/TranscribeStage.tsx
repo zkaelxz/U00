@@ -47,6 +47,7 @@ import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
+import { SpeechCoverage } from './SpeechCoverage'
 import { TranscriptModePicker } from './SourceModes'
 import { mediaFileInputId, needsReplaceConfirm } from './stageBlockers'
 import { diarizeEstimate, measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
@@ -724,6 +725,7 @@ export default function TranscribeStage({
           />
           </>}
         </Section>
+      <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} />
       <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />
     </section>
   )

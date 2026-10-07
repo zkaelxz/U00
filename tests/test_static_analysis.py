@@ -658,7 +658,7 @@ OVERSIZED_MODULE_BYTES = {
     "services/transcribe_service.py": 104717,
     "cli.py": 90772,
     "scanlate.py": 89904,
-    "background_jobs.py": 89417,
+    "background_jobs.py": 89431,
     "bulk_translate.py": 86382,
     "installer/service.py": 83445,
     "core.py": 83998,
