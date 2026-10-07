@@ -648,6 +648,50 @@ class TestFfmpegRunsHaveTimeouts:
         assert _find_ffmpeg_runs_missing_timeout(good) == []
 
 
+def _find_text_captures_missing_decoding(source):
+    """Line numbers of subprocess.run/Popen/check_output calls that pass
+    text=True (or universal_newlines=True) with neither encoding= nor
+    errors=. On Windows that decodes with the locale code page, and a bad
+    byte raises inside subprocess's reader thread, so communicate() returns
+    stdout=None and the caller fails far from the cause. errors= alone is
+    accepted for child Python processes, which write in the locale code page
+    themselves."""
+    problems = []
+    for call in ast.walk(ast.parse(source)):
+        if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                and call.func.attr in ("run", "Popen", "check_output")
+                and isinstance(call.func.value, ast.Name) and call.func.value.id == "subprocess"):
+            continue
+        kws = {kw.arg: kw.value for kw in call.keywords}
+        textual = any(isinstance(kws.get(k), ast.Constant) and kws[k].value is True
+                      for k in ("text", "universal_newlines"))
+        if textual and "encoding" not in kws and "errors" not in kws:
+            problems.append(call.lineno)
+    return problems
+
+
+class TestSubprocessTextDecoding:
+    def test_no_text_capture_without_explicit_decoding(self):
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__"}
+        problems = {}
+        for root, dirs, files in os.walk(PROJECT_ROOT):
+            dirs[:] = [d for d in dirs if d not in skip]
+            for name in files:
+                if name.endswith(".py"):
+                    path = os.path.join(root, name)
+                    found = _find_text_captures_missing_decoding(open(path, encoding="utf-8").read())
+                    if found:
+                        problems[os.path.relpath(path, PROJECT_ROOT)] = found
+        assert problems == {}, f"subprocess text=True without encoding=/errors=: {problems}"
+
+    def test_checker_catches_a_missing_encoding(self):
+        bad = "import subprocess\nsubprocess.run(['x'], capture_output=True, text=True)\n"
+        assert _find_text_captures_missing_decoding(bad) == [2]
+        for fix in ("encoding='utf-8'", "errors='replace'"):
+            assert _find_text_captures_missing_decoding(bad.replace("text=True", f"text=True, {fix}")) == []
+        assert _find_text_captures_missing_decoding(bad.replace("text=True", "check=True")) == []
+
+
 # Smaller files are easier for a small-context model (and a reviewer) to hold
 # in one read. Each entry is the file's size in bytes today; remove an entry
 # when the split of that file lands. A listed file may shrink but never grow.

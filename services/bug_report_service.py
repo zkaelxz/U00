@@ -201,7 +201,8 @@ def _cached(name, compute, ttl=None):
 def _git_commit():
     try:
         r = subprocess.run(["git", "rev-parse", "--short=10", "HEAD"], cwd=_project_root(),
-                           capture_output=True, text=True, timeout=GIT_TIMEOUT_SECONDS)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=GIT_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError):
         return None
     commit = (r.stdout or "").strip()
