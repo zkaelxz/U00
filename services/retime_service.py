@@ -200,7 +200,7 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
                 break
             except ImportError:
                 failed_reason = "dependency_missing"
-                detail = "The Qwen3 forced aligner needs qwen-asr and torch: pip install qwen-asr torch"
+                detail = "The Qwen3 forced aligner isn't installed yet. Open Diagnostics to install it."
                 break
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
                 if isinstance(exc, OSError) and not model_loaded[0]:

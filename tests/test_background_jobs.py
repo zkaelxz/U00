@@ -1046,6 +1046,22 @@ class TestProcessBasedJobs:
         assert "RuntimeError" in status["error"] and "boom" in status["error"]
         bg.clear_job(job_id)
 
+    def test_a_result_that_did_not_run_for_a_missing_package_ends_as_an_error(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        plain = "Transcription isn't installed yet. Open Diagnostics to install it."
+
+        def fake_worker(result_queue):
+            result_queue.put(("ok", {"failed_reason": "dependency_missing", "detail": plain}))
+
+        job_id = "test_process_missing_package"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, fake_worker, args=())
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "error"
+        assert status["error"] == plain
+        assert status["result"]["failed_reason"] == "dependency_missing"
+        bg.clear_job(job_id)
+
     def test_subprocess_exiting_with_no_result_is_reported_as_an_error(self, monkeypatch):
         _install_fake_process(monkeypatch, run_target_on_start=False, exitcode_if_no_result=1)
 
@@ -2557,3 +2573,21 @@ class TestDeadWorkerIsReconciled:
             assert bg.wait_for_job_threads(5.0)
         assert bg.get_status("dw_b")["status"] == "done"
         bg.clear_job("dw_b")
+
+
+def test_a_thread_job_that_did_not_run_for_a_missing_package_ends_as_an_error():
+    job_id = "test_thread_missing_package"
+    bg.clear_job(job_id)
+
+    def work():
+        bg.update_progress(job_id, 0.0, "Loading Whisper model large-v3-turbo... 0%")
+        bg.set_result(job_id, {"failed_reason": "dependency_missing",
+                               "detail": "Transcription isn't installed yet."})
+
+    assert bg.start_job(job_id, work) is True
+    _wait(job_id)
+    status = _wait_for_status(job_id, "running")
+    assert status["status"] == "error"
+    assert status["error"] == "Transcription isn't installed yet."
+    assert not status["message"]
+    bg.clear_job(job_id)

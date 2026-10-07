@@ -73,10 +73,10 @@ def _wait(out):
     raise AssertionError("job did not finish")
 
 
-def _run(did, ids):
+def _run(did, ids, expected_status="done"):
     out = svc.start_retime(did, ids)
     job = _wait(out)
-    assert job["status"] == "done"
+    assert job["status"] == expected_status
     return out, job
 
 
@@ -198,9 +198,11 @@ class TestJob:
         did, ids = _drama()
         monkeypatch.setattr(forced_align, "refine_segment_timing",
                             lambda *a, **k: (_ for _ in ()).throw(ImportError("/home/x/torch")))
-        _, job = _run(did, ids)
+        _, job = _run(did, ids, expected_status="error")
         assert job["result"]["failed_reason"] == "dependency_missing"
         assert "/home" not in job["result"]["detail"]
+        assert job["error"] == job["result"]["detail"]
+        assert "pip install" not in job["error"] and "Diagnostics" in job["error"]
         with pytest.raises(NotFoundError):
             svc.get_retime_result(did)
 
