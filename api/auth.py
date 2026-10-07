@@ -1,6 +1,6 @@
 """
 api/auth.py -- the deny-by-default permission layer (see
-docs/remote-access-decision.md, which holds the route -> permission table).
+docs/remote-access-decision.md; the route -> permission table is docs/route-permissions.md).
 
 Every route in `api/routers/*.py` (and the frontend catch-all in
 `api/static_frontend.py`) must declare exactly one of
