@@ -104,6 +104,7 @@ import zlib
 import background_jobs
 import core
 import db
+import sensitivity_preset
 from db import fsync_dir as _fsync_dir
 from services import delete_service
 from services import library_admin_service as las
@@ -1511,10 +1512,9 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> t
     {"owner_user_id", "is_private", "series": {}, "media_dir"}: the owner
     and privacy come from it and never from the file, the series is always
     new, the Notion page link is dropped, per-profile tables (profile ids
-    mean something else in this library) are not copied, and each file
+    mean something else here) are not copied, and each file
     reference (IMPORT_FILE_COLUMNS) is kept only when it names a file inside
-    media_dir (the drama's imported files; None = none imported, so every
-    reference is cleared)."""
+    media_dir (None = no files imported, so all are cleared)."""
     drama = table_rows(src, "dramas", "id = ?", (old_id,))
     if not drama:
         raise NotFoundError("That drama isn't in the snapshot.")
@@ -1522,7 +1522,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> t
     counts = {}
     users = {r[0] for r in dst.execute("SELECT id FROM users")}
     profiles = _live_ids(dst, "profiles")
-    row = dict(drama)
+    row = sensitivity_preset.older_row(drama)
     if import_as is not None:
         row["owner_user_id"] = import_as["owner_user_id"]
         row["is_private"] = import_as["is_private"]

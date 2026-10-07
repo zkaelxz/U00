@@ -61,6 +61,10 @@ export interface TranscribeConfig {
   separation_backend: string
   realign_long_segments: boolean
   whisper_fast_mode: boolean
+  // Whisper's no-repeat and repetition-penalty decoding; off by default.
+  whisper_repeat_guard: boolean
+  // Cut lines at sentence ends and word pauses instead of speech-detector pauses.
+  split_by_sentences: boolean
   use_groq: boolean
   has_video_source: boolean
   hardsub_ocr_backend: string

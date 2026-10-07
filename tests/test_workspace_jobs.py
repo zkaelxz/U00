@@ -1420,3 +1420,29 @@ class TestWorkspaceStageIndex:
         lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker=None)]
         idx = _compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
         assert idx == 4
+
+
+def test_fix_flagged_hears_each_line_with_the_titles_saved_decoding(isolated_db, tmp_path, monkeypatch):
+    did = isolated_db.create_drama(title_en="D", source_language="zh", beam_size=9,
+                                   min_silence_ms=700, whisper_repeat_guard=1,
+                                   sensitivity_preset="sensitive", whisper_fast_mode=1)
+    lines = [Line(idx=0, start=0.0, end=1.0, zh="old", en="old", flag="ambiguous_reference",
+                  flag_note="unclear")]
+    isolated_db.save_lines(did, lines)
+    audio_path = str(tmp_path / "audio.wav")
+    with open(audio_path, "wb") as f:
+        f.write(b"x")
+    seen = {}
+    monkeypatch.setattr(core_module, "extract_audio_slice", lambda *a, **k: None)
+    monkeypatch.setattr(core_module, "transcribe_for_timing",
+                        lambda *a, **k: seen.update(k) or [{"start": 0.0, "end": 1.0, "text": "新"}])
+    job_id = f"fix_decode_{did}"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    run_fix_flagged_lines_job(job_id, did, lines, audio_path, "medium", False, "zh",
+                              FakeFixEngine(translations={"新": "New"}), "claude")
+    assert seen["beam_size"] == 9 and seen["min_silence_duration_ms"] == 700
+    assert seen["repeat_guard"] is True and seen["sensitivity_preset"] == "sensitive"
+    assert seen["fast_mode"] is True
+    _clear(job_id)

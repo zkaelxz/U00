@@ -9,9 +9,10 @@ once with the title's source language.
 """
 import re
 
+from sensitivity_preset import decode_kwargs
 from core import (
-    LANGUAGE_NAMES, LINE_LANGUAGES, WHISPER_ANTI_LOOP_KWARGS, filter_hallucinated_segments, is_gpu_error,
-    load_whisper_model, tighten_to_words,
+    LANGUAGE_NAMES, LINE_LANGUAGES, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS,
+    filter_hallucinated_segments, is_gpu_error, load_whisper_model, tighten_to_words,
 )
 
 LANGUAGE_UNCERTAIN_FLAG = "language_uncertain"
@@ -117,11 +118,14 @@ def pick_allowed_language(probabilities, fallback):
     return best[1] if best else fallback
 
 
-def _span_runners(model, audio, sr, source_language, beam_size, initial_prompt):
+def _span_runners(model, audio, sr, source_language, beam_size, initial_prompt,
+                  repeat_guard=False, sensitivity_preset="normal"):
     def transcribe(span, language):
         wave = audio[int(span.start_s * sr):int(span.end_s * sr)]
         kwargs = {"language": language, "vad_filter": False, "beam_size": beam_size,
-                  "word_timestamps": True, **WHISPER_ANTI_LOOP_KWARGS}
+                  "word_timestamps": True,
+                  **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS,
+                                  WHISPER_REPEAT_GUARD_KWARGS, repeat_guard)}
         if initial_prompt.strip():
             kwargs["initial_prompt"] = initial_prompt.strip()
         segments, _info = model.transcribe(wave, **kwargs)
@@ -148,7 +152,7 @@ def _span_runners(model, audio, sr, source_language, beam_size, initial_prompt):
 def transcribe_mixed_whisper(audio_path, source_language, whisper_size, use_gpu=False,
                              local_model_path=None, initial_prompt="", beam_size=5,
                              on_gpu_fallback=None, progress_cb=None, cancel_check=None,
-                             vad_fn=None) -> list:
+                             vad_fn=None, repeat_guard=False, sensitivity_preset="normal") -> list:
     """The Whisper backend's mixed-language run: speech spans from the Silero
     VAD, the language detected on each, then the same segment list shape
     core.transcribe_for_timing returns (plus "lang"/"flag" per transcribe_spans).
@@ -167,7 +171,7 @@ def transcribe_mixed_whisper(audio_path, source_language, whisper_size, use_gpu=
         model = load_whisper_model(whisper_size, use_gpu=use_gpu_now,
                                    local_model_path=local_model_path)
         run_span, retry_span = _span_runners(model, audio, sr, source_language, beam_size,
-                                             initial_prompt)
+                                             initial_prompt, repeat_guard, sensitivity_preset)
         return transcribe_spans(spans, source_language, run_span, retry_span,
                                 cancel_check=cancel_check, progress_cb=progress_cb)
 

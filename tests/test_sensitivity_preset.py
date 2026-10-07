@@ -40,13 +40,26 @@ class TestPresetRules:
         assert presets.effective_vad_threshold(0.7, "sensitive") == 0.7
 
     def test_decode_kwargs(self):
-        base = core.WHISPER_ANTI_LOOP_KWARGS
+        base = {"condition_on_previous_text": False, "no_repeat_ngram_size": 3, "repetition_penalty": 1.1}
         assert presets.decode_kwargs("normal", base) == base
         assert presets.decode_kwargs(None, base) == base
         assert presets.decode_kwargs("normal", base) is not base
         assert presets.decode_kwargs("sensitive", base) == {"condition_on_previous_text": False}
-        assert core.WHISPER_ANTI_LOOP_KWARGS == {
-            "condition_on_previous_text": False, "no_repeat_ngram_size": 3, "repetition_penalty": 1.1}
+        assert core.WHISPER_ANTI_LOOP_KWARGS == {"condition_on_previous_text": False}
+
+    @pytest.mark.parametrize("preset", ["normal", "sensitive", None])
+    def test_unset_repeat_guard_adds_no_penalties_in_either_preset(self, preset):
+        assert presets.decode_kwargs(preset, core.WHISPER_ANTI_LOOP_KWARGS,
+                                     core.WHISPER_REPEAT_GUARD_KWARGS) == {"condition_on_previous_text": False}
+
+    @pytest.mark.parametrize("preset", ["normal", "sensitive"])
+    def test_explicit_repeat_guard_wins_over_the_preset(self, preset):
+        got = presets.decode_kwargs(preset, core.WHISPER_ANTI_LOOP_KWARGS,
+                                    core.WHISPER_REPEAT_GUARD_KWARGS, repeat_guard=True)
+        assert got == {"condition_on_previous_text": False, **core.WHISPER_REPEAT_GUARD_KWARGS}
+
+    def test_sensitive_preset_still_lowers_the_vad_threshold_with_the_guard_on(self):
+        assert presets.effective_vad_threshold(0.5, "sensitive") == 0.35
 
 
 class _Seg:
@@ -66,16 +79,21 @@ def _fake_whisper(monkeypatch, texts, seen):
 
 
 class TestDecode:
-    def test_normal_passes_exactly_the_old_decode_settings(self, monkeypatch):
+    def test_normal_passes_the_default_decode_settings(self, monkeypatch):
         seen = {}
         _fake_whisper(monkeypatch, ["a"], seen)
         core.transcribe_for_timing("/fake.mp3", min_silence_duration_ms=300, vad_threshold=0.5)
         assert seen == {
             "language": "zh", "vad_filter": True, "beam_size": 5,
             "vad_parameters": {"min_silence_duration_ms": 300, "threshold": 0.5},
-            "word_timestamps": True, "condition_on_previous_text": False,
-            "no_repeat_ngram_size": 3, "repetition_penalty": 1.1,
-            "hallucination_silence_threshold": 2.0}
+            "word_timestamps": True, "condition_on_previous_text": False}
+
+    @pytest.mark.parametrize("preset", ["normal", "sensitive"])
+    def test_repeat_guard_toggle_decides_the_penalties_in_either_preset(self, monkeypatch, preset):
+        seen = {}
+        _fake_whisper(monkeypatch, ["a"], seen)
+        core.transcribe_for_timing("/fake.mp3", sensitivity_preset=preset, repeat_guard=True)
+        assert seen["no_repeat_ngram_size"] == 3 and seen["repetition_penalty"] == 1.1
 
     def test_sensitive_drops_the_repeat_penalties_only(self, monkeypatch):
         seen = {}

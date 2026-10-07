@@ -838,9 +838,10 @@ class TestTranscribeConfigEndpoints:
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": body["whisper_installed"],
             "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5, "sensitivity_preset": "normal", "effective_vad_threshold": 0.5,
-            "hallucination_silence_sec": 2.0, "min_pause_sec": 0.35,
+            "hallucination_silence_sec": 0.0, "min_pause_sec": 0.35,
             "separate_vocals_first": False, "separation_backend": "auto",
-            "realign_long_segments": False, "whisper_fast_mode": False, "use_groq": False,
+            "realign_long_segments": False, "whisper_fast_mode": False,
+            "whisper_repeat_guard": False, "split_by_sentences": False, "use_groq": False,
             "has_video_source": False, "hardsub_ocr_backend": "paddle",
             "hardsub_interval_sec": 1.0, "auto_initial_prompt": "",
         }

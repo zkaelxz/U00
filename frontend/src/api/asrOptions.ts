@@ -72,8 +72,8 @@ export function parseBatchSize(raw: string, min: number, max: number): number | 
 // select keeps the current value).
 export function asrBackendOptions(mossEnabled: boolean): string[] {
   return mossEnabled
-    ? ['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'moss_td']
-    : ['whisper', 'qwen3_asr', 'qwen3_asr_vad']
+    ? ['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long', 'moss_td']
+    : ['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long']
 }
 
 // The muted line under the batch-size field.

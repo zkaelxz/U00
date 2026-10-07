@@ -20,7 +20,7 @@ import core as core_module
 import db
 import sensitivity_preset as presets
 import translate_engines
-from services import (jobs_service, settings_service, transcribe_service,
+from services import (asr_options_service, jobs_service, settings_service, transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
@@ -37,10 +37,13 @@ _SLICE_TIMEOUT_S = 120
 _MAX_APPLY_ITEMS = MAX_LINES
 
 SELECTION_KINDS = ("line_ids", "range", "flagged", "speaker", "time")
-BACKEND_CHOICES = ("whisper", "qwen3_asr", "qwen3_asr_vad", "moss_td")
+BACKEND_CHOICES = asr_options_service.ASR_BACKEND_CHOICES
+# The Qwen3 backends that find speech themselves instead of hearing Whisper's segments.
+_VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long")
 _BACKEND_LABELS = {
     "whisper": "Whisper", "qwen3_asr": "Qwen3 ASR",
-    "qwen3_asr_vad": "Qwen3 ASR with speech detection", "moss_td": "MOSS (experimental)",
+    "qwen3_asr_vad": "Qwen3 ASR with speech detection",
+    "qwen3_asr_long": "Qwen3 ASR on long windows", "moss_td": "MOSS (experimental)",
 }
 
 
@@ -61,7 +64,7 @@ def _backend_problem(choice: str, language: str):
     try:
         if choice == "qwen3_asr":
             transcribe_service.require_qwen3_packages("Qwen3-ASR")
-        elif choice == "qwen3_asr_vad":
+        elif choice in _VAD_BACKENDS:
             transcribe_service.require_qwen3_packages("Qwen3-ASR")
             transcribe_service._require_vad_packages()
         elif choice == "moss_td":
@@ -72,7 +75,7 @@ def _backend_problem(choice: str, language: str):
     if (choice in ("whisper", "qwen3_asr")
             and not transcribe_service.diagnostics.check_dependency("faster_whisper")):
         return transcribe_service.MISSING_TRANSCRIPTION_MESSAGE
-    if choice in ("qwen3_asr", "qwen3_asr_vad") and language not in asr_backend.LANGUAGE_NAMES:
+    if (choice == "qwen3_asr" or choice in _VAD_BACKENDS) and language not in asr_backend.LANGUAGE_NAMES:
         return "Qwen3-ASR doesn't cover this title's language."
     return None
 
@@ -103,7 +106,7 @@ def get_options(drama_id: int) -> dict:
         "no_audio_reason": None if has_audio else "This title has no stored audio to re-transcribe.",
         "max_lines": MAX_LINES,
         "saved_whisper_size": transcribe_service.stored_whisper_size(drama),
-        "saved_asr_backend": drama.get("asr_backend_choice") or "whisper",
+        "saved_asr_backend": asr_options_service.stored_asr_backend(drama),
         "saved_alignment_method": drama.get("alignment_method") or "whisper_diff",
         "whisper_sizes": sizes,
         "backends": backends,
@@ -160,7 +163,7 @@ def _validate_candidate(drama: dict, whisper_size, backend_choice):
     size = whisper_size or transcribe_service.stored_whisper_size(drama)
     if size not in transcribe_service._allowed_whisper_sizes():
         raise InvalidInputError(f"Unknown Whisper model size {size!r}.")
-    backend = backend_choice or drama.get("asr_backend_choice") or "whisper"
+    backend = backend_choice or asr_options_service.stored_asr_backend(drama)
     if backend not in BACKEND_CHOICES:
         raise InvalidInputError(f"Unknown ASR backend {backend!r}.")
     problem = _backend_problem(backend, drama.get("source_language") or "zh")
@@ -291,6 +294,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "sensitivity_preset": presets.normalize(drama.get("sensitivity_preset")),
          "hallucination_silence_sec": transcribe_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
+         "repeat_guard": bool(drama.get("whisper_repeat_guard")),
          "use_gpu": settings_service.get_use_gpu()},
         translation, gpu_touching=True,
         description=f"Comparing transcription of {len(picked)} line(s) (drama #{drama_id})")
@@ -309,7 +313,7 @@ def _line_language(ln, cfg: dict, line_number: int):
     language = ln.lang or cfg["language"]
     if language in asr_backend.LANGUAGE_NAMES:
         return language, None
-    if cfg["backend"] == "qwen3_asr_vad":
+    if cfg["backend"] in _VAD_BACKENDS:
         return None, None
     if cfg["backend"] == "qwen3_asr":
         return language, (f"line {line_number}: Qwen3-ASR doesn't cover this line's "
@@ -320,7 +324,7 @@ def _line_language(ln, cfg: dict, line_number: int):
 def _hear(slice_path: str, cfg: dict, language, on_fallback, cancel_check) -> str:
     """Candidate source text for one cut line from the chosen backend."""
     backend, use_gpu = cfg["backend"], cfg["use_gpu"]
-    if backend == "qwen3_asr_vad":
+    if backend in _VAD_BACKENDS:
         segments = asr_backend.get_backend(backend).transcribe(
             slice_path, language, use_gpu=use_gpu, cancel_check=cancel_check)
     elif backend == "moss_td":
@@ -334,7 +338,8 @@ def _hear(slice_path: str, cfg: dict, language, on_fallback, cancel_check) -> st
             sensitivity_preset=cfg.get("sensitivity_preset", "normal"),
             on_gpu_fallback=on_fallback, fast_mode=cfg["fast_mode"],
             hallucination_silence_sec=cfg.get("hallucination_silence_sec",
-                                              core_module.DEFAULT_HALLUCINATION_SILENCE_SEC))
+                                              core_module.DEFAULT_HALLUCINATION_SILENCE_SEC),
+            repeat_guard=cfg.get("repeat_guard", False))
         if backend == "qwen3_asr" and segments:
             segments = asr_backend.get_backend(backend).transcribe(
                 slice_path, language, segments, use_gpu=use_gpu)

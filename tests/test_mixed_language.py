@@ -124,6 +124,25 @@ def test_whisper_path_detects_per_span_and_restricts_to_allowed(monkeypatch):
     assert out[1]["start"] == pytest.approx(2.9)
 
 
+def test_whisper_path_applies_the_repeat_guard_and_preset(monkeypatch):
+    audio = np.zeros(16000 * 3, dtype="float32")
+    seen = []
+
+    class Recorder(FakeWhisper):
+        def transcribe(self, wave, language, **kw):
+            seen.append(kw)
+            return super().transcribe(wave, language, **kw)
+
+    monkeypatch.setattr(ab, "load_audio_16k", lambda path: audio)
+    monkeypatch.setattr(ml, "load_whisper_model", lambda *a, **k: Recorder({0: "ko"}))
+    for guard, preset in ((True, "sensitive"), (False, "normal")):
+        seen.clear()
+        ml.transcribe_mixed_whisper("x.wav", "ko", "tiny", vad_fn=lambda a, sr: [(0, 2)],
+                                    repeat_guard=guard, sensitivity_preset=preset)
+        assert ("no_repeat_ngram_size" in seen[0]) is guard
+        assert ("repetition_penalty" in seen[0]) is guard
+
+
 class FakeQwenResult:
     def __init__(self, text, language):
         self.text, self.language = text, language

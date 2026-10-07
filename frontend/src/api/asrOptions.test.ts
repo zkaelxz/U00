@@ -68,8 +68,8 @@ describe('asr options API', () => {
 
 describe('asrBackendOptions (Step 104)', () => {
   it('offers MOSS only while the experimental toggle is on', () => {
-    expect(asrBackendOptions(false)).toEqual(['whisper', 'qwen3_asr', 'qwen3_asr_vad'])
-    expect(asrBackendOptions(true)).toEqual(['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'moss_td'])
+    expect(asrBackendOptions(false)).toEqual(['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long'])
+    expect(asrBackendOptions(true)).toEqual(['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long', 'moss_td'])
   })
 })
 

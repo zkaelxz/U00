@@ -49,6 +49,11 @@ class TestWhisperSettings:
         [(entry, kwargs)] = fake_whisper
         assert entry == "model"
         assert kwargs["condition_on_previous_text"] is False
+        assert "no_repeat_ngram_size" not in kwargs and "repetition_penalty" not in kwargs
+
+    def test_repeat_guard_adds_the_repeat_ban(self, fake_whisper):
+        core.transcribe_for_timing("a.wav", repeat_guard=True)
+        [(entry, kwargs)] = fake_whisper
         assert kwargs["no_repeat_ngram_size"] == 3
         assert kwargs["repetition_penalty"] == pytest.approx(1.1)
 
@@ -61,7 +66,7 @@ class TestWhisperSettings:
         assert seen == [4]
 
     def test_fast_mode_uses_the_batched_pipeline_with_the_same_settings(self, fake_whisper):
-        core.transcribe_for_timing("a.wav", fast_mode=True)
+        core.transcribe_for_timing("a.wav", fast_mode=True, repeat_guard=True)
         [(entry, kwargs)] = fake_whisper
         assert entry == "batched"
         assert kwargs["no_repeat_ngram_size"] == 3 and kwargs["vad_filter"] is True

@@ -1429,6 +1429,32 @@ class TestRotation:
         assert sorted(os.listdir(_default_dir())) == [
             _name(_at(2)), _name(_at(9)), _name(_at(10)), _name(_at(16))]
 
+    def test_restore_from_a_copy_older_than_the_repeat_guard_resets_the_old_silence_default(
+            self, isolated_db):
+        import sqlite3
+        a = db.create_drama(title_en="Old default")
+        path = _snap()
+        with zipfile.ZipFile(path) as zf:
+            members = {n: zf.read(n) for n in zf.namelist()}
+        inner = os.path.join(os.path.dirname(path), "_edit.db")
+        with open(inner, "wb") as fh:
+            fh.write(members["library.db"])
+        conn = sqlite3.connect(inner)
+        conn.execute("ALTER TABLE dramas DROP COLUMN whisper_repeat_guard")
+        conn.execute("UPDATE dramas SET hallucination_silence_sec = 2.0")
+        conn.commit()
+        conn.close()
+        with open(inner, "rb") as fh:
+            members["library.db"] = fh.read()
+        os.remove(inner)
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, data in members.items():
+                zf.writestr(name, data)
+        _delete_drama(a)
+        res = abs_.restore_drama(a, confirm=True, confirm_text="RESTORE",
+                                 snapshot=os.path.basename(path))
+        assert db.get_drama(res["drama_id"])["hallucination_silence_sec"] == 0
+
     def test_restore_from_the_legacy_snapshot_by_name(self, isolated_db, monkeypatch):
         a = db.create_drama(title_en="Legacy drama")
         _make_legacy(_at(1))

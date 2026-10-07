@@ -79,7 +79,8 @@ def fakes(monkeypatch):
 
 
 def test_registry_lists_every_backend_and_marks_moss_experimental():
-    assert set(ab.BACKENDS) == {"whisper", "qwen3_asr", "qwen3_asr_vad", "moss_td"}
+    assert set(ab.BACKENDS) == {"whisper", "qwen3_asr", "qwen3_asr_vad", "qwen3_asr_long",
+                                "moss_td"}
     assert ab.EXPERIMENTAL_BACKENDS == {"moss_td"}
     assert isinstance(ab.get_backend("whisper"), ab.WhisperBackend)
     assert isinstance(ab.get_backend("moss_td"), ab.MossTranscribeDiarizeBackend)
