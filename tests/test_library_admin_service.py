@@ -1170,3 +1170,26 @@ def test_sqlite_stat_tables_dropped(isolated_db):
     _restore(data)
     assert not _q("SELECT name FROM sqlite_master WHERE name LIKE 'sqlite_stat%'")
     assert db.list_dramas()
+
+
+def test_restore_of_a_backup_older_than_the_repeat_guard_resets_the_old_silence_default(
+        isolated_db, tmp_path):
+    import sqlite3
+    old, kept = _new("Old default"), _new("Own value")
+    data = _backup_bytes()
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        members = {n: zf.read(n) for n in zf.namelist()}
+    path = str(tmp_path / "library.db")
+    with open(path, "wb") as f:
+        f.write(members["library.db"])
+    conn = sqlite3.connect(path)
+    conn.execute("ALTER TABLE dramas DROP COLUMN whisper_repeat_guard")
+    conn.execute("UPDATE dramas SET hallucination_silence_sec = 2.0 WHERE id = ?", (old,))
+    conn.execute("UPDATE dramas SET hallucination_silence_sec = 5.0 WHERE id = ?", (kept,))
+    conn.commit()
+    conn.close()
+    with open(path, "rb") as f:
+        members["library.db"] = f.read()
+    assert _restore(_zip(members))["restored"] is True
+    assert db.get_drama(old)["hallucination_silence_sec"] == 0
+    assert db.get_drama(kept)["hallucination_silence_sec"] == 5.0

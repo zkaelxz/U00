@@ -492,6 +492,7 @@ def cmd_align(args):
         # Same saved tuning the service's transcribe job uses
         # (transcribe_service.get_transcribe_config); --fast still wins.
         cfg = transcribe_service.get_transcribe_config(d["id"])
+        fast = getattr(args, "fast", False) or cfg["whisper_fast_mode"]
         use_gpu = settings_service.get_use_gpu()
         language = d.get("source_language") or "zh"
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
@@ -521,11 +522,12 @@ def cmd_align(args):
             segments = transcribe_for_timing(
                 audio_path, whisper_size, language=language, use_gpu=use_gpu,
                 local_model_path=local_model_path,
-                fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
+                fast_mode=fast,
                 initial_prompt=initial_prompt, beam_size=cfg["beam_size"],
                 min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["effective_vad_threshold"],
                 sensitivity_preset=cfg["sensitivity_preset"],
                 hallucination_silence_sec=cfg["hallucination_silence_sec"],
+                repeat_guard=cfg["whisper_repeat_guard"],
                 on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
         if not segments:
             release_gpu_models()
@@ -541,8 +543,7 @@ def cmd_align(args):
         if gpu_fallback:
             print(f"#{d['id']} WARNING: "
                   f"{core_module.gpu_fallback_notice('Transcription', gpu_fallback[0])}")
-        elif (segments and not use_groq and not cfg["whisper_fast_mode"]
-              and not getattr(args, "fast", False)):
+        elif segments and not use_groq and not fast:
             # Same history the app's estimate reads; fast mode runs at another speed.
             transcribe_service.record_transcribe_speed(
                 whisper_size, bool(use_gpu), transcribe_service._audio_duration_seconds(audio_path),
@@ -593,11 +594,12 @@ def cmd_align(args):
                 min_silence_ms=cfg["min_silence_ms"], vad_threshold=cfg["effective_vad_threshold"],
                 sensitivity_preset=cfg["sensitivity_preset"], beam_size=cfg["beam_size"],
                 hallucination_silence_sec=cfg["hallucination_silence_sec"],
-                whisper_fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
-                use_groq=use_groq, separate_vocals_first=cfg["separate_vocals_first"],
+                whisper_fast_mode=fast,
+                whisper_repeat_guard=cfg["whisper_repeat_guard"], use_groq=use_groq,
+                separate_vocals_first=cfg["separate_vocals_first"],
                 separation_backend=cfg["separation_backend"],
                 realign_long_segments=cfg["realign_long_segments"],
-                mixed_languages=False, use_gpu=use_gpu, gpu_fallback_msgs=gpu_fallback,
+                use_gpu=use_gpu, gpu_fallback_msgs=gpu_fallback,
                 initial_prompt=initial_prompt, **app_gpu_settings))
         db.update_drama(d["id"], status="aligned")
         print(f"#{d['id']} aligned {len(lines)} lines.")
@@ -1504,7 +1506,7 @@ def main():
     p_transcribe.add_argument("--whisper-size", default=None,
                               help="Whisper model size, saved on the title.")
     p_transcribe.add_argument("--asr-backend", default=None,
-                              choices=["whisper", "qwen3_asr", "qwen3_asr_vad", "moss_td"],
+                              choices=transcribe_service.ASR_BACKEND_CHOICES,
                               help="Speech recognition backend, saved on the title.")
     p_transcribe.add_argument("--beam-size", type=int, default=None, help="Whisper beam size (1-10).")
     p_transcribe.add_argument("--min-silence-ms", type=int, default=None,
