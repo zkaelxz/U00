@@ -18,6 +18,7 @@ import asr_backend
 import background_jobs
 import core as core_module
 import db
+import sensitivity_preset as presets
 import translate_engines
 from services import (asr_options_service, jobs_service, settings_service, transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
@@ -289,7 +290,8 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "language": drama.get("source_language") or "zh",
          "beam_size": drama.get("beam_size") or tuning["beam_size"],
          "min_silence_ms": drama.get("min_silence_ms") or tuning["min_silence_ms"],
-         "vad_threshold": drama.get("vad_threshold") or tuning["vad_threshold"],
+         "vad_threshold": presets.stored_vad_threshold(drama),
+         "sensitivity_preset": presets.normalize(drama.get("sensitivity_preset")),
          "hallucination_silence_sec": transcribe_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
          "repeat_guard": bool(drama.get("whisper_repeat_guard")),
@@ -333,6 +335,7 @@ def _hear(slice_path: str, cfg: dict, language, on_fallback, cancel_check) -> st
             slice_path, cfg["whisper_size"], language=language, use_gpu=use_gpu,
             initial_prompt=cfg["prompt"], beam_size=cfg["beam_size"],
             min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
+            sensitivity_preset=cfg.get("sensitivity_preset", "normal"),
             on_gpu_fallback=on_fallback, fast_mode=cfg["fast_mode"],
             hallucination_silence_sec=cfg.get("hallucination_silence_sec",
                                               core_module.DEFAULT_HALLUCINATION_SILENCE_SEC),

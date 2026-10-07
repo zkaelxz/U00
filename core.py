@@ -1293,7 +1293,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            vad_threshold: float = 0.5, filter_hallucination_repeats: int = 4,
                            on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False,
                            hallucination_silence_sec: float = DEFAULT_HALLUCINATION_SILENCE_SEC,
-                           repeat_guard: bool = False):
+                           repeat_guard: bool = False, sensitivity_preset: str = "normal"):
     """
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
@@ -1362,6 +1362,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     which decodes several VAD chunks at once (roughly 4x faster on a GPU).
     Same settings, same output shape; uses more VRAM while it runs.
     """
+    # Imported here: db.py's import check copies core.py alone into a temp folder.
+    from sensitivity_preset import decode_kwargs
     model = load_whisper_model(model_size, use_gpu=use_gpu, local_model_path=local_model_path,
                                 hf_token=hf_token)
     kwargs = {
@@ -1369,7 +1371,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
                             "threshold": vad_threshold},
         "word_timestamps": True,
-        **WHISPER_ANTI_LOOP_KWARGS, **(WHISPER_REPEAT_GUARD_KWARGS if repeat_guard else {}),
+        **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard),
     }
     if initial_prompt.strip():
         kwargs["initial_prompt"] = initial_prompt.strip()

@@ -1160,6 +1160,7 @@ def _migrate_drama_columns(conn):
                           ("beam_size", "INTEGER DEFAULT 5"),
                           ("hallucination_silence_sec", "REAL DEFAULT 0"),
                           ("min_pause_sec", "REAL DEFAULT 0.35"),
+                          ("sensitivity_preset", "TEXT"),
                           ("separate_vocals_first", "INTEGER DEFAULT 0"),
                           ("separation_backend", "TEXT DEFAULT 'auto'"),
                           ("realign_long_segments", "INTEGER DEFAULT 0"),

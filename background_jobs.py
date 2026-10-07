@@ -1683,7 +1683,7 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "sourceimport_", "urlmedia_", "voiceref_", "lines_glossary_", "burnpreview_",
     "bulk_consistency_", "bulk_emotion_", "bulk_notes_", "bulk_flag_", "resegpreview_", "scanlate_",
     "lncrawl_",
-    "notion_export_", "comparetx_", "retime_",
+    "notion_export_", "comparetx_", "retime_", "speechcov_",
 )
 
 
