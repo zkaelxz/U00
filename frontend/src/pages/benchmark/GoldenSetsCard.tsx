@@ -6,7 +6,6 @@ import {
   type SourceLanguage,
 } from '../../api/benchmark'
 import { Badge } from '../../components/Badge'
-import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
@@ -14,6 +13,7 @@ import { humanize } from '../../components/labels'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
+import { BenchSection } from './BenchSection'
 import { TIER_HELP, TIER_LABELS, plainError, setDisplayName, stageLabel, tierLabel, tierTone } from './benchmarkForm'
 
 type Props = {
@@ -33,11 +33,10 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
   const shown = openSet && sets.find((s) => setKey(s) === setKey(openSet))
 
   return (
-    <Card
-      title="Golden sets"
+    <BenchSection
+      id="sets"
       meta={sets.length ? `${sets.length} ${sets.length === 1 ? 'set' : 'sets'} · ${total} ${total === 1 ? 'case' : 'cases'}` : 'No cases yet'}
       className="bench-sets"
-      aria-label="Golden sets"
     >
       {sets.length === 0 ? (
         <p className="muted">
@@ -94,7 +93,7 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
 
       <ImportSection options={options} pc={pc} onDone={onChanged} />
       <AddCaseSection options={options} pc={pc} onDone={onChanged} />
-    </Card>
+    </BenchSection>
   )
 }
 

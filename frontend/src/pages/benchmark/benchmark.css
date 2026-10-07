@@ -2,7 +2,8 @@
 
 .bench-page { display: grid; gap: var(--space-5); min-width: 0; }
 .bench-page > * { min-width: 0; margin: 0; }
-.bench-intro { margin: 0; max-width: 72ch; }
+.bench-intro { max-width: 72ch; display: grid; gap: var(--space-1); }
+.bench-intro p { margin: 0; }
 .bench-page h4 { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); }
 .bench-page .num { font-variant-numeric: tabular-nums; }
 .bench-note { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
@@ -158,3 +159,19 @@
 @media (max-width: 640px) {
   .reeval-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Collapsible page sections: the heading is a button, the (i) help and a running status sit beside it. */
+.bench-section-title { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.bench-section-title .card-title { min-width: 0; }
+.bench-section-toggle { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: var(--space-1) 0; border: 0; background: none; color: inherit; font: inherit; font-weight: inherit; text-align: left; cursor: pointer; }
+.bench-section-toggle::before { content: ''; flex: none; width: 0.45em; height: 0.45em; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform var(--dur-2, 120ms) ease; }
+.bench-section-toggle[aria-expanded='true']::before { transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { .bench-section-toggle::before { transition: none; } }
+.bench-section-body[hidden] { display: none; }
+.bench-section-status { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--accent); }
+.bench-section-title { position: relative; }
+/* Anchor the steps to the heading row, not the small (i), so they stay inside a phone-width card. */
+.bench-help { position: static; }
+.bench-help .field-help-text { left: 0; max-width: min(24rem, calc(100vw - 4.5rem)); }
+.bench-help-step { display: block; }
+.bench-help-step + .bench-help-step { margin-top: var(--space-1); }

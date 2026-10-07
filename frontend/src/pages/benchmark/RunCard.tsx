@@ -6,17 +6,18 @@ import {
 } from '../../api/benchmark'
 import { modelOptionLabel } from '../../api/translate'
 import { ButtonLink } from '../../components/Button'
-import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { routeHref } from '../../router'
 import type { JobRecord } from '../../types/jobs'
 import { engineOptionLabel } from '../translatePage'
+import { BenchSection } from './BenchSection'
+import { NO_CASES_HINT } from './benchmarkHelp'
 import {
   OCR_LABELS, STAGE_LABELS, TIER_LABELS, casesInSelection, comparePrefill, configLabel, defaultConfig, enginesMissingKey,
   estimateKey, formatCost, parseCompareParam, plainError, restoreConfigs, runRequestBody, selectionProblems, setOptions,
-  startState, type ComparePrefill, type RunSelection,
+  runningStatus, startState, type ComparePrefill, type RunSelection,
 } from './benchmarkForm'
 
 type Props = {
@@ -122,11 +123,12 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
   const reasonId = 'bench-start-reason'
 
   return (
-    <Card
-      title="Run a benchmark"
+    <BenchSection
+      id="run"
       meta={`${caseCount} ${caseCount === 1 ? 'case' : 'cases'} selected${arena ? ' · Model Arena' : ''}`}
+      status={running ? runningStatus(job) : null}
+      openSignal={compare}
       className="bench-run"
-      aria-label="Run a benchmark"
     >
       <div className="field-row">
         <Field label="Stage" help="What is being tested: a translation engine, a Whisper model or an OCR backend.">
@@ -153,6 +155,7 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
           </select>
         </Field>
       </div>
+      {st === 'translation' && caseCount === 0 && <p className="muted" data-testid="bench-no-cases">{NO_CASES_HINT}</p>}
       {st !== 'translation' && caseCount === 0 && (
         <p className="muted">
           {st === 'transcription' ? 'Transcription' : 'OCR'} cases are audio or image files registered on the PC; this page
@@ -245,7 +248,7 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
         </p>
       )}
       {running && <JobProgress job={job} onStop={onStop} />}
-    </Card>
+    </BenchSection>
   )
 }
 

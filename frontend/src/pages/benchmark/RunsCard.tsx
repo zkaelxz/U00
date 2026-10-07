@@ -2,8 +2,8 @@ import { useState } from 'react'
 
 import type { BenchmarkRun } from '../../api/benchmark'
 import { Badge } from '../../components/Badge'
-import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
+import { BenchSection } from './BenchSection'
 import {
   STAGE_LABELS, arenaGroups, compareProblem, formatCost, formatLatency, formatScore, formatWhen, runConfigLabel,
   runStatusLabel, runStatusTone, stageLabel, toggleCompare,
@@ -41,7 +41,7 @@ export function RunsCard({ runs, stageFilter, onStageFilter, maxCompare, phone, 
   )
 
   return (
-    <Card title="Recent runs" meta={runs.length ? `${runs.length} shown, newest first` : undefined} actions={filter} className="bench-runs" aria-label="Recent runs">
+    <BenchSection id="runs" meta={runs.length ? `${runs.length} shown, newest first` : undefined} actions={filter} className="bench-runs">
       {runs.length === 0 ? (
         <p className="muted">No runs yet. Estimate and start one above; every run is kept here with its score.</p>
       ) : (
@@ -74,7 +74,7 @@ export function RunsCard({ runs, stageFilter, onStageFilter, maxCompare, phone, 
           </div>
         </>
       )}
-    </Card>
+    </BenchSection>
   )
 }
 

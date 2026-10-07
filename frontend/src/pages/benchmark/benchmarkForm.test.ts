@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkRun, BenchmarkSet } from '../../api/benchmark'
+import { sectionStorageKey, writeSectionOpen } from '../../components/sectionStorage'
+import type { JobRecord } from '../../types/jobs'
 import {
-  arenaGroups, arenaRunNames, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
+  arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
   formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
-  runRequestBody, selectionProblems, setOptions, startState, tierLabel, toggleCompare, type RunSelection,
+  runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel, toggleCompare, type RunSelection,
 } from './benchmarkForm'
+import { BENCH_INTRO, BENCH_SECTIONS } from './benchmarkHelp'
 
 const options: BenchmarkOptions = {
   stages: ['translation', 'transcription', 'ocr'],
@@ -284,5 +287,42 @@ describe('mixedMetricNote', () => {
     expect(mixedMetricNote([{ results: [cell('chrf'), cell('similarity')] }])).toMatch(/chrF/)
     expect(mixedMetricNote([{ results: [cell('chrf'), cell('chrf'), null] }])).toBe('')
     expect(mixedMetricNote([{ results: [cell('cer'), cell('similarity')] }])).toBe('')
+  })
+})
+
+describe('page sections', () => {
+  const store = (init: Record<string, string> = {}) => {
+    const data = { ...init }
+    return { getItem: (k: string) => data[k] ?? null, setItem: (k: string, v: string) => void (data[k] = v) }
+  }
+
+  it('opens only the golden sets on a first visit', () => {
+    const s = store()
+    expect(benchSectionOpen(s, 'sets')).toBe(true)
+    for (const id of ['run', 'reeval', 'runs'] as const) expect(benchSectionOpen(s, id)).toBe(false)
+  })
+
+  it('remembers a choice over the default, per section', () => {
+    const s = store()
+    writeSectionOpen(s, benchSectionStorageKey('sets'), false)
+    writeSectionOpen(s, benchSectionStorageKey('run'), true)
+    expect(benchSectionOpen(s, 'sets')).toBe(false)
+    expect(benchSectionOpen(s, 'run')).toBe(true)
+    expect(benchSectionOpen(s, 'runs')).toBe(false)
+  })
+
+  it('falls back to the default without storage or with junk in it', () => {
+    expect(benchSectionOpen(null, 'sets')).toBe(true)
+    expect(benchSectionOpen(store({ [sectionStorageKey(benchSectionStorageKey('run'))]: 'maybe' }), 'run')).toBe(false)
+  })
+
+  it('shows the percentage while a job runs', () => {
+    expect(runningStatus(null)).toBe('Running…')
+    expect(runningStatus({ progress: 0.4 } as JobRecord)).toBe('Running · 40%')
+  })
+
+  it('keeps the help copy short', () => {
+    const lines = [...BENCH_INTRO, ...Object.values(BENCH_SECTIONS).flatMap((s) => [s.purpose, ...s.steps])]
+    for (const line of lines) expect(line.split(/\s+/).length, line).toBeLessThanOrEqual(14)
   })
 })

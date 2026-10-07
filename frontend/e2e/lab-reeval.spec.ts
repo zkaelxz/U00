@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openBenchSections } from './benchSections'
 
 import { mockReeval, mockRemote, overview } from './reevalMocks'
 
@@ -30,6 +31,7 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
     if (r.url().includes('/api/models/reeval') && r.method() !== 'GET') posts.push(new URL(r.url()).pathname)
   })
   await page.goto('/#/benchmark')
+  await openBenchSections(page)
   const c = card(page)
   await expect(c.getByTestId('reeval-production')).toContainText('Claude · claude-sonnet-5')
   await expect(c.getByTestId('reeval-production')).toContainText('From Settings')
@@ -85,6 +87,7 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
 test('estimate, then Run now (confirm: true), progress, and the report against production', async ({ page }) => {
   const { calls, unmocked } = await mockReeval(page, overview())
   await page.goto('/#/benchmark')
+  await openBenchSections(page)
   const c = card(page)
   await expect(c.getByTestId('reeval-production')).toContainText('Ollama · qwen3:8b')
   await expect(c.getByTestId('reeval-production')).toContainText('Promoted 2026-08-14')
@@ -127,6 +130,7 @@ test('estimate, then Run now (confirm: true), progress, and the report against p
 test('promote needs the second press, sends the reason, and says what changes', async ({ page }) => {
   const { calls, unmocked } = await mockReeval(page, overview({ withReport: true }))
   await page.goto('/#/benchmark')
+  await openBenchSections(page)
   const c = card(page)
   const row = c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li', { hasText: 'NLLB' })
   await expect(row).toContainText("Settings' default engine changes from Ollama to NLLB.")
@@ -159,6 +163,7 @@ test('promote needs the second press, sends the reason, and says what changes', 
 test('reject asks a reason, reopen puts it back, re-adding a rejected model shows its decision', async ({ page }) => {
   const { calls, unmocked } = await mockReeval(page, overview({ withReport: true }))
   await page.goto('/#/benchmark')
+  await openBenchSections(page)
   const c = card(page)
   const list = c.getByRole('list', { name: 'Candidate models' })
   const gemini = list.locator(':scope > li', { hasText: 'Gemini' })
@@ -191,6 +196,7 @@ test('reject asks a reason, reopen puts it back, re-adding a rejected model show
 test('schedule: off by default, saves every field with the limit, shows the next due date and a refused attempt', async ({ page }) => {
   const { calls, unmocked } = await mockReeval(page, overview({ withReport: true, error: "Skipped: estimated $0.0400, above the $0.02 limit set for scheduled runs." }))
   await page.goto('/#/benchmark')
+  await openBenchSections(page)
   const c = card(page)
   await expect(c.getByTestId('reeval-report-error')).toHaveText(
     'Last scheduled attempt 2026-09-30 03:00 (UTC): Skipped: estimated $0.0400, above the $0.02 limit set for scheduled runs.',
@@ -216,7 +222,7 @@ test('schedule: off by default, saves every field with the limit, shows the next
     schedule_enabled: true, interval_days: 14, tier: null, set_name: null, max_cost_usd: 0.5,
   })
   await expect(c.getByTestId('reeval-next-due')).toHaveText('Next run: 2026-10-14 12:00 (UTC).')
-  await expect(c.locator('.card-meta')).toContainText('schedule on')
+  await expect(c.locator('.bench-section-meta')).toContainText('schedule on')
   await expect(c.getByRole('switch', { name: 'Re-evaluate on a schedule' })).toHaveAttribute('aria-checked', 'true')
   await expect(save).toBeDisabled()
   expect(unmocked).toEqual([])
@@ -234,6 +240,7 @@ test('off the PC: reads only, no add / reject / promote / save, Run now says why
   // After mockReeval: its catch-all passes GETs through, and the newest route wins.
   await mockRemote(page)
   await page.goto('/#/benchmark')
+  await openBenchSections(page)
   const c = card(page)
   await expect(c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li')).toHaveCount(2)
   await expect(c).toContainText('Adding, rejecting and promoting candidates is PC only.')
