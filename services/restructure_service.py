@@ -24,7 +24,10 @@ per-drama lock held across load -> check -> snapshot -> save for every write
 in this module (including the re-segmentation job's apply step), and by
 re-reading the id set immediately before `save_lines`. Another process
 (e.g. the CLI) can still full-sync between that re-check and the save; a
-failure between snapshot and save leaves only an extra snapshot.
+failure between snapshot and save leaves only an extra snapshot. Line edits
+(the line PATCH and notes routes) don't take the drama lock either, so an
+edit saved between a write's checks and its save_lines can be overwritten by
+it; an undo's fingerprint check has the same window.
 
 No FastAPI import: plain dicts in and out. Messages never echo
 line text, keys or paths.
@@ -48,7 +51,7 @@ import translate_engines
 from services import (diarization_service, drama_service, settings_service, transcribe_service,
                       translate_service)
 from services.review_lines_service import line_dict
-from services.review_records_service import get_line_history_snapshot
+from services.review_records_service import get_line_history_snapshot, lines_losing_notes
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -660,8 +663,8 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids,
     restore refuse, with nothing written, when any restorable field of the
     current lines differs from what that write left: ids alone would let a
     restore overwrite a text edit saved since. It also refuses when a line the
-    restore would remove has a note, emotion tag or reading position, which
-    the full sync would delete."""
+    restore would remove has a note or emotion tag, which the full sync would
+    delete (a reading position is only unlinked, so it doesn't block)."""
     get_line_history_snapshot(drama_id, history_id)  # 404 unless it's this drama's
     # the raw rows: the read above returns dub_filename as a bare basename
     rows = db.get_line_history_snapshot(history_id)
@@ -669,19 +672,19 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids,
         raise NotFoundError(f"No history snapshot {history_id} for drama {drama_id}.")
 
     def build(lines):
+        # Checked under the drama lock, but line edits don't take it: one saved
+        # after this check and before the save is still overwritten.
         if expected_fingerprint is not None and lines_fingerprint(lines) != expected_fingerprint:
             raise ConflictError("The lines were edited since that change -- restore from "
                                 "Records, Line history instead.")
-        restored = core_module.restore_saved_lines(rows, lines)
-        if expected_fingerprint is not None:
-            # The fingerprint covers line fields only; a line the restore removes
-            # takes its notes, emotion tag and reading position with it.
-            kept = {ln.id for ln in restored if ln.id is not None}
-            if db.line_ids_with_refs(drama_id, {ln.id for ln in lines} - kept):
-                raise ConflictError("A line this undo would remove has a note, emotion tag or "
-                                    "reading position saved since -- nothing was changed; "
-                                    "restore from Records, Line history instead.")
-        return restored, []
+        # The fingerprint covers line fields only; a line the restore removes
+        # takes its notes and emotion tag with it. `reason` lets a client tell
+        # this apart from an edit, since a Records restore would delete them.
+        if expected_fingerprint is not None and lines_losing_notes(drama_id, rows, lines):
+            raise ConflictError("A line this undo would remove has a note or emotion tag "
+                                "saved since -- nothing was changed.",
+                                details={"reason": "notes_on_removed_lines"})
+        return core_module.restore_saved_lines(rows, lines), []
     out = structural_write(drama_id, expected_line_ids, "before restore", build)
     return {"history_id": history_id, "line_ids": out["line_ids"]}
 

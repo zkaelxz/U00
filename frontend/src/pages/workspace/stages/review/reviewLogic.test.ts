@@ -49,8 +49,10 @@ import {
   undoDoneMessage,
   undoHandleOf,
   undoRefusal,
+  restoreLossText,
   UNDO_CHANGED_MESSAGE,
   UNDO_GONE_MESSAGE,
+  UNDO_NOTES_MESSAGE,
   languageSetText,
   LINE_LANGUAGES,
   lineLangChip,
@@ -429,17 +431,27 @@ describe('undo of a structural edit', () => {
     const changed = new ApiError(409, { code: 'conflict', message: 'The lines were edited since that change' })
     expect(undoRefusal(changed)).toEqual({ text: UNDO_CHANGED_MESSAGE, keepOffer: false })
     expect(UNDO_CHANGED_MESSAGE).toContain('Records → Line history')
-    const noted = new ApiError(409, { code: 'conflict', message: 'A line this undo would remove has a note, emotion tag or reading position saved since' })
-    expect(undoRefusal(noted)).toEqual({ text: UNDO_CHANGED_MESSAGE, keepOffer: false })
+    // Told apart by the server's reason, not its wording, and never sent to Records,
+    // whose restore would delete the note.
+    const noted = new ApiError(409, { code: 'conflict', message: 'anything', details: { reason: 'notes_on_removed_lines' } })
+    expect(undoRefusal(noted)).toEqual({ text: UNDO_NOTES_MESSAGE, keepOffer: false })
+    expect(UNDO_NOTES_MESSAGE).not.toContain('Line history')
+    expect(UNDO_NOTES_MESSAGE).toContain('move or copy the note first')
+    const otherReason = new ApiError(409, { code: 'conflict', message: 'The lines were edited', details: { reason: 'other' } })
+    expect(undoRefusal(otherReason)).toEqual({ text: UNDO_CHANGED_MESSAGE, keepOffer: false })
     const job = new ApiError(409, { code: 'conflict', message: 'A background job is still running' })
     expect(undoRefusal(job)).toEqual({ text: JOB_RUNNING_MESSAGE, keepOffer: true })
     expect(undoRefusal(new ApiError(404, { code: 'not_found', message: 'x' }))).toEqual({ text: UNDO_GONE_MESSAGE, keepOffer: false })
     expect(UNDO_GONE_MESSAGE).toContain('Records → Line history')
     expect(undoRefusal(new ApiError(500, { code: 'error', message: 'x' }))).toBeNull()
   })
+  it('warns how many noted lines a Records restore would remove', () => {
+    expect(restoreLossText(1)).toMatch(/^1 line this would remove has a note or emotion tag\. Restoring deletes them\./)
+    expect(restoreLossText(3)).toMatch(/^3 lines this would remove have notes or emotion tags\./)
+  })
   it('says what an undo of a delete or merge does not bring back', () => {
     expect(undoDoneMessage('delete')).toContain('but not its notes or emotion tag')
-    expect(undoDoneMessage('merge')).toContain('notes and emotion tags stay on the line they were merged into')
+    expect(undoDoneMessage('merge')).toContain('notes and emotion tags stay on the line they were merged into, unless that line already had its own')
     expect(undoDoneMessage('split')).toBe('Undone. The lines are back as they were before.')
     expect(undoDoneMessage('resplit')).toBe(undoDoneMessage('split'))
   })

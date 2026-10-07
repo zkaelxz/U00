@@ -12,6 +12,7 @@ import type { MergeShortOptions, MergeShortPreview } from '../../../../types/rev
 import { mergeFormDefaults, mergeSummary, parseMergeForm, type MergeForm } from './aiExtrasLogic'
 import { JOB_RUNNING_MESSAGE, undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle } from './reviewLogic'
 import { UndoNotice } from './UndoNotice'
+import { retireUndoOffer, useUndoOffer } from './undoOffer'
 
 const SHOWN = 8
 
@@ -30,7 +31,7 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [done, setDone] = useState<string | null>(null)
-  const [undo, setUndo] = useState<UndoHandle | null>(null)
+  const [undo, setUndo] = useUndoOffer<UndoHandle>('merge-short', dramaId)
   const undoing = useRef(false)
   // Set when the Undo notice (and the button that had focus) goes away, so the
   // status line that replaces it takes focus instead of the page body.
@@ -72,7 +73,9 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
       .then((r) => {
         setPreview(null)
         setDone(`Merged ${r.merged_groups} group${r.merged_groups === 1 ? '' : 's'}.${undoHandleOf(r) ? '' : ' The previous lines are in Records → Line history.'}`)
-        setUndo(undoHandleOf(r))
+        const handle = undoHandleOf(r)
+        if (handle) setUndo(handle)
+        else retireUndoOffer()
         onChanged()
       }, setError)
       .finally(() => setBusy(false))

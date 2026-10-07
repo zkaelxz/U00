@@ -252,6 +252,9 @@ class ReviewRecordsSnapshot(BaseModel):
     label: Optional[str] = None
     created_at: Optional[str] = None
     lines: List[ReviewRecordsSnapshotLine]
+    # How many current lines with a note or emotion tag restoring this would remove
+    # (the restore deletes those notes and tags); absent from an older server.
+    lines_with_notes_removed: int = 0
 
 
 class ReviewRecordsVersionItem(BaseModel):

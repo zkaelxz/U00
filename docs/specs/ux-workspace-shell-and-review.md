@@ -15,6 +15,7 @@ Seen as images: `scratchpad/shots/phone/workspace-review-phone-light.png`, `shot
 - With nothing left to translate the primary is disabled and shows "All N lines have English." plus "Re-translate existing…" (`translateBlocker` in `stageBlockers.ts`, `TranslateStage.tsx`); the "Still needed:" wording is used only for the no-lines and confirm-replace blockers.
 - No "set a flag" endpoint (`LinesPatchRequest`, `api/schemas/review.py`, has no flag field; only `dismiss-flag`). It accepts `sfx`, which the React `LinePatch` now includes (`types/review.ts`).
 - Restructure writes need `expected_line_ids` for the whole drama (`_RestructureBase` in `api/schemas/review.py`, `_check_expected` in `restructure_service.py`); Review loads 40-line pages (`PAGE_SIZE`), and `listAllLines` in `api/restructure.ts` pages through the whole drama at confirm time.
+- Structural writes (and Undo) hold a per-drama lock from their checks to their save (`_drama_lock` in `restructure_service.py`); the line PATCH and notes routes don't take it, so an edit saved inside that window can be overwritten. Every structural write has this window.
 - Job ids are `<kind>_<dramaId>` across services (`jobRunsOnDrama` in `reviewLogic.ts` relies on it). `compute_workspace_stage_index` (`services/workflow_service.py`) returns 0-6 on the 7-tab scale and is exposed by `GET /api/workflow/dramas/{id}/progress`.
 - `FILE_ORGANIZATION.md` now lists the `frontend/src/components/` set (LibraryList, DramaDetailPanel, Section, Field, Sheet, TypedConfirm, ConfirmButton and others).
 
