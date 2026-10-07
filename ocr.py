@@ -24,6 +24,16 @@ TESSERACT_LANG_ZH_TRADITIONAL = "chi_tra"
 # per-page override both offer the same choices, from this one list.
 OCR_BACKEND_OPTIONS = ["auto", "manga_ocr", "paddle", "paddle_vl_manga", "tesseract"]
 
+# Burned-in video captions only: manga_ocr and paddle_vl_manga are trained on
+# manga bubbles, so they are not offered here.
+HARDSUB_OCR_BACKEND_OPTIONS = ["tesseract", "paddle", "auto"]
+
+
+def default_hardsub_backend(source_language: str) -> str:
+    """PaddleOCR for Chinese (confirmed more accurate on
+    stylized/small captions), Tesseract otherwise."""
+    return "paddle" if source_language == "zh" else "tesseract"
+
 
 def resolve_tesseract_lang(source_language: str, chinese_script: str = "simplified") -> str:
     """chinese_script only matters for "zh" -- ja/ko ignore it. Traditional
