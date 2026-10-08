@@ -1285,7 +1285,7 @@ class TestVoiceBank:
     def test_apply_copies_clip_into_the_new_drama_and_sets_clone_fields(self, isolated_db, tmp_path_str):
         clip = self._make_clip(tmp_path_str)
         eid = isolated_db.save_voice_bank_entry(
-            "Su Shan", clip, ref_text="a line", clone_engine="gpt_sovits", voice_design="")
+            "Su Shan", clip, ref_text="a line", clone_engine="omnivoice", voice_design="")
 
         did = isolated_db.create_drama(title_en="A New Drama")
         drama_dir = os.path.join(tmp_path_str, "new_drama")
@@ -1301,7 +1301,7 @@ class TestVoiceBank:
         c = chars["SPEAKER_01"]
         assert c["ref_audio_filename"] == dest_filename
         assert c["ref_text"] == "a line"
-        assert c["clone_engine"] == "gpt_sovits"
+        assert c["clone_engine"] == "omnivoice"
 
     def test_apply_writes_a_separate_copy_not_shared_with_the_bank_or_other_dramas(
             self, isolated_db, tmp_path_str):

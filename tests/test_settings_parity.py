@@ -202,7 +202,8 @@ def test_api_get_and_post_preferences(client):
     assert body["preferences"]["default_engine"] == "claude"
     assert "manga_ocr" in body["choices"]["ocr_backends"]
     assert "firefox" in body["choices"]["cookie_browsers"]
-    assert set(body["endpoints"]) == {"ollama_url", "gpt_sovits_url"}
+    assert set(body["endpoints"]) == {"ollama_url"}
+    assert "gpt_sovits_url" not in body["engine_keys"]
     r = client.post("/api/settings", json={"default_locale": "en-AU", "monthly_cap_usd": 3,
                                            "tesseract_cmd": "/usr/bin/tesseract"})
     assert r.status_code == 200
@@ -220,19 +221,30 @@ def test_api_rejects_bad_or_unknown_without_echo(client, body):
 
 
 def test_api_endpoint_routes(client, env_file):
-    r = client.post("/api/settings/endpoints/gpt_sovits_url",
-                    json={"url": "http://127.0.0.1:9880", "confirm": True})
-    assert r.status_code == 200 and r.json()["url"] == "http://127.0.0.1:9880"
-    assert client.get("/api/settings").json()["endpoints"]["gpt_sovits_url"] == \
-        "http://127.0.0.1:9880"
-    bad = client.post("/api/settings/endpoints/gpt_sovits_url",
+    r = client.post("/api/settings/endpoints/ollama_url",
+                    json={"url": "http://127.0.0.1:11434", "confirm": True})
+    assert r.status_code == 200 and r.json()["url"] == "http://127.0.0.1:11434"
+    assert client.get("/api/settings").json()["endpoints"]["ollama_url"] == \
+        "http://127.0.0.1:11434"
+    bad = client.post("/api/settings/endpoints/ollama_url",
                       json={"url": "http://u:hunter2@h", "confirm": True})
     assert bad.status_code == 422 and "hunter2" not in bad.text
-    assert client.post("/api/settings/endpoints/gpt_sovits_url",
+    assert client.post("/api/settings/endpoints/ollama_url",
                        json={"url": "http://h"}).status_code == 422  # no confirm
-    r = client.post("/api/settings/endpoints/gpt_sovits_url/clear", json={"confirm": True})
+    r = client.post("/api/settings/endpoints/ollama_url/clear", json={"confirm": True})
     assert r.status_code == 200 and r.json()["configured"] is False
-    assert "BAIHE_GPT_SOVITS_URL" not in env_file.read_text()
+    assert "BAIHE_OLLAMA_URL" not in env_file.read_text()
+
+
+def test_the_removed_gpt_sovits_address_is_not_settable_and_a_stored_one_is_never_shown(
+        client, env_file):
+    env_file.write_text("BAIHE_GPT_SOVITS_URL=http://old-sovits.example:9880\n", encoding="utf-8")
+    for path in ("/api/settings/endpoints/gpt_sovits_url", "/api/settings/endpoints/gpt_sovits_url/clear"):
+        r = client.post(path, json={"url": "http://127.0.0.1:9880", "confirm": True})
+        assert r.status_code == 422
+    body = client.get("/api/settings")
+    assert "old-sovits" not in body.text and "gpt_sovits" not in body.text
+    assert "old-sovits" in env_file.read_text()  # left alone, just unused
 
 
 def test_api_endpoint_routes_need_key_write_gate(isolated_db, env_file):
