@@ -693,10 +693,3 @@ def describe_profile(p: dict) -> str:
     elif p.get("generated") and p.get("saved") is False:
         bits.append("a generated profile failed validation and was not saved")
     return f"Site profile ({p.get('domain')}): " + "; ".join(bits) + "."
-
-
-# The follow chain lives in novel_follow, which imports from this module, so
-# the re-export has to come after everything it needs is defined.
-from .novel_follow import (DEFAULT_FOLLOW_PAGES, FOLLOW_STOPS, MAX_FOLLOW_CHARS,  # noqa: E402,F401
-                           MAX_FOLLOW_PAGES, FollowedPage, FollowResult, _DEFAULT_PORTS,
-                           _GATE_PATH, _follow_key, _host_key, _unfollowable, follow_novel)

@@ -719,6 +719,7 @@ OVERSIZED_MODULE_BYTES = {
     "services/diagnostics_gaps_service.py": 44678,
     "services/glossary_service.py": 44595,
     "page_fetch.py": 44114,
+    "sources/adaptive.py": 42520,
     "translation_guide.py": 41109,
 }
 

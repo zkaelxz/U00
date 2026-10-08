@@ -1,6 +1,6 @@
 """
 sources/novel_follow.py -- following next-chapter links from a pasted novel
-URL (split out of sources/adaptive.py; everything here is re-exported there).
+URL. It builds on import_novel / extract_novel from sources/adaptive.py.
 """
 
 import re
