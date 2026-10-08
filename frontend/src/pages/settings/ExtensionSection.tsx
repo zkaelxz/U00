@@ -23,8 +23,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
-import { humanize } from '../../components/labels'
-import { modelOptionLabel } from '../../api/translate'
+import { engineNotesHelp, engineOptionLabel, modelOptionLabel } from '../../api/translate'
 import {
   COPIED_MS, TOKEN_VISIBLE_MS, copyFallbackText, extensionEngineNote, extensionSummary, extensionToggleNote,
 } from '../diagnostics/diagnosticsAdmin'
@@ -166,7 +165,7 @@ function EnginePicker() {
       {settings && (
         <>
           <div className="field-row">
-            <Field label={TRANSLATION_ENGINE_LABEL} help="Uses the key saved on this PC for that engine.">
+            <Field label={TRANSLATION_ENGINE_LABEL} help={`Uses the key saved on this PC for that engine. ${engineNotesHelp(settings.engines)}`}>
               <select
                 value={settings.engine ?? ''}
                 disabled={saving}
@@ -175,8 +174,7 @@ function EnginePicker() {
                 <option value="">None (original text only)</option>
                 {settings.engines.map((e) => (
                   <option key={e.name} value={e.name}>
-                    {e.label || humanize('engine', e.name)}
-                    {e.key_configured ? '' : ' (no key)'}
+                    {engineOptionLabel(e)}
                   </option>
                 ))}
               </select>

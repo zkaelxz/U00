@@ -55,7 +55,7 @@ def install():
     te.ENGINE_CAPABILITIES[ENGINE_ID] = frozenset({te.CAP_TRANSLATE, te.CAP_LOCAL, te.CAP_CHEAP})
     te.FREE_ENGINES.add(ENGINE_ID)
     te.KEYLESS_ENGINES.add(ENGINE_ID)
-    te.ENGINE_NOTES[ENGINE_ID] = "🧪 Free: fake output for tests, no AI."
+    te.ENGINE_NOTES[ENGINE_ID] = "Free: fake output for tests, no AI."
 
 
 def uninstall():
@@ -94,7 +94,7 @@ def install_mt():
     te.ENGINE_CAPABILITIES[MT_ENGINE_ID] = frozenset({te.CAP_TRANSLATE, te.CAP_LOCAL, te.CAP_CHEAP})
     te.FREE_ENGINES.add(MT_ENGINE_ID)
     te.KEYLESS_ENGINES.add(MT_ENGINE_ID)
-    te.ENGINE_NOTES[MT_ENGINE_ID] = "🧪 Free: fake translation-only output for tests."
+    te.ENGINE_NOTES[MT_ENGINE_ID] = "Free: fake translation-only output for tests."
     te.TRANSLATION_ONLY_ENGINES.add(MT_ENGINE_ID)
     _mt_installed = True
 

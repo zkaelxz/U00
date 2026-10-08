@@ -19,17 +19,15 @@ describe('withoutUntouchedBackend', () => {
 
 describe('ASR backend help', () => {
   it('has a line for every backend the dropdown offers', () => {
-    for (const id of asrBackendOptions(true)) expect(ASR_BACKEND_HELP[id], id).toBeTruthy()
+    for (const id of asrBackendOptions()) expect(ASR_BACKEND_HELP[id], id).toBeTruthy()
   })
 
-  it('lists one line per offered backend, and MOSS only while it is offered', () => {
-    expect(asrBackendHelp(asrBackendOptions(false)).split('\n')).toHaveLength(asrBackendOptions(false).length)
-    expect(asrBackendHelp(asrBackendOptions(false))).not.toContain('MOSS')
-    expect(asrBackendHelp(asrBackendOptions(true))).toContain('MOSS')
+  it('lists one line per offered backend', () => {
+    expect(asrBackendHelp(asrBackendOptions()).split('\n')).toHaveLength(asrBackendOptions().length)
   })
 
   it('has no help line for a backend the dropdown does not offer', () => {
-    expect(Object.keys(ASR_BACKEND_HELP).sort()).toEqual([...asrBackendOptions(true)].sort())
+    expect(Object.keys(ASR_BACKEND_HELP).sort()).toEqual([...asrBackendOptions()].sort())
   })
 })
 
