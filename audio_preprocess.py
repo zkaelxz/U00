@@ -40,6 +40,8 @@ import time
 import uuid
 import zipfile
 
+import memory_headroom
+
 SEPARATION_BACKENDS = {
     "auto": "Auto -- Mel-Band RoFormer if installed, otherwise Demucs",
     "audio_separator": "Mel-Band RoFormer (audio-separator) -- cleanest vocals",
@@ -384,6 +386,9 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
     progress) and "device" ("gpu" or "cpu", once the model is loaded)."""
     order = {"auto": ("audio_separator", "demucs")}.get(backend, (backend,))
     errors = []
+    # Before the loop: a refusal must not be mistaken for a backend failure
+    # and retried on the other backend.
+    memory_headroom.check("separation", "separator", use_gpu is not False)
     for name in order:
         try:
             return _BACKENDS[name](audio_path, out_path, progress_cb=progress_cb,

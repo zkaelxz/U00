@@ -261,6 +261,10 @@ Fully offline: download a `faster-whisper` model elsewhere and point Settings > 
 
 The app already retries on CPU. The cause is usually a CPU-only PyTorch/ctranslate2 wheel or a CUDA version that doesn't match the driver. Turn "Use the GPU for transcription" off (Settings > Jobs > Performance) to silence it. Background: `docs/technical-notes.md`.
 
+### Sharing the PC with other programs (Keep free memory)
+
+If this PC also runs something else that needs the GPU or RAM (a media server doing hardware transcoding, say), set Settings > Advanced > Offline and performance > "Keep free graphics memory" and "Keep free RAM". Before a local model loads (Whisper, Qwen3-ASR, the aligner, vocal separation, a local Ollama translation model, the dub voices), Baihe compares the model's estimated size and the memory that is free right now with that reserve. If loading would break it, the job stops at once with a message saying what is needed, what is free and what is kept free, instead of running out of memory halfway. Then unload another model (Settings > Loaded now, once no job is running), pick a smaller model or int8, or lower the setting. The default is 0 (off). Sizes are estimates, so leave a little slack. Cloud engines and an Ollama on another machine use none of this PC's memory and are not checked. If the memory can't be read (no NVIDIA GPU, or an OS Baihe can't query for RAM), the check is skipped and Loaded now says so. The app and the command line use the same check. Not yet covered: diarization, OCR other than the manga model, and a llama.cpp server.
+
 ### GPU PyTorch (NVIDIA)
 
 `pip install torch` gives a CPU-only build on Windows, and installing torch, torchvision and torchaudio separately can leave mismatched versions. Diagnostics > Packages > GPU PyTorch shows your GPU, driver and installed torch family, and "Set up GPU PyTorch…" (PC only) installs the matched CUDA build the app is tested with, then checks that CUDA works. Afterwards every Install/Update pins the installed torch family, so a package wanting a different torch is refused instead of replacing your CUDA build.

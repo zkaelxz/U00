@@ -431,15 +431,14 @@ def is_network_error(exc: Exception) -> bool:
 def is_whisper_model_cached(model_size: str) -> bool:
     """Whether a model is already downloaded, so the UI can warn about a
     large download before starting rather than failing partway."""
-    import os as _os
-    hub = _os.environ.get("HF_HOME") or _os.path.join(
-        _os.path.expanduser("~"), ".cache", "huggingface")
-    hub_dir = _os.path.join(hub, "hub")
-    if not _os.path.isdir(hub_dir):
+    hub = os.environ.get("HF_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache", "huggingface")
+    hub_dir = os.path.join(hub, "hub")
+    if not os.path.isdir(hub_dir):
         return False
     needle = f"faster-whisper-{model_size}".lower()
     try:
-        return any(needle in d.lower() for d in _os.listdir(hub_dir))
+        return any(needle in d.lower() for d in os.listdir(hub_dir))
     except OSError:
         return False
 
@@ -520,19 +519,18 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
     """
     target = local_model_path or model_size
     cache_key = f"{target}_{'gpu' if use_gpu else 'cpu'}"
-    import ollama_unload
-    ollama_unload.prepare_gpu_for_transcription(use_gpu)
+    import memory_headroom as mh
+    mh.before_load("whisper", model_size, use_gpu, cache_key in _whisper_model_cache)
     if cache_key in _whisper_model_cache:
         return _whisper_model_cache[cache_key]
 
-    import os as _os
     from faster_whisper import WhisperModel
 
     # An HF token isn't required for public models, but without one you get
     # anonymous rate limits and slower downloads -- and a warning saying so.
-    _tok = hf_token or _os.environ.get("HF_TOKEN") or _os.environ.get("HUGGINGFACE_TOKEN")
+    _tok = hf_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
     if _tok:
-        _os.environ.setdefault("HF_TOKEN", _tok)
+        os.environ.setdefault("HF_TOKEN", _tok)
 
     def _build(device, compute_type):
         return WhisperModel(target, device=device, compute_type=compute_type)
