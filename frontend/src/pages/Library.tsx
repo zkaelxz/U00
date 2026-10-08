@@ -56,14 +56,14 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
   const [all, setAll] = useState(false)
   const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
   if (!items.length) return <ErrorBanner error={recent.error} />
-  const limit = phone ? 2 : 4
+  const limit = phone ? 1 : 4
   const shown = all ? items : items.slice(0, limit)
   const href = (x: ContinueItem) =>
     x.kind === 'read'
       ? readHref({ id: x.dramaId, media_type: mediaTypes.get(x.dramaId) ?? null })
       : workspaceHref(x.dramaId)
   return (
-    <Card title="Continue" className="continue-card" aria-label="Continue">
+    <Card title={phone ? undefined : 'Continue'} className="continue-card" aria-label="Continue">
       <ErrorBanner error={recent.error} />
       <ul className="continue-list">
         {shown.map((x) => (
@@ -78,7 +78,7 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
               <span className="continue-meta">
                 {x.kind === 'read'
                   ? <>Reading{x.page ? ` · page ${x.page}` : ''}{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
-                  : <>{x.status && <Badge kind="status" value={x.status} />}<span>Workspace</span></>}
+                  : <>{x.status && <Badge kind="status" value={x.status} />}{!x.status && <span>Workspace</span>}</>}
               </span>
             </div>
             <ButtonLink
@@ -94,7 +94,7 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
       {items.length > limit && (
         <div className="actions">
           <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={all} onClick={() => setAll((v) => !v)}>
-            {all ? 'Show less' : `Show more (${items.length - limit})`}
+            {all ? 'Less' : `More (${items.length - limit})`}
           </button>
         </div>
       )}
