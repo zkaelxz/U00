@@ -23,6 +23,7 @@ __all__ = [
     "LiveSessionStatus",
     "LiveSessionSummary",
     "LiveSessionStopped",
+    "LiveOllamaCheck",
     "AutotuneCandidateMs",
     "AutotuneRunRequest",
     "AutotuneRunResult",
@@ -245,6 +246,14 @@ class LiveSessionStart(BaseModel):
     model: Optional[str] = Field(None, max_length=100)
     max_minutes: float = 60
     use_gpu: StrictBool = False
+    reply_without_thinking: StrictBool = Field(
+        True, description="Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.")
+
+
+class LiveOllamaCheck(BaseModel):
+    ok: bool
+    model: str
+    message: Optional[str] = None
 
 
 class LiveSessionStarted(BaseModel):

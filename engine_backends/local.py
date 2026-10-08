@@ -7,6 +7,7 @@ import weakref
 
 from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import TranslationCancelled, read_json_capped, request_translations_with_retry
+from .thinking import ollama_chat_no_thinking, wants_no_thinking
 
 
 # Ollama's own default context window can be as small as 2-4k tokens,
@@ -161,7 +162,9 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
                     state["aborted"] = True
                     for sock in list(sockets):
                         _shutdown(sock)
-                worker.join(2.0)
+                # Only a courtesy wait: the thread is a daemon. Kept well under
+                # the 3 s a cancel is expected to take.
+                worker.join(1.0)
                 raise TranslationCancelled("cancelled")
     finally:
         session.close()
@@ -246,7 +249,7 @@ class OllamaEngine:
                     f"Ollama num_ctx override ({num_ctx_override}) is smaller than the "
                     f"estimated prompt size ({estimated}) -- using {estimated} instead to "
                     "avoid silently truncating the prompt.")
-            resp = _ollama_chat(self.base_url, {
+            payload = {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_text},
@@ -255,7 +258,11 @@ class OllamaEngine:
                 "stream": False,
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
                 "options": {"num_ctx": num_ctx},
-            })
+            }
+            if wants_no_thinking(context):
+                resp = ollama_chat_no_thinking(_ollama_chat, self.base_url, payload)
+            else:
+                resp = _ollama_chat(self.base_url, payload)
             return strip_ollama_thinking(resp["message"]["content"])
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,

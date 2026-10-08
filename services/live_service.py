@@ -130,6 +130,22 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
     return engine_name, engine
 
 
+def check_ollama(model: Optional[str] = None) -> dict:
+    """{ok, model, message}: whether Ollama answers and has the model, so the
+    Live form can say so before Start. The message is the plain text the chat
+    call uses and never carries the Ollama address."""
+    from services import translate_run_service
+    model = model or translate_engines.OLLAMA_DEFAULT_MODEL
+    if not translate_run_service._is_safe_ollama_model(model):
+        raise InvalidInputError("That model isn't offered for this engine.")
+    try:
+        translate_engines.check_ollama_model_installed(
+            settings_service.resolve_key("ollama_url") or "http://localhost:11434", model)
+    except translate_engines.OllamaUnavailableError as exc:
+        return {"ok": False, "model": model, "message": translate_engines.redact_secrets(exc.message)}
+    return {"ok": True, "model": model, "message": None}
+
+
 def _remove_dir(session_id: str):
     with _lock:
         entry = _sessions.get(session_id)
@@ -183,6 +199,7 @@ def _make_target(session_id: str):
                     report_stage=functools.partial(job_stage_service.set_stage, session_id),
                     **kwargs)
         finally:
+            job_stage_service.clear_stage(session_id)
             _remove_dir(session_id)
     return _target
 
@@ -205,7 +222,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                   overlap_seconds=live_translate.DEFAULT_OVERLAP_SECONDS,
                   engine: Optional[str] = None, model: Optional[str] = None,
                   max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False,
-                  use_saved_cookies: bool = False) -> dict:
+                  use_saved_cookies: bool = False,
+                  reply_without_thinking: bool = True) -> dict:
     """Starts one live capture session; returns {"session_id": ...}.
     use_saved_cookies: pass yt-dlp the saved Settings cookies (browser or
     cookies.txt). The router sets it only for a request made at the PC, so
@@ -265,6 +283,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             session_id, _make_target(session_id),
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
+            reply_without_thinking=bool(reply_without_thinking),
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),

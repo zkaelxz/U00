@@ -8,6 +8,7 @@
 import type { TranslateEngine } from '../types/translate'
 import type {
   LiveCue,
+  LiveOllamaCheck,
   LiveSessionStart,
   LiveSessionStarted,
   LiveSessionStatus,
@@ -36,6 +37,13 @@ const FEED_SHOWN = 50
 const CUES_KEPT = 1000
 export const POLL_MS = 2000
 
+// What the form starts on: Ollama with this model, so the audio's text stays on
+// this PC. Another engine is one pick away.
+export const LIVE_DEFAULT_ENGINE = 'ollama'
+export const LIVE_DEFAULT_MODEL = 'gemma4:12b'
+// Engines whose request can switch thinking off (engine_backends/thinking.py).
+export const THINKING_SWITCH_ENGINES = ['deepseek', 'ollama']
+
 export interface LiveForm {
   url: string
   source_language: string
@@ -47,6 +55,7 @@ export interface LiveForm {
   overlap_seconds: number
   max_minutes: number
   use_gpu: boolean
+  reply_without_thinking: boolean
 }
 
 export const DEFAULT_FORM: LiveForm = {
@@ -59,6 +68,7 @@ export const DEFAULT_FORM: LiveForm = {
   overlap_seconds: 3,
   max_minutes: 60,
   use_gpu: false,
+  reply_without_thinking: true,
 }
 
 // The options remembered per browser (everything but the link).
@@ -71,6 +81,8 @@ const sessionPath = (id: string) => {
   return `/api/live/sessions/${id}`
 }
 
+export const checkOllama = (model: string, f?: Fetch) =>
+  getJson<LiveOllamaCheck>(`/api/live/ollama-check?model=${encodeURIComponent(model)}`, f)
 export const startLive = (body: LiveSessionStart, f?: Fetch) =>
   postJson<LiveSessionStarted>('/api/live/sessions', body, f)
 export const listLive = (f?: Fetch) => getJson<LiveSessionSummary[]>('/api/live/sessions', f)
@@ -96,12 +108,20 @@ export function checkLiveUrl(url: string): string | null {
 const clamp = (v: number, [lo, hi]: [number, number], fallback: number) =>
   Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback
 
+/** The engine to show: the remembered one if it can run, else Ollama, else the first that can. */
+export function pickEngine(usable: Pick<TranslateEngine, 'name'>[], saved: string): string {
+  if (usable.some((e) => e.name === saved)) return saved
+  return (usable.find((e) => e.name === LIVE_DEFAULT_ENGINE) ?? usable[0])?.name ?? ''
+}
+
 /** The remembered model if the engine still offers it, else '' (its default);
  *  `fellBack` is true when a remembered choice had to be dropped. */
-export function resolveModel(engine: Pick<TranslateEngine, 'models'> | undefined, saved: string): { model: string; fellBack: boolean } {
-  if (!saved) return { model: '', fellBack: false }
+export function resolveModel(engine: Pick<TranslateEngine, 'name' | 'models'> | undefined, saved: string): { model: string; fellBack: boolean } {
+  // Ollama's form default is a named model, so '' and a dropped choice both land on it.
+  const fallback = engine?.name === LIVE_DEFAULT_ENGINE && engine.models?.includes(LIVE_DEFAULT_MODEL) ? LIVE_DEFAULT_MODEL : ''
+  if (!saved) return { model: fallback, fellBack: false }
   const ok = !!engine?.models?.includes(saved)
-  return { model: ok ? saved : '', fellBack: !ok }
+  return { model: ok ? saved : fallback, fellBack: !ok }
 }
 
 /** The POST body: numbers clamped as the service would, overlap at most half the chunk. */
@@ -118,6 +138,7 @@ export function buildStartBody(form: LiveForm): LiveSessionStart {
     model: form.model || null,
     max_minutes: clamp(form.max_minutes, MAX_MINUTES_RANGE, DEFAULT_FORM.max_minutes),
     use_gpu: form.use_gpu === true,
+    reply_without_thinking: form.reply_without_thinking !== false,
   }
 }
 
@@ -167,7 +188,7 @@ export function statusLine(s: Pick<LiveSessionStatus, 'status' | 'message'> & { 
 
 /** One line for the Advanced summary (its current values). */
 export function advancedSummary(f: LiveForm): string {
-  return `Whisper ${f.whisper_size} · chunk ${f.segment_seconds}s · overlap ${f.overlap_seconds}s · stop after ${f.max_minutes} min · ${f.use_gpu ? 'GPU' : 'CPU'}`
+  return `Whisper ${f.whisper_size} · chunk ${f.segment_seconds}s · overlap ${f.overlap_seconds}s · stop after ${f.max_minutes} min · ${f.use_gpu ? 'GPU' : 'CPU'} · ${f.reply_without_thinking ? 'no thinking' : 'thinking allowed'}`
 }
 
 // A 403 on start: from another device this needs a permission the owner grants.

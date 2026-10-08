@@ -15,7 +15,7 @@ from typing import List
 from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import is_local_request, require_engines_allowed, require_permission
-from api.schemas import (ErrorResponse, LiveSessionStart, LiveSessionStarted,
+from api.schemas import (ErrorResponse, LiveOllamaCheck, LiveSessionStart, LiveSessionStarted,
                          LiveSessionStatus, LiveSessionStopped, LiveSessionSummary)
 from services import live_service
 
@@ -36,7 +36,8 @@ def post_session(body: LiveSessionStart, request: Request):
         body.url, source_language=body.source_language, whisper_size=body.whisper_size,
         segment_seconds=body.segment_seconds, overlap_seconds=body.overlap_seconds,
         engine=body.engine, model=body.model, max_minutes=body.max_minutes,
-        use_gpu=body.use_gpu, use_saved_cookies=is_local_request(request))
+        use_gpu=body.use_gpu, use_saved_cookies=is_local_request(request),
+        reply_without_thinking=body.reply_without_thinking)
 
 
 @router.get("/sessions", dependencies=[require_permission("library.read")],
@@ -44,6 +45,14 @@ def post_session(body: LiveSessionStart, request: Request):
             summary="Live sessions started in this process")
 def list_sessions(request: Request):
     return live_service.list_sessions(principal=request.state.principal)
+
+
+@router.get("/ollama-check", dependencies=[require_permission("library.read")],
+            response_model=LiveOllamaCheck,
+            summary="Whether Ollama answers and has the model (no address in the reply)",
+            responses=_ERRS)
+def get_ollama_check(model: str = Query(None, max_length=100)):
+    return live_service.check_ollama(model)
 
 
 @router.get("/sessions/{session_id}", dependencies=[require_permission("library.read")],

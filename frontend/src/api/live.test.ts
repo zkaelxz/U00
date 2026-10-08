@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_FORBIDDEN, advancedSummary, appendCues, buildStartBody, checkLiveUrl, resolveModel,
+  DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, appendCues, buildStartBody, checkLiveUrl, resolveModel,
   describeLiveError, feedCues, fmtTs, getLive, isActive, pickSession, startLive, statusLine, stopLive,
 } from './live'
 import { ApiError } from './client'
@@ -23,7 +23,7 @@ describe('buildStartBody', () => {
   it('trims the link and sends defaults', () => {
     expect(buildStartBody({ ...DEFAULT_FORM, url: ' https://a.test/live ', engine: 'deepseek' })).toEqual({
       url: 'https://a.test/live', source_language: 'zh', whisper_size: 'small', segment_seconds: 20,
-      overlap_seconds: 3, engine: 'deepseek', model: null, max_minutes: 60, use_gpu: false,
+      overlap_seconds: 3, engine: 'deepseek', model: null, max_minutes: 60, use_gpu: false, reply_without_thinking: true,
     })
   })
 
@@ -89,7 +89,7 @@ describe('sessions', () => {
   })
 
   it('summarises the advanced options', () => {
-    expect(advancedSummary({ ...DEFAULT_FORM })).toBe('Whisper small · chunk 20s · overlap 3s · stop after 60 min · CPU')
+    expect(advancedSummary({ ...DEFAULT_FORM })).toBe('Whisper small · chunk 20s · overlap 3s · stop after 60 min · CPU · no thinking')
     expect(DEFAULT_OPTIONS).not.toHaveProperty('url')
   })
 })
@@ -128,19 +128,39 @@ describe('requests', () => {
   })
 })
 
+describe('default engine and model', () => {
+  const engines = [{ name: 'deepseek' }, { name: 'ollama' }, { name: 'claude' }]
+  it('starts on Ollama with gemma4:12b when nothing was chosen', () => {
+    expect(pickEngine(engines, '')).toBe('ollama')
+    expect(resolveModel({ name: 'ollama', models: ['qwen3:8b', LIVE_DEFAULT_MODEL] }, '')).toEqual({ model: LIVE_DEFAULT_MODEL, fellBack: false })
+  })
+  it('keeps a remembered engine, and falls to the first when Ollama is not listed', () => {
+    expect(pickEngine(engines, 'deepseek')).toBe('deepseek')
+    expect(pickEngine([{ name: 'claude' }, { name: 'deepseek' }], '')).toBe('claude')
+    expect(pickEngine([], '')).toBe('')
+  })
+  it('does not name a default model Ollama does not offer', () => {
+    expect(resolveModel({ name: 'ollama', models: ['qwen3:8b'] }, '')).toEqual({ model: '', fellBack: false })
+  })
+  it('knows which engines can switch thinking off', () => {
+    expect(THINKING_SWITCH_ENGINES).toEqual(['deepseek', 'ollama'])
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', reply_without_thinking: false }).reply_without_thinking).toBe(false)
+  })
+})
+
 describe('model choice', () => {
-  const ollama = { models: ['qwen3:8b', 'gemma4:12b'] }
+  const ollama = { name: 'ollama', models: ['qwen3:8b', 'gemma4:12b'] }
   it('keeps an offered model and sends it', () => {
     expect(resolveModel(ollama, 'gemma4:12b')).toEqual({ model: 'gemma4:12b', fellBack: false })
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', engine: 'ollama', model: 'gemma4:12b' }).model).toBe('gemma4:12b')
   })
   it('defaults to the engine default (null) and sends no model', () => {
-    expect(resolveModel(ollama, '')).toEqual({ model: '', fellBack: false })
+    expect(resolveModel({ name: 'deepseek', models: ['deepseek-flash'] }, '')).toEqual({ model: '', fellBack: false })
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' }).model).toBeNull()
   })
   it('drops a remembered model the engine no longer offers, or one with no list', () => {
-    expect(resolveModel(ollama, 'gone:1b')).toEqual({ model: '', fellBack: true })
-    expect(resolveModel({ models: null }, 'qwen3:8b')).toEqual({ model: '', fellBack: true })
+    expect(resolveModel(ollama, 'gone:1b')).toEqual({ model: LIVE_DEFAULT_MODEL, fellBack: true })
+    expect(resolveModel({ name: 'deepseek', models: null }, 'qwen3:8b')).toEqual({ model: '', fellBack: true })
     expect(resolveModel(undefined, 'qwen3:8b')).toEqual({ model: '', fellBack: true })
   })
   it('shows the model in the status line', () => {

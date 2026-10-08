@@ -107,6 +107,10 @@ FREE_ENGINES = {"ollama"}
 # Engines that run without an API key: a local model or a local server.
 KEYLESS_ENGINES = {"ollama"}
 
+# Ids a provider renamed but still serves: a preset or title that saved one
+# keeps running, so the offered lists keep them after the built-in default moves.
+LEGACY_MODEL_ALIASES = {"deepseek": ("deepseek-v4-flash",)}
+
 
 # One short sentence each: the closed engine <select> shows it verbatim, and
 # the Translate page shows its first sentence. Longer detail (rate limits,

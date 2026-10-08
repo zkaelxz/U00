@@ -323,6 +323,7 @@ def _require_offered_model(engine_name: str, model) -> None:
                    if e["name"] == engine_name), None)
     allowed = models if models is not None else [
         translate_engines.builtin_default_model(engine_name), _default_model(engine_name)]
+    allowed = [*allowed, *translate_engines.LEGACY_MODEL_ALIASES.get(engine_name, ())]
     if not isinstance(model, str) or model not in allowed:
         raise InvalidInputError("That model isn't offered for this engine.")
 
