@@ -14,7 +14,7 @@ import { LibraryList } from '../components/LibraryList'
 import { Section } from '../components/Section'
 import { Sheet } from '../components/Sheet'
 import {
-  continueItems, countDramas, dramaName, readHref, tileHue, tileText, workspaceHref, type ContinueItem,
+  continueItems, dramaName, readHref, tileHue, tileText, workspaceHref, type ContinueItem,
 } from '../components/libraryView'
 import { buttonClass } from '../components/uiClasses'
 import { useLoad, type Loaded } from '../hooks/useLoad'
@@ -26,7 +26,7 @@ import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
 import { SelectionBar } from './libraryAdmin/SelectionBar'
 import { pruneSelection, selectedItems } from './libraryAdmin/libraryAdmin'
 import { useAdminJob } from './libraryAdmin/useAdminJob'
-import type { DramaCreateRequest, LibraryDashboard } from '../types/library'
+import type { DramaCreateRequest } from '../types/library'
 import {
   MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice,
   validateCreate, type CreateExtras,
@@ -34,16 +34,13 @@ import {
 import { GetStarted } from './libraryParity/GetStarted'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
-  autofillHref, usageLine,
+  autofillHref, libraryHeadline, usageLine, usageSpent,
 } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
 import { savePresetStart } from './workspace/translateForm'
 import { SERIES_HELP } from '../helpText'
 
 
-
-const statsLine = (s: LibraryDashboard) =>
-  `${countDramas(s.total_dramas)} · ${s.translated_lines} of ${s.total_lines} lines translated · $${s.usage.estimated_cost_usd.toFixed(2)} spent · ${usageLine(s.usage)}`
 
 // "Continue": reading and workspace activity, one Resume tap each. Rendered
 // only when there is something to resume.
@@ -56,14 +53,14 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
   const [all, setAll] = useState(false)
   const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
   if (!items.length) return <ErrorBanner error={recent.error} />
-  const limit = phone ? 2 : 4
+  const limit = phone ? 1 : 4
   const shown = all ? items : items.slice(0, limit)
   const href = (x: ContinueItem) =>
     x.kind === 'read'
       ? readHref({ id: x.dramaId, media_type: mediaTypes.get(x.dramaId) ?? null })
       : workspaceHref(x.dramaId)
   return (
-    <Card title="Continue" className="continue-card" aria-label="Continue">
+    <Card title={phone ? undefined : 'Continue'} className="continue-card" aria-label="Continue">
       <ErrorBanner error={recent.error} />
       <ul className="continue-list">
         {shown.map((x) => (
@@ -78,7 +75,7 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
               <span className="continue-meta">
                 {x.kind === 'read'
                   ? <>Reading{x.page ? ` · page ${x.page}` : ''}{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
-                  : <>{x.status && <Badge kind="status" value={x.status} />}<span>Workspace</span></>}
+                  : <>{x.status && <Badge kind="status" value={x.status} />}{!x.status && <span>Workspace</span>}</>}
               </span>
             </div>
             <ButtonLink
@@ -94,7 +91,7 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
       {items.length > limit && (
         <div className="actions">
           <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={all} onClick={() => setAll((v) => !v)}>
-            {all ? 'Show less' : `Show more (${items.length - limit})`}
+            {all ? 'Less' : `More (${items.length - limit})`}
           </button>
         </div>
       )}
@@ -307,7 +304,13 @@ export default function LibraryPage() {
         <div className="page-head-text">
           <h2 className="page-title">Library</h2>
           <ErrorBanner error={stats.error} />
-          {stats.data && <p className="page-meta" data-testid="stats">{statsLine(stats.data)}</p>}
+          {stats.data && <p className="page-meta" data-testid="stats">{libraryHeadline(stats.data)}</p>}
+          {stats.data && usageSpent(stats.data.usage) && (
+            <details className="stats-usage">
+              <summary>{usageSpent(stats.data.usage)}</summary>
+              <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
+            </details>
+          )}
         </div>
         <div className="actions">
           <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New drama</button>

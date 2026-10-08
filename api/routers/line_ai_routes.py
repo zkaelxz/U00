@@ -7,7 +7,7 @@ suggestion via the compare-and-set line patch. Logic lives in
 services/line_ai_service.py. Both take a slot from the shared LLM cap
 (api/llm_slots.py; 429 when busy).
 
-Also here (review parity R17-R19): "Alternatives" and "Grammar" are
+Also here: "Alternatives" and "Grammar" are
 read-only (`lines.read`) but call an LLM, so the handler also runs
 `require_engines_allowed` on the engine the call will use: the named one,
 else the drama's own translation engine (resolved here, then passed on).

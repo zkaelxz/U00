@@ -13,6 +13,7 @@ import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { SavedComicsFolder } from '../../types/savedComics'
+import './manga.css'
 
 export function OpenFolderButton({ size = 'md' }: { size?: 'md' | 'sm' }) {
   const pc = usePcOnly()

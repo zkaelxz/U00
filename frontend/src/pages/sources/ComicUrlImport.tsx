@@ -25,7 +25,7 @@ import { describeSourceError, percent } from './sourcesFormat'
 import { useAiEngines } from './useAiEngines'
 import { useDramaList } from './useDramaList'
 import { useSourcesJob } from './useSourcesJob'
-import { chapterImportDramas } from './urlImportFormat'
+import { chapterImportDramas, hiddenDramaCount } from './urlImportFormat'
 import './extraction.css'
 
 type Props = { url: string; title: string; language: string | null }
@@ -62,6 +62,7 @@ export function ComicUrlImport({ url, title, language }: Props) {
         disabled={running}
         newDrama={{ title, language, comic: true }}
         onCreated={dramas.add}
+        hiddenCount={dramas.items ? hiddenDramaCount(dramas.items, true) : 0}
         help="The pages are added after the drama’s existing pages."
       />
       <ErrorBanner error={dramas.error} />

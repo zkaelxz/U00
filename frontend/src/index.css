@@ -401,6 +401,8 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .field-label-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
 .field-label-row label { font-weight: 600; }
 .field-control { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+/* A small button's hit area reaches 6px above it; 4px would put it under the label row's help button. */
+.field-item:has(> .field-control > .btn-sm) { gap: var(--space-2); }
 .field-control > :first-child { flex: 1 1 auto; min-width: 0; }
 .field-unit { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .field-help { position: relative; display: inline-flex; }
@@ -693,6 +695,12 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .page-head-text { display: grid; gap: var(--space-1); min-width: 0; }
 .page-title { margin: 0; font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1.2; }
 .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.stats-usage > summary { color: var(--muted); font-size: var(--text-sm); cursor: pointer; width: fit-content; }
+.stats-usage > p { margin-top: var(--space-1); }
+@media (max-width: 640px) {
+  .page-head-text { flex: 1 1 0; }
+  .page-head > .actions { flex: none; }
+}
 .num { font-variant-numeric: tabular-nums; }
 .status-line { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .status-line > span { flex: 1 1 12rem; min-width: 0; }
@@ -706,6 +714,10 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .continue-text { display: grid; min-width: 0; }
 .continue-title { font-weight: var(--weight-bold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .continue-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--muted); font-size: var(--text-sm); }
+@media (max-width: 640px) {
+  .continue-card { padding: var(--space-3); }
+  .continue-item { padding: var(--space-2); }
+}
 
 /* Toolbar: search, scope, filters, view, select */
 .library-list { display: grid; gap: var(--space-3); min-width: 0; }
@@ -729,15 +741,16 @@ button.primary:disabled { background: var(--accent); border-color: var(--accent)
 .empty-note p { margin: 0; }
 
 /* Drama grid: cover-style cards; the title link covers the card. */
-.drama-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-5); }
-.drama-card { position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-1); transition: border-color var(--dur-2) var(--ease); }
+.drama-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); }
+.drama-card { position: relative; display: flex; flex-direction: row; align-items: flex-start; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-1); transition: border-color var(--dur-2) var(--ease); }
 .drama-card:hover, .drama-card:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .drama-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow-1); }
-.drama-tile { display: grid; place-items: center; aspect-ratio: 3 / 4; font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1; color: var(--text); background: var(--surface-2); user-select: none; }
+.drama-tile { display: grid; place-items: center; flex: 0 0 56px; width: 56px; height: 75px; aspect-ratio: auto; margin: var(--space-3) 0 var(--space-3) var(--space-3); border-radius: var(--radius-md); font-size: var(--text-xl); font-weight: var(--weight-bold); line-height: 1; color: var(--text); background: var(--surface-2); user-select: none; }
 .tile-h0 { --tile: #7c5cbf; } .tile-h1 { --tile: #3f7fbf; } .tile-h2 { --tile: #2f9a86; }
 .tile-h3 { --tile: #c0714f; } .tile-h4 { --tile: #b0558a; } .tile-h5 { --tile: #8a8a3a; }
 .drama-tile[class*='tile-h'], .continue-tile[class*='tile-h'] { background: linear-gradient(160deg, color-mix(in srgb, var(--tile) 34%, var(--surface-2)), color-mix(in srgb, var(--tile) 12%, var(--surface-2))); }
-.drama-card-main { display: flex; flex-direction: column; gap: var(--space-1); flex: 1 1 auto; min-width: 0; padding: var(--space-3) var(--space-4) var(--space-2); }
+.drama-card-main { display: flex; flex-direction: column; gap: var(--space-1); flex: 1 1 auto; min-width: 0; padding: var(--space-3) var(--space-4) var(--space-2) var(--space-3); }
+@media (min-width: 1024px) { .drama-tile { flex-basis: 64px; width: 64px; height: 86px; } }
 .drama-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--text); font-weight: var(--weight-bold); line-height: 1.35; text-decoration: none; }
 /* Stretched link: the title link's ::after covers the whole card (.drama-card is position: relative), so the card is
    one hit area; the foot controls sit above it at z-index 1. The link's own focus outline is hidden and the card
@@ -810,8 +823,6 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   .toolbar-row { flex-basis: 100%; }
   .segmented span { min-height: 40px; padding-inline: var(--space-4); }
   .drama-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
-  .drama-card { flex-direction: row; align-items: flex-start; }
-  .drama-tile { flex: 0 0 56px; width: 56px; height: 75px; aspect-ratio: auto; margin: var(--space-3) 0 var(--space-3) var(--space-3); border-radius: var(--radius-md); font-size: var(--text-xl); }
   .drama-card-main { padding: var(--space-3); }
   .drama-card-foot { gap: var(--space-3); }
   .drama-grid .card-check { top: var(--space-3); left: var(--space-3); width: 56px; height: 56px; }

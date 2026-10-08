@@ -32,15 +32,15 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`engineering-standards.md`** — shared principles: precedence, scope,
   review policy, verification, git/safety.
 - **`starting-a-project.md`** — a retrospective: the day-one setup, session habits and feature rules to follow when starting a project like this from scratch.
+- **`user-guide.md`** — the feature walkthroughs, CLI, dev setup and ports, troubleshooting, Diagnostics and Benchmark Lab that used to be in the root `README.md`.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
   CI-minutes notes.
 - **`household-access.md`** — step-by-step guide to reach Baihe from
   household devices through Caddy (`deploy/caddy/Caddyfile.template`).
 - **`windows-installer-design.md`** — the Windows installer/uninstaller:
-  Step 80's design, as built in Step 80b (`installer/`).
+  what `installer/` builds and why: install layout, build steps, upgrade and uninstall, the boot service. Cut history: `archive/windows-installer-design-history.md`.
 - **`technical-notes.md`** — an engineering changelog of real bugs found
-  and how they were fixed, kept separate from the main `README.md` so
-  that stays focused on using the app.
+  and how they were fixed, kept separate from the user-facing docs.
 - **`RELEASE.md`** — building the Windows installer and the frontend release zip.
 - **`database.md`** — the database layer: `db.py` and `sources.db`, migrations and the guard test, a table map, the rules learned from bugs, backups, and what sits on disk beside the database.
 - **`runbook.md`** — one-page maintainer steps: installer lock, tests, restore, certificate, benchmark.
@@ -48,7 +48,8 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`remote-access-decision.md`** — the remote-access design as built. **`route-permissions.md`** — the route table `tests/test_api_permissions.py` enforces.
 - **`engine-backends.md`** — the translation engine package, transcription and dubbing engines, the rules learned from bugs, and an adding-an-engine checklist.
 - **`background-jobs.md`** — how background jobs run: thread and process jobs, the GPU guard, cancel, holds, the Jobs API and the CLI, with an add-a-job checklist.
-- **`asr-experiments.md`** — the off-by-default Qwen3-ASR batching option and the transcription benchmarks.
+- **`asr-experiments.md`** — the transcription options (backends, batch size, mixed languages, vocal separation), install and failure-mode notes, and a dated snapshot of the benchmarks.
+- **`research/twmanga-vetting.md`** — dated browser-tier vetting of `twmanga.com` (a `baozimh.com` mirror): headers, image delivery, redirect chain, policies, verdict.
 - **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
 - **`design/`** and **`specs/`** — the UI refresh spec (with before/after screenshots) and earlier API/UX/Step 141 proposals; the specs were written against the removed Streamlit tabs.
 - **`STATUS.md`** — current state, in-flight work and what's next.
@@ -56,8 +57,9 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   truth: the migration review, handoff and React/FastAPI phase log, the
   old roadmap master tracker, the Streamlit test triage, the superseded
   remote-access and browser-extension handoffs, the installer research
-  notes, the Step 19 click-through audit, and the unbuilt Jellyfin/Plex metadata
-  design.
+  notes and cut installer-design history, the Step 19 click-through audit, the
+  unbuilt Jellyfin/Plex metadata design, and the full ASR experiment write-up
+  (`asr-experiments-history.md`).
 
 ## `docs/secondary-review-notes.md` — not present here
 
