@@ -7,7 +7,7 @@ const SHOTS = process.env.SHOT_DIR
 
 test('error fallback fits a phone and keeps 44px targets', async ({ page }) => {
   await page.route('**/api/library/stats', (route) =>
-    route.fulfill({ json: { total_dramas: 1, translated_lines: 0, total_lines: 0 } }),
+    route.fulfill({ json: { total_dramas: 1, total_lines: 0 } }),
   )
   await page.goto('/')
   const fallback = page.getByTestId('error-fallback')

@@ -14,7 +14,7 @@ import { LibraryList } from '../components/LibraryList'
 import { Section } from '../components/Section'
 import { Sheet } from '../components/Sheet'
 import {
-  continueItems, countDramas, dramaName, readHref, tileHue, tileText, workspaceHref, type ContinueItem,
+  continueItems, dramaName, readHref, tileHue, tileText, workspaceHref, type ContinueItem,
 } from '../components/libraryView'
 import { buttonClass } from '../components/uiClasses'
 import { useLoad, type Loaded } from '../hooks/useLoad'
@@ -26,7 +26,7 @@ import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
 import { SelectionBar } from './libraryAdmin/SelectionBar'
 import { pruneSelection, selectedItems } from './libraryAdmin/libraryAdmin'
 import { useAdminJob } from './libraryAdmin/useAdminJob'
-import type { DramaCreateRequest, LibraryDashboard } from '../types/library'
+import type { DramaCreateRequest } from '../types/library'
 import {
   MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice,
   validateCreate, type CreateExtras,
@@ -34,16 +34,13 @@ import {
 import { GetStarted } from './libraryParity/GetStarted'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
-  autofillHref, usageLine,
+  autofillHref, libraryHeadline, usageLine, usageSpent,
 } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
 import { savePresetStart } from './workspace/translateForm'
 import { SERIES_HELP } from '../helpText'
 
 
-
-const statsLine = (s: LibraryDashboard) =>
-  `${countDramas(s.total_dramas)} · ${s.translated_lines} of ${s.total_lines} lines translated · $${s.usage.estimated_cost_usd.toFixed(2)} spent · ${usageLine(s.usage)}`
 
 // "Continue": reading and workspace activity, one Resume tap each. Rendered
 // only when there is something to resume.
@@ -307,7 +304,13 @@ export default function LibraryPage() {
         <div className="page-head-text">
           <h2 className="page-title">Library</h2>
           <ErrorBanner error={stats.error} />
-          {stats.data && <p className="page-meta" data-testid="stats">{statsLine(stats.data)}</p>}
+          {stats.data && <p className="page-meta" data-testid="stats">{libraryHeadline(stats.data)}</p>}
+          {stats.data && usageSpent(stats.data.usage) && (
+            <details className="stats-usage">
+              <summary>{usageSpent(stats.data.usage)}</summary>
+              <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
+            </details>
+          )}
         </div>
         <div className="actions">
           <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New drama</button>
