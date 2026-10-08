@@ -42,10 +42,22 @@ test('dashboard: API calls, cache-hit share, header stats line (L01)', async ({ 
   await expect(page.getByTestId('stats-breakdown')).toHaveCount(0)
 })
 
-// The seeded library has no logged usage, so the fold must not render empty.
-test('dashboard from the real API shows the line and no empty usage fold', async ({ page }) => {
+// The e2e server's library is shared across specs, and lab-benchmark logs
+// real usage into it, so the fold's presence has to follow the API payload
+// rather than assume a pristine library.
+test('dashboard from the real API shows the line and a usage fold only when usage was logged', async ({ page }) => {
+  const reply = page.waitForResponse((r) => r.url().endsWith('/api/library/stats'))
   await page.goto('/')
+  const { usage } = await (await reply).json()
   await expect(page.getByTestId('stats')).toContainText(/\d+ dramas? · [\d,]+ of [\d,]+ lines/)
+  await expect(page.locator('.stats-usage')).toHaveCount(usage.call_count || usage.estimated_cost_usd ? 1 : 0)
+})
+
+test('no usage fold when nothing was spent or called', async ({ page }) => {
+  const idle = { ...stats, usage: { ...stats.usage, call_count: 0, estimated_cost_usd: 0 } }
+  await page.route('**/api/library/stats', (r) => r.fulfill({ json: idle }))
+  await page.goto('/')
+  await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.locator('.stats-usage')).toHaveCount(0)
 })
 
