@@ -28,7 +28,7 @@ URL you have the right to download from, only.
 - **Export**: SRT/VTT/ASS, burned-in (hardsub) or toggleable (softsub) video, dub track mixing, EPUB, bulk zip.
 - **Interactive Reader** with pinyin/furigana, click-to-define, in-app Q&A, in-app playback and Anki vocabulary export.
 - **Scanlate** (manga/comic typesetting): detect bubbles, clean, translate, place text, adjust, render.
-- **Sources and Discover**: site adapters for importing chapters, metadata auto-fill from public listing pages, a known-titles catalog, and a site navigation helper.
+- **Sources and Discover**: site adapters for importing chapters, metadata auto-fill from public listing pages, a known-titles catalog (its Discover tab is currently hidden), and a site navigation helper.
 - **Video input**: upload `.mp4`/`.mov`/`.mkv`/`.webm` or download from a URL via yt-dlp.
 - **CLI** (`cli.py`): headless batch runs across your library.
 

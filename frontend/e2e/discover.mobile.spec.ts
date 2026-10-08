@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { CATALOGUE_TAB_ENABLED } from '../src/pages/discover/discoverFormat'
 import { mockDiscover, openTab } from './discoverMocks'
 import { installHitArea } from './hitArea'
 
@@ -34,13 +35,15 @@ async function tallTargets(page: Page) {
 test('phone: every tab and section open, no sideways scroll, 44 px targets', async ({ page }) => {
   const s = await mockDiscover(page, { bulk: 'done', nav: 'done' })
   await page.goto('/#/discover')
-  await expect(page.getByTestId('catalog-count')).toHaveText('2 of 2 saved titles')
-  await page.getByTestId('catalog-list').getByText('Details').first().click()
-  await page.getByTestId('catalog-list').getByRole('button', { name: 'Add 女将军和长公主 to Library' }).click()
-  await expect(page.getByRole('link', { name: 'In your Library — open' })).toHaveAttribute('href', '#/drama/42')
-  await noSideways(page)
-  await tallTargets(page)
-  await page.screenshot({ path: 'test-results/discover-phone-catalogue.png', fullPage: true })
+  if (CATALOGUE_TAB_ENABLED) {
+    await expect(page.getByTestId('catalog-count')).toHaveText('2 of 2 saved titles')
+    await page.getByTestId('catalog-list').getByText('Details').first().click()
+    await page.getByTestId('catalog-list').getByRole('button', { name: 'Add 女将军和长公主 to Library' }).click()
+    await expect(page.getByRole('link', { name: 'In your Library — open' })).toHaveAttribute('href', '#/drama/42')
+    await noSideways(page)
+    await tallTargets(page)
+    await page.screenshot({ path: 'test-results/discover-phone-catalogue.png', fullPage: true })
+  }
 
   await openTab(page, 'Find a title')
   for (const name of ['Search baihehub', 'Open a site or explain a page']) {

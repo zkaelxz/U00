@@ -5,7 +5,8 @@
  * (DI01); only its name is sent, the key stays on the PC. Three tabs, the
  * choice remembered; every panel stays mounted (just hidden) so a half-filled
  * form or a bulk review survives a tab switch:
- * Catalogue (search, filters, details, add to Library, remove: DI02/DI03);
+ * Catalogue (search, filters, details, add to Library, remove: DI02/DI03),
+ * shown only while CATALOGUE_TAB_ENABLED is true;
  * Find a title: official platforms (DI04), then folded Search baihehub (DI06)
  * and Open a site or explain a page (DI05/DI08: a new tab, not an in-app frame);
  * Add titles: from a URL or by hand (DI09/DI10), then folded Bulk import (DI07).
@@ -23,7 +24,7 @@ import { AddTitle } from './discover/AddTitle'
 import { BaihehubPanel } from './discover/BaihehubPanel'
 import { BulkImport } from './discover/BulkImport'
 import { CatalogPanel } from './discover/CatalogPanel'
-import { discoverEngines } from './discover/discoverFormat'
+import { CATALOGUE_TAB_ENABLED, discoverEngines } from './discover/discoverFormat'
 import { FindPanel } from './discover/FindPanel'
 import { NavigationHelp } from './discover/NavigationHelp'
 import './discover/discover.css'
@@ -31,18 +32,19 @@ import { AI_ENGINE_LABEL } from '../helpText'
 
 type TabId = 'catalogue' | 'find' | 'add'
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'catalogue', label: 'Catalogue' },
+  ...(CATALOGUE_TAB_ENABLED ? [{ id: 'catalogue' as const, label: 'Catalogue' }] : []),
   { id: 'find', label: 'Find a title' },
   { id: 'add', label: 'Add titles' },
 ]
+const DEFAULT_TAB: TabId = TABS[0].id
 const TAB_KEY = 'baihe.discover.tab'
 
 function savedTab(): TabId {
   try {
     const v = window.localStorage.getItem(TAB_KEY)
-    return TABS.some((t) => t.id === v) ? (v as TabId) : 'catalogue'
+    return TABS.some((t) => t.id === v) ? (v as TabId) : DEFAULT_TAB
   } catch {
-    return 'catalogue'
+    return DEFAULT_TAB
   }
 }
 
@@ -89,12 +91,12 @@ export default function DiscoverPage() {
     <div className="discover-page">
       <header className="discover-head">
         <h2>Discover</h2>
-        <p className="muted">Find baihe titles, keep a catalogue of them, and add the ones you want to your Library.</p>
+        <p className="muted">Find baihe titles online and add the ones you want.</p>
         {engines === null ? (
           <p className="muted">Loading engines…</p>
         ) : engines.length === 0 ? (
           <p className="muted" data-testid="no-engine">
-            No AI engine is set up. The catalogue and search links work; <a href={routeHref({ name: 'settings' })}>add a key in
+            No AI engine is set up. Search links still work; <a href={routeHref({ name: 'settings' })}>add a key in
             Settings</a> for translation and page reading.
           </p>
         ) : (
@@ -132,9 +134,11 @@ export default function DiscoverPage() {
         ))}
       </div>
 
-      <div role="tabpanel" id="discover-panel-catalogue" aria-labelledby="discover-tab-catalogue" hidden={tab !== 'catalogue'} className="discover-panel">
-        <CatalogPanel pc={pc} reloadKey={catalogKey} />
-      </div>
+      {CATALOGUE_TAB_ENABLED && (
+        <div role="tabpanel" id="discover-panel-catalogue" aria-labelledby="discover-tab-catalogue" hidden={tab !== 'catalogue'} className="discover-panel">
+          <CatalogPanel pc={pc} reloadKey={catalogKey} />
+        </div>
+      )}
 
       <div role="tabpanel" id="discover-panel-find" aria-labelledby="discover-tab-find" hidden={tab !== 'find'} className="discover-panel">
         <section aria-label="Find on official platforms" className="discover-group">
