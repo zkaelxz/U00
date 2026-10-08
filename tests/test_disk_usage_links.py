@@ -10,8 +10,8 @@ import os
 import pytest
 
 import db
-from services import disk_usage_service as dus
-from services.service_errors import InvalidInputError, UnsupportedOperationError
+from services import auto_backup_service, disk_usage_service as dus
+from services.service_errors import InvalidInputError
 
 
 def _write(path, size):
@@ -308,6 +308,50 @@ class TestNetworkTargets:
         assert measured == []
 
 
+class TestLinkChains:
+    def _sizes(self, tmp_path, measured):
+        from services import disk_usage_links as links
+        return links.LinkedSizes(str(tmp_path), [], dus._within, lambda *a: measured.append(a))
+
+    def _fake(self, monkeypatch, chain):
+        def readlink(p):
+            if p in chain:
+                return chain[p]
+            raise OSError("not a link")
+
+        def no_realpath(p):
+            raise AssertionError("realpath must not open a chain that is not all local")
+
+        monkeypatch.setattr(os, "readlink", readlink)
+        monkeypatch.setattr(os.path, "realpath", no_realpath)
+
+    def test_local_link_to_link_to_network_is_skipped(self, tmp_path, monkeypatch):
+        measured = []
+        self._fake(monkeypatch, {"a": "b", "b": r"\\host\share"})
+        assert self._sizes(tmp_path, measured).of(["a"], budget=None) == (0, 0, False)
+        assert measured == []
+
+    def test_loop_is_skipped(self, tmp_path, monkeypatch):
+        measured = []
+        self._fake(monkeypatch, {"a": "b", "b": "a"})
+        assert self._sizes(tmp_path, measured).of(["a"], budget=None) == (0, 0, False)
+        assert measured == []
+
+    def test_too_many_hops_is_skipped(self, tmp_path, monkeypatch):
+        from services import disk_usage_links as links
+        measured = []
+        n = links.MAX_LINK_HOPS + 2
+        self._fake(monkeypatch, {f"l{i}": f"l{i + 1}" for i in range(n)})
+        assert self._sizes(tmp_path, measured).of(["l0"], budget=None) == (0, 0, False)
+        assert measured == []
+
+    def test_real_chain_of_local_links_is_measured(self, tree, big):
+        mid = os.path.join(tree, "library", "backups", "mid")
+        _link(big, mid)
+        _link(mid, os.path.join(tree, "library", "backups", "auto"))
+        assert _item(dus.scan("library/backups"), "auto")["linked_bytes"] == 100_000
+
+
 class TestSkippedTargets:
     @pytest.mark.parametrize("which", ["program", "home"])
     def test_link_to_program_or_home_folder_is_not_followed(self, tree, big, monkeypatch, which):
@@ -324,17 +368,23 @@ class TestSkippedTargets:
 
 
 class TestMoveRefusesLinks:
+    # Only the automatic-backup folder is movable, so these target it: any
+    # other path is refused as unsupported before a link or volume is looked at.
     def test_move_refuses_a_link(self, tree, big, tmp_path):
-        backups = os.path.join(tree, "library", "backups")
-        os.rename(backups, backups + ".old")
-        _link(big, backups)
-        with pytest.raises((InvalidInputError, UnsupportedOperationError)):
-            dus.move("library/backups", str(tmp_path / "dest"), confirm=True)
+        auto = os.path.join(db.LIBRARY_DIR, *auto_backup_service.DEFAULT_SUBDIR)
+        _link(big, auto)
+        (tmp_path / "dest").mkdir()
+        with pytest.raises(InvalidInputError, match="Links and junctions"):
+            dus.move("/".join(("library", *auto_backup_service.DEFAULT_SUBDIR)),
+                     str(tmp_path / "dest"), confirm=True)
         assert (big / "a.zip").exists()
 
     def test_move_refuses_a_folder_on_another_volume(self, tree, monkeypatch, tmp_path):
-        backups = os.path.join(tree, "library", "backups")
-        _on_another_volume(monkeypatch, backups)
-        with pytest.raises((InvalidInputError, UnsupportedOperationError)):
-            dus.move("library/backups", str(tmp_path / "dest"), confirm=True)
-        assert os.path.exists(os.path.join(backups, "small.zip"))
+        auto = os.path.join(db.LIBRARY_DIR, *auto_backup_service.DEFAULT_SUBDIR)
+        _write(os.path.join(auto, "copy.zip"), 10)
+        _on_another_volume(monkeypatch, auto)
+        (tmp_path / "dest").mkdir()
+        with pytest.raises(InvalidInputError):
+            dus.move("/".join(("library", *auto_backup_service.DEFAULT_SUBDIR)),
+                     str(tmp_path / "dest"), confirm=True)
+        assert os.path.exists(os.path.join(auto, "copy.zip"))

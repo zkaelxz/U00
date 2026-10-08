@@ -17,6 +17,9 @@ import stat
 # A folder with more links than this reports its linked size as incomplete.
 MAX_LINK_TARGETS = 64
 
+# A chain of links longer than this is treated as a loop.
+MAX_LINK_HOPS = 8
+
 
 def _is_network_path(real: str) -> bool:
     """A UNC path (\\\\host\\share). Resolving or measuring one makes Windows
@@ -29,6 +32,29 @@ def _is_network_path(real: str) -> bool:
     if p[2:4] in ("?\\", ".\\"):
         return p[4:].upper().startswith("UNC\\")
     return True
+
+
+def _local_target(path: str):
+    """The real path `path` leads to, or None when the chain of links starting
+    at it reaches a network path, loops or is too long. Each hop's raw target
+    is checked before it is followed, because realpath on Windows would open
+    the whole chain, network host included, in one call."""
+    cur = path
+    seen = set()
+    for _ in range(MAX_LINK_HOPS + 1):
+        try:
+            raw = os.readlink(cur)
+        except OSError:
+            real = os.path.realpath(cur)
+            return None if _is_network_path(real) else real
+        if _is_network_path(raw):
+            return None
+        key = os.path.normcase(cur)
+        if key in seen:
+            return None
+        seen.add(key)
+        cur = os.path.join(os.path.dirname(cur), raw)
+    return None
 
 
 class LinkedSizes:
@@ -50,22 +76,14 @@ class LinkedSizes:
         """(bytes, files, complete) for the folders `link_paths` lead to, or
         None when none of them was measured here (a file link, a target that
         is counted where it lives, or one that is skipped). A target on a
-        network path is never touched and makes the result incomplete."""
+        network path, or a chain of links that loops, is too long or reaches
+        one, is never touched and makes the result incomplete."""
         total = files = 0
         measured = skipped_network = False
         complete = not cut
         for path in link_paths:
-            # The raw target is checked first: realpath on Windows can itself
-            # reach out to the host a link names.
-            try:
-                raw = os.readlink(path)
-            except OSError:
-                raw = ""
-            if _is_network_path(raw):
-                skipped_network = True
-                continue
-            real = os.path.realpath(path)
-            if _is_network_path(real):
+            real = _local_target(path)
+            if real is None:
                 skipped_network = True
                 continue
             try:
