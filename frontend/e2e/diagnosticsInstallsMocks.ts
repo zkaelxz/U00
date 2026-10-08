@@ -11,7 +11,7 @@ const overview = {
     pypinyin: { installed: true, powers: 'Chinese pinyin', tier: 'feature' },
     pandas: { installed: true, powers: 'tables', tier: 'required' },
   },
-  file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
+  file_completeness: { missing_top_level: [], all_present: true },
   library_writable: true,
   gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
   model_engine_versions: [],
@@ -23,7 +23,7 @@ const setup = (jsFound: boolean) => ({
   ffmpeg: { found: true, version: '6.1' },
   js_runtime: jsFound ? { found: true, name: 'deno' } : { found: false, name: null },
   cuda: { torch_installed: false, cuda_available: null },
-  files: { all_present: true, missing_top_level: [], missing_tabs: [] },
+  files: { all_present: true, missing_top_level: [] },
   library_writable: true,
 })
 

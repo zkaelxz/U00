@@ -136,7 +136,6 @@ class DependencyStatus(BaseModel):
 
 class FileCompleteness(BaseModel):
     missing_top_level: List[str]
-    missing_tabs: List[str]
     all_present: bool
 
 
@@ -484,7 +483,6 @@ class DiagnosticsSetupCuda(BaseModel):
 class DiagnosticsSetupFiles(BaseModel):
     all_present: bool
     missing_top_level: List[str]
-    missing_tabs: List[str]
 
 
 class DiagnosticsSetupChecks(BaseModel):
