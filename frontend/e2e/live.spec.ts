@@ -29,7 +29,7 @@ test('start, see lines arrive, stop', async ({ page }) => {
   await expect.poll(() => m.posts.length).toBe(1)
   expect(m.posts[0].body).toEqual({
     url: 'https://www.youtube.com/watch?v=abc', source_language: 'ja', whisper_size: 'small', segment_seconds: 30,
-    overlap_seconds: 3, engine: 'deepseek', max_minutes: 15, use_gpu: true,
+    overlap_seconds: 3, engine: 'deepseek', model: null, max_minutes: 15, use_gpu: true,
   })
   expect(m.posts[0].headers['x-baihe-local']).toBe('1')
 
@@ -123,4 +123,49 @@ test('the status names the stage, flags a long wait on Ollama, and says what a s
   await expect(live.getByRole('button', { name: 'Stopping…' })).toBeDisabled()
   await expect(live.getByTestId('live-status')).toContainText('cannot be interrupted mid-chunk')
   expect(m.unmocked).toEqual([])
+})
+
+test('model picker: shown for an engine with a model list, choice is sent and shown in status', async ({ page }) => {
+  const m = await mockLive(page, { ollama: true })
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByLabel('AI engine', { exact: true }).selectOption('ollama')
+  const model = live.getByLabel('Model', { exact: true })
+  await expect(model.locator('option')).toHaveText(['Engine default', 'qwen3:8b', 'gemma4:12b'])
+  await expect(model).toHaveValue('')
+  // No model list for this engine: no picker.
+  await live.getByLabel('AI engine', { exact: true }).selectOption('fake')
+  await expect(model).toHaveCount(0)
+  await live.getByLabel('AI engine', { exact: true }).selectOption('ollama')
+  await model.selectOption('gemma4:12b')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'gemma4:12b' })
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  m.state.model = 'gemma4:12b'
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines · gemma4:12b')
+  await expect(model).toBeDisabled()
+  expect(m.unmocked).toEqual([])
+})
+
+test('model picker: a remembered model the engine no longer offers falls back to the default', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ engine: 'ollama', model: 'gone:1b' })))
+  const m = await mockLive(page, { ollama: true })
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await expect(live.getByLabel('Model', { exact: true })).toHaveValue('')
+  await expect(live.getByTestId('live-model-note')).toContainText("default model will be used")
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: null })
+})
+
+test('model picker: when the engine list fails to load, says the default model is used', async ({ page }) => {
+  const m = await mockLive(page, { enginesFail: true })
+  const live = await openLive(page)
+  await expect(live.getByTestId('live-model-note')).toHaveText("Couldn't load the model list; the engine's default model will be used.")
+  await expect(live.getByLabel('Model', { exact: true })).toHaveCount(0)
+  await expect(live.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
+  expect(m.posts).toEqual([])
 })

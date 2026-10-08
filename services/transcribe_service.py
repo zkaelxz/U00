@@ -62,6 +62,7 @@ from typing import Optional
 
 import asr_backend
 import background_jobs
+import ollama_unload
 import core as core_module
 import db
 import diagnostics
@@ -70,6 +71,7 @@ import sensitivity_preset as presets
 import storage
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
+from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
 from services import asr_options_service, diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
@@ -264,12 +266,6 @@ def _drama_video_path(drama_id: int, drama: dict) -> Optional[str]:
     return os.path.join(db.drama_dir(drama_id), video_filename)
 
 
-def _default_hardsub_backend(source_language: str) -> str:
-    """PaddleOCR for Chinese (confirmed more accurate on
-    stylized/small captions), Tesseract otherwise."""
-    return "paddle" if source_language == "zh" else "tesseract"
-
-
 def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     """Whisper's automatic initial_prompt for one drama: the series
     glossary's names
@@ -326,6 +322,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "audio_available": source["audio_available"],
         "alignment_method": drama.get("alignment_method") or "whisper_diff",
         "asr_backend_choice": asr_options_service.stored_asr_backend(drama),
+        "asr_backend_notice": asr_options_service.removed_asr_backend_notice(drama),
         "whisper_size": whisper_size,
         "whisper_model_cached": core_module.is_whisper_model_cached(whisper_size),
         "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get_use_gpu()),
@@ -350,7 +347,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "use_groq": bool(drama.get("use_groq")),
         "has_video_source": source["has_video_source"],
         "hardsub_ocr_backend": drama.get("hardsub_ocr_backend")
-                               or _default_hardsub_backend(source["source_language"]),
+                               or default_hardsub_backend(source["source_language"]),
         "hardsub_interval_sec": drama.get("hardsub_interval_sec") or 1.0,
         "auto_initial_prompt": build_auto_initial_prompt(drama_id),
     }
@@ -399,12 +396,6 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     if "asr_backend_choice" in fields and fields["asr_backend_choice"] is not None:
         if fields["asr_backend_choice"] not in ASR_BACKEND_CHOICES:
             raise InvalidInputError(f"Unknown asr_backend_choice {fields['asr_backend_choice']!r}.")
-        # Only a change TO moss_td needs the toggle: the form re-sends the
-        # stored value with every save, and a run start checks it again.
-        if (fields["asr_backend_choice"] == "moss_td"
-                and drama.get("asr_backend_choice") != "moss_td"
-                and not asr_options_service.get_moss_experimental()):
-            raise InvalidInputError(_MOSS_OFF_MESSAGE)
         updates["asr_backend_choice"] = fields["asr_backend_choice"]
     if "beam_size" in fields and fields["beam_size"] is not None:
         if not 1 <= fields["beam_size"] <= 10:
@@ -443,7 +434,7 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
             raise InvalidInputError(f"Unknown separation_backend {fields['separation_backend']!r}.")
         updates["separation_backend"] = fields["separation_backend"]
     if "hardsub_ocr_backend" in fields and fields["hardsub_ocr_backend"] is not None:
-        if fields["hardsub_ocr_backend"] not in ("tesseract", "paddle"):
+        if fields["hardsub_ocr_backend"] not in HARDSUB_OCR_BACKEND_OPTIONS:
             raise InvalidInputError(f"Unknown hardsub_ocr_backend {fields['hardsub_ocr_backend']!r}.")
         updates["hardsub_ocr_backend"] = fields["hardsub_ocr_backend"]
     if "hardsub_interval_sec" in fields and fields["hardsub_interval_sec"] is not None:
@@ -473,10 +464,6 @@ def _speaker_range(expected_speakers=None, min_speakers=None, max_speakers=None)
     return lo, hi
 
 
-_MOSS_OFF_MESSAGE = ("MOSS-Transcribe-Diarize is experimental and turned off. Turn it on in "
-                     "Settings > Transcription experiments first.")
-
-
 def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) -> None:
     """Refusals shared by start_transcribe_run and validate_transcribe_options."""
     if transcript_mode == "whisper":
@@ -490,21 +477,8 @@ def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) ->
         elif asr_backend_choice in VAD_BACKENDS:
             require_qwen3_packages("Qwen3-ASR")
             _require_vad_packages()
-        elif asr_backend_choice == "moss_td":
-            _require_moss_backend()
     elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
         require_qwen3_packages("Qwen3 forced alignment")
-
-
-def _require_moss_backend() -> None:
-    """The experimental MOSS backend needs its Settings toggle on
-    and its package installed; never falls back to Whisper silently."""
-    if not asr_options_service.get_moss_experimental():
-        raise InvalidInputError(_MOSS_OFF_MESSAGE)
-    if not asr_options_service.moss_installed():
-        raise DependencyUnavailableError(
-            "MOSS-Transcribe-Diarize isn't installed. It installs from its GitHub repository "
-            "(OpenMOSS/MOSS-Transcribe-Diarize), not from pip's index, and needs Transformers 5.")
 
 
 def _require_vad_packages() -> None:
@@ -661,7 +635,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             bool(drama.get("realign_long_segments")), bool(drama.get("whisper_fast_mode")),
             bool(drama.get("use_groq")), groq_api_key, hf_token, expected_speakers,
             prompt, video_path,
-            drama.get("hardsub_ocr_backend") or _default_hardsub_backend(source_language),
+            drama.get("hardsub_ocr_backend") or default_hardsub_backend(source_language),
             drama.get("hardsub_interval_sec") or 1.0,
             tesseract_cmd or settings_service.get_tesseract_cmd(), diarize_audio_path,
             use_gpu, asr_backend_choice, alignment_method,
@@ -1043,9 +1017,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     split_by_sentences: see docs/engine-backends.md.
 
     asr_backend_choice / alignment_method are the drama's stored
-    choices: "qwen3_asr" and the experimental "moss_td" (replaces
-    Whisper, keeps MOSS's own speaker labels and skips the pyannote chain
-    when it produced any) only apply in whisper transcript_mode, and
+    choices: "qwen3_asr" only applies in whisper transcript_mode, and
     "qwen3_forced_align" only in have_transcript mode. Import/download/other Qwen3 failures end the job
     with a failed_reason ("dependency_missing", "model_download",
     "qwen3_asr"); a forced-align ValueError (e.g. an oversized line) falls
@@ -1058,8 +1030,6 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     coverage_msg = None
     device_msg = ""
     device_suffix = ""
-    moss_run = transcript_mode == "whisper" and asr_backend_choice == "moss_td"
-    moss_info = {}
     # The other backends, and a supplied transcript, bring their own lines.
     sentence_lines = (split_by_sentences and transcript_mode == "whisper"
                       and asr_backend_choice in ("whisper", "qwen3_asr"))
@@ -1092,10 +1062,11 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
 
     if transcript_mode == "hardsub_ocr":
         import hardsub_ocr
+        hardsub_info = {}
         segments = hardsub_ocr.extract_hardsub_subtitles(
             video_path, language=source_language, sample_interval=hardsub_interval,
             ocr_backend=hardsub_ocr_backend, chinese_script=chinese_script,
-            tesseract_cmd=tesseract_cmd, job_id=rep.job_id,
+            tesseract_cmd=tesseract_cmd, job_id=rep.job_id, info=hardsub_info,
             cancel_check=rep.raise_if_cancelled,
             progress_cb=lambda frac: rep.progress(
                 frac, f"Reading captions from video... {frac * 100:.0f}%"))
@@ -1106,7 +1077,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         # text-override branch below, just sourced from captions.
         lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
                  for i, seg in enumerate(segments) if seg["text"].strip()]
-        raw_backend, raw_model, raw_mode = "hardsub_ocr", hardsub_ocr_backend, "hardsub_ocr"
+        raw_backend, raw_model, raw_mode = "hardsub_ocr", hardsub_info.get("backend", hardsub_ocr_backend), "hardsub_ocr"
+        coverage_msg = hardsub_info.get("note")
     else:
         if separate_vocals_first:
             import audio_preprocess
@@ -1154,7 +1126,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         if rep.cancelled():
             return {"failed_reason": "cancelled"}
 
-        qwen_run = transcript_mode == "whisper" and asr_backend_choice == "qwen3_asr" and not moss_run
+        qwen_run = transcript_mode == "whisper" and asr_backend_choice == "qwen3_asr"
         # Groq and the Qwen3-on-Whisper-segments backend transcribe a whole
         # file in one language, so only the local Whisper path switches.
         mixed_whisper_run = (mixed_languages and transcript_mode == "whisper"
@@ -1209,26 +1181,6 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             finally:
                 if vad_stage["ticker"]:
                     vad_stage["ticker"].stop()
-        elif moss_run:
-            # Experimental: one pass that also labels speakers;
-            # replaces Whisper for this run, only when chosen explicitly.
-            rep.progress(0.0, "Transcribing and detecting speakers with "
-                              "MOSS-Transcribe-Diarize (experimental)...")
-            try:
-                segments = asr_backend.get_backend("moss_td").transcribe(
-                    audio_path, source_language, use_gpu=use_gpu, run_info=moss_info)
-            except ImportError:
-                return missing_package_outcome(
-                    "MOSS-Transcribe-Diarize isn't installed yet. Open Diagnostics to install it.")
-            except core_module.ModelDownloadError as exc:
-                return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
-            except Exception as exc:
-                return {"failed_reason": "moss_td", "detail": redact_secrets(str(exc))}
-            device_msg = "GPU" if moss_info.get("device") == "cuda" else "CPU"
-            # One blocking call with no cancel hook: honour a cancel that
-            # arrived meanwhile before replacing any lines.
-            if rep.cancelled():
-                return {"failed_reason": "cancelled"}
         elif use_groq:
             rep.progress(0.0, "Transcribing via Groq's cloud API...")
             try:
@@ -1317,7 +1269,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         if not segments:
             return {"failed_reason": "empty"}
 
-        if (realign_long_segments and not moss_run and not vad_run and not mixed_whisper_run
+        if (realign_long_segments and not vad_run and not mixed_whisper_run
                 and not rep.cancelled()):
             import word_align
             align_started = time.monotonic()
@@ -1350,9 +1302,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
 
         if transcript_mode == "whisper":
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
-            if moss_run:
-                raw_backend, raw_model = "moss_td", "MOSS-Transcribe-Diarize"
-            elif vad_run:
+            if vad_run:
                 raw_backend, raw_model = asr_backend_choice, "Qwen3-ASR"
             elif asr_backend_choice == "qwen3_asr":
                 if rep.cancelled():
@@ -1449,7 +1399,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             "whisper_clock": whisper_clock, "stage_seconds": stage_seconds,
             "word_align_error": word_align_error,
             "forced_align_error": forced_align_error, "coverage_warning": coverage_msg,
-            "moss_run": moss_run, "moss_truncated": bool(moss_info.get("truncated")),
+            **ollama_unload.take_notice_result(),
             "run_config": {
                 "asr_backend": asr_backend_choice, "whisper_size": whisper_size,
                 "local_model_path": local_model_path, "language": source_language,
@@ -1473,7 +1423,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                          gpu_app_settings=None) -> dict:
     """Applies a _transcribe_pipeline outcome to the drama and returns the
     job's result: replaces its lines (history snapshot first), writes the
-    raw transcript, marks it "aligned", records MOSS speakers, chain-starts
+    raw transcript, marks it "aligned", chain-starts
     diarization when hf_token and diarize_audio_path are set, and records
     the run's speed. A failed outcome is returned unchanged and writes
     nothing; so does a run whose cancel arrived before the write."""
@@ -1513,14 +1463,8 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
         if outcome.get("run_config") else None)
     db.update_drama(drama_id, status="aligned")
 
-    # MOSS already labelled speakers: record them as characters and don't
-    # chain pyannote over them (it would relabel every line).
-    moss_speakers = sorted({ln.speaker for ln in lines if ln.speaker}) if outcome["moss_run"] else []
-    for label in moss_speakers:
-        db.upsert_character(drama_id, label)
-
     diarize_started = False
-    if hf_token and diarize_audio_path and not moss_speakers:
+    if hf_token and diarize_audio_path:
         import diarize as diarize_module
         diarize_started = background_jobs.start_process_job(
             f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
@@ -1552,15 +1496,15 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                    if gpu_fallback_msg else outcome["device_msg"]) or None,
         "word_align_error": outcome["word_align_error"],
         "asr_backend": outcome["raw_backend"],
+        "asr_backend_notice": asr_options_service.removed_asr_backend_notice(
+            db.get_drama(drama_id) or {}),
         "alignment_method": ("qwen3_forced_align" if transcript_mode == "have_transcript"
                              and alignment_method == "qwen3_forced_align"
                              and not forced_align_error else "whisper_diff"),
         "forced_align_error": forced_align_error,
         "coverage_warning": outcome["coverage_warning"],
+        "ollama_notice": outcome.get("ollama_notice"),
         "diarize_started": diarize_started,
-        **({"partial": True, "errors": [
-            "MOSS stopped at its output limit; the end of the audio may be missing."]}
-           if outcome["moss_truncated"] else {}),
     }
 
 
@@ -1861,7 +1805,8 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
             "detail": "The line was merged, split or deleted meanwhile; nothing was changed."})
         return
     result = {"line_id": line_id, "proposed_zh": new_zh[:_RETRANSCRIBE_MAX_CHARS],
-              "base_zh": zh_before or "", "base_start": start, "base_end": end}
+              "base_zh": zh_before or "", "base_start": start, "base_end": end,
+              **ollama_unload.take_notice_result()}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
         result["device_notice"] = core_module.gpu_fallback_notice(

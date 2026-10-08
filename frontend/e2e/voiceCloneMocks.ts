@@ -12,7 +12,7 @@ export const CAND_ID = 'ab'.repeat(16)
 
 const character = (over: object = {}) => ({
   speaker_label: 'SPEAKER_00', character_name: 'Wei Ying', voice_actor: '', pronouns: '',
-  clone_engine: 'gpt_sovits', voice_design: '', has_ref_audio: false, ref_text_present: false,
+  clone_engine: 'gpt_sovits', clone_engine_removed: 'The GPT-SoVITS engine was removed. Pick another voice engine in Dub.', voice_design: '', has_ref_audio: false, ref_text_present: false,
   series_character_id: null, series_character_name: '', line_count: 12, ...over,
 })
 
@@ -26,7 +26,7 @@ const dubConfig = (over: object = {}) => ({
     {
       speaker_label: 'SPEAKER_00', character_name: 'Wei Ying',
       engine: 'omnivoice', has_clone_ref: false,
-      clone_warning: 'GPT-SoVITS is chosen, but this speaker has no reference clip or voice description, so it will use the voice of the engine picked in Dub.',
+      clone_warning: 'The GPT-SoVITS engine was removed. Pick another voice engine in Dub.',
     },
     {
       speaker_label: 'SPEAKER_01', character_name: 'Lan Zhan',
@@ -34,7 +34,7 @@ const dubConfig = (over: object = {}) => ({
     },
   ],
   gpu_required: false, speakable_line_count: 20, track_available: false,
-  gpt_sovits_configured: false, can_keep_background: false, ...over,
+  can_keep_background: false, ...over,
 })
 
 export async function guard(page: Page): Promise<string[]> {

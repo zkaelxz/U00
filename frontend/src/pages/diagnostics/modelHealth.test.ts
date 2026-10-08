@@ -92,10 +92,10 @@ describe('compare link', () => {
   })
 
   it('keeps odd model names intact through the round trip', () => {
-    const href = compareHref(item({ engine: 'ollama', model: 'qwen2.5:14b', replacement: 'qwen3:8b' }))!
+    const href = compareHref(item({ engine: 'ollama', model: 'gemma4:26b', replacement: 'gemma4:12b' }))!
     const route = parseRoute(href)
     expect(route.name === 'benchmark' && parseCompareParam(route.compare)).toEqual([
-      { engine: 'ollama', model: 'qwen2.5:14b' }, { engine: 'ollama', model: 'qwen3:8b' },
+      { engine: 'ollama', model: 'gemma4:26b' }, { engine: 'ollama', model: 'gemma4:12b' },
     ])
   })
 

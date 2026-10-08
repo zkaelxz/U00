@@ -374,7 +374,7 @@ def test_list_sessions(live, monkeypatch):
     assert _terminal(sid)
     listed = live_service.list_sessions()
     assert [s["session_id"] for s in listed] == [sid]
-    assert set(listed[0]) == {"session_id", "status", "engine", "cue_count"}
+    assert set(listed[0]) == {"session_id", "status", "engine", "model", "cue_count"}
 
 
 def test_url_guard_is_the_one_policy(live, monkeypatch):
@@ -403,3 +403,81 @@ def test_reap_keeps_a_session_that_is_still_starting(live, monkeypatch):
     sid = _start()
     assert seen["dir"] and _wait(lambda: "out_dir" in live)
     assert "starting" not in live_service._sessions[sid]
+
+
+def _capture_engine(live, monkeypatch):
+    seen = {}
+
+    def fake_run(job_id, url, out_dir, seg, lang, size, engine, **k):
+        seen["engine"] = engine
+
+    monkeypatch.setattr(live_translate, "run_live_job", fake_run)
+    return seen
+
+
+def test_chosen_model_reaches_the_engine_and_shows_in_status(live, monkeypatch):
+    seen = _capture_engine(live, monkeypatch)
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "sk-test")
+    sid = _start(engine="claude", model=next(iter(translate_service.ENGINE_MODEL_DICTS["claude"])))
+    assert _terminal(sid)
+    model = next(iter(translate_service.ENGINE_MODEL_DICTS["claude"]))
+    assert seen["engine"].model == model
+    assert live_service.get_session(sid)["model"] == model
+    assert live_service.list_sessions()[0]["model"] == model
+    assert model in background_jobs.get_status(sid)["description"]
+
+
+def test_model_not_offered_for_the_engine_is_refused(live, monkeypatch):
+    seen = _capture_engine(live, monkeypatch)
+    with pytest.raises(InvalidInputError):
+        _start(engine="claude", model="qwen3:8b")
+    with pytest.raises(InvalidInputError):
+        _start(engine="ollama", model="not-a-real-model:1b")
+    assert seen == {} and live_service._sessions == {}
+
+
+def test_ollama_model_must_be_pulled_at_start(live, monkeypatch):
+    import translate_engines
+    seen = _capture_engine(live, monkeypatch)
+    monkeypatch.setattr(translate_engines, "check_ollama_model_installed",
+                        lambda base, model: (_ for _ in ()).throw(translate_engines.OllamaUnavailableError(
+                            "ollama_model_missing", f'Ollama doesn\'t have the model {model}. Run "ollama pull {model}" first.')))
+    with pytest.raises(DependencyUnavailableError) as exc:
+        _start(engine="ollama", model="gemma4:12b")
+    assert 'ollama pull gemma4:12b' in str(exc.value)
+    assert seen == {} and live_service._sessions == {}
+
+
+def test_ollama_default_model_is_checked_and_used(live, monkeypatch):
+    import translate_engines
+    seen = _capture_engine(live, monkeypatch)
+    checked = []
+    monkeypatch.setattr(translate_engines, "check_ollama_model_installed",
+                        lambda base, model: checked.append(model))
+    sid = _start(engine="ollama")
+    assert _terminal(sid)
+    assert checked == [translate_engines.OLLAMA_DEFAULT_MODEL]
+    assert seen["engine"].model == translate_engines.OLLAMA_DEFAULT_MODEL
+
+
+def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
+    import json, requests
+    from engine_backends import local
+
+    def fake_get(url, **k):
+        return _TagsResp(json.dumps({"models": [{"name": "qwen3:8b"}, {"name": "tiny:latest"}]}).encode())
+
+    class _TagsResp:
+        ok = True
+        status_code = 200
+        def __init__(self, body): self._body = body
+        def iter_content(self, chunk_size=1, decode_unicode=False): yield self._body
+        def close(self): pass
+        headers = {}
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    local.check_ollama_model_installed("http://x", "qwen3:8b")
+    local.check_ollama_model_installed("http://x", "tiny")
+    with pytest.raises(local.OllamaUnavailableError) as exc:
+        local.check_ollama_model_installed("http://x", "gemma4:12b")
+    assert exc.value.reason == "ollama_model_missing" and 'ollama pull gemma4:12b' in exc.value.message

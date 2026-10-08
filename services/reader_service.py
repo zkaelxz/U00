@@ -243,7 +243,7 @@ def llm_engine(engine_name=None, model=None):
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't do this.")
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
+    if api_key is None:
         raise MissingKeyError(engine_name)
     engine = translate_engines.get_engine(
         engine_name, api_key, model,

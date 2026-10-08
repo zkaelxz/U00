@@ -84,7 +84,7 @@ class TestProviderCheck:
 
         def fake_get(url, headers=None, timeout=None, allow_redirects=True, stream=False):
             seen.update(url=url, headers=headers, timeout=timeout, redirects=allow_redirects)
-            return FakeResp({"data": [{"id": "claude-sonnet-5"}, {"id": "claude-haiku-4-5-20251001"}]})
+            return FakeResp({"data": [{"id": "claude-sonnet-5-5"}, {"id": "claude-haiku-4-5-20251001"}]})
         monkeypatch.setattr(requests, "get", fake_get)
         status = svc.check_providers()
         item = _item(status, "claude", "claude-opus-4-8")
@@ -94,7 +94,7 @@ class TestProviderCheck:
         # Key in a header, never the URL; a timeout on the call.
         assert "SECRETKEY" not in seen["url"] and seen["headers"]["x-api-key"].startswith("sk-ant-")
         assert seen["timeout"] and seen["redirects"] is False
-        assert _item(status, "claude", "claude-sonnet-5")["status"] == "current"
+        assert _item(status, "claude", "claude-sonnet-5-5")["status"] == "current"
 
     def test_engines_without_key_are_not_called(self, isolated_db, keys, monkeypatch):
         import requests
@@ -270,6 +270,7 @@ class TestClaudeAliases:
                 assert i["listed_by_provider"] is None
 
     def test_undated_ids_in_the_list_make_absence_meaningful(self, isolated_db, keys, monkeypatch):
+        db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
         status = self._check(monkeypatch, ["claude-sonnet-5", "claude-other-9-20260101"])
         item = next(i for i in status["items"]
                     if i["engine"] == "claude" and i["model"] == "claude-opus-4-8")
@@ -402,6 +403,20 @@ class _StubDeepSeek:
         self.model = model
 
 
+class TestSavedClaudeModelsSurviveDefaultChange:
+    def test_a_saved_older_id_is_kept_and_still_runs(self, isolated_db):
+        from services import translate_run_service as run
+        pid = db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
+        assert next(p for p in db.list_presets() if p["id"] == pid)["engine_model"] == "claude-opus-4-8"
+        for old in ("claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6"):
+            run._require_offered_model("claude", old)
+
+    def test_an_unknown_id_is_still_refused(self, isolated_db):
+        from services import translate_run_service as run
+        with pytest.raises(InvalidInputError):
+            run._require_offered_model("claude", "claude-opus-9-9")
+
+
 class TestModelOverrides:
     """A user-chosen replacement for a built-in default or a tier's model."""
 
@@ -455,7 +470,7 @@ class TestModelOverrides:
         assert translate_engines.effective_tier_model("standard") == "claude-opus-4-8"
         assert translate_engines.effective_tier("standard")["engine_model"] == "claude-opus-4-8"
         assert translate_engines.WORKFLOW_TIERS["standard"]["engine_model"] == tier["engine_model"]
-        assert translate_engines.effective_tier("release")["engine_model"] == "claude-opus-4-8"
+        assert translate_engines.effective_tier("release")["engine_model"] == "claude-opus-5-5"
         # the tier model the form receives is the effective one
         db_id = db.create_drama(title_en="T", status="aligned")
         assert run.apply_workflow_tier(db_id, "standard")["engine_model"] == "claude-opus-4-8"

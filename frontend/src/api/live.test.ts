@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_FORBIDDEN, advancedSummary, appendCues, buildStartBody, checkLiveUrl,
+  DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_FORBIDDEN, advancedSummary, appendCues, buildStartBody, checkLiveUrl, resolveModel,
   describeLiveError, feedCues, fmtTs, getLive, isActive, pickSession, startLive, statusLine, stopLive,
 } from './live'
 import { ApiError } from './client'
@@ -23,7 +23,7 @@ describe('buildStartBody', () => {
   it('trims the link and sends defaults', () => {
     expect(buildStartBody({ ...DEFAULT_FORM, url: ' https://a.test/live ', engine: 'deepseek' })).toEqual({
       url: 'https://a.test/live', source_language: 'zh', whisper_size: 'small', segment_seconds: 20,
-      overlap_seconds: 3, engine: 'deepseek', max_minutes: 60, use_gpu: false,
+      overlap_seconds: 3, engine: 'deepseek', model: null, max_minutes: 60, use_gpu: false,
     })
   })
 
@@ -125,5 +125,25 @@ describe('requests', () => {
     ])
     await expect(getLive('../x', 0, f)).rejects.toMatchObject({ status: 404 })
     expect(f).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('model choice', () => {
+  const ollama = { models: ['qwen3:8b', 'gemma4:12b'] }
+  it('keeps an offered model and sends it', () => {
+    expect(resolveModel(ollama, 'gemma4:12b')).toEqual({ model: 'gemma4:12b', fellBack: false })
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', engine: 'ollama', model: 'gemma4:12b' }).model).toBe('gemma4:12b')
+  })
+  it('defaults to the engine default (null) and sends no model', () => {
+    expect(resolveModel(ollama, '')).toEqual({ model: '', fellBack: false })
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' }).model).toBeNull()
+  })
+  it('drops a remembered model the engine no longer offers, or one with no list', () => {
+    expect(resolveModel(ollama, 'gone:1b')).toEqual({ model: '', fellBack: true })
+    expect(resolveModel({ models: null }, 'qwen3:8b')).toEqual({ model: '', fellBack: true })
+    expect(resolveModel(undefined, 'qwen3:8b')).toEqual({ model: '', fellBack: true })
+  })
+  it('shows the model in the status line', () => {
+    expect(statusLine({ status: 'running', message: 'Listening', model: 'qwen3:8b' }, 1)).toBe('Listening · 1 line · qwen3:8b')
   })
 })

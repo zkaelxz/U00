@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test'
 
 import { withTranslateLines } from './stageLineMocks'
 
-// Mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
-const TRANSLATION_ONLY = ['nllb']
+// Mirrors translate_engines.TRANSLATION_ONLY_ENGINES (none are offered now).
+const TRANSLATION_ONLY: string[] = []
 
 // The run and job endpoints are mocked: nothing is translated. Config,
 // estimate, glossary and characters reads hit the real seeded API.
@@ -223,3 +223,26 @@ test('a failed dismiss keeps the notice and shows the error (X01)', async ({ pag
   await expect(notice.getByRole('alert')).toContainText('Not allowed')
   await expect(notice.getByRole('button', { name: 'Dismiss notice' })).toBeEnabled()
 })
+
+for (const width of [1280, 390]) {
+  test(`engine notes fit the closed engine select at ${width}px wide`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 })
+    await withTranslateLines(page)
+    await page.goto('/#/drama/1/translate')
+    const run = page.getByRole('region', { name: 'Translate run' })
+    const select = run.locator('select').first()
+    await expect(select).toBeVisible()
+    const config = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
+    // Free-tier Gemini swaps in a different note, so measure both notes and every offered engine.
+    const overflowing = await select.evaluate((el: HTMLSelectElement) => {
+      const style = getComputedStyle(el)
+      const ctx = document.createElement('canvas').getContext('2d')!
+      ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+      const inner = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 24
+      return Array.from(el.options)
+        .map((o) => o.text)
+        .filter((t) => ctx.measureText(t).width > inner)
+    })
+    expect(overflowing, `engines: ${config.engines.map((e: { name: string }) => e.name)}`).toEqual([])
+  })
+}
