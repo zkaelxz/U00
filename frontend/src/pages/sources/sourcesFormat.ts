@@ -524,6 +524,8 @@ export const tierLabel = (tier: SourceTier) => TIER_LABELS[TIER_TESTS.find((t) =
 export function tierTestLine(r: TierTestResult): string {
   const label = tierLabel(r.tier)
   if (r.ok) return `${label}: works.`
+  // The detail already says what to install; "not installed" would read as if the browser were missing.
+  if (r.reason === 'NOT_INSTALLED' && r.detail) return `${label}: ${r.detail.replace(/\.$/, '')}.`
   const why = r.reason ? humanizeValue(r.reason).toLowerCase() : 'failed'
   return `${label}: ${why}${r.detail ? ` (${r.detail})` : ''}.`
 }

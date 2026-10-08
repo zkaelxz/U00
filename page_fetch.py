@@ -25,6 +25,8 @@ import re
 import threading
 from contextlib import contextmanager
 
+from browser_support import BROWSER_MISSING, PACKAGE_MISSING
+
 # Root containers common to SPA frameworks. Their presence alongside
 # very little text is a strong signal the content hasn't rendered.
 SPA_ROOT_MARKERS = [
@@ -421,9 +423,7 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
     """
     Fetches with a real browser engine so JavaScript actually runs.
 
-    Requires: pip install playwright && playwright install chromium
-    (the second command downloads the browser itself -- easy to forget,
-    so the error message below says so explicitly).
+    Requires the playwright package and Chrome, Edge or Playwright's Chromium.
 
     Returns (html, text). Raises ImportError with install instructions
     if Playwright isn't set up.
@@ -662,12 +662,7 @@ def _require_playwright():
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        raise ImportError(
-            "Rendering JavaScript pages needs Playwright:\n"
-            "    pip install playwright\n"
-            "    playwright install chromium\n"
-            "The second command downloads the browser and is easy to miss."
-        )
+        raise ImportError(PACKAGE_MISSING) from None
     return sync_playwright
 
 
@@ -682,12 +677,6 @@ def _require_playwright():
 # Edge. Nothing is downloaded here.
 
 BROWSER_ENV = "BAIHE_BROWSER_PATH"
-
-BROWSER_MISSING = ("No browser is available for JavaScript-only sites. Install Google Chrome "
-                   "or Microsoft Edge, or run the installer's repair (or "
-                   "`python -m playwright install chromium`), or set BAIHE_BROWSER_PATH to "
-                   "a Chrome or Edge program file. Then try again.")
-
 
 class BrowserNotFound(RuntimeError):
     """No usable browser program was found. The message is fixed text with

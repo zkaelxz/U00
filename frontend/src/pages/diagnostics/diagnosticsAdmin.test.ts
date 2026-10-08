@@ -28,9 +28,23 @@ describe('setup rows', () => {
   it('adds a browser row only when the server reports one', () => {
     expect(setupRows(checks(), gpu).map((r) => r.key)).not.toContain('browser')
     const ok = setupRows(checks({ browser: { found: true, name: 'Chrome' } }), gpu).find((r) => r.key === 'browser')
-    expect(ok?.text).toBe('Browser for JavaScript-only sites: found (Chrome)')
+    expect(ok?.text).toBe('Browser for JavaScript-only sites: Using Google Chrome')
     const bad = setupRows(checks({ browser: { found: false, name: null } }), gpu).find((r) => r.key === 'browser')
     expect(bad?.problem).toBe(true)
+  })
+
+  it.each([
+    [true, true, 'Playwright package: installed', 'Using Google Chrome'],
+    [false, true, 'Problem: Playwright package not installed', 'Using Google Chrome'],
+    [true, false, 'Playwright package: installed', 'Problem: None found: install Chrome or Edge'],
+    [false, false, 'Problem: Playwright package not installed', 'Problem: None found: install Chrome or Edge'],
+  ])('reports the package and the browser separately (package %s, browser %s)', (pkg, found, pkgText, browserText) => {
+    const rows = setupRows(checks({ browser: { found, name: found ? 'Chrome' : null, package: pkg } }), gpu)
+    expect(rows.find((r) => r.key === 'playwright')?.text).toContain(pkgText)
+    const browser = rows.find((r) => r.key === 'browser')?.text ?? ''
+    expect(browser).toContain(browserText)
+    expect(browser).not.toContain('not installed')
+    if (!pkg) expect(rows.find((r) => r.key === 'playwright')?.text).toContain('no browser download is needed')
   })
 
   it('reads "Label: value" when everything is fine', () => {
