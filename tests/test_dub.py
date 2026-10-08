@@ -23,6 +23,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import dub
+import dub_narration
 from core import Line
 
 
@@ -298,7 +299,7 @@ class TestBuildNarrationTrack:
         # lines would share one -- see TestNarrationTTSUnits).
         lines = [Line(idx=0, start=0, end=0, zh="x", en="First", speaker="A"),
                  Line(idx=1, start=0, end=0, zh="y", en="Second", speaker="B")]
-        dub.build_narration_track(lines, str(tmp_path), ALL, gap_ms=350)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL, gap_ms=350)
 
         assert lines[0].start == 0.0
         assert lines[0].end == 2.0
@@ -308,7 +309,7 @@ class TestBuildNarrationTrack:
     def test_a_blank_line_advances_the_cursor_by_nothing_and_records_a_point_in_time(self, tmp_path, monkeypatch):
         _install_fake_pydub(monkeypatch)
         lines = [Line(idx=0, start=0, end=0, zh="x", en="")]
-        dub.build_narration_track(lines, str(tmp_path), ALL)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL)
         assert lines[0].start == lines[0].end == 0.0
 
     def test_a_failed_line_still_advances_the_timeline_with_a_silent_gap(self, monkeypatch, tmp_path):
@@ -317,7 +318,7 @@ class TestBuildNarrationTrack:
                              lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
 
         lines = [Line(idx=0, start=0, end=0, zh="x", en="fails")]
-        out_path, errors = dub.build_narration_track(lines, str(tmp_path), ALL, gap_ms=350)
+        out_path, errors = dub_narration.build_narration_track(lines, str(tmp_path), ALL, gap_ms=350)
 
         assert len(errors) == 1
         assert lines[0].end == pytest.approx(0.35)
@@ -329,12 +330,12 @@ class TestNarrateOriginalLanguage:
 
     def test_original_mode_speaks_source_text_not_translation(self, timed, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True)
         assert timed.synth == ["你好"]
 
     def test_translation_mode_still_speaks_the_translation_by_default(self, timed, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), ALL)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL)
         assert timed.synth == ["Hello"]
 
     def test_original_mode_generates_audio_with_no_translation_at_all(self, timed, tmp_path):
@@ -342,14 +343,14 @@ class TestNarrateOriginalLanguage:
         mode -- only the exported bilingual subtitle needs it (warned
         about at the UI level, see tabs/workspace_tab.py)."""
         lines = [Line(idx=0, start=0, end=0, zh="你好世界", en="", speaker="A")]
-        out_path, errors = dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True)
+        out_path, errors = dub_narration.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True)
         assert timed.synth == ["你好世界"]
         assert errors == []
         assert lines[0].dub_filename is not None
 
     def test_a_line_with_no_source_text_is_still_treated_as_blank_in_original_mode(self, timed, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True)
         assert timed.synth == []
         assert lines[0].start == lines[0].end == 0.0
 
@@ -360,11 +361,11 @@ class TestNarrateOriginalLanguage:
         noun), switching narration language must still regenerate the
         clip rather than silently reusing the other mode's cached audio."""
         lines_translation = [Line(idx=0, start=0, end=0, zh="Amy", en="Amy", speaker="A")]
-        dub.build_narration_track(lines_translation, str(tmp_path), ALL)
+        dub_narration.build_narration_track(lines_translation, str(tmp_path), ALL)
         translation_clip = lines_translation[0].dub_filename
 
         lines_original = [Line(idx=0, start=0, end=0, zh="Amy", en="Amy", speaker="A")]
-        dub.build_narration_track(lines_original, str(tmp_path), ALL, narrate_original=True,
+        dub_narration.build_narration_track(lines_original, str(tmp_path), ALL, narrate_original=True,
                                   source_language="zh")
         original_clip = lines_original[0].dub_filename
 
@@ -383,7 +384,7 @@ class TestNarrateOriginalLanguage:
         # English lengths, so a pass that still split by ln.en would fail.
         lines = [Line(idx=0, start=0, end=0, zh="a", en="Same length", speaker="A"),
                  Line(idx=1, start=0, end=0, zh="bbb", en="Same length", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True, source_language="zh")
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True, source_language="zh")
         assert lines[0].end < lines[1].end
         # roughly 1/4 vs 3/4 of the clip -- not a 50/50 split
         assert lines[0].end < 0.4
@@ -393,7 +394,7 @@ class TestNarrateOriginalLanguage:
         calls = []
         monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True, source_language="zh")
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True, source_language="zh")
         assert [text for text, _ in calls] == ["你好"]
 
     def test_translation_mode_speaks_the_translation(self, monkeypatch, tmp_path):
@@ -401,13 +402,13 @@ class TestNarrateOriginalLanguage:
         calls = []
         monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), ALL)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL)
         assert [text for text, _ in calls] == ["Hello"]
 
     def test_original_mode_narration_lines_still_export_bilingual_subtitles(self, timed, tmp_path):
         import subtitle_formats
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
-        dub.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True, source_language="zh")
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True, source_language="zh")
         vtt = subtitle_formats.lines_to_vtt(lines, field="bilingual")
         assert "Hello" in vtt
         assert "你好" in vtt
@@ -417,12 +418,12 @@ class TestNarrationChaptersOriginalLanguage:
     def test_original_mode_uses_source_text_for_titles_and_voiced_filter(self):
         lines = [Line(idx=0, start=0.0, end=1.0, zh="第一章", en="", speaker="N"),
                  Line(idx=1, start=1.0, end=2.0, zh="正文内容", en="Body text", speaker="N")]
-        chapters = dub.narration_chapters(lines, narrate_original=True)
+        chapters = dub_narration.narration_chapters(lines, narrate_original=True)
         assert chapters[0][1] == "第一章"
 
     def test_translation_mode_is_unaffected(self):
         lines = [Line(idx=0, start=0.0, end=1.0, zh="第一章", en="Chapter One", speaker="N")]
-        chapters = dub.narration_chapters(lines)
+        chapters = dub_narration.narration_chapters(lines)
         assert chapters[0][1] == "Chapter One"
 
 
@@ -522,14 +523,14 @@ class TestBuildTrackSubprocessWorker:
         worker_lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            worker_lines, str(tmp_path), ALL, False, 1.4, 0.85, result_queue)
+            worker_lines, str(tmp_path), ALL, 1.4, 0.85, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("ok", {"lines": worker_lines, "out_path": direct_out_path,
                                   "errors": direct_errors})
         assert worker_lines[0].dub_filename == direct_lines[0].dub_filename
 
-    def test_is_narration_true_routes_to_build_narration_track(self, monkeypatch, tmp_path):
+    def test_narration_worker_runs_build_narration_track(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch, clip_lengths={
             str(tmp_path / "dub_clips" / "line_0000.wav"): 2000,
         })
@@ -538,8 +539,8 @@ class TestBuildTrackSubprocessWorker:
 
         lines = [Line(idx=0, start=0, end=0, zh="x", en="First")]
         result_queue = queue.Queue()
-        dub.build_track_subprocess_worker(
-            lines, str(tmp_path), ALL, True, 1.4, 0.85, result_queue)
+        dub_narration.build_narration_subprocess_worker(
+            lines, str(tmp_path), ALL, result_queue)
         outcome = result_queue.get_nowait()
 
         # only build_narration_track rewrites .start/.end onto the lines
@@ -556,7 +557,7 @@ class TestBuildTrackSubprocessWorker:
         lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            lines, str(tmp_path), ALL, False, 1.4, 0.85, result_queue)
+            lines, str(tmp_path), ALL, 1.4, 0.85, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("error", "RuntimeError", "boom")
@@ -824,11 +825,11 @@ class TestClipCacheFollowsTheText:
 
     def test_an_edited_narration_unit_is_re_voiced_too(self, timed, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="x", en="Helo.", speaker="N")]
-        dub.build_narration_track(lines, str(tmp_path), ALL)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL)
         lines[0].en = "Hello."
-        dub.build_narration_track(lines, str(tmp_path), ALL)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL)
         assert timed.synth == ["Helo.", "Hello."]
-        dub.build_narration_track(lines, str(tmp_path), ALL)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL)
         assert timed.synth == ["Helo.", "Hello."]  # unchanged -- reused
 
 
@@ -886,9 +887,9 @@ class TestDubWorkerArgumentBinding:
         import functools
         import inspect
         queue = object()
-        bound = functools.partial(dub.build_track_subprocess_worker,
+        bound = functools.partial(dub_narration.build_narration_subprocess_worker,
                                   narrate_original=True, source_language="ja")
-        positional = ([], "/d", {}, False, 1.4, 0.85)
+        positional = ([], "/d", {})
         call = inspect.signature(bound).bind(*positional, queue)
         call.apply_defaults()  # partial-bound keywords show up as defaults
         assert call.arguments["result_queue"] is queue
