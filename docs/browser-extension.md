@@ -34,8 +34,17 @@ Click the extension on a page you're reading:
 - **Everything visible** — a spread, or a whole visible strip.
 - **Send pages to** — which drama they land in. Remembered per site, so
   reading a long series isn't a per-page decision.
-- **Save page into drama** — untick to translate for
-  reading only, without importing anything.
+- **Also save the page into that drama** — untick to translate for
+  reading only, without importing anything. The result line says where
+  the pages went: "Sent N pages to *title*", or, with saving off, that
+  they were drawn on the page only and not saved. Pages already
+  translated in this tab show as "M already translated, not sent
+  again". After a save, **Open in Baihe** opens that drama's comic page
+  (`http://127.0.0.1:8600/#/comic/<id>`, the app's default port; the link
+  holds only the drama id). The picker repeats the full title of the
+  chosen drama below it, since a dropdown truncates long titles. It
+  doesn't show saved page counts: the `/health` list the popup reads has
+  none.
 - **Draw over page** / **Show / hide** — the
   overlay toggle. Click any overlaid bubble to see the original text
   underneath it.
