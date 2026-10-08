@@ -70,6 +70,7 @@ export function VoiceDetectorField() {
 
   return (
     <Field label="Voice detector" help={HELP}>
+      <>
       <select
         value={opts.voice_detector}
         disabled={pc === 'remote'}
@@ -93,6 +94,7 @@ export function VoiceDetectorField() {
           Download the ASMR detector (about 119 MB)
         </button>
       ) : null}
+      </>
     </Field>
   )
 }
