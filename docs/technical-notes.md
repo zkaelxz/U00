@@ -48,7 +48,7 @@ app. Would need a real job queue for anything multi-user.
 ## GPU transcription failures ("cublas64_12.dll is not found")
 
 A real bug in the GPU fallback itself, not a driver problem to fix on
-your end -- though see the README's Troubleshooting section for what to
+your end -- though see the Troubleshooting section of `docs/user-guide.md` for what to
 check if it keeps happening.
 
 `faster-whisper` (via ctranslate2) defers ALL CUDA initialization until
@@ -221,7 +221,7 @@ This was verified directly, not assumed. It matters because the earlier
 implementation handed that empty shell to the extractor, which found
 nothing and reported "couldn't extract metadata" -- indistinguishable
 from a page that genuinely had no metadata. A silent failure. See the
-README's "Fetching from JS-heavy sites" section for the three-layer fix
+`docs/user-guide.md`'s "Fetching from JS-heavy sites" section for the three-layer fix
 that's in place now.
 
 ## Migrating off components.html
