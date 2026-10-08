@@ -79,7 +79,7 @@ test('Setup holds speaker detection and one model list with sizes and Delete', a
   // Downloads no engine claims and other model files keep their own groups.
   await expect(setup.getByRole('list', { name: 'Downloaded models' })).toContainText('someone/unknown-model')
   await expect(setup.getByRole('list', { name: 'Model files' })).toContainText('model.pt (PyTorch hub)')
-  await expect(setup).toContainText('A deleted model downloads again the next time a feature needs it.')
+  await expect(setup).toContainText('A deleted model downloads again when a feature needs it.')
 
   await setup.getByRole('button', { name: 'Delete Systran/faster-whisper-large-v3' }).click()
   expect(sent).toHaveLength(0)
