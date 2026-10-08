@@ -319,3 +319,42 @@ def test_a_saved_legacy_deepseek_id_is_still_accepted_by_a_run_but_not_offered()
     translate_run_service._require_offered_model("deepseek", "deepseek-v4-flash")
     deepseek = next(e for e in translate_service.list_engines() if e["name"] == "deepseek")
     assert "deepseek-v4-flash" not in (deepseek["models"] or [])
+
+
+class TestOllamaRealRequestRemembersRefusal:
+    """Goes through local._ollama_chat_request, whose streamed error response
+    is closed before the caller sees the exception."""
+
+    @staticmethod
+    def _post(bodies, error_text):
+        import io
+
+        def post(url, json=None, stream=None, timeout=None):
+            bodies.append(json)
+            resp = requests.Response()
+            if "think" in json:
+                resp.status_code = 400
+                resp.raw = io.BytesIO(error_text.encode())
+            else:
+                resp.status_code = 200
+                resp.raw = io.BytesIO(b'{"message": {"content": "ok"}}')
+            return resp
+        return post
+
+    def _run(self, error_text):
+        thinking._think_refused.clear()
+        bodies = []
+        post = self._post(bodies, error_text)
+        chat = lambda base, payload: local._ollama_chat_request(post, base, payload)
+        key = {"model": "m", "messages": []}
+        thinking.ollama_chat_no_thinking(chat, "http://x", dict(key))
+        first = len(bodies)
+        thinking.ollama_chat_no_thinking(chat, "http://x", dict(key))
+        thinking._think_refused.clear()
+        return first, len(bodies) - first
+
+    def test_a_think_refusal_is_remembered_after_the_first_cue(self):
+        assert self._run('{"error": "\\"m\\" does not support thinking"}') == (2, 1)
+
+    def test_another_400_is_retried_but_not_remembered(self):
+        assert self._run('{"error": "invalid options"}') == (2, 2)

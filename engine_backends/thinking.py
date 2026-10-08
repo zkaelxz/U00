@@ -28,10 +28,15 @@ def deepseek_extra_body(context: dict) -> dict:
 def _refuses_think(exc) -> bool:
     """Whether a 400 says the `think` field is what Ollama objects to
     (e.g. "... does not support thinking"); any other 400 is a different fault."""
-    try:
-        body = exc.response.text or ""
-    except Exception:
-        return False
+    # The streamed response is already closed by the time it gets here, so the
+    # request layer attaches the body it read; .text is the fallback for
+    # callers that raise with a buffered response.
+    body = getattr(exc, "body_text", None)
+    if body is None:
+        try:
+            body = exc.response.text or ""
+        except Exception:
+            return False
     return "think" in body.lower()
 
 

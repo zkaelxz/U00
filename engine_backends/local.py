@@ -6,7 +6,8 @@ import threading
 import weakref
 
 from .prompts import build_batch_user_message, build_stable_system_text
-from .shared import TranslationCancelled, read_json_capped, request_translations_with_retry
+from .shared import (TranslationCancelled, read_json_capped, redact_secrets,
+                     request_translations_with_retry)
 from .thinking import ollama_chat_no_thinking, wants_no_thinking
 
 
@@ -173,6 +174,23 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
     return box["value"]
 
 
+# Enough for Ollama's one-line JSON error.
+OLLAMA_ERROR_BODY_MAX_BYTES = 2000
+
+
+def _error_body_text(resp) -> str:
+    """A small, redacted slice of an error response's body; "" if unreadable.
+    read_capped closes the response."""
+    from services import capped_body
+    try:
+        raw = capped_body.read_capped(resp, OLLAMA_ERROR_BODY_MAX_BYTES, 5.0,
+                                      lambda: ValueError("error body too large"))
+        return redact_secrets(raw.decode("utf-8", "replace"))
+    except Exception:
+        resp.close()
+        return ""
+
+
 def _ollama_chat_request(post, base_url: str, payload: dict) -> dict:
     import requests
     timeout = ollama_chat_timeout(str(payload.get("model") or ""))
@@ -190,9 +208,12 @@ def _ollama_chat_request(post, base_url: str, payload: dict) -> dict:
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
-        resp.close()
         if getattr(exc.response, "status_code", None) != 404:
+            # Closing a streamed response discards its body, and the caller
+            # needs the server's wording to tell "can't think" from other 400s.
+            exc.body_text = _error_body_text(resp)
             raise
+        resp.close()
         model = str(payload.get("model") or "")
         raise OllamaUnavailableError(
             "ollama_model_missing",
