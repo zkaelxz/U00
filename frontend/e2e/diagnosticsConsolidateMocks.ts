@@ -25,7 +25,7 @@ const overview = {
     jieba: { installed: true, powers: 'Chinese word segmentation', tier: 'feature' },
     'yt-dlp': { installed: false, powers: 'downloading video', tier: 'feature' },
     paddleocr: { installed: false, powers: 'OCR (PaddleOCR backend)', tier: 'feature' },
-    'moss-transcribe-diarize': { installed: false, powers: 'experimental one-pass transcription', tier: 'experimental' },
+    'lightnovel-crawler': { installed: false, powers: 'novel text import', tier: 'feature' },
   },
   file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
   library_writable: true,
@@ -60,8 +60,8 @@ const presets = {
     jieba: pkg('jieba', { installed: true }),
     paddleocr: pkg('paddleocr', { approx_mb: 600, source_url: 'https://pypi.org/project/paddleocr/' }),
     'yt-dlp': pkg('yt-dlp'),
-    'moss-transcribe-diarize': pkg('moss-transcribe-diarize', {
-      installable: false, not_offered_reason: "not offered: it isn't on PyPI. It installs from its GitHub repository.",
+    'lightnovel-crawler': pkg('lightnovel-crawler', {
+      installable: false, not_offered_reason: "not offered: it's a separate program you install yourself.",
     }),
   },
 }

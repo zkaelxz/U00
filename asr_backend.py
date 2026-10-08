@@ -4,8 +4,7 @@ asr_backend.py -- pluggable transcription backends for the
 services/transcribe_service.py (Whisper-text mode).
 
 Backends are registered in BACKENDS / get_backend() at the bottom (a
-seam that also holds the experimental MossTranscribeDiarizeBackend, whose
-segments also carry a "speaker"). Each backend's transcribe() returns the same
+seam). Each backend's transcribe() returns the same
 shape core.transcribe_for_timing() already produces: a list of {"start": float, "end": float, "text": str}
 segments -- a drop-in replacement at that one call site.
 
@@ -528,132 +527,14 @@ class Qwen3ASRLongBackend(Qwen3ASRVadBackend):
     long_windows = True
 
 
-# ---------------------------------------------------------------------------
-# MOSS-Transcribe-Diarize (experimental, opt-in)
-# ---------------------------------------------------------------------------
-#
-# One model that transcribes AND labels speakers in a single pass
-# (https://github.com/OpenMOSS/MOSS-Transcribe-Diarize, Apache-2.0), unlike
-# Whisper (+ pyannote afterwards). Written against that repo's README and
-# moss_transcribe_diarize/inference_utils.py at commit 61bc29c (package
-# version 0.1.0; model revision MOSS_HF_REVISION). It is not on PyPI -- it
-# installs from its own repository into the app's own Python environment and
-# needs Transformers >= 5.6, which breaks qwen-asr (pinned to 4.57.6): with
-# MOSS installed, Qwen3-ASR and Qwen3 forced alignment stop working. Off unless Settings > Transcription experiments turns
-# it on (services/asr_options_service.get_moss_experimental), and only ever
-# picked explicitly per drama -- never switched to automatically.
-#
-# Unlike Qwen3ASRBackend it produces its own segment boundaries (that is the
-# point of trying it), so a comparison against Whisper+pyannote measures
-# both segmentation and text at once; see docs/asr-experiments.md.
-
-MOSS_MODEL_ID = "OpenMOSS-Team/MOSS-Transcribe-Diarize"
-# Package tested: pip install
-#   "git+https://github.com/OpenMOSS/MOSS-Transcribe-Diarize@61bc29cd4120be7b5d3b761b64cd5dff57263642"
-# The Hugging Face model revision loaded. The model needs trust_remote_code
-# (the package doesn't register its classes with transformers' Auto*), so the
-# Python files it downloads run inside this process: pin the revision so a
-# change on the Hub can't run new code here. Moving the pin needs a review
-# of the upstream diff.
-MOSS_HF_REVISION = "704aa4a9c304e8520be88901e0d1960158ef5b15"
-# Upper bound on generated tokens for one file. The upstream subtitle app
-# uses 2048 per request; an audio drama episode is longer, so allow more and
-# report when the limit was reached (the tail may be missing).
-MOSS_MAX_NEW_TOKENS = 16384
-
-
-class MossNotInstalledError(ImportError):
-    pass
-
-
-def load_moss_transcribe_diarize(use_gpu: bool = False):
-    """(model, processor, device, dtype), cached in _asr_model_cache so
-    core.release_gpu_models() frees it like the Qwen models. Falls back to
-    CPU when use_gpu is off or CUDA isn't available."""
-    try:
-        import torch
-        from transformers import AutoModelForCausalLM, AutoProcessor
-        import moss_transcribe_diarize  # noqa: F401 -- only checks the package is installed
-    except ImportError as exc:
-        raise MossNotInstalledError(str(exc)) from exc
-
-    device = torch.device("cuda:0" if use_gpu and torch.cuda.is_available() else "cpu")
-    cache_key = f"moss_{device.type}"
-    if cache_key in _asr_model_cache:
-        return _asr_model_cache[cache_key]
-    dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
-    try:
-        model = AutoModelForCausalLM.from_pretrained(
-            MOSS_MODEL_ID, revision=MOSS_HF_REVISION, trust_remote_code=True, dtype="auto",
-            attn_implementation="sdpa",
-        ).to(dtype=dtype).to(device).eval()
-        processor = AutoProcessor.from_pretrained(MOSS_MODEL_ID, revision=MOSS_HF_REVISION,
-                                                  trust_remote_code=True)
-    except Exception as exc:
-        if is_network_error(exc):
-            raise ModelDownloadError(
-                f"Couldn't download the {MOSS_MODEL_ID} model.\n\nThis is a network problem, "
-                "not a problem with your audio. The model is fetched from Hugging Face the "
-                "first time you use it.") from exc
-        raise
-    loaded = (model, processor, device, dtype)
-    _asr_model_cache[cache_key] = loaded
-    return loaded
-
-
-def moss_segments_from_transcript(parsed) -> list:
-    """Plain {"start", "end", "text", "speaker"} dicts from
-    moss_transcribe_diarize.parse_transcript()'s TranscriptSegment objects,
-    dropping empty text and turns with no positive length."""
-    out = []
-    for seg in parsed or []:
-        text = (getattr(seg, "text", "") or "").strip()
-        start, end = float(getattr(seg, "start", 0.0)), float(getattr(seg, "end", 0.0))
-        if not text or end <= start:
-            continue
-        speaker = getattr(seg, "speaker", None)
-        out.append({"start": start, "end": end, "text": text,
-                    "speaker": str(speaker) if speaker else None})
-    return out
-
-
-class MossTranscribeDiarizeBackend:
-    """Experimental: transcribes the whole file in one pass and returns
-    segments that also carry a "speaker" label (e.g. "S01")."""
-    name = "moss_td"
-
-    def transcribe(self, audio_path, language=None, use_gpu=False, run_info=None):
-        """Segments as {"start", "end", "text", "speaker"}. language is
-        accepted for interface parity; MOSS detects it itself. run_info, if
-        given, is filled with {"device": "cuda"|"cpu", "truncated": bool}."""
-        model, processor, device, dtype = load_moss_transcribe_diarize(use_gpu=use_gpu)
-        try:
-            from moss_transcribe_diarize import parse_transcript
-            from moss_transcribe_diarize.inference_utils import (
-                build_transcription_messages, generate_transcription)
-        except ImportError as exc:
-            raise MossNotInstalledError(str(exc)) from exc
-        messages = build_transcription_messages(audio_path)
-        result = generate_transcription(
-            model, processor, messages, max_new_tokens=MOSS_MAX_NEW_TOKENS, do_sample=False,
-            device=device, dtype=dtype)
-        if run_info is not None:
-            run_info["device"] = "cuda" if getattr(device, "type", "") == "cuda" else "cpu"
-            run_info["truncated"] = int(result.get("generated_tokens") or 0) >= MOSS_MAX_NEW_TOKENS
-        return moss_segments_from_transcript(parse_transcript(result.get("text") or ""))
-
-
 # The seam: every selectable transcription backend by its stored
-# asr_backend_choice value. Experimental ones are listed separately so a
-# caller can refuse them unless their toggle is on.
+# asr_backend_choice value.
 BACKENDS = {
     WhisperBackend.name: WhisperBackend,
     Qwen3ASRBackend.name: Qwen3ASRBackend,
     Qwen3ASRVadBackend.name: Qwen3ASRVadBackend,
     Qwen3ASRLongBackend.name: Qwen3ASRLongBackend,
-    MossTranscribeDiarizeBackend.name: MossTranscribeDiarizeBackend,
 }
-EXPERIMENTAL_BACKENDS = frozenset({MossTranscribeDiarizeBackend.name})
 
 
 def get_backend(name: str):

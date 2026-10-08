@@ -66,13 +66,11 @@ describe('chapter OCR helpers', () => {
 
 describe('runOptionProblem', () => {
   it('flags forced alignment on a Whisper-only drama', () => {
-    expect(runOptionProblem('whisper', 'qwen3_forced_align', 'whisper', false)?.field).toBe('alignment_method')
-    expect(runOptionProblem('have_transcript', 'qwen3_forced_align', 'whisper', false)).toBeNull()
+    expect(runOptionProblem('whisper', 'qwen3_forced_align')?.field).toBe('alignment_method')
+    expect(runOptionProblem('have_transcript', 'qwen3_forced_align')).toBeNull()
   })
-  it('flags MOSS while it is off, not while it is on', () => {
-    expect(runOptionProblem('whisper', 'whisper_diff', 'moss_td', false)?.field).toBe('asr_backend_choice')
-    expect(runOptionProblem('whisper', 'whisper_diff', 'moss_td', true)).toBeNull()
-    expect(runOptionProblem('whisper', 'whisper_diff', 'whisper', false)).toBeNull()
+  it('has nothing to flag for Whisper-diff on a Whisper-only drama', () => {
+    expect(runOptionProblem('whisper', 'whisper_diff')).toBeNull()
   })
 })
 
@@ -82,7 +80,6 @@ describe('runProblemFromError', () => {
     const msg = "Qwen3 forced alignment needs a transcript to align, but this drama is in Whisper-text-only mode."
     expect(runProblemFromError(err('validation_error', msg))).toEqual({ field: 'alignment_method', message: msg })
     expect(runProblemFromError(err('validation_error', 'Use either an exact speaker count or a min/max range, not both.'))?.field).toBe('speakers')
-    expect(runProblemFromError(err('invalid_input', 'MOSS-Transcribe-Diarize is experimental and turned off.'))?.field).toBe('asr_backend_choice')
   })
   it('ignores other codes, unknown sentences and path-like text', () => {
     expect(runProblemFromError(err('conflict', 'forced alignment'))).toBeNull()

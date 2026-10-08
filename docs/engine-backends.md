@@ -199,12 +199,16 @@ root modules below.
 |---|---|---|
 | `whisper` (default) | `asr_backend.WhisperBackend` -> `core.transcribe_for_timing` | local faster-whisper with VAD segmentation; `core.load_whisper_model` falls back from GPU to CPU |
 | `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; needs `qwen-asr`; batching (`qwen_asr_batch_size`) is honoured only on the tested qwen-asr version (`effective_qwen_batch_size`) |
-| `moss_td` | `asr_backend.MossTranscribeDiarizeBackend` | experimental one-pass transcript with speaker labels; refused unless `moss_experimental` is on; downloads pinned remote code (see `asr-experiments.md`) |
 | Groq (`use_groq` flag, not a backend choice) | `core.transcribe_with_groq` | uploads the whole file to Groq's hosted Whisper; needs a Groq key; one blocking call with `timeout=600` |
 
 `BACKENDS` / `get_backend` and `EXPERIMENTAL_BACKENDS` in `asr_backend.py` are
 the registry. Groq is not in it: it is a flag on the Whisper path in
 `transcribe_service`.
+
+A title saved with a removed backend (`asr_options_service.REMOVED_ASR_BACKENDS`:
+`moss_td`) runs and displays as the default backend, with
+`removed_asr_backend_notice()` shown in the Transcribe stage and printed by the CLI.
+The saved value is not rewritten.
 
 Alignment is a separate choice (`alignment_method`): `whisper_diff` (the
 default, `core.align_transcript_to_timing`) or `qwen3_forced_align`
@@ -241,8 +245,8 @@ one that still can't be confirmed gets the `language_uncertain` flag.
 passed as `local_model_path` and used instead of a download. Downloads honour an
 HF token (`hf_token` key, `HF_TOKEN`). In portable mode `portable.py` redirects
 `HF_HOME`, `TORCH_HOME` and `BAIHE_AUDIO_SEP_MODEL_DIR` under one
-`model_cache/` folder so copying the app folder carries the models. Qwen3 ASR,
-the Qwen3 aligner and MOSS download from Hugging Face on first use; a blocked
+`model_cache/` folder so copying the app folder carries the models. Qwen3 ASR
+and the Qwen3 aligner download from Hugging Face on first use; a blocked
 `huggingface.co` becomes `ModelDownloadError` with a DNS-blocker diagnosis.
 
 ## 4. TTS and dubbing at a glance

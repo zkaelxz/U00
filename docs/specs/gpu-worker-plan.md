@@ -32,7 +32,7 @@ Remote access must be in place first: `docs/STATUS.md` says the API must not be 
 
 ### Transcription (`services/transcribe_service.py`)
 
-- `_transcribe_worker` (901-937) writes nothing to the database. `_transcribe_pipeline` (981-1337) touches no database row. `_apply_transcription` (1340-1425) does every library write: history snapshot (1370), full-sync `db.save_lines` (1373), raw transcript and status, MOSS characters, chained diarization (1388), speed record (1397-1405).
+- `_transcribe_worker` (901-937) writes nothing to the database. `_transcribe_pipeline` (981-1337) touches no database row. `_apply_transcription` (1340-1425) does every library write: history snapshot (1370), full-sync `db.save_lines` (1373), raw transcript and status, chained diarization (1388), speed record (1397-1405).
 - Server-local values mixed into the args: `settings_service.get_whisper_model_path()` (650), `scratch_dir` (640), `use_gpu` (621). The outcome carries `"audio_path"` (1332) and `Line` objects, so it is not JSON as it stands.
 - Vocal separation moves `vocals.wav` next to the title's audio (1046, 1082-1084). Besides that stage, `workspace_job_service.py:249` (the standalone separation job) and `cli.py` (`cmd_align`) write it, and nothing under `services/` reads it back. Unknown: whether anything outside `services/` does.
 - Inputs built from library state on the server at start: the initial prompt from series glossary names (`build_auto_initial_prompt` 302-316), transcript text, title tuning (613-619). Keys: `hf_token` (607) and the Groq key are read on the server.
@@ -70,7 +70,7 @@ Worker identity, pairing and tokens; a worker listener and protocol; portable jo
 | Job | v1 | Why |
 |---|---|---|
 | `retranscribe_` (one line) | Offload | The server cuts the slice; the text proposal goes through the existing compare-and-set apply. |
-| `transcribe_`: Whisper, Qwen3-ASR, Qwen3-ASR with speech detection, MOSS, Qwen3 forced align, word realign, vocal separation stage | Offload | Pure pipeline. The server applies the result through `_apply_transcription` unchanged. `vocals.wav` stays in the worker's scratch folder. |
+| `transcribe_`: Whisper, Qwen3-ASR, Qwen3-ASR with speech detection, Qwen3 forced align, word realign, vocal separation stage | Offload | Pure pipeline. The server applies the result through `_apply_transcription` unchanged. `vocals.wav` stays in the worker's scratch folder. |
 | `diarize_`, including the one chained after transcribe | Offload | Pure. The worker uses its own Hugging Face token or an offline model. |
 | Groq transcription | Server | Network and a key, no GPU benefit. |
 | Hardsub OCR, novel OCR, Scanlate | Server | `tesseract_cmd` path rules, page files. |
@@ -153,7 +153,7 @@ All PRs are off by default behind a `workers_enabled` setting.
 | 5 | Worker runtime (`python -m api worker`: pair, capability, claim loop, capped streamed download with SHA-256, local spawn run, heartbeat and cancel, upload, handshake, idle and pause policy). | Mocked client tests; the static timeout test covers the module. | ~600 lines | Sonnet; Opus pass on HTTP and token handling | Pair the 3080 Ti PC; pause when a game is full screen; resume when idle. |
 | 6 | Routing and kinds: re-transcribe line, then Whisper transcribe and diarize (chained diarize routed too); VRAM table; per-machine speed records; `run_on` request field. | Remote and local database state equal in tests. | ~450 lines | Opus (applies to the library) | The same title on each machine: lines and speakers comparable, ETA sensible. |
 | 7 | UI: Settings > GPU computers, "Ran on", "Run on" select, plain errors; vitest and Playwright. | `tsc`, vitest and e2e green; phone width fine. | ~500 lines | Sonnet | Use it at the server and from a phone (rows read-only there). |
-| 8 | Remaining offload kinds: Qwen3-ASR, speech detection, forced align, MOSS, separation stage; out-of-memory handoff to the other machine. | Mocked out-of-memory handoff test. | ~350 lines | Sonnet plus Opus review | Qwen3 on the 3070 vs the 3080 Ti; force an out-of-memory once. |
+| 8 | Remaining offload kinds: Qwen3-ASR, speech detection, forced align, separation stage; out-of-memory handoff to the other machine. | Mocked out-of-memory handoff test. | ~350 lines | Sonnet plus Opus review | Qwen3 on the 3070 vs the 3080 Ti; force an out-of-memory once. |
 | 9 | Windows packaging and a worker docs page: Start-menu entry or sign-in task, model prepare, rollback. | Installer build test. | ~250 lines | Sonnet | Fresh install on the PC; PC off means jobs run on the server; PC on and idle means they go to the PC. |
 
 Order: 1, 2, 3, 4, 5, 6, 7, 8, 9. PR 4 also needs the byte-capped reader consolidation (#677) and the remote-access checklist done. Run PRs 1 and 3 one after the other: both touch `api/schemas` and the tests.

@@ -103,7 +103,7 @@ test('Packages has no Missing packages fold; a task lists what it still needs', 
   await expect(ocr).toContainText('paddleocr')
   await expect(ocr.getByRole('button', { name: 'Install paddleocr' })).toBeVisible()
   // A package no task installs keeps its reason.
-  await expect(page.getByRole('list', { name: 'Packages not part of a task' })).toContainText("isn't on PyPI")
+  await expect(page.getByRole('list', { name: 'Packages not part of a task' })).toContainText("separate program")
   expect(unmocked).toEqual([])
 })
 

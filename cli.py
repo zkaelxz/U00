@@ -1143,8 +1143,8 @@ def _wait_for_job(job_id: str, label: str, poll_interval: float = _JOB_POLL_SECO
 
 def cmd_transcribe(args):
     """Transcribes (or aligns --transcript against) one title's stored audio
-    through the same service as the Workspace's Transcribe button. Tuning
-    options are saved on the title, as the app's own form saves them."""
+    through the Workspace's Transcribe service. Tuning options are saved
+    on the title."""
     tuning = dict(
         whisper_size=args.whisper_size, asr_backend_choice=args.asr_backend,
         beam_size=args.beam_size, min_silence_ms=args.min_silence_ms,
@@ -1172,7 +1172,8 @@ def cmd_transcribe(args):
         print(f"{label} device: {result['device']}")
     if result.get("device_notice"):
         print(f"{label} NOTICE: {result['device_notice']}")
-    for key in ("coverage_warning", "ollama_notice", "word_align_error", "forced_align_error"):
+    for key in ("coverage_warning", "ollama_notice", "word_align_error", "forced_align_error",
+                "asr_backend_notice"):
         if result.get(key):
             print(f"{label} WARNING: {translate_engines.redact_secrets(str(result[key]))}")
     if outcome not in ("ok", "partial"):

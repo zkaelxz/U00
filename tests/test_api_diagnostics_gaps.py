@@ -127,7 +127,7 @@ def test_install_presets(client):
     cv2 = b["packages"]["cv2"]
     assert cv2["dist"] == "opencv-python" and cv2["installed"] is True   # fakes: all installed
     assert cv2["source_url"] == "https://pypi.org/project/opencv-python/"
-    assert b["packages"]["moss-transcribe-diarize"]["not_offered_reason"]
+    assert b["packages"]["lightnovel-crawler"]["not_offered_reason"]
 
 
 def test_install_failure_hint(client, monkeypatch):

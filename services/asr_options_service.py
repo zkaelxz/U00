@@ -1,13 +1,11 @@
 """
-services/asr_options_service.py -- the two experimental transcription
+services/asr_options_service.py -- the experimental transcription
 settings, stored in db.app_settings like use_gpu.
 
 - qwen_asr_batch_size: how many Whisper segments go to Qwen3-ASR
   in one call when a drama's ASR backend is Qwen3-ASR. 1 (the default) keeps
   the original one-segment-at-a-time behaviour; batching is opt-in until the
   user's real GPU comparison shows it doesn't change the text.
-- moss_experimental: allows MOSS-Transcribe-Diarize as a drama's
-  ASR backend. Off by default; with it off the backend can't be chosen or run.
 - qwen_vad_refine_timing: with the "Qwen3 ASR with speech detection" backend, also
   tightens each line's times with Qwen3-ForcedAligner. Off by default.
 - mixed_languages: detect the spoken language per speech span and write it on
@@ -24,13 +22,15 @@ import db
 from services.service_errors import InvalidInputError
 
 QWEN_ASR_BATCH_KEY = "qwen_asr_batch_size"
-MOSS_EXPERIMENTAL_KEY = "moss_experimental"
 VAD_REFINE_KEY = "qwen_vad_refine_timing"
 MIXED_LANGUAGES_KEY = "mixed_languages"
 MIN_BATCH_SIZE = 1
 MAX_BATCH_SIZE = 16
 
-ASR_BACKEND_CHOICES = ("whisper", "qwen3_asr", "qwen3_asr_vad", "qwen3_asr_long", "moss_td")
+ASR_BACKEND_CHOICES = ("whisper", "qwen3_asr", "qwen3_asr_vad", "qwen3_asr_long")
+# Backends that used to be offered. A title may still have one saved, so it
+# loads as the default backend with a notice; the saved value is left alone.
+REMOVED_ASR_BACKENDS = {"moss_td": "MOSS-Transcribe-Diarize"}
 # Languages whose default backend is Qwen3-ASR on long windows, when it is
 # installed: the Qwen3-ASR model card reports about a third of Whisper
 # large-v3's character error rate on Chinese benchmarks and a lower one on
@@ -49,15 +49,6 @@ def get_qwen_asr_batch_size() -> int:
     return min(MAX_BATCH_SIZE, max(MIN_BATCH_SIZE, value))
 
 
-def get_moss_experimental() -> bool:
-    """Whether the experimental MOSS-Transcribe-Diarize backend is allowed.
-    Fails closed (off) on a DB hiccup."""
-    try:
-        return db.get_app_setting(MOSS_EXPERIMENTAL_KEY, False) is True
-    except Exception:
-        return False
-
-
 def get_vad_refine_timing() -> bool:
     """Whether the speech-detection Qwen3 backend refines timing with the
     forced aligner. Off on a DB hiccup."""
@@ -73,15 +64,6 @@ def get_mixed_languages() -> bool:
     try:
         return db.get_app_setting(MIXED_LANGUAGES_KEY, False) is True
     except Exception:
-        return False
-
-
-def moss_installed() -> bool:
-    """Whether the moss_transcribe_diarize package can be imported (checked
-    without importing it)."""
-    try:
-        return importlib.util.find_spec("moss_transcribe_diarize") is not None
-    except (ImportError, ValueError):
         return False
 
 
@@ -105,15 +87,13 @@ def get_asr_options() -> dict:
         "qwen_asr_batching_available": batching_available,
         "qwen_asr_batch_min": MIN_BATCH_SIZE,
         "qwen_asr_batch_max": MAX_BATCH_SIZE,
-        "moss_experimental": get_moss_experimental(),
         "qwen_vad_refine_timing": get_vad_refine_timing(),
         "mixed_languages": get_mixed_languages(),
-        "moss_installed": moss_installed(),
     }
 
 
-def set_asr_options(qwen_asr_batch_size=None, moss_experimental=None,
-                    qwen_vad_refine_timing=None, mixed_languages=None) -> dict:
+def set_asr_options(qwen_asr_batch_size=None, qwen_vad_refine_timing=None,
+                    mixed_languages=None) -> dict:
     """Saves whichever option is passed (None = unchanged). Raises
     InvalidInputError for a batch size outside 1..16 or a non-boolean
     toggle. Returns get_asr_options()."""
@@ -123,16 +103,12 @@ def set_asr_options(qwen_asr_batch_size=None, moss_experimental=None,
             raise InvalidInputError(
                 f"Qwen3-ASR batch size must be a whole number from {MIN_BATCH_SIZE} "
                 f"to {MAX_BATCH_SIZE}.")
-    if moss_experimental is not None and not isinstance(moss_experimental, bool):
-        raise InvalidInputError("moss_experimental must be true or false.")
     if qwen_vad_refine_timing is not None and not isinstance(qwen_vad_refine_timing, bool):
         raise InvalidInputError("qwen_vad_refine_timing must be true or false.")
     if mixed_languages is not None and not isinstance(mixed_languages, bool):
         raise InvalidInputError("mixed_languages must be true or false.")
     if qwen_asr_batch_size is not None:
         db.set_app_setting(QWEN_ASR_BATCH_KEY, qwen_asr_batch_size)
-    if moss_experimental is not None:
-        db.set_app_setting(MOSS_EXPERIMENTAL_KEY, moss_experimental)
     if qwen_vad_refine_timing is not None:
         db.set_app_setting(VAD_REFINE_KEY, qwen_vad_refine_timing)
     if mixed_languages is not None:
@@ -140,14 +116,23 @@ def set_asr_options(qwen_asr_batch_size=None, moss_experimental=None,
     return get_asr_options()
 
 
+def removed_asr_backend_notice(drama):
+    """A plain notice when the title's saved backend was removed, else None."""
+    label = REMOVED_ASR_BACKENDS.get(drama.get("asr_backend_choice"))
+    if not label:
+        return None
+    return f"The {label} backend was removed, so this title now uses its default backend."
+
+
 def stored_asr_backend(drama) -> str:
-    """The drama's saved backend; one that never saved a choice gets Qwen3-ASR
+    """The drama's saved backend; one that never saved a choice (or saved a
+    removed one) gets Qwen3-ASR
     on long windows for Chinese and Japanese when qwen-asr, torch and
     faster-whisper (its speech detector) are installed, else Whisper. A title
     with Groq on keeps Whisper: the VAD backends run locally and would
     silently bypass Groq."""
     saved = drama.get("asr_backend_choice")
-    if saved:
+    if saved and saved not in REMOVED_ASR_BACKENDS:
         return saved
     if (not drama.get("use_groq")
             and (drama.get("source_language") or "zh") in QWEN_LONG_DEFAULT_LANGUAGES
