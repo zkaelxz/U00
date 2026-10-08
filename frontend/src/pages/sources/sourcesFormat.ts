@@ -11,6 +11,7 @@ import type {
   SeriesInfo,
   SeriesLink,
   SeriesResult,
+  SourceDetail,
   SourceErrorView,
   SourceHealth,
   SourcesSettings,
@@ -285,9 +286,35 @@ const TIER_LABELS: Record<string, string> = {
   OFFICIAL_API: 'Official API',
 }
 
-export function tierLines(tiers: Record<string, SourceTierResult>): string[] {
+/** "2026-10-08" for a unix time in seconds. */
+export function isoDay(ts: number): string {
+  return new Date(ts * 1000).toISOString().slice(0, 10)
+}
+
+type ExtensionMark = Pick<SourceDetail, 'extension_only' | 'extension_marked_at' | 'extension_works_without'>
+
+/** Marked, and no Static or Browser test has passed since: the extension is the way in. */
+export function extensionOnlyNow(d: ExtensionMark): boolean {
+  return !!d.extension_only && !d.extension_works_without
+}
+
+export const EXTENSION_ONLY_HINT = 'This now works without the extension: clear the marker?'
+
+export function statusLabel(d: SourceDetail): string {
+  return extensionOnlyNow(d) ? 'Extension only' : humanizeValue(d.status)
+}
+
+export function accessMethodLabel(d: SourceDetail): string {
+  return extensionOnlyNow(d) ? 'Browser extension' : humanizeValue(d.access_method)
+}
+
+/** One line per tier. The marker only replaces the "You in a browser" line, and only while it is untested. */
+export function tierLines(tiers: Record<string, SourceTierResult>, mark?: ExtensionMark): string[] {
   return Object.entries(tiers).map(([key, t]) => {
     const label = TIER_LABELS[key] ?? humanizeValue(key)
+    if (key === 'USER_ASSISTED_BROWSER' && mark?.extension_only && !t.tested) {
+      return `${label}: works (marked by you${mark.extension_marked_at ? `, ${isoDay(mark.extension_marked_at)}` : ''})`
+    }
     if (!t.tested) return `${label}: untested`
     if (t.ok) return `${label}: works`
     const why = t.reason ? humanizeValue(t.reason).toLowerCase() : ''

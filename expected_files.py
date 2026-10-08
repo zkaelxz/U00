@@ -4,7 +4,7 @@
 EXPECTED_TOP_LEVEL_FILES = [
     "core.py", "db.py", "translate_engines.py",
     "diarize.py", "dub.py", "dub_narration.py", "video_export.py", "ocr.py", "segment.py",
-    "dictionary.py", "reader.py", "scanlate.py", "metadata_lookup.py",
+    "dictionary.py", "reader.py", "scanlate.py", "comic_chapters.py", "metadata_lookup.py",
     "known_sites.py", "title_library.py", "vocab_export.py",
     "qa.py", "bulk_import.py", "epub_io.py", "cli.py", "real_model_check_cli.py", "diagnostics.py",
     "run_tests.py", "translation_guide.py", "glossary_io.py",
