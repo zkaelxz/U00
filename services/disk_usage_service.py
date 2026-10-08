@@ -11,8 +11,12 @@ folder itself.
 
 Scan: the immediate children of one folder with recursive size and file
 count, measured by a bounded walk (MAX_ENTRIES entries or MAX_SECONDS, then
-`partial`). Symlinks and Windows junctions are counted as the link itself and
-never entered. Nothing is cached: every call walks the disk again.
+`partial`). Symlinks, Windows junctions and folders on another volume are
+counted as the link itself and never entered, so a folder's size is what lives
+inside it. What they point at is measured apart (services/disk_usage_links.py,
+same budget, shown as `linked_bytes`, never a path), so a folder reads the same
+from its parent and when opened. Nothing is cached: every call walks the disk
+again.
 
 Clear and move are server-enforced, not only hidden in the UI:
 - protected: the data folder itself, the live SQLite files (and -wal, -shm,
@@ -66,6 +70,7 @@ import db
 import portable
 import storage
 from services import auto_backup_service as abs_
+from services import disk_usage_links
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
@@ -294,6 +299,7 @@ class _Ctx:
         self.root_reason = _root_blocker(self.root)
         self.backup_real = _backup_folder_real()
         self.top_level = _baihe_top_level_names()
+        self.linked = None      # set by a scan only; clear and restore never measure link targets
 
 
 def _under_backups(parts) -> bool:
@@ -309,12 +315,14 @@ def _flag_name(name: str, parts_of_parent) -> bool:
 
 
 class _Measured:
-    __slots__ = ("size", "files", "flagged", "unreadable", "has_link", "deepest")
+    __slots__ = ("size", "files", "flagged", "unreadable", "has_link", "deepest", "links", "links_cut")
 
     def __init__(self, base_len: int = 0):
         self.deepest = base_len
         self.size = self.files = 0
         self.flagged = self.unreadable = self.has_link = False
+        self.links = []
+        self.links_cut = False
 
 
 # --------------------------------------------------------------------------
@@ -416,6 +424,10 @@ def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
                 link = _is_link_stat(st) or (stat.S_ISDIR(st.st_mode) and root_dev is not None and st.st_dev != root_dev)
                 if link:
                     m.has_link = True
+                    if len(m.links) < disk_usage_links.MAX_LINK_TARGETS:
+                        m.links.append(entry.path)
+                    else:
+                        m.links_cut = True
                 if stat.S_ISDIR(st.st_mode) and not link:
                     stack.append((entry.path, cur_parts + (entry.name,)))
                     continue
@@ -542,6 +554,18 @@ def _movable(parts: tuple, real: str, protected: bool, ctx: _Ctx):
     return {"supported": False, "reason": reason, "what": None}
 
 
+def _on_another_volume(path: str, st) -> bool:
+    """A real folder on a different volume than the folder holding it (a POSIX
+    mount point). _measure counts one as a link from its parent's side, so it
+    has to be one from its own side too, or the two views disagree."""
+    if not stat.S_ISDIR(st.st_mode):
+        return False
+    try:
+        return os.lstat(os.path.dirname(path)).st_dev != st.st_dev
+    except OSError:
+        return False
+
+
 def _iso(ts: float):
     try:
         return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).isoformat()
@@ -552,17 +576,20 @@ def _iso(ts: float):
 def _describe(parts: tuple, path: str, st, budget: _Budget, ctx: _Ctx, measured=None) -> dict:
     """The public record of one item. `path` is the verified absolute path.
     `measured` is a _Measured already taken for this folder (not walked again)."""
-    is_link = _is_link_stat(st)
+    is_link = _is_link_stat(st) or _on_another_volume(path, st)
     is_dir = stat.S_ISDIR(st.st_mode) and not is_link
     unreadable = has_link = flagged = False
     deepest = len(path)
+    link_paths, links_cut = ([path] if is_link else []), False
     if is_dir:
         m = measured or _measure(path, parts, budget)
         size, files, flagged = m.size, m.files, m.flagged
         unreadable, has_link, deepest = m.unreadable, m.has_link, m.deepest
+        link_paths, links_cut = m.links, m.links_cut
     else:
         size, files = st.st_size, 1
         flagged = _flag_name(parts[-1], parts[:-1]) if parts else False
+    linked = ctx.linked.of(link_paths, budget, links_cut) if ctx.linked else None
     real = os.path.realpath(path)
     protected, reason = _protection(parts, real, flagged, ctx)
     if is_link:
@@ -581,6 +608,9 @@ def _describe(parts: tuple, path: str, st, budget: _Budget, ctx: _Ctx, measured=
         "modified_at": _iso(st.st_mtime),
         "is_link": is_link,
         "contains_link": has_link,
+        "linked_bytes": linked[0] if linked else None,
+        "linked_files": linked[1] if linked else None,
+        "linked_complete": linked[2] if linked else None,
         "complete": not budget.hit and not unreadable,
         "protected": protected,
         "protected_reason": reason,
@@ -623,6 +653,8 @@ def _scan(path) -> dict:
         raise InvalidInputError("That item is a file, not a folder.")
     budget = _Budget()
     ctx = _Ctx()
+    ctx.linked = disk_usage_links.LinkedSizes(
+        ctx.root, [ctx.program, *_home_dirs()], _within, _measure)
     trash_info, trash_measured = _trash_totals()
     items = []
     entries = []
@@ -678,6 +710,9 @@ def _scan(path) -> dict:
         "parent": "/".join(parts[:-1]) if parts else None,
         "total_bytes": total,
         "file_count": sum(i["file_count"] for i in items),
+        "linked_bytes": sum(i["linked_bytes"] or 0 for i in items),
+        "linked_files": sum(i["linked_files"] or 0 for i in items),
+        "linked_complete": all(i["linked_complete"] is not False for i in items),
         "items": items,
         "not_shown": not_shown,
         "partial": bool(reason),
