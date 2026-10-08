@@ -196,6 +196,22 @@ class TestChapterCaptureStaysPolite:
         assert "limit = MAX_IMAGES_PER_REQUEST" in run
         assert self._const("MAX_IMAGES_PER_REQUEST") == page_server.MAX_IMAGES_PER_REQUEST
 
+    def test_translate_is_refused_while_a_capture_runs(self):
+        code = _code("content.js")
+        visible = code[code.index("async function translateVisible("):]
+        assert "if (state.capture)" in visible[:visible.index("looksLikeChallengePage")]
+        popup = _code("popup.js")
+        capturing = popup[popup.index("function showCapturing("):popup.index("async function runCapture(")]
+        assert "els.translate.disabled = running" in capturing
+        assert "els.translateAll.disabled = running" in capturing
+
+    def test_canvases_get_a_per_canvas_draw_target(self):
+        code = _code("content.js")
+        assert "canvasIds = new WeakMap()" in code
+        run = code[code.index("async function runCapture("):]
+        assert "srcKey === null" not in run
+        assert "drawTargetKey(el) === srcKey" in run
+
     def test_capture_makes_no_calls_of_its_own(self):
         code = _code("content.js")
         capture = code[code.index("const CAPTURE_MAX_PAGES"):code.index("function cancelCapture")]

@@ -223,6 +223,9 @@ function showCapturing(running) {
   els.cancelCapture.hidden = !running;
   els.captureChapter.disabled = running;
   els.captureFromHere.disabled = running;
+  // The page refuses a plain translate during a capture; disabling the buttons says why up front.
+  els.translate.disabled = running;
+  els.translateAll.disabled = running;
 }
 
 async function runCapture(fromHere) {
@@ -245,7 +248,12 @@ async function runCapture(fromHere) {
     const result = await chrome.tabs.sendMessage(tab.id, {
       type: "captureChapter", dramaId, store: els.store.checked, fromHere });
     if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
-    say(result.data.message, result.data.reason === "error");
+    const { message, translated = 0, stored = 0 } = result.data;
+    const store = els.store.checked;
+    const destination = describeDestination({
+      sent: store ? stored : translated, cached: 0, store, dramaId }).join(", ");
+    say(destination ? `${message} ${destination}.` : message, result.data.reason === "error");
+    if (store && dramaId && stored) showOpenLink(dramaId);
   } catch (e) {
     say(`Couldn't run on this page (${e.message}).`, true);
   } finally {

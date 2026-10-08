@@ -648,6 +648,10 @@
 
 
   async function translateVisible({ dramaId, store, all }) {
+    // A capture sends the same pages itself; running both would save a page twice.
+    if (state.capture) {
+      return { ok: false, error: "A chapter capture is running on this page; wait for it or cancel it first." };
+    }
     if (looksLikeChallengePage()) {
       return {
         ok: false, code: "CHALLENGE_DETECTED",
@@ -900,6 +904,17 @@
     await Promise.race([loaded, sleep(CAPTURE_LOAD_WAIT_MS)]);
   }
 
+  // A canvas has no src, so a content key would skip re-reading a canvas the reader repainted
+  // with another page. Its identity is only used to check the draw target, not to dedupe.
+  const canvasIds = new WeakMap();
+  let nextCanvasId = 0;
+
+  function drawTargetKey(el) {
+    if (el.tagName !== "CANVAS") return elementKey(el);
+    if (!canvasIds.has(el)) canvasIds.set(el, ++nextCanvasId);
+    return `canvas#${canvasIds.get(el)}`;
+  }
+
   function elementKey(el) {
     if (el.tagName === "CANVAS") return null;
     const { width, height } = elementSize(el);
@@ -954,7 +969,7 @@
     const seen = new Set();
     const handled = new WeakMap();
     const queue = [];
-    const counts = { translated: 0, cached: 0, skipped: 0, drawn: 0 };
+    const counts = { translated: 0, stored: 0, cached: 0, skipped: 0, drawn: 0 };
     let seq = 0;
     let limit = MAX_IMAGES_PER_REQUEST;
     let capHit = false;
@@ -1002,7 +1017,7 @@
           continue;
         }
         seq += 1;
-        queue.push({ extracted, elements: [el], srcKey: key, seq,
+        queue.push({ extracted, elements: [el], srcKey: drawTargetKey(el), seq,
                      order: { index: readerIndexOf(el), pos: scroller.positionOf(el) } });
       }
       return found;
@@ -1037,13 +1052,14 @@
             // later page while this batch was in flight; drawing then
             // would put these bubbles on the wrong page.
             for (const el of elements) {
-              if (el.isConnected && (srcKey === null || elementKey(el) === srcKey)) {
+              if (el.isConnected && drawTargetKey(el) === srcKey) {
                 drawOverlay(el, regions);
                 counts.drawn += 1;
               }
             }
           }
           counts.translated += (data.pages || []).length;
+          counts.stored += (data.pages || []).filter((p) => p.stored).length;
           counts.skipped += (data.skipped || []).length;
         }, limit);
         limit = outcome.limit || limit;

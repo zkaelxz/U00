@@ -63,6 +63,7 @@ It stops, and says why, when it reaches the end of the chapter, finds no new pag
 How it behaves:
 
 - **Order.** Pages are ordered by the reader's own index when its elements carry one (`data-index`, `data-page`, `aria-posinset`), otherwise by position in the scrolled content, and sent in that order, so the saved pages land in the drama in chapter order.
+- **Cost.** A capture can send up to 300 pages, each a separate engine call. The bridge's `/health` only says whether an engine is configured, not whether it is paid, so the popup can't warn about it; check your engine's pricing before capturing a long chapter with a paid one. While a capture runs, the popup's Translate buttons are disabled and the page refuses a plain translate, so no page is saved twice.
 - **Duplicates.** Pages are de-duplicated by content hash, so two identical pages in a chapter (say, blank ones) count once. Running it again on the same tab skips everything already translated; after a reload the cache is empty, so a second capture into the same drama saves the pages again.
 - **The site is left alone.** It makes no requests of its own and never touches the site's APIs or tokens: it only reads pixels the reader's own JavaScript has already drawn for you, one step at a time. It needs no extra permissions.
 - **Overlays.** A virtualised reader throws pages away when they scroll far off, and their overlays go with them. The translation is already sent and saved; scrolling back does not redraw it.
