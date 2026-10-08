@@ -9,7 +9,7 @@ import importlib
 BUILTIN = ["manhuagui", "bilibili", "52shuku", "xbanxia", "bilibili_manga",
           "toonkor", "guazimanhua", "miaoqumh", "baozimh", "kuaikan", "manhuaku",
           "zerosumonline", "ranobes", "missevan", "fanjiao",
-          "lightnovel_fun", "syosetu", "piaotian", "mangak"]
+          "lightnovel_fun", "syosetu", "piaotian", "mangak", "twmanga"]
 
 
 def load_all():
