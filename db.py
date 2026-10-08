@@ -2200,15 +2200,6 @@ def set_status_if(drama_id: int, expected: str, new: str) -> bool:
         return cur.rowcount > 0
 
 
-def set_drama_notion_page_id(drama_id: int, page_id):
-    """Roadmap 112: records (or clears, with None) the Notion page a drama
-    was exported to. Left out of update_drama on purpose: an export is not
-    an edit, so updated_at stays as it was."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE dramas SET notion_page_id = ? WHERE id = ?", (page_id, drama_id))
-        conn.commit()
-
-
 def delete_drama(drama_id: int):
     with contextlib.closing(get_conn()) as conn:
         conn.execute("DELETE FROM dramas WHERE id = ?", (drama_id,))
