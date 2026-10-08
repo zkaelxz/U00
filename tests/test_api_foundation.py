@@ -371,8 +371,9 @@ class TestSettingsEndpoint:
 
     def test_overview_contract_shape(self, client, isolated_db):
         body = client.get("/api/settings").json()
-        assert set(body) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "notify_on_completion",
+        assert set(body) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "unload_ollama_before_transcribe", "notify_on_completion",
                              "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "preferences", "endpoints",
+                             "upload_max_mb_from_env", "effective_upload_max_mb",
                              "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
                              "month_spend_counted_usd", "month_spend_reset_at", "choices"}
         assert isinstance(body["engine_keys"], dict)
@@ -465,13 +466,16 @@ class TestTranslateEndpoints:
         })
         assert resp.status_code == 503
         assert _error(resp)["code"] == "dependency_unavailable"
+        # A missing key is told apart from a missing package by its details.
+        assert resp.json()["error"]["details"] == {"reason": "no_key", "engine": "claude"}
+        assert "No claude key is configured" in _error(resp)["message"]
 
     def test_translate_unsupported_direction_is_400(self, client, isolated_db, monkeypatch):
         import translate_engines
         monkeypatch.setattr(translate_engines, "standalone_direction_support",
                             lambda *a: (False, "Not supported."))
         resp = client.post("/api/translate", json={
-            "text": "hello", "engine": "nllb",
+            "text": "hello", "engine": "fake_mt",
             "source_language": "en", "target_language": "zh",
         })
         assert resp.status_code == 400
@@ -571,10 +575,39 @@ class TestExportFlaggingEndpoints:
 
     def test_flag_dense_lines(self, client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
-        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="", en="word " * 60)])
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="", en="word " * 60)])
         resp = client.post(f"/api/export/dramas/{did}/flag-dense-lines")
         assert resp.status_code == 200
         assert resp.json() == {"flagged_count": 1}
+
+    def test_reading_speed_mode_round_trip(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        assert client.get(f"/api/export/dramas/{did}/reading-speed").json() == {"mode": "normal"}
+        resp = client.post(f"/api/export/dramas/{did}/reading-speed", json={"mode": "off"})
+        assert resp.status_code == 200 and resp.json() == {"mode": "off"}
+        assert client.get(f"/api/export/dramas/{did}/reading-speed").json() == {"mode": "off"}
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="", en="word " * 60)])
+        assert client.post(f"/api/export/dramas/{did}/flag-dense-lines").json() == {"flagged_count": 0}
+
+    def test_reading_speed_mode_rejects_unknown_values_and_drama(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        assert client.post(f"/api/export/dramas/{did}/reading-speed",
+                           json={"mode": "strict"}).status_code == 422
+        assert client.post("/api/export/dramas/999999/reading-speed",
+                           json={"mode": "off"}).status_code == 404
+        assert client.get("/api/export/dramas/999999/reading-speed").status_code == 404
+
+    def test_clear_reading_speed_flags(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=5.0, zh="", en="word " * 12, flag="reading_speed", flag_note="x"),
+            Line(idx=1, start=5.0, end=9.0, zh="", en="Hi", flag="timing_overlap", flag_note="y")])
+        resp = client.post(f"/api/export/dramas/{did}/clear-reading-speed-flags?recheck=true")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert (body["cleared_count"], body["flagged_count"]) == (1, 1)
+        assert isolated_db.load_lines(did)[1]["flag"] == "timing_overlap"
+        assert client.post("/api/export/dramas/999999/clear-reading-speed-flags").status_code == 404
 
     def test_flag_dense_lines_unknown_drama_is_404(self, client, isolated_db):
         resp = client.post("/api/export/dramas/999999/flag-dense-lines")
@@ -793,6 +826,14 @@ class TestTranscribeConfigEndpoints:
     everything start action -- see services/transcribe_service.py's own
     docstring for the scope decision and what's deliberately out."""
 
+    def test_a_title_saved_with_the_removed_moss_backend_loads_with_a_notice(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D", asr_backend_choice="moss_td", source_language="ko")
+        resp = client.get(f"/api/transcribe/dramas/{did}/config")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["asr_backend_choice"] == "whisper" and "MOSS" in body["asr_backend_notice"]
+        assert isolated_db.get_drama(did)["asr_backend_choice"] == "moss_td"
+
     def test_get_config_contract_shape(self, client, isolated_db):
         from services import transcribe_service
         did = isolated_db.create_drama(title_en="D")
@@ -800,13 +841,16 @@ class TestTranscribeConfigEndpoints:
         assert body == {
             "drama_id": did, "transcript_mode": "have_transcript", "has_audio_pipeline": True,
             "audio_available": False, "alignment_method": "whisper_diff",
-            "asr_backend_choice": "whisper", "whisper_size": core.DEFAULT_WHISPER_SIZE,
+            "asr_backend_choice": "whisper", "asr_backend_notice": None,
+            "whisper_size": core.DEFAULT_WHISPER_SIZE,
             "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None, "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": body["whisper_installed"],
-            "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5,
+            "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5, "sensitivity_preset": "normal", "effective_vad_threshold": 0.5,
+            "hallucination_silence_sec": 0.0, "min_pause_sec": 0.35,
             "separate_vocals_first": False, "separation_backend": "auto",
-            "realign_long_segments": False, "whisper_fast_mode": False, "use_groq": False,
+            "realign_long_segments": False, "whisper_fast_mode": False,
+            "whisper_repeat_guard": False, "split_by_sentences": False, "use_groq": False,
             "has_video_source": False, "hardsub_ocr_backend": "paddle",
             "hardsub_interval_sec": 1.0, "auto_initial_prompt": "",
         }

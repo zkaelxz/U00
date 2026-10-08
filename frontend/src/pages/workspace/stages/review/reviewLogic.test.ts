@@ -1,14 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../../../api/client'
 import type { ReviewLine } from '../../../../types/review'
+import { TRANSLATION_ONLY } from '../../translateForm'
 import {
   adjacentRun,
   resplitNeedsConfirm,
+  resplitPreviewSummary,
   resplitSummary,
   speakerTimeFooter,
   speakerTimeLines,
   buildPatch,
+  timingPatch,
   canResegmentWith,
   droppedText,
   llmApplyProblem,
@@ -20,7 +23,11 @@ import {
   codePointOffset,
   draftFromLine,
   emptyMessage,
+  cutBoundaries,
   estimateSplitTime,
+  proportionalCut,
+  snapCut,
+  stepToBoundary,
   formatDuration,
   gapForNewLine,
   initialActiveId,
@@ -37,8 +44,16 @@ import {
   pageStillMatches,
   resegmentSummary,
   splitPieces,
+  splitTranslationPieces,
   stepFrom,
   structureErrorText,
+  undoDoneMessage,
+  undoHandleOf,
+  undoRefusal,
+  restoreLossText,
+  UNDO_CHANGED_MESSAGE,
+  UNDO_GONE_MESSAGE,
+  UNDO_NOTES_MESSAGE,
   languageSetText,
   LINE_LANGUAGES,
   lineLangChip,
@@ -215,17 +230,22 @@ describe('keptNote', () => {
 })
 
 describe('AI re-segmentation preview (R47)', () => {
+  // No translation-only engine is offered now; the filter still applies to one.
+  beforeEach(() => TRANSLATION_ONLY.push('fake_mt'))
+  afterEach(() => {
+    TRANSLATION_ONLY.length = 0
+  })
   const eng = (name: string, free = false) => ({ name, label: name.toUpperCase(), free, models: null, key_configured: true })
   const config = {
-    engines: [eng('claude'), eng('ollama', true), eng('nllb'), eng('gemini')],
+    engines: [eng('claude'), eng('ollama', true), eng('fake_mt'), eng('gemini')],
     month_spend: 1.5,
     monthly_cap_usd: 10,
-    cap_applies_by_engine: { claude: true, ollama: false, nllb: true, gemini: false },
+    cap_applies_by_engine: { claude: true, ollama: false, fake_mt: true, gemini: false },
   }
 
   it('leaves translation-only engines out of the picker', () => {
     expect(resegmentEngines(config.engines).map((e) => e.name)).toEqual(['claude', 'ollama', 'gemini'])
-    expect(canResegmentWith('nllb')).toBe(false)
+    expect(canResegmentWith('fake_mt')).toBe(false)
     expect(canResegmentWith('')).toBe(true)
   })
 
@@ -289,6 +309,14 @@ describe('re-split summary', () => {
   it('reports nothing to split', () => {
     expect(resplitSummary({ split_lines: 0 })).toMatch(/Nothing changed/)
   })
+  it('summarises a dry run', () => {
+    expect(resplitPreviewSummary({ dry_run: true, split_lines: 31, pieces: 118 })).toBe('Preview: 31 lines would be split into 118.')
+    expect(resplitPreviewSummary({ split_lines: 1, pieces: 3, cleared_translations: 1 })).toBe(
+      'Preview: 1 line would be split into 3. 1 translation would be cleared.',
+    )
+    expect(resplitPreviewSummary({ split_lines: 0, note: 'No line is over the limits at Normal sensitivity. Try "More".' })).toMatch(/Normal sensitivity/)
+    expect(resplitPreviewSummary({ split_lines: 0 })).toBe('Preview: no line would be split.')
+  })
   it('spots the confirm refusal only', () => {
     const e = (s: number, m: string) => new ApiError(s, { code: 'x', message: m })
     expect(resplitNeedsConfirm(e(422, 'pass confirm=true.'))).toBe(true)
@@ -308,5 +336,129 @@ describe('speaker time summary', () => {
   it('footer mentions the uncovered audio only when known', () => {
     expect(speakerTimeFooter(sum)).toBe('4:20 of speech in the saved detection; 1:01:40 of the audio has no speaker turn.')
     expect(speakerTimeFooter({ ...sum, uncovered_seconds: null })).toBe('4:20 of speech in the saved detection.')
+  })
+})
+
+describe('timingPatch', () => {
+  const at = (idx: number, start: number, end: number) => mk(idx, { idx, start, end })
+  const mid = at(1, 5, 7)
+  const around = { prev: at(0, 1, 4), next: at(2, 8, 10) }
+
+  it('is a normal expected-checked patch for one field', () => {
+    expect(timingPatch(mid, around, 'start', 5.1)).toEqual({ start: 5.1, expected: { start: 5 } })
+    expect(timingPatch(mid, around, 'end', 7.5)).toEqual({ end: 7.5, expected: { end: 7 } })
+  })
+
+  it('rounds away float noise and never goes below zero', () => {
+    expect(timingPatch(mid, around, 'end', 7 + 0.1 + 0.2)).toEqual({ end: 7.3, expected: { end: 7 } })
+    expect(timingPatch(at(0, 0.05, 2), {}, 'start', -0.05)).toEqual({ start: 0, expected: { start: 0.05 } })
+  })
+
+  it('refuses a start at or after the end, with the existing message', () => {
+    expect(timingPatch(mid, around, 'start', 7)).toBe('End must be after start.')
+    expect(timingPatch(mid, around, 'end', 5)).toBe('End must be after start.')
+  })
+
+  it('refuses to push into the previous or next line', () => {
+    expect(timingPatch(mid, around, 'start', 3.9)).toBe('Start would overlap line #1.')
+    expect(timingPatch(mid, around, 'end', 8.1)).toBe('End would overlap line #3.')
+    expect(timingPatch(mid, around, 'start', 4)).toEqual({ start: 4, expected: { start: 5 } })
+    expect(timingPatch(mid, around, 'end', 8)).toEqual({ end: 8, expected: { end: 7 } })
+  })
+
+  it('lets a line that already overlaps move out of the overlap', () => {
+    const tight = at(1, 3, 7)
+    expect(timingPatch(tight, around, 'start', 3.5)).toEqual({ start: 3.5, expected: { start: 3 } })
+    expect(timingPatch(tight, around, 'start', 2.5)).toBe('Start would overlap line #1.')
+  })
+
+  it('ignores neighbours that are not adjacent in the script (filtered lists)', () => {
+    const far = { prev: at(0, 1, 6), next: at(9, 5, 10) }
+    expect(timingPatch(at(4, 5, 7), far, 'start', 4)).toEqual({ start: 4, expected: { start: 5 } })
+    expect(timingPatch(at(4, 5, 7), far, 'end', 9)).toEqual({ end: 9, expected: { end: 7 } })
+  })
+
+  it('is null when nothing would change', () => {
+    expect(timingPatch(mid, around, 'start', 5)).toBeNull()
+  })
+})
+
+describe('split cut suggestions', () => {
+  it('finds boundaries after spaces and punctuation, never at the edges', () => {
+    expect(cutBoundaries('Hello there, friend')).toEqual([6, 13])
+    expect(cutBoundaries('你好，朋友。')).toEqual([3])
+    expect(cutBoundaries('no')).toEqual([])
+    expect(cutBoundaries('a ')).toEqual([])
+  })
+  it('snaps to the nearest boundary, earlier on a tie', () => {
+    expect(snapCut('Hello there, friend', 9)).toBe(6)
+    expect(snapCut('Hello there, friend', 11)).toBe(13)
+    expect(snapCut('aa bb', 2)).toBe(3)
+  })
+  it('keeps the exact offset when the text has no boundary, clamped inside', () => {
+    expect(snapCut('abcdef', 3)).toBe(3)
+    expect(snapCut('abcdef', 0)).toBe(1)
+    expect(snapCut('abcdef', 99)).toBe(5)
+    expect(snapCut('a', 1)).toBe(1)
+  })
+  it('counts emoji as one character', () => {
+    expect(snapCut('😀😀 😀😀', 2)).toBe(3)
+    expect(snapCut('😀😀😀😀', 2)).toBe(2)
+  })
+  it('cuts the translation at the same fraction as the source', () => {
+    expect(proportionalCut(4, 2, 'Hello there, friend')).toBe(13)
+    expect(proportionalCut(10, 7, 'one two three four five six')).toBe(19)
+    expect(proportionalCut(0, 0, 'ab cd')).toBe(3)
+  })
+  it('steps to the previous or next boundary, else the edge', () => {
+    expect(stepToBoundary('Hello there, friend', 6, 1)).toBe(13)
+    expect(stepToBoundary('Hello there, friend', 6, -1)).toBe(1)
+    expect(stepToBoundary('你好，朋友。你', 3, 1)).toBe(6)
+    expect(stepToBoundary('abcdef', 2, 1)).toBe(5)
+  })
+})
+
+describe('splitTranslationPieces', () => {
+  it('trims the way the server does, leaving the cut itself alone', () => {
+    expect(splitTranslationPieces('Thanks,  dear friends', 8)).toEqual(['Thanks,', 'dear friends'])
+    expect(splitTranslationPieces(' Hi there ', 4)).toEqual([' Hi', 'there'])
+    expect(splitPieces('Thanks,  dear friends', 8)).toEqual(['Thanks, ', ' dear friends'])
+  })
+})
+
+describe('undo of a structural edit', () => {
+  it('needs both the snapshot id and the fingerprint the server returned', () => {
+    expect(undoHandleOf({ history_id: 7, lines_fingerprint: 'abc' })).toEqual({ historyId: 7, fingerprint: 'abc' })
+    expect(undoHandleOf({ history_id: 7 })).toBeNull()
+    expect(undoHandleOf({ history_id: null, lines_fingerprint: 'abc' })).toBeNull()
+    expect(undoHandleOf({})).toBeNull()
+  })
+  it('explains a refused undo in plain text, keeping the offer only while a job runs', () => {
+    const changed = new ApiError(409, { code: 'conflict', message: 'The lines were edited since that change' })
+    expect(undoRefusal(changed)).toEqual({ text: UNDO_CHANGED_MESSAGE, keepOffer: false })
+    expect(UNDO_CHANGED_MESSAGE).toContain('Records → Line history')
+    // Told apart by the server's reason, not its wording, and never sent to Records,
+    // whose restore would delete the note.
+    const noted = new ApiError(409, { code: 'conflict', message: 'anything', details: { reason: 'notes_on_removed_lines' } })
+    expect(undoRefusal(noted)).toEqual({ text: UNDO_NOTES_MESSAGE, keepOffer: false })
+    expect(UNDO_NOTES_MESSAGE).not.toContain('Line history')
+    expect(UNDO_NOTES_MESSAGE).toContain('move or copy the note first')
+    const otherReason = new ApiError(409, { code: 'conflict', message: 'The lines were edited', details: { reason: 'other' } })
+    expect(undoRefusal(otherReason)).toEqual({ text: UNDO_CHANGED_MESSAGE, keepOffer: false })
+    const job = new ApiError(409, { code: 'conflict', message: 'A background job is still running' })
+    expect(undoRefusal(job)).toEqual({ text: JOB_RUNNING_MESSAGE, keepOffer: true })
+    expect(undoRefusal(new ApiError(404, { code: 'not_found', message: 'x' }))).toEqual({ text: UNDO_GONE_MESSAGE, keepOffer: false })
+    expect(UNDO_GONE_MESSAGE).toContain('Records → Line history')
+    expect(undoRefusal(new ApiError(500, { code: 'error', message: 'x' }))).toBeNull()
+  })
+  it('warns how many noted lines a Records restore would remove', () => {
+    expect(restoreLossText(1)).toMatch(/^1 line this would remove has a note or emotion tag\. Restoring deletes them\./)
+    expect(restoreLossText(3)).toMatch(/^3 lines this would remove have notes or emotion tags\./)
+  })
+  it('says what an undo of a delete or merge does not bring back', () => {
+    expect(undoDoneMessage('delete')).toContain('but not its notes or emotion tag')
+    expect(undoDoneMessage('merge')).toContain('notes and emotion tags stay on the line they were merged into, unless that line already had its own')
+    expect(undoDoneMessage('split')).toBe('Undone. The lines are back as they were before.')
+    expect(undoDoneMessage('resplit')).toBe(undoDoneMessage('split'))
   })
 })

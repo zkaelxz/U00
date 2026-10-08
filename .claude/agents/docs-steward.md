@@ -13,7 +13,7 @@ You keep Baihe's docs matched to the code on the branch the lead names.
 
 **Check:**
 1. **`FILE_ORGANIZATION.md`:**
-   - every top-level `*.py`, `tabs/*.py`, `services/*.py`, `api/*.py` and `api/routers/*.py` is listed in the right group, with a one-line description;
+   - every top-level `*.py`, `services/*.py`, `api/*.py` and `api/routers/*.py` is listed in the right group, with a one-line description;
    - no listed file is gone;
    - tree connectors are correct.
    - Compare against `git ls-files`.
@@ -21,7 +21,7 @@ You keep Baihe's docs matched to the code on the branch the lead names.
    - `docs/STATUS.md` (merged vs in flight, checked against `git log --oneline origin/baihe-subtitler` and the open PRs)
 
    Only change a status when git or the code proves it, and cite the PR or commit.
-3. **Route table:** the table in `docs/remote-access-decision.md` matches the routes and guards in `api/routers/`.
+3. **Route table:** the table in `docs/route-permissions.md` matches the routes and guards in `api/routers/`.
 4. **Optional deps:** optional imports (in try/except or importorskip'd modules) that aren't in `OPTIONAL_DEPENDENCIES`. Report these, don't fix them.
 
 **Rules:**

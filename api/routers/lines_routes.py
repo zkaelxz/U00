@@ -8,7 +8,7 @@ Lines are addressed by permanent line id, never by position, and every write
 is field-scoped (never a full line-list sync). Writes are POSTs; a note delete
 is a DELETE with no confirm.
 
-Auto-shorten overlong lines (review parity R28) calls an LLM, so besides
+Auto-shorten overlong lines calls an LLM, so besides
 `lines.edit` the handler runs `require_engines_allowed` on the engine the
 call will use (the named one, else the drama's own) and takes an LLM
 slot; it writes only `en` (compare-and-set per line) after a line_history

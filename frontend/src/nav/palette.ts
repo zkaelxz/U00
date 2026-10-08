@@ -21,7 +21,8 @@ export interface PaletteEntry {
 // Words people type for a page whose label does not contain them.
 const PAGE_KEYWORDS: Record<string, string> = {
   library: 'titles dramas novels comics',
-  settings: 'engines keys notifications sharing devices backup disk',
+  settings: 'engines keys notifications sharing devices backup disk save folder cbz',
+  'library-tools': 'saved manga cbz comics chapters series presets',
   admin: 'users people accounts',
   diagnostics: 'health logs disk',
   jobs: 'queue progress running',

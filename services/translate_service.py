@@ -14,12 +14,15 @@ from typing import Optional
 import db
 import translate_engines
 from services import ownership_service, settings_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
-                                      UnsupportedOperationError)
+from services.service_errors import (
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    UnsupportedOperationError,
+)
 
 # translate_engines.ENGINES keys whose engine class needs no API key to run
 # (see translate_engines.py's own ENGINES / FREE_ENGINES):
-#   - nllb: a locally-downloaded model, no key at all.
 #   - ollama: its key is optional, defaulting to the literal "local" when
 #     nothing is configured (resolve_api_key below) -- it points
 #     at a locally-run server, not a hosted API that requires an account
@@ -37,7 +40,6 @@ ENGINE_MODEL_DICTS = {
     "gemini": translate_engines.GEMINI_MODELS,
     "openai": translate_engines.OPENAI_MODELS,
     "ollama": translate_engines.OLLAMA_MODELS,
-    "nllb": translate_engines.NLLB_MODELS,
 }
 
 
@@ -88,14 +90,11 @@ def list_history(limit: int = 50, principal=None) -> list:
 def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optional[str]:
     """The literal value to pass into translate_engines.get_engine, per
     engine:
-      - nllb: None -- a locally-downloaded model, nothing to pass.
       - ollama: a resolved key/URL if configured, else the literal "local"
         (it points at a locally-run server).
       - everything else: whatever services.settings_service.resolve_key
         finds, or None if nothing is configured.
     """
-    if engine_name == "nllb":
-        return None
     if engine_name in translate_engines.KEYLESS_ENGINES:
         return settings_service.resolve_key(engine_name, env_path) or "local"
     return settings_service.resolve_key(engine_name, env_path)
@@ -122,9 +121,8 @@ def translate(text: str, engine_name: str, source_language: str, target_language
         raise UnsupportedOperationError(message)
 
     api_key = resolve_api_key(engine_name, env_path)
-    if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+    if api_key is None:
+        raise MissingKeyError(engine_name)
 
     engine = translate_engines.get_engine(
         engine_name, api_key, model,

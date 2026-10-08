@@ -34,11 +34,17 @@ No FastAPI import.
 import background_jobs
 import db
 import translate_engines
+from services import comic_chapters_service
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
 from services import settings_service, translate_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    DependencyUnavailableError,
+    InvalidInputError,
+    MissingKeyError,
+    UnsupportedOperationError,
+)
 
 MODES = ("missing", "page", "all")
 _CONFIRM_ALL = ("Redo all replaces the text regions of every page, including any you "
@@ -49,9 +55,8 @@ def _build_engine(engine_name: str):
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
+    if api_key is None:
+        raise MissingKeyError(engine_name)
     try:
         return translate_engines.get_engine(
             engine_name, api_key,
@@ -63,11 +68,23 @@ def _build_engine(engine_name: str):
             f"The {engine_name} engine could not be started on this PC.") from None
 
 
+def _require_ocr_backend(drama_id: int) -> None:
+    """detect_and_ocr_page turns any OCR failure into empty text, so a
+    backend that can't run is refused here, with its plain reason."""
+    import ocr
+    lang = pages_svc.require_drama(drama_id).get("source_language") or "zh"
+    if settings_service.resolve_ocr_backend(lang) == "paddle_vl_manga":
+        problem = ocr.paddle_vl_manga_problem()
+        if problem:
+            raise DependencyUnavailableError(problem)
+
+
 def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm: bool = False,
-              engine: str = None, detect_backend: str = "auto") -> dict:
+              engine: str = None, detect_backend: str = "auto",
+              chapter_id: str = None) -> dict:
     """Starts the drama's Scanlate run. 409: a job or import is running,
     or mode "all" without confirm. 503: no key for the engine. 400: no
-    pages. Returns {job_id, engine, mode}."""
+    pages. `chapter_id` limits "missing"/"all" to one chapter. Returns {job_id, engine, mode}."""
     pages_svc.require_drama(drama_id)
     if mode not in MODES:
         raise InvalidInputError("mode must be 'missing', 'page' or 'all'.")
@@ -82,11 +99,18 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm
         pages_svc.require_page(drama_id, page_id)
     elif page_id is not None:
         raise InvalidInputError("page_id is only used to redo one page.")
+    if chapter_id is not None and mode == "page":
+        raise InvalidInputError("chapter_id can't be combined with a single page.")
     if mode == "all" and not confirm:
         raise ConflictError(_CONFIRM_ALL)
+    # Pages marked "not part of the story" are skipped, and a chapter limits the run.
+    targets = ([page_id] if mode == "page"
+               else comic_chapters_service.run_page_ids(drama_id, chapter_id))
+    if not targets:
+        raise UnsupportedOperationError("No pages to run: they are all hidden.")
+    _require_ocr_backend(drama_id)
     engine_name = engine or settings_service.get_default_engine()
     built = _build_engine(engine_name)
-    targets = [page_id] if mode == "page" else [p["id"] for p in pages]
     started = pages_svc.start_drama_job(
         drama_id, _run_job, pages_svc.job_id(drama_id), drama_id, mode, targets,
         engine_name, built, detect_backend,

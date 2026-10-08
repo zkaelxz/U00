@@ -1285,7 +1285,7 @@ class TestVoiceBank:
     def test_apply_copies_clip_into_the_new_drama_and_sets_clone_fields(self, isolated_db, tmp_path_str):
         clip = self._make_clip(tmp_path_str)
         eid = isolated_db.save_voice_bank_entry(
-            "Su Shan", clip, ref_text="a line", clone_engine="gpt_sovits", voice_design="")
+            "Su Shan", clip, ref_text="a line", clone_engine="omnivoice", voice_design="")
 
         did = isolated_db.create_drama(title_en="A New Drama")
         drama_dir = os.path.join(tmp_path_str, "new_drama")
@@ -1301,7 +1301,7 @@ class TestVoiceBank:
         c = chars["SPEAKER_01"]
         assert c["ref_audio_filename"] == dest_filename
         assert c["ref_text"] == "a line"
-        assert c["clone_engine"] == "gpt_sovits"
+        assert c["clone_engine"] == "omnivoice"
 
     def test_apply_writes_a_separate_copy_not_shared_with_the_bank_or_other_dramas(
             self, isolated_db, tmp_path_str):
@@ -1792,6 +1792,8 @@ class TestStep26eProfilesMigration:
             profiles = db.list_profiles()
             assert len(profiles) == 1
             default_id = profiles[0]["id"]
+            # Same naive-UTC format as every other db.py timestamp.
+            assert "+" not in profiles[0]["created_at"]
 
             prog = db.get_progress(1, profile_id=default_id)
             assert prog["last_line_idx"] == 7
@@ -1953,7 +1955,8 @@ def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
 # (test_every_added_column_is_listed fails otherwise).
 _INIT_DB_MIGRATED_COLUMNS = {
     "job_records": ("cancel_requested", "result_json", "owner_pid", "owner_user_id"),
-    "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang"),
+    "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
+              "word_timings"),
     "dramas": (
         "translation_engine", "content_mode", "narration_language", "source_video_filename",
         "source_language", "chinese_script", "media_type", "series_id", "episode_number",
@@ -1962,9 +1965,11 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "cover_art_filename", "genre", "publication_status", "chapter_count", "custom_tags",
         "personal_notes", "source_url", "transcript_mode", "whisper_size",
         "alignment_method", "asr_backend_choice", "min_silence_ms", "vad_threshold",
-        "beam_size", "separate_vocals_first", "separation_backend", "realign_long_segments",
+        "beam_size", "hallucination_silence_sec", "min_pause_sec", "sensitivity_preset", "separate_vocals_first", "separation_backend", "realign_long_segments",
         "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
-        "project_instructions", "notion_page_id", "owner_user_id", "is_private"),
+        "project_instructions", "notion_page_id", "reading_speed_mode", "owner_user_id",
+        "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
+        "split_by_sentences"),
     "series": ("instructions", "owner_user_id", "is_private"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
@@ -2065,8 +2070,17 @@ def _alter_columns_in_db_py():
     "TYPE ...") tuples anywhere in db.py, as (None, column)."""
     import ast
     import re
-    src = open(os.path.join(os.path.dirname(db.__file__), "db.py"), encoding="utf-8").read()
+    # db may be split into a db/ package; read every module so the scan
+    # can't pass on an empty file list.
+    root = os.path.dirname(db.__file__)
+    if os.path.isdir(os.path.join(root, "db")):
+        paths = [os.path.join(d, f) for d, _, fs in os.walk(os.path.join(root, "db"))
+                 for f in fs if f.endswith(".py")]
+    else:
+        paths = [os.path.join(root, "db.py")]
+    src = "\n".join(open(p, encoding="utf-8").read() for p in sorted(paths))
     found = {(t, c) for t, c in re.findall(r"ALTER TABLE (\w+) ADD COLUMN (\w+)\b", src)}
+    assert len(found) >= 50, f"found only {len(found)} ALTER TABLE ... ADD COLUMN literals"
     sql_type = re.compile(r"^(TEXT|INTEGER|REAL|BLOB|NUMERIC)\b")
     for node in ast.walk(ast.parse(src)):
         if not (isinstance(node, ast.Tuple) and node.elts
@@ -2119,6 +2133,36 @@ class TestInitDbSchema:
         isolated_db.init_db()
         assert _exact_snapshot(isolated_db.DB_PATH) == upgraded_exact
 
+    def test_a_title_from_an_old_database_gets_the_default_split_pause(self, isolated_db):
+        _make_old_shape(isolated_db.DB_PATH)
+        isolated_db.init_db()
+        assert isolated_db.get_drama(1)["min_pause_sec"] == 0.35
+
+    def test_titles_on_the_old_hallucination_guard_default_are_switched_off(self, isolated_db):
+        on_default = isolated_db.create_drama(title_en="A")
+        chosen = isolated_db.create_drama(title_en="B")
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:
+            conn.execute("UPDATE dramas SET hallucination_silence_sec = 2.0 WHERE id = ?",
+                         (on_default,))
+            conn.execute("UPDATE dramas SET hallucination_silence_sec = 3.5 WHERE id = ?",
+                         (chosen,))
+            conn.execute("ALTER TABLE dramas DROP COLUMN whisper_repeat_guard")
+            conn.commit()
+        finally:
+            conn.close()
+        isolated_db.init_db()
+        assert isolated_db.get_drama(on_default)["hallucination_silence_sec"] == 0
+        assert isolated_db.get_drama(chosen)["hallucination_silence_sec"] == 3.5
+        # Once only: a title the user later sets to 2.0 keeps it.
+        isolated_db.update_drama(on_default, hallucination_silence_sec=2.0)
+        isolated_db.init_db()
+        assert isolated_db.get_drama(on_default)["hallucination_silence_sec"] == 2.0
+
+    def test_a_new_title_starts_with_the_hallucination_guard_off(self, isolated_db):
+        assert isolated_db.get_drama(isolated_db.create_drama(title_en="A"))[
+            "hallucination_silence_sec"] == 0
+
     def test_old_database_data_migrations_run(self, isolated_db):
         _make_old_shape(isolated_db.DB_PATH, share_by_default_was_on=True)
         isolated_db.init_db()
@@ -2136,3 +2180,81 @@ class TestInitDbSchema:
                 "SELECT translation_engine, is_private FROM dramas").fetchone() == ("claude", 0)
         finally:
             conn.close()
+
+
+# Tables with a line_id that a full sync deliberately leaves alone when a line
+# is removed or merged. A new per-line table must go here or in
+# db._LINE_REF_TABLES, so a merge moves its rows and a delete cleans them.
+_LINE_ID_TABLES_NOT_FOLLOWED = {
+    "bug_reports": "a frozen debugging bundle; its line_id is only a hint",
+    "bulk_job_lines": "results are applied by line id and skipped once the line is gone",
+    "line_provenance": "keyed by line id and read against the current lines",
+}
+
+
+def test_every_line_id_table_is_followed_or_listed(isolated_db):
+    with contextlib.closing(db.get_conn()) as conn:
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+        with_line_id = {t for t in tables
+                        if "line_id" in {c[1] for c in conn.execute(f'PRAGMA table_info("{t}")')}}
+    assert with_line_id == set(db._LINE_REF_TABLES) | set(_LINE_ID_TABLES_NOT_FOLLOWED)
+    assert set(db._LINE_REF_TABLES.values()) <= {"delete", "unlink"}
+
+
+def test_line_refs_follow_a_merge_and_go_with_a_delete(isolated_db):
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=i, start=float(i), end=i + 0.5, zh=z) for i, z in enumerate("甲乙丙")])
+    a, b, c = db.load_line_objects(did)
+    db.save_translation_notes(did, [{"line_id": b.id, "line_idx": 1, "term": "乙",
+                                     "note_type": "idiom", "note": "n"}])
+    db.save_emotions(did, {2: {"emotion": "joy"}}, id_by_idx={2: c.id})
+    db.save_progress(did, last_line_idx=1)
+
+    def history():
+        with contextlib.closing(db.get_conn()) as conn:
+            return [r[0] for r in conn.execute(
+                "SELECT line_id FROM reading_history WHERE drama_id = ?", (did,))]
+    a.merged_ids = [b.id]
+    db.save_lines(did, [a, c])
+    assert [n["line_id"] for n in db.list_translation_notes(did)] == [a.id]
+    assert history() == [a.id]
+    # a reading position never blocks: it is only unlinked
+    assert db.line_ids_with_refs(did, [a.id, c.id]) == {a.id, c.id}
+    db.save_lines(did, [ln for ln in db.load_line_objects(did) if ln.id == c.id])
+    assert db.list_translation_notes(did) == [] and history() == [None]
+    assert db.line_ids_with_refs(did, [c.id]) == {c.id}
+
+
+def test_line_ids_with_refs_takes_more_ids_than_sqlite_binds(isolated_db):
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="甲")])
+    [line] = db.load_line_objects(did)
+    db.save_emotions(did, {0: {"emotion": "joy"}}, id_by_idx={0: line.id})
+    assert db.line_ids_with_refs(did, range(line.id, line.id + 40_000)) == {line.id}
+    assert db.line_ids_with_refs(did + 1, [line.id]) == set()
+
+
+def test_snapshot_waits_for_a_concurrent_writer_instead_of_failing(isolated_db):
+    """The snapshot reads the lines' words before it writes; a deferred BEGIN
+    would fail at once with "database is locked" when another connection
+    commits in between."""
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=i, start=float(i), end=i + 0.5, zh="甲") for i in range(50)])
+    lines = db.load_line_objects(did)
+    stop, errors = threading.Event(), []
+
+    def writer():
+        while not stop.is_set():
+            db.set_app_setting("busy", 1)
+    t = threading.Thread(target=writer)
+    t.start()
+    try:
+        for _ in range(150):
+            try:
+                db.save_line_history_snapshot(did, lines, "t")
+            except sqlite3.OperationalError as e:
+                errors.append(e)
+    finally:
+        stop.set()
+        t.join()
+    assert errors == []

@@ -102,7 +102,9 @@ import zipfile
 import zlib
 
 import background_jobs
+import core
 import db
+import sensitivity_preset
 from db import fsync_dir as _fsync_dir
 from services import delete_service
 from services import library_admin_service as las
@@ -1299,7 +1301,8 @@ _SKIPPED_TABLES = {
 _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
-SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory")
+SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory",
+                   "glossary_dismissals")
 # Columns naming a file in the drama folder, with the one subfolder the app
 # writes that file in (None: the folder itself). Readers join these onto the
 # drama folder, so a backup from another library keeps one only when it is a
@@ -1343,6 +1346,12 @@ def has_table(conn, table: str) -> bool:
                         (table,)).fetchone() is not None
 
 
+def _storable_words(value) -> bool:
+    """A line's word timings come in only within the size a transcription
+    stores (a file may be hand-made); their content is checked again on use."""
+    return isinstance(value, str) and len(value) <= core.MAX_STORED_WORD_BYTES
+
+
 def _insert(dst, table: str, row: dict, live_cols) -> int:
     cols = [c for c in row if c in live_cols]
     names = ", ".join(f'"{c}"' for c in cols)
@@ -1364,7 +1373,8 @@ def _import_file_ref(folder, value, subdir):
     """`value` (normalised to "/") when it is a plain file name, or
     "<subdir>/<plain name>", that stays inside `folder`; None otherwise,
     and always None when `folder` is None (the drama's files weren't
-    imported)."""
+    imported). A name that is a folder there (e.g. "pages") is None: a
+    file column naming it would let a media replace move the folder."""
     if folder is None or not isinstance(value, str) or "\x00" in value or ":" in value:
         return None
     parts = value.replace("\\", "/").split("/")
@@ -1374,7 +1384,8 @@ def _import_file_ref(folder, value, subdir):
         base, name = os.path.join(folder, subdir), parts[1]
     else:
         return None
-    if delete_service.file_in_folder(base, name) is None:
+    path = delete_service.file_in_folder(base, name)
+    if path is None or os.path.isdir(path):
         return None
     return name if len(parts) == 1 else f"{subdir}/{name}"
 
@@ -1500,11 +1511,10 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> t
     import_as (a backup from another library, see backup_import_service) =
     {"owner_user_id", "is_private", "series": {}, "media_dir"}: the owner
     and privacy come from it and never from the file, the series is always
-    new, the Notion page link is dropped, per-profile tables (profile ids
-    mean something else in this library) are not copied, and each file
+    new, old `notion_page_id` is dropped, per-profile tables (profile ids
+    mean something else here) are not copied, and each file
     reference (IMPORT_FILE_COLUMNS) is kept only when it names a file inside
-    media_dir (the drama's imported files; None = none imported, so every
-    reference is cleared)."""
+    media_dir (None = no files imported, so all are cleared)."""
     drama = table_rows(src, "dramas", "id = ?", (old_id,))
     if not drama:
         raise NotFoundError("That drama isn't in the snapshot.")
@@ -1512,7 +1522,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> t
     counts = {}
     users = {r[0] for r in dst.execute("SELECT id FROM users")}
     profiles = _live_ids(dst, "profiles")
-    row = dict(drama)
+    row = sensitivity_preset.older_row(drama)
     if import_as is not None:
         row["owner_user_id"] = import_as["owner_user_id"]
         row["is_private"] = import_as["is_private"]
@@ -1563,6 +1573,8 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> t
             if table in _LINE_JSON:
                 col = _LINE_JSON[table]
                 child[col] = _remap_json_lines(child.get(col), line_map, import_as)
+            if table == "lines" and not _storable_words(child.get("word_timings")):
+                child.pop("word_timings", None)
             new = _insert(dst, table, child, live_cols)
             if table == "lines":
                 line_map[old] = new

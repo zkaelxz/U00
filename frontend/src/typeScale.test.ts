@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 function cssFiles(dir: string): string[] {
@@ -9,7 +10,8 @@ function cssFiles(dir: string): string[] {
     return statSync(p).isDirectory() ? cssFiles(p) : p.endsWith('.css') ? [p] : []
   })
 }
-const files = cssFiles(new URL('.', import.meta.url).pathname)
+// fileURLToPath, not .pathname: on Windows .pathname starts '/E:/' and the drive letter ends up doubled.
+const files = cssFiles(fileURLToPath(new URL('.', import.meta.url)))
 const index = readFileSync(new URL('./index.css', import.meta.url), 'utf8')
 
 describe('type foundation', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_FORBIDDEN, advancedSummary, appendCues, buildStartBody, checkLiveUrl,
+  DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_FORBIDDEN, advancedSummary, appendCues, buildStartBody, checkLiveUrl, resolveModel,
   describeLiveError, feedCues, fmtTs, getLive, isActive, pickSession, startLive, statusLine, stopLive,
 } from './live'
 import { ApiError } from './client'
@@ -23,7 +23,7 @@ describe('buildStartBody', () => {
   it('trims the link and sends defaults', () => {
     expect(buildStartBody({ ...DEFAULT_FORM, url: ' https://a.test/live ', engine: 'deepseek' })).toEqual({
       url: 'https://a.test/live', source_language: 'zh', whisper_size: 'small', segment_seconds: 20,
-      overlap_seconds: 3, engine: 'deepseek', max_minutes: 60, use_gpu: false,
+      overlap_seconds: 3, engine: 'deepseek', model: null, max_minutes: 60, use_gpu: false,
     })
   })
 
@@ -77,6 +77,17 @@ describe('sessions', () => {
     expect(statusLine({ status: 'error', message: 'ffmpeg failed' }, 0)).toBe('Stopped with an error: ffmpeg failed')
   })
 
+  it('shows the stage a chunk is in, and what a stop is waiting on', () => {
+    expect(statusLine({ status: 'running', message: 'Capturing audio: waiting for chunk 2 (10 s of stream each)' }, 0))
+      .toBe('Capturing audio: waiting for chunk 2 (10 s of stream each) · 0 lines')
+    expect(statusLine({ status: 'running', message: 'Chunk 1: transcribing with Whisper small (GPU)' }, 1))
+      .toBe('Chunk 1: transcribing with Whisper small (GPU) · 1 line')
+    const slow = 'Chunk 1: translating with qwen3:8b (Ollama) Still waiting on Ollama after 75 s: it may be loading the model.'
+    expect(statusLine({ status: 'running', message: slow }, 1)).toBe(`${slow} · 1 line`)
+    const cancelling = 'Cancelling... Whisper is still transcribing chunk 1 and cannot be interrupted mid-chunk; it stops when that finishes (the previous chunk took about 12 s).'
+    expect(statusLine({ status: 'running', message: cancelling }, 1)).toBe(`${cancelling} · 1 line`)
+  })
+
   it('summarises the advanced options', () => {
     expect(advancedSummary({ ...DEFAULT_FORM })).toBe('Whisper small · chunk 20s · overlap 3s · stop after 60 min · CPU')
     expect(DEFAULT_OPTIONS).not.toHaveProperty('url')
@@ -114,5 +125,25 @@ describe('requests', () => {
     ])
     await expect(getLive('../x', 0, f)).rejects.toMatchObject({ status: 404 })
     expect(f).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('model choice', () => {
+  const ollama = { models: ['qwen3:8b', 'gemma4:12b'] }
+  it('keeps an offered model and sends it', () => {
+    expect(resolveModel(ollama, 'gemma4:12b')).toEqual({ model: 'gemma4:12b', fellBack: false })
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', engine: 'ollama', model: 'gemma4:12b' }).model).toBe('gemma4:12b')
+  })
+  it('defaults to the engine default (null) and sends no model', () => {
+    expect(resolveModel(ollama, '')).toEqual({ model: '', fellBack: false })
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' }).model).toBeNull()
+  })
+  it('drops a remembered model the engine no longer offers, or one with no list', () => {
+    expect(resolveModel(ollama, 'gone:1b')).toEqual({ model: '', fellBack: true })
+    expect(resolveModel({ models: null }, 'qwen3:8b')).toEqual({ model: '', fellBack: true })
+    expect(resolveModel(undefined, 'qwen3:8b')).toEqual({ model: '', fellBack: true })
+  })
+  it('shows the model in the status line', () => {
+    expect(statusLine({ status: 'running', message: 'Listening', model: 'qwen3:8b' }, 1)).toBe('Listening · 1 line · qwen3:8b')
   })
 })

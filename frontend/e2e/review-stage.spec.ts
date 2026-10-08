@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { openFoldFor } from './reviewFolds'
 import { installHitArea } from './hitArea'
 
@@ -410,6 +410,50 @@ function captureBodies(page: Page, pattern: RegExp) {
   return bodies
 }
 
+// The text before and after the cut bar, read from the shaded pieces.
+async function cutPieces(split: Locator, n = 0) {
+  const box = split.locator('.split-cut-text').nth(n)
+  return {
+    a: (await box.locator('.split-cut-a').allTextContents()).join(''),
+    b: (await box.locator('.split-cut-b').allTextContents()).join(''),
+  }
+}
+
+test('split cut marker follows the number', async ({ page }) => {
+  await open(page)
+  await rows(page).nth(1).getByRole('button', { name: 'More actions for line 2' }).click()
+  await page.getByRole('dialog', { name: 'Line #2' }).getByRole('button', { name: 'Split line…' }).click()
+  const split = page.getByRole('dialog', { name: 'Split line #2' })
+
+  await split.getByLabel('Break after (chars)').fill('1')
+  expect(await cutPieces(split)).toEqual({ a: '再', b: '见朋友' })
+  await split.getByRole('button', { name: 'Source: cut 1 char later' }).click()
+  await expect(split.getByLabel('Break after (chars)')).toHaveValue('2')
+  expect(await cutPieces(split)).toEqual({ a: '再见', b: '朋友' })
+  await expect(split.getByLabel('Source: previous punctuation or space')).toBeEnabled()
+})
+
+test('split with translation: suggests the English cut and sends the same payload', async ({ page }) => {
+  const bodies = captureBodies(page, /\/api\/restructure\//)
+  await open(page)
+  await rows(page).nth(2).getByRole('button', { name: 'More actions for line 3' }).click()
+  await page.getByRole('dialog', { name: 'Line #3' }).getByRole('button', { name: 'Split line…' }).click()
+  const split = page.getByRole('dialog', { name: 'Split line #3' })
+
+  await expect(split.getByTestId('split-no-en-note')).toHaveText('Translation stays on the first line; the new line will have none.')
+  await expect(split.getByText('Line stays', { exact: true })).toBeVisible()
+  await expect(split.getByText('New line', { exact: true })).toBeVisible()
+
+  await split.getByLabel('Also split the translation').click()
+  await expect(split.getByTestId('split-no-en-note')).toHaveCount(0)
+  // Half of the source -> half of 'Thanks, friend', snapped to the word break.
+  expect(await cutPieces(split, 1)).toEqual({ a: 'Thanks, ', b: 'friend' })
+  await split.getByRole('button', { name: 'Split line' }).click()
+
+  await expect(rows(page)).toHaveCount(4)
+  expect(bodies[0]).toMatchObject({ at_char: 1, en_at_char: 8 })
+})
+
 test('split a line from the sheet, then merge it back', async ({ page }) => {
   const bodies = captureBodies(page, /\/api\/restructure\//)
   await open(page)
@@ -425,7 +469,7 @@ test('split a line from the sheet, then merge it back', async ({ page }) => {
   await split.getByRole('button', { name: 'Split line' }).click()
 
   await expect(rows(page)).toHaveCount(4)
-  await expect(page.getByRole('status').filter({ hasText: /^Split #/ })).toContainText('Undo in Records → Line history.')
+  await expect(page.getByRole('status').filter({ hasText: /^Split #/ })).toContainText('Records → Line history')
   expect(bodies[0]).toEqual({ expected_line_ids: ids, at_char: 2, expected_zh: '再见朋友' })
   // The new second piece is the active line.
   await expect(rows(page).nth(2)).toHaveAttribute('aria-current', 'true')
@@ -681,13 +725,15 @@ test('with a source video, it shows by default with English subtitles drawn on i
   await expect(page.getByTestId('player-time')).toContainText('/ 0:06')
   await expect
     .poll(() => video.evaluate((v: HTMLVideoElement) => ({ mode: v.textTracks[0]?.mode, cues: v.textTracks[0]?.cues?.length ?? 0 })))
-    .toEqual({ mode: 'showing', cues: 3 })
+    .toEqual({ mode: 'hidden', cues: 3 })
   await expect(video.locator('track')).toHaveAttribute('src', /\/api\/reader\/dramas\/3\/captions\/English\?v=\d+$/)
   const player = page.getByRole('group', { name: 'Player' })
   await card.getByLabel('Jump to time').fill('0.5')
   await card.getByRole('button', { name: 'Jump' }).click()
   await card.getByLabel('Subtitles').selectOption({ label: 'English' })
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.textTracks[0]?.activeCues?.length ?? 0)).toBe(1)
+  // The browser's own drawing is off; the overlay over the picture shows the cue.
+  await expect(card.getByTestId('player-overlay')).toBeVisible()
   await page.screenshot({ path: 'test-results/review-player-desktop.png' })
   // Loop is an on/off switch in the player strip.
   const loop = player.getByRole('switch', { name: 'Loop line' })
@@ -888,4 +934,51 @@ test('flag lines for review runs only on click and reports each result', async (
   await flags.getByRole('button', { name: 'Run auto-QC and flag' }).click()
   await expect(flags.getByTestId('flag-result-qc')).toContainText('Checked 3 lines: flagged 1')
   expect(posts).toEqual(['flag-overlaps', 'flag-auto-qc'])
+})
+
+// ---- one count everywhere: header, Review tab and filter chips ----
+
+// The header and tab read the workflow progress; the chips read the lines list.
+// After a write they must agree without a reload.
+async function expectCounts(page: Page, lines: number, flagged: number) {
+  await expect(page.getByTestId('stage-counts')).toHaveText(`${lines} lines`)
+  const tabCount = page.getByRole('navigation', { name: 'Stages' }).locator('a[href$="/review"] .stage-count')
+  await expect(tabCount).toHaveText(flagged > 0 ? `· ${flagged} flagged` : '')
+  await expect(page.getByRole('radio', { name: `All lines ${lines}`, exact: true })).toBeAttached()
+  await expect(page.getByRole('radio', { name: `Flagged ${flagged}`, exact: true })).toBeAttached()
+}
+
+async function deleteFirstRowNamed(page: Page, text: string) {
+  const target = rows(page).filter({ hasText: text })
+  await target.getByRole('button', { name: /More actions for line/ }).click()
+  const sheet = page.getByRole('dialog', { name: /^Line #/ })
+  await sheet.getByRole('button', { name: 'Delete line…' }).click()
+  await sheet.getByRole('button', { name: /^Confirm delete #/ }).click()
+}
+
+test('delete and restore keep header, Review tab and chips in step', async ({ page }) => {
+  await open(page)
+  await expectCounts(page, 3, 1)
+
+  await deleteFirstRowNamed(page, '再见朋友')
+  await expect(rows(page)).toHaveCount(2)
+  await expectCounts(page, 2, 0)
+
+  await openFoldFor(page, 'Records')
+  await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Records$/ }) }).click()
+  await page.getByTestId('history-list').getByRole('button', { name: 'Restore…' }).first().click()
+  await page.getByLabel('Type restore to confirm').fill('restore')
+  await page.getByRole('button', { name: 'Restore snapshot' }).click()
+  await expect(page.getByTestId('restore-status')).toBeVisible()
+  await expect(rows(page)).toHaveCount(3)
+  await expectCounts(page, 3, 1)
+})
+
+test('dismissing a flag updates the Review tab and the chips', async ({ page }) => {
+  await open(page)
+  await expectCounts(page, 3, 1)
+  const flagged = await activate(page, 1)
+  await flagged.getByRole('button', { name: 'Dismiss flag' }).click()
+  await expect(page.getByTestId('line-flag')).toHaveCount(0)
+  await expectCounts(page, 3, 0)
 })

@@ -24,7 +24,7 @@ No FastAPI import.
 import os
 
 import db
-from dub import NOVEL_SOURCE_FILENAME
+from dub_narration import NOVEL_SOURCE_FILENAME
 from services.service_errors import InvalidInputError, NotFoundError
 from sources import chapter_manifest as manifest
 

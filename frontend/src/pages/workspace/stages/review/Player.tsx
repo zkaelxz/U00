@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
 
 import { createPortal } from 'react-dom'
 
@@ -9,7 +9,7 @@ import { usePopOut } from '../../../../hooks/usePopOut'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
-import { clampTime, JUMP_ERROR, lineAt, parseJumpTime, SUBTITLE_OPTIONS, subtitleSrc, type SubtitleChoice } from './playerLogic'
+import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface PlayerHandle {
@@ -18,7 +18,13 @@ export interface PlayerHandle {
   // Play or stop the given line: stops when that line is already playing.
   toggleLine: (line: Pick<ReviewLine, 'id' | 'idx' | 'start' | 'end'>) => void
   togglePlay: () => void
+  getCurrentTime: () => number
+  setRate: (rate: number) => void
   toggleLoop: () => void
+  // For the waveform: read the clock without re-rendering, and seek like the seek bar.
+  getTime: () => number
+  getDuration: () => number
+  seek: (seconds: number) => void
 }
 
 type Segment = Pick<ReviewLine, 'id' | 'idx' | 'start' | 'end'>
@@ -40,6 +46,16 @@ interface Props {
   panelHost?: HTMLElement | null
 }
 
+// The Fullscreen API is still webkit-prefixed in older Safari.
+type FsDoc = Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => Promise<void> | void; webkitFullscreenEnabled?: boolean }
+type FsEl = HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void }
+type FsVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void }
+
+// iPhone Safari has no element fullscreen but can take the <video> itself.
+const fullscreenAvailable = () => document.fullscreenEnabled || !!(document as FsDoc).webkitFullscreenEnabled || 'webkitEnterFullscreen' in HTMLVideoElement.prototype
+
+const fullscreenElementOf = (doc: Document) => doc.fullscreenElement ?? (doc as FsDoc).webkitFullscreenElement ?? null
+
 const PLAY_ERROR = 'Couldn’t play the audio. Check the file on Source.'
 const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
   English: 'No English subtitles yet: nothing is translated.',
@@ -60,13 +76,22 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   const [failed, setFailed] = useState(false)
   const [loop, setLoop] = usePersistedState('review.loop', false)
   const [open, setOpen] = usePersistedState('review.playerOpen', true)
+  const [ratePref, setRatePref] = usePersistedState('review.rate', 1)
+  const rate = validRate(ratePref)
   const [subsPref, setSubs] = usePersistedState<string>('review.subs', 'English')
   const subs: SubtitleChoice = SUBTITLE_OPTIONS.some((o) => o.value === subsPref) ? (subsPref as SubtitleChoice) : 'English'
   // Keyed on the track URL, so a new track starts blank without an effect reset.
   const [cueFor, setCueFor] = useState<{ src: string; text: string } | null>(null)
   const [missingSrc, setMissingSrc] = useState<string | null>(null)
+  const [captionSizePref, setCaptionSize] = usePersistedState<string>('review.popoutCaptionSize', 'default')
+  const captionSize: CaptionSize = CAPTION_SIZE_OPTIONS.some((o) => o.value === captionSizePref) ? (captionSizePref as CaptionSize) : 'default'
   const [jump, setJump] = useState('')
   const [jumpError, setJumpError] = useState<string | null>(null)
+  const frameRef = useRef<HTMLDivElement | null>(null)
+  const controlsRef = useRef<HTMLDivElement | null>(null)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [idle, setIdle] = useState(false)
+  const idleTimer = useRef(0)
   const loopId = useId()
   const loopRef = useRef(loop)
   const segRef = useRef<Segment | null>(null)
@@ -89,6 +114,16 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     loopRef.current = loop
   }, [loop])
 
+  // Also on loadedmetadata: a new source can reset the element's speed.
+  const applyRate = useCallback((el: HTMLMediaElement | null) => {
+    if (!el) return
+    el.defaultPlaybackRate = rate
+    el.playbackRate = rate
+    // Without this a slowed clip sounds low; browsers that lack it keep their default.
+    if ('preservesPitch' in el) el.preservesPitch = true
+  }, [rate])
+  useEffect(() => applyRate(media.current), [applyRate])
+
   const place = useCallback(() => {
     const target = panelHost === undefined ? slotRef.current : panelHost
     if (target && panelBox.parentNode !== target) target.appendChild(panelBox)
@@ -103,6 +138,21 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     if (!floating) place()
   }, [place, floating])
   useLayoutEffect(() => () => panelBox.remove(), [panelBox])
+
+  // The pop-out window is resized by the user, so the caption follows its width.
+  // Listening on that window's own resize event (not a ResizeObserver from this
+  // page) keeps this independent of cross-document observer support.
+  useEffect(() => {
+    const win = panelBox.ownerDocument.defaultView
+    if (!floating || !win) return
+    const fit = () => panelBox.style.setProperty('--popout-caption-size', `${popoutCaptionPx(win.innerWidth, captionSize)}px`)
+    fit()
+    win.addEventListener('resize', fit)
+    return () => {
+      win.removeEventListener('resize', fit)
+      panelBox.style.removeProperty('--popout-caption-size')
+    }
+  }, [floating, panelBox, captionSize])
 
   const setSeg = (s: Segment | null) => {
     segRef.current = s
@@ -131,20 +181,20 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     return () => cancelAnimationFrame(raf)
   }, [playing, segment])
 
-  // The subtitle track: drawn on the video; under an audio player the current
-  // cue is shown as text. A fresh <track> (keyed on its URL) re-reads the lines.
+  // The subtitle track: its current cue is shown over the picture or as text. A fresh <track> (keyed on its URL) re-reads the lines.
   useEffect(() => {
     const t = trackEl.current?.track
     if (!t || !src) return
-    // Floating, the caption text under the video replaces the drawn cue.
-    t.mode = kind === 'video' && !floating ? 'showing' : 'hidden'
+    // Hidden, so the browser doesn't draw a second copy: the overlay (or, floating or
+    // audio, the caption text) shows the cue.
+    t.mode = 'hidden'
     const onCue = () => {
       const active = t.activeCues ? Array.from(t.activeCues) : []
       setCueFor({ src, text: active.map((c) => (c as VTTCue).getCueAsHTML?.().textContent ?? (c as VTTCue).text).join('\n') })
     }
     t.addEventListener('cuechange', onCue)
     return () => t.removeEventListener('cuechange', onCue)
-  }, [src, kind, floating])
+  }, [src])
 
   const play = useCallback(() => {
     const el = media.current
@@ -188,6 +238,79 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     setTime(t)
   }
 
+  // The frame (picture, subtitle overlay and controls) goes full screen, not the
+  // bare <video>, so the subtitles stay visible. iPhone Safari only allows the
+  // video element, which draws no overlay.
+  const toggleFullscreen = useCallback(() => {
+    const frame = frameRef.current
+    const doc = frame?.ownerDocument as FsDoc | undefined
+    if (!frame || !doc) return
+    if (fullscreenElementOf(doc)) {
+      void (doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.())
+      return
+    }
+    const nativeVideo = () => (media.current as FsVideo | null)?.webkitEnterFullscreen?.()
+    const request = (frame.requestFullscreen ?? (frame as FsEl).webkitRequestFullscreen)?.bind(frame)
+    if (!request) {
+      nativeVideo()
+      return
+    }
+    try {
+      Promise.resolve(request()).catch(nativeVideo)
+    } catch {
+      nativeVideo()
+    }
+  }, [])
+
+  useEffect(() => {
+    const frame = frameRef.current
+    const doc = frame?.ownerDocument
+    if (!frame || !doc) return
+    const sync = () => setFullscreen(fullscreenElementOf(doc) === frame)
+    doc.addEventListener('fullscreenchange', sync)
+    doc.addEventListener('webkitfullscreenchange', sync)
+    return () => {
+      doc.removeEventListener('fullscreenchange', sync)
+      doc.removeEventListener('webkitfullscreenchange', sync)
+    }
+  }, [kind, floating])
+
+  // Full screen hides the controls (and the pointer) after a quiet spell; any
+  // movement or key brings them back. They stay while focus is inside them.
+  const wake = useCallback(() => {
+    setIdle(false)
+    const win = frameRef.current?.ownerDocument.defaultView ?? window
+    win.clearTimeout(idleTimer.current)
+    idleTimer.current = win.setTimeout(function hide() {
+      if (controlsRef.current?.contains(controlsRef.current.ownerDocument.activeElement)) {
+        idleTimer.current = win.setTimeout(hide, FULLSCREEN_IDLE_MS)
+        return
+      }
+      setIdle(true)
+    }, FULLSCREEN_IDLE_MS)
+  }, [])
+  useEffect(() => {
+    if (!fullscreen) return
+    wake()
+    const win = frameRef.current?.ownerDocument.defaultView ?? window
+    return () => {
+      win.clearTimeout(idleTimer.current)
+      setIdle(false)
+    }
+  }, [fullscreen, wake])
+
+  const onFrameKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (fullscreen) wake()
+    const el = media.current
+    if (!el || failed) return
+    const action = playerKeyAction({ key: e.key, shiftKey: e.shiftKey, altKey: e.altKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, target: e.target as Element }, el.currentTime, duration)
+    if (!action) return
+    e.preventDefault()
+    if (action.kind === 'seek') seekTo(action.to)
+    else if (action.kind === 'playpause') togglePlay()
+    else toggleFullscreen()
+  }
+
   const submitJump = (e: FormEvent) => {
     e.preventDefault()
     const t = parseJumpTime(jump)
@@ -209,9 +332,16 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         else playLine(line)
       },
       togglePlay,
+      getCurrentTime: () => media.current?.currentTime ?? 0,
+      setRate: (r) => setRatePref(validRate(r)),
       toggleLoop: () => setLoop(!loopRef.current),
+      getTime: () => media.current?.currentTime ?? 0,
+      getDuration: () => media.current?.duration ?? NaN,
+      seek: seekTo,
     }),
-    [playLine, stop, togglePlay, setLoop],
+    // seekTo reads duration, which only changes with the loaded media.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [playLine, stop, togglePlay, setLoop, setRatePref, duration],
   )
 
   const track = src ? (
@@ -240,16 +370,39 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
       setSeg(null)
     },
     onTimeUpdate: (e: SyntheticEvent<HTMLMediaElement>) => setTime(e.currentTarget.currentTime),
-    onLoadedMetadata: (e: SyntheticEvent<HTMLMediaElement>) => setDuration(e.currentTarget.duration),
+    onLoadedMetadata: (e: SyntheticEvent<HTMLMediaElement>) => {
+      setDuration(e.currentTarget.duration)
+      applyRate(e.currentTarget)
+    },
     onError: () => setFailed(true),
   }
   const here = segment ?? lineAt(lines, time)
   const known = Number.isFinite(duration) && duration > 0
 
+  const overlay = kind === 'video' && !floating && subs !== 'off' ? overlayText(cue) : ''
+  const canFullscreen = kind === 'video' && !floating && fullscreenAvailable()
+
   // Kept mounted while folded away, so the sound and the strip above still work.
   const panel = (
     <div className="review-player-panel" hidden={!open && !floating}>
+      <div
+        ref={frameRef}
+        data-testid="player-frame"
+        className={['review-player-frame', fullscreen && 'is-fullscreen', fullscreen && idle && 'is-idle'].filter(Boolean).join(' ')}
+        {...(kind === 'video'
+          ? {
+              tabIndex: 0,
+              role: 'group',
+              'aria-label': 'Video player. Left and right arrows seek, Space plays or pauses, F toggles full screen.',
+              'aria-keyshortcuts': 'ArrowLeft ArrowRight Space F',
+              onKeyDown: onFrameKey,
+              onPointerMove: fullscreen ? wake : undefined,
+              onPointerDown: fullscreen ? wake : undefined,
+            }
+          : {})}
+      >
       {kind === 'video' ? (
+        <div className="review-stage" onDoubleClick={canFullscreen ? toggleFullscreen : undefined}>
         <video
           ref={(el) => {
             media.current = el
@@ -264,13 +417,24 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         >
           {track}
         </video>
+        {overlay && (
+          <div className="review-overlay" data-testid="player-overlay">
+            {overlay}
+          </div>
+        )}
+        </div>
       ) : null}
       {(kind !== 'video' || floating) && subs !== 'off' && (
         <p className="review-caption" data-testid="player-caption">
           {cue || '\u00a0'}
         </p>
       )}
-      <div className="review-player-controls">
+      <div className="review-player-controls" ref={controlsRef}>
+        {fullscreen && (
+          <button type="button" className={buttonClass('secondary', 'md', 'review-fs-play')} aria-label={playing ? 'Pause' : 'Play'} onClick={togglePlay} disabled={failed}>
+            {playing ? '❚❚' : '▶'}
+          </button>
+        )}
         <input
           type="range"
           className="review-seek"
@@ -306,6 +470,16 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
             </button>
           )}
           <label className="review-subs">
+            Speed
+            <select value={rate} onChange={(e) => setRatePref(validRate(Number(e.target.value)))}>
+              {PLAYBACK_RATES.map((r) => (
+                <option key={r} value={r}>
+                  {r}×
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="review-subs">
             Subtitles
             <select value={subs} onChange={(e) => setSubs(e.target.value)}>
               {SUBTITLE_OPTIONS.map((o) => (
@@ -315,7 +489,32 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
               ))}
             </select>
           </label>
+          {canFullscreen && (
+            <button
+              type="button"
+              className={buttonClass('secondary', 'sm', 'review-fs')}
+              aria-pressed={fullscreen}
+              aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+              title={fullscreen ? 'Exit full screen (F or Esc)' : 'Full screen (F, or double-click the picture)'}
+              onClick={toggleFullscreen}
+            >
+              <span aria-hidden="true">{fullscreen ? '⤡' : '⤢'}</span>
+            </button>
+          )}
+          {floating && (
+            <label className="review-subs">
+              Subtitle size
+              <select value={captionSize} onChange={(e) => setCaptionSize(e.target.value)}>
+                {CAPTION_SIZE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
+      </div>
       </div>
       {jumpError && (
         <p className="error" role="alert">

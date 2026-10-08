@@ -33,6 +33,8 @@ import {
   OCR_LABELS,
   parseCap,
   parseNumCtx,
+  parseUploadMb,
+  DEFAULT_UPLOAD_MB,
   SAVED_ON_PC_NOTE,
   type Parsed,
 } from './preferences'
@@ -64,14 +66,14 @@ export function DefaultsCard(props: Props) {
     >
       {(d, set) => (
         <>
-          <Field label="English variant" help="Spelling for new translations. The Translate form starts with this.">
+          <Field label="English variant" help="Spelling for new translations. Pre-fills the Translate form.">
             <select value={String(d.default_locale)} onChange={(e) => set('default_locale', e.target.value)}>
               {c.locales.map((l) => (
                 <option key={l} value={l}>{humanize('locale', l)}</option>
               ))}
             </select>
           </Field>
-          <Field label="Style note" help="The Translate form's style note starts with this text.">
+          <Field label="Style note" help="Pre-fills the Translate form's style note.">
             <textarea rows={2} maxLength={2000} value={String(d.default_style_note)} onChange={(e) => set('default_style_note', e.target.value)} />
           </Field>
         </>
@@ -101,7 +103,7 @@ export function SpendingCard(props: Props) {
           <Field
             label="Monthly cap"
             unit="USD"
-            help="Checked against the estimated spend logged this calendar month (UTC). A translation won't start once it is used up, and a running one stops cleanly, keeping finished lines. 0 means no cap; blank uses BAIHE_MONTHLY_CAP_USD from .env."
+            help="Compared with the estimated spend this month (UTC). Once it is used up, new translations won't start and a running one stops, keeping finished lines. 0 means no cap; blank uses BAIHE_MONTHLY_CAP_USD from .env."
           >
             <input type="text" inputMode="decimal" value={String(d.monthly_cap_usd)} onChange={(e) => set('monthly_cap_usd', e.target.value)} placeholder={settings.monthly_cap_env_usd ? String(settings.monthly_cap_env_usd) : 'None'} />
           </Field>
@@ -160,7 +162,7 @@ function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolea
             onConfirm={() => run(resetMonthCounter)}
           />
           {resetAt ? (
-            <button type="button" className="link" disabled={busy} onClick={() => run(undoMonthCounterReset)}>
+            <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => run(undoMonthCounterReset)}>
               Undo reset
             </button>
           ) : null}
@@ -182,7 +184,7 @@ export function AdvancedCard(props: Props) {
   const p = settings.preferences
   const c = settings.choices
   return (
-    <Card title="Advanced" meta="OCR, offline models, downloads and server addresses" aria-label="Advanced">
+    <Card title="Advanced" meta="OCR, offline models, downloads, uploads, server addresses" aria-label="Advanced">
       <PrefsSection
         {...common}
         title="OCR"
@@ -196,7 +198,7 @@ export function AdvancedCard(props: Props) {
       >
         {(d, set) => (
           <>
-            <Field label="Default backend" help="Used where OCR runs without a per-page choice. Auto picks manga_ocr for Japanese, PaddleOCR for Chinese and Korean, Tesseract otherwise.">
+            <Field label="Default backend" help="Used when a page has no OCR choice. Auto picks manga_ocr for Japanese, PaddleOCR for Chinese and Korean, otherwise Tesseract.">
               <select value={String(d.ocr_backend)} onChange={(e) => set('ocr_backend', e.target.value)}>
                 {c.ocr_backends.map((b) => (
                   <option key={b} value={b}>{OCR_LABELS[b] ?? humanizeValue(b)}</option>
@@ -204,11 +206,11 @@ export function AdvancedCard(props: Props) {
               </select>
             </Field>
             <div className="setting-list">
-              <Field label="Japanese: prefer PaddleOCR-VL" help="Only changes what Auto picks for Japanese. Leave off unless a side-by-side on your own pages shows it reads better than manga_ocr.">
+              <Field label="Japanese: prefer PaddleOCR-VL" help="Changes only what Auto picks for Japanese. Leave off unless it reads your pages better than manga_ocr.">
                 <Toggle checked={Boolean(d.ocr_prefer_paddle_vl_manga)} onChange={(next) => set('ocr_prefer_paddle_vl_manga', next)} />
               </Field>
             </div>
-            <Field label="Tesseract program" help="Only needed if OCR says Tesseract is not installed or not on PATH after installing it. The full path to tesseract.exe on the Baihe PC. Blank if OCR already works.">
+            <Field label="Tesseract program" help="Full path to tesseract.exe on the Baihe PC. Needed only if OCR says Tesseract is missing after you installed it. Leave blank otherwise.">
               <input type="text" spellCheck={false} value={String(d.tesseract_cmd)} onChange={(e) => set('tesseract_cmd', e.target.value)} placeholder="C:\Program Files\Tesseract-OCR\tesseract.exe" />
             </Field>
           </>
@@ -234,10 +236,10 @@ export function AdvancedCard(props: Props) {
       >
         {(d, set) => (
           <>
-            <Field label="Offline Whisper model folder" help="For a PC that can't reach Hugging Face: a folder on the Baihe PC holding an already-downloaded faster-whisper model. Blank downloads the model on first use.">
+            <Field label="Offline Whisper model folder" help="For a PC that can't reach Hugging Face: a folder on the Baihe PC with a downloaded faster-whisper model. Blank downloads it on first use.">
               <input type="text" spellCheck={false} value={String(d.whisper_model_path)} onChange={(e) => set('whisper_model_path', e.target.value)} />
             </Field>
-            <Field label="Ollama context window" unit="tokens" help="Blank or 0 sizes it from each prompt (recommended). A value here can only raise the window above that estimate, never lower it.">
+            <Field label="Ollama context window" unit="tokens" help="Blank or 0 sizes it from each prompt (recommended). A value here can only raise it above that, never lower it.">
               <input type="text" inputMode="numeric" value={String(d.ollama_num_ctx_override)} onChange={(e) => set('ollama_num_ctx_override', e.target.value)} placeholder="Auto" />
             </Field>
           </>
@@ -258,11 +260,11 @@ export function AdvancedCard(props: Props) {
         {(d, set) => (
           <>
             <p className="settings-note">
-              Some sites block downloads unless you are signed in. yt-dlp can use your own browser
-              login for video downloads from a URL and for Live capture started on this PC. Other
-              devices never get these cookies.
+              Some sites block downloads unless you are signed in. yt-dlp can use your browser login
+              for video URL downloads and Live capture started on this PC. Other devices never get
+              these cookies.
             </p>
-            <Field label="Cookies from browser" help="The downloader (yt-dlp) reads this browser's cookies on the Baihe PC.">
+            <Field label="Cookies from browser" help="yt-dlp reads this browser's cookies on the Baihe PC.">
               <select value={String(d.cookies_browser)} onChange={(e) => set('cookies_browser', e.target.value)}>
                 <option value="">None</option>
                 {c.cookie_browsers.map((b) => (
@@ -270,11 +272,46 @@ export function AdvancedCard(props: Props) {
                 ))}
               </select>
             </Field>
-            <Field label="Cookie file (cookies.txt)" help="The path to a cookies.txt file on the Baihe PC (export one with a browser add-on such as Get cookies.txt). Used instead of the browser above when set. Only the path is saved here, never the file's contents.">
+            <Field label="Cookie file (cookies.txt)" help="Path to a cookies.txt file on the Baihe PC (export one with a browser add-on). Used instead of the browser above. Only the path is saved, never the file.">
               <input type="text" spellCheck={false} value={String(d.cookies_file)} onChange={(e) => set('cookies_file', e.target.value)} />
             </Field>
-            <Field label="Novel downloader (lightnovel-crawler)" help="Only needed if you installed lightnovel-crawler (a separate program you install yourself) and it isn't on PATH. The full path to lncrawl on the Baihe PC; the file must be named lncrawl or lightnovel-crawler. Blank to find it on PATH.">
+            <Field label="Novel downloader (lightnovel-crawler)" help="Full path to lncrawl on the Baihe PC (a separate program you install). Needed only if it isn't on PATH. The file must be named lncrawl or lightnovel-crawler. Blank finds it on PATH.">
               <input type="text" spellCheck={false} value={String(d.lncrawl_cmd)} onChange={(e) => set('lncrawl_cmd', e.target.value)} placeholder="C:\Users\you\.local\bin\lncrawl.exe" />
+            </Field>
+          </>
+        )}
+      </PrefsSection>
+      <PrefsSection
+        {...common}
+        title="Uploads"
+        summary={`Limit ${settings.effective_upload_max_mb.toLocaleString('en-US')} MB${settings.upload_max_mb_from_env ? ' · set by the environment' : ''}`}
+        fromPrefs={(x) => ({ max_upload_mb: String(x.max_upload_mb) })}
+        toPatch={(d) => {
+          const n = parseUploadMb(String(d.max_upload_mb), DEFAULT_UPLOAD_MB)
+          return n.ok ? { ok: true, value: { max_upload_mb: n.value } } : n
+        }}
+      >
+        {(d, set) => (
+          <>
+            {settings.upload_max_mb_from_env && (
+              <p className="settings-note">Set by the environment, so it can't be changed here.</p>
+            )}
+            <Field
+              label="Upload size limit (MB)"
+              help={
+                settings.upload_max_mb_from_env
+                  ? `Set by BAIHE_MAX_UPLOAD_MB (${settings.effective_upload_max_mb.toLocaleString('en-US')} MB), so it can't be changed here. Remove the variable to use a saved limit.`
+                  : `The largest audio, video or backup file you can upload to this PC (100 to 1,048,576 MB). Blank uses ${DEFAULT_UPLOAD_MB.toLocaleString('en-US')} MB. The drive needs room for it. Other devices can't upload.`
+              }
+            >
+              <input
+                type="text"
+                inputMode="numeric"
+                value={settings.upload_max_mb_from_env ? String(settings.effective_upload_max_mb) : String(d.max_upload_mb)}
+                disabled={settings.upload_max_mb_from_env}
+                onChange={(e) => set('max_upload_mb', e.target.value)}
+                placeholder={String(DEFAULT_UPLOAD_MB)}
+              />
             </Field>
           </>
         )}

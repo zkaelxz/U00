@@ -18,11 +18,14 @@ benchmark_cases table) rather than beside it:
   through each in turn under one arena_group; arena() lines their results
   up case by case. This replaces the "compare engines on one case"
   check with a persisted, whole-set version.
-- Metrics (item 11): translation scores are benchmark.score_text_similarity;
+- Metrics (item 11): translation scores are benchmark.translation_similarity;
   transcription and OCR use 1 - CER (character error rate), or 1 - WER for
   a transcript in a space-delimited language. Each result records its
   metric so a WER is never read as a translation score. One aggregate
   score per run plus per-example pass/fail (item 8: no rubric sliders).
+  Translation similarity is chrF when sacrebleu is installed (metric "chrf",
+  passes at CHRF_PASS_THRESHOLD) and the difflib ratio when it isn't (metric
+  "similarity", passes at PASS_THRESHOLD); older results keep "similarity".
   CER/WER use jiwer when it is installed (lower-cased and whitespace
   normalised on both texts; punctuation removed for transcripts but kept
   for OCR, where it is part of what was read) and the built-in scorer when it
@@ -51,9 +54,13 @@ import db
 import translate_engines
 from core import SOURCE_LANGUAGES
 from services import settings_service, translate_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError,
-                                     UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    UnsupportedOperationError,
+)
 
 JOB_ID = "benchmark_lab"
 TIERS = ("public", "application", "regression")
@@ -61,6 +68,10 @@ STAGES = ("translation", "transcription", "ocr")
 REGRESSION_SET = "regressions"
 # A result at or above this counts as a pass (the per-example pass/fail).
 PASS_THRESHOLD = 0.8
+# chrF scores a sentence far lower than difflib does for the same acceptable
+# paraphrase (a close rewording lands near 0.5-0.6, a different meaning below
+# 0.3 on hand-checked en/zh pairs), so 0.8 would fail nearly everything.
+CHRF_PASS_THRESHOLD = 0.5
 MAX_CONFIGS = 4
 MAX_TEXT_CHARS = 4000
 MAX_IMPORT_CASES = 500
@@ -153,15 +164,19 @@ def _jiwer_error_rate(actual: str, reference: str, unit: str, keep_punctuation: 
     return (out.substitutions + out.deletions + out.insertions + extra) / len(r)
 
 
+def pass_threshold(metric: str) -> float:
+    return CHRF_PASS_THRESHOLD if metric == "chrf" else PASS_THRESHOLD
+
+
 def score_output(stage: str, output: str, reference: str, source_language: str = "zh"):
     """(score 0.0-1.0 or None when there is no reference, metric name,
-    scorer): scorer is "jiwer" or "builtin" for CER/WER, "builtin" for
-    translation similarity, None when nothing was scored."""
+    scorer): scorer is "jiwer" or "builtin" for CER/WER, "sacrebleu" or
+    "builtin" for translation similarity, None when nothing was scored."""
     if stage == "translation":
-        metric = "similarity"
         if not reference:
-            return None, metric, None
-        return benchmark.score_text_similarity(output, reference), metric, "builtin"
+            return None, "similarity", None
+        score, metric = benchmark.translation_similarity(output, reference)
+        return score, metric, "sacrebleu" if metric == "chrf" else "builtin"
     unit = "char" if stage == "ocr" or source_language in _CHARACTER_LANGUAGES else "word"
     metric = "cer" if unit == "char" else "wer"
     if not reference:
@@ -395,7 +410,8 @@ def get_options() -> dict:
         "translation_engines": translate_service.list_engines(),
         "whisper_sizes": list(core.WHISPER_MODELS.keys()),
         "ocr_backends": list(OCR_BACKENDS),
-        "pass_threshold": PASS_THRESHOLD, "max_configs": MAX_CONFIGS,
+        "pass_threshold": PASS_THRESHOLD, "chrf_pass_threshold": CHRF_PASS_THRESHOLD,
+        "max_configs": MAX_CONFIGS,
     }
 
 
@@ -522,9 +538,8 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     if stage == "translation":
         for cfg in checked:
             key = translate_service.resolve_api_key(cfg["engine"])
-            if key is None and cfg["engine"] != "nllb":
-                raise DependencyUnavailableError(
-                    f"No {cfg['engine']} key is configured. Set one in Settings first.")
+            if key is None:
+                raise MissingKeyError(cfg['engine'])
             engines.append(key)
     if _job_active():
         raise ConflictError("A benchmark run is already going.")
@@ -546,7 +561,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
     started = background_jobs.start_job(
         JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd,
-        gpu_touching=stage != "translation" or any(c["engine"] in ("ollama", "nllb") for c in checked),
+        gpu_touching=stage != "translation" or any(c["engine"] == "ollama" for c in checked),
         description="Benchmark run")
     if not started:
         # Nothing ran: leave no rows behind.
@@ -719,7 +734,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
                 # answers them all.
                 score = 0.0
             r["score"], r["metric"], r["scorer"] = score, metric, scorer
-            r["passed"] = None if score is None else score >= PASS_THRESHOLD
+            r["passed"] = None if score is None else score >= pass_threshold(metric)
             db.save_benchmark_result(session_id, case, r)
             if r.get("error"):
                 errors += 1

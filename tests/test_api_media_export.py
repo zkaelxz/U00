@@ -13,6 +13,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
+import video_export
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -135,7 +136,7 @@ def test_audiobook_no_lines_422(client, isolated_db):
 def test_audiobook_no_narration_422(client, drama):
     r = client.post(f"/api/export/dramas/{drama}/audiobook")
     assert r.status_code == 422
-    assert "narration" in _error(r)["message"]
+    assert _error(r)["message"] == "There is no narration yet. Create it in Dub first."
 
 
 def test_audiobook_ffmpeg_missing_503(client, drama, isolated_db, monkeypatch):
@@ -295,13 +296,13 @@ def test_softsub_runs_and_writes_artifact(client, drama, isolated_db, fake_ffmpe
     assert "language=und" in cmd
 
 
-def test_softsub_other_container_becomes_mp4(client, drama, isolated_db, fake_ffmpeg):
+def test_softsub_other_container_becomes_mkv(client, drama, isolated_db, fake_ffmpeg):
     _add_video(isolated_db, drama, "source.webm")
     assert client.post(f"/api/export/dramas/{drama}/softsub-video").status_code == 200
     assert _wait(f"softsub_video_{drama}")["status"] == "done"
-    assert artifact_service.get_artifact(drama, "softsub_video")["name"] == f"softsub_video_{drama}.mp4"
+    assert artifact_service.get_artifact(drama, "softsub_video")["name"] == f"softsub_video_{drama}.mkv"
     cmd, _ = fake_ffmpeg.calls[0]
-    assert cmd[cmd.index("-c:s") + 1] == "mov_text" and "language=eng" in cmd
+    assert cmd[-1].endswith(".mkv") and cmd[cmd.index("-c:s") + 1] == "srt" and "language=eng" in cmd
 
 
 def test_softsub_srt_holds_the_lines(client, drama, isolated_db, monkeypatch):
@@ -561,5 +562,13 @@ def test_video_ffmpeg_inputs_are_file_only(client, drama, isolated_db, fake_ffmp
     cmd, _ = fake_ffmpeg.calls[0]
     inputs = [i for i, a in enumerate(cmd) if a == "-i"]
     assert inputs
+    assert cmd[inputs[0] - 4:inputs[0]] == video_export.local_input(), cmd
     for i in inputs:
-        assert cmd[i - 2:i] == ["-protocol_whitelist", "file"], cmd
+        assert cmd[i - 4:i - 1] == ["-protocol_whitelist", "file", "-format_whitelist"], cmd
+
+
+def test_dubbed_video_without_a_dub_says_so_plainly(client, isolated_db, drama):
+    _add_video(isolated_db, drama)
+    r = client.post(f"/api/export/dramas/{drama}/dubbed-video")
+    assert r.status_code == 422
+    assert _error(r)["message"] == "There is no dub yet. Create it in Dub first."

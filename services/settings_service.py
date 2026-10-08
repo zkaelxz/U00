@@ -15,6 +15,7 @@ import threading
 from typing import Optional
 
 import background_jobs
+import ollama_unload
 import portable
 from services.service_errors import InvalidInputError
 
@@ -33,7 +34,6 @@ ENV_NAMES = {
     "groq": ("BAIHE_GROQ_KEY", "GROQ_API_KEY"),
     "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
     "ollama_url": ("BAIHE_OLLAMA_URL",),
-    "gpt_sovits_url": ("BAIHE_GPT_SOVITS_URL",),
     "monthly_cap_usd": ("BAIHE_MONTHLY_CAP_USD",),
 }
 
@@ -204,10 +204,12 @@ def get_settings_overview(env_path: str = None) -> dict:
     Preferences hold paths (never a file's contents); endpoints hold only
     URLs that pass validate_endpoint_url (no userinfo, query or fragment),
     so neither can carry a secret."""
+    from services import media_upload_service  # imports this module at load
     return {
         "engine_keys": key_status(env_path),
         "gpu_limit_enabled": background_jobs.get_gpu_limit_enabled(),
         "gpu_max_parallel": background_jobs.get_gpu_max_parallel(),
+        "unload_ollama_before_transcribe": ollama_unload.is_enabled(),
         "notify_on_completion": background_jobs.get_notify_on_completion(),
         "use_gpu": get_use_gpu(),
         "gemini_free_tier": get_gemini_free_tier(),
@@ -215,6 +217,8 @@ def get_settings_overview(env_path: str = None) -> dict:
         "offer_provider_models": get_offer_provider_models(),
         "preferences": get_preferences(),
         "endpoints": endpoint_values(env_path),
+        "upload_max_mb_from_env": media_upload_service.upload_limit_from_env(),
+        "effective_upload_max_mb": media_upload_service.max_upload_bytes() // (1024 * 1024),
         "monthly_cap_env_usd": _parse_cap(resolve_key("monthly_cap_usd", env_path)),
         "effective_monthly_cap_usd": get_monthly_cap_usd(env_path),
         **month_spend_status(),
@@ -235,6 +239,7 @@ def _set_app_bool(key: str, enabled: bool):
 # _PREFERENCES below, endpoint URLs go through set_endpoint_url.
 _WRITABLE_SETTINGS = {
     "gpu_limit_enabled": background_jobs.set_gpu_limit_enabled,
+    "unload_ollama_before_transcribe": ollama_unload.set_enabled,
     "notify_on_completion": background_jobs.set_notify_on_completion,
     "use_gpu": lambda v: _set_app_bool("use_gpu", v),
     "gemini_free_tier": lambda v: _set_app_bool("gemini_free_tier", v),
@@ -287,6 +292,9 @@ _MAX_PATH_LENGTH = 1024
 _MAX_STYLE_NOTE_LENGTH = 2000
 _MAX_NUM_CTX = 1_048_576
 _MAX_MONTHLY_CAP = 1_000_000.0
+DEFAULT_UPLOAD_MB = 20480
+MIN_UPLOAD_MB = 100
+MAX_UPLOAD_MB = 1_048_576
 LOCALE_CHOICES = ("en-US", "en-GB", "en-AU")
 SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini", "openai")
 
@@ -372,6 +380,17 @@ def _check_cap(value):
     return float(value)
 
 
+def _check_upload_mb(value):
+    """None puts the default back."""
+    if value is None:
+        return DEFAULT_UPLOAD_MB
+    if isinstance(value, bool) or not isinstance(value, int) \
+            or not MIN_UPLOAD_MB <= value <= MAX_UPLOAD_MB:
+        raise InvalidInputError(
+            f"'max_upload_mb' must be a whole number of MB from {MIN_UPLOAD_MB} to {MAX_UPLOAD_MB}.")
+    return value
+
+
 # name -> (default, validator). The validator returns the cleaned value
 # or raises InvalidInputError without echoing the input.
 _PREFERENCES = {
@@ -379,9 +398,13 @@ _PREFERENCES = {
     "default_locale": ("en-US", _one_of("default_locale", lambda: LOCALE_CHOICES)),
     "default_style_note": ("", _check_text("default_style_note", _MAX_STYLE_NOTE_LENGTH,
                                            multiline=True)),
+    # Starts translate batches at scene breaks. Safe on by default: a run's
+    # resume re-plans over the lines still untranslated, nothing is keyed by batch.
+    "scene_aware_batches": (True, _check_bool("scene_aware_batches")),
     "episode_summary_engine": ("ollama", _one_of("episode_summary_engine",
                                                  lambda: SUMMARY_ENGINE_CHOICES)),
     "monthly_cap_usd": (None, _check_cap),
+    "max_upload_mb": (DEFAULT_UPLOAD_MB, _check_upload_mb),
     "ollama_num_ctx_override": (0, _check_int("ollama_num_ctx_override", 0, _MAX_NUM_CTX)),
     "whisper_model_path": ("", _check_text("whisper_model_path", _MAX_PATH_LENGTH)),
     "ocr_backend": ("auto", _one_of("ocr_backend", _ocr_choices)),
@@ -531,7 +554,7 @@ def _auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool) -> str
 # route shape. Not secrets, but a URL with userinfo or a query could carry
 # one, so those are refused and never echoed back.
 
-ENDPOINT_NAMES = ("ollama_url", "gpt_sovits_url")
+ENDPOINT_NAMES = ("ollama_url",)
 _MAX_URL_LENGTH = 300
 
 

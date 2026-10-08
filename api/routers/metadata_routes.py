@@ -2,7 +2,7 @@
 api/routers/metadata_routes.py -- Media analysis and metadata auto-fill.
 See services/metadata_service.py: autofill returns a
 suggestion only; apply writes whitelisted fields. Romanize credits
-(inventory P13) writes only the *_romanized fields; it is admin.library plus
+writes only the *_romanized fields; it is admin.library plus
 engines.paid for a paid engine, and takes a slot from the shared LLM cap
 (api/llm_slots.py; 429 when busy).
 """

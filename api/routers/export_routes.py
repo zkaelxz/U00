@@ -1,6 +1,5 @@
 """
-api/routers/export_routes.py -- Export-stage endpoints for one drama
-(Phase 6's first Workspace stage).
+api/routers/export_routes.py -- Export-stage endpoints for one drama.
 
 The read-only readiness summary, subtitle text generation (SRT/VTT) as a
 plain-text download, and the three flagging actions -- each
@@ -10,8 +9,8 @@ EPUB export (novel-narration dramas only) as a binary download.
 ASS subtitle text (POST, per-request style, plain-text
 download) and the style-options listing are also here, along with the audiobook export
 job and the burned-in video job
-(POST, returns {job_id}, output downloads via /api/artifacts). Parity
-E17/E19 add the soft-subtitle and dubbed video jobs (same shape), and E22
+(POST, returns {job_id}, output downloads via /api/artifacts). The
+soft-subtitle and dubbed video jobs (same shape) and
 "Mark as exported" (status only; admin.library like the other drama status
 writes).
 """
@@ -22,7 +21,8 @@ from fastapi import APIRouter, Path, Query, Response
 from api.auth import require_permission
 from api.schemas import (AssExportRequest, AssStyleOptions, AutoQcFlagResult, DubbedVideoRequest,
                          ErrorResponse, ExportReadiness, FlagActionResult, MarkExportedResult,
-                         MediaExportStarted, SoftsubVideoRequest)
+                         MediaExportStarted, ReadingSpeedMode, ReadingSpeedModeUpdate,
+                         ClearReadingSpeedFlagsResult, SoftsubVideoRequest)
 from services import export_service, media_export_service
 
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -68,6 +68,28 @@ def post_flag_overlaps(drama_id: int = Path(ge=1)):
             responses={404: {"model": ErrorResponse}})
 def post_flag_dense_lines(drama_id: int = Path(ge=1)):
     return export_service.flag_dense_lines(drama_id)
+
+
+@router.get("/dramas/{drama_id}/reading-speed", dependencies=[require_permission("lines.read")], response_model=ReadingSpeedMode,
+            summary="The title's reading-speed check mode (normal, relaxed or off)",
+            responses={404: {"model": ErrorResponse}})
+def get_reading_speed(drama_id: int = Path(ge=1)):
+    return export_service.get_reading_speed_mode(drama_id)
+
+
+@router.post("/dramas/{drama_id}/reading-speed", dependencies=[require_permission("lines.edit")], response_model=ReadingSpeedMode,
+             summary="Set the title's reading-speed check mode; existing flags are not changed",
+             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_reading_speed(payload: ReadingSpeedModeUpdate, drama_id: int = Path(ge=1)):
+    return export_service.set_reading_speed_mode(drama_id, payload.mode)
+
+
+@router.post("/dramas/{drama_id}/clear-reading-speed-flags", dependencies=[require_permission("lines.edit")],
+             response_model=ClearReadingSpeedFlagsResult,
+             summary="Clear only the reading-speed flags (snapshot first); recheck flags again at the current mode",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})
+def post_clear_reading_speed_flags(drama_id: int = Path(ge=1), recheck: bool = Query(False)):
+    return export_service.clear_reading_speed_flags(drama_id, recheck)
 
 
 @router.post("/dramas/{drama_id}/flag-auto-qc", dependencies=[require_permission("lines.edit")], response_model=AutoQcFlagResult,

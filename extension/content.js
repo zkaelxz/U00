@@ -585,6 +585,63 @@
 
   // -- the main action -------------------------------------------------
 
+  // The app refuses more than this many images in one request (413).
+  // Kept equal to page_server.MAX_IMAGES_PER_REQUEST by a test; if the
+  // two drift apart anyway, sendInBatches learns the real limit from the
+  // 413 reply.
+  const MAX_IMAGES_PER_REQUEST = 12;
+
+  // Sends `items` in order, one batch at a time: the app runs OCR and
+  // translation per image on a single user machine, and sequential
+  // batches also keep saved pages (store=true) in chapter order, since
+  // the app appends pages in request order. `send(batch, range)` returns
+  // the background's {ok, data|error, status}; `onBatch(batch, data)`
+  // handles each successful reply. Stops at the first hard error.
+  async function sendInBatches(items, send, onBatch, limit = MAX_IMAGES_PER_REQUEST) {
+    let done = 0;
+    let sentAny = false;
+    let retriedLimit = false;
+    let size = limit;
+    while (done < items.length) {
+      const batch = items.slice(done, done + size);
+      const range = { from: done + 1, to: done + batch.length, total: items.length };
+      const response = await send(batch, range) ||
+        { ok: false, error: "No answer from the extension's background worker." };
+      if (response.ok) {
+        sentAny = true;
+        onBatch(batch, response.data || {});
+        done += batch.length;
+        continue;
+      }
+      const match = response.status === 413 && /at most (\d+) images/.exec(response.error || "");
+      if (match && !retriedLimit && Number(match[1]) > 0 && Number(match[1]) < batch.length) {
+        retriedLimit = true;
+        size = Number(match[1]);
+        continue;
+      }
+      // Every image in this batch was judged not to be a page: nothing
+      // is wrong, so carry on with the next batch.
+      if (response.status === 422) {
+        onBatch(batch, { pages: [], skipped: batch.map(({ extracted }) => ({
+          key: extracted.hash, url: extracted.url, reason: response.error || "" })) });
+        done += batch.length;
+        continue;
+      }
+      return { sentAny, failure: { done, reason: response.error || "That didn't work.",
+                                   status: response.status } };
+    }
+    return { sentAny, failure: null };
+  }
+
+  // The popup shows this while a long chapter is in flight. It is only
+  // ever a hint, so a popup that has closed (or no listener) is ignored.
+  function reportProgress(text) {
+    try {
+      chrome.runtime.sendMessage({ type: "progress", text }).catch(() => {});
+    } catch (e) { /* nobody is listening */ }
+  }
+
+
   async function translateVisible({ dramaId, store, all }) {
     if (looksLikeChallengePage()) {
       return {
@@ -643,42 +700,60 @@
       };
     }
 
-    const response = await chrome.runtime.sendMessage({
-      type: "send",
-      images: images.map(({ extracted }) => ({
-        data: extracted.data,
-        content_type: extracted.content_type,
-        url: extracted.url,
-        key: extracted.hash,
-      })),
-      dramaId,
-      store,
-      sourceUrl: location.href,
-      // A deliberate single send is the image the person pointed at, so
-      // the server's page filter shouldn't second-guess it.
-      filterPages: images.length > 1,
+    const pages = [];
+    const skipped = [];
+    let drawn = 0;
+    const outcome = await sendInBatches(images, async (batch, range) => {
+      reportProgress(`Translating ${range.from}-${range.to} of ${range.total}...`);
+      return chrome.runtime.sendMessage({
+        type: "send",
+        images: batch.map(({ extracted }) => ({
+          data: extracted.data,
+          content_type: extracted.content_type,
+          url: extracted.url,
+          key: extracted.hash,
+        })),
+        dramaId,
+        store,
+        sourceUrl: location.href,
+        // A deliberate single send is the image the person pointed at, so
+        // the server's page filter shouldn't second-guess it. The server
+        // applies the filter to each request on its own, so a batch is
+        // clustered against its own neighbours only.
+        filterPages: images.length > 1,
+      });
+    }, (batch, data) => {
+      // Drawn per batch so a long chapter shows results as they arrive
+      // and keeps them if a later batch fails.
+      const byHash = new Map();
+      for (const page of data.pages || []) byHash.set(page.key, page.regions || []);
+      for (const { extracted, elements } of batch) {
+        const regions = byHash.get(extracted.hash);
+        if (!regions) continue;
+        state.cache.set(extracted.hash, regions);
+        for (const el of elements) {
+          drawOverlay(el, regions);
+          drawn += 1;
+        }
+      }
+      pages.push(...(data.pages || []));
+      skipped.push(...(data.skipped || []));
     });
 
-    if (!response || !response.ok) {
-      return response || { ok: false, error: "No answer from the extension's background worker." };
-    }
-
-    const byHash = new Map();
-    for (const page of response.data.pages || []) {
-      byHash.set(page.key, page.regions || []);
-    }
-    let drawn = 0;
-    for (const { extracted, elements } of images) {
-      const regions = byHash.get(extracted.hash);
-      if (!regions) continue;
-      state.cache.set(extracted.hash, regions);
-      for (const el of elements) {
-        drawOverlay(el, regions);
-        drawn += 1;
+    if (outcome.sentAny) watchForPageChanges();
+    const data = { pages, skipped, drawn, cached: fromCache.length };
+    if (outcome.failure) {
+      const f = outcome.failure;
+      if (!pages.length && !skipped.length) {
+        return { ok: false, error: f.reason, ...(f.status ? { status: f.status } : {}) };
       }
+      data.failed = {
+        done: f.done, total: images.length, at: f.done + 1, reason: f.reason,
+        message: `Translated ${f.done} of ${images.length} pages; stopped at page ` +
+                 `${f.done + 1}: ${f.reason}`,
+      };
     }
-    watchForPageChanges();
-    return { ok: true, data: { ...response.data, drawn, cached: fromCache.length } };
+    return { ok: true, data };
   }
 
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
@@ -721,7 +796,7 @@
   });
 
   // Exposed for the popup's injected checks and for tests.
-  window.__baihe = { translateVisible, setOverlaysVisible, candidateElements, state, toast,
+  window.__baihe = { translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
                      translatePageText, collectPageText, mainContentBlock,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature };
 })();
