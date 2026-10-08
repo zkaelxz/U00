@@ -281,30 +281,69 @@ class TestDeviceNumberUnknown:
 
 
 class TestNetworkTargets:
-    @pytest.mark.parametrize("target,network", [
-        (r"\\host\share\dir", True),
-        (r"\\?\UNC\host\share", True),
-        (r"\\?\C:\data", False),
-        (r"\\.\C:\data", False),
-        (r"C:\data", False),
-        ("/mnt/data", False),
+    @pytest.mark.parametrize("target,local", [
+        (r"\\host\share\dir", False),
+        (r"\\?\UNC\host\share", False),
+        (r"\\?\GLOBALROOT\Device\Mup\h\s", False),
+        (r"\\.\pipe\x", False),
+        (r"\\?\pipe\x", False),
+        (r"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}\data", False),
+        (r"\\?\C:\data", True),
+        (r"\\.\C:\data", True),
+        (r"\\?\C:", True),
+        (r"C:\data", True),
+        (r"..\data", True),
+        ("/mnt/data", True),
     ])
-    def test_unc_detection(self, target, network):
+    def test_target_allowlist(self, target, local):
         from services import disk_usage_links as links
-        assert links._is_network_path(target) is network
+        assert links._is_local_target(target) is local
 
-    def test_network_target_is_skipped_before_any_stat(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("target", [
+        r"\\host\share",
+        r"\\?\GLOBALROOT\Device\Mup\h\s",
+        r"\\.\pipe\x",
+        r"\\?\pipe\x",
+        r"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}\data",
+    ])
+    def test_non_local_target_is_skipped_before_any_open(self, tmp_path, monkeypatch, target):
         from services import disk_usage_links as links
-        measured = []
+        measured, opened = [], []
         sizes = links.LinkedSizes(str(tmp_path), [], dus._within, lambda *a: measured.append(a))
-        monkeypatch.setattr(os, "readlink", lambda p: r"\\host\share")
-        monkeypatch.setattr(os.path, "realpath", lambda p: r"\\host\share")
 
-        def no_stat(*a, **k):
-            raise AssertionError("a network path must not be stat'ed")
+        def readlink(p):
+            opened.append(p)
+            if p == "link":
+                return target
+            raise AssertionError("the target must not be opened")
 
-        monkeypatch.setattr(os, "stat", no_stat)
+        def forbidden(*a, **k):
+            raise AssertionError("a non-local path must not be stat'ed or resolved")
+
+        monkeypatch.setattr(os, "readlink", readlink)
+        monkeypatch.setattr(os.path, "realpath", forbidden)
+        monkeypatch.setattr(os, "stat", forbidden)
         assert sizes.of(["link"], budget=None) == (0, 0, False)
+        assert opened == ["link"]
+        assert measured == []
+
+    def test_link_below_a_symlinked_parent_to_a_share_is_skipped(self, tmp_path, monkeypatch):
+        from services import disk_usage_links as links
+        measured, opened = [], []
+        sizes = links.LinkedSizes(str(tmp_path), [], dus._within, lambda *a: measured.append(a))
+        parent = os.path.join("x", "a")
+        monkeypatch.setattr(os.path, "islink", lambda p: p == parent)
+
+        def readlink(p):
+            opened.append(p)
+            if p == parent:
+                return r"\\host\share"
+            raise AssertionError("nothing below the share may be opened")
+
+        monkeypatch.setattr(os, "readlink", readlink)
+        monkeypatch.setattr(os.path, "realpath", lambda p: (_ for _ in ()).throw(AssertionError(p)))
+        assert sizes.of([os.path.join(parent, "b")], budget=None) == (0, 0, False)
+        assert opened == [parent]
         assert measured == []
 
 
@@ -350,6 +389,16 @@ class TestLinkChains:
         _link(big, mid)
         _link(mid, os.path.join(tree, "library", "backups", "auto"))
         assert _item(dus.scan("library/backups"), "auto")["linked_bytes"] == 100_000
+
+
+class TestOverlappingTargets:
+    def test_two_links_to_one_target_report_the_second_as_incomplete(self, tree, big):
+        base = os.path.join(tree, "library", "backups")
+        _link(big, os.path.join(base, "one"))
+        _link(big, os.path.join(base, "two"))
+        items = dus.scan("library/backups")
+        shown = [_item(items, n)["linked_complete"] for n in ("one", "two")]
+        assert sorted(shown) == [False, True]
 
 
 class TestSkippedTargets:

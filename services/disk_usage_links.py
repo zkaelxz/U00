@@ -11,6 +11,7 @@ at from its parent or opened. Nothing here names a target path.
 """
 
 import os
+import re
 import stat
 
 # Linked folders measured in one scan, and link paths remembered per folder.
@@ -21,33 +22,56 @@ MAX_LINK_TARGETS = 64
 MAX_LINK_HOPS = 8
 
 
-def _is_network_path(real: str) -> bool:
-    """A UNC path (\\\\host\\share). Resolving or measuring one makes Windows
-    contact that host (possible NTLM credential exposure) and a slow host
-    would stall the scan while it holds the scan lock. The local `\\\\?\\X:`
-    and `\\\\.\\X:` forms are not network paths."""
-    p = real.replace("/", "\\")
+def _is_local_target(raw: str) -> bool:
+    """True only for the forms known to stay on this PC: a relative path, a
+    drive-letter path (`X:\\...`) and the `\\\\?\\X:` / `\\\\.\\X:` forms of
+    one. Everything else that starts with two separators (UNC, `\\\\?\\UNC`,
+    `\\\\?\\GLOBALROOT\\...\\Mup`, named pipes, `\\\\?\\Volume{...}`) is refused:
+    opening one makes Windows contact a host (possible NTLM credential
+    exposure), connect to a pipe, or stall the scan while it holds the scan
+    lock. This is an allowlist because the `\\\\?\\` and `\\\\.\\` prefixes
+    reach devices and remote providers, not only drives."""
+    p = raw.replace("/", "\\")
     if not p.startswith("\\\\"):
-        return False
-    if p[2:4] in ("?\\", ".\\"):
-        return p[4:].upper().startswith("UNC\\")
-    return True
+        return True
+    return re.match(r"\\\\[?.]\\[A-Za-z]:(\\|$)", p) is not None
 
 
-def _local_target(path: str):
+def _ancestors_local(path: str, depth: int) -> bool:
+    """False when a folder on the way to `path` is a link that leads off this
+    PC. Checked top-down so no lstat runs through an unchecked link: a target
+    like `C:\\a\\b` is opened through `C:\\a`, which may itself be a symlink
+    to a share."""
+    chain = []
+    parent = os.path.dirname(path)
+    while parent and parent != os.path.dirname(parent):
+        chain.append(parent)
+        parent = os.path.dirname(parent)
+    return all(
+        not os.path.islink(p) or _local_target(p, depth + 1) is not None
+        for p in reversed(chain)
+    )
+
+
+def _local_target(path: str, depth: int = 0):
     """The real path `path` leads to, or None when the chain of links starting
-    at it reaches a network path, loops or is too long. Each hop's raw target
-    is checked before it is followed, because realpath on Windows would open
-    the whole chain, network host included, in one call."""
+    at it (or at a folder on the way) reaches a non-local path, loops or is
+    too long. Each hop's raw target is checked before it is followed, because
+    realpath on Windows would open the whole chain, network host included, in
+    one call."""
+    if depth > MAX_LINK_HOPS:
+        return None
     cur = path
     seen = set()
     for _ in range(MAX_LINK_HOPS + 1):
+        if not _ancestors_local(cur, depth):
+            return None
         try:
             raw = os.readlink(cur)
         except OSError:
             real = os.path.realpath(cur)
-            return None if _is_network_path(real) else real
-        if _is_network_path(raw):
+            return real if _is_local_target(real) else None
+        if not _is_local_target(raw):
             return None
         key = os.path.normcase(cur)
         if key in seen:
@@ -75,22 +99,28 @@ class LinkedSizes:
     def of(self, link_paths: list, budget, cut: bool = False):
         """(bytes, files, complete) for the folders `link_paths` lead to, or
         None when none of them was measured here (a file link, a target that
-        is counted where it lives, or one that is skipped). A target on a
-        network path, or a chain of links that loops, is too long or reaches
-        one, is never touched and makes the result incomplete."""
+        is counted where it lives, or one that is skipped). A target that is
+        not local, or a chain of links that loops, is too long or reaches one,
+        is never touched and makes the result incomplete; so does a target
+        that overlaps one already measured in this scan."""
         total = files = 0
-        measured = skipped_network = False
+        measured = skipped = False
         complete = not cut
         for path in link_paths:
             real = _local_target(path)
             if real is None:
-                skipped_network = True
+                skipped = True
                 continue
             try:
                 is_dir = stat.S_ISDIR(os.stat(real).st_mode)
             except OSError:
                 continue
             if not is_dir or self._skip(path, real):
+                continue
+            if self._overlaps_measured(real):
+                # The same bytes are already in another item's linked size, so
+                # this one shows less than it would opened alone.
+                skipped = True
                 continue
             if len(self._done) >= MAX_LINK_TARGETS:
                 complete = False
@@ -101,7 +131,7 @@ class LinkedSizes:
             files += found.files
             measured = True
             complete = complete and not found.unreadable and not budget.hit
-        if skipped_network:
+        if skipped:
             # Reported as incomplete rather than silently counted as empty.
             return total, files, False
         return (total, files, complete) if measured else None
@@ -116,6 +146,9 @@ class LinkedSizes:
         # folders is a whole drive or profile, not a place Baihe stores data.
         if any(self._within(a, real) for a in [self._root, *self._avoid]):
             return True
-        # Already measured, or part of / holding a measured target: counting
-        # it again would count the same bytes twice.
+        return False
+
+    def _overlaps_measured(self, real: str) -> bool:
+        # Part of / holding a measured target: counting it again would count
+        # the same bytes twice.
         return any(self._within(real, d) or self._within(d, real) for d in self._done)
