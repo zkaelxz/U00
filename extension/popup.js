@@ -155,7 +155,10 @@ async function load() {
       "back with their original text only.");
 }
 
+let pageRunInFlight = false;
+
 async function run(all) {
+  if (pageRunInFlight) return;
   const tab = await activeTab();
   if (!tab || !tab.id) return say("No active tab.", true);
   const dramaId = els.drama.value ? Number(els.drama.value) : null;
@@ -163,6 +166,10 @@ async function run(all) {
     return say("Pick a drama to save into, or untick saving.", true);
   }
   say(all ? "Reading every visible page…" : "Reading this page…");
+  // A capture started now would send the same pages a second time.
+  pageRunInFlight = true;
+  els.captureChapter.disabled = true;
+  els.captureFromHere.disabled = true;
   try {
     await ensureContentScript(tab.id);
     // Prefer the host the page reports about itself: `tab.url` is only
@@ -208,6 +215,10 @@ async function run(all) {
     // The usual cause is a page the browser won't let an extension into
     // (the Chrome Web Store, a PDF viewer, chrome:// pages).
     say(`Couldn't run on this page (${e.message}).`, true);
+  } finally {
+    pageRunInFlight = false;
+    els.captureChapter.disabled = false;
+    els.captureFromHere.disabled = false;
   }
 }
 
@@ -228,7 +239,19 @@ function showCapturing(running) {
   els.translateAll.disabled = running;
 }
 
+let captureInFlight = false;
+
 async function runCapture(fromHere) {
+  if (pageRunInFlight) return;
+  captureInFlight = true;
+  try {
+    await startCapture(fromHere);
+  } finally {
+    captureInFlight = false;
+  }
+}
+
+async function startCapture(fromHere) {
   const tab = await activeTab();
   if (!tab || !tab.id) return say("No active tab.", true);
   const dramaId = els.drama.value ? Number(els.drama.value) : null;
@@ -245,6 +268,7 @@ async function runCapture(fromHere) {
       if (site) await chrome.runtime.sendMessage({ type: "rememberDrama", site, dramaId });
     }
     await chrome.tabs.sendMessage(tab.id, { type: "setOverlays", visible: els.overlay.checked });
+    await chrome.storage.local.set({ overlay: els.overlay.checked });
     const result = await chrome.tabs.sendMessage(tab.id, {
       type: "captureChapter", dramaId, store: els.store.checked, fromHere });
     if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
@@ -275,7 +299,11 @@ async function syncCaptureUi() {
 }
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (message && message.type === "captureDone") showCapturing(false);
+  if (!message || message.type !== "captureDone") return;
+  showCapturing(false);
+  // A popup that was closed during the run never saw the result; one that
+  // started it says it itself, with the saved-destination detail.
+  if (!captureInFlight && message.text) say(message.text, !!message.failed);
 });
 
 async function runText() {

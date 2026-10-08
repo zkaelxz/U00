@@ -4,29 +4,39 @@ import threading
 
 
 class Limiter:
-    """A concurrency limit that can be re-tuned while requests are in flight.
-    Clients built before and after a pace change ask for different limits; a
-    lower limit applies at once and a higher one only once the source is idle,
-    so alternating clients cannot swap their way past the stricter one."""
+    """Concurrency gate shared by every client of one source. Each client
+    enters with the limit of its own pace policy, and may only enter while
+    the requests already running all allow one more, so a stale client built
+    before a pace change cannot run beside a stricter one in flight. Idle,
+    nothing is held back: the next client's own limit applies."""
 
-    def __init__(self, limit: int):
-        self.limit = limit
-        self.active = 0
+    def __init__(self):
+        self._held = []
         self._cond = threading.Condition()
 
-    def set_limit(self, limit: int):
-        with self._cond:
-            self.limit = min(self.limit, limit) if self.active else limit
-            self._cond.notify_all()
+    @property
+    def active(self) -> int:
+        return len(self._held)
+
+    def at(self, limit: int):
+        return _Entry(self, max(1, int(limit)))
+
+
+class _Entry:
+    def __init__(self, gate: Limiter, limit: int):
+        self._gate = gate
+        self._limit = limit
 
     def __enter__(self):
-        with self._cond:
-            while self.active >= self.limit:
-                self._cond.wait()
-            self.active += 1
+        g = self._gate
+        with g._cond:
+            while len(g._held) >= min([self._limit, *g._held]):
+                g._cond.wait()
+            g._held.append(self._limit)
         return self
 
     def __exit__(self, *exc):
-        with self._cond:
-            self.active -= 1
-            self._cond.notify_all()
+        g = self._gate
+        with g._cond:
+            g._held.remove(self._limit)
+            g._cond.notify_all()
