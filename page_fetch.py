@@ -25,6 +25,8 @@ import re
 import threading
 from contextlib import contextmanager
 
+import browser_support
+
 # Root containers common to SPA frameworks. Their presence alongside
 # very little text is a strong signal the content hasn't rendered.
 SPA_ROOT_MARKERS = [
@@ -668,6 +670,7 @@ def _require_playwright():
             "    playwright install chromium\n"
             "The second command downloads the browser and is easy to miss."
         )
+    browser_support.use_app_browsers()
     return sync_playwright
 
 
@@ -728,51 +731,14 @@ def _explicit_browser():
     return path if path and os.path.isfile(path) else None
 
 
-_BROWSER_PROGRAMS = {"chrome", "chrome.exe", "chromium", "google chrome for testing",
-                     "chrome-headless-shell", "chrome-headless-shell.exe", "headless_shell"}
-
-
-def _has_browser_program(folder: str, depth: int = 5) -> bool:
-    """Whether `folder` holds a browser program file within `depth` levels
-    (the unpacked layout differs by OS and Playwright release)."""
-    try:
-        for entry in os.scandir(folder):
-            if entry.is_file():
-                if entry.name.lower() in _BROWSER_PROGRAMS and os.access(entry.path, os.X_OK):
-                    return True
-            elif depth > 0 and entry.is_dir() and _has_browser_program(entry.path, depth - 1):
-                return True
-    except OSError:
-        pass
-    return False
-
-
-def _wanted_browser_folders():
-    """Folder names the installed Playwright launches Chromium from (full
-    and headless shell), read from its bundled manifest without importing
-    it. None when the package or manifest can't be read."""
-    import importlib.util
-    import json
-    try:
-        spec = importlib.util.find_spec("playwright")
-        pkg = list(spec.submodule_search_locations or [])[0]
-        with open(os.path.join(pkg, "driver", "package", "browsers.json"), encoding="utf-8") as f:
-            browsers = json.load(f)["browsers"]
-        names = [f"{b['name'].replace('-', '_')}-{b['revision']}" for b in browsers
-                 if b["name"] in ("chromium", "chromium-headless-shell")]
-    except (ImportError, ValueError, OSError, IndexError, KeyError, TypeError, AttributeError):
-        return None
-    return names or None
-
-
 def _bundled_browser_present() -> bool:
     """Whether the Chromium build the installed Playwright wants (not just
     any older download) is on disk with its program file. False when
     Playwright or its manifest can't be read."""
-    wanted = _wanted_browser_folders()
+    wanted = browser_support.wanted_browser_folders()
     if not wanted:
         return False
-    dirs = []
+    dirs = [browser_support.app_browsers_folder()]
     env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
     if env and env != "0":
         dirs.append(env)
@@ -781,7 +747,7 @@ def _bundled_browser_present() -> bool:
     home = os.path.expanduser("~")
     dirs += [os.path.join(home, "Library", "Caches", "ms-playwright"),
              os.path.join(home, ".cache", "ms-playwright")]
-    return any(all(_has_browser_program(os.path.join(d, n)) for n in wanted) for d in dirs)
+    return any(all(browser_support.has_browser_program(os.path.join(d, n)) for n in wanted) for d in dirs)
 
 
 def browser_status() -> dict:

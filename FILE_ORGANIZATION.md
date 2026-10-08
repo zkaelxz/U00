@@ -44,13 +44,13 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `vocab_export.py`
 
 **Discovery, sources & I/O**: `page_fetch.py`, `metadata_lookup.py`, `bulk_import.py`, `title_library.py`, `known_sites.py`, `navigator.py`,
-`epub_io.py`, `page_server.py`
+`epub_io.py`, `page_server.py`, `browser_support.py`
 
 ## services/
 
 `artifact_service.py`, `asr_options_service.py`, `assistant_github_service.py`, `assistant_pytest_guard.py`,
 `assistant_roles_service.py`, `auth_service.py`, `auto_backup_service.py`, `backup_import_service.py`,
-`benchmark_lab_service.py`, `blocked_retry_service.py`, `bug_report_service.py`, `capped_body.py`,
+`benchmark_lab_service.py`, `blocked_retry_service.py`, `browser_install_service.py`, `bug_report_service.py`, `capped_body.py`,
 `characters_service.py`, `comic_view_service.py`, `compare_transcription_service.py`, `cover_art_service.py`,
 `delete_service.py`, `diagnostics_gaps_service.py`, `diagnostics_installs_service.py`,
 `diagnostics_service.py`, `diarization_service.py`, `discover_catalog_service.py`,
@@ -91,7 +91,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 `admin_users_routes.py`, `artifact_routes.py`, `asr_options_routes.py`, `assistant_github_routes.py`,
 `assistant_routes.py`, `auth_routes.py`, `backup_routes.py`, `benchmark_routes.py`, `blocked_retry_routes.py`,
 `bug_report_routes.py`, `characters_routes.py`, `comic_routes.py`, `delete_routes.py`,
-`diagnostics_gaps_routes.py`, `diagnostics_installs_routes.py`, `diagnostics_routes.py`,
+`diagnostics_browser_routes.py`, `diagnostics_gaps_routes.py`, `diagnostics_installs_routes.py`, `diagnostics_routes.py`,
 `diarization_routes.py`, `discover_lookup_routes.py`, `discover_routes.py`, `disk_usage_routes.py`,
 `drama_routes.py`, `dub_routes.py`, `engine_routing_routes.py`, `events_routes.py`, `export_routes.py`,
 `extension_routes.py`, `glossary_routes.py`, `jellyfin_routes.py`, `job_stage_routes.py`, `jobs_routes.py`,
