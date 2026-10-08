@@ -37,11 +37,12 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
     title: 'Golden sets',
     purpose: 'The reference translations that runs are scored against.',
     steps: [
-      'Build a set from a reviewed title, import one, or add a case.',
+      'Import a set (JSONL or TSV), or add one case by hand.',
       'A case is a source line plus its reference translation.',
       'A case without a reference is run but not scored.',
       'Show cases to read a set or delete a case.',
-      'Importing, adding and deleting happen on the main PC only.',
+      'Or build a set from a title you have reviewed.',
+      'Importing, adding, building and deleting happen on the main PC only.',
     ],
   },
   run: {
@@ -50,10 +51,10 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
     steps: [
       'Pick the stage, tier and golden set.',
       'Pick an engine and model. Add more to compare them.',
-      'Optional: pick a judge to also score accuracy, tone and naturalness.',
       'Press Estimate cost. Start unlocks once the estimate is shown.',
       'Press Start. Progress shows here while it runs.',
       'Read the scores under Recent runs.',
+      'Optional: pick a judge to also score accuracy, tone and naturalness.',
     ],
   },
   reeval: {
