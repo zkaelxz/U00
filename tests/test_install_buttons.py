@@ -139,7 +139,7 @@ class TestExternalGpuLoad:
     card, say) using the same physical GPU."""
 
     def _fake_run(self, stdout):
-        def run(cmd, capture_output, text, timeout, check):
+        def run(cmd, capture_output, text, timeout, check, errors):
             assert cmd[0] == "nvidia-smi"
             class _Result:
                 pass

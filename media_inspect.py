@@ -61,7 +61,10 @@ def run_ffprobe(path: str, timeout: int = 30) -> dict:
     cmd = ["ffprobe", "-v", "error", "-print_format", "json",
            "-show_format", "-show_streams", path]
     try:
-        out = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout)
+        # ffprobe writes UTF-8 JSON; text=True would decode with the locale code page (cp932,
+        # cp1252), and a decode error in the reader thread leaves stdout as None.
+        out = subprocess.run(cmd, check=True, capture_output=True, encoding="utf-8",
+                             errors="replace", timeout=timeout)
     except FileNotFoundError as exc:
         raise ProbeError("ffprobe isn't installed, or isn't on PATH.") from exc
     except subprocess.TimeoutExpired as exc:
@@ -69,6 +72,8 @@ def run_ffprobe(path: str, timeout: int = 30) -> dict:
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or "").strip() or str(exc)
         raise ProbeError(f"ffprobe couldn't read this file: {detail}") from exc
+    if not out.stdout:
+        raise ProbeError("ffprobe returned no output for this file.")
     try:
         return json.loads(out.stdout)
     except json.JSONDecodeError as exc:

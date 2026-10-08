@@ -349,7 +349,7 @@ def check_ffmpeg():
     if not path:
         return {"found": False, "path": None, "version": None, "libass": None}
     try:
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, errors="replace", timeout=5)
         version_line = result.stdout.splitlines()[0] if result.stdout else "unknown version"
         # Burned-in (hardsub) export and the styled preview need ffmpeg built
         # with libass; `-version` prints the build's configure flags.
@@ -404,7 +404,7 @@ def _warn_ytdlp_old(today=None):
 def _warn_deno_old():
     if not shutil.which("deno"):
         return None
-    out = subprocess.run(["deno", "--version"], capture_output=True, text=True, timeout=5).stdout
+    out = subprocess.run(["deno", "--version"], capture_output=True, errors="replace", timeout=5).stdout
     ver = _ints(out, 2)
     if ver and ver < DENO_MIN_VERSION:
         return ("Deno is older than 2.3, which yt-dlp may not work with. "
@@ -1018,8 +1018,14 @@ def stream_pip_install(pip_args: list, python_executable: str = None):
     on a real machine is exactly the case this must not hide)."""
     python_executable = python_executable or sys.executable
     cmd = [python_executable, "-m", "pip", "install", *PIP_INSTALL_FLAGS] + list(pip_args)
+    yield from _stream_pip(cmd)
+
+
+def _stream_pip(cmd: list):
+    # errors="replace": pip writes in the locale code page, and a bad byte must
+    # not kill the stream.
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
+                            errors="replace", bufsize=1)
     for line in proc.stdout:
         yield {"line": line.rstrip("\n")}
     returncode = proc.wait()
@@ -1030,12 +1036,7 @@ def stream_pip_uninstall(pip_args: list, python_executable: str = None):
     """Same shape as stream_pip_install, for `<python> -m pip uninstall -y`."""
     python_executable = python_executable or sys.executable
     cmd = [python_executable, "-m", "pip", "uninstall", "-y"] + list(pip_args)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
-    for line in proc.stdout:
-        yield {"line": line.rstrip("\n")}
-    returncode = proc.wait()
-    yield {"done": True, "ok": returncode == 0, "returncode": returncode}
+    yield from _stream_pip(cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -1359,13 +1360,13 @@ def _make_throwaway_venv(base_dir: str, name: str, python_executable: str, paren
     venv_dir = os.path.join(base_dir, name)
     try:
         proc = subprocess.run([python_executable, "-m", "venv", "--without-pip", venv_dir],
-                              capture_output=True, text=True, timeout=300)
+                              capture_output=True, errors="replace", timeout=300)
         if proc.returncode != 0:
             return None, (proc.stderr or proc.stdout).strip() or f"exit code {proc.returncode}"
         venv_py = _venv_python(venv_dir)
         purelib = subprocess.run(
             [venv_py, "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
-            capture_output=True, text=True, timeout=60).stdout.strip()
+            capture_output=True, errors="replace", timeout=60).stdout.strip()
         os.makedirs(purelib, exist_ok=True)
         with open(os.path.join(purelib, "_baihe_parent_env.pth"), "w", encoding="utf-8") as f:
             f.write("\n".join(parent_dirs) + "\n")
@@ -1448,7 +1449,7 @@ def _dist_version_in(venv_py: str, pip_name: str):
         out = subprocess.run(
             [venv_py, "-c", "import importlib.metadata, sys; "
                             "print(importlib.metadata.version(sys.argv[1]))", pip_name],
-            capture_output=True, text=True, timeout=60)
+            capture_output=True, errors="replace", timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
     return out.stdout.strip() if out.returncode == 0 else None
@@ -1749,7 +1750,7 @@ def external_gpu_load() -> dict | None:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
              "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5, check=True)
+            capture_output=True, text=True, errors="replace", timeout=5, check=True)
         line = result.stdout.strip().splitlines()[0]
         util_percent, used_mb, total_mb = (float(x.strip()) for x in line.split(","))
         return {"utilization_percent": util_percent, "memory_used_mb": used_mb,
@@ -1917,7 +1918,7 @@ def nvidia_driver_info():
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=5, check=True)
+            capture_output=True, text=True, errors="replace", timeout=5, check=True)
         name, driver = (x.strip() for x in result.stdout.strip().splitlines()[0].rsplit(",", 1))
         return {"gpu_name": name[:120], "driver_version": driver[:40]}
     except Exception:
