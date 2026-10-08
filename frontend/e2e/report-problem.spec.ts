@@ -231,7 +231,7 @@ test('Report a problem > Copy a report: one press builds and copies it; the prev
 
   await card.getByRole('button', { name: 'Copy report' }).click()
   await expect(card.getByTestId('report-note')).toHaveText('Copied. Paste it into your bug report.')
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(REPORT)
+  expect((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n')).toBe(REPORT)
   expect(builds).toBe(1)
 
   await card.locator('summary', { hasText: "What's in it" }).click()

@@ -36,6 +36,18 @@ async function guard(page: Page): Promise<string[]> {
 test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll', async ({ page }) => {
   const unmocked = await guard(page)
   // No task groups here, so a missing package is installed one by one from "Not installed".
+  // The server's own report says yt-dlp is installed on a machine that has it, and then there is no Install button.
+  await page.route('**/api/diagnostics', (r) => r.fulfill({ json: {
+    dependencies: {
+      jieba: { installed: true, powers: 'Chinese word segmentation', tier: 'feature' },
+      'yt-dlp': { installed: false, powers: 'downloading video', tier: 'feature' },
+    },
+    file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
+    library_writable: true,
+    gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
+    model_engine_versions: [],
+    recent_log_lines: [],
+  } }))
   await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: { tasks: [], packages: {} } }))
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 2, items: [{
     job_id: 'translate_1', status: 'running', progress: 0.4, message: 'Batch 2 of 5', error: null,
