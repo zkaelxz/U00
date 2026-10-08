@@ -54,6 +54,7 @@ DEFAULT_SETTINGS = {
     "auto_queue_new_chapters": False,
     "demo_source_enabled": False,
     "disabled_sources": [],
+    "source_pace": {},              # source -> careful|normal|fast; absent means normal
     "adult_sources": [],            # sources the person opted in to adult-flagged works for
     "extraction_diagnostics": False,  # Always show Review Extraction + diagnostics
     # An HTTP(S) proxy URL (e.g. "http://127.0.0.1:8080") every
@@ -372,6 +373,23 @@ def all_settings() -> dict:
         for row in conn.execute("SELECT key, value FROM settings"):
             out[row["key"]] = json.loads(row["value"])
     return out
+
+
+def source_pace(source: str) -> str:
+    return (get_setting("source_pace") or {}).get(source, "normal")
+
+
+def set_source_pace(source: str, level: str):
+    # The map is one JSON setting, so the read-modify-write has to be a single
+    # write transaction or two POSTs for different sources lose one change.
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT value FROM settings WHERE key=?", ("source_pace",)).fetchone()
+        current = dict(json.loads(row["value"])) if row else {}
+        current[source] = level
+        conn.execute("INSERT INTO settings(key, value) VALUES(?, ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                     ("source_pace", json.dumps(current)))
 
 
 def adult_enabled(source: str) -> bool:
