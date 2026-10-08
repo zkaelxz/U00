@@ -154,7 +154,6 @@ from engine_backends.engine_registry import (  # noqa: F401
     FREE_ENGINES,
     GEMINI_FREE_TIER_NOTE,
     KEYLESS_ENGINES,
-    LEGACY_MODEL_ALIASES,
     MODEL_ID_RE,
     MODEL_OVERRIDE_DEFAULTS_KEY,
     MODEL_OVERRIDE_TIERS_KEY,

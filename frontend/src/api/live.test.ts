@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, appendCues, buildStartBody, checkLiveUrl, resolveModel,
+  DEFAULT_FORM, DEFAULT_OPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, appendCues, buildStartBody, checkLiveUrl, resolveModel,
   describeLiveError, feedCues, fmtTs, getLive, isActive, pickSession, startLive, statusLine, stopLive,
 } from './live'
 import { ApiError } from './client'
@@ -114,6 +114,15 @@ describe('requests', () => {
     expect(init.method).toBe('POST')
     expect(JSON.parse(String(init.body)).url).toBe('https://a.test')
     expect((init.headers as Record<string, string>)['X-Baihe-Local']).toBe('1')
+  })
+
+  it('asks the server about its own default model when none is chosen', async () => {
+    const f = ok({ ok: true, model: 'm', message: null })
+    await checkOllama('', f)
+    await checkOllama('qwen3:8b', f)
+    expect(f.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual([
+      '/api/live/ollama-check', '/api/live/ollama-check?model=qwen3%3A8b',
+    ])
   })
 
   it('polls with after and stops by id; a malformed id never reaches the network', async () => {

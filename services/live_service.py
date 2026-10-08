@@ -52,6 +52,7 @@ SEGMENT_RANGE = (10, 60)
 OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
+LIVE_DEFAULT_ENGINE = "ollama"
 MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
 
@@ -104,7 +105,10 @@ def _require_offered_model(engine_name: str, model: Optional[str]):
 
 
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
-    engine_name = engine_name or settings_service.get_default_engine()
+    # Never the Settings default: that may be a hosted engine, and a Live
+    # request without an engine (API client, extension, stale bundle) must not
+    # send the stream's text off this PC unasked.
+    engine_name = engine_name or LIVE_DEFAULT_ENGINE
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     _require_offered_model(engine_name, model)
@@ -135,7 +139,8 @@ def check_ollama(model: Optional[str] = None) -> dict:
     Live form can say so before Start. The message is the plain text the chat
     call uses and never carries the Ollama address."""
     from services import translate_run_service
-    model = model or translate_engines.OLLAMA_DEFAULT_MODEL
+    # The model Start would run when none is chosen, so the note describes it.
+    model = model or translate_engines.effective_default_model("ollama")
     if not translate_run_service._is_safe_ollama_model(model):
         raise InvalidInputError("That model isn't offered for this engine.")
     try:

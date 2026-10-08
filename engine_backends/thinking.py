@@ -25,14 +25,26 @@ def deepseek_extra_body(context: dict) -> dict:
     return {"extra_body": DEEPSEEK_NO_THINKING_BODY} if wants_no_thinking(context) else {}
 
 
+def _refuses_think(exc) -> bool:
+    """Whether a 400 says the `think` field is what Ollama objects to
+    (e.g. "... does not support thinking"); any other 400 is a different fault."""
+    try:
+        body = exc.response.text or ""
+    except Exception:
+        return False
+    return "think" in body.lower()
+
+
 def ollama_chat_no_thinking(chat, base_url: str, payload: dict) -> dict:
     """Runs chat(base_url, payload) with `think: false` added.
 
     Asking Ollama (/api/show) which models can think would cost a request per
-    model, so the field is sent and a 400 is taken as "this model can't think":
-    the request is repeated once without it and that is remembered. A model that
-    thinks without being asked is still handled by the caller's <think>
-    stripping, and the separate `thinking` reply field is never read."""
+    model, so the field is sent. A 400 whose body names thinking means "this
+    model can't think": the request is repeated once without the field and that
+    is remembered. Any other 400 is also retried once without it, but not
+    remembered, so a one-off bad request can't turn the switch off until
+    restart. A model that thinks without being asked is still handled by the
+    caller's <think> stripping, and the `thinking` reply field is never read."""
     import requests
     key = (base_url, str(payload.get("model") or ""))
     if key in _think_refused:
@@ -42,5 +54,6 @@ def ollama_chat_no_thinking(chat, base_url: str, payload: dict) -> dict:
     except requests.HTTPError as exc:
         if getattr(exc.response, "status_code", None) != 400:
             raise
-        _think_refused.add(key)
+        if _refuses_think(exc):
+            _think_refused.add(key)
         return chat(base_url, payload)

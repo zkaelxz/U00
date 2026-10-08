@@ -81,8 +81,9 @@ const sessionPath = (id: string) => {
   return `/api/live/sessions/${id}`
 }
 
+/** No model asks about the one Start runs when none is chosen: the server decides, so the answer can't drift from it. */
 export const checkOllama = (model: string, f?: Fetch) =>
-  getJson<LiveOllamaCheck>(`/api/live/ollama-check?model=${encodeURIComponent(model)}`, f)
+  getJson<LiveOllamaCheck>(model ? `/api/live/ollama-check?model=${encodeURIComponent(model)}` : '/api/live/ollama-check', f)
 export const startLive = (body: LiveSessionStart, f?: Fetch) =>
   postJson<LiveSessionStarted>('/api/live/sessions', body, f)
 export const listLive = (f?: Fetch) => getJson<LiveSessionSummary[]>('/api/live/sessions', f)

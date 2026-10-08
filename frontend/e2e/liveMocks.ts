@@ -72,7 +72,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   await page.route('**/api/translate/engines', (route) => opts.enginesFail
     ? json(route, { error: { code: 'internal', message: 'Boom.' } }, 500)
     : json(route, { items: opts.ollama ? [OLLAMA, ...ENGINES] : ENGINES }))
-  await page.route('**/api/live/ollama-check?*', (route) => {
+  await page.route('**/api/live/ollama-check*', (route) => {
     const model = new URL(route.request().url()).searchParams.get('model') ?? ''
     m.ollamaChecks.push(model)
     return json(route, opts.ollamaMissing

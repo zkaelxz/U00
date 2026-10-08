@@ -790,10 +790,11 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                         translator=translator,
                         overlap_seconds=pad_seconds, overlap_tail_text=tail_text,
                         on_stage=lambda stage, idx=idx: set_chunk_stage(stage, idx),
-                        # Between steps only Stop's generation bump discards a
-                        # chunk. A plain cancel still aborts a translate call in
-                        # flight (the abort check includes is_cancel_requested),
-                        # so that chunk's cues are dropped too.
+                        # Only the Stop button's generation bump discards a chunk
+                        # between steps; a plain cancel lets the lines already
+                        # transcribed finish (as it always did) and ends the
+                        # job at the next loop check. A blocked Ollama call is
+                        # aborted either way, through the cancel check above.
                         is_cancelled=lambda: current_generation(job_id) != my_generation)
                     if current_generation(job_id) != my_generation:
                         # The session moved on while this one chunk's own

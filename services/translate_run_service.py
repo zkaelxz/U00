@@ -39,6 +39,7 @@ import core
 import db
 import translate_engines
 import translation_guide
+from engine_backends.engine_registry import legacy_ids
 from services import (engine_routing_service, library_service, settings_service,
                       translate_service, workspace_job_service)
 from services.service_errors import (
@@ -323,8 +324,7 @@ def _require_offered_model(engine_name: str, model) -> None:
                    if e["name"] == engine_name), None)
     allowed = models if models is not None else [
         translate_engines.builtin_default_model(engine_name), _default_model(engine_name)]
-    allowed = [*allowed, *translate_engines.LEGACY_MODEL_ALIASES.get(engine_name, ())]
-    if not isinstance(model, str) or model not in allowed:
+    if not isinstance(model, str) or model not in (*allowed, *legacy_ids(engine_name)):
         raise InvalidInputError("That model isn't offered for this engine.")
 
 

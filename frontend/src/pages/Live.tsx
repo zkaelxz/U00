@@ -97,7 +97,7 @@ export default function LivePage() {
     setOllamaNote(null)
     if (checkModel === null) return
     let alive = true
-    checkOllama(checkModel || LIVE_DEFAULT_MODEL).then(
+    checkOllama(checkModel).then(
       (r) => { if (alive) setOllamaNote(r.ok ? null : (r.message ?? 'Ollama is not ready.')) },
       () => {},
     )

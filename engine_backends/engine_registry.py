@@ -108,8 +108,13 @@ FREE_ENGINES = {"ollama"}
 KEYLESS_ENGINES = {"ollama"}
 
 # Ids a provider renamed but still serves: a preset or title that saved one
-# keeps running, so the offered lists keep them after the built-in default moves.
-LEGACY_MODEL_ALIASES = {"deepseek": ("deepseek-v4-flash",)}
+# keeps running, so a translate run still accepts them after the built-in
+# default moves. The offered lists do not show them.
+_LEGACY_MODEL_ALIASES = {"deepseek": ("deepseek-v4-flash",)}
+
+
+def legacy_ids(engine_name: str) -> tuple:
+    return _LEGACY_MODEL_ALIASES.get(engine_name, ())
 
 
 # One short sentence each: the closed engine <select> shows it verbatim, and

@@ -3,6 +3,7 @@
 Live sends each cue alone, so without help the prompt would carry no source
 language, no medium and no memory of what was just said. This keeps the last
 few finished cues and passes them as continuity context."""
+import re
 from collections import deque
 
 import background_jobs
@@ -13,6 +14,12 @@ RECENT_CUES = 4
 _RECENT_CHARS = 200
 
 
+def _as_data(text: str) -> str:
+    """One line with no markup: a speaker controls this text, so it must not be
+    able to start a new pair line or close the block the prompt wraps it in."""
+    return re.sub(r"\s+", " ", text).replace("<", "\u2039").replace(">", "\u203a").strip()
+
+
 def build_live_context(source_language: str, recent, line_id: int,
                        reply_without_thinking: bool) -> dict:
     """The translate_batch context for one cue. A non-baihe genre keeps the
@@ -21,6 +28,7 @@ def build_live_context(source_language: str, recent, line_id: int,
         "drama_meta": {"source_language": source_language, "content_mode": "streamer_vod",
                        "genre": "livestream"},
         "recent_context": list(recent),
+        "recent_as_data": True,
         "line_ids": [line_id],
         "reply_without_thinking": reply_without_thinking,
     }
@@ -49,5 +57,5 @@ class CueTranslator:
         except Exception as exc:
             return f"[translation failed: {redact_secrets(str(exc))}]"
         if translated and translated.strip():
-            self._recent.append((text[:_RECENT_CHARS], translated[:_RECENT_CHARS]))
+            self._recent.append((_as_data(text)[:_RECENT_CHARS], _as_data(translated)[:_RECENT_CHARS]))
         return translated
