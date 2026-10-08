@@ -20,6 +20,7 @@ import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { DevicesCard } from './settings/DevicesCard'
 import { AutoBackupCard } from './settings/AutoBackupCard'
 import { EngineRoutingCard } from './settings/EngineRoutingCard'
+import { ExtensionDevicesCard } from './settings/ExtensionDevicesCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { LoadedModelsCard } from './settings/LoadedModelsCard'
 import { JellyfinSection } from './settings/JellyfinSection'
@@ -269,11 +270,12 @@ export default function SettingsPage() {
         </>
       )}
       {/* Outside the settings gate: every signed-in person has a share-new-items choice
-          and manages their own devices. */}
-      <Fold id="sharing" signals={signals} summary="Share new items, signed-in devices, menu items">
+          and manages their own devices and extension devices. */}
+      <Fold id="sharing" signals={signals} summary="Share new items, signed-in devices, extension devices, menu items">
         <SharingCard />
         <CustomizeMenuCard />
         <DevicesCard />
+        <ExtensionDevicesCard />
       </Fold>
       {settings && prefProps && (
         <>

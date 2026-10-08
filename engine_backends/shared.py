@@ -207,6 +207,8 @@ _SECRET_PATTERNS = [
     re.compile(r'\bGOCSPX-[A-Za-z0-9_-]{10,}'),
     # GitHub tokens: ghp_/gho_/ghu_/ghs_/ghr_ and fine-grained github_pat_.
     re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})'),
+    # Baihe's own browser-extension device tokens: baihe_dt_ + 43 characters.
+    re.compile(r'\bbaihe_dt_[A-Za-z0-9_-]{20,}'),
     # Discord webhook URLs: the id/token path is the secret.
     re.compile(r'(discord(?:app)?\.com/api/(?:v\d+/)?webhooks/)[^\s"\'<>]+', re.IGNORECASE),
 ]

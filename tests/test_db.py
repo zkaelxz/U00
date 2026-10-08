@@ -1509,6 +1509,9 @@ class TestImportTimeSafety:
         shutil.copy(os.path.join(project_root, "core.py"), os.path.join(temp_dir, "core.py"))
         # db.py takes its library location from portable.data_dir() (Step 80b).
         shutil.copy(os.path.join(project_root, "portable.py"), os.path.join(temp_dir, "portable.py"))
+        # init_db creates the extension device-token table from its own module.
+        shutil.copy(os.path.join(project_root, "device_tokens.py"),
+                    os.path.join(temp_dir, "device_tokens.py"))
 
     def test_bare_import_does_not_touch_any_library_dir(self):
         temp_dir = tempfile.mkdtemp(prefix="baihe_import_check_")

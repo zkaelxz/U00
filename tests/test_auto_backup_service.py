@@ -762,6 +762,20 @@ class TestSnapshotWrite:
         with contextlib.closing(sqlite3.connect(tmp_path / "library.db")) as c:
             assert c.execute("SELECT COUNT(*) FROM auth_sessions").fetchone()[0] == 0
 
+    def test_snapshot_db_has_no_device_tokens(self, isolated_db, tmp_path):
+        import time
+        import device_tokens
+        from services import auth_service
+        u = auth_service.add_user("kid@example.com")
+        assert device_tokens.insert_under_cap(u["id"], "laptop", "a" * 64, time.time(),
+                                              time.time() + 3600, 10)
+        path = _snap()
+        with zipfile.ZipFile(path) as zf:
+            zf.extract("library.db", tmp_path)
+        with contextlib.closing(sqlite3.connect(tmp_path / "library.db")) as c:
+            assert c.execute("SELECT COUNT(*) FROM extension_device_tokens").fetchone()[0] == 0
+        assert len(device_tokens.list_for_user(u["id"])) == 1
+
     def test_snapshot_excluded_from_full_backup_and_next_snapshot_no_env(self, isolated_db,
                                                                           tmp_path):
         a = db.create_drama(title_en="A")

@@ -44,6 +44,8 @@ async function mockSharing(page: Page, me: MeBody) {
   // Settings also shows a signed-in person their devices (signed-in-devices.spec.ts covers it).
   await page.route('**/api/auth/sessions', (route) =>
     route.fulfill({ json: { sessions: [], idle_timeout_days: 14, absolute_timeout_days: 30 } }))
+  // ...and their browser-extension devices (extension-devices.spec.ts covers it).
+  await page.route('**/api/auth/device-tokens', (route) => route.fulfill({ json: { tokens: [], max_active: 10 } }))
   await page.route('**/api/sharing/**', (route) => {
     const r = route.request()
     const path = new URL(r.url()).pathname

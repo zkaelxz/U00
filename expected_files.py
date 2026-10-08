@@ -23,6 +23,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "core.py",
     "db.py",
     "debug_view.py",
+    "device_tokens.py",
     "diagnostics.py",
     "diarize.py",
     "dictionary.py",

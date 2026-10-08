@@ -250,6 +250,8 @@ def init_db():
         _migrate_vocab_and_style_columns(conn)
         _migrate_ownership_columns(conn)
         _migrate_auth_session_columns(conn)
+        import device_tokens   # owns its table; imports db, so not at the top
+        device_tokens.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
         conn.commit()
     _init_benchmark_lab_schema()

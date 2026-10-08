@@ -10,9 +10,13 @@ Every route in `api/routers/*.py` (and the frontend catch-all in
     dependencies=[local_only()]                          # PC-only (loopback), see below
     dependencies=[authenticated()]                       # any signed-in user; only for
                                                          # routes on the caller's own
-                                                         # sessions (/api/auth/logout
-                                                         # and the three
-                                                         # /api/auth/sessions routes)
+                                                         # sessions and extension
+                                                         # device tokens (logout, the
+                                                         # /api/auth/sessions routes,
+                                                         # list/revoke device tokens)
+    dependencies=[require_device_token()]                # the extension bridge only:
+                                                         # a device token, never a
+                                                         # session (no route uses it yet)
 
 `tests/test_api_permissions.py` walks every route (`iter_route_declarations`)
 and fails if one lacks exactly one, so a new route can't ship undeclared.
@@ -63,7 +67,7 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, Request
 
-from services import auth_service, ownership_service
+from services import auth_service, device_token_service, ownership_service
 from services.service_errors import ForbiddenError, UnauthenticatedError
 
 COOKIE_NAME = "__Host-baihe_session"     # Secure mode (always, except loopback-http dev)
@@ -196,8 +200,10 @@ def authenticated():
     the CSRF token. Only for routes that act on the caller's own sessions
     (`POST /api/auth/logout`, `GET /api/auth/sessions`,
     `POST /api/auth/sessions/revoke-others` and
-    `POST /api/auth/sessions/{auth_session_id}/revoke`); the static test
-    keeps it under /api/auth/.
+    `POST /api/auth/sessions/{auth_session_id}/revoke`) and extension
+    device tokens (`GET /api/auth/device-tokens` and
+    `POST /api/auth/device-tokens/{device_token_id}/revoke`); the static
+    test pins it to those.
     With auth off, the caller is the local owner as usual."""
     def dependency(request: Request):
         if not is_auth_enabled(request.app):
@@ -207,6 +213,27 @@ def authenticated():
         return request.state.principal
 
     return _marked(dependency, "authenticated")
+
+
+def require_device_token():
+    """For the extension bridge routes only: the caller is the user of the
+    device token in `Authorization: Bearer <token>`, who must hold
+    `extension.send` (device_token_service.authenticate: 401 for any bad
+    token, 403 without the permission, 429 after repeated failures). Only
+    that header is read, never a cookie or query string, so a session is
+    never accepted here, and no other declaration accepts a device token.
+    The principal has member rights only; this listener's limits and the
+    path guard apply as in require_permission. The same in both auth
+    modes: a device token always names a user, never the local owner."""
+    def dependency(request: Request):
+        principal = listener_principal(request.app, device_token_service.authenticate(
+            request.headers.getlist("authorization"), ip=client_ip(request)))
+        request.state.principal = principal
+        ownership_service.note_acting_principal(principal)
+        require_path_visible(request, principal)
+        return principal
+
+    return _marked(dependency, "device_token", device_token_service.PERMISSION)
 
 
 def public_route():

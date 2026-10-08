@@ -115,6 +115,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 - `browser_support.py` (JavaScript-page browser/package messages)
 - `bulk_import.py`
+- `device_tokens.py` (the browser extension's per-device token table; rules in `services/device_token_service.py`)
 - `epub_io.py`
 - `known_sites.py`
 - `metadata_lookup.py`
@@ -144,6 +145,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `compare_transcription_service.py`
 - `cover_art_service.py`
 - `delete_service.py`
+- `device_token_service.py`
 - `diagnostics_gaps_service.py`
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
@@ -266,6 +268,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `characters_routes.py`
 - `comic_routes.py`
 - `delete_routes.py`
+- `device_token_routes.py`
 - `diagnostics_gaps_routes.py`
 - `diagnostics_installs_routes.py`
 - `diagnostics_routes.py`
