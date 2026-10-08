@@ -14,7 +14,7 @@ import { writeSectionOpen } from '../../../components/sectionStorage'
 import { wantsAutofill } from '../../libraryParity/libraryParity'
 import { mediaKind } from '../detailsForm'
 import { ConfirmButton } from '../../../components/ConfirmButton'
-import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
+import { PC_ONLY_DELETE_NOTE, PC_ONLY_SUMMARY, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
 import {
   checkUploadFile,
@@ -308,7 +308,7 @@ export default function SourceStage() {
       key="subtitles"
       storageKey="source.group.subtitles"
       title="Import subtitle file"
-      summary="SRT, VTT, ASS or LRC"
+      summary={pc === 'remote' ? PC_ONLY_SUMMARY : 'SRT, VTT, ASS or LRC'}
     >
       <SubtitleImport dramaId={dramaId} busy={busy} onImported={onJobDone} onRealignStarted={setJobId} />
     </Section>

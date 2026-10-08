@@ -217,12 +217,19 @@ class TestAccess:
         client = TestClient(app, base_url="https://baihe.example.com", raise_server_exceptions=False)
         return client, db.create_drama(title_en="A", source_language="zh", owner_user_id=a_id, is_private=1), a, b
 
-    def test_owner_may_import_other_user_gets_404(self, world):
+    def test_remote_callers_cannot_upload_even_the_owner(self, world):
         client, did, a, b = world
-        files = {"file": ("a.srt", SRT)}
-        assert client.post(f"{B}/{did}/apply", files=files, headers=b).status_code == 404
+        for headers in (a, b):
+            for route in ("preview", "apply"):
+                r = client.post(f"{B}/{did}/{route}", files={"file": ("a.srt", SRT)}, headers=headers)
+                assert r.status_code == 403, (route, r.status_code)
         assert db.load_lines(did) == []
-        assert client.post(f"{B}/{did}/apply", files={"file": ("a.srt", SRT)}, headers=a).status_code == 200
+
+    def test_sidecar_ranking_still_follows_ownership(self, world):
+        client, did, a, b = world
+        body = {"media_name": "ep1.mkv", "names": ["ep1.srt"]}
+        assert client.post(f"{B}/{did}/sidecars", json=body, headers=b).status_code == 404
+        assert client.post(f"{B}/{did}/sidecars", json=body, headers=a).status_code == 200
 
     def test_signed_out_and_without_lines_edit_are_refused(self, world):
         client, did, a, _ = world

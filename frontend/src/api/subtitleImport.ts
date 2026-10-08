@@ -1,4 +1,5 @@
 // Import a timed subtitle or lyric file into a title (api/routers/subtitle_import_routes.py).
+// Preview and apply are PC-only uploads, so they go through pcOnlyFetch.
 import type {
   SidecarMatchResult,
   SubtitleImportOptions,
@@ -6,6 +7,7 @@ import type {
   SubtitleImportResult,
 } from '../types/subtitleImport'
 import { postJson, postMultipart } from './client'
+import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
 
@@ -25,7 +27,7 @@ function form(file: File, o: SubtitleImportOptions, confirm?: { replaceLines: bo
 
 /** Parses and checks the file and says what importing it would do. Changes nothing. */
 export const previewSubtitle = (id: number, file: File, o: SubtitleImportOptions, f?: Fetch) =>
-  postMultipart<SubtitleImportPreview>(`${base(id)}/preview`, form(file, o), f)
+  postMultipart<SubtitleImportPreview>(`${base(id)}/preview`, form(file, o), pcOnlyFetch(f))
 
 /** The server keeps nothing between preview and import, so the file is sent again. */
 export const applySubtitle = (
@@ -34,7 +36,7 @@ export const applySubtitle = (
   o: SubtitleImportOptions,
   confirm: { replaceLines: boolean; overwrite: boolean },
   f?: Fetch,
-) => postMultipart<SubtitleImportResult>(`${base(id)}/apply`, form(file, o, confirm), f)
+) => postMultipart<SubtitleImportResult>(`${base(id)}/apply`, form(file, o, confirm), pcOnlyFetch(f))
 
 /** Ranks the picked file names against a media file name (names only). */
 export const rankSidecars = (id: number, mediaName: string, names: string[], f?: Fetch) =>

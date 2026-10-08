@@ -9,8 +9,10 @@ anything that makes a file unusable raises SubtitleParseError with a plain
 message so the caller never writes a partial import.
 """
 
+import codecs
 import html
 import re
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -19,12 +21,23 @@ from typing import Optional
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_CUES = 20000
 MAX_CUE_TEXT_CHARS = 2000  # the same ceiling a line's text has (lines_service.MAX_LINE_TEXT_CHARS)
+# No real subtitle row is this long; refusing one up front bounds every per-row
+# regex and keeps a single row from being the whole 2 MB.
+MAX_PHYSICAL_LINE_CHARS = 4 * MAX_CUE_TEXT_CHARS
+# Only the start of a file decides its format, so sniffing never scans the rest.
+SNIFF_CHARS = 8192
+# Past this a time stamp is a typo or an attack, not a programme.
+MAX_TIMESTAMP_SECONDS = 100 * 3600.0
+# How many neighbouring lines a cue is compared with when matching by time.
+MATCH_WINDOW = 64
 # Longer than any one subtitle is on screen; flagged, never silently changed.
 ABSURD_CUE_SECONDS = 600.0
 # An LRC line ends where the next stamp starts, so the last one has no end.
 LRC_LAST_LINE_SECONDS = 4.0
 
 FORMATS = ("srt", "vtt", "ass", "lrc")
+# What the import UI offers; any other Python codec could read non-text bytes.
+ALLOWED_ENCODINGS = ("utf-8", "utf-16", "gb18030", "big5", "cp932", "cp949", "cp1252")
 
 
 class SubtitleParseError(ValueError):
@@ -99,9 +112,15 @@ def decode_subtitle_bytes(data: bytes, encoding: Optional[str] = None,
     a legacy codec was picked from the fallback list."""
     if encoding:
         try:
-            return data.decode(encoding), encoding, False
+            canonical = codecs.lookup(encoding).name
         except LookupError:
-            raise SubtitleParseError(f"Unknown text encoding {encoding!r}.") from None
+            canonical = None
+        if canonical not in ALLOWED_ENCODINGS:
+            raise SubtitleParseError(
+                f"Unsupported text encoding {encoding[:40]!r}; use one of: "
+                f"{', '.join(ALLOWED_ENCODINGS)}.")
+        try:
+            return data.decode(canonical), canonical, False
         except UnicodeDecodeError:
             raise SubtitleParseError(f"The file is not valid {encoding} text.") from None
     for bom, name in _BOMS:
@@ -136,7 +155,10 @@ def decode_subtitle_bytes(data: bytes, encoding: Optional[str] = None,
 # --------------------------------------------------------------- time stamps
 
 def _seconds(h, m, s, frac) -> float:
-    return int(h or 0) * 3600 + int(m) * 60 + int(s) + (int(frac) / 10 ** len(frac) if frac else 0.0)
+    total = int(h or 0) * 3600 + int(m) * 60 + int(s) + (int(frac) / 10 ** len(frac) if frac else 0.0)
+    if total > MAX_TIMESTAMP_SECONDS:
+        raise SubtitleParseError(f"A time stamp is past {int(MAX_TIMESTAMP_SECONDS // 3600)} hours.")
+    return total
 
 
 _SRT_TIME = r"(\d{1,3}):(\d{2}):(\d{2})[,.](\d{1,3})"
@@ -149,7 +171,25 @@ _ARROW = re.compile(r"-->")
 def _lines_of(text: str) -> list:
     # splitlines() would also split on U+2028 and form feeds, which can sit
     # inside a cue's text.
-    return re.split(r"\r\n|\r|\n", text.lstrip("\ufeff"))
+    rows = re.split(r"\r\n|\r|\n", text.lstrip("\ufeff"))
+    for number, row in enumerate(rows, 1):
+        if len(row) > MAX_PHYSICAL_LINE_CHARS:
+            raise SubtitleParseError(f"Line {number} is longer than {MAX_PHYSICAL_LINE_CHARS} characters.")
+    return rows
+
+
+def _check_cue_count(count: int) -> None:
+    # Checked while parsing so a hostile file can't build millions of cues first.
+    if count > MAX_CUES:
+        raise SubtitleParseError(f"That file has more than {MAX_CUES} cues.")
+
+
+def _unescape(text: str) -> str:
+    try:
+        return html.unescape(text)
+    except ValueError:
+        # A numeric entity with thousands of digits overflows int(); leave it as written.
+        return text
 
 
 def _clean_text(lines: list) -> str:
@@ -158,7 +198,9 @@ def _clean_text(lines: list) -> str:
 
 # --------------------------------------------------------------------- SRT
 
-_SRT_TAGS = re.compile(r"</?(?:i|b|u|s|font|c)\b[^>]*>|\{\\[^}]*\}", re.IGNORECASE)
+# Bodies exclude the delimiters that open a new tag, so a row of repeated "<" or
+# "{" fails each attempt at the next character instead of rescanning the row.
+_SRT_TAGS = re.compile(r"</?(?:i|b|u|s|font|c)\b[^<>]*>|\{\\[^{}]*\}", re.IGNORECASE)
 
 
 def parse_srt(text: str) -> list:
@@ -178,14 +220,15 @@ def parse_srt(text: str) -> list:
         while i < len(rows) and rows[i].strip():
             body.append(rows[i])
             i += 1
-        cues.append(Cue(start, end, html.unescape(_clean_text([_SRT_TAGS.sub("", b) for b in body])),
+        cues.append(Cue(start, end, _unescape(_clean_text([_SRT_TAGS.sub("", b) for b in body])),
                         len(cues) + 1))
+        _check_cue_count(len(cues))
     return cues
 
 
 # --------------------------------------------------------------------- VTT
 
-_VTT_TAGS = re.compile(r"<[^>]*>")
+_VTT_TAGS = re.compile(r"<[^<>]*>")
 
 
 def parse_vtt(text: str) -> list:
@@ -214,8 +257,9 @@ def parse_vtt(text: str) -> list:
             raise SubtitleParseError(f"Can't read the time range {block[at].strip()[:40]!r}.")
         g = m.groups()
         start, end = _seconds(g[0], g[1], g[2], g[3]), _seconds(g[4], g[5], g[6], g[7])
-        body = [html.unescape(_VTT_TAGS.sub("", row)) for row in block[at + 1:]]
+        body = [_unescape(_VTT_TAGS.sub("", row)) for row in block[at + 1:]]
         cues.append(Cue(start, end, _clean_text(body), len(cues) + 1))
+        _check_cue_count(len(cues))
     return cues
 
 
@@ -225,8 +269,8 @@ def parse_vtt(text: str) -> list:
 # documented Dialogue layout.
 _SSA_DEFAULT_FORMAT = ("marked", "start", "end", "style", "name", "marginl", "marginr",
                        "marginv", "effect", "text")
-_ASS_TIME = re.compile(r"^\s*(\d+):(\d{2}):(\d{2})[.:](\d{1,3})\s*$")
-_ASS_OVERRIDE = re.compile(r"\{[^}]*\}")
+_ASS_TIME = re.compile(r"^\s*(\d{1,3}):(\d{2}):(\d{2})[.:](\d{1,3})\s*$")
+_ASS_OVERRIDE = re.compile(r"\{[^{}]*\}")
 _ASS_DRAWING_ON = re.compile(r"\\p([1-9]\d*)")
 
 
@@ -275,6 +319,7 @@ def parse_ass(text: str) -> list:
                 continue
             n = len(cues) + 1
             cues.append(Cue(_ass_time(fields_["start"], n), _ass_time(fields_["end"], n), body, n))
+            _check_cue_count(len(cues))
     return cues
 
 
@@ -285,14 +330,21 @@ _LRC_WORD_STAMP = re.compile(r"<\d{1,3}:\d{2}(?:[.:]\d{1,3})?>")
 _LRC_OFFSET = re.compile(r"^\s*\[offset:\s*([+-]?\d+)\s*\]\s*$", re.IGNORECASE)
 
 
+def _lrc_offset(digits: str) -> float:
+    # Digits are counted before int(), which refuses very long strings with a ValueError.
+    if len(digits.lstrip("+-")) > 9 or abs(int(digits)) > MAX_TIMESTAMP_SECONDS * 1000:
+        raise SubtitleParseError("The [offset:] tag is out of range.")
+    return int(digits) / 1000.0
+
+
 def parse_lrc(text: str) -> list:
     offset = 0.0
     stamped = []  # (start seconds, text) in file order
-    for row in _lines_of(text):
+    for number, row in enumerate(_lines_of(text), 1):
         m = _LRC_OFFSET.match(row)
         if m:
             # Positive offsets make the lyrics appear sooner, so they are subtracted.
-            offset = int(m.group(1)) / 1000.0
+            offset = _lrc_offset(m.group(1))
             continue
         starts, pos = [], 0
         while True:
@@ -304,19 +356,29 @@ def parse_lrc(text: str) -> list:
         if not starts:
             continue  # [ti:], [ar:], [by:] and other tags carry no time
         words = _LRC_WORD_STAMP.sub("", row[pos:]).strip()
+        if len(words) > MAX_CUE_TEXT_CHARS:
+            raise SubtitleParseError(f"Line {number}: a lyric line has more than "
+                                     f"{MAX_CUE_TEXT_CHARS} characters.")
+        # One row can repeat its words under many stamps; stop before that many entries exist.
+        _check_cue_count(len(stamped) + len(starts))
         stamped.extend((s, words) for s in starts)
     # A stamp that sorts equal keeps file order, so two-language lyrics sharing
     # one time stay together.
     stamped.sort(key=lambda item: item[0])
-    grouped = []  # [start, [texts]]
+    grouped = []  # [start, [texts], joined length]
     for start, words in stamped:
         if grouped and grouped[-1][0] == start:
             if words:
+                # The cap is enforced before the join so repeated stamps can't build huge texts.
+                if grouped[-1][2] + 1 + len(words) > MAX_CUE_TEXT_CHARS:
+                    raise SubtitleParseError(
+                        f"The lyrics at one time stamp have more than {MAX_CUE_TEXT_CHARS} characters.")
                 grouped[-1][1].append(words)
+                grouped[-1][2] += 1 + len(words)
         else:
-            grouped.append([start, [words] if words else []])
+            grouped.append([start, [words] if words else [], len(words)])
     cues = []
-    for k, (start, texts) in enumerate(grouped):
+    for k, (start, texts, _length) in enumerate(grouped):
         if not texts:
             continue  # an empty stamp only marks where the previous line stops
         end = grouped[k + 1][0] if k + 1 < len(grouped) else start + LRC_LAST_LINE_SECONDS
@@ -332,12 +394,12 @@ _EXTENSIONS = {"srt": "srt", "vtt": "vtt", "ass": "ass", "ssa": "ass", "lrc": "l
 
 def sniff_format(text: str, filename: str = "") -> str:
     """The format by content first (a renamed file is common), then extension."""
-    head = text.lstrip("\ufeff \t\r\n")
+    head = text.lstrip("\ufeff \t\r\n")[:SNIFF_CHARS]
     if head.startswith("WEBVTT"):
         return "vtt"
     if re.search(r"^\[(?:script info|events|v4\+? styles)\]", head, re.IGNORECASE | re.MULTILINE):
         return "ass"
-    if _SRT_LINE.search(head) or re.search(r"^\s*\d+:\d{2}:\d{2}[,.]\d+\s*-->", head, re.MULTILINE):
+    if _SRT_LINE.search(head) or re.search(r"^[ \t]*\d+:\d{2}:\d{2}[,.]\d+[ \t]*-->", head, re.MULTILINE):
         return "srt"
     if _LRC_STAMP.search(head):
         return "lrc"
@@ -393,8 +455,7 @@ def parse_subtitle(data: bytes, filename: str = "", encoding: Optional[str] = No
     text, used, guessed = decode_subtitle_bytes(data, encoding, language)
     fmt = sniff_format(text, filename)
     cues = _PARSERS[fmt](text)
-    if len(cues) > MAX_CUES:
-        raise SubtitleParseError(f"That file has more than {MAX_CUES} cues.")
+    _check_cue_count(len(cues))
     if not cues:
         raise SubtitleParseError(f"No cues found in this {fmt.upper()} file.")
     problems = validate_cues(cues)
@@ -446,17 +507,29 @@ def match_cues_to_lines(cues: list, lines: list) -> dict:
     time, never by position, so a file with a different number of cues still
     lands on the right lines. Cues that fit no line are left out; the caller
     counts them from the difference. `lines` need start/end, in time order."""
+    starts = [ln.start for ln in lines]
+    reach, farthest = [], float("-inf")
+    for ln in lines:
+        farthest = max(farthest, ln.end)
+        reach.append(farthest)
     matched = {}
     for cue in cues:
+        point = cue.end <= cue.start
+        # Lines starting at or after the cue's end can't overlap it; lines whose
+        # running maximum end is not past its start can't either.
+        high = bisect_right(starts, cue.start) if point else bisect_left(starts, cue.end)
+        low = bisect_right(reach, cue.start)
         best, best_overlap = None, 0.0
-        for k, ln in enumerate(lines):
-            if ln.start >= cue.end and cue.end > cue.start:
-                break
-            if cue.end > cue.start:
-                overlap = min(cue.end, ln.end) - max(cue.start, ln.start)
-            else:
+        # Looking back only a few lines keeps one cue from costing the whole
+        # list when lines overlap heavily; tidy lines never need more.
+        for k in range(high - 1, max(low, high - MATCH_WINDOW) - 1, -1):
+            ln = lines[k]
+            if point:
                 overlap = 1.0 if ln.start <= cue.start < ln.end else 0.0
-            if overlap > best_overlap:
+            else:
+                overlap = min(cue.end, ln.end) - max(cue.start, ln.start)
+            # Walking backwards, an equal overlap is the earlier line, which wins a tie.
+            if overlap > 0 and overlap >= best_overlap:
                 best, best_overlap = k, overlap
         if best is None:
             continue

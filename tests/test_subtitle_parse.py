@@ -108,10 +108,20 @@ class TestEncodings:
     def test_forced_encoding_and_unknown_encoding(self):
         data = "[00:01.00]你好\n".encode("gb18030")
         assert sp.parse_subtitle(data, encoding="gb18030").cues[0].text == "你好"
-        with pytest.raises(sp.SubtitleParseError, match="Unknown"):
+        with pytest.raises(sp.SubtitleParseError, match="Unsupported"):
             sp.parse_subtitle(data, encoding="nope")
         with pytest.raises(sp.SubtitleParseError, match="not valid"):
-            sp.parse_subtitle(data, encoding="ascii")
+            sp.parse_subtitle(data, encoding="utf-8")
+
+    @pytest.mark.parametrize("name", ["ascii", "rot13", "hex", "base64", "idna", "punycode",
+                                      "unicode_escape", "latin-1", "shift_jis"])
+    def test_encoding_outside_the_ui_allowlist_is_refused(self, name):
+        with pytest.raises(sp.SubtitleParseError, match="Unsupported"):
+            sp.parse_subtitle(b"[00:01.00]hi\n", encoding=name)
+
+    def test_allowed_encoding_aliases_are_normalised(self):
+        parsed = sp.parse_subtitle("[00:01.00]你好\n".encode("utf-8"), encoding="UTF8")
+        assert parsed.encoding == "utf-8" and parsed.cues[0].text == "你好"
 
 
 class TestValidation:
@@ -229,3 +239,139 @@ class TestLrcExport:
 
     def test_a_minute_boundary_carries(self):
         assert subtitle_formats._lrc_ts(59.999) == "[01:00.00]"
+
+
+class TestHostileInput:
+    """A 2 MB upload must fail or finish fast; `re` holds the GIL, so a slow
+    parse would stall every other request."""
+    LIMIT = 1.0
+
+    def _fast(self, data, filename="", expect_error=True):
+        import time
+        started = time.perf_counter()
+        if expect_error:
+            with pytest.raises(sp.SubtitleParseError):
+                sp.parse_subtitle(data, filename)
+        else:
+            sp.parse_subtitle(data, filename)
+        assert time.perf_counter() - started < self.LIMIT
+
+    def test_sniffing_a_file_of_blank_lines_is_fast(self):
+        self._fast((" \n" * (sp.MAX_FILE_BYTES // 2 - 1)).encode() + b"x", "a.txt")
+
+    def test_sniffing_only_reads_the_head(self):
+        late = b"x\n" * sp.SNIFF_CHARS + b"00:00:01,000 --> 00:00:02,000\nhi\n"
+        with pytest.raises(sp.SubtitleParseError, match="doesn't look like"):
+            sp.parse_subtitle(late, "a.txt")
+
+    @pytest.mark.parametrize("body", ["<" * 7000, "{\\" * 3500, "<i " * 2300])
+    def test_srt_and_vtt_tag_stripping_is_linear_on_one_row(self, body):
+        import time
+        started = time.perf_counter()
+        rows = "".join(f"{k}\n00:00:01,000 --> 00:00:02,000\n{body}\n\n" for k in range(250))
+        sp.parse_subtitle(rows.encode(), "a.srt")
+        vtt = "WEBVTT\n\n" + "".join(f"00:01.000 --> 00:02.000\n{body}\n\n" for _ in range(250))
+        sp.parse_subtitle(vtt.encode())
+        assert time.perf_counter() - started < self.LIMIT
+
+    @pytest.mark.parametrize("body", ["{" * 7000, "{\\" * 3500])
+    def test_ass_override_stripping_is_linear_on_one_row(self, body):
+        import time
+        started = time.perf_counter()
+        head = ("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+        rows = "".join(f"Dialogue: 0,0:00:01.00,0:00:02.00,D,,0,0,0,,{body}\n" for _ in range(250))
+        sp.parse_subtitle((head + rows).encode(), "a.ass")
+        assert time.perf_counter() - started < self.LIMIT
+
+    def test_a_two_megabyte_single_row_is_refused(self):
+        row = "<" * (sp.MAX_FILE_BYTES - 100)
+        self._fast(f"1\n00:00:01,000 --> 00:00:02,000\n{row}\n".encode(), "a.srt")
+
+    def test_a_row_past_the_limit_names_its_line(self):
+        data = b"1\n00:00:01,000 --> 00:00:02,000\n" + b"a" * (sp.MAX_PHYSICAL_LINE_CHARS + 1) + b"\n"
+        with pytest.raises(sp.SubtitleParseError, match="Line 3"):
+            sp.parse_subtitle(data, "a.srt")
+
+    def test_lrc_repeated_stamps_over_long_words_is_refused_fast(self):
+        stamps = "[00:01.00]" * 700
+        row = stamps + "w" * (sp.MAX_PHYSICAL_LINE_CHARS - len(stamps) - 10)
+        self._fast(f"{row}\n{row}\n".encode(), "a.lrc")
+
+    def test_lrc_many_short_rows_at_one_stamp_is_refused_before_joining(self):
+        data = ("".join(f"[00:01.00]{'w' * 900}\n" for _ in range(5))).encode()
+        with pytest.raises(sp.SubtitleParseError, match="one time stamp"):
+            sp.parse_subtitle(data, "a.lrc")
+
+    def test_lrc_stamp_count_is_capped_while_parsing(self):
+        row = "[00:01.00]" * 700 + "x\n"
+        self._fast((row * 40).encode(), "a.lrc")
+
+    def test_srt_cue_count_is_capped_while_parsing(self):
+        data = ("1\n00:00:01,000 --> 00:00:02,000\nx\n\n" * (sp.MAX_CUES + 5)).encode()
+        self._fast(data, "a.srt")
+
+    def test_numeric_entity_with_thousands_of_digits_is_not_a_server_error(self):
+        data = ("1\n00:00:01,000 --> 00:00:02,000\n&#" + "9" * 5000 + "\n").encode()
+        assert sp.parse_subtitle(data, "a.srt").cues[0].text.startswith("&#99")
+
+
+class TestAbsurdTimes:
+    def test_ass_hours_with_thousands_of_digits_is_a_parse_error(self):
+        data = ("[Events]\nFormat: Start, End, Text\n"
+                f"Dialogue: {'9' * 5000}:00:01.00,0:00:02.00,hi\n").encode()
+        with pytest.raises(sp.SubtitleParseError):
+            sp.parse_subtitle(data, "a.ass")
+
+    def test_srt_and_ass_times_past_the_limit_are_refused(self):
+        with pytest.raises(sp.SubtitleParseError, match="hours"):
+            sp.parse_subtitle(b"1\n999:00:00,000 --> 999:00:01,000\nx\n", "a.srt")
+        data = b"[Events]\nFormat: Start, End, Text\nDialogue: 500:00:01.00,500:00:02.00,hi\n"
+        with pytest.raises(sp.SubtitleParseError, match="hours"):
+            sp.parse_subtitle(data, "a.ass")
+
+    @pytest.mark.parametrize("digits", ["9" * 5000, "9" * 40, "999999999", "-999999999"])
+    def test_lrc_offset_out_of_range_is_a_parse_error(self, digits):
+        with pytest.raises(sp.SubtitleParseError, match="offset"):
+            sp.parse_subtitle(f"[offset:{digits}]\n[00:01.00]hi\n".encode(), "a.lrc")
+
+    def test_ordinary_offset_still_applies(self):
+        parsed = sp.parse_subtitle(b"[offset:500]\n[00:02.00]hi\n", "a.lrc")
+        assert parsed.cues[0].start == 1.5
+
+
+class TestMatchingScales:
+    def _lines(self, n):
+        return [Line(idx=i, start=float(i), end=float(i) + 1.0, zh="", en="") for i in range(n)]
+
+    def test_many_cues_over_many_lines_is_fast(self):
+        import time
+        lines = self._lines(20000)
+        cues = [sp.Cue(i + 0.1, i + 0.9, "x", i + 1) for i in range(20000)]
+        started = time.perf_counter()
+        matched = sp.match_cues_to_lines(cues, lines)
+        assert time.perf_counter() - started < 1.0
+        assert len(matched) == 20000 and matched[1234][0].number == 1235
+
+    def test_zero_length_cues_over_many_lines_are_bounded(self):
+        import time
+        lines = self._lines(20000)
+        cues = [sp.Cue(i + 0.5, i + 0.5, "x", i + 1) for i in range(20000)]
+        started = time.perf_counter()
+        matched = sp.match_cues_to_lines(cues, lines)
+        assert time.perf_counter() - started < 1.0
+        assert len(matched) == 20000
+
+    def test_nested_lines_do_not_make_every_cue_scan_everything(self):
+        import time
+        lines = [Line(idx=0, start=0.0, end=1e6, zh="", en="")] + self._lines(20000)[1:]
+        cues = [sp.Cue(i + 0.1, i + 0.9, "x", i + 1) for i in range(20000)]
+        started = time.perf_counter()
+        sp.match_cues_to_lines(cues, lines)
+        assert time.perf_counter() - started < 1.0
+
+    def test_largest_overlap_wins_and_an_equal_one_goes_to_the_earlier_line(self):
+        lines = [Line(idx=0, start=0.0, end=2.0, zh="", en=""),
+                 Line(idx=1, start=2.0, end=4.0, zh="", en="")]
+        assert list(sp.match_cues_to_lines([sp.Cue(1.0, 3.0, "tie", 1)], lines)) == []  # 1.0 is not over half of 2.0
+        assert list(sp.match_cues_to_lines([sp.Cue(0.5, 2.9, "x", 1)], lines)) == [0]
+        assert list(sp.match_cues_to_lines([sp.Cue(2.0, 2.0, "pt", 1)], lines)) == [1]
