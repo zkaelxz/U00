@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from './client'
 import {
+  engineNotesHelp,
+  engineOptionLabel,
   engineShortName,
   engineSummary,
   languagePair,
@@ -18,11 +20,24 @@ describe('engine display helpers', () => {
     expect(engineShortName({ name: 'some_new_engine' })).toBe('Some new engine')
   })
 
+  it('shows the short name in the closed select and the notes in the help', () => {
+    expect(engineOptionLabel({ name: 'deepseek', key_configured: true })).toBe('DeepSeek')
+    expect(engineOptionLabel({ name: 'openai', key_configured: false })).toBe('OpenAI (no key)')
+    expect(
+      engineNotesHelp([
+        { name: 'claude', label: 'Paid, cloud.' },
+        { name: 'ollama', label: 'Free and private.' },
+      ]),
+    ).toBe('Claude: Paid, cloud. Ollama (local): Free and private.')
+  })
+
   it('summarises a long label as its first sentence', () => {
-    const long =
-      'Far and away the cheapest capable option -- roughly 5-10 cents per drama. Strong on Chinese.'
-    expect(engineSummary(long)).toBe('Far and away the cheapest capable option')
-    expect(engineSummary('Best for tone. Supports caching.')).toBe('Best for tone.')
+    const long = 'Paid, cloud, very cheap -- roughly 5-10 cents per drama. Strong on Chinese.'
+    expect(engineSummary(long)).toBe('Paid, cloud, very cheap')
+    expect(engineSummary('Paid, cloud. Best for tone.')).toBe('Paid, cloud.')
+    expect(engineSummary('Paid, cloud, very cheap; strong on Chinese.')).toBe(
+      'Paid, cloud, very cheap; strong on Chinese.',
+    )
     expect(engineSummary('x'.repeat(300)).length).toBeLessThanOrEqual(140)
   })
 })

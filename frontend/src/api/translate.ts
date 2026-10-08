@@ -57,6 +57,17 @@ export function engineShortName(engine: Pick<TranslateEngine, 'name'>): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : engine.name
 }
 
+// Closed <select> text for an engine: its short name, never the note. The
+// selects sit in narrow grid cells, so the note goes in the field's help
+// (engineNotesHelp) instead of being cut off mid-word.
+export function engineOptionLabel(engine: Pick<TranslateEngine, 'name' | 'key_configured'>): string {
+  return `${engineShortName(engine)}${engine.key_configured ? '' : ' (no key)'}`
+}
+
+export function engineNotesHelp(engines: Pick<TranslateEngine, 'name' | 'label'>[]): string {
+  return engines.map((e) => `${engineShortName(e)}: ${e.label}`).join(' ')
+}
+
 // One-line description of the chosen engine: the first sentence of the text
 // before the first " -- ", capped so a long note can't blow up the layout.
 export function engineSummary(label: string): string {

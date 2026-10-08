@@ -112,6 +112,23 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
   Gemini is not in it because free or paid depends on the key; the per-run
   "Gemini free tier" setting decides, and `engine_picker_label` swaps in
   `GEMINI_FREE_TIER_NOTE`. `KEYLESS_ENGINES` (the same one) skips key checks.
+- **Picker notes.** `ENGINE_NOTES` and `GEMINI_FREE_TIER_NOTE` are one short
+  sentence each (at most 80 characters, pinned by a test, and short enough to stay readable in the narrow closed select) because the closed
+  engine `<select>` shows them whole. Detail that used to sit in them:
+  - Claude: model names are left out of the note; defaults are Sonnet 5.5 and Opus 5.5 (`CLAUDE_MODELS`); supports
+    novel reference and prompt caching.
+  - DeepSeek: roughly 5-10 cents per drama on V4 Flash; prompt caching makes
+    the repeated glossary/style block nearly free; OpenAI-compatible API.
+  - Gemini: close to DeepSeek pricing on Flash-Lite. Google renames and
+    reprices often, so check `GEMINI_MODELS` if a run starts failing.
+  - OpenAI: Chat Completions API, key from platform.openai.com; check
+    `OPENAI_MODELS` if a run starts failing.
+  - Ollama: runs `OLLAMA_MODELS` (Gemma 4) on your own GPU; free, private and
+    unlimited. See the model sizes in `OLLAMA_MODELS` for what fits a 12 GB card.
+  - Gemini free tier (`GEMINI_FREE_TIER_LIMITS`): Flash 10 requests/min and
+    250/day; Flash-Lite 15/min and 1000/day; 250,000 tokens/min shared across
+    models. Pro isn't available. The free-tier note drops these numbers. Google may use the text to improve its
+    products, and people may read it.
   Callers without `engines.paid` are limited to `FREE_ENGINES`
   (`translate_run_service`, `discover_lookup_service`).
 - **Capabilities.** `ENGINE_CAPABILITIES` tags (`translate`, `instructions`,
