@@ -43,13 +43,13 @@ def save_title_choice(drama_id: int, thinking) -> None:
         log.warning("Could not save the thinking choice for drama %s", drama_id, exc_info=True)
 
 
-def may_remember(holds_paid: bool, *engine_names) -> bool:
+def may_remember(holds_paid: bool, thinking) -> bool:
     """Whether a run's choice may become the title's. The title's choice also
-    drives later paid calls (fix-flagged, glossary re-translate, bulk, CLI), so
-    a caller without paid engines can only turn it on for a run that is free
-    throughout; a missing engine name (the configured default) may be paid."""
-    from translate_engines import FREE_ENGINES
-    return holds_paid or all(n and n in FREE_ENGINES for n in engine_names)
+    drives later paid calls (fix-flagged, stronger-engine retry, bulk, CLI), so
+    only a holder of engines.paid may turn it on: a free-only run by anyone
+    else still thinks for that run but leaves the saved choice alone. Turning
+    it off is always allowed because it can only reduce spend."""
+    return holds_paid or not thinking
 
 
 def effective(engine_names, thinking, reflect=False) -> bool:

@@ -65,8 +65,7 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
 
 
 def _may_remember(request: Request, body) -> bool:
-    return translate_thinking_service.may_remember(
-        holds_paid_engines(request), body.engine, *[f.engine for f in (body.fallback_chain or ())])
+    return translate_thinking_service.may_remember(holds_paid_engines(request), body.thinking)
 
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranslateRunStarted,

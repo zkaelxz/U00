@@ -470,11 +470,10 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         if engine_name != "deepseek" and caps[0] is not None:
             # DeepSeek off-peak runs as a normal run later and stops at the
             # cap; a submitted batch can't, so it's refused up front.
-            est = estimate_translate_cost(drama_id, engine_name, model, reflect=reflect,
-                                          force_retranslate=force_retranslate, bulk=True,
-                                          gemini_free_tier=gemini_free_tier,
-                                          job_cost_cap_usd=job_cost_cap_usd)
-            if est["estimate_above_cap"]:
+            if estimate_translate_cost(
+                    drama_id, engine_name, model, reflect=reflect, bulk=True,
+                    force_retranslate=force_retranslate, gemini_free_tier=gemini_free_tier,
+                    job_cost_cap_usd=job_cost_cap_usd)["estimate_above_cap"]:
                 raise UnsupportedOperationError(
                     "Not submitted: a bulk batch can't be stopped part-way, and its estimate "
                     "is above your cap. Raise the cap, or run a normal translation.")
@@ -505,7 +504,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                                  novel_reference, glossary_terms, style_guidelines,
                                  style_note or "", locale, style_preset, context_window,
                                  context_window_ahead, batch_size, force_retranslate,
-                                 job_cost_cap_usd, series_id)
+                                 job_cost_cap_usd, series_id, thinking)
         started = background_jobs.start_job(
             job_id, run_bulk_translate_job, job_id, engines[0], engine_name, submit,
             monthly_cap or None,
@@ -567,7 +566,7 @@ def bulk_job_id(drama_id: int) -> str:
 def _bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_reference,
                     glossary_terms, style_guidelines, style_note, locale, style_preset,
                     context_window, context_window_ahead, batch_size, force_retranslate,
-                    job_cost_cap_usd, series_id):
+                    job_cost_cap_usd, series_id, thinking):
     """A zero-arg callable that submits the bulk translation (or bulk
     Reflect) batch (same translate_args, context and character names as a
     normal run) and returns the bulk job id. Called inside the job so the provider
@@ -583,12 +582,13 @@ def _bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referen
                  "style_guidelines": style_guidelines, "style_preset": style_preset},
                 batch_size=batch_size, force_retranslate=force_retranslate)
         if engine_name == "deepseek":
+            # thinking is the run's own: the job starts hours later
             return bulk_translate.schedule_offpeak_translation(
                 drama_id, lines, engine_name, getattr(engine, "model", ""),
                 {"style_note": style_note, "locale": locale, "glossary_terms": glossary_terms,
                  "style_guidelines": style_guidelines, "style_preset": style_preset,
                  "context_window": context_window, "cost_cap_usd": job_cost_cap_usd or None,
-                 "novel_reference": novel_reference},
+                 "novel_reference": novel_reference, "thinking": thinking},
                 force_retranslate=force_retranslate)
         character_names = translation_guide.build_speaker_labels(
             db.list_characters_with_series_names(drama_id),

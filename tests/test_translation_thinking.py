@@ -382,30 +382,38 @@ def test_a_caller_without_paid_engines_cannot_make_thinking_stick_for_paid_runs(
     assert tts.get_title_choice(did) is False
 
 
-def test_may_remember_needs_paid_engines_or_an_all_free_chain():
-    assert tts.may_remember(True, "claude", None)
-    assert tts.may_remember(False, "ollama", "fake")
-    assert not tts.may_remember(False, "ollama", "deepseek")
-    assert not tts.may_remember(False, None)
+def test_may_remember_turning_on_needs_paid_engines():
+    assert tts.may_remember(True, True)
+    assert not tts.may_remember(False, True)
+    assert tts.may_remember(False, False)
 
 
-def test_the_route_does_not_save_for_a_caller_without_paid_engines(isolated_db, monkeypatch):
-    import api.routers.translate_run_routes as routes
+def test_a_household_user_without_paid_engines_cannot_turn_the_saved_choice_on(isolated_db, monkeypatch):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    from api import auth as api_auth
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    from services import auth_service
     did = _drama_with_lines()
-    seen = {}
+    seen = []
     monkeypatch.setattr(run, "start_translate_run",
-                        lambda drama_id, **kw: seen.update(kw) or {
+                        lambda drama_id, **kw: seen.append(kw["thinking"]) or {
                             "job_id": "j", "drama_id": drama_id, "engine": "ollama",
                             "target_line_count": 1, "reflect": False})
-    client = _client()
-    body = {"engine": "ollama", "thinking": True}
-    monkeypatch.setattr(routes, "holds_paid_engines", lambda request: False)
-    assert client.post(f"/api/translate-run/dramas/{did}/run", json=body).status_code == 200
-    assert seen["thinking"] is True and tts.get_title_choice(did) is True  # all-free chain
-    tts.save_title_choice(did, False)
-    assert client.post(f"/api/translate-run/dramas/{did}/run",
-                       json={**body, "engine": None}).status_code == 200
-    assert seen["thinking"] is True and tts.get_title_choice(did) is False  # this run only
+    user = auth_service.add_user("kid@example.com")
+    auth_service.grant_permission(user["id"], "jobs.start")
+    session = auth_service.create_session(user["id"], "pytest", "203.0.113.9")
+    client = TestClient(create_app(ApiSettings(auth_mode="on")),
+                        base_url="https://baihe.example.com", raise_server_exceptions=False)
+    headers = {"Cookie": f"{api_auth.COOKIE_NAME}={session['session_token']}",
+               api_auth.CSRF_HEADER: session["csrf_token"]}
+    url = f"/api/translate-run/dramas/{did}/run"
+    assert client.post(url, json={"engine": "ollama", "thinking": True}, headers=headers).status_code == 200
+    assert seen == [True] and tts.get_title_choice(did) is False  # this run only
+    tts.save_title_choice(did, True)
+    assert client.post(url, json={"engine": "ollama", "thinking": False}, headers=headers).status_code == 200
+    assert seen == [True, False] and tts.get_title_choice(did) is False
 
 
 def test_the_config_route_reports_the_remembered_choice(isolated_db):
