@@ -48,6 +48,7 @@ import {
   loadPresetStart,
   MAX_FALLBACKS,
   monthSpendText,
+  cloudModelNotice,
   ollamaWarning,
   reflectAvailable,
   thinkingApplies,
@@ -428,6 +429,9 @@ function RunPanel({
           <summary>What this style asks the translator for</summary>
           <p className="muted" data-testid="style-guidance">{guidance}</p>
         </details>
+      )}
+      {cloudModelNotice(engine, f.model) && (
+        <p className="warn" role="note" data-testid="cloud-model-notice">{cloudModelNotice(engine, f.model)}</p>
       )}
       {ollamaWarning(effEngine, config.ollama_reachable) && <OllamaNotice onRecheck={onRecheckOllama} />}
       <div className="translate-go">

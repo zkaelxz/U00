@@ -20,7 +20,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import (is_auth_enabled, holds_paid_engines, is_local_request,
-                      require_engines_allowed, require_permission)
+                      require_cloud_model_allowed, require_engines_allowed, require_permission)
 from api.schemas import (ErrorResponse, GlossaryAffectedPreview, GlossaryAffectedRunStart,
                          GlossaryAffectedRunStarted, TranslateBulkCancelResult, TranslateBulkList,
                          TranslateBulkResumeResult, TranslateErrorsDismissed,
@@ -77,6 +77,8 @@ def _may_remember(request: Request, body) -> bool:
 def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
                             *[f.engine for f in (body.fallback_chain or ())])
+    require_cloud_model_allowed(request, (body.engine, body.model),
+                                *[(f.engine, f.model) for f in (body.fallback_chain or ())])
     return translate_thinking_service.start_with_thinking(
         translate_run_service.start_translate_run, drama_id, body.thinking,
         _may_remember(request, body),
@@ -124,6 +126,8 @@ def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request
                                 drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
                             *[f.engine for f in (body.fallback_chain or ())])
+    require_cloud_model_allowed(request, (body.engine, body.model),
+                                *[(f.engine, f.model) for f in (body.fallback_chain or ())])
     return translate_thinking_service.start_with_thinking(
         glossary_retranslate_service.start_affected_retranslate, drama_id, body.thinking,
         _may_remember(request, body), body.line_ids, body.preview_hash,
@@ -197,6 +201,7 @@ def apply_translate_preset(body: TranslatePresetApply, drama_id: int = Path(ge=1
 def save_translate_preset(body: TranslatePresetSave, request: Request):
     if body.overwrite and is_auth_enabled(request.app) and not is_local_request(request):
         raise ForbiddenError("Replacing a preset is only allowed at the PC.")
+    require_cloud_model_allowed(request, (body.translation_engine, body.engine_model))
     return translate_run_service.save_translate_preset(
         body.name, body.translation_engine, engine_model=body.engine_model,
         style_preset=body.style_preset, locale=body.locale,

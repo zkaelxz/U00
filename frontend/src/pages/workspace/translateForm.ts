@@ -346,6 +346,18 @@ export function ollamaWarning(effEngine: string, reachable: boolean | null | und
   return effEngine === 'ollama' && reachable === false
 }
 
+// Plain-language privacy/limit notice for a hosted model; null for anything
+// that runs on this PC. The default model is never a cloud one, so an empty
+// model never triggers it.
+export function cloudModelNotice(
+  engine: { cloud_models?: string[] } | null | undefined,
+  model: string,
+): string | null {
+  if (!model || !engine?.cloud_models?.includes(model)) return null
+  return 'This is a cloud model: the subtitle text is sent off this PC to Ollama\'s servers. '
+    + 'Free use has limits; if you hit them, Ollama\'s message is shown and the run can be resumed later.'
+}
+
 // The guidance text for a style key ('' when the server sent none).
 export function styleGuidance(c: TranslateRunConfig, key: string): string {
   return c.style_presets.find((s) => s.key === key)?.guidance ?? ''

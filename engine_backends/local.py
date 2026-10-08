@@ -5,9 +5,15 @@ import re
 import threading
 import weakref
 
+from services import capped_body
+
 from .prompts import build_batch_user_message, build_stable_system_text
-from .shared import (TranslationCancelled, read_json_capped, redact_secrets,
-                     request_translations_with_retry)
+from .shared import (
+    TranslationCancelled,
+    read_json_capped,
+    redact_secrets,
+    request_translations_with_retry,
+)
 from .thinking import ollama_chat_with_think, thinking_choice
 
 
@@ -49,6 +55,32 @@ OLLAMA_MODELS = {
     "gemma4:26b": "Gemma 4 26B (MoE) -- about 16-19 GB, won't fit a 12 GB GPU; offloads to the CPU and runs slower",
     "gemma4:31b": "Gemma 4 31B -- about 19-20 GB, won't fit a 12 GB GPU; offloads to the CPU and runs much slower",
 }
+
+
+# Ollama's hosted models, reached through the local app once the owner has
+# run `ollama signin`: same /api/chat on the local URL, but the tag ends in
+# "cloud" and the subtitle text is processed on Ollama's servers. Kept out
+# of the default and out of every fallback so a local-only setup never
+# starts sending text off the PC without the owner picking one.
+OLLAMA_CLOUD_MODELS = {
+    "gemma4:31b-cloud": "Gemma 4 31B -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; free use is capped",
+    "gemma4:cloud": "Gemma 4 -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; free use is capped",
+}
+
+
+def is_ollama_cloud_model(model) -> bool:
+    return isinstance(model, str) and model.lower().endswith(("-cloud", ":cloud"))
+
+
+def ollama_touches_local_gpu(engine_name: str, model) -> bool:
+    """Whether a run on this engine uses this PC's GPU/memory: a local
+    Ollama model does, a cloud tag does not."""
+    return engine_name == "ollama" and not is_ollama_cloud_model(model)
+
+
+def chain_touches_local_gpu(chain) -> bool:
+    """`ollama_touches_local_gpu` for any step of an engine chain."""
+    return any(ollama_touches_local_gpu(c["engine"], c["model"]) for c in chain)
 
 
 class OllamaUnavailableError(Exception):
@@ -208,13 +240,24 @@ def _ollama_chat_request(post, base_url: str, payload: dict) -> dict:
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
-        if getattr(exc.response, "status_code", None) != 404:
+        status = getattr(exc.response, "status_code", None)
+        model = str(payload.get("model") or "")
+        if is_ollama_cloud_model(model) and status in (429, 401, 403):
+            # The body of a streamed response is unreadable once it is closed.
+            detail = _error_detail(resp) if status == 429 else ""
+            resp.close()
+            if status == 429:
+                raise OllamaCloudLimitError(detail) from None
+            raise OllamaUnavailableError(
+                "ollama_cloud_signin",
+                "Ollama cloud models need you to be signed in. Run \"ollama signin\", "
+                "or pick a local model in Settings.") from None
+        if status != 404:
             # Closing a streamed response discards its body, and the caller
             # needs the server's wording to tell "can't think" from other 400s.
             exc.body_text = _error_body_text(resp)
             raise
         resp.close()
-        model = str(payload.get("model") or "")
         raise OllamaUnavailableError(
             "ollama_model_missing",
             f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
@@ -234,6 +277,35 @@ def _ollama_chat_request(post, base_url: str, payload: dict) -> dict:
         raise OllamaUnavailableError(
             "ollama_unreachable",
             "Ollama isn't running. Start it, or pick another translator in Settings.") from None
+
+
+_ERROR_BODY_MAX_BYTES = 2048
+_ERROR_BODY_DEADLINE_SECONDS = 5
+
+
+class OllamaCloudLimitError(Exception):
+    """Ollama's hosted service answered 429. `status_code` lets
+    shared._is_rate_limit_error back off and retry; the message is what
+    the owner reads if the retries run out."""
+
+    status_code = 429
+
+    def __init__(self, detail: str):
+        super().__init__(
+            "Ollama's cloud models are rate-limited or over the free usage cap right now. "
+            "Wait and resume the run later, use a local model, or check your Ollama plan."
+            + (f" Ollama said: {detail}" if detail else ""))
+
+
+def _error_detail(resp) -> str:
+    # The body can echo request headers on some proxies, so it is redacted
+    # and cut before it can be shown or stored.
+    try:
+        body = capped_body.read_capped(resp, _ERROR_BODY_MAX_BYTES, _ERROR_BODY_DEADLINE_SECONDS,
+                                       lambda: ValueError("error body too large"))
+        return redact_secrets(body.decode("utf-8", errors="replace").strip())[:200]
+    except Exception:
+        return ""
 
 
 class OllamaEngine:
@@ -343,6 +415,10 @@ def check_ollama_model_installed(base_url: str, model: str) -> None:
         raise OllamaUnavailableError(
             "ollama_unreachable",
             "Ollama isn't running. Start it, or pick another translator in Settings.") from None
+    if is_ollama_cloud_model(model):
+        # The local list only shows a hosted model after its first use, so
+        # absence from it says nothing about whether the tag works.
+        return
     installed = set()
     for entry in tags.get("models") or []:
         for key in ("name", "model"):

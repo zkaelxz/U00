@@ -19,6 +19,7 @@ import {
   loadPresetStart,
   MAX_FALLBACKS,
   monthSpendText,
+  cloudModelNotice,
   ollamaWarning,
   parseCap,
   reflectAvailable,
@@ -447,5 +448,21 @@ describe('think harder on tricky text', () => {
       'claude has no thinking switch, so this does nothing for this run; it runs as it always has. Thinking can be switched for DeepSeek and Ollama.',
     )
     expect(thinkingHelp('deepseek', true)).toMatch(/^Reflect mode has no thinking switch/)
+  })
+})
+
+describe('cloud model notice', () => {
+  const engine = { cloud_models: ['gemma4:31b-cloud'] }
+  it('warns in plain words only for a cloud model', () => {
+    expect(cloudModelNotice(engine, 'gemma4:31b-cloud')).toMatch(/off this PC/)
+    expect(cloudModelNotice(engine, 'gemma4:31b-cloud')).toMatch(/limits/)
+  })
+  it('follows the server flag for a cloud tag that is not built in', () => {
+    expect(cloudModelNotice({ cloud_models: ['gpt-oss:120b-cloud'] }, 'gpt-oss:120b-cloud')).toMatch(/off this PC/)
+  })
+  it('stays quiet for local, empty and unknown engines', () => {
+    expect(cloudModelNotice(engine, 'gemma4:12b')).toBeNull()
+    expect(cloudModelNotice(engine, '')).toBeNull()
+    expect(cloudModelNotice(undefined, 'gemma4:31b-cloud')).toBeNull()
   })
 })
