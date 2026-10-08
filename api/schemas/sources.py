@@ -130,7 +130,8 @@ class DiscoverSearchLinks(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Sources registry and status (S-1). Read-only; S-2 adds
+# Sources registry and status. Read-only; the write
+# request models below follow.
 # the write request models below. No proxy URL, path or query string is ever
 # part of these shapes.
 # ---------------------------------------------------------------------------
@@ -278,7 +279,7 @@ class SourceNotification(BaseModel):
     dismissed: bool
 
 
-# Sources config writes (S-2).
+# Sources config writes.
 class SourceToggle(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: StrictBool
@@ -327,7 +328,7 @@ class SourceTrackRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API batch 1: Discover network helpers (spec D-2) -- /api/discover/...
+# Discover network helpers -- /api/discover/...
 # ---------------------------------------------------------------------------
 class DiscoverTranslateQueryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -430,7 +431,7 @@ class DiscoverBulkCommitResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API batch 1: Sources search / series (spec S-3) -- /api/sources/...
+# Sources search / series -- /api/sources/...
 # ---------------------------------------------------------------------------
 class SourcesSearchRequest(BaseModel):
     """Names and text only, never URLs (adapters build their own)."""
@@ -465,7 +466,7 @@ class SourcesJobResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Sources S-4 chapter import (services/sources_import_service.py). Results
+# Sources chapter import (services/sources_import_service.py). Results
 # are read with GET /api/sources/jobs/{job_id}/result (SourcesJobResult).
 # ---------------------------------------------------------------------------
 class SourcesChapterImportRequest(BaseModel):
@@ -486,7 +487,7 @@ class SourcesChapterSaveRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Sources S-5 paste-a-URL preview and novel import
+# Sources paste-a-URL preview and novel import
 # (services/sources_url_service.py, services/sources_import_service.py).
 # Results are read with GET /api/sources/jobs/{job_id}/result.
 # ---------------------------------------------------------------------------
@@ -496,15 +497,15 @@ class SourcesUrlPreviewRequest(BaseModel):
 
 
 class SourcesUrlImportRequest(BaseModel):
-    """Novel text only (thin slice). The drama must be a novel drama."""
+    """Novel text only (thin version). The drama must be a novel drama."""
     model_config = ConfigDict(extra="forbid")
     url: StrictStr = Field(min_length=1, max_length=2000)
     drama_id: int = Field(ge=1)
 
 
 # ---------------------------------------------------------------------------
-# Sources S-6 sign-in, SO17 tier tests, S-7 check-now, tracked-series drama
-# link and the SO18 proxy (services/sources_signin_service.py,
+# Sources sign-in, tier tests, check-now, tracked-series drama
+# link and the proxy (services/sources_signin_service.py,
 # services/sources_tracking_service.py, services/sources_registry_service.py).
 # Jobs are read with GET /api/sources/jobs/{job_id}/result.
 # ---------------------------------------------------------------------------

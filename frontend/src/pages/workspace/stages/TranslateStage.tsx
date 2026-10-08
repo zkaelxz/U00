@@ -62,6 +62,7 @@ import {
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
+import { engineNotesHelp, engineOptionLabel } from '../../../api/translate'
 import { GlossaryRetranslate } from './GlossaryRetranslate'
 import { GlossaryReview } from './GlossaryReview'
 import { JobPanel } from './JobPanel'
@@ -346,7 +347,7 @@ function RunPanel({
   const engine = config.engines.find((e) => e.name === (f.engine || config.translation_engine))
   const engineLabel = (name: string) => {
     const e = config.engines.find((x) => x.name === name)
-    return e ? `${e.label}${e.key_configured ? '' : ' (no key)'}` : name
+    return e ? engineOptionLabel(e) : name
   }
   const effEngine = f.engine || config.translation_engine
   const canReflect = reflectAvailable(effEngine) && !(f.bulk && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
@@ -397,8 +398,8 @@ function RunPanel({
     <section className="panel" aria-label="Translate run">
       <h3>Translate</h3>
       <div className="translate-basics">
-        <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP}`}>
-          <select value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
+        <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP} ${engineNotesHelp(config.engines)}`}>
+          <select className="engine-select" value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
             <option value="">Default ({engineLabel(config.translation_engine)})</option>
             {config.engines.map((e) => (
               <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>

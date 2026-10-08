@@ -31,6 +31,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`frontend-design-system.md`** — map of how the React frontend is built: layout, routing, tokens and themes, shared components, phone rules, testing and an add-a-screen checklist.
 - **`engineering-standards.md`** — shared principles: precedence, scope,
   review policy, verification, git/safety.
+- **`starting-a-project.md`** — a retrospective: the day-one setup, session habits and feature rules to follow when starting a project like this from scratch.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
   CI-minutes notes.
 - **`household-access.md`** — step-by-step guide to reach Baihe from
@@ -47,7 +48,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`remote-access-decision.md`** — the remote-access design as built. **`route-permissions.md`** — the route table `tests/test_api_permissions.py` enforces.
 - **`engine-backends.md`** — the translation engine package, transcription and dubbing engines, the rules learned from bugs, and an adding-an-engine checklist.
 - **`background-jobs.md`** — how background jobs run: thread and process jobs, the GPU guard, cancel, holds, the Jobs API and the CLI, with an add-a-job checklist.
-- **`asr-experiments.md`** — the off-by-default Qwen3-ASR batching and MOSS-Transcribe-Diarize options.
+- **`asr-experiments.md`** — the off-by-default Qwen3-ASR batching option and the transcription benchmarks.
 - **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
 - **`design/`** and **`specs/`** — the UI refresh spec (with before/after screenshots) and earlier API/UX/Step 141 proposals; the specs were written against the removed Streamlit tabs.
 - **`STATUS.md`** — current state, in-flight work and what's next.

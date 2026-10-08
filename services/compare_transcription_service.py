@@ -44,7 +44,7 @@ _VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long")
 _BACKEND_LABELS = {
     "whisper": "Whisper", "qwen3_asr": "Qwen3 ASR",
     "qwen3_asr_vad": "Qwen3 ASR with speech detection",
-    "qwen3_asr_long": "Qwen3 ASR on long windows", "moss_td": "MOSS (experimental)",
+    "qwen3_asr_long": "Qwen3 ASR on long windows",
 }
 
 
@@ -68,8 +68,6 @@ def _backend_problem(choice: str, language: str):
         elif choice in _VAD_BACKENDS:
             transcribe_service.require_qwen3_packages("Qwen3-ASR")
             transcribe_service._require_vad_packages()
-        elif choice == "moss_td":
-            transcribe_service._require_moss_backend()
     except (DependencyUnavailableError, InvalidInputError) as exc:
         return str(exc)
     # Whisper hears the audio first on every other backend too.
@@ -307,7 +305,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
 def _line_language(ln, cfg: dict, line_number: int):
     """(language to hear this line in, reason to skip it or None). A line's own
     language wins over the title's so a mixed-language line isn't re-heard in
-    the wrong one. Whisper takes any language; MOSS detects its own; the
+    the wrong one. Whisper takes any language; the
     VAD+Qwen3 backend hears an out-of-set language (English) by its own
     detection. Plain Qwen3 re-hears Whisper's spans in a fixed language and
     refuses one outside zh/ja/ko, so that line is skipped, not mis-heard."""
@@ -328,9 +326,6 @@ def _hear(slice_path: str, cfg: dict, language, on_fallback, cancel_check) -> st
     if backend in _VAD_BACKENDS:
         segments = asr_backend.get_backend(backend).transcribe(
             slice_path, language, use_gpu=use_gpu, cancel_check=cancel_check)
-    elif backend == "moss_td":
-        segments = asr_backend.get_backend(backend).transcribe(
-            slice_path, language, use_gpu=use_gpu)
     else:
         segments = core_module.transcribe_for_timing(
             slice_path, cfg["whisper_size"], language=language, use_gpu=use_gpu,

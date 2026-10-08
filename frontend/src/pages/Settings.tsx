@@ -21,6 +21,7 @@ import { DevicesCard } from './settings/DevicesCard'
 import { AutoBackupCard } from './settings/AutoBackupCard'
 import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionSection } from './settings/ExtensionSection'
+import { LoadedModelsCard } from './settings/LoadedModelsCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { NotionSection } from './settings/NotionSection'
@@ -230,6 +231,7 @@ export default function SettingsPage() {
                 </Field>
               </div>
             </Card>
+            <LoadedModelsCard />
             <Card title="Notifications">
               <div className="setting-list">{toggleField('notify_on_completion')}</div>
             </Card>

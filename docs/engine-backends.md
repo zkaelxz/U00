@@ -112,6 +112,23 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
   Gemini is not in it because free or paid depends on the key; the per-run
   "Gemini free tier" setting decides, and `engine_picker_label` swaps in
   `GEMINI_FREE_TIER_NOTE`. `KEYLESS_ENGINES` (the same one) skips key checks.
+- **Picker notes.** `ENGINE_NOTES` and `GEMINI_FREE_TIER_NOTE` are one short
+  sentence each (at most 80 characters, pinned by a test, and short enough to stay readable in the narrow closed select) because the closed
+  engine `<select>` shows them whole. Detail that used to sit in them:
+  - Claude: model names are left out of the note; defaults are Sonnet 5.5 and Opus 5.5 (`CLAUDE_MODELS`); supports
+    novel reference and prompt caching.
+  - DeepSeek: roughly 5-10 cents per drama on V4 Flash; prompt caching makes
+    the repeated glossary/style block nearly free; OpenAI-compatible API.
+  - Gemini: close to DeepSeek pricing on Flash-Lite. Google renames and
+    reprices often, so check `GEMINI_MODELS` if a run starts failing.
+  - OpenAI: Chat Completions API, key from platform.openai.com; check
+    `OPENAI_MODELS` if a run starts failing.
+  - Ollama: runs `OLLAMA_MODELS` (Gemma 4) on your own GPU; free, private and
+    unlimited. See the model sizes in `OLLAMA_MODELS` for what fits a 12 GB card.
+  - Gemini free tier (`GEMINI_FREE_TIER_LIMITS`): Flash 10 requests/min and
+    250/day; Flash-Lite 15/min and 1000/day; 250,000 tokens/min shared across
+    models. Pro isn't available. The free-tier note drops these numbers. Google may use the text to improve its
+    products, and people may read it.
   Callers without `engines.paid` are limited to `FREE_ENGINES`
   (`translate_run_service`, `discover_lookup_service`).
 - **Capabilities.** `ENGINE_CAPABILITIES` tags (`translate`, `instructions`,
@@ -199,12 +216,16 @@ root modules below.
 |---|---|---|
 | `whisper` (default) | `asr_backend.WhisperBackend` -> `core.transcribe_for_timing` | local faster-whisper with VAD segmentation; `core.load_whisper_model` falls back from GPU to CPU |
 | `qwen3_asr` | `asr_backend.Qwen3ASRBackend` | re-transcribes Whisper's segments and replaces only the text, keeping Whisper's timing; needs `qwen-asr`; batching (`qwen_asr_batch_size`) is honoured only on the tested qwen-asr version (`effective_qwen_batch_size`) |
-| `moss_td` | `asr_backend.MossTranscribeDiarizeBackend` | experimental one-pass transcript with speaker labels; refused unless `moss_experimental` is on; downloads pinned remote code (see `asr-experiments.md`) |
 | Groq (`use_groq` flag, not a backend choice) | `core.transcribe_with_groq` | uploads the whole file to Groq's hosted Whisper; needs a Groq key; one blocking call with `timeout=600` |
 
 `BACKENDS` / `get_backend` and `EXPERIMENTAL_BACKENDS` in `asr_backend.py` are
 the registry. Groq is not in it: it is a flag on the Whisper path in
 `transcribe_service`.
+
+A title saved with a removed backend (`asr_options_service.REMOVED_ASR_BACKENDS`:
+`moss_td`) runs and displays as the default backend, with
+`removed_asr_backend_notice()` shown in the Transcribe stage and printed by the CLI.
+The saved value is not rewritten.
 
 Alignment is a separate choice (`alignment_method`): `whisper_diff` (the
 default, `core.align_transcript_to_timing`) or `qwen3_forced_align`
@@ -241,8 +262,8 @@ one that still can't be confirmed gets the `language_uncertain` flag.
 passed as `local_model_path` and used instead of a download. Downloads honour an
 HF token (`hf_token` key, `HF_TOKEN`). In portable mode `portable.py` redirects
 `HF_HOME`, `TORCH_HOME` and `BAIHE_AUDIO_SEP_MODEL_DIR` under one
-`model_cache/` folder so copying the app folder carries the models. Qwen3 ASR,
-the Qwen3 aligner and MOSS download from Hugging Face on first use; a blocked
+`model_cache/` folder so copying the app folder carries the models. Qwen3 ASR
+and the Qwen3 aligner download from Hugging Face on first use; a blocked
 `huggingface.co` becomes `ModelDownloadError` with a DNS-blocker diagnosis.
 
 ## 4. TTS and dubbing at a glance

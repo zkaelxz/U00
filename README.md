@@ -190,11 +190,11 @@ Diagnostics > Danger zone > **Reset everything** deletes every drama, translatio
 
 | Engine | Cost | Notes |
 |---|---|---|
-| `claude` | Paid per token (API key from console.anthropic.com, billed separately from a Claude.ai subscription) | Best tone and character voice; novel reference with prompt caching. Model picker in Workspace > Translation (Sonnet 5, Opus 4.8, Haiku 4.5, Sonnet 4.6); see `CLAUDE_MODELS` in `translate_engines.py`. |
+| `claude` | Paid per token (API key from console.anthropic.com, billed separately from a Claude.ai subscription) | Best tone and character voice; novel reference with prompt caching. Model picker in Workspace > Translation (Sonnet 5.5 default, Opus 5.5, Haiku 4.5, plus older Sonnet and Opus kept for saved presets); see `CLAUDE_MODELS` in `translate_engines.py`. |
 | `deepseek` | Paid, far cheaper than Claude | Strong on Chinese; a good default for context-aware, glossary-aware work. |
-| `gemini` | Paid, close to DeepSeek (Flash-Lite tier); key from aistudio.google.com | Strong on Chinese/Japanese. Translation only: transcription still uses Whisper. Lineup changes often; see `GEMINI_MODELS`. |
+| `gemini` | Paid, cheap (Flash-Lite tier); key from aistudio.google.com | Strong on Chinese/Japanese. Translation only: transcription still uses Whisper. Lineup changes often; see `GEMINI_MODELS`. |
 | `openai` | Paid per token; `BAIHE_OPENAI_KEY` | GPT models (default `gpt-5-mini`) over Chat Completions. Newer GPT-5+ models appear in the picker after Diagnostics > Model health with "offer provider models" on, costed at a high ceiling ($5 in / $40 out per 1M tokens) because their real price is unknown; see `OPENAI_MODELS`. |
-| `ollama` | Free, uses your hardware | Local via [Ollama](https://ollama.com); a usable model wants real RAM/VRAM; rougher on nuance. |
+| `ollama` | Free, uses your hardware | Local Gemma 4 via [Ollama](https://ollama.com) on your GPU; free and private. The default 12B wants about 8 GB of VRAM. |
 
 Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration mode and take the novel reference; an engine that can't follow instructions tags everything "Narrator".
 
