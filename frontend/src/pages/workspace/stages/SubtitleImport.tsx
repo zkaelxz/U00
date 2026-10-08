@@ -15,6 +15,7 @@ import { startRetime } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
+import { PC_ONLY_BODY, usePcOnly } from '../../../hooks/usePcOnly'
 import type { SubtitleImportMode, SubtitleImportOptions, SubtitleImportPreview } from '../../../types/subtitleImport'
 import {
   checkSubtitleFile,
@@ -37,6 +38,7 @@ type Props = {
 const DEFAULTS: SubtitleImportOptions = { mode: 'source', encoding: '', splitBilingual: false, translationFirst: false }
 
 export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: Props) {
+  const pc = usePcOnly()
   const [file, setFile] = useState<File | null>(null)
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [opts, setOpts] = useState<SubtitleImportOptions>(DEFAULTS)
@@ -129,6 +131,8 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted }: 
       },
     )
   }
+
+  if (pc === 'remote') return <p className="muted" data-testid="subtitle-import-pc-only">{PC_ONLY_BODY}</p>
 
   return (
     <div className="subtitle-import" data-testid="subtitle-import">

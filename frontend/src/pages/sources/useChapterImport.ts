@@ -2,7 +2,7 @@ import { sourceImportJobId, startAiRecover, startChapterImport } from '../../api
 import { usePersistedState } from '../../hooks/usePersistedState'
 import type { SeriesChapter } from '../../types/sources'
 import type { ChapterImportResult, UrlImportResult } from '../../types/sourcesImport'
-import { MAX_CHAPTERS, chapterImportDramas, importIds, importReason, retryIds } from './urlImportFormat'
+import { MAX_CHAPTERS, chapterImportDramas, hiddenDramaCount, importIds, importReason, retryIds } from './urlImportFormat'
 import { useDramaList } from './useDramaList'
 import { useImportState } from './useImportState'
 import { useSourcesJob } from './useSourcesJob'
@@ -13,6 +13,7 @@ import { useSourcesJob } from './useSourcesJob'
 export function useChapterImport(source: string, seriesId: string, comic: boolean, enabled: boolean) {
   const dramas = useDramaList(enabled)
   const choices = dramas.items ? chapterImportDramas(dramas.items, comic) : null
+  const hiddenCount = dramas.items ? hiddenDramaCount(dramas.items, comic) : 0
   // Remembered per series, so the next batch goes to the same drama. It
   // counts only once the list is in and still offers it (deleted, or no
   // longer the right media type: the picker would show "Choose a drama…").
@@ -51,7 +52,7 @@ export function useChapterImport(source: string, seriesId: string, comic: boolea
   const recoveryReview = job.startedHere && job.status === 'done' && job.result?.kind === 'url_import' && job.result.review_open
   return {
     recover, recoveryReview,
-    dramas, choices, dramaId, setDramaId: (id: number | null) => setStored(id ?? 0), job, running, shownResult, start,
+    dramas, choices, hiddenCount, dramaId, setDramaId: (id: number | null) => setStored(id ?? 0), job, running, shownResult, start,
     importState, retry, startRetry,
   }
 }

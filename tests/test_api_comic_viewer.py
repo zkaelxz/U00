@@ -71,10 +71,14 @@ def test_list_pages_shape(client, comic):
     body = r.json()
     assert body["drama_id"] == comic["drama"] and body["media_type"] == "manga"
     assert body["reading_mode_default"] == "paged"
-    assert body["page_count"] == 2 and body["chapters"] == []
+    assert body["page_count"] == 2
+    # No chapter data (an old title): one "unknown" group, never an error.
+    assert body["hidden_count"] == 0 and len(body["chapters"]) == 1
+    assert body["chapters"][0] == {"id": "unknown", "title": "", "known": False, "host": "",
+                                   "first_page": 1, "page_count": 2, "hidden_count": 0}
     p1, p2 = body["pages"]
     assert set(p1) == {"id", "ordinal", "width", "height", "has_rendered", "has_regions",
-                       "image_version"}
+                       "image_version", "chapter_id", "chapter_page", "hidden"}
     assert (p1["id"], p1["ordinal"], p1["width"], p1["height"]) == (comic["p1"], 1, 800, 1200)
     assert p1["has_rendered"] is True and p1["has_regions"] is True and p1["image_version"] > 0
     assert (p2["ordinal"], p2["has_rendered"], p2["has_regions"]) == (2, False, False)
@@ -324,7 +328,9 @@ def test_permissions_with_auth_on(isolated_db, comic):
               ("head", _img(d, p1), "media.stream", None),
               ("get", f"/api/scanlate/dramas/{d}/pages/{p1}/regions", "lines.read", None),
               ("get", f"/api/scanlate/dramas/{d}/progress", "library.read", None),
-              ("post", f"/api/scanlate/dramas/{d}/progress", "lines.edit", {"page": 1})]
+              ("post", f"/api/scanlate/dramas/{d}/progress", "lines.edit", {"page": 1}),
+              ("post", f"/api/scanlate/dramas/{d}/pages/visibility", "lines.edit",
+               {"hidden": True, "page_ids": [p1]})]
     for i, (method, url, perm, body) in enumerate(routes):
         kw = {"json": body} if body is not None else {}
         assert getattr(c, method)(url, **kw).status_code == 401, url
