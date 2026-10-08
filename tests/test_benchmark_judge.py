@@ -310,3 +310,113 @@ class TestEstimate:
         with pytest.raises(UnsupportedOperationError):
             judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
         assert db.list_benchmark_sessions() == []
+
+
+class _Local:
+    def __init__(self, api_key=None, model="llama", **kw):
+        self.model = model
+        self.last_usage = {}
+
+    def translate_batch(self, zh_lines, context):
+        return ["good" for _ in zh_lines]
+
+
+@pytest.fixture
+def uncapped(engines, monkeypatch):
+    monkeypatch.setitem(translate_engines.ENGINES, "ollama", _Local)
+    return [{"engine": "ollama", "model": "a"}, {"engine": "ollama", "model": "b"}]
+
+
+class TestUncappedTestedEnginesPaidJudge:
+    def test_estimate_shows_the_cap(self, isolated_db, uncapped, monkeypatch):
+        _cases()
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 5.0)
+        monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 1.0)
+        est = judge_svc.estimate_with_judge("translation", uncapped, None, None, None, JUDGE)
+        assert est["remaining_usd"] == pytest.approx(4.0)
+        assert est["monthly_refusal"] is None and est["estimate_above_cap"] is False
+
+    def test_start_is_refused_when_the_month_is_already_over(self, isolated_db, uncapped, monkeypatch):
+        _cases()
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 1.0)
+        monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 2.0)
+        est = judge_svc.estimate_with_judge("translation", uncapped, None, None, None, JUDGE)
+        assert est["monthly_refusal"]
+        with pytest.raises(UnsupportedOperationError, match="used up"):
+            judge_svc.start_run("translation", uncapped, judge=JUDGE)
+        assert db.list_benchmark_sessions() == []
+
+    def test_estimate_over_what_is_left_is_refused(self, isolated_db, uncapped, monkeypatch):
+        _cases()
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 1.0)
+        monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 1.0 - 1e-9)
+        with pytest.raises(UnsupportedOperationError, match="left of this month"):
+            judge_svc.start_run("translation", uncapped, judge=JUDGE)
+
+    def test_near_cap_run_stops_at_the_per_case_check(self, isolated_db, uncapped, monkeypatch):
+        _cases()
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 1.0)
+        real_log = db.log_usage
+
+        def overspend(drama_id, engine, model, operation, *a, **kw):
+            real_log(drama_id, engine, model, operation, *a, **kw)
+            if operation == judge_svc.USAGE_OPERATION:
+                real_log(None, "x", "m", "other", 0, 0, 50.0)
+
+        monkeypatch.setattr(db, "log_usage", overspend)
+        started = judge_svc.start_run("translation", uncapped, judge=JUDGE)
+        _wait()
+        summary = judge_svc.annotate_runs([lab.get_run(started["session_ids"][0])["run"]])[0]["judge"]
+        assert summary["status"] == "stopped_cap" and summary["scored"] == 1
+
+
+class TestUsageSurvivesFailures:
+    def _judge_usage_calls(self, monkeypatch):
+        calls = []
+        real = db.log_usage
+
+        def spy(drama_id, engine, model, operation, i, o, cost, *a, **k):
+            if operation == judge_svc.USAGE_OPERATION:
+                calls.append((i, o))
+            return real(drama_id, engine, model, operation, i, o, cost, *a, **k)
+
+        monkeypatch.setattr(db, "log_usage", spy)
+        return calls
+
+    def test_first_call_billed_second_raises(self, isolated_db, engines, monkeypatch):
+        _cases()
+        calls = self._judge_usage_calls(monkeypatch)
+        n = {"i": 0}
+
+        def flaky(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
+            n["i"] += 1
+            if n["i"] % 2 == 0:
+                raise RuntimeError("boom")
+            usage_cb(1000, 100)
+            return "{}"  # nothing scored, so a retry is made and fails
+
+        monkeypatch.setattr(translate_engines, "call_llm_json", flaky)
+        judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
+        _wait()
+        assert calls and sum(c[0] for c in calls) == 1000 * len(calls)
+
+    def test_parse_error_after_a_billed_call_is_logged(self, isolated_db, engines, monkeypatch):
+        _cases()
+        calls = self._judge_usage_calls(monkeypatch)
+
+        def billed(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
+            usage_cb(500, 50)
+            return "x"
+
+        monkeypatch.setattr(translate_engines, "call_llm_json", billed)
+        monkeypatch.setattr(judge_svc, "parse_scores",
+                            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("bad")))
+        judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
+        _wait()
+        assert calls == [(500, 50), (500, 50)]
+
+    def test_huge_int_and_deep_json_give_no_scores(self):
+        huge = '{"1": {"accuracy": %s, "tone": 1, "naturalness": 1}}' % ("9" * 5000)
+        assert judge_svc.parse_scores(huge, [1]) == {}
+        assert judge_svc.parse_scores("[" * 100000, [1]) == {}
+        assert judge_svc.parse_scores('{"1": ' + "[" * 100000, [1]) == {}

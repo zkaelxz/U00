@@ -138,6 +138,17 @@ def build_set(principal, drama_id: int, set_name: str, include: str = "reviewed"
             f"That makes {len(groups)} cases; at most {lab.MAX_IMPORT_CASES} per set. "
             "Narrow the line range or ask for fewer scenes.")
 
+    # The per-build check above can't see earlier builds, so repeated builds
+    # would otherwise grow one set without bound.
+    existing = [c for c in db.list_benchmark_cases("translation") if c.get("set_name") == set_name]
+    known = {c.get("source_text") for c in existing}
+    new_cases = sum(1 for _lang, g in groups if "\n".join(ln["zh"].strip() for ln in g) not in known)
+    if len(existing) + new_cases > lab.MAX_IMPORT_CASES:
+        raise InvalidInputError(
+            f"Set '{set_name}' has {len(existing)} cases and this build adds {new_cases}; a set "
+            f"holds at most {lab.MAX_IMPORT_CASES} cases in total. Use a new set name, delete "
+            "cases, or narrow the line range.")
+
     result = {"set_name": set_name, "tier": "application", "include": include,
               "lines_in_range": len(in_range), "reviewed_lines": len(reviewed),
               "lines_used": sum(len(g[1]) for g in groups), "case_count": len(groups),

@@ -178,3 +178,14 @@ class TestLanguagesAndSets:
         other = {"user_id": 2, "is_admin": False, "is_local_owner": False}
         with pytest.raises(NotFoundError):
             builder.build_set(other, did, "moon", include="all")
+
+
+def test_repeated_builds_cannot_grow_a_set_past_the_total_limit(isolated_db, monkeypatch):
+    monkeypatch.setattr(lab, "MAX_IMPORT_CASES", 4)
+    did = _drama(_lines(6))
+    builder.build_set(None, did, "moon", include="all", line_start=1, line_end=3, lines_per_case=1)
+    with pytest.raises(InvalidInputError, match="at most 4 cases in total"):
+        builder.build_set(None, did, "moon", include="all", line_start=2, line_end=5, lines_per_case=1)
+    # Cases already in the set don't count twice: re-running adds nothing and passes.
+    assert builder.build_set(None, did, "moon", include="all", line_start=1, line_end=3,
+                             lines_per_case=1)["added"] == 0

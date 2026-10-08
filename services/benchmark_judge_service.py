@@ -120,6 +120,13 @@ def estimate_with_judge(stage: str, configs: list, tier, set_name, case_ids, jud
     part = estimate_judge(checked, configs, cases)
     est["judge"] = part
     est["estimated_cost_usd"] = round(est["estimated_cost_usd"] + part["estimated_cost_usd"], 6)
+    if part["cap_applies"] and est["remaining_usd"] is None and est["monthly_refusal"] is None:
+        # lab.estimate only looks at the cap when a tested engine is capped; a paid
+        # judge over free tested engines would otherwise skip it.
+        cap, refusal = translate_engines.resolve_cost_cap(
+            None, est["monthly_cap_usd"], db.get_month_spend())
+        est["remaining_usd"] = None if cap is None else round(cap, 6)
+        est["monthly_refusal"] = refusal
     if est["remaining_usd"] is not None:
         est["estimate_above_cap"] = est["estimated_cost_usd"] > est["remaining_usd"]
     return est
@@ -132,6 +139,8 @@ def start_run(stage: str, configs: list, tier=None, set_name=None, case_ids=None
     if judge is None:
         return lab.start_run(stage, configs, tier, set_name, case_ids, label, prompt_version)
     est = estimate_with_judge(stage, configs, tier, set_name, case_ids, judge, allow_same_model)
+    if est["monthly_refusal"]:
+        raise UnsupportedOperationError(est["monthly_refusal"])
     if est["estimate_above_cap"]:
         raise UnsupportedOperationError(
             f"This run and its judge are estimated at ${est['estimated_cost_usd']:.4f}, more than "
@@ -176,8 +185,11 @@ def parse_scores(text: str, expected_ids: list) -> dict:
     ids whose entry holds all three numbers; anything else is left out. Keyed
     by id like translate_engines.parse_id_keyed_json (which only takes string
     values, so it can't carry these objects)."""
-    data = translate_engines.extract_first_json_value(
-        text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip())
+    try:
+        data = translate_engines.extract_first_json_value(
+            text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip())
+    except (ValueError, OverflowError, RecursionError):
+        return {}
     if not isinstance(data, dict):
         return {}
     wanted = {str(i) for i in expected_ids}
@@ -188,21 +200,27 @@ def parse_scores(text: str, expected_ids: list) -> dict:
         values = [entry.get(d) for d in DIMENSIONS]
         if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in values):
             continue
-        clamped = [min(1.0, max(0.0, float(v))) for v in values]
+        try:
+            clamped = [min(1.0, max(0.0, float(v))) for v in values]
+        except (ValueError, OverflowError):
+            continue
         out[str(key)] = {**dict(zip(DIMENSIONS, clamped)), "overall": sum(clamped) / len(clamped)}
     return out
 
 
-def judge_case(engine, case: dict, outputs: dict, rng=None) -> dict:
+def judge_case(engine, case: dict, outputs: dict, rng=None, usage=None) -> dict:
     """outputs: {session id: output text}. Returns {session id: scores or
     None, "_usage": (input tokens, output tokens)}. The candidates are
-    shuffled and numbered from 1; the judge never sees a session id."""
+    shuffled and numbered from 1; the judge never sees a session id. `usage`
+    is a [input, output] list the caller owns: it is filled as calls are
+    billed, so the spend survives an exception from a later call."""
     rng = rng or random.Random()
     order = list(outputs)
     rng.shuffle(order)
     ids = {str(n): sid for n, sid in enumerate(order, 1)}
     pending = list(ids)
-    scored, usage = {}, [0, 0]
+    scored = {}
+    usage = [0, 0] if usage is None else usage
 
     def count(i, o):
         usage[0] += i or 0
@@ -243,13 +261,28 @@ def run_pass(job_id: str, plan: list, judge: dict) -> None:
     except Exception as exc:
         for s in state.values():
             if s["status"] == "running":
-                s["status"], s["note"] = "failed", lab.redact(exc)
+                s["status"], s["note"] = "failed", lab.redact(exc, _best_effort_key(judge))
     finally:
         for sid, s in state.items():
             s["summary"] = _average(list(s["scores"].values()))
             s["scored"] = len(s["scores"])
             s["status"] = "failed" if s["status"] == "running" else s["status"]
             db.set_app_setting(_setting_key(sid), s)
+
+
+def _best_effort_key(judge: dict):
+    try:
+        return translate_service.resolve_api_key(judge["engine"])
+    except Exception:
+        return None
+
+
+def _charge(state, usable, tokens, cost):
+    for sid in usable:
+        s = state[sid]
+        s["cost_usd"] += cost / len(usable)
+        s["input_tokens"] += tokens[0] / len(usable)
+        s["output_tokens"] += tokens[1] / len(usable)
 
 
 def _run_pass(job_id, sessions, judge, state):
@@ -270,7 +303,8 @@ def _run_pass(job_id, sessions, judge, state):
                 for s in state.values():
                     s["status"], s["note"] = "stopped_cap", "Judging stopped at the spending cap."
                 return
-        background_jobs.update_progress(job_id, n / max(1, len(case_ids)),
+        # The engine pass already reported 1.0; progress must not go back down.
+        background_jobs.update_progress(job_id, 1.0,
                                         f"Judge: case {n + 1} of {len(case_ids)}")
         present = {sid: results[sid][cid] for sid in sessions if cid in results[sid]}
         usable = {sid: r["output_text"] for sid, r in present.items()
@@ -282,23 +316,28 @@ def _run_pass(job_id, sessions, judge, state):
                 state[sid]["scores"][str(cid)] = {**zero, "overall": 0.0}
         if not usable:
             continue
+        tokens = [0, 0]
         try:
-            judged = judge_case(engine, cases[cid], usable)
+            judged = judge_case(engine, cases[cid], usable, usage=tokens)
         except Exception as exc:
             for sid in usable:
                 state[sid]["note"] = lab.redact(exc, key)
+            judged = None
+        finally:
+            # Every billed call counts toward the monthly cap, even when a later
+            # call or the parse failed.
+            cost = translate_engines.estimate_cost_for_engine(engine, *tokens)
+            if tokens[0] or tokens[1]:
+                db.log_usage(None, judge["engine"], getattr(engine, "model", "") or "",
+                             USAGE_OPERATION, tokens[0], tokens[1], cost)
+        if judged is None:
+            _charge(state, usable, tokens, cost)
             continue
-        tokens = judged.pop("_usage")
-        cost = translate_engines.estimate_cost_for_engine(engine, *tokens)
-        if tokens[0] or tokens[1]:
-            db.log_usage(None, judge["engine"], getattr(engine, "model", "") or "",
-                         USAGE_OPERATION, tokens[0], tokens[1], cost)
+        judged.pop("_usage", None)
+        _charge(state, usable, tokens, cost)
         for sid in usable:
-            s = state[sid]
-            s["cost_usd"] += cost / len(usable)
-            s["input_tokens"] += tokens[0] / len(usable)
-            s["output_tokens"] += tokens[1] / len(usable)
             if judged.get(sid):
+                s = state[sid]
                 s["scores"][str(cid)] = judged[sid]
     for s in state.values():
         s["status"] = "done"
