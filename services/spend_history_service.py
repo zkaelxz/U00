@@ -32,6 +32,9 @@ MAX_MONTHS = 36
 MAX_BREAKDOWN_ROWS = 8
 DELETED_TITLE = "deleted title"
 _MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+# datetime stops at year 9999 and the window end is the following month, so
+# 9999 would overflow; nothing logged before the app existed is worth asking for.
+_MIN_YEAR, _MAX_YEAR = 2000, 9998
 
 _SUMS = ("COALESCE(SUM(u.estimated_cost_usd), 0) AS cost, COUNT(*) AS calls, "
          "COALESCE(SUM(u.input_tokens), 0) AS input_tokens, "
@@ -52,7 +55,14 @@ def _month_start(now: datetime.datetime) -> datetime.datetime:
 
 def _add_months(start: datetime.datetime, n: int) -> datetime.datetime:
     index = start.year * 12 + start.month - 1 + n
-    return start.replace(year=index // 12, month=index % 12 + 1)
+    try:
+        return start.replace(year=index // 12, month=index % 12 + 1)
+    except ValueError:
+        raise InvalidInputError("That month is out of range.") from None
+
+
+def _valid_month(month: str) -> bool:
+    return bool(_MONTH_RE.match(month)) and _MIN_YEAR <= int(month[:4]) <= _MAX_YEAR
 
 
 def _prettify(raw: str) -> str:
@@ -152,8 +162,8 @@ def _months(conn, now, scope, reset_at):
 def get_spend_history(month: str = None, principal=None, now: datetime.datetime = None) -> dict:
     """Month table (newest first, at most MAX_MONTHS) plus the three
     breakdowns for `month` ("YYYY-MM"; default the newest month with spend)."""
-    if month is not None and not _MONTH_RE.match(month):
-        raise InvalidInputError("A month looks like 2026-10.")
+    if month is not None and not _valid_month(month):
+        raise InvalidInputError(f"A month looks like 2026-10, from {_MIN_YEAR} to {_MAX_YEAR}.")
     now = now or datetime.datetime.utcnow()
     scope = _scope(ownership_service.visible_to_filter(principal))
     reset_at = db.get_month_spend_reset_at(now)
