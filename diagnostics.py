@@ -434,10 +434,11 @@ def startup_warnings() -> list:
 
 
 def check_browser() -> dict:
-    """{found, name}: the browser used for JavaScript-only sites (see
-    page_fetch.browser_status). No path is returned."""
+    """{found, name, package}: the browser for JavaScript-only sites and
+    whether the Playwright package is installed. No path is returned."""
+    import browser_support
     import page_fetch
-    return page_fetch.browser_status()
+    return {**page_fetch.browser_status(), "package": browser_support.package_installed()}
 
 
 def check_cuda() -> dict:

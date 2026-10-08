@@ -123,7 +123,7 @@ ebooklib>=0.18          # EPUB
 plyer>=2.1
 
 # --- JavaScript-rendered sites (baihehub, Fanjiao) ---
-playwright>=1.40        # then run: playwright install chromium
+playwright>=1.40        # uses an installed Chrome or Edge; no browser download needed then
 
 # --- Sources tab: main-text extraction from a pasted novel-chapter URL ---
 # Apache-2.0. Optional -- without it a simpler built-in extractor is used.

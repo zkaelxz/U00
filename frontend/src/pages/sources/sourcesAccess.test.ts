@@ -52,8 +52,8 @@ describe('tier tests', () => {
   it('reads one result', () => {
     const base = { kind: 'tier_test' as const, source: 'x', detail: null, reason: null }
     expect(tierTestLine({ ...base, tier: 'static', ok: true })).toBe('Static: works.')
-    expect(tierTestLine({ ...base, tier: 'browser', ok: false, reason: 'NOT_INSTALLED', detail: 'no Playwright' })).toBe(
-      'Browser: not installed (no Playwright).',
+    expect(tierTestLine({ ...base, tier: 'browser', ok: false, reason: 'NOT_INSTALLED', detail: 'The Playwright package is missing.' })).toBe(
+      'Browser: The Playwright package is missing.',
     )
     expect(tierTestLine({ ...base, tier: 'signed_in', ok: false })).toBe('Signed-in: failed.')
   })
