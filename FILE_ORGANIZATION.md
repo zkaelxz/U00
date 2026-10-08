@@ -71,7 +71,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `shutdown_service.py`, `source_domains_service.py`, `source_service.py`, `sources_extension_service.py`, `sources_extraction_service.py`,
 `sources_import_service.py`, `sources_registry_service.py`, `sources_save_service.py`,
 `sources_search_service.py`, `sources_signin_service.py`, `sources_tools_service.py`,
-`sources_tracking_service.py`, `sources_url_service.py`, `speech_coverage_service.py`,
+`sources_tracking_service.py`, `sources_url_service.py`, `speech_coverage_service.py`, `spend_history_service.py`,
 `stronger_engine_service.py`,
 `transcribe_service.py`, `translate_run_service.py`, `translate_service.py`, `translation_version_service.py`,
 `update_service.py`, `url_guard.py`, `url_media_service.py`, `usage_recost_service.py`,
@@ -83,7 +83,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `library.py`, `loaded_models.py`, `reader.py`, `review.py`, `sources.py`, `system.py`,
+`api/schemas/`: `characters.py`, `common.py`, `library.py`, `loaded_models.py`, `reader.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
@@ -104,7 +104,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 `saved_comics_routes.py`, `scanlate_routes.py`, `series_people_routes.py`, `settings_routes.py`,
 `sharing_routes.py`, `source_domains_routes.py`, `source_routes.py`, `sources_catalog_routes.py`,
 `sources_extraction_routes.py`, `sources_import_routes.py`, `sources_local_routes.py`,
-`sources_search_routes.py`, `sources_tools_routes.py`, `stronger_engine_routes.py`, `system_routes.py`,
+`sources_search_routes.py`, `sources_tools_routes.py`, `spend_history_routes.py`, `stronger_engine_routes.py`, `system_routes.py`,
 `transcribe_routes.py`, `translate_routes.py`, `translate_run_routes.py`, `translation_version_routes.py`,
 `update_routes.py`, `usage_recost_routes.py`, `voice_bank_audio_routes.py`, `voice_clone_routes.py`,
 `web_search_routes.py`, `workflow_routes.py`
