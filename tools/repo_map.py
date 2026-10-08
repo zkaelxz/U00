@@ -23,7 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 # A listing over this (~6k tokens at ~4 bytes per token) is split into parts, so
-# one read stays well under a 16-32k window with room left for the code itself.
+# one read stays well under a 64K window with room left for the code itself.
 BUDGET_BYTES = 24_000
 SKIP_DIRS = {".git", "__pycache__", "node_modules", "tests", "library", "model_cache", "venv",
              ".venv", "env", "build", "dist", "tmp", "smoke_pack", "test-results", "frontend"}
