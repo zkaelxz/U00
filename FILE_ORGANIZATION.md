@@ -34,7 +34,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `voice_id.py`
 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**: `translate_engines.py`, `translation_guide.py`, `translation_memory.py`, `auto_qc.py`, `en_cleanup.py`,
-`emotion.py`, `bulk_translate.py`, `live_translate.py`, `live_fetch.py`, `glossary_io.py` (term categories/policies and glossary file import/export)
+`emotion.py`, `bulk_translate.py`, `live_translate.py`, `live_cue_translation.py` (the per-cue context and error note for Live), `live_fetch.py`, `glossary_io.py` (term categories/policies and glossary file import/export)
 
 **Dubbing, subtitles & video**: `dub.py`, `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse), `video_export.py`, `media_inspect.py`, `subtitle_formats.py`, `video_download.py`
 
@@ -54,7 +54,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `characters_service.py`, `comic_chapters_service.py`, `comic_view_service.py`, `compare_transcription_service.py`, `cover_art_service.py`,
 `delete_service.py`, `diagnostics_gaps_service.py`, `diagnostics_installs_service.py`,
 `diagnostics_service.py`, `diarization_service.py`, `discover_catalog_service.py`,
-`discover_lookup_service.py`, `disk_usage_service.py`, `drama_service.py`, `dub_service.py`,
+`discover_lookup_service.py`, `disk_usage_clips_service.py`, `disk_usage_links.py`, `disk_usage_service.py`, `drama_service.py`, `dub_service.py`,
 `egress_proxy.py`, `engine_routing_service.py`, `event_stream_service.py`, `export_service.py`,
 `extension_service.py`, `fixflag_transcribe.py`, `glossary_retranslate_service.py`, `glossary_service.py`, `jellyfin_service.py`,
 `job_checkpoint_service.py`, `job_stage_service.py`, `job_timing_service.py`, `jobs_service.py`, `library_admin_service.py`, `loaded_models_service.py`,

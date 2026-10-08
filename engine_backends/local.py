@@ -14,6 +14,7 @@ from .shared import (
     redact_secrets,
     request_translations_with_retry,
 )
+from .thinking import ollama_chat_no_thinking, wants_no_thinking
 
 
 # Ollama's own default context window can be as small as 2-4k tokens,
@@ -189,13 +190,32 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
                     state["aborted"] = True
                     for sock in list(sockets):
                         _shutdown(sock)
-                worker.join(2.0)
+                # Only a courtesy wait: the thread is a daemon. Kept well under
+                # the 3 s a cancel is expected to take.
+                worker.join(1.0)
                 raise TranslationCancelled("cancelled")
     finally:
         session.close()
     if "error" in box:
         raise box["error"]
     return box["value"]
+
+
+# Enough for Ollama's one-line JSON error.
+OLLAMA_ERROR_BODY_MAX_BYTES = 2000
+
+
+def _error_body_text(resp) -> str:
+    """A small, redacted slice of an error response's body; "" if unreadable.
+    read_capped closes the response."""
+    from services import capped_body
+    try:
+        raw = capped_body.read_capped(resp, OLLAMA_ERROR_BODY_MAX_BYTES, 5.0,
+                                      lambda: ValueError("error body too large"))
+        return redact_secrets(raw.decode("utf-8", "replace"))
+    except Exception:
+        resp.close()
+        return ""
 
 
 def _ollama_chat_request(post, base_url: str, payload: dict) -> dict:
@@ -217,19 +237,22 @@ def _ollama_chat_request(post, base_url: str, payload: dict) -> dict:
     except requests.HTTPError as exc:
         status = getattr(exc.response, "status_code", None)
         model = str(payload.get("model") or "")
-        # The body of a streamed response is unreadable once it is closed.
-        detail = _error_detail(resp) if status == 429 and is_ollama_cloud_model(model) else ""
-        resp.close()
-        if is_ollama_cloud_model(model):
+        if is_ollama_cloud_model(model) and status in (429, 401, 403):
+            # The body of a streamed response is unreadable once it is closed.
+            detail = _error_detail(resp) if status == 429 else ""
+            resp.close()
             if status == 429:
                 raise OllamaCloudLimitError(detail) from None
-            if status in (401, 403):
-                raise OllamaUnavailableError(
-                    "ollama_cloud_signin",
-                    "Ollama cloud models need you to be signed in. Run \"ollama signin\", "
-                    "or pick a local model in Settings.") from None
+            raise OllamaUnavailableError(
+                "ollama_cloud_signin",
+                "Ollama cloud models need you to be signed in. Run \"ollama signin\", "
+                "or pick a local model in Settings.") from None
         if status != 404:
+            # Closing a streamed response discards its body, and the caller
+            # needs the server's wording to tell "can't think" from other 400s.
+            exc.body_text = _error_body_text(resp)
             raise
+        resp.close()
         raise OllamaUnavailableError(
             "ollama_model_missing",
             f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
@@ -314,7 +337,7 @@ class OllamaEngine:
                     f"Ollama num_ctx override ({num_ctx_override}) is smaller than the "
                     f"estimated prompt size ({estimated}) -- using {estimated} instead to "
                     "avoid silently truncating the prompt.")
-            resp = _ollama_chat(self.base_url, {
+            payload = {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_text},
@@ -323,7 +346,11 @@ class OllamaEngine:
                 "stream": False,
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
                 "options": {"num_ctx": num_ctx},
-            })
+            }
+            if wants_no_thinking(context):
+                resp = ollama_chat_no_thinking(_ollama_chat, self.base_url, payload)
+            else:
+                resp = _ollama_chat(self.base_url, payload)
             return strip_ollama_thinking(resp["message"]["content"])
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
