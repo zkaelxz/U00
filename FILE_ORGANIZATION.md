@@ -190,6 +190,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `narration_service.py`
 - `notification_service.py`
 - `novel_attach_service.py`
+- `novel_chapters_service.py`
 - `novel_files_service.py`
 - `oidc_service.py`
 - `ownership_service.py`
@@ -247,7 +248,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `reader.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `reader.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
@@ -340,5 +341,6 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - Nothing writes outside `library/` except exports you explicitly download.
 - Optional dependencies are imported inside functions, never at module top level.
 - Adding a new top-level module, `services/*.py` or `api/routers/*.py` file? Add it as one bullet, in sorted position, to the right group above, in the same PR (a top-level module also gets one sorted line in `expected_files.py`).
+- `sources/chapter_manifest.py`: `raw_novel_chapters.json` beside the raw novel (title, site, time and byte range per imported chapter); `services/novel_chapters_service.py` reads it.
 - `sources/novel_follow.py`: following next-chapter links from a pasted novel URL (`follow_novel`); builds on `sources/adaptive.py`, which does not import it.
 - `sources/extension_marker.py`: the person's "works only through the browser extension" marker per source (`source_extension_only` table in `sources.db`); imports and scheduled checks consult it, `services/sources_extension_service.py` holds the early stop.

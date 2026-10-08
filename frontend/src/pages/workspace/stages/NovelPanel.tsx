@@ -14,7 +14,7 @@ import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { LncrawlPanel } from './LncrawlPanel'
 import { epubSizeProblem } from './novelFile'
-import { useNovelFilesVersion } from './novelFileEvents'
+import { bumpNovelFiles, useNovelFilesVersion } from './novelFileEvents'
 import './preamble.css'
 
 interface Props {
@@ -80,6 +80,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
       setNotice(attachNotice(r))
       setReloads((n) => n + 1)
       refetchDrama()
+      bumpNovelFiles()
     },
     [refetchDrama],
   )
