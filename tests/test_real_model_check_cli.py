@@ -134,7 +134,8 @@ def test_cli_and_app_report_the_same_checks_for_the_same_fakes(env, monkeypatch,
     svc.start(confirm=True)
     end = time.time() + 10
     # The job holds the GPU slot until it exits, a moment after "finished".
-    while time.time() < end and (background_jobs.get_status(svc.JOB_ID) or {}).get("status") in ("running", "queued"):
+    import db
+    while time.time() < end and (not svc.get_state()["finished"] or db.gpu_lock_status()[0]):
         time.sleep(0.02)
     app_checks = svc.get_state()["checks"]
     code, out = _run(capsys)
