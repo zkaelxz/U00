@@ -55,7 +55,7 @@ def post_explain(body: LineExplainRequest, request: Request, drama_id: int = Pat
 def post_alternatives(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                       line_id: int = Path(ge=1)):
     engine = line_ai_service.tool_engine_name(drama_id, body.engine)
-    require_engines_allowed(request, engine)
+    require_engines_allowed(request, engine, model=body.model)
     with llm_slot(request):
         return line_ai_service.alternatives_for_line(drama_id, line_id, engine, body.model,
                                                      body.gemini_free_tier)
@@ -68,7 +68,7 @@ def post_alternatives(body: LineExplainRequest, request: Request, drama_id: int 
 def post_grammar(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                  line_id: int = Path(ge=1)):
     engine = line_ai_service.tool_engine_name(drama_id, body.engine)
-    require_engines_allowed(request, engine)
+    require_engines_allowed(request, engine, model=body.model)
     with llm_slot(request):
         return line_ai_service.grammar_for_line(drama_id, line_id, engine, body.model,
                                                 body.gemini_free_tier)

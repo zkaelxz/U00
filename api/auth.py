@@ -309,15 +309,19 @@ def is_local_request(request: Request) -> bool:
     return _is_local_scope(request.client.host if request.client else None, request.headers)
 
 
-def require_engines_allowed(request: Request, *engine_names):
+def require_engines_allowed(request: Request, *engine_names, model=None):
     """Raises 403 unless the caller holds `engines.paid` or every named
     engine is in `translate_engines.FREE_ENGINES`. A missing name (None:
-    "use the configured default") counts as possibly paid."""
+    "use the configured default") counts as possibly paid. Pass the request's
+    `model` whenever it has one: an Ollama cloud tag is held to
+    `engines.paid` too (`require_cloud_model_allowed`); an omitted model
+    resolves to the local default, which is never a cloud tag."""
     if holds(request, "engines.paid"):
         return
     from translate_engines import FREE_ENGINES
     if any(not name or name not in FREE_ENGINES for name in engine_names):
         raise ForbiddenError(_GENERIC_403)
+    require_cloud_model_allowed(request, *[(name, model) for name in engine_names])
 
 
 def require_cloud_model_allowed(request: Request, *engine_models):

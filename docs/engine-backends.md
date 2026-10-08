@@ -132,8 +132,13 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
     (`ollama_touches_local_gpu`), and a 429 becomes `OllamaCloudLimitError`, which the normal
     backoff retries. The direct `ollama.com/api` path (Bearer key) is not built. Any tag
     ending `-cloud` or `:cloud` counts as hosted (`is_ollama_cloud_model`); the engine list
-    flags those, and a household user needs `engines.paid` to use one. They are kept out of
-    `ENGINE_MODEL_DICTS["ollama"]` and refused as a Diagnostics default replacement.
+    flags those. They are kept out of `ENGINE_MODEL_DICTS["ollama"]`, refused as a Diagnostics
+    default replacement, and ignored on read if a restored backup carries one as the default
+    (`model_override_for_default`). A household user needs `engines.paid` to use one: every
+    route that takes a client-chosen `model` passes it to `require_engines_allowed(request,
+    engine, model=...)` (or calls `require_cloud_model_allowed`), and a sweep test fails any
+    such route that doesn't. Routes that need `engines.paid` or are PC-only, and the
+    estimate / Ollama-check routes that never send text, are the listed exceptions.
   - Gemini free tier (`GEMINI_FREE_TIER_LIMITS`): Flash 10 requests/min and
     250/day; Flash-Lite 15/min and 1000/day; 250,000 tokens/min shared across
     models. Pro isn't available. The free-tier note drops these numbers. Google may use the text to improve its
