@@ -78,6 +78,11 @@ def ollama_touches_local_gpu(engine_name: str, model) -> bool:
     return engine_name == "ollama" and not is_ollama_cloud_model(model)
 
 
+def chain_touches_local_gpu(chain) -> bool:
+    """`ollama_touches_local_gpu` for any step of an engine chain."""
+    return any(ollama_touches_local_gpu(c["engine"], c["model"]) for c in chain)
+
+
 class OllamaUnavailableError(Exception):
     """Ollama can't serve the request for a reason the user can fix.
     `reason` is a stable machine id; the message never carries the Ollama
