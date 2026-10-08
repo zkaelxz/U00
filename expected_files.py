@@ -36,6 +36,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "glossary_io.py",
     "hardsub_ocr.py",
     "known_sites.py",
+    "language_packs.py",
     "line_tools.py",
     "live_agreement.py",
     "live_cue_translation.py",
