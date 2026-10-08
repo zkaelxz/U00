@@ -24,3 +24,4 @@ from api.schemas.sources import *  # noqa: F401,F403
 from api.schemas.reader import *  # noqa: F401,F403
 from api.schemas.voice import *  # noqa: F401,F403
 from api.schemas.transcribe import *  # noqa: F401,F403
+from api.schemas.real_model_check import *  # noqa: F401,F403
