@@ -39,6 +39,7 @@ export function buildEstimateQuery(p: EstimateParams): string {
   if (p.force_retranslate) q.set('force_retranslate', 'true')
   if (p.reflect) q.set('reflect', 'true')
   if (p.bulk) q.set('bulk', 'true')
+  if (p.thinking !== undefined) q.set('thinking', String(p.thinking))
   if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
   const s = q.toString()
   return s ? `?${s}` : ''

@@ -1,6 +1,7 @@
 // Pure form logic for the Translate stage (no React), so it can be unit
 // tested. Ranges mirror api/schemas/translate.py TranslateRunStart.
 
+import { THINKING_SWITCH_ENGINES } from '../../api/live'
 import type {
   EstimateParams,
   FallbackEngine,
@@ -28,6 +29,7 @@ export interface RunForm {
   forceConfirmed: boolean
   reflect: boolean
   bulk: boolean
+  thinking: boolean // "Think harder on tricky text"; only DeepSeek and Ollama can follow it
   female_pronouns: boolean // she/her default for ambiguous pronouns
   genre_notes: boolean // baihe/GL genre guidance in the prompt
 }
@@ -43,6 +45,21 @@ export function isTranslationOnly(engine: string): boolean {
 
 export function reflectAvailable(engine: string): boolean {
   return !isTranslationOnly(engine)
+}
+
+// Whether the "think harder" choice does anything for this run: the engine
+// needs a request switch, and Reflect's passes and a Claude/Gemini batch
+// have none (services/translate_thinking_service.py).
+export function thinkingApplies(engine: string, reflect: boolean, switchEngines?: string[]): boolean {
+  return !reflect && (switchEngines ?? THINKING_SWITCH_ENGINES).includes(engine)
+}
+
+export function thinkingHelp(engine: string, reflect: boolean, switchEngines?: string[]): string {
+  if (thinkingApplies(engine, reflect, switchEngines)) {
+    return 'Off by default. Turn it on for ambiguous or idiomatic text, such as novels and video subtitles: the model reasons before it answers. Slower and costs more; the hidden reasoning is billed as output, so the cost estimate is a lower bound.'
+  }
+  const why = reflect ? 'Reflect mode has no thinking switch' : `${engine} has no thinking switch`
+  return `${why}, so this does nothing for this run; it runs as it always has. Thinking can be switched for DeepSeek and Ollama.`
 }
 
 // A fallback chain can't mix AI (instruction-following) engines with
@@ -162,6 +179,7 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
     forceConfirmed: false,
     reflect: false,
     bulk: false,
+    thinking: c.title_thinking ?? false,
     // The title's saved choice first (what every run, retry and AI action
     // uses), then a preset's value, then the API defaults.
     female_pronouns: c.default_female_pronouns ?? preset.default_female_pronouns ?? false,
@@ -227,6 +245,7 @@ export function buildRunBody(f: RunForm): TranslateRunStartBody {
     ...(chain.length ? { fallback_chain: chain } : {}),
     ...(f.reflect ? { reflect: true } : {}),
     ...(f.bulk ? { bulk: true } : {}),
+    thinking: f.thinking,
     default_female_pronouns: f.female_pronouns,
     include_genre_notes: f.genre_notes,
   }
@@ -243,6 +262,7 @@ export function buildEstimateParams(f: RunForm): EstimateParams | null {
     job_cost_cap_usd: cap,
     ...(f.reflect ? { reflect: true } : {}),
     ...(f.bulk ? { bulk: true } : {}),
+    thinking: f.thinking,
   }
 }
 

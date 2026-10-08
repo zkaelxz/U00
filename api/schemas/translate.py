@@ -133,6 +133,8 @@ class TranslateRunConfig(BaseModel):
     # Never the URL. None when the drama's engine isn't Ollama
     # (not probed).
     ollama_reachable: Optional[bool] = None
+    thinking_switch_engines: List[str] = []
+    title_thinking: bool = False
     # The owner's saved choice for this title; None = never chosen (the form
     # then starts from the preset values, else genre notes on, she/her off).
     default_female_pronouns: Optional[bool] = None
@@ -150,6 +152,8 @@ class TranslateRunEstimate(BaseModel):
     effective_cap_usd: Optional[float] = None
     monthly_refusal: bool
     estimate_above_cap: bool
+    thinking: bool = False
+    estimate_is_lower_bound: bool = False
 
 
 class TranslateRunStart(BaseModel):
@@ -173,6 +177,8 @@ class TranslateRunStart(BaseModel):
     # A preset's prompt toggles; None = the defaults (she/her off, genre notes on).
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
+    # Let DeepSeek/Ollama reason first; None = the title's remembered choice.
+    thinking: Optional[bool] = None
 
 
 class TranslateRunStarted(BaseModel):
@@ -184,6 +190,7 @@ class TranslateRunStarted(BaseModel):
     fallback_engines: List[str] = []
     reflect: bool = False
     bulk: bool = False
+    thinking: bool = False
 
 
 class TranslateFallbackEngine(BaseModel):

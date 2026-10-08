@@ -73,7 +73,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `sources_search_service.py`, `sources_signin_service.py`, `sources_tools_service.py`,
 `sources_tracking_service.py`, `sources_url_service.py`, `speech_coverage_service.py`, `spend_history_service.py`,
 `stronger_engine_service.py`,
-`transcribe_service.py`, `translate_run_service.py`, `translate_service.py`, `translation_version_service.py`,
+`transcribe_service.py`, `translate_run_service.py`, `translate_service.py`, `translate_thinking_service.py`, `translation_version_service.py`,
 `update_service.py`, `url_guard.py`, `url_media_service.py`, `usage_recost_service.py`,
 `voice_bank_audio_service.py`, `voice_clone_service.py`, `vram_service.py`, `web_search_service.py`,
 `workflow_service.py`, `workspace_job_service.py`

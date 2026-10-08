@@ -1,7 +1,9 @@
-"""Switching a model's reasoning off for latency-sensitive callers (Live).
+"""Switching a model's reasoning off or on in the request.
 
-A caller opts in with context["reply_without_thinking"]; batch translation
-never sets it, so its requests stay exactly as they were."""
+Live sets context["reply_without_thinking"]. Translation runs get it from
+build_translation_context: off unless the run asks to think harder, which sets
+context["reply_with_thinking"] and sends the "on" form explicitly. A context
+with neither key sends no field and the model does what it does by default."""
 
 # Engines whose request has a documented switch. Mirrored by
 # THINKING_SWITCH_ENGINES in frontend/src/api/live.ts (a test pins the two).
@@ -9,6 +11,7 @@ NO_THINKING_ENGINES = ("deepseek", "ollama")
 
 # Thinking is on by default at DeepSeek, so it must be disabled explicitly.
 DEEPSEEK_NO_THINKING_BODY = {"thinking": {"type": "disabled"}}
+DEEPSEEK_THINKING_BODY = {"thinking": {"type": "enabled"}}
 
 # (base_url, model) pairs whose server refused the `think` field. Ollama
 # rejects it for a model without the thinking capability, and re-sending it on
@@ -16,13 +19,20 @@ DEEPSEEK_NO_THINKING_BODY = {"thinking": {"type": "disabled"}}
 _think_refused = set()
 
 
-def wants_no_thinking(context: dict) -> bool:
-    return bool(context.get("reply_without_thinking"))
+def thinking_choice(context: dict):
+    """False = switch it off, True = ask for it, None = send no field.
+    Off wins if both keys are set: a stray flag must not make a run cost more."""
+    if context.get("reply_without_thinking"):
+        return False
+    return True if context.get("reply_with_thinking") else None
 
 
 def deepseek_extra_body(context: dict) -> dict:
-    """Extra keyword arguments for the SDK call; empty unless asked."""
-    return {"extra_body": DEEPSEEK_NO_THINKING_BODY} if wants_no_thinking(context) else {}
+    """Extra keyword arguments for the SDK call; empty unless a choice was made."""
+    choice = thinking_choice(context)
+    if choice is None:
+        return {}
+    return {"extra_body": DEEPSEEK_THINKING_BODY if choice else DEEPSEEK_NO_THINKING_BODY}
 
 
 def _refuses_think(exc) -> bool:
@@ -40,8 +50,8 @@ def _refuses_think(exc) -> bool:
     return "think" in body.lower()
 
 
-def ollama_chat_no_thinking(chat, base_url: str, payload: dict) -> dict:
-    """Runs chat(base_url, payload) with `think: false` added.
+def ollama_chat_with_think(chat, base_url: str, payload: dict, think: bool = False) -> dict:
+    """Runs chat(base_url, payload) with `think` set to the given value.
 
     Asking Ollama (/api/show) which models can think would cost a request per
     model, so the field is sent. A 400 whose body names thinking means "this
@@ -55,7 +65,7 @@ def ollama_chat_no_thinking(chat, base_url: str, payload: dict) -> dict:
     if key in _think_refused:
         return chat(base_url, payload)
     try:
-        return chat(base_url, {**payload, "think": False})
+        return chat(base_url, {**payload, "think": bool(think)})
     except requests.HTTPError as exc:
         if getattr(exc.response, "status_code", None) != 400:
             raise

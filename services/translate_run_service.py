@@ -41,7 +41,7 @@ import translate_engines
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
 from services import (engine_routing_service, library_service, settings_service,
-                      translate_service, workspace_job_service)
+                      translate_service, translate_thinking_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -149,6 +149,8 @@ def get_translate_config(drama_id: int) -> dict:
         "ollama_reachable": ollama_reachable() if engine_name == "ollama" else None,
         "default_female_pronouns": _saved_bool(drama.get("default_female_pronouns")),
         "include_genre_notes": _saved_bool(drama.get("include_genre_notes")),
+        "thinking_switch_engines": list(translate_thinking_service.SWITCH_ENGINES),
+        "title_thinking": translate_thinking_service.get_title_choice(drama_id),
     }
 
 
@@ -195,9 +197,11 @@ def validate_run_options(engine_name: str, model, *, locale: str, style_preset: 
 def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str = None,
                             reflect: bool = False, force_retranslate: bool = False,
                             bulk: bool = False, gemini_free_tier: bool = None,
-                            job_cost_cap_usd: float = None, line_ids=None) -> dict:
+                            job_cost_cap_usd: float = None, line_ids=None,
+                            thinking: bool = None) -> dict:
     """line_ids (optional): estimate only these lines (of those the run
-    would translate)."""
+    would translate). thinking: as in start_translate_run; with it on the
+    figure is a lower bound."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = require_drama(drama_id)
     engine_name = (engine_name or drama.get("translation_engine")
@@ -245,10 +249,15 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
             job_cost_cap_usd, monthly_cap, spend)
         monthly_refusal = bool(refusal)
 
+    thinking = translate_thinking_service.run_setting(
+        drama_id, [engine_name], thinking, reflect=reflect)
     return {
         "engine": engine_name,
         "model": resolved_model,
         "estimated_usd": estimated,
+        # Hidden reasoning is output the visible text can't predict.
+        "thinking": thinking,
+        "estimate_is_lower_bound": thinking and not free,
         "target_line_count": len(targets),
         "free": free,
         "cap_applies": cap_applies,
@@ -339,7 +348,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                         bulk: bool = False, default_female_pronouns: bool = None,
                         include_genre_notes: bool = None,
                         allow_paid_summary: bool = True,
-                        own_lines_only: bool = False, expected_en: dict = None) -> dict:
+                        own_lines_only: bool = False, expected_en: dict = None,
+                        thinking: bool = None) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
@@ -373,6 +383,11 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     drama to a preset in the DB). None means the title's saved choice, or
     without one the defaults: she/her off, genre guidance on. A value passed
     is saved for the title once the run starts.
+
+    thinking: let DeepSeek/Ollama reason before answering (slower, more
+    output tokens). None means the title's remembered choice, else off; a
+    value passed is remembered for the title. It does nothing for engines
+    without a request switch, for Reflect, or for a Claude/Gemini batch.
 
     own_lines_only (with line_ids): run_translate_job's own_lines_only -- a
     line edited while the job runs keeps the edit.
@@ -444,6 +459,9 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         raise InvalidInputError(chain_error)
     for c in chain[1:]:  # the main engine's model is checked by validate_run_options
         _require_offered_model(c["engine"], c["model"])
+    asked_thinking = thinking
+    thinking = translate_thinking_service.run_setting(
+        drama_id, [c["engine"] for c in chain], thinking, reflect=reflect)
     monthly_cap = month_cap_usd()
     month_spend = db.get_month_spend() if monthly_cap else 0.0
     built, caps = [], []
@@ -507,7 +525,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                                  novel_reference, glossary_terms, style_guidelines,
                                  style_note or "", locale, style_preset, context_window,
                                  context_window_ahead, batch_size, force_retranslate,
-                                 job_cost_cap_usd, series_id)
+                                 job_cost_cap_usd, series_id, thinking)
         started = background_jobs.start_job(
             job_id, run_bulk_translate_job, job_id, engines[0], engine_name, submit,
             monthly_cap or None,
@@ -515,10 +533,11 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         if not started:
             raise ConflictError("A translation is already running for this drama.")
         save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
+        remember_thinking(drama_id, asked_thinking)
         return {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
                 "model": getattr(engines[0], "model", model),
                 "target_line_count": len(eligible), "fallback_engines": [],
-                "reflect": reflect, "bulk": True}
+                "reflect": reflect, "bulk": True, "thinking": thinking}
 
     summary_engine, summary_choice = pick_summary_engine(allow_paid=allow_paid_summary)
 
@@ -532,16 +551,17 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
         summary_monthly_cap_usd=month_cap_usd() or None,
-        target_ids=target_ids, own_lines_only=own_lines_only,
+        target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
         gpu_touching=any(c["engine"] == "ollama" for c in chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})")
     if not started:
         raise ConflictError("A translation is already running for this drama.")
     save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
+    remember_thinking(drama_id, asked_thinking)
     started = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
                "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
                "fallback_engines": [c["engine"] for c in chain[1:]],
-               "reflect": reflect, "bulk": False}
+               "reflect": reflect, "bulk": False, "thinking": thinking}
     if target_ids is not None:
         # expected_en may have dropped some of the caller's ids.
         started["line_ids"] = sorted(ln.id for ln in eligible)
@@ -563,6 +583,12 @@ def save_style_toggles(drama_id: int, include_genre_notes=None,
         db.update_drama(drama_id, **saved)
 
 
+def remember_thinking(drama_id: int, asked) -> None:
+    """Keeps the run's explicit choice as the title's; None (not asked) leaves it."""
+    if asked is not None:
+        translate_thinking_service.save_title_choice(drama_id, asked)
+
+
 def bulk_job_id(drama_id: int) -> str:
     return f"bulk_translate_{drama_id}"
 
@@ -570,7 +596,7 @@ def bulk_job_id(drama_id: int) -> str:
 def _bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_reference,
                     glossary_terms, style_guidelines, style_note, locale, style_preset,
                     context_window, context_window_ahead, batch_size, force_retranslate,
-                    job_cost_cap_usd, series_id):
+                    job_cost_cap_usd, series_id, thinking=False):
     """A zero-arg callable that submits the bulk translation (or bulk
     Reflect) batch (same translate_args, context and character names as a
     normal run) and returns the bulk job id. Called inside the job so the provider
@@ -591,7 +617,7 @@ def _bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referen
                 {"style_note": style_note, "locale": locale, "glossary_terms": glossary_terms,
                  "style_guidelines": style_guidelines, "style_preset": style_preset,
                  "context_window": context_window, "cost_cap_usd": job_cost_cap_usd or None,
-                 "novel_reference": novel_reference},
+                 "novel_reference": novel_reference, "thinking": thinking},
                 force_retranslate=force_retranslate)
         character_names = translation_guide.build_speaker_labels(
             db.list_characters_with_series_names(drama_id),

@@ -50,6 +50,8 @@ import {
   monthSpendText,
   ollamaWarning,
   reflectAvailable,
+  thinkingApplies,
+  thinkingHelp,
   PRESET_NAME_MAX,
   savePresetStart,
   styleGuidance,
@@ -72,7 +74,9 @@ import './translate.css'
 import { AI_ENGINE_LABEL, NOTHING_STARTS_HELP, NO_KEY_ENGINES_HELP } from '../../../helpText'
 
 function EstimateView({ e }: { e: TranslateRunEstimate }) {
-  const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown' : `about $${e.estimated_usd.toFixed(2)}`
+  const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown'
+    : e.estimate_is_lower_bound ? `at least $${e.estimated_usd.toFixed(2)} (thinking adds hidden output, so the real cost is higher)`
+      : `about $${e.estimated_usd.toFixed(2)}`
   const cap = e.effective_cap_usd !== null ? ` · cap $${e.effective_cap_usd.toFixed(2)}` : ''
   return (
     <span className="translate-estimate" data-testid="estimate">
@@ -103,6 +107,7 @@ function advancedSummary(f: RunForm, base: RunForm): string {
   if (f.fallbacks.length) parts.push(`${f.fallbacks.length} fallback${f.fallbacks.length === 1 ? '' : 's'}`)
   if (f.reflect) parts.push('reflect')
   if (f.bulk) parts.push('bulk')
+  if (f.thinking !== base.thinking) parts.push(f.thinking ? 'thinking on' : 'thinking off')
   if (f.force) parts.push('re-translate existing')
   return parts.length ? parts.join(' · ') : 'defaults'
 }
@@ -608,6 +613,9 @@ function RunPanel({
                 <Toggle checked={f.reflect} disabled={!canReflect && !f.reflect} onChange={(v) => set('reflect', v)} />
               </Field>
             )}
+            <Field label="Think harder on tricky text (slower, costs more)" help={thinkingHelp(effEngine, f.reflect, config.thinking_switch_engines)}>
+              <Toggle checked={f.thinking && thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines)} disabled={!thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines)} onChange={(v) => set('thinking', v)} />
+            </Field>
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
               <Field
                 label="Bulk"

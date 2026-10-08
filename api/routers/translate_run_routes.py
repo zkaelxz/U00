@@ -51,11 +51,12 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
                                reflect: bool = False,
                                force_retranslate: bool = False,
                                bulk: bool = False,
+                               thinking: Optional[bool] = None,
                                gemini_free_tier: Optional[bool] = None,
                                job_cost_cap_usd: Optional[float] = Query(None, ge=0)):
     return translate_run_service.estimate_translate_cost(
         drama_id, engine_name=engine, model=model, reflect=reflect,
-        force_retranslate=force_retranslate, bulk=bulk,
+        force_retranslate=force_retranslate, bulk=bulk, thinking=thinking,
         gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd)
 
 
@@ -79,7 +80,7 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
         if body.fallback_chain else None,
         reflect=body.reflect, bulk=body.bulk,
         default_female_pronouns=body.default_female_pronouns,
-        include_genre_notes=body.include_genre_notes,
+        include_genre_notes=body.include_genre_notes, thinking=body.thinking,
         # The Settings episode-summary engine may be a cloud one: skipped
         # for a caller without engines.paid rather than refusing the run.
         allow_paid_summary=holds_paid_engines(request))

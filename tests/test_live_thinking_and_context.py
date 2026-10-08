@@ -177,7 +177,7 @@ class TestOllamaThinking:
             raise requests.HTTPError("500", response=resp)
         monkeypatch.setattr(local, "_ollama_chat", boom)
         with pytest.raises(requests.HTTPError):
-            thinking.ollama_chat_no_thinking(boom, "http://x", {"model": "m"})
+            thinking.ollama_chat_with_think(boom, "http://x", {"model": "m"})
 
     def test_a_separate_thinking_field_never_reaches_the_line(self, monkeypatch):
         thinking._think_refused.clear()
@@ -347,9 +347,9 @@ class TestOllamaRealRequestRemembersRefusal:
         post = self._post(bodies, error_text)
         chat = lambda base, payload: local._ollama_chat_request(post, base, payload)
         key = {"model": "m", "messages": []}
-        thinking.ollama_chat_no_thinking(chat, "http://x", dict(key))
+        thinking.ollama_chat_with_think(chat, "http://x", dict(key))
         first = len(bodies)
-        thinking.ollama_chat_no_thinking(chat, "http://x", dict(key))
+        thinking.ollama_chat_with_think(chat, "http://x", dict(key))
         thinking._think_refused.clear()
         return first, len(bodies) - first
 

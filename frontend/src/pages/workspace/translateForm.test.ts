@@ -23,6 +23,8 @@ import {
   parseCap,
   reflectAvailable,
   sameEngineKind,
+  thinkingApplies,
+  thinkingHelp,
   savePresetStart,
   splitLines,
   styleGuidance,
@@ -122,6 +124,7 @@ describe('translate form', () => {
       batch_size: 20,
       job_cost_cap_usd: 1.5,
       fallback_chain: [{ engine: 'gemini' }],
+      thinking: false,
       default_female_pronouns: false,
       include_genre_notes: true,
     })
@@ -416,5 +419,33 @@ describe('Ollama reachability warning (X24)', () => {
   it('stays quiet for other engines, even with a stale false', () => {
     expect(ollamaWarning('claude', false)).toBe(false)
     expect(ollamaWarning('', false)).toBe(false)
+  })
+})
+
+describe('think harder on tricky text', () => {
+  it('is off unless the title remembers it, and is sent explicitly either way', () => {
+    expect(initialForm(config).thinking).toBe(false)
+    const remembered = initialForm({ ...config, title_thinking: true })
+    expect(remembered.thinking).toBe(true)
+    expect(buildRunBody(remembered).thinking).toBe(true)
+    expect(buildRunBody({ ...remembered, thinking: false }).thinking).toBe(false)
+    expect(buildEstimateParams(remembered)).toMatchObject({ thinking: true })
+  })
+
+  it('applies only to engines with a request switch, and never to Reflect', () => {
+    expect(thinkingApplies('deepseek', false)).toBe(true)
+    expect(thinkingApplies('ollama', false)).toBe(true)
+    expect(thinkingApplies('claude', false)).toBe(false)
+    expect(thinkingApplies('deepseek', true)).toBe(false)
+    expect(thinkingApplies('claude', false, ['claude'])).toBe(true)
+  })
+
+  it('says plainly what it costs, and plainly when it does nothing', () => {
+    expect(thinkingHelp('deepseek', false)).toMatch(/Off by default/)
+    expect(thinkingHelp('deepseek', false)).toMatch(/lower bound/)
+    expect(thinkingHelp('claude', false)).toBe(
+      'claude has no thinking switch, so this does nothing for this run; it runs as it always has. Thinking can be switched for DeepSeek and Ollama.',
+    )
+    expect(thinkingHelp('deepseek', true)).toMatch(/^Reflect mode has no thinking switch/)
   })
 })

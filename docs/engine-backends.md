@@ -205,6 +205,28 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
    (`gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
    `<think>` blocks in a reply are stripped before parsing; a separate
    `thinking` field is never read.
+8. **Thinking on translation runs.** Off by default for every run (Workspace,
+   bulk, CLI): `build_translation_context` sets `reply_without_thinking`, so
+   DeepSeek gets `thinking: disabled` and Ollama `think: false`
+   (`engine_backends/thinking.py`, shared with Live). A run that asks to "think
+   harder" (`thinking=True`, the Translate step's toggle, `cli.py translate
+   --thinking`) sends the explicit on form instead (`thinking: enabled`,
+   `think: true`). Engines without a request switch (Claude, Gemini, OpenAI,
+   the translation-only engines) are unchanged, and so are Reflect's passes and
+   a Claude/Gemini batch; the form says so. The DeepSeek off-peak job carries
+   the choice in its stored args. Comics are not covered: Scanlate calls
+   `call_llm_json`, which has no switch. The title's choice is kept in
+   `translate_prefs.json` in its drama folder (`translate_thinking_service`;
+   `db.py` is frozen), and a run that is not told uses it, so retries and the
+   CLI match the app. Reasoning is never saved: `<think>` blocks are stripped
+   and `reasoning_content` / `thinking` fields are never read. Hidden reasoning
+   is billed inside the provider's output token count, so `usage_log` and the
+   spend history (`spend_history_service`) already include it with no new
+   field; the pre-run estimate is made from the visible text and is shown as a
+   lower bound when thinking is on. There is no translation output cache; the
+   per-line provenance settings hash gains `thinking` only for a thinking run,
+   so earlier hashes are unchanged and `TRANSLATE_PROMPT_VERSION` is not bumped
+   (the prompt text is the same).
 
 ## 3. Transcription (ASR)
 
