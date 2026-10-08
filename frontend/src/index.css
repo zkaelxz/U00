@@ -401,6 +401,8 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .field-label-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
 .field-label-row label { font-weight: 600; }
 .field-control { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+/* A small button's hit area reaches 6px above it; 4px would put it under the label row's help button. */
+.field-item:has(> .field-control > .btn-sm) { gap: var(--space-2); }
 .field-control > :first-child { flex: 1 1 auto; min-width: 0; }
 .field-unit { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .field-help { position: relative; display: inline-flex; }

@@ -139,7 +139,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   await input.fill('https://ntfy.sh/secret-topic-name')
   await section.getByRole('button', { name: 'Save ntfy address' }).click()
   await section.getByRole('button', { name: 'Confirm save ntfy address' }).click()
-  await expect(section.getByText(/can only be changed on the Baihe PC itself/)).toBeVisible()
+  await expect(section.getByText(/Change this on the Baihe PC with key writes on/)).toBeVisible()
   await expect(input).toHaveValue('')
   expect(await page.content()).not.toContain('secret-topic-name')
   expect(unmocked).toEqual([])
@@ -179,7 +179,7 @@ test('What to send: each switch saves at once, sending only what changed', async
   await expect(jobs).toBeChecked()
   await expect(chapters).not.toBeChecked()
   await expect(group.getByText('The bell at the top of the page always lists every event.')).toBeVisible()
-  await expect(section.getByText(/finds new chapters/).first()).toBeVisible()
+  await expect(section.getByText(/have new chapters/).first()).toBeVisible()
 
   await jobs.click()
   // Saving: both switches wait for the answer.

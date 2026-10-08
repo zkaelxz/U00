@@ -106,7 +106,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   await input.fill(SECRET)
   await section.getByRole('button', { name: 'Save public address check' }).click()
   await section.getByRole('button', { name: 'Confirm save public address check' }).click()
-  await expect(section.getByText(/can only be changed on the Baihe PC itself/)).toBeVisible()
+  await expect(section.getByText(/Change this on the Baihe PC with key writes on/)).toBeVisible()
   await expect(input).toHaveValue('')
   await expect(section.locator('.card-meta')).toHaveText('Address check not set')
   expect(await page.content()).not.toContain('SECRET-DDNS-TOKEN')

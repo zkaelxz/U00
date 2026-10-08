@@ -109,7 +109,7 @@ test('settings: a refused address change explains the key-write gate', async ({ 
   const card = page.getByRole('region', { name: 'Web search' })
   await card.getByRole('textbox', { name: 'SearXNG address' }).fill('http://localhost:8888')
   await card.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(card.getByRole('alert')).toContainText('key writes turned on')
+  await expect(card.getByRole('alert')).toContainText('with key writes on')
 })
 
 test('settings: flipping the switch keeps an address typed but not saved', async ({ page }) => {

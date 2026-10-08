@@ -96,7 +96,7 @@ test('a custom update source is named on the card', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page)
   await expect(card(page).getByTestId('update-custom-source')).toHaveText(
-    'Custom update source: this PC checks a different repository than the default.',
+    'Custom update source: this PC checks a different repository.',
   )
 })
 

@@ -5,7 +5,7 @@ import { humanize, type BadgeTone } from '../../components/labels'
 import type { AskResponse, AssistantSettings, AssistantSettingsPatch, BacklogKind, ChatTurn } from '../../types/assistant'
 import type { TierFailure } from './escalation'
 
-export const DEVELOPER_MODE_HELP = 'Shows maintenance tools (the AI maintenance assistant) in the menu. Off by default.'
+export const DEVELOPER_MODE_HELP = 'Shows the AI maintenance assistant in the menu. Off by default.'
 export const PC_ONLY_TEXT = 'The maintenance assistant is available on the PC only.'
 export const MODE_OFF_TEXT = 'Developer Mode is off. Turn it on to use the assistant.'
 export const NO_KEY_TEXT = 'No API key is set for that engine. Add one in Settings, or pick another engine.'
