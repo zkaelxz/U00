@@ -126,6 +126,10 @@ def _bound_aliases(tree, module):
     """Local names bound to `module` by import statements, and the names
     pulled out of it with `from module import ...`."""
     aliases, from_names = set(), set()
+    if module == "db":
+        # The fixture yields the db module itself, so attribute reads and
+        # patch targets through it must resolve like `db.<name>`.
+        aliases.add("isolated_db")
     head, _, tail = module.rpartition(".")
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -137,6 +141,17 @@ def _bound_aliases(tree, module):
                 from_names |= {a.name for a in node.names if a.name != "*"}
             elif head and node.module == head:
                 aliases |= {a.asname or a.name for a in node.names if a.name == tail}
+    # `d = isolated_db` style aliases; repeat until no new name is found.
+    grew = True
+    while grew:
+        grew = False
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Name)
+                    and node.value.id in aliases):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and t.id not in aliases:
+                        aliases.add(t.id)
+                        grew = True
     return aliases, from_names
 
 
@@ -205,39 +220,150 @@ class TestFrontDoorNamesResolve:
                "mock.patch('db.three.x')\nmock.patch.object(db, 'four')\n")
         assert _referenced_names(ast.parse(src), "db") == {"one", "two", "three", "four"}
 
+    def test_scanner_treats_the_isolated_db_fixture_as_db(self):
+        src = ("def test_x(isolated_db, monkeypatch):\n"
+               "    isolated_db.one()\n"
+               "    d = isolated_db\n"
+               "    d.two()\n"
+               "    monkeypatch.setattr(isolated_db, 'three', f)\n"
+               "    mock.patch.object(d, 'four')\n")
+        assert _referenced_names(ast.parse(src), "db") == {"one", "two", "three", "four"}
+
+    def test_fixture_alias_is_specific_to_db(self):
+        src = "def test_x(isolated_db):\n    isolated_db.one()\n"
+        assert _referenced_names(ast.parse(src), "translate_engines") == set()
+
+    def test_unknown_name_through_the_fixture_is_reported(self, tmp_path, monkeypatch):
+        f = tmp_path / "t.py"
+        real = [n for n in dir(importlib.import_module("db")) if not n.startswith("_")][:25]
+        body = "".join(f"    isolated_db.{n}\n" for n in real) + "    isolated_db.no_such_db_name_xyz()\n"
+        f.write_text("def test_x(isolated_db):\n" + body)
+        here = sys.modules[__name__]
+        monkeypatch.setattr(here, "_all_py_files", lambda: [str(f)])
+        assert _missing_front_door_names("db") == {"no_such_db_name_xyz": [_rel(str(f))]}
+
 
 # --- 4. db package rule ----------------------------------------------------
 
 _DB_DIR = os.path.join(PROJECT_ROOT, "db")
+_DB_PATH_GLOBALS = ("LIBRARY_DIR", "DRAMAS_DIR", "DB_PATH", "BENCHMARK_DIR", "VOICE_BANK_DIR")
+# Mutable state configure_library_dir rebinds; a submodule copy would go stale.
+_DB_SHARED_STATE = _DB_PATH_GLOBALS + ("_open_connections", "_media_lock", "_path_override")
+
+
+def _reexported_names(init_path):
+    """Public names `db/__init__` pulls in from its submodules."""
+    if not os.path.exists(init_path):
+        return set()
+    tree = ast.parse(open(init_path, encoding="utf-8").read())
+    names = set()
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and (
+                node.level > 0 or (node.module or "").split(".")[0] == "db"):
+            names |= {a.asname or a.name for a in node.names
+                      if a.name != "*" and not (a.asname or a.name).startswith("_")}
+    return names
+
+
+def _db_package_problems(db_dir):
+    """Rule violations in the submodules of a db package (everything but
+    `__init__`), as "path:line message" strings."""
+    public = _reexported_names(os.path.join(db_dir, "__init__.py"))
+    problems = []
+    for f in _walk_files(db_dir, ".py"):
+        if os.path.basename(f) == "__init__.py":
+            continue
+        rel = os.path.relpath(f, os.path.dirname(db_dir)).replace(os.sep, "/")
+        tree = ast.parse(open(f, encoding="utf-8").read(), f)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.level > 0:
+                    problems.append(f"{rel}:{node.lineno} relative import; use `import db` and db.<name>")
+                elif (node.module or "").split(".")[0] == "db":
+                    problems.append(f"{rel}:{node.lineno} from {node.module} import ...")
+                    for a in node.names:
+                        if a.name in _DB_PATH_GLOBALS:
+                            problems.append(f"{rel}:{node.lineno} imports path global {a.name}; read db.{a.name}")
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                # Same-module bare use bypasses a test patch on db.<name> too.
+                if node.id in public:
+                    problems.append(f"{rel}:{node.lineno} bare use of {node.id}; use db.{node.id}")
+                elif node.id in _DB_PATH_GLOBALS:
+                    problems.append(f"{rel}:{node.lineno} bare read of {node.id}; use db.{node.id}")
+    return problems
+
+
+def _shared_state_copies(modules):
+    return [f"{m.__name__}.{n}" for m in modules for n in _DB_SHARED_STATE if n in vars(m)]
 
 
 class TestDbPackageRule:
     """Once db/ is a package, submodules must reach each other's public
     functions through the `db` front door so test patches on `db.<name>`
-    still take effect; a direct `from db.x import f` would bypass them."""
+    still take effect; a direct import or bare call would bypass them."""
 
     def test_submodules_use_the_front_door(self):
         if not os.path.isdir(_DB_DIR):
             pytest.skip("db is still a single file; the package rule applies after the split")
-        init = os.path.join(_DB_DIR, "__init__.py")
-        public = set()
-        if os.path.exists(init):
-            tree = ast.parse(open(init, encoding="utf-8").read())
-            for node in tree.body:
-                if isinstance(node, ast.ImportFrom):
-                    public |= {a.asname or a.name for a in node.names if not a.name.startswith("_")}
-        problems = []
-        for f in _walk_files(_DB_DIR, ".py"):
-            if os.path.basename(f) == "__init__.py":
-                continue
-            tree = ast.parse(open(f, encoding="utf-8").read(), f)
-            own = {n.name for n in ast.walk(tree)
-                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ImportFrom) and node.level == 0 and \
-                        (node.module or "").split(".")[0] == "db":
-                    problems.append(f"{_rel(f)}:{node.lineno} from {node.module} import ...")
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
-                        and node.func.id in public and node.func.id not in own:
-                    problems.append(f"{_rel(f)}:{node.lineno} bare call {node.func.id}(); use db.{node.func.id}()")
-        assert problems == [], "db/ submodules must call public functions as db.<name>:\n" + "\n".join(problems)
+        problems = _db_package_problems(_DB_DIR)
+        assert problems == [], "db/ submodules must use the db front door:\n" + "\n".join(problems)
+
+    @staticmethod
+    def _make_pkg(tmp_path, init, mod):
+        pkg = tmp_path / "db"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text(init)
+        (pkg / "mod.py").write_text(mod)
+        return str(pkg)
+
+    @pytest.mark.parametrize("line", [
+        "from . import x",
+        "from .other import x",
+        "from .. import x",
+        "from db.other import x",
+        "from db import LIBRARY_DIR",
+        "def g():\n    fsync_dir('p')",
+        "def g():\n    return MAX_SNAPSHOT_WORD_BYTES",
+        "def g():\n    update_drama(1)",
+        "def g():\n    return DB_PATH",
+        "def g():\n    return get_app_setting('k')",
+    ])
+    def test_rule_fires_on_each_violation(self, tmp_path, line):
+        init = ("from .mod import fsync_dir, update_drama, upsert_character, get_app_setting\n"
+                "from .consts import MAX_SNAPSHOT_WORD_BYTES\n")
+        assert _db_package_problems(self._make_pkg(tmp_path, init, line + "\n")) != []
+
+    def test_rule_allows_front_door_use_and_skips_init(self, tmp_path):
+        init = "from .mod import update_drama\ndef f():\n    return update_drama(1) or LIBRARY_DIR\n"
+        mod = "import db\ndef update_drama(i):\n    return db.get_drama(i), db.LIBRARY_DIR\n"
+        assert _db_package_problems(self._make_pkg(tmp_path, init, mod)) == []
+
+    def test_reexports_ignore_non_package_imports(self, tmp_path):
+        init = "from contextlib import contextmanager\nfrom .mod import update_drama\n"
+        pkg = self._make_pkg(tmp_path, init, "")
+        assert _reexported_names(os.path.join(pkg, "__init__.py")) == {"update_drama"}
+
+    def test_submodules_hold_no_copy_of_shared_state(self):
+        if not os.path.isdir(_DB_DIR):
+            pytest.skip("db is still a single file; submodule state applies after the split")
+        import pkgutil
+        import tempfile
+        db = importlib.import_module("db")
+        submodules = [importlib.import_module(m.name)
+                      for m in pkgutil.iter_modules(db.__path__, "db.")]
+        previous = db.LIBRARY_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                db.configure_library_dir(tmp)
+                copies = _shared_state_copies(submodules)
+        finally:
+            db.configure_library_dir(previous)
+        assert copies == [], f"define these once in db/__init__ and read them as db.<name>: {copies}"
+
+    def test_shared_state_guard_flags_a_copy(self):
+        import types
+        m = types.ModuleType("db.fake")
+        m.LIBRARY_DIR = "/stale"
+        m._media_lock = object()
+        assert _shared_state_copies([m]) == ["db.fake.LIBRARY_DIR", "db.fake._media_lock"]
+        assert _shared_state_copies([types.ModuleType("db.clean")]) == []
