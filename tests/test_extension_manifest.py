@@ -165,6 +165,44 @@ class TestBatchSizeMatchesTheServer:
         assert int(match.group(1)) == page_server.MAX_IMAGES_PER_REQUEST
 
 
+class TestChapterCaptureStaysPolite:
+    """The scroll-through capture reads what the reader has already
+    rendered; these pin the numbers and shapes that keep it that way."""
+
+    def _const(self, name):
+        import re
+        match = re.search(rf"const {name} = (\d+);", _code("content.js"))
+        assert match, f"content.js must declare {name}"
+        return int(match.group(1))
+
+    def test_the_page_cap_is_the_documented_300(self):
+        assert self._const("CAPTURE_MAX_PAGES") == 300
+
+    def test_steps_are_paced_like_a_person_scrolling(self):
+        low, high = self._const("CAPTURE_STEP_MIN_MS"), self._const("CAPTURE_STEP_MAX_MS")
+        assert 250 <= low < high <= 600
+
+    def test_the_scroll_step_matches_the_server_side_scroll(self):
+        import re
+        import page_scroll
+        assert "innerHeight * 0.9" in page_scroll.SCROLL_THROUGH_JS
+        assert re.search(r"const CAPTURE_STEP_FRACTION = 0\.9;", _code("content.js"))
+
+    def test_capture_sends_through_the_shared_batcher_at_the_servers_limit(self):
+        code = _code("content.js")
+        assert code.count("async function sendInBatches(") == 1
+        run = code[code.index("async function runCapture("):]
+        assert "sendInBatches(batch," in run
+        assert "limit = MAX_IMAGES_PER_REQUEST" in run
+        assert self._const("MAX_IMAGES_PER_REQUEST") == page_server.MAX_IMAGES_PER_REQUEST
+
+    def test_capture_makes_no_calls_of_its_own(self):
+        code = _code("content.js")
+        capture = code[code.index("const CAPTURE_MAX_PAGES"):code.index("function cancelCapture")]
+        for banned in ("fetch(", "XMLHttpRequest", "sendBeacon", "new WebSocket"):
+            assert banned not in capture
+
+
 class TestTextCaptureStaysWithinTheSameModel:
     """Step 96's text-capture mode is a second input surface on the same
     extension, not a second extension -- it has to follow the same rules
