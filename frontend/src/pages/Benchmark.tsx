@@ -29,6 +29,7 @@ import { GoldenSetsCard } from './benchmark/GoldenSetsCard'
 import { ReevalCard } from './benchmark/ReevalCard'
 import { RunCard } from './benchmark/RunCard'
 import { RunsCard } from './benchmark/RunsCard'
+import { BENCH_INTRO } from './benchmark/benchmarkHelp'
 import { isRunActive } from './benchmark/benchmarkForm'
 import './benchmark/benchmark.css'
 
@@ -102,10 +103,11 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
           ‹ Diagnostics
         </ButtonLink>
       </header>
-      <p className="muted bench-intro">
-        Test engines and prompts against golden sets with known answers. Every run is kept with its score, so a change can be
-        shown to be better or worse; runs of two or more engines line up side by side in the Model Arena.
-      </p>
+      <div className="muted bench-intro" data-testid="bench-intro">
+        {BENCH_INTRO.map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+      </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
       {options && sets && <GoldenSetsCard sets={sets} options={options} pc={pc} phone={phone} onChanged={loadSets} />}

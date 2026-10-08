@@ -325,11 +325,12 @@ class SettingsOverview(BaseModel):
     """Non-secret settings snapshot -- engine_keys
     reports only whether a key/endpoint is configured, never its value
     (D2: keys are server-side only). endpoints carries the Ollama
-    and GPT-SoVITS URLs only when they have no userinfo,
+    URL only when it has no userinfo,
     query or fragment (settings_service.validate_endpoint_url)."""
     engine_keys: dict[str, bool]
     gpu_limit_enabled: bool
     gpu_max_parallel: int = 1
+    unload_ollama_before_transcribe: bool = True
     notify_on_completion: bool
     use_gpu: bool = False
     gemini_free_tier: bool = False
@@ -371,6 +372,7 @@ class SettingsUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     gpu_limit_enabled: Optional[StrictBool] = None
     gpu_max_parallel: Optional[StrictInt] = None  # clamped to 1..4
+    unload_ollama_before_transcribe: Optional[StrictBool] = None
     notify_on_completion: Optional[StrictBool] = None
     use_gpu: Optional[StrictBool] = None
     gemini_free_tier: Optional[StrictBool] = None
@@ -433,7 +435,7 @@ class EngineKeyResult(BaseModel):
 
 
 class EndpointUrlSetRequest(BaseModel):
-    """Ollama / GPT-SoVITS URL (settings parity G06). An
+    """Ollama URL (settings parity G06). An
     http(s) URL with no userinfo, query or fragment."""
     model_config = ConfigDict(extra="forbid")
     url: str = Field(..., max_length=300)

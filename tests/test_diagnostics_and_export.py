@@ -407,17 +407,15 @@ class TestModelEngineVersions:
 
     def test_step_11b_voice_engines_have_rows(self):
         rows = {v["name"]: v for v in diagnostics.get_model_engine_versions()}
-        for name in ("OmniVoice", "GPT-SoVITS", "Chatterbox", "TADA"):
-            assert name in rows
-        # a separate server, not a pip package -- says so rather than "not installed"
-        assert rows["GPT-SoVITS"]["version"] == "Separate local server (not pip-installed)"
+        assert "OmniVoice" in rows
+        for removed in ("GPT-SoVITS", "Chatterbox", "TADA"):
+            assert removed not in rows
 
     def test_step_11b_pip_engines_are_registered_dependencies(self):
         # keyed by the real pip name, since the Install button runs `pip install <key>`
         deps = diagnostics.OPTIONAL_DEPENDENCIES
         assert deps["omnivoice"][0] == "omnivoice"
-        assert deps["chatterbox-tts"][0] == "chatterbox"
-        assert deps["hume-tada"][0] == "tada"
+        assert "chatterbox-tts" not in deps and "hume-tada" not in deps
 
     def test_ollama_tag_appended_only_when_given(self):
         assert not any(v["name"].startswith("Ollama") for v in diagnostics.get_model_engine_versions())
@@ -442,8 +440,6 @@ class TestModelEngineVersions:
         assert pkg_row["installed"] == (pkg_row["version"] != "not installed")
         # a "repo" kind has no real "not installed" state -- always installed
         assert rows["pyannote diarization model"]["installed"] is True
-        # a "service" kind (a separate server, not pip-installed) likewise
-        assert rows["GPT-SoVITS"]["installed"] is True
 
     def test_ollama_row_is_installed(self):
         rows = {v["name"]: v for v in diagnostics.get_model_engine_versions("qwen3:8b")}
@@ -543,7 +539,7 @@ class TestStreamDependencyInstall:
         monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
 
         list(diagnostics.stream_dependency_install("torch"))
-        assert captured["pip_args"] == ["torch"]
+        assert captured["pip_args"] == ["torch", *diagnostics.constraints_pip_args()]
 
     def test_other_dependencies_always_use_a_plain_install(self, monkeypatch):
         monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
@@ -555,7 +551,7 @@ class TestStreamDependencyInstall:
         monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
 
         list(diagnostics.stream_dependency_install("audio-separator"))
-        assert captured["pip_args"] == ["audio-separator"]
+        assert captured["pip_args"] == ["audio-separator", *diagnostics.constraints_pip_args()]
 
 
 class TestPyannoteGatedAccessCheck:

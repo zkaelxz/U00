@@ -164,7 +164,12 @@ def require_page(drama_id: int, page_id: int) -> dict:
 
 def ocr_backend_installed(backend: str) -> bool:
     modules = _OCR_MODULES.get(backend)
-    return bool(modules and all(importlib.util.find_spec(m) is not None for m in modules))
+    if not (modules and all(importlib.util.find_spec(m) is not None for m in modules)):
+        return False
+    if backend == "paddle_vl_manga":
+        import ocr
+        return ocr.paddle_vl_manga_problem() is None
+    return True
 
 
 def _weights_cached():

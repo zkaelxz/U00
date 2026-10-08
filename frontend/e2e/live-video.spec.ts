@@ -26,7 +26,7 @@ test('video plays behind live while running and is removed on Stop', async ({ pa
   const { live } = await startRunning(page)
   const iframe = page.locator('iframe[title="Stream video"]')
   await expect(iframe).toHaveCount(1)
-  await expect(iframe).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?enablejsapi=1&playsinline=1')
+  await expect(iframe).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?enablejsapi=1&playsinline=1&autoplay=1')
   await expect(iframe).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation')
   await expect(iframe).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin')
   // The default 15 s delay: seek to 300 - 15.
@@ -43,6 +43,64 @@ test('video plays behind live while running and is removed on Stop', async ({ pa
 
   await live.getByRole('button', { name: 'Stop', exact: true }).click()
   await expect(live.getByTestId('live-status')).toHaveText('Stopped · 2 lines')
+  await expect(page.locator('iframe')).toHaveCount(0)
+})
+
+type Cmd = { func: string; args: number[] }
+const cmds = (page: Page) => ytFrame(page)!.evaluate(() => (window as unknown as { __cmds: Cmd[] }).__cmds)
+
+test('the initial delay is applied once when the player starts, before any slider change', async ({ page }) => {
+  const { live } = await startRunning(page)
+  await expect(live.getByTestId('live-video-note')).toHaveText('Playing about 15 s behind live.')
+  const seeks = (await cmds(page)).filter((c) => c.func === 'seekTo')
+  expect(seeks).toEqual([{ event: 'command', func: 'seekTo', args: [285, true] }])
+  await page.waitForTimeout(2_500)
+  expect((await cmds(page)).filter((c) => c.func === 'seekTo')).toHaveLength(1)
+  await expect(live.getByTestId('live-video-muted')).toHaveCount(0)
+})
+
+test('a saved delay is applied at first load and matches the slider', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.live.videoDelay', '60'))
+  const { live } = await startRunning(page)
+  await expect(live.getByLabel('Video delay', { exact: true })).toHaveValue('60')
+  await expect(live.getByTestId('live-video-note')).toHaveText('Playing about 60 s behind live.')
+  expect((await cmds(page)).find((c) => c.func === 'seekTo')?.args[0]).toBe(240)
+})
+
+test('when sound is blocked the video starts muted, says so, and can be unmuted', async ({ page }) => {
+  test.setTimeout(45_000)
+  const { live } = await startRunning(page, YT, ytHtml(300, 0, { blockSound: true }))
+  const muted = live.getByTestId('live-video-muted')
+  await expect(muted).toContainText('Started muted', { timeout: 10_000 })
+  await expect(live.getByTestId('live-video-note')).toHaveText('Playing about 15 s behind live.', { timeout: 10_000 })
+  const all = await cmds(page)
+  expect(all.map((c) => c.func).slice(0, 3)).toEqual(['playVideo', 'mute', 'playVideo'])
+  expect(all.filter((c) => c.func === 'seekTo')).toHaveLength(1)
+  await muted.getByRole('button', { name: 'Unmute' }).click()
+  await expect(muted).toHaveCount(0)
+  // The note goes away at the click but the command reaches the other frame later, so wait for it.
+  await expect.poll(async () => (await cmds(page)).some((c) => c.func === 'unMute')).toBe(true)
+  // Unmuting must not move the picture: no seek after the unMute.
+  const after = (await cmds(page)).map((c) => c.func)
+  expect(after.slice(after.lastIndexOf('unMute') + 1)).not.toContain('seekTo')
+  expect(after.filter((f) => f === 'seekTo')).toHaveLength(1)
+})
+
+test('a player that never starts asks the user to press play and does not call the stream undelayable', async ({ page }) => {
+  test.setTimeout(45_000)
+  const { live } = await startRunning(page, YT, ytHtml(300, 0, { blockAll: true }))
+  await expect(live.getByTestId('live-video-note')).toHaveText(
+    'Press play in the video; the delay is applied as soon as it starts.', { timeout: 15_000 })
+  await page.waitForTimeout(12_000)
+  await expect(live.getByTestId('live-video-note')).toHaveText(
+    'Press play in the video; the delay is applied as soon as it starts.')
+})
+
+test('no embed exists before Start, so nothing can autoplay', async ({ page }) => {
+  await mockLive(page)
+  await mockEmbedHosts(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill(YT)
   await expect(page.locator('iframe')).toHaveCount(0)
 })
 

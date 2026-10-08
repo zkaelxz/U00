@@ -332,7 +332,6 @@ DEFAULT_HALLUCINATION_SILENCE_SEC = 0.0
 def release_gpu_models():
     """Call after a GPU stage (transcription, alignment, diarization)
     finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models
-    (and a local NLLB translation pipeline)
     and hands CUDA's cached memory back, so the next stage -- or a local
     translation model in Ollama, or TTS -- isn't fighting leftovers for
     the same VRAM. The next run of a stage reloads its model (seconds, from
@@ -343,8 +342,7 @@ def release_gpu_models():
     _whisper_model_cache.clear()
     _whisper_device_info.clear()
     for module_name, cache_name in (("asr_backend", "_asr_model_cache"),
-                                    ("forced_align", "_aligner_model_cache"),
-                                    ("translate_engines", "_nllb_pipeline_cache")):
+                                    ("forced_align", "_aligner_model_cache")):
         module = sys.modules.get(module_name)
         if module is not None:
             getattr(module, cache_name).clear()
@@ -522,6 +520,8 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
     """
     target = local_model_path or model_size
     cache_key = f"{target}_{'gpu' if use_gpu else 'cpu'}"
+    import ollama_unload
+    ollama_unload.prepare_gpu_for_transcription(use_gpu)
     if cache_key in _whisper_model_cache:
         return _whisper_model_cache[cache_key]
 

@@ -315,7 +315,7 @@ Contract:
   a `(spoken in Korean)` tag in the numbered prompt text and in all three Reflect
   passes (`context["line_languages"]`, `None` for a single-language batch, so
   those prompts are unchanged); `en` lines are copied to `en` without a model
-  call; NLLB groups a batch by language.
+  call.
 - The other paths read it through the same helpers in `engine_backends/shared.py`
   (`tagged_line_languages`, `tagged_source_texts`, `is_english_line`):
   bulk translate tags each request's numbered lines and copies `en` lines at
