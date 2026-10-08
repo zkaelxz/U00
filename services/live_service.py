@@ -93,12 +93,22 @@ def _num(name, value, lo, hi, cast=float):
     return max(lo, min(hi, value))
 
 
+def _require_offered_model(engine_name: str, model: Optional[str]):
+    """Only models the Live picker offers (the Translate list) are accepted."""
+    if not model:
+        return
+    entry = next((e for e in translate_service.list_engines() if e["name"] == engine_name), None)
+    if entry is None or model not in (entry["models"] or ()):
+        raise InvalidInputError("That model isn't offered for this engine.")
+
+
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
     engine_name = engine_name or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
+    _require_offered_model(engine_name, model)
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
+    if api_key is None:
         raise MissingKeyError(engine_name)
     try:
         engine = translate_engines.get_engine(
@@ -106,8 +116,13 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
             free_tier=settings_service.get_gemini_free_tier(),
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
+        if engine_name == "ollama":
+            translate_engines.check_ollama_model_installed(engine.base_url, engine.model)
     except ServiceError:
         raise
+    except translate_engines.OllamaUnavailableError as exc:
+        raise DependencyUnavailableError(
+            translate_engines.redact_secrets(exc.message), details={"reason": exc.reason}) from None
     except Exception as exc:
         raise DependencyUnavailableError(
             clean_message(f"Could not start {engine_name}: {exc}")) from None
@@ -238,7 +253,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                     del _sessions[sid]
                 if len(_sessions) < MAX_SESSIONS:
                     break
-        _sessions[session_id] = {"dir": out_dir, "engine": engine_name, "starting": True,
+        _sessions[session_id] = {"dir": out_dir, "engine": engine_name,
+                                 "model": getattr(eng, "model", None), "starting": True,
                                  "owner_user_id": ownership_service.acting_user_id()}
     try:
         started = background_jobs.start_job(
@@ -248,7 +264,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
-            gpu_touching=bool(use_gpu), description="Live capture (local Whisper)")
+            gpu_touching=bool(use_gpu), description=f"Live capture (local Whisper, {engine_name}"
+            f"{' ' + eng.model if getattr(eng, 'model', None) else ''})")
     except Exception:
         _remove_dir(session_id)
         with _lock:
@@ -309,6 +326,8 @@ def get_session(session_id, after=0, principal=None) -> dict:
     traceback, a filesystem path or a key."""
     job = _require(session_id, principal)
     _reap()
+    with _lock:
+        entry = _sessions.get(session_id) or {}
     after = int(_num("after", after, 0, 10 ** 9))
     status = _status(job)
     if status == "error":
@@ -326,6 +345,7 @@ def get_session(session_id, after=0, principal=None) -> dict:
                     "text": _cue_text(c.get("text")),
                     "translated": _cue_text(c.get("translated"))})
     return {"session_id": session_id, "status": status, "message": message,
+            "engine": entry.get("engine"), "model": entry.get("model"),
             "progress": float((job or {}).get("progress") or 0.0),
             "cues": out, "next_index": max(after, len(cues))}
 
@@ -341,5 +361,5 @@ def list_sessions(principal=None) -> list:
         job = background_jobs.get_status(sid)
         cues = (job or {}).get("result") or []
         result.append({"session_id": sid, "status": _status(job), "engine": entry.get("engine"),
-                       "cue_count": len(cues) if isinstance(cues, list) else 0})
+                       "model": entry.get("model"), "cue_count": len(cues) if isinstance(cues, list) else 0})
     return result

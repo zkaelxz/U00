@@ -1,11 +1,10 @@
 """
 api/routers/asr_options_routes.py -- experimental transcription settings
-(Steps 103 and 104). Thin: see services/asr_options_service.py.
+(Step 103). Thin: see services/asr_options_service.py.
 
 - `GET /api/settings/asr-options` (`admin.settings`): the Qwen3-ASR batch
-  size and whether the experimental MOSS-Transcribe-Diarize backend is on
-  and installed. No path, key or secret is involved.
-- `POST /api/settings/asr-options` (`local_only()`): saves either option.
+  size and the other experiment toggles. No path, key or secret is involved.
+- `POST /api/settings/asr-options` (`local_only()`): saves any option.
   Settings are PC-only, like `POST /api/settings`.
 """
 
@@ -20,7 +19,7 @@ router = APIRouter(prefix="/api/settings/asr-options", tags=["settings"])
 
 
 @router.get("", dependencies=[require_permission("admin.settings")], response_model=AsrOptions,
-            summary="Experimental transcription settings (Qwen3-ASR batching, MOSS backend)")
+            summary="Experimental transcription settings (Qwen3-ASR batching, speech detection, mixed languages)")
 def get_asr_options():
     return asr_options_service.get_asr_options()
 

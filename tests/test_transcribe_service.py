@@ -86,6 +86,7 @@ class TestGetTranscribeConfig:
         result = transcribe_service.get_transcribe_config(did)
         assert result == {
             "drama_id": did,
+            "asr_backend_notice": None,
             "transcript_mode": "have_transcript",
             "has_audio_pipeline": True,
             "audio_available": False,
@@ -199,6 +200,18 @@ class TestUpdateTranscribeConfig:
         did = isolated_db.create_drama(title_en="D")
         with pytest.raises(InvalidInputError):
             transcribe_service.update_transcribe_config(did, asr_backend_choice="nonsense")
+
+    @pytest.mark.parametrize("choice", ["tesseract", "paddle", "auto"])
+    def test_hardsub_ocr_backend_choices_are_saved(self, isolated_db, choice):
+        did = isolated_db.create_drama(title_en="D")
+        result = transcribe_service.update_transcribe_config(did, hardsub_ocr_backend=choice)
+        assert result["hardsub_ocr_backend"] == choice
+
+    @pytest.mark.parametrize("choice", ["manga_ocr", "paddle_vl_manga", "nonsense"])
+    def test_unknown_hardsub_ocr_backend_raises(self, isolated_db, choice):
+        did = isolated_db.create_drama(title_en="D")
+        with pytest.raises(InvalidInputError):
+            transcribe_service.update_transcribe_config(did, hardsub_ocr_backend=choice)
 
     def test_beam_size_out_of_range_raises(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
@@ -987,6 +1000,32 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
         assert captured["tesseract_cmd"] == "/usr/bin/tesseract"
         _clear(job_id)
 
+    def test_auto_fallback_records_the_engine_that_ran_and_surfaces_the_note(
+            self, isolated_db, monkeypatch):
+        import raw_transcript
+        hardsub_ocr = pytest.importorskip("hardsub_ocr")
+        did, ddir = _drama_with_video(isolated_db)
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        note = "PaddleOCR isn't installed, so Tesseract was used."
+
+        def fake_extract(video_path, **kwargs):
+            assert kwargs["ocr_backend"] == "auto"
+            kwargs["info"].update(backend="tesseract", note=note)
+            return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+        monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", fake_extract)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, None, "hardsub_ocr", None, "ko", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None,
+            video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="auto",
+            hardsub_interval=1.0)
+
+        assert background_jobs.get_status(job_id)["result"]["coverage_warning"] == note
+        raw = raw_transcript.load_latest(ddir)
+        assert (raw["backend"], raw["model"]) == ("hardsub_ocr", "tesseract")
+        _clear(job_id)
+
     def test_diarization_chains_off_the_dramas_own_audio_not_the_video(
             self, isolated_db, monkeypatch):
         # Regression test for a real bug found by code review: hardsub_ocr
@@ -1345,163 +1384,45 @@ class TestQwen3Backends:
             "qwen3_asr", "whisper_diff")
 
 
-class TestMossBackend:
-    """Step 104: the experimental MOSS-Transcribe-Diarize backend -- off by
-    default, refused unless its Settings toggle is on and the package is
-    installed, and when run it keeps MOSS's own speaker labels. Fake backend
-    only -- no model, GPU or network."""
+class TestRemovedMossBackend:
+    """A title saved with the removed MOSS backend loads as its default
+    backend with a notice; the saved value is never rewritten."""
 
-    _AUDIO_ARGS = ("simplified", "medium", 5, 300, 0.5, False, "auto", False, False, False,
-                   None, "hf-token", None)
-
-    def _enable(self, monkeypatch, installed=True):
-        from services import asr_options_service
-        asr_options_service.set_asr_options(moss_experimental=True)
-        monkeypatch.setattr(asr_options_service, "moss_installed", lambda: installed)
-
-    def test_choice_is_refused_while_the_toggle_is_off(self, isolated_db):
-        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
-        with pytest.raises(InvalidInputError, match="experimental"):
-            transcribe_service.update_transcribe_config(did, asr_backend_choice="moss_td")
-        assert isolated_db.get_drama(did).get("asr_backend_choice") in (None, "whisper")
-
-    def test_choice_is_saved_once_the_toggle_is_on(self, isolated_db, monkeypatch):
-        self._enable(monkeypatch)
-        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
-        transcribe_service.update_transcribe_config(did, asr_backend_choice="moss_td")
+    def test_config_shows_the_default_backend_and_a_notice(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D", asr_backend_choice="moss_td",
+                                       source_language="ko")
+        config = transcribe_service.get_transcribe_config(did)
+        assert config["asr_backend_choice"] == "whisper"
+        assert "MOSS-Transcribe-Diarize" in config["asr_backend_notice"]
         assert isolated_db.get_drama(did)["asr_backend_choice"] == "moss_td"
 
-    def test_start_is_refused_when_the_toggle_was_turned_off_later(self, isolated_db, monkeypatch):
-        self._enable(monkeypatch)
-        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
-        transcribe_service.update_transcribe_config(did, asr_backend_choice="moss_td")
-        from services import asr_options_service
-        asr_options_service.set_asr_options(moss_experimental=False)
-        with pytest.raises(InvalidInputError, match="experimental"):
-            transcribe_service.start_transcribe_run(did)
-        with pytest.raises(InvalidInputError, match="experimental"):
-            transcribe_service.validate_transcribe_options(did)
+    def test_other_backends_have_no_notice(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D", asr_backend_choice="qwen3_asr")
+        assert transcribe_service.get_transcribe_config(did)["asr_backend_notice"] is None
 
-    def test_start_names_the_missing_package(self, isolated_db, monkeypatch):
-        self._enable(monkeypatch, installed=False)
-        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
-        transcribe_service.update_transcribe_config(did, asr_backend_choice="moss_td")
-        with pytest.raises(DependencyUnavailableError, match="MOSS"):
-            transcribe_service.start_transcribe_run(did)
-
-    def _run(self, did, ddir, **kw):
-        job_id = f"transcribe_{did}"
-        _seed_running_job(job_id)
-        transcribe_service._run_transcribe_and_apply_job(
-            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh",
-            *self._AUDIO_ARGS, diarize_audio_path=os.path.join(ddir, "audio.wav"),
-            asr_backend_choice="moss_td", **kw)
-        return job_id
-
-    def _fake_moss(self, monkeypatch, segments, truncated=False, calls=None):
-        import asr_backend
-
-        class FakeMoss:
-            name = "moss_td"
-
-            def transcribe(self, audio_path, language=None, use_gpu=False, run_info=None):
-                if calls is not None:
-                    calls.append((language, use_gpu))
-                run_info.update({"device": "cuda" if use_gpu else "cpu", "truncated": truncated})
-                return segments
-        monkeypatch.setitem(asr_backend.BACKENDS, "moss_td", FakeMoss)
-
-    def test_run_keeps_moss_speakers_and_skips_whisper_and_pyannote(self, isolated_db, monkeypatch):
-        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
-
-        def boom(*a, **k):
-            raise AssertionError("Whisper must not run for MOSS")
-        monkeypatch.setattr(transcribe_service, "transcribe_for_timing", boom)
-        monkeypatch.setattr(transcribe_service.core_module, "load_whisper_model", boom)
-        diarize_calls = []
-        monkeypatch.setattr(background_jobs, "start_process_job",
-                            lambda *a, **k: diarize_calls.append(a) or True)
-        calls = []
-        self._fake_moss(monkeypatch, [
-            {"start": 0.0, "end": 1.0, "text": "你好", "speaker": "S01"},
-            {"start": 1.0, "end": 2.0, "text": "再见", "speaker": "S02"},
-            {"start": 2.0, "end": 2.5, "text": "  ", "speaker": "S01"},
-        ], calls=calls)
-
-        job_id = self._run(did, ddir, use_gpu=True)
-
-        assert calls == [("zh", True)]
-        saved = isolated_db.load_lines(did)
-        assert [(r["zh"], r["speaker"]) for r in saved] == [("你好", "S01"), ("再见", "S02")]
-        assert [c["speaker_label"] for c in isolated_db.list_characters(did)] == ["S01", "S02"]
-        assert diarize_calls == []
-        result = background_jobs.get_status(job_id)["result"]
-        assert result["asr_backend"] == "moss_td" and result["device"] == "GPU"
-        assert result["diarize_started"] is False and not result.get("partial")
-        import json
-        with open(os.path.join(ddir, "raw_transcript.json"), encoding="utf-8") as f:
-            assert json.load(f)["backend"] == "moss_td"
-        _clear(job_id)
-
-    def test_a_truncated_run_is_reported_as_partial(self, isolated_db, monkeypatch):
-        from services import jobs_service
-        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
-        self._fake_moss(monkeypatch, [{"start": 0.0, "end": 1.0, "text": "x", "speaker": "S01"}],
-                        truncated=True)
-        job_id = self._run(did, ddir)
-        result = background_jobs.get_status(job_id)["result"]
-        assert result["partial"] is True
-        outcome, message = jobs_service.derive_outcome("done", None,
-                                                       jobs_service.project_result(result))
-        assert outcome == "partial" and "output limit" in message
-        _clear(job_id)
-
-    def test_a_moss_failure_fails_the_job_without_saving(self, isolated_db, monkeypatch):
-        import asr_backend
-        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
-
-        class Broken:
-            def transcribe(self, *a, **k):
-                raise RuntimeError("CUDA out of memory, token sk-abcdefghijklmnopqrstuvwx")
-        monkeypatch.setitem(asr_backend.BACKENDS, "moss_td", Broken)
-        job_id = self._run(did, ddir)
-        result = background_jobs.get_status(job_id)["result"]
-        assert result["failed_reason"] == "moss_td"
-        assert "sk-abcdefghijklmnopqrstuvwx" not in result["detail"]
-        assert isolated_db.load_lines(did) == []
-        _clear(job_id)
-
-    def test_a_cancel_during_the_moss_call_keeps_the_existing_lines(self, isolated_db, monkeypatch):
-        import asr_backend
-        from core import Line
-        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
-        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="旧的")])
-        job_id = f"transcribe_{did}"
-
-        class SlowMoss:
-            def transcribe(self, audio_path, language=None, use_gpu=False, run_info=None):
-                background_jobs._jobs[job_id]["cancel_requested"] = True
-                return [{"start": 0.0, "end": 1.0, "text": "新的", "speaker": "S01"}]
-        monkeypatch.setitem(asr_backend.BACKENDS, "moss_td", SlowMoss)
-        self._run(did, ddir)
-        assert background_jobs.get_status(job_id)["result"] == {"failed_reason": "cancelled"}
-        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧的"]
-        _clear(job_id)
-
-    def test_other_options_still_save_on_a_moss_drama_after_the_toggle_is_off(
-            self, isolated_db, monkeypatch):
-        self._enable(monkeypatch)
-        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
-        transcribe_service.update_transcribe_config(did, asr_backend_choice="moss_td")
-        from services import asr_options_service
-        asr_options_service.set_asr_options(moss_experimental=False)
-        # The form re-sends the stored moss_td with every save.
-        transcribe_service.update_transcribe_config(did, asr_backend_choice="moss_td", beam_size=7)
-        drama = isolated_db.get_drama(did)
-        assert drama["beam_size"] == 7 and drama["asr_backend_choice"] == "moss_td"
-        transcribe_service.update_transcribe_config(did, asr_backend_choice="whisper")
-        with pytest.raises(InvalidInputError, match="experimental"):
+    def test_moss_cannot_be_chosen_any_more(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        with pytest.raises(InvalidInputError, match="Unknown asr_backend_choice"):
             transcribe_service.update_transcribe_config(did, asr_backend_choice="moss_td")
+
+    def test_a_run_uses_the_default_backend(self, isolated_db, monkeypatch):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper",
+                                   asr_backend_choice="moss_td", source_language="ko")
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        assert captured["asr_backend_choice"] == "whisper"
+        assert isolated_db.get_drama(did)["asr_backend_choice"] == "moss_td"
+
+    def test_a_raw_transcript_marked_moss_still_loads(self, isolated_db):
+        import raw_transcript
+        did = isolated_db.create_drama(title_en="D")
+        ddir = isolated_db.drama_dir(did)
+        os.makedirs(ddir, exist_ok=True)
+        raw_transcript.write_raw_transcript(
+            ddir, [{"start": 0.0, "end": 1.0, "text": "x", "speaker": "S01"}], [],
+            backend="moss_td", model="MOSS-Transcribe-Diarize")
+        assert raw_transcript.load_latest(ddir)["backend"] == "moss_td"
+
 
 
 def _wait_until(predicate, timeout=10.0):

@@ -112,17 +112,8 @@ export default function DubStage() {
         <p className="muted" data-testid="dub-summary">
           {cfg.speakable_line_count} speakable lines · {trackReady ? 'Dub track ready' : 'No dub track yet'}
         </p>
-        <div className="dub-grid">
-          <Field label="Voice engine">
-            <select value={form.engine} onChange={(e) => set({ engine: e.target.value })}>
-              {cfg.tts_engines.map((t) => (
-                <option key={t.key} value={t.key}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          {cfg.is_narration && (
+        {cfg.is_narration && (
+          <div className="dub-grid">
             <Field label="Narration language">
               <select value={form.language} onChange={(e) => set({ language: e.target.value })}>
                 {cfg.narration_language_options.map((l) => (
@@ -132,8 +123,8 @@ export default function DubStage() {
                 ))}
               </select>
             </Field>
-          )}
-        </div>
+          </div>
+        )}
         <div className="dub-actions">
           <button
             type="button"

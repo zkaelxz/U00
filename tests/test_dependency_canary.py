@@ -44,9 +44,9 @@ def test_write_pin_appends_keeps_comments_and_is_idempotent(tmp_path):
 
 def test_write_pin_leaves_existing_cap_alone(tmp_path):
     p = tmp_path / "constraints.txt"
-    p.write_text("transformers<6  # backs NLLB\n", encoding="utf-8")
+    p.write_text("transformers<6  # backs Scanlate\n", encoding="utf-8")
     assert dc.write_pin(p, "transformers", "5.9", "t") == "bounded"
-    assert p.read_text(encoding="utf-8") == "transformers<6  # backs NLLB\n"
+    assert p.read_text(encoding="utf-8") == "transformers<6  # backs Scanlate\n"
 
 
 def test_write_pin_adds_missing_trailing_newline(tmp_path):
