@@ -48,6 +48,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`remote-access-decision.md`** — the remote-access design as built. **`route-permissions.md`** — the route table `tests/test_api_permissions.py` enforces.
 - **`engine-backends.md`** — the translation engine package, transcription and dubbing engines, the rules learned from bugs, and an adding-an-engine checklist.
 - **`background-jobs.md`** — how background jobs run: thread and process jobs, the GPU guard, cancel, holds, the Jobs API and the CLI, with an add-a-job checklist.
+- **`local-agent-backlog.md`** — open follow-ups sorted by who can do them (local model, free tier, paid burst), with briefs for the paid ones. **`small-model-checklist.md`** — working with a 64k local model.
 - **`asr-experiments.md`** — the transcription options (backends, batch size, mixed languages, vocal separation), install and failure-mode notes, and a dated snapshot of the benchmarks.
 - **`research/twmanga-vetting.md`** — dated browser-tier vetting of `twmanga.com` (a `baozimh.com` mirror): headers, image delivery, redirect chain, policies, verdict.
 - **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
