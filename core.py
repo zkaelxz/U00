@@ -520,6 +520,8 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
     """
     target = local_model_path or model_size
     cache_key = f"{target}_{'gpu' if use_gpu else 'cpu'}"
+    import ollama_unload
+    ollama_unload.prepare_gpu_for_transcription(use_gpu)
     if cache_key in _whisper_model_cache:
         return _whisper_model_cache[cache_key]
 
