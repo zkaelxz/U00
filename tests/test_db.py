@@ -2070,8 +2070,17 @@ def _alter_columns_in_db_py():
     "TYPE ...") tuples anywhere in db.py, as (None, column)."""
     import ast
     import re
-    src = open(os.path.join(os.path.dirname(db.__file__), "db.py"), encoding="utf-8").read()
+    # db may be split into a db/ package; read every module so the scan
+    # can't pass on an empty file list.
+    root = os.path.dirname(db.__file__)
+    if os.path.isdir(os.path.join(root, "db")):
+        paths = [os.path.join(d, f) for d, _, fs in os.walk(os.path.join(root, "db"))
+                 for f in fs if f.endswith(".py")]
+    else:
+        paths = [os.path.join(root, "db.py")]
+    src = "\n".join(open(p, encoding="utf-8").read() for p in sorted(paths))
     found = {(t, c) for t, c in re.findall(r"ALTER TABLE (\w+) ADD COLUMN (\w+)\b", src)}
+    assert len(found) >= 50, f"found only {len(found)} ALTER TABLE ... ADD COLUMN literals"
     sql_type = re.compile(r"^(TEXT|INTEGER|REAL|BLOB|NUMERIC)\b")
     for node in ast.walk(ast.parse(src)):
         if not (isinstance(node, ast.Tuple) and node.elts
