@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { SCREENS, SID, cue, mockLive, openLive } from './liveMocks'
+import { SCREENS, SID, cue, mockLive, openLive, pendingCue } from './liveMocks'
 
 // Live page (#/live): start a session from a pasted link, watch lines
 // arrive by polling, stop it. Every /api call is mocked (liveMocks.ts).
@@ -217,4 +217,39 @@ test('model picker: when the engine list fails to load, says the default model i
   await expect(live.getByLabel('Model', { exact: true })).toHaveCount(0)
   await expect(live.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
   expect(m.posts).toEqual([])
+})
+
+test('the transcript shows first, then the translation fills the same line', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  m.state.cues = [cue(0), pendingCue(1)]
+  const items = live.getByRole('list', { name: 'Live lines, newest first' }).getByRole('listitem')
+  await expect(items).toHaveCount(2)
+  await expect(items.first()).toContainText('第1句台词')
+  await expect(items.first().getByTestId('live-translating')).toHaveText('translating…')
+  await expect(items.last().getByTestId('live-translating')).toHaveCount(0)
+
+  // The translation lands on line 1 only; the reader asks again from that line.
+  m.state.cues = [cue(0), cue(1)]
+  await expect(items.first()).toContainText('Line 1:')
+  await expect(items).toHaveCount(2)
+  expect(m.polls).toContain('after=1')
+})
+
+test('a stopped session leaves the transcript with a plain note', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.status = 'running'
+  m.state.cues = [pendingCue(0)]
+  await expect(live.getByTestId('live-translating')).toBeVisible()
+  m.state.status = 'cancelled'
+  m.state.cues = [{ ...pendingCue(0), translation: 'cancelled' }]
+  await expect(live.getByTestId('live-untranslated')).toContainText('Not translated')
+  await expect(live.getByText('第0句台词')).toBeVisible()
 })

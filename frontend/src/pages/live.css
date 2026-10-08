@@ -20,6 +20,12 @@
 .live-video-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: black; border-radius: var(--radius-sm); overflow: hidden; }
 .live-video-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .live-video-note { margin: 0; }
+.live-video-frame { container-type: inline-size; }
+.live-video-frame:fullscreen { aspect-ratio: auto; border-radius: 0; }
+/* A dark box plus an outline keep the text readable on any picture; clicks reach the player. */
+.live-caption { position: absolute; left: 50%; bottom: 8%; transform: translateX(-50%); max-width: 90%; pointer-events: none; text-align: center; }
+.live-caption span { display: inline-block; padding: 0.15em 0.5em; border-radius: 0.25em; background: rgba(0, 0, 0, 0.72); color: #fff; font-size: clamp(0.9rem, 3.4cqw, 2rem); line-height: 1.35; overflow-wrap: anywhere; text-shadow: 0 0 2px #000, 0 0 4px #000; }
+.live-caption[data-pending] span { color: #e6e6e6; }
 .live-video input[type='range'] { width: 100%; min-height: 44px; }
 /* Wide layout follows the page's own width (no fixed pixels): the form keeps a readable measure, the video gets ~60%. */
 /* #root > .panel caps pages at 860px; the video needs the whole content width. */

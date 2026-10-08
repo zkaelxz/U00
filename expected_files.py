@@ -39,6 +39,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "language_packs.py",
     "line_tools.py",
     "live_agreement.py",
+    "live_cue_feed.py",
     "live_cue_translation.py",
     "live_fetch.py",
     "live_tokens.py",

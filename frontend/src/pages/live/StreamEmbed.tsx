@@ -6,11 +6,11 @@
  * message listener, the timers) goes away when this unmounts, and the parent
  * mounts it only while the session runs.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   AUTOPLAY_WAIT_S, DVR_WAIT_S, MUTED_NOTE, NO_DELAY_NOTE, WAITING_NOTE, YT_ORIGIN, canDelay, delayNote, delayReached, embedSrc,
-  UNREACHABLE_NOTE, notStarted, parseYouTubeInfo, planDelay, probeOffset, ytCommand, ytListenMessage, ytSeekMessage, type PlayerInfo, type StreamRef,
+  UNREACHABLE_NOTE, captionDelay, notStarted, parseYouTubeInfo, planDelay, probeOffset, ytCommand, ytListenMessage, ytSeekMessage, type PlayerInfo, type StreamRef,
 } from './embedLogic'
 
 /** Seconds to wait for the player to confirm a seek before sending it again. */
@@ -23,14 +23,18 @@ const PROBE_BACK_S = 30
 /** Below this a step back is too small to tell an obeyed seek from playback drift. */
 const PROBE_MIN_STEP_S = 5
 
-export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: number }) {
+export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; delay: number; captions?: (effectiveDelay: number) => ReactNode }) {
   const frame = useRef<HTMLIFrameElement>(null)
+  const box = useRef<HTMLDivElement>(null)
   const delayRef = useRef(delay)
   const [muted, setMuted] = useState(false)
   const unmuteRef = useRef<() => void>(() => {})
   const [note, setNote] = useState(canDelay(stream) ? WAITING_NOTE : NO_DELAY_NOTE)
   // Set by the effect below; re-applies the delay (seek) from the last report.
   const applyRef = useRef<() => void>(() => {})
+  // Seconds the picture really plays behind live; the captions wait that long, not the slider's figure.
+  const [pictureDelay, setPictureDelay] = useState(0)
+  const captionNode = captions?.(pictureDelay)
   const key = stream.kind === 'twitch-channel' ? stream.name : stream.id
 
   useEffect(() => {
@@ -58,9 +62,11 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
     let unstartedS = 0
     let alive = true
     setNote(WAITING_NOTE)
+    setPictureDelay(0)
     setMuted(false)
     const send = (msg: string) => frame.current?.contentWindow?.postMessage(msg, YT_ORIGIN)
     const show = () => {
+      setPictureDelay(captionDelay(info, delayRef.current, { unsupported, moving, unreachable, offset }))
       if (unreachable && !moving && !delayReached(info, delayRef.current, offset)) setNote(UNREACHABLE_NOTE)
       else setNote(delayNote(info, delayRef.current, { unsupported, moving, offset }))
     }
@@ -190,7 +196,7 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
 
   return (
     <>
-      <div className="live-video-frame">
+      <div className="live-video-frame" ref={box}>
         <iframe
           ref={frame}
           src={embedSrc(stream, window.location.hostname)}
@@ -202,7 +208,15 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
           loading="eager"
           onLoad={() => stream.kind === 'youtube' && frame.current?.contentWindow?.postMessage(ytListenMessage(), YT_ORIGIN)}
         />
+        {captionNode}
       </div>
+      {captionNode && document.fullscreenEnabled && (
+        // The picture and its captions go full screen together; the player's own
+        // full-screen button would leave the captions behind.
+        <p className="muted live-video-note">
+          <button type="button" onClick={() => void box.current?.requestFullscreen().catch(() => {})}>Full screen with captions</button>
+        </p>
+      )}
       <p className="muted live-video-note" data-testid="live-video-note" aria-live="polite">{note}</p>
       {muted && (
         <p className="muted live-video-note" data-testid="live-video-muted">
