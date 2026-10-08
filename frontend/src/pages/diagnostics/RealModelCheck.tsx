@@ -65,7 +65,8 @@ function RealModelCheckBody({ local, jobsActive }: { local: boolean; jobsActive:
         <p className="muted">
           Runs a short transcription, an OCR read and one Ollama translation with the models you have installed.
           Nothing is downloaded: a missing package, model or Ollama is skipped. A pass means the model loaded
-          and ran, not that words were recognised. It uses the GPU, so close other GPU apps first.
+          and ran, not that words were recognised. Qwen3-ASR is skipped ("Tone only") when the sample
+          has no speech, because it then never loads. It uses the GPU, so close other GPU apps first.
         </p>
         {error && <p className="error" role="alert">{error}</p>}
         {running && status?.job && (

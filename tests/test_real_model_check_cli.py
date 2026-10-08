@@ -133,10 +133,28 @@ def test_cli_and_app_report_the_same_checks_for_the_same_fakes(env, monkeypatch,
     monkeypatch.setattr(svc, "_CHECKS", _fakes(("ocr", _skip), ("translate", _unsure), ("asr", _boom)))
     svc.start(confirm=True)
     end = time.time() + 10
-    while time.time() < end and not svc.get_state()["finished"]:
+    # The job holds the GPU slot until it exits, a moment after "finished".
+    while time.time() < end and (background_jobs.get_status(svc.JOB_ID) or {}).get("status") in ("running", "queued"):
         time.sleep(0.02)
     app_checks = svc.get_state()["checks"]
     code, out = _run(capsys)
     assert smoke.format_report(app_checks) in out
     assert smoke.exit_code(app_checks) == code == 1
     assert [c["status"] for c in app_checks] == ["fail", "skipped", "could_not_check"]
+
+
+def test_cli_output_carries_no_url_from_an_ollama_error(env, monkeypatch):
+    import requests
+    import translate_engines
+
+    def chat(base_url, payload):
+        raise requests.HTTPError("500 for url: http://private-host:11434/api/chat")
+    monkeypatch.setattr(translate_engines, "check_ollama_model_installed", lambda *a: None)
+    monkeypatch.setattr(translate_engines, "_ollama_chat", chat)
+    monkeypatch.setattr(svc, "_CHECKS", tuple(c for c in svc._CHECKS if c[0] == "translate"))
+    lines = []
+    assert smoke.run(out=lines.append) == 1
+    text = "\n".join(lines)
+    assert "ran out of memory" in text
+    for bad in ("http", "private-host", "11434", "/api/chat"):
+        assert bad not in text
