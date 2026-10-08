@@ -333,7 +333,7 @@ Thread unless marked process.
 | `voiceref_<id>` | `voice_clone_service` | thread | no |
 | `ocrchapter_<id>`, `scanlate_<id>` | `novel_attach_service`, `scanlate_pages_service` | thread | yes |
 | `novel_glossary_<id>`, `lines_glossary_<id>` | `glossary_service` | thread | with Ollama |
-| `extract_audio_<id>`, `urlmedia_<id>`, `lncrawl_<id>`, `notion_export_<id>` | media upload, URL media, lncrawl and Notion services | thread | no |
+| `extract_audio_<id>`, `urlmedia_<id>`, `lncrawl_<id>` | media upload, URL media and lncrawl services | thread | no |
 | Sources: `sources_search`, `sources_save`, `sourceimport_<id>`, `sources_series_*`, `sources_signin_*` | `sources_*_service` | thread | no |
 | Library: `library_backup`, `library_db_backup`, `library_user_backup`, `library_auto_backup`, `library_export_zip`, `bulk_series_translate` | `library_admin_service`, `auto_backup_service` | thread | no |
 | `deno_install`, `upgrade_check`, `discover_*` | diagnostics and discover services | thread | no |

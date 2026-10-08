@@ -24,7 +24,6 @@ import { ExtensionSection } from './settings/ExtensionSection'
 import { LoadedModelsCard } from './settings/LoadedModelsCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
-import { NotionSection } from './settings/NotionSection'
 import { PastCostsCard } from './settings/PastCostsCard'
 import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
 import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
@@ -274,9 +273,8 @@ export default function SettingsPage() {
       </Fold>
       {settings && prefProps && (
         <>
-          <Fold id="integrations" signals={signals} summary="Jellyfin, Notion, web search, browser extension">
+          <Fold id="integrations" signals={signals} summary="Jellyfin, web search, browser extension">
             <JellyfinSection />
-            <NotionSection />
             <WebSearchSection />
             <ExtensionSection />
           </Fold>

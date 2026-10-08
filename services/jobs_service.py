@@ -480,7 +480,7 @@ JOB_KIND_BY_PREFIX = {
     "resegment_": "align", "resplit_": "align", "retime_": "align", "resegpreview_": "align",
     "dub_": "dub", "narration_": "dub", "audiobook_": "dub", "voiceref_": "dub",
     "burned_video_": "export", "softsub_video_": "export",
-    "dubbed_video_": "export", "burnpreview_": "export", "notion_export_": "export",
+    "dubbed_video_": "export", "burnpreview_": "export",
     "sourceimport_": "import", "urlmedia_": "import", "lncrawl_": "import",
     "extract_audio_": "import",
     "scanlate_": "other",
