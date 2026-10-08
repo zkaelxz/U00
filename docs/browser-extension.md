@@ -31,12 +31,12 @@ It reaches pages the adapters can't (blob-protected chapters like manhuaku's, ti
 Click the extension on a page you're reading:
 
 - **Translate this page** — the largest page-sized image on screen.
-- **Translate everything visible** — a spread, or a whole visible strip.
+- **Everything visible** — a spread, or a whole visible strip.
 - **Send pages to** — which drama they land in. Remembered per site, so
   reading a long series isn't a per-page decision.
-- **Also save the page into that drama** — untick to translate for
+- **Save page into drama** — untick to translate for
   reading only, without importing anything.
-- **Draw translations over the page** / **Show / hide translations** — the
+- **Draw over page** / **Show / hide** — the
   overlay toggle. Click any overlaid bubble to see the original text
   underneath it.
 
@@ -50,7 +50,7 @@ A separate section of the popup, for prose rather than comic pages:
 - Pick a direction (**zh/ja/ko → English**, or **English → zh/ja/ko**) —
   the same directions the **Translate** page in Baihe itself supports,
   since this reuses that exact pipeline.
-- **Translate this page's text** — if you've selected text on the page,
+- **Translate text** — if you've selected text on the page,
   that selection is what gets sent. With nothing selected, the extension
   captures the page's own largest contiguous block of paragraph text
   (skipping `<nav>`/`<header>`/`<footer>`/`<aside>` and anything too
