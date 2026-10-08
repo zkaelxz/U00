@@ -1,6 +1,9 @@
 # Task checklist for small-context models
 
-Short window (16-32K tokens): search first, read little, change little.
+Context target: 64K tokens, set for the owner's 32+32 GB setup. The Qwen3.6-35B-A3B on the current 12 GB card is
+run at 32K, so plan for that smaller window until the new setup lands. Either way, search first, read little,
+change little. Module files stay under 40 KB (`MAX_MODULE_BYTES` in `tests/test_static_analysis.py`) so one file
+fits a single read; the files over it are listed there and shrink only.
 
 1. Restate the task in one line. Name the symptom, UI text or setting.
 2. Search before opening anything:
