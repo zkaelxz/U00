@@ -183,6 +183,8 @@ test('upload-and-transcribe over a video drops the stale video badge while the r
   await page.goto('/#/drama/1/source')
   await expect(page.getByTestId('media-status')).toContainText('Source video attached')
   await page.getByLabel('Audio or video file').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  // The transcript box only exists once the saved mode has loaded; count() below does not wait.
+  await openTranscribeOptions(page)
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
   await page.getByLabel(/Replace the current audio\/video/).check()
@@ -255,6 +257,8 @@ test('after upload-and-transcribe the next run transcribes the stored audio inst
   await page.goto('/#/drama/1/source')
   await expect(page.getByTestId('media-status')).toContainText('Audio attached')
   await page.getByLabel('Audio or video file').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  // The transcript box only exists once the saved mode has loaded; count() below does not wait.
+  await openTranscribeOptions(page)
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
   const box = page.getByLabel(/Replace the current audio\/video/)

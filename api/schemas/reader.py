@@ -94,7 +94,7 @@ class NovelStatus(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Route batch 2B (M4): Reader API over services/reader_service.py
+# Reader API over services/reader_service.py
 # ---------------------------------------------------------------------------
 class ReaderOverview(BaseModel):
     drama_id: int
@@ -284,7 +284,7 @@ class ReaderAskRequest(ReaderEngineFields):
 
 
 # ---------------------------------------------------------------------------
-# Novel files (parity audit B1 #3/#4): the English novel translation
+# Novel files: the English novel translation
 # reference and the raw original-language novel. Booleans and counts only;
 # no filename or path is ever returned.
 # ---------------------------------------------------------------------------

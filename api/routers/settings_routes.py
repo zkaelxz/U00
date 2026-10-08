@@ -1,11 +1,11 @@
 """
-api/routers/settings_routes.py -- Settings endpoints (Migration Slices 10, 23).
+api/routers/settings_routes.py -- Settings endpoints.
 
 GET: whether each engine key/endpoint is configured, plus the app_settings
-toggles. Never returns a key's value (D2). POST takes non-secret toggles
+toggles. Never returns a key's value. POST takes non-secret toggles
 and preferences; secrets use the key/endpoint routes below.
 
-Settings parity: POST also takes the persisted preferences (defaults for
+POST also takes the persisted preferences (defaults for
 new dramas, spending cap, Ollama num_ctx, offline Whisper folder, OCR
 defaults, yt-dlp cookies); `/endpoints/{name}` sets or clears the Ollama
 URL in .env behind the same guard as keys.
@@ -14,7 +14,7 @@ Write-only engine key endpoints (`POST /keys/{engine}` and
 `/keys/{engine}/clear`). Off by default (BAIHE_API_ALLOW_KEY_WRITES=1) and
 guarded by `_require_local_admin`. The guard is a safeguard against
 proxied/remote/cross-site requests, NOT authentication; real isolation is
-the separate admin listener (D5): on the household listener it always refuses.
+the separate admin listener: on the household listener it always refuses.
 """
 
 from urllib.parse import urlsplit
