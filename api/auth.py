@@ -336,15 +336,34 @@ def is_local_request(request: Request) -> bool:
     return _is_local_scope(request.client.host if request.client else None, request.headers)
 
 
-def require_engines_allowed(request: Request, *engine_names):
+def require_engines_allowed(request: Request, *engine_names, model=None):
     """Raises 403 unless the caller holds `engines.paid` or every named
     engine is in `translate_engines.FREE_ENGINES`. A missing name (None:
-    "use the configured default") counts as possibly paid."""
+    "use the configured default") counts as possibly paid. Pass the request's
+    `model` whenever it has one: an Ollama cloud tag is held to
+    `engines.paid` too (`require_cloud_model_allowed`); an omitted model
+    resolves to the local default, which is never a cloud tag."""
     if holds(request, "engines.paid"):
         return
     from translate_engines import FREE_ENGINES
     if any(not name or name not in FREE_ENGINES for name in engine_names):
         raise ForbiddenError(_GENERIC_403)
+    require_cloud_model_allowed(request, *[(name, model) for name in engine_names])
+
+
+def require_cloud_model_allowed(request: Request, *engine_models):
+    """Raises 403 unless the caller holds `engines.paid` or none of the
+    (engine, model) pairs names an Ollama cloud tag. A hosted tag sends the
+    text off the PC and spends the owner's Ollama quota, so it is held to
+    the same permission as a paid engine even though Ollama is free."""
+    if holds(request, "engines.paid"):
+        return
+    from translate_engines import is_ollama_cloud_model
+    if any(engine in (None, "ollama") and is_ollama_cloud_model(model)
+           for engine, model in engine_models):
+        raise ForbiddenError("Ollama cloud models send your text off this PC and use the "
+                             "owner's Ollama quota, so they need paid-engine permission. "
+                             "Pick a local model instead.")
 
 
 def require_paid_engines(request: Request):
