@@ -40,6 +40,8 @@ NON_ADMIN = auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS + auth_service.OPT_IN_PER
 # covers the parent; the service scopes the child to it) or not drama-scoped.
 OWNERSHIP_EXEMPT_PARAMS = {
     "title_id": "discover known_titles: household-wide (plan B, decision 6)",
+    "pack_id": "a built-in language pack id, not an item (read-only data shipped with the app)",
+    "language": "a source language code for the language-pack default (admin.settings)",
     "name": "a source adapter name or a model file name, not an item",
     "notification_id": "source notifications: household-wide (decision 6)",
     "chapter_id": "a source chapter id, not an item; the AI-recover route takes the drama in "

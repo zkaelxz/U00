@@ -1,0 +1,153 @@
+{
+ "id": "ja-address",
+ "version": 1,
+ "language": "ja",
+ "title": "Japanese honorifics and address terms",
+ "description": "Starter pack, review it. Suffixes and titles people use to address each other. Default keeps them romanised (senpai, -san).",
+ "styles": {
+  "default": "romanised",
+  "options": {
+   "romanised": "Keep honorifics romanised (for example senpai, -san, -chan, -sama)",
+   "natural": "Translate them into natural English"
+  }
+ },
+ "entries": [
+  {
+   "source": "先輩",
+   "en": {
+    "romanised": "senpai",
+    "natural": "senior"
+   },
+   "category": "honorific",
+   "note": "Usually said instead of the person's name.",
+   "context": "junior addressing someone senior at school or work"
+  },
+  {
+   "source": "後輩",
+   "en": {
+    "romanised": "kouhai",
+    "natural": "junior"
+   },
+   "category": "honorific",
+   "context": "senior referring to a junior"
+  },
+  {
+   "source": "先生",
+   "en": {
+    "romanised": "sensei",
+    "natural": "teacher"
+   },
+   "category": "honorific",
+   "note": "Also used for doctors, writers and other experts; use the role word if that is clearer.",
+   "context": "student to teacher, patient to doctor"
+  },
+  {
+   "source": "さん",
+   "en": {
+    "romanised": "-san",
+    "natural": "Mr. or Ms."
+   },
+   "category": "honorific",
+   "note": "Attach to the name. In natural style it is often dropped and the bare name is used.",
+   "context": "polite, between most adults"
+  },
+  {
+   "source": "ちゃん",
+   "en": {
+    "romanised": "-chan",
+    "natural": "(bare name or nickname)"
+   },
+   "category": "honorific",
+   "note": "Affectionate. Attach to the name when romanised.",
+   "context": "to children, close friends, someone loved"
+  },
+  {
+   "source": "くん",
+   "en": {
+    "romanised": "-kun",
+    "natural": "(bare name)"
+   },
+   "category": "honorific",
+   "note": "Attach to the name when romanised.",
+   "context": "to boys, juniors, or a close younger person"
+  },
+  {
+   "source": "様",
+   "en": {
+    "romanised": "-sama",
+    "natural": "Lord or Lady, or Mr. or Ms."
+   },
+   "category": "honorific",
+   "note": "Very respectful; keep the suffix attached to the name.",
+   "context": "to customers, nobles, someone revered",
+   "not_in": [
+    "様子",
+    "同様",
+    "異様",
+    "模様",
+    "お疲れ様",
+    "様々"
+   ]
+  },
+  {
+   "source": "お兄ちゃん",
+   "en": {
+    "romanised": "onii-chan",
+    "natural": "big brother"
+   },
+   "category": "honorific",
+   "note": "Affectionate address, also used for non-relatives.",
+   "context": "younger sibling to older brother"
+  },
+  {
+   "source": "お姉ちゃん",
+   "en": {
+    "romanised": "onee-chan",
+    "natural": "big sis"
+   },
+   "category": "honorific",
+   "note": "Affectionate address, also used for non-relatives.",
+   "context": "younger sibling to older sister"
+  },
+  {
+   "source": "お兄さん",
+   "en": {
+    "romanised": "onii-san",
+    "natural": "big brother"
+   },
+   "category": "honorific",
+   "note": "Also how a young man is addressed by a stranger or a child.",
+   "context": "younger person to older brother or young man"
+  },
+  {
+   "source": "お姉さん",
+   "en": {
+    "romanised": "onee-san",
+    "natural": "big sis"
+   },
+   "category": "honorific",
+   "note": "Also how a young woman is addressed by a stranger or a child.",
+   "context": "younger person to older sister or young woman"
+  },
+  {
+   "source": "お姉様",
+   "en": {
+    "romanised": "onee-sama",
+    "natural": "big sister"
+   },
+   "category": "honorific",
+   "note": "Formal or adoring; common in girls' school stories.",
+   "context": "younger girl to an admired older girl"
+  },
+  {
+   "source": "お嬢様",
+   "en": {
+    "romanised": "ojou-sama",
+    "natural": "young lady"
+   },
+   "category": "honorific",
+   "note": "Wealthy or noble daughter.",
+   "context": "servants and others to a young lady"
+  }
+ ]
+}

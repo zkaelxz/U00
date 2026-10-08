@@ -18,6 +18,7 @@ import { splitLines } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage, useStageFocus } from '../StageContext'
 import { GlossaryImport } from './GlossaryImport'
+import { LanguagePacks } from './LanguagePacks'
 import { SeriesAssign } from './SeriesAssign'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
 import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
@@ -384,6 +385,11 @@ export function GlossaryPanel({ focusReady }: { focusReady?: boolean }) {
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
       <GlossaryImport openSignal={importSignal} hasTerms={!!terms && terms.length > 0} onImported={() => setReloads((n) => n + 1)} />
+      <LanguagePacks
+        glossarySources={(terms ?? []).map((t) => t.term_original)}
+        hasSeries={seriesId != null}
+        onAdded={() => setReloads((n) => n + 1)}
+      />
       {instructions && (
         <>
           <InstructionsEditor scope="project" initial={instructions.project} />
