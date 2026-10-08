@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import core
 import dub
+import dub_narration
 from core import Line
 
 
@@ -322,7 +323,7 @@ class TestNarrationTTSUnits:
         assert synth_calls == ["One.", "Two. Three."]
 
     def test_unit_stays_inside_the_character_budget(self, synth_calls, fake_pydub, tmp_path, monkeypatch):
-        monkeypatch.setattr(dub, "NARRATION_TTS_MAX_CHARS", 12)
+        monkeypatch.setattr(dub_narration, "NARRATION_TTS_MAX_CHARS", 12)
         lines = [Line(idx=i, start=0, end=0, zh=str(i), en=f"Line {i}.", speaker="N") for i in range(3)]
         dub.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert synth_calls == ["Line 0.", "Line 1.", "Line 2."]  # "Line 0. Line 1." is 15 chars
