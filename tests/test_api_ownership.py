@@ -81,7 +81,7 @@ JOB_ROUTES = {
 JOB_PARAMS = {"job_id", "session_id"}
 # Children that only appear under a guarded `{drama_id}`/`{series_id}`.
 NESTED_PARAMS = {"line_id", "term_id", "note_id", "history_id", "version_id", "page_id",
-                 "character_id", "candidate_id", "bulk_job_id", "track", "kind"}
+                 "character_id", "candidate_id", "bulk_job_id", "track", "kind", "number"}
 
 
 def _app(auth="on"):

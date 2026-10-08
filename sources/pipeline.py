@@ -26,7 +26,7 @@ import time
 import background_jobs
 import db
 
-from . import ladder, registry, store
+from . import chapter_manifest, ladder, registry, store
 from .cache import RawCache
 from .http import Cancelled
 from .models import (ChallengeDetected, ChapterInfo, FailureReason, SourceError,
@@ -173,10 +173,12 @@ def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str
         loaded = f"{heading}\n\n{loaded}"
     path = os.path.join(db.drama_dir(drama_id), RAW_NOVEL_FILENAME)
     mode = "a" if append and os.path.exists(path) else "w"
+    offset = os.path.getsize(path) if mode == "a" else -1
     with open(path, mode, encoding="utf-8") as f:
         if mode == "a":
             f.write("\n\n")
         f.write(loaded)
+    _note_block(drama_id, offset, loaded, heading, "")
     return path
 
 
@@ -255,6 +257,18 @@ def _record_imported(source: str, ch, drama_id: int) -> bool:
         return False
 
 
+def _note_block(drama_id: int, offset: int, loaded: str, title: str, source: str) -> None:
+    """Records the block `_append_chapter_text` / `save_novel_text` put at
+    `offset` (-1: it started the file) in the chapter manifest."""
+    sep = len(_as_written("\n\n")) if offset >= 0 else 0
+    body = len(_as_written(loaded))
+    pre = max(offset, 0)
+    chapter_manifest.record(drama_id, pre_size=pre, post_size=pre + sep + body,
+                            content_start=pre + sep, content_length=body,
+                            content_chars=chapter_manifest.chars_of(loaded),
+                            title=title, source=source)
+
+
 def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
     """Appends one chapter the way save_novel_text(append=True,
     heading=title) does, writing only the new block. The file's length
@@ -292,6 +306,7 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
                     f.seek(max(earlier, 0))
                     tail = f.read(len(want) + 1)
                 if tail[:len(want)] == want:
+                    _note_block(drama_id, earlier, loaded, ch.title, source)
                     return ""   # the interrupted attempt wrote all of it
                 if len(tail) < len(want) and want.startswith(tail):
                     os.truncate(path, max(earlier, 0))
@@ -319,6 +334,7 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
             else:
                 os.truncate(path, offset)
             return _NOT_SAVED
+        _note_block(drama_id, offset, loaded, ch.title, source)
     return ""
 
 

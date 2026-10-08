@@ -20,6 +20,7 @@ import { useStage } from '../StageContext'
 import { DetailsPanel } from './DetailsPanel'
 import { FillInPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
+import { NovelChaptersPanel } from './NovelChaptersPanel'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
@@ -229,6 +230,7 @@ export default function SourceStage() {
   )
   const novel = (
     <div key="novel" className="source-group">
+      {kind === 'novel' && <NovelChaptersPanel />}
       <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} />
     </div>
   )

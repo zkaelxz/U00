@@ -5,8 +5,8 @@ B1 #3/#4). Thin adapters over services/novel_files_service.py.
 
 Uploads, pastes and the reference removal are PC-only (`local_only()`, the
 user rule "uploads, deletes and settings are PC-only"); the multipart POSTs
-need X-Baihe-Local: 1, which the React upload helper sends. Status reads
-are `library.read`. Raw-novel removal already lives in delete_routes.py.
+need X-Baihe-Local: 1, which the React upload helper sends. Status and chapter
+reads are `library.read`. Raw-novel removal already lives in delete_routes.py.
 Every write answers 409 while a job runs for the drama.
 
 The paste routes (`.../text`) read the JSON body themselves, streamed and
@@ -14,13 +14,15 @@ capped at svc.MAX_TEXT_BYTES, so an oversized paste is refused before it
 is buffered whole or parsed; the local_only guard has already run by then.
 """
 
-from fastapi import APIRouter, File, Path, Request, UploadFile
+from fastapi import APIRouter, File, Path, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
 from api.auth import local_only, require_permission
 from api.schemas import (DeleteConfirm, ErrorResponse, NovelFileStatus, NovelFileTextRequest,
-                         NovelFileUploadResult, NovelReferenceRemoveResult)
+                         NovelChapterList, NovelChapterText, NovelFileUploadResult,
+                         NovelReferenceRemoveResult)
+from services import novel_chapters_service as chapters_svc
 from services import novel_files_service as svc
 from services.service_errors import InvalidInputError
 
@@ -86,6 +88,26 @@ def remove_reference(body: DeleteConfirm, drama_id: int = Path(ge=1)):
             summary="Whether a raw original-language novel is saved (booleans and counts only)")
 def get_raw_novel(drama_id: int = Path(ge=1)):
     return svc.get_raw_novel_status(drama_id)
+
+
+@router.get("/dramas/{drama_id}/raw-novel/chapters", dependencies=[require_permission("library.read")],
+            response_model=NovelChapterList, responses=_NOT_FOUND,
+            summary="The chapters saved in the raw novel, one page of rows (no text, no paths)")
+def get_raw_novel_chapters(drama_id: int = Path(ge=1), offset: int = Query(0, ge=0),
+                           limit: int = Query(chapters_svc.DEFAULT_PAGE, ge=1,
+                                              le=chapters_svc.MAX_PAGE)):
+    return chapters_svc.list_chapters(drama_id, offset, limit)
+
+
+@router.get("/dramas/{drama_id}/raw-novel/chapters/{number}",
+            dependencies=[require_permission("library.read")],
+            response_model=NovelChapterText, responses=_NOT_FOUND,
+            summary="A bounded slice of one saved raw chapter's text, for preview")
+def get_raw_novel_chapter(drama_id: int = Path(ge=1), number: int = Path(ge=1),
+                          offset: int = Query(0, ge=0),
+                          limit: int = Query(chapters_svc.DEFAULT_SLICE_CHARS, ge=1,
+                                             le=chapters_svc.MAX_SLICE_CHARS)):
+    return chapters_svc.read_chapter(drama_id, number, offset, limit)
 
 
 @router.post("/dramas/{drama_id}/raw-novel", dependencies=[local_only()],

@@ -31,6 +31,7 @@ import os
 import db
 from services import drama_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from sources import chapter_manifest
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +132,7 @@ def remove_raw_novel(drama_id, confirm=False) -> dict:
     _require_idle(drama_id)
     try:
         os.remove(path)
+        chapter_manifest.drop(drama_id)
     except OSError as e:
         log.exception("Could not remove raw novel text for drama %s", drama_id)
         raise ConflictError("The raw novel text is in use and could not be removed. "

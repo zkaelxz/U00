@@ -157,6 +157,7 @@ baihe-subtitler/
 │   ├── models.py                  shared vocabulary (result/chapter/etc. types) for the system
 │   ├── registry.py                which adapters exist and which are switched on
 │   ├── pipeline.py                hands fetched content to the rest of the app
+│   ├── chapter_manifest.py        raw_novel_chapters.json beside the raw novel: title, site, time and byte range per imported chapter
 │   ├── detect.py                  names what happened when a fetch didn't go as expected
 │   ├── domains.py                 domain lists for sites that move: ordered failover, last good domain,
 │   │                              a redirected-to host that passes verify_site becomes a pending proposal
@@ -472,6 +473,8 @@ baihe-subtitler/
 │   │                             <UTC stamp>_<n>/ (report.json, report.md, screenshot); every text redacted
 │   │                             (secrets, tokens, user names, paths), image metadata stripped
 │   │                             (router: bug_report_routes.py)
+│   ├── novel_chapters_service.py Read-only list of the chapters saved in the raw novel, bounded text slices for the preview,
+│   │                             and which are already in the translation text (router: novel_files_routes.py)
 │   └── novel_files_service.py    Parity B1 #3/#4 -- set/replace/status of the English novel reference
 │                                 (novel_reference.txt) and raw novel (raw_novel_context.txt); reference
 │                                 removal; upload or pasted text; encoding fallback; 409 while a drama job or
@@ -509,6 +512,7 @@ baihe-subtitler/
 │   │   ├── library.py      dramas, series, bulk actions, storage, media and export
 │   │   ├── sources.py      sources registry/config, Discover, tracked series
 │   │   ├── reader.py       Reader, novel text and novel file models
+│   │   ├── novel_chapters.py  saved raw chapters: list page and text slice
 │   │   ├── voice.py        dubbing, narration and voice-clone setup
 │   │   └── transcribe.py   transcribe runs/config, diarization, autotune, re-transcribe, live sessions
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
@@ -676,7 +680,7 @@ baihe-subtitler/
 │       │                         screenshot PC only), GET list and GET {id} (admin.diagnostics),
 │       │                         POST {id}/delete (local_only + confirm + folder stamp)
 │       ├── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
-│       │                         /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
+│       │                         /raw-novel (GET/POST, .../text, GET .../chapters[/{n}]); paste bodies streamed with a 32 MB cap
 │       ├── notification_routes.py /api/settings/notifications (GET, admin.settings: booleans only); /categories, /test,
 │       │                         /{channel}, /{channel}/clear (POST, local_only; set/clear also use the
 │       │                         key-write gate; Step 44)
@@ -840,7 +844,8 @@ baihe-subtitler/
 │   │                              NovelFilePanel (novel reference in Translate, raw novel in Transcribe;
 │   │                              PC-only upload or paste, remove) + novelFile.ts + novelFileEvents.ts (shared
 │   │                              "changed" counter NovelPanel's glossary link reads); src/api/novelFiles.ts,
-│   │                              types/novelFiles.ts
+│   │                              types/novelFiles.ts; NovelChaptersPanel + novelChapters.ts (Source stage, novel titles: saved raw
+│   │                              chapters list, preview, in-translation marks); src/api/novelChapters.ts, types/novelChapters.ts
 │   │                              CreditsCoverPanel (Source > Credits & cover: bilingual credits, Romanize,
 │   │                              PC-only cover upload) + ../preambleForm.ts (pure, unit-tested; also the
 │   │                              EPUB chapter range NovelPanel uses) + preamble.css

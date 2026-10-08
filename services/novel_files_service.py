@@ -54,6 +54,7 @@ import db
 from services import drama_service
 from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from sources import chapter_manifest
 
 log = logging.getLogger(__name__)
 
@@ -296,4 +297,5 @@ def _store_raw_novel(drama_id: int, text: str) -> dict:
     path = os.path.join(_folder(drama_id), RAW_NOVEL_FILENAME)
     replaced = os.path.isfile(path)
     _write_atomic(drama_id, RAW_NOVEL_FILENAME, text)
+    chapter_manifest.drop(drama_id)
     return {"drama_id": drama_id, "replaced": replaced, **_file_status(path)}
