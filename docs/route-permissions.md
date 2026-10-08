@@ -212,6 +212,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/jobs/{job_id}/cancel` | jobs.cancel |
 | `POST /api/jobs/{job_id}/delete` | local_only() |
 | `GET /api/jobs/{job_id}/stages` | library.read |
+| `GET /api/language-packs` | library.read |
+| `POST /api/language-packs/defaults/{language}` | admin.settings |
+| `GET /api/language-packs/dramas/{drama_id}` | library.read |
+| `POST /api/language-packs/dramas/{drama_id}` | lines.edit |
+| `GET /api/language-packs/packs/{pack_id}` | library.read |
 | `GET /api/library/admin/artifacts/{kind}` | local_only() |
 | `GET /api/library/admin/artifacts/{kind}/info` | admin.library |
 | `POST /api/library/admin/backup` | local_only() |
@@ -491,6 +496,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/sources/{name}/tier-test` | local_only() |
 | `GET /api/stronger-engine/dramas/{drama_id}` | lines.read |
 | `POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try` | review.use |
+| `POST /api/subtitle-import/dramas/{drama_id}/apply` | local_only() |
+| `POST /api/subtitle-import/dramas/{drama_id}/preview` | local_only() |
+| `POST /api/subtitle-import/dramas/{drama_id}/sidecars` | lines.edit |
 | `POST /api/system/shutdown` | local_only() |
 | `GET /api/system/update` | local_only() |
 | `POST /api/system/update/check` | local_only() |

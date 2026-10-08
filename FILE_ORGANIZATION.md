@@ -34,6 +34,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `benchmark.py`
 - `check_setup.py`
 - `cli.py`
+- `cli_subtitle.py` (the `import-subtitle` command)
 - `core.py`
 - `db.py`
 - `diagnostics.py`
@@ -68,6 +69,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `emotion.py`
 - `en_cleanup.py`
 - `glossary_io.py` (term categories/policies and glossary file import/export)
+- `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
 - `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
 - `live_cue_translation.py` (the per-cue context and error note for Live)
 - `live_fetch.py`
@@ -83,6 +85,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse)
 - `media_inspect.py`
 - `subtitle_formats.py`
+- `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
+- `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
 - `video_download.py`
 - `video_export.py`
 
@@ -165,6 +169,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `job_stage_service.py`
 - `job_timing_service.py`
 - `jobs_service.py`
+- `language_pack_service.py`
 - `library_admin_service.py`
 - `library_service.py`
 - `line_ai_service.py`
@@ -222,6 +227,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `speech_coverage_service.py`
 - `spend_history_service.py`
 - `stronger_engine_service.py`
+- `subtitle_import_service.py`
 - `transcribe_service.py`
 - `translate_run_service.py`
 - `translate_service.py`
@@ -242,7 +248,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `library.py`, `loaded_models.py`, `reader.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `reader.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
@@ -276,6 +282,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `extension_routes.py`
 - `glossary_routes.py`
 - `jellyfin_routes.py`
+- `language_pack_routes.py`
 - `job_stage_routes.py`
 - `jobs_routes.py`
 - `library_admin_routes.py`
@@ -315,6 +322,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `sources_tools_routes.py`
 - `spend_history_routes.py`
 - `stronger_engine_routes.py`
+- `subtitle_import_routes.py`
 - `system_routes.py`
 - `transcribe_routes.py`
 - `translate_routes.py`

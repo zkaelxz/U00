@@ -21,8 +21,8 @@ import bulk_translate
 import emotion
 import core as core_module
 from core import transcribe_for_timing
-from services import (auth_service, fixflag_transcribe, job_timing_service, line_provenance_service,
-                      settings_service)
+from services import (auth_service, fixflag_transcribe, job_timing_service, language_pack_service,
+                      line_provenance_service, settings_service)
 
 
 def _id_by_idx(lines):
@@ -52,11 +52,10 @@ def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronou
 
 def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True,
                             include_genre_notes=None, default_female_pronouns=None):
-    """(glossary_terms, style_guidelines, character_names) for one drama --
-    the one builder shared by translate_run_service.start_translate_run,
-    `cli.py translate`, line_ai_service and the review jobs: series
-    glossary, the learned style profile, emotion guidance for `lines` and
-    character gender hints in custom_notes, and named-speaker labels.
+    """(glossary_terms, style_guidelines, character_names) for one drama,
+    shared by the app's runs and `cli.py translate`: series glossary, style
+    profile, emotion guidance, gender hints, speaker labels and
+    the title's language packs.
     include_genre_notes/default_female_pronouns are the Translate toggles;
     None means the title's saved choice (resolve_style_toggles)."""
     include_genre_notes, default_female_pronouns = resolve_style_toggles(
@@ -78,6 +77,7 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
             tguide.build_character_gender_hints(
                 series_chars, drama_chars, default_female_pronouns)) if b))
     character_names = tguide.build_speaker_labels(drama_chars, series_chars)
+    style_guidelines += language_pack_service.block_for(drama, lines, glossary_terms)
     return glossary_terms, style_guidelines, character_names
 
 

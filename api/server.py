@@ -65,6 +65,7 @@ from api.routers import (
     export_routes,
     extension_routes,
     glossary_routes,
+    language_pack_routes,
     job_stage_routes,
     jellyfin_routes,
     jobs_routes,
@@ -103,6 +104,7 @@ from api.routers import (
     sources_local_routes,
     sources_search_routes,
     sources_tools_routes,
+    subtitle_import_routes,
     system_routes,
     transcribe_routes,
     translate_routes,
@@ -247,11 +249,13 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(diarization_routes.router)
     app.include_router(source_routes.router)
     app.include_router(transcribe_routes.router)
+    app.include_router(subtitle_import_routes.router)
     app.include_router(dub_routes.router)
     app.include_router(drama_routes.router)
     app.include_router(translate_run_routes.router)
     app.include_router(characters_routes.router)
     app.include_router(glossary_routes.router)
+    app.include_router(language_pack_routes.router)
     app.include_router(review_lines_routes.router)
     app.include_router(review_records_routes.router)
     app.include_router(lines_routes.router)

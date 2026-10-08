@@ -42,7 +42,7 @@ test('Diagnostics on a phone: jobs banner link, 44px targets, no sideways scroll
       jieba: { installed: true, powers: 'Chinese word segmentation', tier: 'feature' },
       'yt-dlp': { installed: false, powers: 'downloading video', tier: 'feature' },
     },
-    file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
+    file_completeness: { missing_top_level: [], all_present: true },
     library_writable: true,
     gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
     model_engine_versions: [],
