@@ -5,12 +5,15 @@ pip-cache permission hint, install names that are real PyPI distributions,
 the task map, approx. sizes, PyPI links, the not-offered canvas package
 and the qwen-asr transformers downgrade warning. No network, no real pip.
 """
+import os
+
 import pytest
 
 import diagnostics
 from services import diagnostics_gaps_service as svc
 
 FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
+CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")]
 
 # Canonical PyPI distribution names this app installs, checked by hand
 # against pypi.org. Static on purpose: a new package must be added here
@@ -62,7 +65,7 @@ def test_service_install_and_upgrade_commands_carry_the_flags(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
     ((cmd, _t),) = svc._install_commands("jieba")
-    assert cmd[3:] == ["install", *FLAGS, "jieba"]
+    assert cmd[3:] == ["install", *FLAGS, "jieba", *CONSTRAINTS]
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
     for cmd, _t in svc._install_commands("torch"):
         assert cmd[3:6] == ["install", *FLAGS]
@@ -122,7 +125,7 @@ def test_service_installs_opencv_python_for_cv2(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
     ((cmd, _t),) = svc._install_commands("cv2")
-    assert cmd[-1] == "opencv-python"
+    assert cmd[-3:] == ["opencv-python", *CONSTRAINTS]
 
 
 def test_dependency_install_uses_the_dist_name(monkeypatch):
@@ -130,7 +133,7 @@ def test_dependency_install_uses_the_dist_name(monkeypatch):
     monkeypatch.setattr(diagnostics, "stream_pip_install",
                         lambda args, py=None: seen.append(args) or iter(()))
     list(diagnostics.stream_dependency_install("PIL"))
-    assert seen == [["pillow"]]
+    assert seen == [["pillow", *CONSTRAINTS]]
 
 
 # ---- C: task map ----
@@ -282,3 +285,24 @@ def test_package_info_reports_min_version_and_below_min(monkeypatch):
     p = svc.get_install_presets()["packages"]
     assert p["jieba"]["min_version"] == "0.42" and p["jieba"]["below_min"] is True
     assert p["pypinyin"]["below_min"] is False
+
+
+def test_install_commands_omit_constraints_when_file_is_absent(monkeypatch, tmp_path):
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setattr(svc, "default_project_root", lambda: str(tmp_path))
+    ((cmd, _t),) = svc._install_commands("jieba")
+    assert cmd[3:] == ["install", *FLAGS, "jieba"]
+    assert all("-c" not in c for c, _t in svc._qwen_asr_fallback_commands("qwen-asr"))
+
+
+def test_install_commands_include_constraints_when_file_exists(monkeypatch, tmp_path):
+    import shutil
+    (tmp_path / "constraints.txt").write_text("av<19\n")
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setattr(svc, "default_project_root", lambda: str(tmp_path))
+    want = ["-c", str(tmp_path / "constraints.txt")]
+    ((cmd, _t),) = svc._install_commands("jieba")
+    assert cmd[-2:] == want
+    for cmd, _t in svc._qwen_asr_fallback_commands("qwen-asr"):
+        assert cmd[-2:] == want
