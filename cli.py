@@ -637,8 +637,9 @@ def _parse_fallback_arg(value, reflect=False) -> list:
     if reflect:
         raise SystemExit("translate: --fallback only applies to a normal translation run, "
                          "not --reflect.")
-    if any(n not in translate_engines.ENGINES for n in names):
-        raise SystemExit("translate: --fallback names an unknown translate engine.")
+    for n in names:
+        if n not in translate_engines.ENGINES:
+            raise SystemExit(f"translate: --fallback: {translate_engines.unknown_engine_message(n)}")
     return names
 
 
@@ -663,6 +664,8 @@ def _resolve_glossary_terms(drama: dict, refs) -> list:
 
 
 def cmd_translate(args):
+    if args.engine and args.engine not in translate_engines.ENGINES:
+        raise SystemExit(f"translate: {translate_engines.unknown_engine_message(args.engine)}")
     fallback_names = _parse_fallback_arg(getattr(args, "fallback", None),
                                          reflect=getattr(args, "reflect", False))
     glossary_affected = getattr(args, "glossary_affected", False)
@@ -739,8 +742,7 @@ def cmd_translate(args):
         if chain_error:
             print(f"#{d['id']} skipped: {chain_error}")
             return
-        missing = [n for n in fallback_names
-                   if n != "nllb" and not translate_service.resolve_api_key(n)]
+        missing = [n for n in fallback_names if not translate_service.resolve_api_key(n)]
         if missing:
             print(f"#{d['id']} skipped: no {missing[0]} key is configured for --fallback.")
             return
@@ -976,11 +978,8 @@ def cmd_dub(args):
         # Raised, not skipped, so _run_batch counts the drama as failed.
         dub_service.require_can_generate(tts_engine, chars, narrate_original, source_lang)
         clone_map = dub_module.clone_map_from_characters(
-            chars, ddir, gpt_sovits_url=(getattr(args, "gpt_sovits_url", None)
-                                          or settings_service.resolve_key("gpt_sovits_url") or None),
-            ref_language=source_lang, default_engine=tts_engine,
+            chars, ddir, default_engine=tts_engine,
             speaker_labels={ln.speaker or None for ln in lines})
-        dub_service.require_every_speaker_voiced(clone_map, lines)
 
         build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
         stretch = {} if is_narration else dict(
@@ -998,8 +997,8 @@ def cmd_dub(args):
 
         # Same clone_map_uses_local_model check the Workspace tab's
         # own Dub job uses to decide gpu_touching -- only some clone/TTS
-        # backends actually load a local model onto the GPU (GPT-SoVITS,
-        # OmniVoice, ...); only an empty map skips the cross-process GPU lock.
+        # backends actually load a local model onto the GPU; only an empty map
+        # skips the cross-process GPU lock.
         _gpu_holder_box = [None]
 
         def _progress(frac, did=d["id"]):
@@ -1013,7 +1012,6 @@ def cmd_dub(args):
         with _dub_gpu_ctx as _gpu_holder_box[0]:
             out_path, dub_errors = build_fn(
                 lines, ddir, clone_map,
-                emotion_map=db.load_emotions(d["id"]),
                 progress_cb=_progress,
                 **stretch, **narration_kwargs,
             )
@@ -1376,7 +1374,10 @@ def main():
     p_translate = sub.add_parser("translate")
     p_translate.add_argument("--id", type=int, default=None)
     p_translate.add_argument("--status", default=None)
-    p_translate.add_argument("--engine", default=None, choices=list(translate_engines.ENGINES))
+    # No argparse choices: a removed engine name gets the same plain refusal
+    # as the API instead of a generic "invalid choice" error.
+    p_translate.add_argument("--engine", default=None,
+                             help=f"Translate engine ({', '.join(translate_engines.ENGINES)}).")
     p_translate.add_argument("--api-key", default=None,
                              help="Key for --engine; omit to use the saved key.")
     p_translate.add_argument("--model", default=None)
@@ -1488,9 +1489,6 @@ def main():
                        help="Voice engine for speakers whose character has none of its own "
                             f"({', '.join(dub_module.CLONE_ENGINES)}; same choice as the Dub "
                             f"stage). Defaults to {dub_module.DEFAULT_CLONE_ENGINE}.")
-    p_dub.add_argument("--gpt-sovits-url", default=None,
-                       help="GPT-SoVITS server for characters using it "
-                            f"(default {dub_module.GPT_SOVITS_DEFAULT_URL})")
     p_dub.add_argument("--m4b", action="store_true",
                        help="For novel narration: also export an M4B audiobook with chapter markers")
     p_dub.set_defaults(func=cmd_dub)

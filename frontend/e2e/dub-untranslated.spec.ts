@@ -15,7 +15,7 @@ const dubConfig = (over: object = {}) => ({
   tts_engines: [{ key: 'omnivoice', label: 'OmniVoice' }],
   default_engine: 'omnivoice',
   defaults: null, speakers: [], gpu_required: false, speakable_line_count: 5, track_available: false,
-  gpt_sovits_configured: false, can_keep_background: false, ...over,
+  can_keep_background: false, ...over,
 })
 
 const progress = (untranslated: number) => ({

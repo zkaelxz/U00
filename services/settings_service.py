@@ -34,7 +34,6 @@ ENV_NAMES = {
     "groq": ("BAIHE_GROQ_KEY", "GROQ_API_KEY"),
     "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
     "ollama_url": ("BAIHE_OLLAMA_URL",),
-    "gpt_sovits_url": ("BAIHE_GPT_SOVITS_URL",),
     "monthly_cap_usd": ("BAIHE_MONTHLY_CAP_USD",),
 }
 
@@ -555,7 +554,7 @@ def _auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool) -> str
 # route shape. Not secrets, but a URL with userinfo or a query could carry
 # one, so those are refused and never echoed back.
 
-ENDPOINT_NAMES = ("ollama_url", "gpt_sovits_url")
+ENDPOINT_NAMES = ("ollama_url",)
 _MAX_URL_LENGTH = 300
 
 

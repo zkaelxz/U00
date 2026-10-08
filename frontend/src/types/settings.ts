@@ -43,7 +43,7 @@ export interface SettingsChoices {
   cookie_browsers: string[]
 }
 
-export type EndpointName = 'ollama_url' | 'gpt_sovits_url'
+export type EndpointName = 'ollama_url'
 
 // engine_keys maps a setting name to "is a key/endpoint configured"; the
 // API never returns a key, and neither does this type. endpoints carries a

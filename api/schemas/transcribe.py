@@ -260,6 +260,8 @@ class LiveSessionStatus(BaseModel):
     session_id: str
     status: str   # queued | running | done | error | cancelled
     message: str
+    engine: Optional[str] = None
+    model: Optional[str] = None
     progress: float
     cues: List[LiveCue]
     next_index: int
@@ -269,6 +271,7 @@ class LiveSessionSummary(BaseModel):
     session_id: str
     status: str
     engine: Optional[str] = None
+    model: Optional[str] = None
     cue_count: int
 
 

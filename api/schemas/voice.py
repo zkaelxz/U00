@@ -62,8 +62,7 @@ class DubDefaults(BaseModel):
 
 class DubConfig(BaseModel):
     """Read-only Dub-stage summary for one drama.
-    D2: no filesystem path, no GPT-SoVITS URL or secret -- only the
-    `gpt_sovits_configured` boolean."""
+    D2: no filesystem path or secret."""
     drama_id: int
     content_mode: Optional[str] = None
     is_narration: bool
@@ -80,7 +79,6 @@ class DubConfig(BaseModel):
     gpu_required: bool
     speakable_line_count: int
     track_available: bool
-    gpt_sovits_configured: bool
     can_keep_background: bool = False
 
 
