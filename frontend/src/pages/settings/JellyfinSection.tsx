@@ -132,10 +132,10 @@ function JellyfinControls() {
               <span className="status-row-name">Server</span>
             </div>
             <div className="status-form">
-              <Field label="Server address" help="For example http://localhost:8096 or http://192.168.1.20:8096. Changing it works only on the Baihe PC with key writes on (it decides where the key is sent).">
+              <Field label="Server address" help="For example http://localhost:8096. Change it only on the Baihe PC with key writes on, since it decides where the key is sent.">
                 <input type="url" value={url} placeholder="http://localhost:8096" onChange={(e) => setUrl(e.target.value)} />
               </Field>
-              <Field label="Library folder" help="The folder on this PC that Jellyfin reads (the same one set in Jellyfin's library). Files are only ever written inside it.">
+              <Field label="Library folder" help="The folder Jellyfin reads on this PC (the one set in its library). Files are written only inside it.">
                 <input type="text" value={folder} placeholder="D:\Media\Dramas" onChange={(e) => setFolder(e.target.value)} />
               </Field>
               <div className="settings-actions">
