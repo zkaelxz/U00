@@ -18,9 +18,7 @@ depend on context only a person reading the story can settle.
 import re
 import json
 from core import LANGUAGE_NAMES
-from glossary_io import (  # noqa: F401 -- re-exported for existing importers
-    GLOSSARY_COLUMNS, TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, parse_glossary_file,
-)
+from glossary_io import TERM_CATEGORIES, TERM_POLICIES
 from translate_engines import call_llm_json, parse_json_array
 
 
