@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, appendCues, buildStartBody, checkLiveUrl, resolveModel,
+  DEFAULT_FORM, DEFAULT_OPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
   describeLiveError, feedCues, fmtTs, getLive, isActive, pickSession, startLive, statusLine, stopLive,
 } from './live'
 import { ApiError } from './client'
 
-const cue = (n: number) => ({ start: n, end: n + 1, text: `t${n}`, translated: `e${n}` })
+import type { LiveCue } from '../types/live'
+
+const cue = (n: number, translation: LiveCue['translation'] = 'done'): LiveCue => ({
+  id: n, start: n, end: n + 1, text: `t${n}`, translated: translation === 'done' ? `e${n}` : '', translation,
+})
 const SID = `live_${'a'.repeat(32)}`
 
 describe('checkLiveUrl', () => {
@@ -42,10 +46,28 @@ describe('buildStartBody', () => {
 })
 
 describe('cues', () => {
-  it('appends and keeps only the newest', () => {
+  it('merges by id and keeps only the newest', () => {
     const prev = [cue(1), cue(2)]
-    expect(appendCues(prev, [])).toBe(prev)
-    expect(appendCues(prev, [cue(3), cue(4)], 3).map((c) => c.start)).toEqual([2, 3, 4])
+    expect(mergeCues(prev, [])).toBe(prev)
+    expect(mergeCues(prev, [cue(3), cue(4)], 3).map((c) => c.id)).toEqual([2, 3, 4])
+  })
+
+  it('fills a transcript in place when its translation arrives', () => {
+    const merged = mergeCues([cue(1), cue(2, 'pending')], [cue(2), cue(3, 'pending')])
+    expect(merged.map((c) => [c.id, c.translation])).toEqual([[1, 'done'], [2, 'done'], [3, 'pending']])
+    expect(merged[1].translated).toBe('e2')
+  })
+
+  it('never puts a finished line back to pending from an older reply', () => {
+    const merged = mergeCues([cue(1)], [cue(1, 'pending')])
+    expect(merged[0].translation).toBe('done')
+  })
+
+  it('reads again from the oldest line still translating', () => {
+    expect(readFrom([cue(0), cue(1, 'pending'), cue(2, 'pending')], 3)).toBe(1)
+    expect(readFrom([cue(0), cue(1)], 2)).toBe(2)
+    expect(hasPending([cue(0), cue(1, 'pending')])).toBe(true)
+    expect(hasPending([cue(0)])).toBe(false)
   })
 
   it('shows the newest first', () => {

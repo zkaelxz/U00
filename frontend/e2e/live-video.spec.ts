@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { SCREENS, cue, mockLive, openLive } from './liveMocks'
+import { SCREENS, cue, mockLive, openLive, pendingCue } from './liveMocks'
 import { mockEmbedHosts, ytFrame, ytHtml } from './liveVideoMocks'
 
 // Live page: the optional stream video. The embed hosts are route-mocked.
@@ -213,4 +213,29 @@ test('an unsupported site shows one calm line and no iframe', async ({ page }) =
 test('a lookalike host never reaches an iframe', async ({ page }) => {
   await startRunning(page, 'https://youtube.com.evil.test/watch?v=dQw4w9WgXcQ')
   await expect(page.locator('iframe')).toHaveCount(0)
+})
+
+test('captions draw over the picture, honour the delay and can be turned off', async ({ page }) => {
+  const { m, live } = await startRunning(page)
+  await live.getByLabel('Video delay', { exact: true }).fill('0')
+  const caption = live.getByTestId('live-caption')
+  await expect(caption).toContainText('Line 1:')
+  // Inside the same box as the picture, above it, and not in the way of clicks.
+  const frame = live.locator('.live-video-frame')
+  await expect(frame.getByTestId('live-caption')).toHaveCount(1)
+  await expect(caption).toHaveCSS('pointer-events', 'none')
+  await expect(page.locator('iframe[title="Stream video"]')).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation')
+
+  // A newer line whose translation is still pending shows its transcript.
+  m.state.cues = [cue(0), cue(1), pendingCue(2)]
+  await expect(caption).toContainText('第2句台词', { timeout: 15_000 })
+  await expect(caption).toHaveAttribute('data-pending', 'true')
+  m.state.cues = [cue(0), cue(1), cue(2)]
+  await expect(caption).toContainText('Line 2:', { timeout: 15_000 })
+
+  // Cleared after a few seconds.
+  await expect(caption).toHaveCount(0, { timeout: 15_000 })
+
+  await live.getByRole('switch', { name: 'Captions over video' }).click()
+  await expect(live.locator('.live-caption')).toHaveCount(0)
 })

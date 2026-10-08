@@ -34,7 +34,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `voice_id.py`
 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**: `translate_engines.py`, `translation_guide.py`, `translation_memory.py`, `auto_qc.py`, `en_cleanup.py`,
-`emotion.py`, `bulk_translate.py`, `live_translate.py`, `live_cue_translation.py` (the per-cue context and error note for Live), `live_fetch.py`, `glossary_io.py` (term categories/policies and glossary file import/export)
+`emotion.py`, `bulk_translate.py`, `live_translate.py`, `live_cue_translation.py` (the per-cue context and error note for Live), `live_cue_feed.py` (a Live cue shown as transcript first, translation filled in later, by id), `live_fetch.py`, `glossary_io.py` (term categories/policies and glossary file import/export)
 
 **Dubbing, subtitles & video**: `dub.py`, `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse), `video_export.py`, `media_inspect.py`, `subtitle_formats.py`, `video_download.py`
 

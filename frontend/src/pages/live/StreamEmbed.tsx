@@ -6,7 +6,7 @@
  * message listener, the timers) goes away when this unmounts, and the parent
  * mounts it only while the session runs.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   AUTOPLAY_WAIT_S, DVR_WAIT_S, MUTED_NOTE, NO_DELAY_NOTE, WAITING_NOTE, YT_ORIGIN, canDelay, delayNote, delayReached, embedSrc,
@@ -17,8 +17,9 @@ import {
 const SEEK_CONFIRM_S = 4
 const SEEK_TRIES = 3
 
-export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: number }) {
+export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; delay: number; captions?: ReactNode }) {
   const frame = useRef<HTMLIFrameElement>(null)
+  const box = useRef<HTMLDivElement>(null)
   const delayRef = useRef(delay)
   const [muted, setMuted] = useState(false)
   const unmuteRef = useRef<() => void>(() => {})
@@ -124,7 +125,7 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
 
   return (
     <>
-      <div className="live-video-frame">
+      <div className="live-video-frame" ref={box}>
         <iframe
           ref={frame}
           src={embedSrc(stream, window.location.hostname)}
@@ -136,7 +137,15 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
           loading="eager"
           onLoad={() => stream.kind === 'youtube' && frame.current?.contentWindow?.postMessage(ytListenMessage(), YT_ORIGIN)}
         />
+        {captions}
       </div>
+      {captions && document.fullscreenEnabled && (
+        // The picture and its captions go full screen together; the player's own
+        // full-screen button would leave the captions behind.
+        <p className="muted live-video-note">
+          <button type="button" onClick={() => void box.current?.requestFullscreen().catch(() => {})}>Full screen with captions</button>
+        </p>
+      )}
       <p className="muted live-video-note" data-testid="live-video-note" aria-live="polite">{note}</p>
       {muted && (
         <p className="muted live-video-note" data-testid="live-video-muted">
