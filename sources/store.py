@@ -380,9 +380,16 @@ def source_pace(source: str) -> str:
 
 
 def set_source_pace(source: str, level: str):
-    current = dict(get_setting("source_pace") or {})
-    current[source] = level
-    set_setting("source_pace", current)
+    # The map is one JSON setting, so the read-modify-write has to be a single
+    # write transaction or two POSTs for different sources lose one change.
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT value FROM settings WHERE key=?", ("source_pace",)).fetchone()
+        current = dict(json.loads(row["value"])) if row else {}
+        current[source] = level
+        conn.execute("INSERT INTO settings(key, value) VALUES(?, ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                     ("source_pace", json.dumps(current)))
 
 
 def adult_enabled(source: str) -> bool:

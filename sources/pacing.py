@@ -35,7 +35,11 @@ _CAREFUL_BREAKS = dict(session_break_min_requests=8, session_break_max_requests=
 MAX_SLOWDOWN = 8.0        # delays never grow past this multiple of the chosen level
 QUIET_REQUESTS = 20       # clean requests that win back one step (halving)
 TIMEOUT_STREAK = 3        # timeouts in a row that count as the site struggling
-MAX_HOLD = 600.0          # longest Retry-After we honour for the next request
+# Longest Retry-After we hold the next request for. It equals the cap on a
+# single retry wait in sources/http.py so one server cannot stall a fetch
+# for longer than a retry could.
+MAX_HOLD = 60.0
+MAX_CONCURRENT = 4        # the settings maximum; a profile cannot raise it
 
 
 @dataclass(frozen=True)
@@ -89,7 +93,7 @@ def _override(policy, entry: PaceLevel):
     if entry.max_delay is not None:
         changes["max_delay"] = max(changes.get("min_delay", policy.min_delay), float(entry.max_delay))
     if entry.max_concurrent is not None:
-        changes["max_concurrent"] = max(1, int(entry.max_concurrent))
+        changes["max_concurrent"] = min(MAX_CONCURRENT, max(1, int(entry.max_concurrent)))
     if entry.session_breaks is False:
         changes["session_break_min_requests"] = 0
     return replace(policy, **changes) if changes else policy
@@ -101,6 +105,13 @@ def apply_level(policy, profile: Optional[PacingProfile], level: Optional[str]):
     profile = profile or DEFAULT_PROFILE
     level = effective_level(profile, level)
     normal = _override(policy, profile.normal)
+    # The global floor (pace_min_delay and session breaks) binds `normal` too:
+    # a profile may be gentler than the settings, never faster or break-free.
+    normal = replace(normal, min_delay=max(normal.min_delay, policy.min_delay),
+                     max_delay=max(normal.max_delay, policy.min_delay),
+                     max_concurrent=min(normal.max_concurrent, policy.max_concurrent),
+                     session_break_min_requests=policy.session_break_min_requests
+                     if normal.session_break_min_requests <= 0 else normal.session_break_min_requests)
     if level == "normal":
         return normal
     if level == "fast":
@@ -124,6 +135,22 @@ def apply_level(policy, profile: Optional[PacingProfile], level: Optional[str]):
 
 
 # -- automatic slowdown ---------------------------------------------------
+SHARED_SOURCES = ("generic",)
+
+
+def slow_key(source: str, host: str = "") -> str:
+    """The slowdown/hold key. Pasted-URL imports share one source name across
+    unrelated sites, so they are tracked per host instead; otherwise one
+    hostile site's 429 would slow every other site."""
+    return f"{source}@{host}" if source in SHARED_SOURCES and host else source
+
+
+def retry_after_seconds(value) -> Optional[float]:
+    """Delta-seconds Retry-After as a float; None for anything else (an
+    HTTP-date, or Unicode digits such as "²" that float() rejects)."""
+    text = str(value).strip() if value is not None else ""
+    return float(text) if text and text.isascii() and text.isdigit() else None
+
 # In memory only: "for the rest of the session" means a restart starts clean.
 _lock = threading.Lock()
 _slow = {}
@@ -216,9 +243,9 @@ def note_pushback(source: str, kind: Optional[str], headers, now: float,
     if kind is None:
         return None
     ra = {k.lower(): v for k, v in headers.items()}.get("retry-after")
-    retry_after = float(ra) if ra and str(ra).strip().isdigit() else None
+    retry_after = retry_after_seconds(ra)
     if not note_trouble(source, kind, now, retry_after, escalate=not already_slowed):
         return None
-    message = f"Slowed down: {source} asked us to wait"
+    message = f"Slowed down: {source.split('@')[0]} asked us to wait"
     applog.get_logger().warning(message)
     return message

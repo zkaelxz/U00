@@ -40,6 +40,7 @@ from translate_engines import safe_url
 
 from . import charset_sniff, detect, health, pacing, store
 from .cache import RawCache
+from .limiter import Limiter
 from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REASONS,
                      FailureReason, FetchFailed, SourceUnavailable)
 
@@ -695,14 +696,11 @@ def _state(source: str, max_concurrent: int) -> dict:
     with _state_lock:
         st = _source_state.get(source)
         if st is None:
-            st = {"sem": threading.BoundedSemaphore(max_concurrent), "limit": max_concurrent,
+            st = {"sem": Limiter(max_concurrent),
                   "break_lock": threading.Lock(), "good_mirror": None}
             _source_state[source] = st
-        elif st["limit"] != max_concurrent:
-            # Holders of the old semaphore release it as they finish; only
-            # the limit is replaced, never the break counter or mirror.
-            st["sem"] = threading.BoundedSemaphore(max_concurrent)
-            st["limit"] = max_concurrent
+        else:
+            st["sem"].set_limit(max_concurrent)
         return st
 
 
@@ -840,16 +838,17 @@ class SourceClient:
         only blocks other requests to that host."""
         self._acquire_cancellable(st["break_lock"])
         try:
-            self._maybe_take_a_break(st)
+            self._maybe_take_a_break(st, pacing.slow_key(self.source, host))
         finally:
             st["break_lock"].release()
         declared = {str(k).lower(): v for k, v in self.policy.host_min_interval.items()}
         hs = _host(host, float(declared.get(host, 0.0)))
+        key = pacing.slow_key(self.source, host)
         self._acquire_cancellable(hs["lock"])
         try:
             gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
-            gap = max(gap, hs["min_interval"]) * pacing.multiplier(self.source)
-            wait = pacing.wait_seconds(self.source, hs["last"], gap, self.clock())
+            gap = max(gap, hs["min_interval"]) * pacing.multiplier(key)
+            wait = pacing.wait_seconds(key, hs["last"], gap, self.clock())
             if wait > 0:
                 self._status(f"Waiting {wait:.1f}s before next request...", wait)
                 self._sleep_cancellable(wait)
@@ -862,7 +861,7 @@ class SourceClient:
         hi = self.policy.session_break_max_requests
         return max(1, round(self.rng.uniform(lo, hi)))
 
-    def _maybe_take_a_break(self, st: dict):
+    def _maybe_take_a_break(self, st: dict, key: str):
         """Every `break_at` requests to this source (across every host),
         pauses for longer than the ordinary per-request gap -- a person
         would set the app down and come back rather than keep an evenly
@@ -875,7 +874,7 @@ class SourceClient:
         if st["since_break"] >= st["break_at"]:
             pause = self.rng.uniform(self.policy.session_break_min_delay,
                                      self.policy.session_break_max_delay) \
-                * pacing.multiplier(self.source)
+                * pacing.multiplier(key)
             self._status(f"Taking a break ({pause:.0f}s)...", pause)
             self._sleep_cancellable(pause)
             st["since_break"] = 0
@@ -977,7 +976,7 @@ class SourceClient:
                                                        at=time.time(), **ev))
                     if record_health:
                         health.record_success(self.source, latency)
-                    if pacing.note_success(self.source):
+                    if pacing.note_success(pacing.slow_key(self.source, host)):
                         self._status("Pace relaxed one step")
                     # Content a redirect fetched from another host, or over a
                     # downgraded scheme, is never stored under the URL that
@@ -1001,7 +1000,7 @@ class SourceClient:
                 # every automated request and goes to the person.
                 if reason in CHALLENGE_REASONS:
                     self.attempts.append(attempt)
-                    self._note_pushback("challenge", resp, False)
+                    self._note_pushback("challenge", resp, False, host)
                     if record_health:
                         health.record_failure(self.source, reason.value,
                                               f"Challenge at {url}")
@@ -1012,15 +1011,16 @@ class SourceClient:
                 retryable = reason == FailureReason.RATE_LIMIT or resp.status_code >= 500
 
             self.attempts.append(attempt)
-            slowed = self._note_pushback(pacing.pushback_kind(attempt.reason), resp, slowed)
+            slowed = self._note_pushback(pacing.pushback_kind(attempt.reason), resp, slowed, host)
             if retryable and attempt_no < self.policy.max_retries:
                 backoff = min(self.policy.backoff_base * (2 ** attempt_no), MAX_SINGLE_BACKOFF)
                 retry_hdr = (resp.headers if resp is not None else {})
                 ra = {k.lower(): v for k, v in retry_hdr.items()}.get("retry-after")
                 # Retry-After can only lengthen the wait, never past the cap;
                 # only the delta-seconds form is read (an HTTP-date is ignored).
-                if ra and str(ra).strip().isdigit():
-                    backoff = min(max(backoff, float(ra)), MAX_SINGLE_BACKOFF)
+                ra_seconds = pacing.retry_after_seconds(ra)
+                if ra_seconds is not None:
+                    backoff = min(max(backoff, ra_seconds), MAX_SINGLE_BACKOFF)
                 attempt_no += 1
                 self.stats["retries"] += 1
                 self._status(f"{attempt.reason} -- retry {attempt_no}/{self.policy.max_retries} "
@@ -1034,10 +1034,11 @@ class SourceClient:
             self._status("Idle", 0.0)
             raise FetchFailed(attempt.describe(), FailureReason(attempt.reason), attempt)
 
-    def _note_pushback(self, kind, resp, slowed: bool) -> bool:
+    def _note_pushback(self, kind, resp, slowed: bool, host: str = "") -> bool:
         """Feeds a pushback into the source's automatic slowdown; True once
         this request has slowed it, so retries of it do not slow it again."""
-        notice = pacing.note_pushback(self.source, kind, resp.headers if resp is not None else {},
+        notice = pacing.note_pushback(pacing.slow_key(self.source, host), kind,
+                                      resp.headers if resp is not None else {},
                                       self.clock(), slowed)
         if notice:
             self.stats["notice"] = notice

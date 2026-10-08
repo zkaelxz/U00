@@ -318,7 +318,6 @@ def set_source_pace(name: str, level) -> dict:
         raise InvalidInputError("Fast isn't available for this source: its pacing hasn't "
                                 "been checked against the site's rules.")
     store.set_source_pace(name, level)
-    src_http.reset_pacing_state(keep_slowdown=True)
     return _summary(name, cls)
 
 

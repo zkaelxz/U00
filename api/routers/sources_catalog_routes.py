@@ -140,7 +140,7 @@ def post_adult(payload: SourceToggle, name: str = _NAME):
     return svc.set_adult_enabled(name, payload.enabled)
 
 
-@router.post("/{name}/pace", dependencies=[require_permission("admin.settings")], response_model=SourceSummary,
+@router.post("/{name}/pace", dependencies=[local_only()], response_model=SourceSummary,
              summary="How careful requests to one source are (fast only where the source allows it)",
              responses=_ERR)
 def post_pace(payload: SourcePaceRequest, name: str = _NAME):

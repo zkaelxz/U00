@@ -188,3 +188,68 @@ class TestSlowdown:
         with pytest.raises(FetchFailed):
             c.get(u)
         assert "SECRET" not in c.stats["notice"] and "http" not in c.stats["notice"]
+
+
+class TestHardening:
+    def test_generic_slowdown_is_per_host(self, isolated_db):
+        clock = FakeClock()
+        bad, good = "https://bad.invalid/", "https://good.invalid/"
+        t = ScriptedTransport({bad: html("x", 429, {"Retry-After": "40"}), good: html("ok")}, clock)
+        c = _client(clock, t, source="generic", max_retries=0)
+        with pytest.raises(FetchFailed):
+            c.get(bad)
+        assert pacing.multiplier(pacing.slow_key("generic", "bad.invalid")) == 2.0
+        assert pacing.multiplier("generic") == 1.0
+        start = clock.clock()
+        c.get(good)
+        assert clock.clock() - start < 40.0
+
+    def test_retry_after_hold_is_capped(self, isolated_db):
+        pacing.note_trouble("s", "rate_limit", 0.0, retry_after=100000)
+        assert pacing.hold_remaining("s", 0.0) == pacing.MAX_HOLD <= 60.0
+
+    @pytest.mark.parametrize("value", ["²", "³", "¹", "٣"])
+    def test_unicode_digit_retry_after_is_ignored(self, isolated_db, value):
+        assert pacing.retry_after_seconds(value) is None
+        clock = FakeClock()
+        u = "https://s.invalid/"
+        t = ScriptedTransport({u: [html("x", 429, {"Retry-After": value}), html("ok")]}, clock)
+        assert _client(clock, t, max_retries=2, backoff_base=0.0).get(u).status_code == 200
+
+    def test_unicode_digit_retry_after_still_raises_the_challenge(self, isolated_db):
+        clock = FakeClock()
+        u = "https://cf.invalid/"
+        t = ScriptedTransport({u: html("<title>Just a moment...</title>", 403,
+                                       {"cf-mitigated": "challenge", "Retry-After": "²"})}, clock)
+        with pytest.raises(ChallengeDetected):
+            _client(clock, t, source="cf", max_retries=3).get(u)
+
+    def test_normal_never_beats_the_global_floor(self):
+        fast_normal = PacingProfile(normal=PaceLevel(min_delay=0.5, max_delay=1.0,
+                                                     max_concurrent=9, session_breaks=False))
+        p = pacing.apply_level(_base(max_concurrent=2), fast_normal, "normal")
+        assert (p.min_delay, p.max_delay, p.max_concurrent) == (3.0, 3.0, 2)
+        assert p.session_break_min_requests == _base().session_break_min_requests
+
+    def test_profile_concurrency_is_capped_at_the_settings_maximum(self):
+        wide = PacingProfile(fast=PaceLevel(max_concurrent=50), evidence="checked", fast_allowed=True)
+        assert pacing.apply_level(_base(max_concurrent=4), wide, "fast").max_concurrent <= 4
+
+    def test_limit_holds_while_requests_are_in_flight(self):
+        from sources import http
+        reset_pacing_state()
+        st = http._state("lim", 1)
+        with st["sem"]:
+            http._state("lim", 4)       # a later client asking for more
+            assert st["sem"].limit == 1
+        http._state("lim", 4)
+        assert st["sem"].limit == 4
+        reset_pacing_state()
+
+    def test_concurrent_pace_writes_keep_every_change(self, isolated_db):
+        import threading
+        names = [f"s{i}" for i in range(8)]
+        threads = [threading.Thread(target=store.set_source_pace, args=(n, "careful")) for n in names]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        assert all(store.source_pace(n) == "careful" for n in names)
