@@ -251,8 +251,14 @@ class OllamaEngine:
         # api_key is unused (kept for a consistent engine constructor signature)
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self._headroom_checked = False
 
     def translate_batch(self, zh_lines, context: dict):
+        if not self._headroom_checked:
+            # Once per engine: later batches reuse the model Ollama has loaded by then.
+            import memory_headroom
+            memory_headroom.check_ollama(self.base_url, self.model)
+            self._headroom_checked = True
         system_text = build_stable_system_text(context)
         num_ctx_override = context.get("ollama_num_ctx_override")
 

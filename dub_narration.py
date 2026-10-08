@@ -6,6 +6,7 @@ voice and clip helpers, never the other way round.
 
 import os
 import re
+from memory_headroom import HeadroomError
 
 from dub import (NO_VOICE_ERROR, M4B_ENCODE_TIMEOUT_SECONDS, clip_signature,
                  _synthesize_cloned, _voice_for_signature)
@@ -148,6 +149,8 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
             call_with_backoff(lambda: _synthesize_cloned(unit["clone"], unit["text"], partial))
             os.replace(partial, unit["clip_path"])
             return None
+        except HeadroomError:
+            raise  # the reserve refuses every unit; stop once instead of N identical errors
         except Exception as e:
             if os.path.exists(partial):
                 os.remove(partial)

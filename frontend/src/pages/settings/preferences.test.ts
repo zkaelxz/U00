@@ -8,6 +8,7 @@ import {
   checkPath,
   cookiesSummary,
   parseCap,
+  parseKeepFreeGb,
   parseNumCtx,
   parseUploadMb,
 } from './preferences'
@@ -21,6 +22,8 @@ const saved: SettingsPreferences = {
   max_upload_mb: 20480,
   monthly_cap_usd: null,
   ollama_num_ctx_override: 0,
+  keep_free_vram_gb: 0,
+  keep_free_ram_gb: 0,
   whisper_model_path: '',
   ocr_backend: 'auto',
   ocr_prefer_paddle_vl_manga: false,
@@ -94,5 +97,17 @@ describe('settings preferences', () => {
     expect(cookiesSummary(null, '')).toBe('none')
     expect(cookiesSummary('firefox', '')).toBe('from firefox')
     expect(cookiesSummary('firefox', '/c.txt')).toBe('cookies.txt file')
+  })
+})
+
+describe('parseKeepFreeGb', () => {
+  it('treats blank as off and accepts one decimal', () => {
+    expect(parseKeepFreeGb('')).toEqual({ ok: true, value: 0 })
+    expect(parseKeepFreeGb(' 4 ')).toEqual({ ok: true, value: 4 })
+    expect(parseKeepFreeGb('2.5')).toEqual({ ok: true, value: 2.5 })
+  })
+
+  it('refuses text, negatives, extra decimals and absurd sizes', () => {
+    for (const bad of ['abc', '-1', '1.25', '5000']) expect(parseKeepFreeGb(bad).ok).toBe(false)
   })
 })

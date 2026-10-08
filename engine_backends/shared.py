@@ -8,6 +8,7 @@ import time
 
 from core import LANGUAGE_NAMES
 from services import capped_body
+from memory_headroom import HeadroomError
 
 
 def _empty_usage() -> dict:
@@ -128,7 +129,8 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             return fn()
         except Exception as e:
             last_exception = e
-            if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached)):
+            # A refused local load repeats identically; retrying only delays the message.
+            if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached, HeadroomError)):
                 raise
             if getattr(e, "_fallback_chain_exhausted", False) and _is_rate_limit_error(e):
                 # FallbackEngine already retried and tried every engine.

@@ -19,6 +19,8 @@ refuses loads that can't possibly fit.
 
 import sys
 
+import memory_headroom
+
 # Rough lower bounds (MB) for weights plus a working margin, half precision
 # where the loader uses it. Low on purpose: see the module docstring.
 MODEL_VRAM_MB = {
@@ -58,7 +60,11 @@ def check_fits(what: str, required_mb=None, free_mb=None) -> None:
     if not required:
         return
     free = free_vram_mb() if free_mb is None else free_mb
-    if free is None or free >= required:
+    if free is None:
+        return
+    if free >= required:
+        # Also honours Settings > Keep free VRAM, the same check the ASR loaders use.
+        memory_headroom.check_need(what, required, "vram", free_mb=free)
         return
     raise InsufficientVramError(
         f"Not enough free GPU memory to load {what}: it needs about "
