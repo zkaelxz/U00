@@ -10,11 +10,14 @@ import type { Frame, Page } from '@playwright/test'
 // drops seeks until it plays. It plays by itself when the address carries
 // autoplay=1, unless `blockSound` (a browser autoplay policy): then only
 // playVideo after mute starts it. `blockAll` never starts it by itself.
-export const ytHtml = (windowS = 300, ignoreSeeks = 0, opts: { blockSound?: boolean; blockAll?: boolean } = {}) => `<!doctype html><title>fake player</title><p>player</p><script>
+// `elapsedS` makes duration the time since the stream began (as YouTube documents
+// for live events) while currentTime stays inside the window, so duration minus
+// currentTime is not the delay.
+export const ytHtml = (windowS = 300, ignoreSeeks = 0, opts: { blockSound?: boolean; blockAll?: boolean; elapsedS?: number } = {}) => `<!doctype html><title>fake player</title><p>player</p><script>
 window.__cmds = []; window.__ignore = ${ignoreSeeks};
 var W = ${windowS}, dur = 0, cur = 0, state = -1, muted = false;
-var blockSound = ${!!opts.blockSound}, blockAll = ${!!opts.blockAll};
-function start() { state = 1; dur = W; cur = W; report(); }
+var blockSound = ${!!opts.blockSound}, blockAll = ${!!opts.blockAll}, elapsed = ${opts.elapsedS ?? 0};
+function start() { state = 1; dur = elapsed || W; cur = W; report(); }
 function report() { parent.postMessage(JSON.stringify({ event: 'infoDelivery', info: { currentTime: cur, duration: dur, playerState: state, videoData: { isLive: true } } }), '*'); }
 if (/autoplay=1/.test(location.search) && !blockSound && !blockAll) setTimeout(start, 50);
 addEventListener('message', function (e) {
@@ -25,7 +28,7 @@ addEventListener('message', function (e) {
     if (m.func === 'unMute') muted = false;
     window.__muted = muted;
     if (m.func === 'playVideo' && state === -1 && !blockAll && (!blockSound || muted)) start();
-    if (m.func === 'seekTo' && state !== -1 && window.__ignore-- <= 0) { cur = Math.max(0, Math.min(dur, m.args[0])); report(); }
+    if (m.func === 'seekTo' && state !== -1 && window.__ignore-- <= 0) { cur = Math.max(0, Math.min(W, m.args[0])); report(); }
   }
   if (m.event === 'listening') report();
 });
