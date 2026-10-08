@@ -74,7 +74,7 @@ def test_list_pages_shape(client, comic):
     assert body["page_count"] == 2
     # No chapter data (an old title): one "unknown" group, never an error.
     assert body["hidden_count"] == 0 and len(body["chapters"]) == 1
-    assert body["chapters"][0] == {"id": "unknown", "title": "", "known": False, "host": "",
+    assert body["chapters"][0] == {"id": "unknown", "title": "", "known": False,
                                    "first_page": 1, "page_count": 2, "hidden_count": 0}
     p1, p2 = body["pages"]
     assert set(p1) == {"id", "ordinal", "width", "height", "has_rendered", "has_regions",
