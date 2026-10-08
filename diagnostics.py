@@ -113,12 +113,6 @@ OPTIONAL_DEPENDENCIES = {
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
     "qwen-asr": ("qwen_asr", "Qwen3-ASR transcription engine and Qwen3 forced alignment "
                              "(line timing); best in its own Python 3.12 environment", "feature"),
-    # Not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
-    # and needs transformers>=5.6, which qwen-asr's transformers==4.57.6 pin rules out.
-    "moss-transcribe-diarize": ("moss_transcribe_diarize",
-                                "experimental one-pass transcription + speaker labels "
-                                "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
-                                "can't share an install with Qwen3-ASR)", "experimental"),
     "cryptography": ("cryptography", "Google sign-in token checks, live capture of AES-128 "
                                      "encrypted HLS streams", "feature"),
     "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
@@ -217,19 +211,9 @@ def pypi_url(name: str):
     return f"https://pypi.org/project/{canonical_dist(dist)}/"
 
 
-# Packages that aren't on PyPI: Diagnostics links to their real source
-# instead of a PyPI page someone else could register (canonical dist -> URL).
-NON_PYPI_SOURCES = {
-    "moss-transcribe-diarize": "https://github.com/OpenMOSS/MOSS-Transcribe-Diarize",
-}
-
-
 def package_source_url(name: str):
-    """Where Diagnostics links a package: its real repository for a non-PyPI
-    one, nothing for any other "experimental" entry, else pypi_url()."""
-    dist = canonical_dist(pip_install_name(name))
-    if dist in NON_PYPI_SOURCES:
-        return NON_PYPI_SOURCES[dist]
+    """Where Diagnostics links a package: nothing for an "experimental" entry
+    (not necessarily on PyPI), else pypi_url()."""
     dep = OPTIONAL_DEPENDENCIES.get(name)
     if dep and dep[2] == "experimental":
         return None
@@ -239,10 +223,6 @@ def package_source_url(name: str):
 # Packages the generic Install button must not offer, with the reason shown
 # instead (dist canonical name -> reason).
 NOT_OFFERED_FOR_INSTALL = {
-    "moss-transcribe-diarize": "not offered: it isn't on PyPI. It installs from its GitHub "
-                               "repository (OpenMOSS/MOSS-Transcribe-Diarize) into this app's "
-                               "environment, and it upgrades Transformers to 5.x, which stops "
-                               "Qwen3-ASR and Qwen3 forced alignment working.",
     "lightnovel-crawler": "not offered: it's a separate program under the GPL-3.0 licence that "
                           "you install yourself, e.g. `pipx install lightnovel-crawler` (or "
                           "`pip install lightnovel-crawler` in its own environment). Baihe only "
@@ -952,8 +932,7 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 # Only these two tiers ever get a generic Install button -- "required" is
 # already installed by definition (the app wouldn't be running otherwise)
 # and "dev" (pytest) has nothing to do with a running app session.
-# "experimental" (the MOSS backend) is listed but never installed from here:
-# it isn't on PyPI.
+# "experimental" entries are listed but never installed from here.
 INSTALLABLE_TIERS = ("feature", "engine")
 
 # Added to every install: pip's wheel cache can be unwritable or locked on
