@@ -28,7 +28,8 @@ from api.schemas import (ErrorResponse, GlossaryAffectedPreview, GlossaryAffecte
                          TranslatePresetSave, TranslatePresetSaved, TranslateRunConfig,
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted,
                          WorkflowTierApplied, WorkflowTierApply)
-from services import glossary_retranslate_service, ownership_service, translate_run_service
+from services import (glossary_retranslate_service, ownership_service, translate_run_service,
+                      translate_thinking_service)
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
@@ -38,7 +39,8 @@ router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
             summary="Read-only Translate-stage summary for one drama",
             responses={404: {"model": ErrorResponse}})
 def get_translate_run_config(drama_id: int = Path(ge=1)):
-    return translate_run_service.get_translate_config(drama_id)
+    return {**translate_run_service.get_translate_config(drama_id),
+            **translate_thinking_service.config_fields(drama_id)}
 
 
 @router.get("/dramas/{drama_id}/estimate", dependencies=[require_permission("library.read")], response_model=TranslateRunEstimate,
@@ -54,10 +56,12 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
                                thinking: Optional[bool] = None,
                                gemini_free_tier: Optional[bool] = None,
                                job_cost_cap_usd: Optional[float] = Query(None, ge=0)):
-    return translate_run_service.estimate_translate_cost(
-        drama_id, engine_name=engine, model=model, reflect=reflect,
-        force_retranslate=force_retranslate, bulk=bulk, thinking=thinking,
-        gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd)
+    return translate_thinking_service.annotate_estimate(
+        translate_run_service.estimate_translate_cost(
+            drama_id, engine_name=engine, model=model, reflect=reflect,
+            force_retranslate=force_retranslate, bulk=bulk,
+            gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd),
+        drama_id, thinking, reflect)
 
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranslateRunStarted,
@@ -68,7 +72,9 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
 def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
                             *[f.engine for f in (body.fallback_chain or ())])
-    return translate_run_service.start_translate_run(
+    # Saved first: the job reads the title's choice when its run begins.
+    translate_thinking_service.save_title_choice(drama_id, body.thinking)
+    started = translate_run_service.start_translate_run(
         drama_id, engine_name=body.engine, model=body.model,
         style_preset=body.style_preset, style_note=body.style_note,
         locale=body.locale, force_retranslate=body.force_retranslate,
@@ -80,10 +86,12 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
         if body.fallback_chain else None,
         reflect=body.reflect, bulk=body.bulk,
         default_female_pronouns=body.default_female_pronouns,
-        include_genre_notes=body.include_genre_notes, thinking=body.thinking,
+        include_genre_notes=body.include_genre_notes,
         # The Settings episode-summary engine may be a cloud one: skipped
         # for a caller without engines.paid rather than refusing the run.
         allow_paid_summary=holds_paid_engines(request))
+    return translate_thinking_service.annotate_started(
+        started, translate_thinking_service.get_title_choice(drama_id))
 
 
 @router.get("/dramas/{drama_id}/glossary-affected", dependencies=[require_permission("lines.read")],

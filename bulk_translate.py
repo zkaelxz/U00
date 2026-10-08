@@ -1368,7 +1368,6 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
         target_ids=eligible, locale=args.get("locale", "en-US"),
         glossary_terms=args.get("glossary_terms"), style_guidelines=args.get("style_guidelines", ""),
         context_window=args.get("context_window", 6), character_names=character_names,
-        thinking=bool(args.get("thinking")),
         save_cb=lambda ls: db.save_lines(job["drama_id"], ls, fields=("en",)),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
             job["drama_id"], job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",

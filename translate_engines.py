@@ -98,6 +98,7 @@ from engine_backends.openai_compat import (  # noqa: F401
     DeepSeekEngine,
     OpenAIEngine,
 )
+from engine_backends.thinking import think_flag  # noqa: F401
 from engine_backends.gemini import (  # noqa: F401
     GEMINI_FREE_TIER_DEFAULT_LIMITS,
     GEMINI_FREE_TIER_LIMITS,

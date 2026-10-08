@@ -176,86 +176,116 @@ class TestTitleChoice:
     def test_default_is_off_and_a_bad_file_reads_as_off(self, isolated_db):
         did = db.create_drama(title_zh="D")
         assert tts.get_title_choice(did) is False
-        with open(os.path.join(db.drama_dir(did), tts.FILENAME), "w") as fh:
+        with open(os.path.join(db.drama_dir(did), thinking.TITLE_PREFS_FILENAME), "w") as fh:
             fh.write("{not json")
         assert tts.get_title_choice(did) is False
 
-    def test_an_explicit_choice_is_remembered_and_used_when_not_asked(self, isolated_db):
+    def test_reading_never_creates_the_drama_folder(self, isolated_db):
         did = db.create_drama(title_zh="D")
-        assert tts.run_setting(did, ["deepseek"], True, remember=True) is True
-        assert tts.get_title_choice(did) is True
-        assert tts.run_setting(did, ["deepseek"], None) is True
-        assert tts.run_setting(did, ["deepseek"], False, remember=True) is False
-        assert tts.run_setting(did, ["deepseek"], None) is False
+        folder = os.path.join(db.DRAMAS_DIR, str(did))
+        assert not os.path.exists(folder)
+        assert tts.get_title_choice(did) is False and not os.path.exists(folder)
 
-    def test_engines_without_a_switch_and_reflect_never_think(self, isolated_db):
+    def test_an_explicit_choice_is_remembered_and_none_leaves_it(self, isolated_db):
         did = db.create_drama(title_zh="D")
-        assert tts.run_setting(did, ["claude"], True) is False
-        assert tts.run_setting(did, ["deepseek"], True, reflect=True) is False
-        assert tts.run_setting(did, ["claude", "ollama"], True) is True
+        tts.save_title_choice(did, True)
+        assert tts.get_title_choice(did) is True
+        tts.save_title_choice(did, None)
+        assert tts.get_title_choice(did) is True
+        tts.save_title_choice(did, False)
+        assert tts.get_title_choice(did) is False
+
+    def test_an_unknown_drama_gets_no_folder(self, isolated_db):
+        tts.save_title_choice(9999, True)
+        assert not os.path.exists(os.path.join(db.DRAMAS_DIR, "9999"))
+
+    def test_a_run_context_follows_the_title_unless_told(self, isolated_db):
+        did = db.create_drama(title_zh="D")
+        tts.save_title_choice(did, True)
+        engine = types.SimpleNamespace(supports_reference=True)
+        assert te.build_translation_context(engine, {"id": did})["reply_with_thinking"] is True
+        assert te.build_translation_context(engine, {"id": did}, thinking=False)["reply_with_thinking"] is False
+
+    def test_the_cli_flag_overrides_the_title_for_the_process(self, isolated_db):
+        import argparse
+        did = db.create_drama(title_zh="D")
+        parser = te.think_flag(argparse.ArgumentParser())
+        try:
+            assert parser.parse_args([]).thinking is None
+            parser.parse_args(["--thinking"])
+            assert tts.get_title_choice(did) is True
+            parser.parse_args(["--no-thinking"])
+            tts.save_title_choice(did, True)
+            assert tts.get_title_choice(did) is False
+        finally:
+            thinking.set_run_override(None)
+
+    def test_engines_without_a_switch_and_reflect_never_think(self):
+        assert tts.effective(["claude"], True) is False
+        assert tts.effective(["deepseek"], True, reflect=True) is False
+        assert tts.effective(["claude", "ollama"], True) is True
 
     def test_the_config_reports_the_remembered_choice_and_the_engines(self, isolated_db):
         did = db.create_drama(title_zh="D")
         tts.save_title_choice(did, True)
-        cfg = run.get_translate_config(did)
-        assert cfg["title_thinking"] is True
-        assert cfg["thinking_switch_engines"] == ["deepseek", "ollama"]
+        assert tts.config_fields(did) == {"thinking_switch_engines": ["deepseek", "ollama"],
+                                          "title_thinking": True}
 
 
 def test_the_estimate_is_a_lower_bound_only_when_thinking_costs_money(isolated_db):
     did = db.create_drama(title_zh="D")
     db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好世界" * 20, en="")])
-    off = run.estimate_translate_cost(did, "deepseek")
-    on = run.estimate_translate_cost(did, "deepseek", thinking=True)
+    est = run.estimate_translate_cost(did, "deepseek")
+    off = tts.annotate_estimate(est, did, None)
+    on = tts.annotate_estimate(est, did, True)
     assert on["thinking"] is True and on["estimate_is_lower_bound"] is True
     assert off["thinking"] is False and off["estimate_is_lower_bound"] is False
     assert on["estimated_usd"] == off["estimated_usd"]
-    assert run.estimate_translate_cost(did, "claude", thinking=True)["thinking"] is False
-    assert run.estimate_translate_cost(did, "ollama", thinking=True)["estimate_is_lower_bound"] is False
+    assert tts.annotate_estimate(run.estimate_translate_cost(did, "claude"), did, True)["thinking"] is False
+    ollama = tts.annotate_estimate(run.estimate_translate_cost(did, "ollama"), did, True)
+    assert ollama["thinking"] is True and ollama["estimate_is_lower_bound"] is False
 
 
-def test_provenance_keeps_the_default_hash_and_separates_a_thinking_run(isolated_db):
-    def settings_of(**kw):
-        seen = {}
-        orig = line_provenance_service.tracker
-        line_provenance_service.tracker = lambda *a, settings=None, **k: seen.update(s=settings)
-        try:
-            line_provenance_service.translate_run_tracker(1, [], te.ENGINES["fake"]("k"), "fake", None,
-                                                           locale="en-US", **kw)
-        finally:
-            line_provenance_service.tracker = orig
-        return seen["s"]
-    default = settings_of()
-    assert "thinking" not in default and settings_of(thinking=False) == default
-    assert settings_of(thinking=True)["thinking"] is True
-
-
-def test_start_run_passes_thinking_to_the_job_and_remembers_it(isolated_db, monkeypatch):
+def test_provenance_keeps_the_default_hash_and_separates_a_thinking_run(isolated_db, monkeypatch):
     did = db.create_drama(title_zh="D")
-    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
-    started = {}
-    monkeypatch.setattr(run.translate_service, "resolve_api_key", lambda name: "k")
-    monkeypatch.setattr(te, "get_engine", lambda *a, **k: _Capturing())
-    monkeypatch.setattr(run.background_jobs, "start_job",
-                        lambda job_id, fn, *a, **kw: started.update(kw=kw) or True)
-    monkeypatch.setattr(run, "pick_summary_engine", lambda **kw: (None, None))
-    res = run.start_translate_run(did, engine_name="deepseek", thinking=True)
-    assert res["thinking"] is True and started["kw"]["thinking"] is True
-    assert tts.get_title_choice(did) is True
-    res = run.start_translate_run(did, engine_name="deepseek")
-    assert res["thinking"] is True  # not asked: the title's choice
-    res = run.start_translate_run(did, engine_name="claude")
-    assert res["thinking"] is False
-    res = run.start_translate_run(did, engine_name="deepseek", thinking=False)
-    assert res["thinking"] is False and tts.get_title_choice(did) is False
+    seen = []
+    monkeypatch.setattr(line_provenance_service, "tracker",
+                        lambda *a, settings=None, **k: seen.append(settings))
+
+    def settings_for(engine_choice, **kw):
+        line_provenance_service.translate_run_tracker(
+            did, [], types.SimpleNamespace(), engine_choice, None, locale="en-US", **kw)
+        return seen[-1]
+    default = settings_for("deepseek")
+    assert "thinking" not in default
+    tts.save_title_choice(did, True)
+    assert settings_for("deepseek")["thinking"] is True
+    assert "thinking" not in settings_for("claude")
+    assert "thinking" not in settings_for("deepseek", reflect=True)
 
 
-@pytest.mark.parametrize("thinking_on", [False, True])
-def test_the_deepseek_off_peak_job_carries_the_choice(isolated_db, monkeypatch, thinking_on):
+def test_run_route_remembers_the_choice_and_reports_it(isolated_db, monkeypatch):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    from api.api_config import ApiSettings
+    from api.server import create_app
     did = db.create_drama(title_zh="D")
-    captured = {}
-    monkeypatch.setattr(run.bulk_translate, "schedule_offpeak_translation",
-                        lambda drama_id, lines, engine_name, model, args, **kw: captured.update(args=args) or 7)
-    submit = run._bulk_submitter(did, {}, _Capturing(), "deepseek", False, None, None, "", "", "en-US",
-                                 "audio_drama", 6, 3, 20, False, None, None, thinking_on)
-    assert submit() == 7 and captured["args"]["thinking"] is thinking_on
+    monkeypatch.setattr(run, "start_translate_run",
+                        lambda drama_id, **kw: {"job_id": "j", "drama_id": drama_id, "engine": "deepseek",
+                                                "target_line_count": 1, "reflect": False})
+    client = TestClient(create_app(ApiSettings()), headers={"X-Baihe-Local": "1"})
+    body = client.post(f"/api/translate-run/dramas/{did}/run", json={"thinking": True}).json()
+    assert body["thinking"] is True and tts.get_title_choice(did) is True
+    body = client.post(f"/api/translate-run/dramas/{did}/run", json={}).json()
+    assert body["thinking"] is True  # not asked: the title's choice
+    body = client.post(f"/api/translate-run/dramas/{did}/run", json={"thinking": False}).json()
+    assert body["thinking"] is False and tts.get_title_choice(did) is False
+    cfg = client.get(f"/api/translate-run/dramas/{did}/config").json()
+    assert cfg["title_thinking"] is False and cfg["thinking_switch_engines"] == ["deepseek", "ollama"]
+
+
+def test_the_deepseek_off_peak_job_reads_the_title_when_it_runs(isolated_db):
+    did = db.create_drama(title_zh="D")
+    tts.save_title_choice(did, True)
+    engine = types.SimpleNamespace(supports_reference=True)
+    assert te.build_translation_context(engine, db.get_drama(did))["reply_with_thinking"] is True

@@ -5,6 +5,10 @@ build_translation_context: off unless the run asks to think harder, which sets
 context["reply_with_thinking"] and sends the "on" form explicitly. A context
 with neither key sends no field and the model does what it does by default."""
 
+import argparse
+import json
+import os
+
 # Engines whose request has a documented switch. Mirrored by
 # THINKING_SWITCH_ENGINES in frontend/src/api/live.ts (a test pins the two).
 NO_THINKING_ENGINES = ("deepseek", "ollama")
@@ -17,6 +21,52 @@ DEEPSEEK_THINKING_BODY = {"thinking": {"type": "enabled"}}
 # rejects it for a model without the thinking capability, and re-sending it on
 # every cue would double each request.
 _think_refused = set()
+
+
+# The title's remembered "think harder" choice, in its drama folder because
+# db.py is frozen; the folder travels with the title in backups. A missing,
+# unreadable or hand-edited file reads as off.
+TITLE_PREFS_FILENAME = "translate_prefs.json"
+
+# A one-shot choice for this process (`cli.py translate --thinking`); the app
+# never sets it. It wins over the title's choice for the whole run, so the
+# request and the provenance record agree.
+_run_override = None
+
+
+def set_run_override(value) -> None:
+    global _run_override
+    _run_override = value
+
+
+def title_thinking(drama_meta) -> bool:
+    """Whether a run for this title asks the model to think. Read at the start
+    of a run, never creating the drama folder."""
+    if _run_override is not None:
+        return bool(_run_override)
+    import db
+    drama_id = (drama_meta or {}).get("id")
+    if not isinstance(drama_id, int):
+        return False
+    try:
+        with open(os.path.join(db.DRAMAS_DIR, str(drama_id), TITLE_PREFS_FILENAME),
+                  encoding="utf-8") as fh:
+            return json.load(fh).get("thinking") is True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+class _ThinkingFlag(argparse.BooleanOptionalAction):
+    def __call__(self, parser, namespace, values, option_string=None):
+        super().__call__(parser, namespace, values, option_string)
+        set_run_override(not (option_string or "").startswith("--no-"))
+
+
+def think_flag(parser):
+    """Adds --thinking / --no-thinking to a CLI subparser; returns it."""
+    parser.add_argument("--thinking", action=_ThinkingFlag, default=None,
+                        help="Think before answering (DeepSeek/Ollama): slower, costs more.")
+    return parser
 
 
 def thinking_choice(context: dict):

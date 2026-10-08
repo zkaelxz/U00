@@ -80,8 +80,7 @@ import background_jobs
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
                       glossary_service, jobs_service, lines_service, line_provenance_service,
                       narration_service, review_extras_service, settings_service, transcribe_service,
-                      translate_run_service, translate_service, translate_thinking_service,
-                      workspace_job_service)
+                      translate_run_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
 from services.service_errors import DependencyUnavailableError, ServiceError
 from services.translate_run_service import (engine_cap_applies, get_translate_config_defaults,
@@ -862,15 +861,12 @@ def cmd_translate(args):
         style_note = (args.style_note if args.style_note is not None
                       else settings_service.get_preference("default_style_note"))
         scene_aware = settings_service.get_preference("scene_aware_batches")
-        thinking = translate_thinking_service.run_setting(
-            d["id"], chain_names, getattr(args, "thinking", None),
-            getattr(args, "reflect", False), True)
         # Same settings the Workspace job records with each line.
         provenance = line_provenance_service.translate_run_tracker(
             d["id"], lines, engine, engine_name, glossary_terms,
             locale=args.locale or settings_service.get_preference("default_locale"),
             style_preset=style_preset, reflect=bool(getattr(args, "reflect", False)),
-            thinking=thinking, context_window=_flag_or(args, "context_window", tdefaults),
+            context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             style_note=style_note or "", style_guidelines=style_guidelines or "",
@@ -903,7 +899,7 @@ def cmd_translate(args):
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             reflect=getattr(args, "reflect", False), scene_aware_batches=scene_aware,
-            thinking=thinking, notes_cb=notes_cb,
+            notes_cb=notes_cb,
             progress_cb=_progress,
             save_cb=save_cb,
             usage_cb=lambda inp, out, cache_read=0, cache_write=0, did=d["id"]: db.log_usage(
@@ -1376,8 +1372,8 @@ def main():
                            help="Also replace speakers you corrected by hand")
     p_diarize.set_defaults(func=cmd_diarize)
 
-    p_translate = sub.add_parser("translate")
-    p_translate.add_argument("--id", type=int, default=None)
+    p_translate = translate_engines.think_flag(sub.add_parser("translate"))
+    p_translate.add_argument("--id", type=int)
     p_translate.add_argument("--status", default=None)
     # No argparse choices: a removed engine name gets the same plain refusal
     # as the API instead of a generic "invalid choice" error.
@@ -1443,8 +1439,6 @@ def main():
                                   "(faithful draft, critique, rewrite) instead of one -- costs "
                                   "about 3x as much. The critique is saved as a translation note "
                                   "per line.")
-    p_translate.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=None,
-                             help="Think before answering (DeepSeek/Ollama): slower, costs more.")
     p_translate.add_argument("--cost-cap", type=float, default=None,
                            help="Stop a drama's translation once its estimated spend reaches this "
                                 "many USD (finished lines are kept).")

@@ -23,6 +23,7 @@ import threading
 import time
 
 import db
+from services import translate_thinking_service
 from services.job_checkpoint_service import hash_text, settings_hash
 
 GIT_TIMEOUT_SECONDS = 3
@@ -194,13 +195,10 @@ def tracker(drama_id, lines, engine_info, prompt_version, glossary_terms, settin
     return on_save
 
 
-def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms,
-                          thinking=False, **options):
+def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms, **options):
     """The tracker for one translate run, shared by the Workspace job and
     `cli.py translate`. A FallbackEngine's active engine is read at every
-    save; `options` are the run's plain settings (locale, style...).
-    `thinking` joins the settings only when on, so the hash of a default run
-    is the one earlier runs recorded while a thinking run differs from it."""
+    save; `options` are the run's plain settings (locale, style...)."""
     import translate_engines
 
     def engine_info():
@@ -209,7 +207,10 @@ def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms
         return name, getattr(engine, "model", None) or name
 
     settings = {k: (v if v is not None else "") for k, v in options.items()}
-    if thinking:
+    # Only a thinking run adds a key, so a default run hashes as it always did.
+    if translate_thinking_service.effective(
+            [engine_choice], translate_thinking_service.get_title_choice(drama_id),
+            options.get("reflect")):
         settings["thinking"] = True
     return tracker(drama_id, lines, engine_info, translate_engines.TRANSLATE_PROMPT_VERSION,
                    glossary_terms, settings=settings)
