@@ -55,6 +55,8 @@ Status: **Has** = in Baihe and checked; **Partial**; **Missing**; **Better** = B
 | Clip by selection | Missing | FunClip |
 | Live / streaming | Partial: `live_translate.py` (15-30 s chunks) | LiveTranslate, auto-caption, LLPlayer |
 | Review UI | Better: React editor, speakers, flags, compare re-transcribe | LLPlayer (sidebar search, translate-ahead), linto-studio (collaborative edit) |
+| Engine/setting comparison on one clip | Partial: Lab Arena compares runs of one stage, but transcription varies only Whisper size; Review "Compare transcription" varies size and backend on chosen lines of a real title (addendum A4) | SmartSub has engine choice per task but no comparison view found |
+| AI cleanup of transcript text (punctuation, homophones) | Partial: flag pass + bulk fix-flagged, LLM re-split preview; no blanket text-correction pass (addendum A3) | SmartSub (two passes: segmentation, correction) |
 
 ## 3. Owner questions
 
@@ -193,6 +195,61 @@ Licence is the repo's licence file; model weights can differ and were not checke
 - creator tools whose core is obfuscated (CreatorBox) and README-only repos (xiaoniu, GhostCut scripts, Asmr-Player, neokikoeru) could not be read in code.
 - STATUS.md was last checked at 175d617; the base is 68595ce. The claims above were re-read against the code at the base, not taken from STATUS.md.
 
+## 8. Addendum: SmartSub and Voice-Pro (2026-10-08)
+
+Same method and safety rules as above: shallow clones, README and file reading only, nothing run, no code copied. SmartSub `ea91e56` (2026-10-08), Voice-Pro `7231384` (2026-07-13), Chenyme-AAVT `b36765b` (2025-04-07). Baihe claims were re-read at `b5f51d4`. No model was run and no audio was heard, so nothing below is a quality claim; every accuracy statement is the repo's own.
+
+### A1. Corrections to the sections above
+Found while re-verifying. Sections 1 to 3 were written against `68595ce`; these three were already in it.
+- **Gap 3 / Q2 miss the shipped "sensitive" preset** (`sensitivity_preset.py`, #881): a per-title opt-in with VAD threshold 0.35 instead of 0.5 and a decode without `no_repeat_ngram_size` / `repetition_penalty`, with `filter_hallucinated_segments` still on. The gap that remains is the one stated: pad, min speech and no-speech are not exposed, and the preset was not measured on whispered audio.
+- **Gap 9 / Q4 say `Line` stores no word times.** It does: `Line.word_timings` (`core.py:62`, `ALTER TABLE lines ADD COLUMN word_timings` at `db.py:1118`), written at transcription (`transcribe_service.py:1345`) and read by re-split (`restructure_service.py`). What is still missing is any Review view or edit of them (no `word_timings` in `frontend/src`) and a job that fills them later. The effort estimate for gap 9 drops from L to M for the storage part.
+- **Q4 says there is no waveform.** Review has `Waveform.tsx` with edge drag and a 0.05 s nudge (`waveformLogic.ts`, `NUDGE_SECONDS`), plus play and loop line. Missing: word chips and a word-level view.
+
+### A2. Chenyme-AAVT: stale, and its README overstates
+Verdict on the three items: **VAD-assisted recognition** is implemented, but only as faster-whisper's `vad_filter` with `min_silence_duration_ms` (`utils/public.py:125-165`, one user setting). **Word-level segmentation** has a ticked README box but no `word_timestamps` anywhere in the code (grep of all `*.py` finds none): treat as not implemented. **Automatic subtitle proofreading** is an unticked TODO in the README and absent from the code. Last commit 2025-04-07; MIT. It exposes beam size and initial prompt per run and a Streamlit UI, all of which Baihe has. Nothing to take; the section 4 verdict ("stale or weaker than Baihe") stands.
+
+### A3. SmartSub (buxuku/SmartSub, MIT, TypeScript/Electron, active)
+**Does that Baihe does not:** an in-app assistant and an MCP/CLI surface (README claims 111 tools; not verified); video download with cookies; a 9-provider cloud ASR family; bundled sherpa-onnx engines (FunASR/SenseVoice, Qwen3-ASR, FireRedASR, Parakeet) with no Python runtime; hardware packs downloaded in-app. Mostly off-scope for Baihe, which is a local FastAPI app.
+
+**How it does shared things:**
+| Topic | SmartSub | Baihe |
+|---|---|---|
+| Engine per task | Task form carries `transcriptionEngine`; `engines/registry.ts` resolves it, default whisper.cpp. Eight engine families, one adapter interface, one transcribe slot gate per shared worker (`transcriptionRouter.ts`). | Per title: Whisper size plus `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long` (`asr_options_service`, `compare_transcription_service.BACKEND_CHOICES`). Fewer backends, but a title can be re-run on a chosen backend per line set. |
+| VAD | Exposes threshold, min speech, min silence, max speech, speech pad, sample overlap for whisper.cpp and faster-whisper (`fasterWhisperEngine.ts:208-223`, `builtinEngine.ts:175-183`). Defaults seen: threshold 0.5, pad 200 ms. | Threshold and min silence per title; pad and min speech not exposed (gap 3). |
+| Missed speech | A second, more sensitive VAD pass finds speech intervals with no text (min 800 ms, 150 ms edge padding) and warns or queues them for review (`missedSpeechWarning.ts`, `missedSpeechStage.ts`). | `diagnose_line_coverage` (`core.py`) and the speech coverage check from #881. Not compared line by line; both are heuristics, unmeasured. |
+| AI cleanup | Opt-in, two serial passes after ASR, only on this run's ASR output. Pass A regroups lines by meaning; its output must equal the input text after whitespace removal, or it is retried with a diff fed back, then falls back to rules. A physical guard then re-cuts anything over width or duration on real word times. Pass B replaces only text slots (cue count and times unchanged by construction) to fix homophones, fillers, punctuation, with low-probability words listed to the model as suspects. Whole stage degrades to the pre-stage subtitles on any failure (`subtitleRefineStage.ts`, `subtitleRefine/validator.ts`, `guards.ts`, `correctionRunner.ts`). | Rules plus LLM re-split with a reviewable preview, applied by an explicit step (`restructure_service.start_llm_resegment_preview`); flag pass and bulk fix-flagged in `review_jobs_service` (field-scoped writes). No blanket pass that corrects transcript text, and no word-probability hint to a model (Baihe's faster-whisper word probabilities: not checked). |
+| Segmentation | `subtitleSegmentation.ts` (1249 lines): width, duration, pause and punctuation rules over word tokens, plus the LLM option. | `resegment.py` (CJK-aware rules plus LLM, per-title min pause, section 5). |
+| Proofreading | Editor with undo/redo, per-line restore, AI polish. | Richer: speakers, flags, notes, compare re-transcribe. |
+| Dubbing | TTS with timeline alignment, review list for over-limit lines. | Covered by gap 10; their "borrow from silent gaps" matches the neighbour-borrow idea already listed. |
+
+**Clearly better:** the refine contract. Content-equality validation plus a deterministic fallback to the rule pipeline is a safer shape than accepting an LLM re-split on trust, and it preserves word-accurate timing. Baihe's preview-then-apply is safer for the user but has no automatic equality check on the LLM's text (I did not verify whether `resegment.py` has one; the id-keyed rule in CLAUDE.md suggests an id check). **Clearly worse or unknown:** no CJK-specific alignment fallback, no `timing_uncertain` equivalent found, and no benchmark or comparison tooling found by grep. It has a glossary (`main/glossary/core.ts`) that I did not read, so no claim either way on terminology.
+
+**Reimplement:** (a) text-equality check plus diff-feedback retry in Baihe's LLM re-split, S, low risk; (b) opt-in ASR text-correction pass that writes only `zh` through `db.save_lines(..., fields=("zh",))`, shown as a Compare-style proposal rather than applied, M, medium risk (an LLM can rewrite meaning; Baihe's QC and history snapshot mitigate); (c) feeding low-probability words into that prompt, S on top of (b), blocked on whether Baihe keeps word probabilities.
+
+### A4. Voice-Pro (abus-aikorea/voice-pro, GPL-3.0, Python/Gradio, development paused)
+README says twice that updates are not possible for the time being (lines 90 and 522); last commit 2026-07-13, a docs-only change. **GPL-3.0: ideas only.** It bundles Whisper, faster-whisper and whisper-timestamped behind one Gradio tab, with Demucs/MDX-Net vocal separation, downloader, translation, several TTS engines and RVC voice conversion. Whisper word-level highlighting is a UI option.
+
+- **Shared things, differently:** ASR settings live in one dataclass (`app/abus_asr_parameters.py`): model size, beam 5, `condition_on_previous_text` off, word timestamps on, `hallucination_silence_threshold` 0.5, `repetition_penalty` 1.1, VAD min silence 100 ms, denoise level. In the faster-whisper path VAD parameters are passed through, while beam size and no-speech threshold are commented out (`abus_asr_faster_whisper.py:175-187`), so those fields are not all live; the whisper-timestamped path has its VAD arguments commented out. No segmentation or proofreading beyond the library's.
+- **Owner's notes, as the README states them (not measured by me, not a benchmark):** larger Whisper models "tend to" give better subtitles, "but this is not necessarily the case"; the float compute types perform better than int types, which quantise for less memory and speed at lower quality; a higher denoise level removes more background and "does not always guarantee good results"; denoise level 2 needs about 8 GB of GPU. Treat these as caveats for Baihe's UI copy and the Lab grid, not as evidence.
+- **Against Baihe's own data** (`docs/asr-experiments.md`, snapshot, one CPU machine): larger was not uniformly better (turbo beat large-v3 on one Chinese drama clip, medium was worst on degraded audio), vocal separation hurt with noise, and the README's quantisation caveat is **untested in Baihe** (the snapshot ran int8 on CPU only, with no float arm). That makes Voice-Pro's three notes consistent with Baihe's data for model size and denoise, and an open question for compute type.
+- **Better or worse than Baihe:** from the files read it has no per-line tuning, alignment flag or benchmark (README and ASR code only; the rest not read); it ships an RVC/voice-cover stack and live translation, both off-scope. Reimplement: nothing.
+
+### A5. The owner's four questions, for Baihe
+1. **Should model comparison make same-clip, same-language, same-settings comparison easier? Yes, in two places.** Lab Arena already lines up runs over the same cases (`benchmark_lab_service.arena`), but a transcription run records only `{"use_gpu": ...}` as its context (`benchmark_lab_service.py:552`) and always calls `core.transcribe_for_timing` with its signature defaults, which differ from the app's per-title ones (min silence 2000 ms there against 300 ms in `transcribe_service._DEFAULT_TUNING`). So two runs are comparable with each other but not reproducible against what a title would get, and the record cannot say what settings produced the score. Smallest change: store the resolved transcription settings (model, backend, VAD threshold, min silence, beam, preset, prompt on or off) with each run and show them in the Arena header. Larger: add settings arms (section 1, gap 2, Q1 item 3). The per-title route is closer to what SmartSub lacks and Baihe already has: "Compare transcription" re-runs chosen lines of a real clip with a different size or backend while holding the title's saved beam, silence, threshold, preset and language fixed (`compare_transcription_service.start_compare`, `cfg` at line 288). It varies only one candidate setting per run, by design. A small gain there: show those held settings next to the proposals.
+2. **Does the Lab offer only Whisper sizes?** Yes for transcription (`whisper_sizes` at `benchmark_lab_service.py:411`; `_run_file_case` passes only the size). The Qwen3 backends, available in Compare and as the default for zh/ja titles when installed (`docs/asr-experiments.md`, "Which backend a title gets"), cannot be benchmarked in the Lab. That is the sharper form of gap 2: the Lab does not test the backend most zh/ja titles actually run.
+3. **Does it measure timing?** No. Text only, CER or WER from jiwer, one number per case; `benchmark.py:79-83` says timing is deliberately out of scope. Timed references and offset metrics are Q1 items 1 and 2.
+4. **Does Review support fixing timing?** Edges, not words. Waveform drag and nudge, play and loop line, start and end fields exist. Word timings are stored but not shown or editable (A1). Lab translation cases are context-free: `translate_batch([source_text], ctx)` with only the language set (`_translation_context`), so a Lab translation score says nothing about the context window, glossary or reflect passes a real title uses (gap 6).
+
+### A6. Effort and risk, new items only
+| Idea | From | Effort | Risk |
+|---|---|---|---|
+| Record resolved settings on every Lab transcription run and show them in Arena | A5.1 | S | Low |
+| Backend and VAD arms in Lab transcription (Qwen3 backends first) | A5.2 | M | Low; runs need the optional libraries and a GPU queue slot |
+| Text-equality check and diff-feedback retry on LLM re-split | SmartSub | S | Low |
+| Opt-in ASR text-correction proposal pass (`zh` only, Compare-style apply) | SmartSub | M | Medium: meaning drift; needs a golden set before any default |
+| Show word timings in Review (read-only first) | A1 | M | Low |
+| Compute-type arm (float against int8) in the Lab grid | Voice-Pro | S after the arms exist | Low |
+
 ## Appendix A. Stage 1 repos kept (README level)
 
 Stars from the owner's lists. Stage-2 repos are in section 4; their licences and dates are in the same notes.
@@ -246,6 +303,9 @@ Stars from the owner's lists. Stage-2 repos are in section 4; their licences and
 | FunAudioLLM/SenseVoice | 9.5k | MIT | 2026-09-30 | SenseVoiceSmall: ASR + language ID + speech emotion + audio event tags, non-autoregressive |
 | reazon-research/ReazonSpeech | 402 | Apache-2.0 | 2026-06-10 | Japanese speech corpus + models, plus AVista (noise-robust audio-visual ASR) |
 | altunenes/parakeet-rs | 406 | MIT | 2026-10-08 | Rust ONNX/burn runtime for NVIDIA Parakeet, Nemotron streaming, Sortformer diarization |
+| buxuku/SmartSub | n/g | MIT | 2026-10-08 | Electron subtitle/dub suite: 8 ASR engines chosen per task, optional two-pass AI refine, MCP/CLI (addendum A3) |
+| abus-aikorea/voice-pro | n/g | GPL-3.0 | 2026-07-13 | Gradio ASR/TTS/voice-conversion app; development paused (addendum A4) |
+| chenyme/Chenyme-AAVT | n/g | MIT | 2025-04-07 | Streamlit faster-whisper + LLM translation; README ticks word-level segmentation the code lacks (addendum A2) |
 
 
 ## Appendix B. Dropped repos (one-line reason)
