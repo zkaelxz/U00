@@ -92,6 +92,7 @@ from api.routers import (
     review_lines_routes,
     review_records_routes,
     series_people_routes,
+    loaded_models_routes,
     settings_routes,
     sharing_routes,
     source_domains_routes,
@@ -238,6 +239,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(jobs_routes.router)
     app.include_router(events_routes.router)
     app.include_router(job_stage_routes.router)
+    app.include_router(loaded_models_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(translate_routes.router)
     app.include_router(export_routes.router)
