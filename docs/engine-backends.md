@@ -229,11 +229,11 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
    the translation-only engines) are unchanged, and so are Reflect's passes and
    a Claude/Gemini batch; the form says so. Comics are not covered: Scanlate calls
    `call_llm_json`, which has no switch. The title's choice is kept in
-   `translate_prefs.json` in its drama folder (`translate_thinking_service`;
-   `db.py` is frozen). `build_translation_context` reads it when a run begins
-   (so retries, line AI and the DeepSeek off-peak job use it too); the run
-   route saves the request's choice first. `cli.py translate --thinking` /
-   `--no-thinking` is a one-shot override for that process and is not saved. Reasoning is never saved: `<think>` blocks are stripped
+   `dramas.translate_thinking` (NULL = never chosen = off), written by
+   `save_style_toggles` once a run is accepted and read by
+   `build_translation_context` when a run begins (so retries, line AI and the
+   DeepSeek off-peak job use it too). `cli.py translate --thinking` /
+   `--no-thinking` saves the same column. Reasoning is never saved: `<think>` blocks are stripped
    and `reasoning_content` / `thinking` fields are never read. Hidden reasoning
    is billed inside the provider's output token count, so `usage_log` and the
    spend history (`spend_history_service`) already include it with no new

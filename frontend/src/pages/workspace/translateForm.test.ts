@@ -25,6 +25,7 @@ import {
   reflectAvailable,
   sameEngineKind,
   thinkingApplies,
+  thinkingEngines,
   thinkingHelp,
   savePresetStart,
   splitLines,
@@ -439,6 +440,19 @@ describe('think harder on tricky text', () => {
     expect(thinkingApplies('claude', false)).toBe(false)
     expect(thinkingApplies('deepseek', true)).toBe(false)
     expect(thinkingApplies('claude', false, ['claude'])).toBe(true)
+  })
+
+  it('applies when any engine in the fallback chain has a switch', () => {
+    expect(thinkingApplies('claude', false, undefined, ['deepseek'])).toBe(true)
+    expect(thinkingApplies('claude', false, undefined, ['gemini', ''])).toBe(false)
+    expect(thinkingApplies('claude', true, undefined, ['deepseek'])).toBe(false)
+    expect(thinkingEngines('deepseek', ['claude', 'ollama'], false)).toEqual(['deepseek', 'ollama'])
+  })
+
+  it('names the engines it applies to, or the chain that has none', () => {
+    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).toMatch(/applies to deepseek, not to the other engines/)
+    expect(thinkingHelp('deepseek', false)).not.toMatch(/applies to/)
+    expect(thinkingHelp('claude', false, undefined, ['gemini'])).toMatch(/^claude and gemini have no thinking switch/)
   })
 
   it('says plainly what it costs, and plainly when it does nothing', () => {

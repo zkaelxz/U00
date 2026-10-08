@@ -6,22 +6,22 @@ Thinking is off unless a run asks for it. Only engines with a request switch
 (DeepSeek, Ollama) can follow the choice; the others behave as they always
 did and the Translate step says so.
 
-The choice is remembered per title in `translate_prefs.json` in the drama's
-own folder (see engine_backends/thinking.py, which reads it when a run's
-context is built). A run is handed its own value explicitly, so the request,
-the job and the provenance record agree; the choice is saved only once the
-run is accepted, so a refused request leaves it alone.
+The choice is remembered per title in `dramas.translate_thinking` (NULL =
+never chosen = off), written with the other Translate toggles; see
+engine_backends/thinking.py, which reads it when a run's context is built.
+A run is handed its own value explicitly, so the request, the job and the
+provenance record agree; the choice is saved only once the run is accepted,
+so a refused request leaves it alone.
 """
-import json
-import os
-import threading
+import logging
 
 import db
 from engine_backends import thinking as thinking_switch
+from services import translate_run_service
+
+log = logging.getLogger(__name__)
 
 SWITCH_ENGINES = thinking_switch.NO_THINKING_ENGINES
-
-_lock = threading.Lock()
 
 
 def has_switch(engine_name) -> bool:
@@ -37,20 +37,10 @@ def save_title_choice(drama_id: int, thinking) -> None:
     Never raises: a run must not fail because its preference could not be written."""
     if thinking is None or not db.get_drama(drama_id):
         return
-    with _lock:
-        tmp = None
-        try:
-            path = os.path.join(db.drama_dir(drama_id), thinking_switch.TITLE_PREFS_FILENAME)
-            tmp = path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump({"thinking": bool(thinking)}, fh)
-            os.replace(tmp, path)
-        except OSError:
-            if tmp:
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
+    try:
+        translate_run_service.save_style_toggles(drama_id, thinking=thinking)
+    except Exception:
+        log.warning("Could not save the thinking choice for drama %s", drama_id, exc_info=True)
 
 
 def may_remember(holds_paid: bool, *engine_names) -> bool:

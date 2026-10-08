@@ -83,3 +83,20 @@ test('the title remembers the choice, and an engine without a switch says it doe
   await run.getByRole('button', { name: `Help: ${LABEL}` }).click()
   await expect(run.getByText(/claude has no thinking switch, so this does nothing/)).toBeVisible()
 })
+
+test('a thinking fallback makes the switch apply, and the help names it', async ({ page }) => {
+  const state = { engine: 'claude', saved: true, run: [] as unknown[] }
+  await mockStage(page, state)
+  await page.goto('/#/drama/1/translate')
+  const run = page.getByRole('region', { name: 'Translate run' })
+  await run.getByText('Advanced', { exact: true }).click()
+  await expect(run.getByRole('switch', { name: LABEL })).toBeDisabled()
+
+  await run.getByRole('button', { name: 'Add fallback engine' }).click()
+  await run.getByLabel('Fallback engine 1').selectOption('deepseek')
+  const toggle = run.getByRole('switch', { name: LABEL })
+  await expect(toggle).toBeEnabled()
+  await expect(toggle).toBeChecked()
+  await run.getByRole('button', { name: `Help: ${LABEL}` }).click()
+  await expect(run.getByText(/It applies to deepseek, not to the other engines in the chain/)).toBeVisible()
+})

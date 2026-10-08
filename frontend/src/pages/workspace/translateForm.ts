@@ -47,18 +47,28 @@ export function reflectAvailable(engine: string): boolean {
   return !isTranslationOnly(engine)
 }
 
-// Whether the "think harder" choice does anything for this run: the engine
-// needs a request switch, and Reflect's passes and a Claude/Gemini batch
-// have none (services/translate_thinking_service.py).
-export function thinkingApplies(engine: string, reflect: boolean, switchEngines?: string[]): boolean {
-  return !reflect && (switchEngines ?? THINKING_SWITCH_ENGINES).includes(engine)
+// Whether the "think harder" choice does anything for this run: some engine in
+// the chain needs a request switch (a fallback is sent the same context as the
+// main engine, so it thinks too), and Reflect's passes and a Claude/Gemini
+// batch have none (services/translate_thinking_service.py).
+export function thinkingEngines(engine: string, fallbacks: string[], reflect: boolean, switchEngines?: string[]): string[] {
+  if (reflect) return []
+  const withSwitch = switchEngines ?? THINKING_SWITCH_ENGINES
+  return [engine, ...fallbacks].filter((e) => e && withSwitch.includes(e))
 }
 
-export function thinkingHelp(engine: string, reflect: boolean, switchEngines?: string[]): string {
-  if (thinkingApplies(engine, reflect, switchEngines)) {
-    return 'Off by default. Turn it on for ambiguous or idiomatic text, such as novels and video subtitles: the model reasons before it answers. Slower and costs more; the hidden reasoning is billed as output, so the cost estimate is a lower bound.'
+export function thinkingApplies(engine: string, reflect: boolean, switchEngines?: string[], fallbacks: string[] = []): boolean {
+  return thinkingEngines(engine, fallbacks, reflect, switchEngines).length > 0
+}
+
+export function thinkingHelp(engine: string, reflect: boolean, switchEngines?: string[], fallbacks: string[] = []): string {
+  const thinkers = thinkingEngines(engine, fallbacks, reflect, switchEngines)
+  if (thinkers.length) {
+    const where = fallbacks.some((e) => e) ? ` It applies to ${thinkers.join(' and ')}, not to the other engines in the chain.` : ''
+    return `Off by default. Turn it on for ambiguous or idiomatic text, such as novels and video subtitles: the model reasons before it answers. Slower and costs more; the hidden reasoning is billed as output, so the cost estimate is a lower bound.${where}`
   }
-  const why = reflect ? 'Reflect mode has no thinking switch' : `${engine} has no thinking switch`
+  const chain = [engine, ...fallbacks.filter((e) => e)]
+  const why = reflect ? 'Reflect mode has no thinking switch' : chain.length > 1 ? `${chain.join(' and ')} have no thinking switch` : `${engine} has no thinking switch`
   return `${why}, so this does nothing for this run; it runs as it always has. Thinking can be switched for DeepSeek and Ollama.`
 }
 

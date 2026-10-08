@@ -173,18 +173,16 @@ def test_a_default_pipeline_run_is_off():
 
 
 class TestTitleChoice:
-    def test_default_is_off_and_a_bad_file_reads_as_off(self, isolated_db):
+    def test_default_is_off_and_unset_is_null(self, isolated_db):
         did = db.create_drama(title_zh="D")
         assert tts.get_title_choice(did) is False
-        with open(os.path.join(db.drama_dir(did), thinking.TITLE_PREFS_FILENAME), "w") as fh:
-            fh.write("{not json")
-        assert tts.get_title_choice(did) is False
+        assert db.get_drama(did)["translate_thinking"] is None
 
-    def test_reading_never_creates_the_drama_folder(self, isolated_db):
+    def test_the_choice_lives_in_the_drama_row_not_a_file(self, isolated_db):
         did = db.create_drama(title_zh="D")
-        folder = os.path.join(db.DRAMAS_DIR, str(did))
-        assert not os.path.exists(folder)
-        assert tts.get_title_choice(did) is False and not os.path.exists(folder)
+        tts.save_title_choice(did, True)
+        assert db.get_drama(did)["translate_thinking"] == 1
+        assert not os.path.exists(os.path.join(db.DRAMAS_DIR, str(did)))
 
     def test_an_explicit_choice_is_remembered_and_none_leaves_it(self, isolated_db):
         did = db.create_drama(title_zh="D")
@@ -195,9 +193,9 @@ class TestTitleChoice:
         tts.save_title_choice(did, False)
         assert tts.get_title_choice(did) is False
 
-    def test_an_unknown_drama_gets_no_folder(self, isolated_db):
+    def test_an_unknown_drama_is_left_alone(self, isolated_db):
         tts.save_title_choice(9999, True)
-        assert not os.path.exists(os.path.join(db.DRAMAS_DIR, "9999"))
+        assert tts.get_title_choice(9999) is False
 
     def test_a_run_context_follows_the_title_unless_told(self, isolated_db):
         did = db.create_drama(title_zh="D")
@@ -206,19 +204,17 @@ class TestTitleChoice:
         assert te.build_translation_context(engine, {"id": did})["reply_with_thinking"] is True
         assert te.build_translation_context(engine, {"id": did}, thinking=False)["reply_with_thinking"] is False
 
-    def test_the_cli_flag_overrides_the_title_for_the_process(self, isolated_db):
+    def test_the_cli_flag_is_saved_with_the_other_toggles(self, isolated_db):
         import argparse
         did = db.create_drama(title_zh="D")
         parser = te.think_flag(argparse.ArgumentParser())
-        try:
-            assert parser.parse_args([]).thinking is None
-            parser.parse_args(["--thinking"])
-            assert tts.get_title_choice(did) is True
-            parser.parse_args(["--no-thinking"])
-            tts.save_title_choice(did, True)
-            assert tts.get_title_choice(did) is False
-        finally:
-            thinking.set_run_override(None)
+        assert parser.parse_args([]).thinking is None
+        run.save_style_toggles(did, thinking=parser.parse_args(["--thinking"]).thinking)
+        assert tts.get_title_choice(did) is True
+        run.save_style_toggles(did, thinking=parser.parse_args([]).thinking)
+        assert tts.get_title_choice(did) is True
+        run.save_style_toggles(did, thinking=parser.parse_args(["--no-thinking"]).thinking)
+        assert tts.get_title_choice(did) is False
 
     def test_engines_without_a_switch_and_reflect_never_think(self):
         assert tts.effective(["claude"], True) is False
@@ -255,13 +251,25 @@ def test_provenance_keeps_the_default_hash_and_separates_a_thinking_run(isolated
     def settings_for(engine_choice, **kw):
         line_provenance_service.translate_run_tracker(
             did, [], types.SimpleNamespace(), engine_choice, None, locale="en-US", **kw)
-        return seen[-1]
+        return seen[-1](engine_choice)
     default = settings_for("deepseek")
     assert "thinking" not in default
     tts.save_title_choice(did, True)
     assert settings_for("deepseek")["thinking"] is True
     assert "thinking" not in settings_for("claude")
     assert "thinking" not in settings_for("deepseek", reflect=True)
+
+
+def test_a_thinking_fallback_gets_the_thinking_hash_and_a_claude_primary_does_not(isolated_db, monkeypatch):
+    did = db.create_drama(title_zh="D")
+    seen = []
+    monkeypatch.setattr(line_provenance_service, "tracker",
+                        lambda *a, settings=None, **k: seen.append(settings))
+    line_provenance_service.translate_run_tracker(
+        did, [], types.SimpleNamespace(), "claude", None, thinking=True, locale="en-US")
+    for_engine = seen[-1]
+    assert "thinking" not in for_engine("claude")
+    assert for_engine("deepseek")["thinking"] is True
 
 
 def _client():
@@ -413,20 +421,13 @@ def test_the_provenance_follows_the_runs_own_choice(isolated_db, monkeypatch):
                         lambda *a, settings=None, **k: seen.append(settings))
     line_provenance_service.translate_run_tracker(
         did, [], types.SimpleNamespace(), "deepseek", None, thinking=True, locale="en-US")
-    assert seen[-1]["thinking"] is True and tts.get_title_choice(did) is False
+    assert seen[-1]("deepseek")["thinking"] is True and tts.get_title_choice(did) is False
 
 
-def test_saving_never_raises_and_leaves_no_temp_file(isolated_db, monkeypatch):
+def test_saving_never_raises(isolated_db, monkeypatch):
     did = db.create_drama(title_zh="D")
-    monkeypatch.setattr(db, "drama_dir", lambda i: (_ for _ in ()).throw(OSError("no disk")))
+    monkeypatch.setattr(db, "update_drama", lambda *a, **k: (_ for _ in ()).throw(OSError("no disk")))
     tts.save_title_choice(did, True)
-    monkeypatch.undo()
-    real_replace = os.replace
-    monkeypatch.setattr(os, "replace", lambda *a: (_ for _ in ()).throw(OSError("busy")))
-    tts.save_title_choice(did, True)
-    monkeypatch.setattr(os, "replace", real_replace)
-    folder = db.drama_dir(did)
-    assert not [f for f in os.listdir(folder) if f.endswith(".tmp")]
 
 
 def test_the_deepseek_request_sets_no_output_cap_so_reasoning_cannot_truncate_the_reply():

@@ -1188,7 +1188,9 @@ def _migrate_drama_columns(conn):
                           ("default_female_pronouns", "INTEGER"),
                           ("include_genre_notes", "INTEGER"),
                           ("whisper_repeat_guard", "INTEGER DEFAULT 0"),
-                          ("split_by_sentences", "INTEGER DEFAULT 0")]:
+                          ("split_by_sentences", "INTEGER DEFAULT 0"),
+                          # "Think harder" for translation; NULL = never chosen (off).
+                          ("translate_thinking", "INTEGER")]:
         if col not in drama_cols:
             _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     if "whisper_repeat_guard" not in drama_cols:  # once: the old 2.0 s guard default is now off

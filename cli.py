@@ -789,8 +789,7 @@ def cmd_translate(args):
                 d["id"], d, lines, style_preset,
                 include_genre_notes=include_genre_notes,
                 default_female_pronouns=default_female_pronouns)
-        translate_run_service.save_style_toggles(
-            d["id"], include_genre_notes, default_female_pronouns)
+        translate_run_service.save_style_toggles(d["id"], include_genre_notes, default_female_pronouns, getattr(args, "thinking", None))
         target_ids = None
         if glossary_affected:
             # Same selection as the app's "Re-translate lines affected by the
@@ -1374,7 +1373,7 @@ def main():
 
     p_translate = translate_engines.think_flag(sub.add_parser("translate"))
     p_translate.add_argument("--id", type=int)
-    p_translate.add_argument("--status", default=None)
+    p_translate.add_argument("--status")
     # No argparse choices: a removed engine name gets the same plain refusal
     # as the API instead of a generic "invalid choice" error.
     p_translate.add_argument("--engine", default=None,

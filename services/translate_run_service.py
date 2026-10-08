@@ -547,16 +547,15 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
 
 
 def save_style_toggles(drama_id: int, include_genre_notes=None,
-                       default_female_pronouns=None) -> None:
+                       default_female_pronouns=None, thinking=None) -> None:
     """Stores the toggles a run was started with as the title's choice, so
     every later run that is not handed them (retry, glossary re-translate,
     line AI, CLI) and the Translate stage use the same values. None leaves
     a stored value as it is."""
-    saved = {}
-    if include_genre_notes is not None:
-        saved["include_genre_notes"] = int(bool(include_genre_notes))
-    if default_female_pronouns is not None:
-        saved["default_female_pronouns"] = int(bool(default_female_pronouns))
+    saved = {k: int(bool(v)) for k, v in (
+        ("include_genre_notes", include_genre_notes),
+        ("default_female_pronouns", default_female_pronouns),
+        ("translate_thinking", thinking)) if v is not None}
     if saved:
         db.update_drama(drama_id, **saved)
 

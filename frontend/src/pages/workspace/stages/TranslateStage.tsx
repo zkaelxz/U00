@@ -617,8 +617,8 @@ function RunPanel({
                 <Toggle checked={f.reflect} disabled={!canReflect && !f.reflect} onChange={(v) => set('reflect', v)} />
               </Field>
             )}
-            <Field label="Think harder on tricky text (slower, costs more)" help={thinkingHelp(effEngine, f.reflect, config.thinking_switch_engines)}>
-              <Toggle checked={f.thinking && thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines)} disabled={!thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines)} onChange={(v) => set('thinking', v)} />
+            <Field label="Think harder on tricky text (slower, costs more)" help={thinkingHelp(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)}>
+              <Toggle checked={f.thinking && thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} disabled={!thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} onChange={(v) => set('thinking', v)} />
             </Field>
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
               <Field
