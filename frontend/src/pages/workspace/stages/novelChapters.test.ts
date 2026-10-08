@@ -42,8 +42,8 @@ describe('translationLine', () => {
     expect(translationLine(list())).toBe('No text is attached for translation yet.')
   })
   it('counts chapters in the translation text', () => {
-    expect(translationLine(list({ in_translation: 5, translation_chars: 20000 }))).toBe(
-      'Translation text has 5 of 12 saved chapters (20,000 characters).',
+    expect(translationLine(list({ in_translation: 5, translation_chars: 20000, chapters: Array.from({ length: 12 }, () => row()) }))).toBe(
+      'Translation text has 5 of 12 listed chapters (20,000 characters).',
     )
   })
   it('handles unsplit text', () => {

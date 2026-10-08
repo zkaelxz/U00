@@ -243,3 +243,132 @@ def test_routes_bound_their_parameters_and_404(client):
     assert client.get(f"{base}/1?limit={svc.MAX_SLICE_CHARS + 1}").status_code == 422
     assert client.get(f"{base}/9").status_code == 404
     assert client.get("/api/novel/dramas/9999/raw-novel/chapters").status_code == 404
+
+
+# ---- confinement, bounded work, manifest integrity -----------------------
+
+def _symlink(link, target):
+    os.makedirs(os.path.dirname(link), exist_ok=True)
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError, AttributeError):
+        pytest.skip("symlinks are not supported here")
+
+
+def _outside(tmp_path, text):
+    path = tmp_path / "outside.txt"
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+def test_raw_text_symlink_leaving_the_folder_reads_as_absent(isolated_db, tmp_path):
+    did = _drama()
+    _symlink(_raw(did), _outside(tmp_path, "secret outside text"))
+    out = svc.list_chapters(did)
+    assert not out["present"] and out["chapters"] == []
+    with pytest.raises(NotFoundError):
+        svc.read_chapter(did, 1)
+
+
+def test_manifest_symlink_is_not_trusted(isolated_db, tmp_path):
+    did = _drama()
+    _import(did, 1)
+    _import(did, 2)
+    with open(chapter_manifest.manifest_path(did), encoding="utf-8") as f:
+        saved = f.read()
+    os.remove(chapter_manifest.manifest_path(did))
+    _symlink(chapter_manifest.manifest_path(did), _outside(tmp_path, saved))
+    assert chapter_manifest.load(did) is None
+    assert not svc.list_chapters(did)["split"]
+
+
+def test_translation_symlink_is_not_read(isolated_db, tmp_path):
+    did = _drama()
+    _import(did, 1)
+    text = svc.read_chapter(did, 1)["text"]
+    _symlink(os.path.join(db.drama_dir(did), "novel_narration_source.txt"),
+             _outside(tmp_path, text))
+    out = svc.list_chapters(did)
+    assert out["translation_chars"] == 0 and not out["chapters"][0]["in_translation"]
+
+
+def _big_title(did, count=2000):
+    db.drama_dir(did)
+    chapters, parts, pos = [], [], 0
+    for n in range(1, count + 1):
+        block = f"第{n}章\n\n正文{n}。".encode("utf-8")
+        sep = b"\n\n" if parts else b""
+        pos += len(sep)
+        chapters.append({"title": f"第{n}章", "source": "x", "imported_at": "", "start": pos,
+                         "length": len(block), "chars": 10, "unsplit": False})
+        parts.append(sep + block)
+        pos += len(block)
+    with open(_raw(did), "wb") as f:
+        f.write(b"".join(parts))
+    chapter_manifest._save(did, pos, chapters)
+
+
+def test_a_page_does_bounded_work_and_a_repeat_does_none(isolated_db, monkeypatch):
+    did = _drama()
+    _big_title(did)
+    _translation(did, "无关的文字" * 1000)
+    calls = {"slice": 0, "tail": 0, "count": 0, "open": 0}
+
+    def counted(name, fn):
+        def wrapper(*a, **k):
+            calls[name] += 1
+            return fn(*a, **k)
+        return wrapper
+
+    real_open = open
+
+    def counting_open(*a, **k):
+        calls["open"] += 1
+        return real_open(*a, **k)
+
+    monkeypatch.setattr(chapter_manifest, "slice_text", counted("slice", chapter_manifest.slice_text))
+    monkeypatch.setattr(chapter_manifest, "tail_text", counted("tail", chapter_manifest.tail_text))
+    monkeypatch.setattr(chapter_manifest, "count_chars", counted("count", chapter_manifest.count_chars))
+    monkeypatch.setattr(svc, "open", counting_open, raising=False)
+
+    first = svc.list_chapters(did, offset=500, limit=20)
+    assert first["total"] == 2000 and len(first["chapters"]) == 20
+    assert calls["slice"] == 20 and calls["tail"] == 20 and calls["count"] == 0
+    assert calls["open"] == 2   # the raw file and the translation text, once each
+
+    before = dict(calls)
+    svc.list_chapters(did, offset=500, limit=20)
+    assert calls["slice"] == before["slice"] and calls["tail"] == before["tail"]
+    assert calls["count"] == 0
+
+
+def test_unsplit_file_is_decoded_once_until_it_changes(isolated_db, monkeypatch):
+    did = _drama()
+    db.drama_dir(did)
+    with open(_raw(did), "w", encoding="utf-8") as f:
+        f.write("字" * 5000)
+    seen = []
+    real = chapter_manifest.count_chars
+    monkeypatch.setattr(chapter_manifest, "count_chars",
+                        lambda *a, **k: seen.append(1) or real(*a, **k))
+    for _ in range(3):
+        assert svc.list_chapters(did)["char_count"] == 5000
+    svc.read_chapter(did, 1)
+    assert len(seen) == 1
+    with open(_raw(did), "a", encoding="utf-8") as f:
+        f.write("字" * 10)
+    assert svc.list_chapters(did)["char_count"] == 5010 and len(seen) == 2
+
+
+def test_retry_of_an_already_recorded_chapter_keeps_the_list(isolated_db):
+    did = _drama()
+    for n in (1, 2, 3):
+        _import(did, n)
+    known = chapter_manifest.load(did)
+    second = known["chapters"][1]
+    # A retry noting chapter 2 after chapter 3 was written: neither size matches.
+    chapter_manifest.record(did, pre_size=second["start"], post_size=second["start"] + second["length"],
+                            content_start=second["start"], content_length=second["length"],
+                            content_chars=second["chars"], title=second["title"], source="xbanxia")
+    after = chapter_manifest.load(did)
+    assert after == known

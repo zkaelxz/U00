@@ -14,6 +14,13 @@ MAX_SLICE_CHARS characters, and the file is only ever read in ranges, so
 a many-megabyte novel is never returned or loaded whole. No path, URL or
 stored filename is returned.
 
+Files are opened only through chapter_manifest.safe_file, so a link
+planted in the drama folder reads as "not present" instead of leaking
+another file. Per-file results (character counts, the translation text,
+chapter matches) are cached on (path, size, mtime) so paging through a big
+title doesn't redo the work, and only the rows of the requested page are
+checked.
+
 "In the translation text" is a content check: the chapter's first and last
 characters both appear in the translation text. "Copy saved raw chapters
 into the translation text" copies the file verbatim, so a copied chapter
@@ -21,7 +28,7 @@ always matches; text the owner pasted and later edited may not.
 
 No FastAPI import.
 """
-import os
+import threading
 
 import db
 from dub_narration import NOVEL_SOURCE_FILENAME
@@ -35,6 +42,25 @@ DEFAULT_SLICE_CHARS = 20_000
 UNSPLIT_TITLE = "Unsplit text"
 EARLIER_TITLE = "Earlier text (not split)"
 _MATCH_CHARS = 200
+_CACHE_ENTRIES = 4096
+_TEXT_CACHE_ENTRIES = 2   # up to MAX_TEXT_CHARS each
+
+_cache_lock = threading.Lock()
+_chars_cache: dict = {}
+_match_cache: dict = {}
+_text_cache: dict = {}
+
+
+def _remember(cache: dict, key, value, limit: int) -> None:
+    with _cache_lock:
+        if len(cache) >= limit:
+            cache.pop(next(iter(cache)))
+        cache[key] = value
+
+
+def _file_key(found):
+    real, st = found
+    return real, st.st_size, st.st_mtime_ns
 
 
 def _require_drama(drama_id: int) -> dict:
@@ -64,53 +90,89 @@ def _blocks(drama_id: int, size: int) -> tuple:
              "length": size, "chars": None, "unsplit": True}], False
 
 
-def _translation_text(drama_id: int) -> str:
-    path = os.path.join(db.DRAMAS_DIR, str(drama_id), NOVEL_SOURCE_FILENAME)
-    if not os.path.isfile(path):
-        return ""
-    with open(path, encoding="utf-8", errors="replace") as f:
-        return f.read()
+def _translation(drama_id: int):
+    """(cache key, text) of the translation text; (None, "") when absent.
+    Read at most once per file version."""
+    found = manifest.safe_file(drama_id, NOVEL_SOURCE_FILENAME)
+    if found is None:
+        return None, ""
+    key = _file_key(found)
+    with _cache_lock:
+        text = _text_cache.get(key)
+    if text is None:
+        try:
+            with open(found[0], encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            return None, ""
+        _remember(_text_cache, key, text, _TEXT_CACHE_ENTRIES)
+    return key, text
 
 
-def _in_translation(f, block: dict, translation: str) -> bool:
+def _in_translation(f, block: dict, raw_key, tkey, translation: str) -> bool:
     if not translation or block["length"] <= 0:
         return False
+    key = (raw_key, tkey, block["start"], block["length"])
+    with _cache_lock:
+        known = _match_cache.get(key)
+    if known is not None:
+        return known
     head = manifest.slice_text(f, block["start"], block["length"], 0, _MATCH_CHARS).strip()
     tail = manifest.tail_text(f, block["start"], block["length"], _MATCH_CHARS).strip()
-    return bool(head) and head in translation and tail in translation
+    found = bool(head) and head in translation and tail in translation
+    _remember(_match_cache, key, found, _CACHE_ENTRIES)
+    return found
 
 
-def _file_size(drama_id: int):
-    path = manifest.raw_path(drama_id)
-    return os.path.getsize(path) if os.path.isfile(path) else None
+def _chars(f, block: dict, raw_key) -> int:
+    if block["chars"] is not None:
+        return block["chars"]
+    key = (raw_key, block["start"], block["length"])
+    with _cache_lock:
+        known = _chars_cache.get(key)
+    if known is None:
+        known = manifest.count_chars(f, block["start"], block["length"])
+        _remember(_chars_cache, key, known, _CACHE_ENTRIES)
+    return known
+
+
+def _raw_file(drama_id: int):
+    """(path, key, size) of the raw novel, or None when absent."""
+    found = manifest.safe_file(drama_id, manifest.RAW_NOVEL_FILENAME)
+    if found is None:
+        return None
+    return found[0], _file_key(found), found[1].st_size
 
 
 def list_chapters(drama_id: int, offset: int = 0, limit: int = DEFAULT_PAGE) -> dict:
     _require_drama(drama_id)
     if offset < 0 or not 1 <= limit <= MAX_PAGE:
         raise InvalidInputError(f"offset must be 0 or more and limit 1 to {MAX_PAGE}.")
-    size = _file_size(drama_id)
-    translation = _translation_text(drama_id)
-    out = {"drama_id": drama_id, "present": size is not None, "size_bytes": size or 0,
+    raw = _raw_file(drama_id)
+    tkey, translation = _translation(drama_id)
+    out = {"drama_id": drama_id, "present": raw is not None,
+           "size_bytes": raw[2] if raw else 0,
            "split": False, "total": 0, "char_count": 0, "in_translation": 0,
            "translation_chars": len(translation), "offset": offset, "limit": limit,
            "chapters": []}
-    if size is None:
+    if raw is None:
         return out
+    path, raw_key, size = raw
     blocks, out["split"] = _blocks(drama_id, size)
-    with open(manifest.raw_path(drama_id), "rb") as f:
-        for b in blocks:
-            if b["chars"] is None:
-                b["chars"] = manifest.count_chars(f, b["start"], b["length"])
-            b["in_translation"] = _in_translation(f, b, translation)
     out["total"] = len(blocks)
-    out["char_count"] = sum(b["chars"] for b in blocks)
-    out["in_translation"] = sum(1 for b in blocks if b["in_translation"])
-    out["chapters"] = [
-        {"number": n, "title": b["title"], "chars": b["chars"], "source": b["source"],
-         "imported_at": b["imported_at"], "unsplit": b["unsplit"],
-         "in_translation": b["in_translation"]}
-        for n, b in enumerate(blocks, 1) if offset < n <= offset + limit]
+    page = blocks[offset:offset + limit]
+    with open(path, "rb") as f:
+        # Counting every block would decode the whole file when there is no
+        # manifest; with one, the stored counts make the total free.
+        out["char_count"] = sum(_chars(f, b, raw_key) for b in blocks)
+        rows = []
+        for n, b in enumerate(page, offset + 1):
+            inside = _in_translation(f, b, raw_key, tkey, translation)
+            rows.append({"number": n, "title": b["title"], "chars": _chars(f, b, raw_key),
+                         "source": b["source"], "imported_at": b["imported_at"],
+                         "unsplit": b["unsplit"], "in_translation": inside})
+    out["chapters"] = rows
+    out["in_translation"] = sum(1 for r in rows if r["in_translation"])
     return out
 
 
@@ -121,17 +183,17 @@ def read_chapter(drama_id: int, number: int, offset: int = 0,
     _require_drama(drama_id)
     if offset < 0 or not 1 <= limit <= MAX_SLICE_CHARS:
         raise InvalidInputError(f"offset must be 0 or more and limit 1 to {MAX_SLICE_CHARS}.")
-    size = _file_size(drama_id)
-    blocks, _split = _blocks(drama_id, size) if size is not None else ([], False)
+    raw = _raw_file(drama_id)
+    blocks, _split = _blocks(drama_id, raw[2]) if raw else ([], False)
     if not 1 <= number <= len(blocks):
         raise NotFoundError("No such saved chapter.")
+    path, raw_key, _size = raw
     b = blocks[number - 1]
-    translation = _translation_text(drama_id)
-    with open(manifest.raw_path(drama_id), "rb") as f:
-        chars = b["chars"] if b["chars"] is not None else manifest.count_chars(
-            f, b["start"], b["length"])
+    tkey, translation = _translation(drama_id)
+    with open(path, "rb") as f:
+        chars = _chars(f, b, raw_key)
         text = manifest.slice_text(f, b["start"], b["length"], offset, limit)
-        inside = _in_translation(f, b, translation)
+        inside = _in_translation(f, b, raw_key, tkey, translation)
     end = offset + len(text)
     return {"drama_id": drama_id, "number": number, "title": b["title"], "source": b["source"],
             "imported_at": b["imported_at"], "unsplit": b["unsplit"], "chars": chars,

@@ -23,7 +23,7 @@ export function chaptersSummary(list: NovelChapterList | null): string {
 /** How much of the saved text is in the text used for translation. */
 export function translationLine(list: NovelChapterList): string {
   if (!list.present || list.char_count === 0) return ''
-  const which = list.split ? plural(list.total, 'saved chapter') : 'the saved text'
+  const which = list.split ? plural(list.chapters.length, 'listed chapter') : 'the saved text'
   if (list.translation_chars === 0) return 'No text is attached for translation yet.'
   if (!list.split) {
     return list.in_translation ? 'The saved text is in the translation text.' : 'The saved text is not in the translation text.'

@@ -99,7 +99,7 @@ def get_raw_novel_chapters(drama_id: int = Path(ge=1), offset: int = Query(0, ge
 
 
 @router.get("/dramas/{drama_id}/raw-novel/chapters/{number}",
-            dependencies=[require_permission("library.read")],
+            dependencies=[require_permission("lines.read")],
             response_model=NovelChapterText, responses=_NOT_FOUND,
             summary="A bounded slice of one saved raw chapter's text, for preview")
 def get_raw_novel_chapter(drama_id: int = Path(ge=1), number: int = Path(ge=1),

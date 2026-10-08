@@ -296,6 +296,8 @@ def save_raw_novel_text(drama_id: int, text) -> dict:
 def _store_raw_novel(drama_id: int, text: str) -> dict:
     path = os.path.join(_folder(drama_id), RAW_NOVEL_FILENAME)
     replaced = os.path.isfile(path)
-    _write_atomic(drama_id, RAW_NOVEL_FILENAME, text)
+    # Dropped first: if the drop fails after the file was replaced, an
+    # equal-size new file would be read through the old manifest.
     chapter_manifest.drop(drama_id)
+    _write_atomic(drama_id, RAW_NOVEL_FILENAME, text)
     return {"drama_id": drama_id, "replaced": replaced, **_file_status(path)}

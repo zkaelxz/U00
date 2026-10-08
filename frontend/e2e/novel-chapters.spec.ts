@@ -15,7 +15,7 @@ test('lists the saved chapters with counts, source and date, and marks what is i
   const panel = page.getByRole('region', { name: 'Saved chapters' })
   await expect(panel.getByTestId('chapters-headline')).toHaveText('3 chapters, 12,006 characters')
   await expect(panel.getByTestId('chapters-translation')).toHaveText(
-    'Translation text has 2 of 3 saved chapters (9,000 characters).',
+    'Translation text has 2 of 3 listed chapters (9,000 characters).',
   )
   const list = panel.getByRole('list', { name: 'Saved chapters' })
   await expect(list.getByRole('listitem')).toHaveCount(3)

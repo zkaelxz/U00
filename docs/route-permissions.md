@@ -300,7 +300,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/novel/dramas/{drama_id}/raw-novel` | library.read |
 | `POST /api/novel/dramas/{drama_id}/raw-novel` | local_only() |
 | `GET /api/novel/dramas/{drama_id}/raw-novel/chapters` | library.read |
-| `GET /api/novel/dramas/{drama_id}/raw-novel/chapters/{number}` | library.read |
+| `GET /api/novel/dramas/{drama_id}/raw-novel/chapters/{number}` | lines.read |
 | `POST /api/novel/dramas/{drama_id}/raw-novel/remove` | local_only() |
 | `POST /api/novel/dramas/{drama_id}/raw-novel/text` | local_only() |
 | `GET /api/novel/dramas/{drama_id}/reference` | library.read |

@@ -27,7 +27,8 @@ class NovelChapterList(BaseModel):
     split: bool
     total: int
     char_count: int
-    # How many of `total` are already in the text used for translation,
+    # How many of the rows in `chapters` (this page, not all `total`) are
+    # already in the text used for translation,
     # and how long that text is (0: none attached).
     in_translation: int
     translation_chars: int

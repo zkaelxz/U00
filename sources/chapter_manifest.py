@@ -25,6 +25,7 @@ import io
 import json
 import logging
 import os
+import stat
 import tempfile
 import time
 from typing import Optional
@@ -49,6 +50,33 @@ def manifest_path(drama_id: int) -> str:
 
 def raw_path(drama_id: int) -> str:
     return os.path.join(db.DRAMAS_DIR, str(int(drama_id)), RAW_NOVEL_FILENAME)
+
+
+_REPARSE_POINT = 0x400   # FILE_ATTRIBUTE_REPARSE_POINT: Windows junctions and symlinks
+
+
+def safe_file(drama_id: int, filename: str):
+    """(real path, lstat result) for `filename` in the drama's folder, or
+    None. A link anywhere on the way (or a link as the file itself) counts
+    as not present, so readers that return file contents can't be pointed
+    outside the folder."""
+    base = os.path.realpath(os.path.join(db.DRAMAS_DIR, str(int(drama_id))))
+    joined = os.path.join(base, filename)
+    real = os.path.realpath(joined)
+    try:
+        inside = os.path.commonpath([base, real]) == base
+    except ValueError:   # different Windows drives
+        inside = False
+    if not inside or real != joined:
+        return None
+    try:
+        st = os.lstat(real)
+    except OSError:
+        return None
+    if (stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode)
+            or getattr(st, "st_file_attributes", 0) & _REPARSE_POINT):
+        return None
+    return real, st
 
 
 class _Range(io.RawIOBase):
@@ -115,7 +143,10 @@ def load(drama_id: int) -> Optional[dict]:
     """The manifest as {"size": int, "chapters": [entry, ...]}, or None
     when it is missing or not shaped as expected."""
     try:
-        with open(manifest_path(drama_id), encoding="utf-8") as f:
+        found = safe_file(drama_id, MANIFEST_FILENAME)
+        if found is None:
+            return None
+        with open(found[0], encoding="utf-8") as f:
             data = json.load(f)
         if data.get("version") != _VERSION or not isinstance(data.get("size"), int):
             return None
@@ -186,9 +217,11 @@ def _record(drama_id, pre_size, post_size, content_start, content_length, conten
     known = load(drama_id)
     chapters = known["chapters"] if known and known["size"] == pre_size else None
     if chapters is None:
-        # A retried chapter that an earlier attempt already recorded.
-        if (known and known["size"] == post_size
-                and any(c["start"] == content_start for c in known["chapters"])):
+        # A retried chapter that an earlier attempt already recorded. Matched by
+        # range alone: the pipeline's retry path can run after later writes
+        # changed the file's size, and size-mismatch must not discard the list.
+        if known and any(c["start"] == content_start and c["length"] == content_length
+                         for c in known["chapters"]):
             return
         chapters = []
         if pre_size > 0:
