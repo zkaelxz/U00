@@ -32,6 +32,25 @@ export const filesText = (n: number) => `${n.toLocaleString('en-US')} file${n ==
 export const sizeLine = (item: Pick<DiskUsageItem, 'size_bytes' | 'file_count' | 'complete'>) =>
   `${item.complete ? '' : 'at least '}${formatBytes(item.size_bytes)} · ${filesText(item.file_count)}`
 
+export const LINKED_LABEL = 'Linked folder, stored elsewhere'
+
+type LinkedFields = Pick<DiskUsageItem, 'linked_bytes' | 'linked_files' | 'linked_complete'>
+
+const linkedSize = (x: LinkedFields) =>
+  `${x.linked_complete === false ? 'at least ' : ''}${formatBytes(x.linked_bytes ?? 0)} · ${filesText(x.linked_files ?? 0)}`
+
+/** What a link points at, kept out of the size above it; null when nothing was measured. */
+export function linkedText(item: LinkedFields & Pick<DiskUsageItem, 'is_link'>): string | null {
+  if (item.linked_bytes == null) return null
+  return item.is_link
+    ? `${LINKED_LABEL}: ${linkedSize(item)}`
+    : `Plus ${linkedSize(item)} in linked folders stored elsewhere, not counted in the size above.`
+}
+
+/** "plus 7.2 GB in linked folders" after the folder's own total, or '' when there are none. */
+export const scanLinkedText = (scan: Pick<DiskUsageScan, 'linked_bytes' | 'linked_complete'>) =>
+  scan.linked_bytes > 0 ? `plus ${scan.linked_complete ? '' : 'at least '}${formatBytes(scan.linked_bytes)} in linked folders` : ''
+
 /** Bar width in percent: a visible sliver for anything non-empty, never past 100. */
 export function barPercent(item: Pick<DiskUsageItem, 'percent_of_parent' | 'size_bytes'>): number {
   if (item.size_bytes <= 0) return 0

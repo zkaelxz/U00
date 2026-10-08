@@ -7,6 +7,7 @@ import {
   ago,
   cacheLabel,
   describeSourceError,
+  paceHelp,
   draftFrom,
   groupChapters,
   errorCategoryLabel,
@@ -57,6 +58,9 @@ const src = (name: string, over: Partial<SourceSummary> = {}): SourceSummary => 
   adult_enabled: false,
   health: 'green',
   has_saved_signin: false,
+  pace: 'normal',
+  fast_allowed: false,
+  slowed_down: false,
   ...over,
 })
 
@@ -359,6 +363,18 @@ describe('seriesLinks', () => {
   it('is empty without links or info', () => {
     expect(seriesLinks({ ...base })).toEqual([])
     expect(seriesLinks(null)).toEqual([])
+  })
+})
+
+describe('paceHelp', () => {
+  it('says why Fast is unavailable, in one line', () => {
+    expect(paceHelp(src('a'))).toBe("Fast is off: this site's rules haven't been checked.")
+  })
+  it('stays quiet when fast is allowed and normal', () => {
+    expect(paceHelp(src('a', { fast_allowed: true }))).toBe('')
+  })
+  it('reports an automatic slowdown first', () => {
+    expect(paceHelp(src('a', { slowed_down: true }))).toMatch(/^Slowed down/)
   })
 })
 
