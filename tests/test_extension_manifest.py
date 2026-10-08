@@ -142,6 +142,14 @@ class TestItAgreesWithTheServer:
         assert "/upload" not in background and "/translate" not in background
 
 
+class TestBatchSizeMatchesTheServer:
+    def test_content_script_batches_at_the_servers_limit(self):
+        import re
+        match = re.search(r"const MAX_IMAGES_PER_REQUEST = (\d+);", _read("content.js"))
+        assert match, "content.js must declare MAX_IMAGES_PER_REQUEST"
+        assert int(match.group(1)) == page_server.MAX_IMAGES_PER_REQUEST
+
+
 class TestTextCaptureStaysWithinTheSameModel:
     """Step 96's text-capture mode is a second input surface on the same
     extension, not a second extension -- it has to follow the same rules
