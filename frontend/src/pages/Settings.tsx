@@ -26,10 +26,12 @@ import { LoadedModelsCard } from './settings/LoadedModelsCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { PastCostsCard } from './settings/PastCostsCard'
+import { SpendHistoryCard } from './settings/SpendHistoryCard'
 import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
 import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
+import { SaveFolderCard } from './manga/SaveFolder'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 import './settings/settings.css'
@@ -257,10 +259,12 @@ export default function SettingsPage() {
             <DefaultsCard {...prefProps} />
             <SpendingCard {...prefProps} />
             <PastCostsCard />
+            <SpendHistoryCard />
           </Fold>
-          <Fold id="alerts" signals={signals} summary="Notifications, automatic backups, app updates">
+          <Fold id="alerts" signals={signals} summary="Notifications, backups, updates, comic save folder">
             <NotificationsSection />
             <AutoBackupCard />
+            <SaveFolderCard />
             <AppUpdatesCard />
           </Fold>
         </>

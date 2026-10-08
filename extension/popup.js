@@ -14,8 +14,28 @@ const els = {
   toggle: document.getElementById("toggle"),
   textDirection: document.getElementById("textDirection"),
   translateText: document.getElementById("translateText"),
-  options: document.getElementById("options"),
+  notice: document.getElementById("notice"),
+  noticeText: document.getElementById("noticeText"),
+  noticeAction: document.getElementById("noticeAction"),
+  controls: [...document.querySelectorAll("#pageSection select, #pageSection input, #pageSection button, #textSection select, #textSection button")],
 };
+
+// The service worker words this error; matching its opening is the only way to tell "no token" from
+// "unreachable" without the popup reading the token itself.
+const NO_TOKEN_PREFIX = "No token yet";
+let noticeHandler = null;
+
+function setControlsEnabled(enabled) {
+  for (const el of els.controls) el.disabled = !enabled;
+}
+
+function showNotice(text, actionLabel, handler) {
+  els.noticeText.textContent = text;
+  els.noticeAction.textContent = actionLabel;
+  noticeHandler = handler;
+  els.notice.hidden = false;
+  setControlsEnabled(false);
+}
 
 function say(message, bad = false) {
   els.status.textContent = message;
@@ -42,12 +62,22 @@ async function ensureContentScript(tabId) {
 }
 
 async function load() {
+  els.notice.hidden = true;
+  say("Checking the app…");
   const health = await chrome.runtime.sendMessage({ type: "health" });
   if (!health || !health.ok) {
-    say((health && health.error) || "Couldn't reach the app.", true);
+    if (health && health.error && health.error.startsWith(NO_TOKEN_PREFIX)) {
+      showNotice("Paste your token to get started.", "Open options", () => chrome.runtime.openOptionsPage());
+      say("Actions are off until a token is saved.");
+    } else {
+      showNotice("Can't reach Baihe on this PC.", "Retry", load);
+      say("Check that Baihe is running with the Extension bridge on.");
+    }
     return;
   }
+  setControlsEnabled(true);
   const { data } = health;
+  els.drama.length = 1;
   const settings = (await chrome.runtime.sendMessage({ type: "getSettings" })).data || {};
   const tab = await activeTab();
   const site = siteOf(tab && tab.url);
@@ -116,14 +146,21 @@ async function run(all) {
     if (pages) parts.push(`${pages} page${pages === 1 ? "" : "s"} translated`);
     if (cached) parts.push(`${cached} already done`);
     if (skipped) parts.push(`${skipped} skipped as not a page`);
+    const failed = result.data.failed;
+    if (failed) parts.push(failed.message);
     say(parts.join(", ") + (notes.length ? ` — ${notes[0][1]}` : ""),
-        notes.some((n) => n[0] === "error"));
+        !!failed || notes.some((n) => n[0] === "error"));
   } catch (e) {
     // The usual cause is a page the browser won't let an extension into
     // (the Chrome Web Store, a PDF viewer, chrome:// pages).
     say(`Couldn't run on this page (${e.message}).`, true);
   }
 }
+
+// Interim status from a long translateVisible run in the page.
+chrome.runtime.onMessage.addListener((message) => {
+  if (message && message.type === "progress" && message.text) say(message.text);
+});
 
 async function runText() {
   const tab = await activeTab();
@@ -169,9 +206,6 @@ els.toggle.addEventListener("click", async () => {
     say(`Couldn't reach this page (${e.message}).`, true);
   }
 });
-els.options.addEventListener("click", (event) => {
-  event.preventDefault();
-  chrome.runtime.openOptionsPage();
-});
+els.noticeAction.addEventListener("click", () => noticeHandler && noticeHandler());
 
 load();

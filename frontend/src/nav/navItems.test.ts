@@ -41,7 +41,7 @@ const personas: Record<string, NavContext> = {
 
 const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-const ALL = ['Library', 'Saved manga', 'Library tools', 'Translate text', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings']
+const ALL = ['Library', 'Library tools', 'Translate text', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings']
 
 describe('nav registry per persona', () => {
   it('owner at the PC', () => {
@@ -115,7 +115,7 @@ describe('left rail', () => {
 
   it('owner sees every page, grouped, with Benchmark Lab under Diagnostics', () => {
     expect(visibleRailGroups(owner).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
-      [null, ['Library', 'Saved manga', 'Library tools']],
+      [null, ['Library', 'Library tools']],
       ['Find and add', ['Sources', 'Discover']],
       ['Tools', ['Translate text', 'Live']],
       ['System', ['Jobs', 'Settings', 'Admin', 'Diagnostics', 'Benchmark Lab']],
@@ -124,7 +124,7 @@ describe('left rail', () => {
 
   it('household member: no Admin, Diagnostics or Benchmark Lab', () => {
     const labelsOf = railLabels(personas['household member'])
-    expect(labelsOf).toEqual(['Library', 'Saved manga', 'Library tools', 'Sources', 'Discover', 'Translate text', 'Live', 'Jobs', 'Settings'])
+    expect(labelsOf).toEqual(['Library', 'Library tools', 'Sources', 'Discover', 'Translate text', 'Live', 'Jobs', 'Settings'])
   })
 
   it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab but not Admin', () => {
@@ -148,7 +148,7 @@ describe('left rail', () => {
     const ctx: NavContext = { ...owner, developerMode: true }
     const targets = visibleRailGroups(ctx).flatMap((g) => g.items.map((r) => r.item.target.name))
     expect(targets).toEqual(
-      expect.arrayContaining(['library', 'library-tools', 'manga', 'sources', 'discover', 'translate', 'live', 'settings', 'admin', 'diagnostics', 'benchmark', 'assistant']),
+      expect.arrayContaining(['library', 'library-tools', 'sources', 'discover', 'translate', 'live', 'settings', 'admin', 'diagnostics', 'benchmark', 'assistant']),
     )
   })
 
@@ -157,9 +157,9 @@ describe('left rail', () => {
     ['title workspace', { name: 'drama', id: 3, stage: 'review' }, ['Library']],
     ['reader', { name: 'read', id: 3, page: null }, ['Library']],
     ['comic', { name: 'comic', id: 3, page: 2 }, ['Library']],
-    ['saved manga', { name: 'manga' }, ['Saved manga']],
-    ['manga series', { name: 'manga-series', source: 's', series: 'x' }, ['Saved manga']],
-    ['manga chapter', { name: 'manga-read', source: 's', series: 'x', chapter: '1', page: null }, ['Saved manga']],
+    ['saved manga', { name: 'manga' }, ['Library tools']],
+    ['manga series', { name: 'manga-series', source: 's', series: 'x' }, ['Library tools']],
+    ['manga chapter', { name: 'manga-read', source: 's', series: 'x', chapter: '1', page: null }, ['Library tools']],
     ['library tools', { name: 'library-tools' }, ['Library tools']],
     ['diagnostics', { name: 'diagnostics' }, ['Diagnostics']],
     ['benchmark', { name: 'benchmark' }, ['Benchmark Lab']],

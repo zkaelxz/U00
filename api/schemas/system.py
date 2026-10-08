@@ -477,6 +477,7 @@ class DiagnosticsSetupJsRuntime(BaseModel):
 class DiagnosticsSetupBrowser(BaseModel):
     found: bool
     name: Optional[str] = None
+    package: Optional[bool] = None
 
 
 class DiagnosticsSetupCuda(BaseModel):
