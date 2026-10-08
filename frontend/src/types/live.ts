@@ -12,6 +12,13 @@ export interface LiveSessionStart {
   model?: string | null
   max_minutes: number
   use_gpu: boolean
+  reply_without_thinking: boolean
+}
+
+export interface LiveOllamaCheck {
+  ok: boolean
+  model: string
+  message: string | null
 }
 
 export interface LiveSessionStarted {
