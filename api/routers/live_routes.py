@@ -1,7 +1,7 @@
 """
-api/routers/live_routes.py -- Live capture sessions (spec L-1; status also
-pushed over GET /api/events, api/routers/events_routes.py;
-API batch 1). Thin: see services/live_service.py.
+api/routers/live_routes.py -- Live capture sessions (status also
+pushed over GET /api/events, api/routers/events_routes.py).
+Thin: see services/live_service.py.
 
 Start fetches a public URL through yt-dlp from this PC, so it needs
 `media.import_url`, and a paid translation engine (anything outside

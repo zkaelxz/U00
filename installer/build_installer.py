@@ -128,7 +128,7 @@ EXCLUDED_FILE_NAMES = frozenset({
     "start.bat", "start.ps1", "uninstall.bat", "uninstall_path_cleanup.ps1",
     "make_shortcut.bat", "make_lock.bat",
     # Developer-only files. (run_tests.py ships: Diagnostics' file check
-    # expects it, diagnostics.EXPECTED_TOP_LEVEL_FILES.)
+    # expects it, expected_files.EXPECTED_TOP_LEVEL_FILES.)
     "pytest.ini", "conftest.py", "CLAUDE.md", "FILE_ORGANIZATION.md",
     ".gitignore", ".gitattributes", "Thumbs.db", ".DS_Store",
 })
@@ -576,9 +576,9 @@ def build_caddy(out_dir, go="go", run=subprocess.run) -> tuple:
                          "CADDY_SHA256; otherwise check that installer/caddy has LF line endings "
                          "and that the Go version matches.")
     listing = run(caddy_modules_command(go), cwd=str(CADDY_SOURCE_DIR), env=env, timeout=600,
-                  capture_output=True, text=True)
+                  capture_output=True, text=True, encoding="utf-8", errors="replace")
     goroot = run([go, "env", "GOROOT"], cwd=str(CADDY_SOURCE_DIR), env=env, timeout=600,
-                 capture_output=True, text=True)
+                 capture_output=True, text=True, encoding="utf-8", errors="replace")
     if listing.returncode != 0 or goroot.returncode != 0:
         raise BuildError("Listing the modules compiled into Caddy failed.")
     licenses = out_dir / "licenses"

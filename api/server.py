@@ -91,6 +91,7 @@ from api.routers import (
     review_lines_routes,
     review_records_routes,
     series_people_routes,
+    loaded_models_routes,
     settings_routes,
     sharing_routes,
     source_domains_routes,
@@ -203,7 +204,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
                                     settings.session_max_days * 86400)
     if settings.auth_enabled:
         # Innermost: gives each request a holder for "who started this job"
-        # (auth B2, api.auth.ActingPrincipalMiddleware).
+        # (api.auth.ActingPrincipalMiddleware).
         app.add_middleware(ActingPrincipalMiddleware)
         # Added before CORS so CORS stays the outermost layer (dev preflight).
         app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: public_api_paths(app),
@@ -237,6 +238,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(jobs_routes.router)
     app.include_router(events_routes.router)
     app.include_router(job_stage_routes.router)
+    app.include_router(loaded_models_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(translate_routes.router)
     app.include_router(export_routes.router)

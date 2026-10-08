@@ -13,7 +13,7 @@ export const ENDPOINTS: { name: EndpointName; label: string; placeholder: string
     name: 'ollama_url',
     label: 'Ollama URL',
     placeholder: 'http://127.0.0.1:11434',
-    help: 'Where the local Ollama server runs. Blank uses Ollama’s default on this PC.',
+    help: 'Where Ollama runs. Blank uses its default on this PC.',
   },
 ]
 

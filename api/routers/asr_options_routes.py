@@ -1,6 +1,6 @@
 """
-api/routers/asr_options_routes.py -- experimental transcription settings
-(Step 103). Thin: see services/asr_options_service.py.
+api/routers/asr_options_routes.py -- experimental transcription settings.
+Thin: see services/asr_options_service.py.
 
 - `GET /api/settings/asr-options` (`admin.settings`): the Qwen3-ASR batch
   size and the other experiment toggles. No path, key or secret is involved.
