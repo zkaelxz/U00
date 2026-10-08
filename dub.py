@@ -18,6 +18,7 @@ character's engine) and section 8 (dub generation itself).
 import os
 import json
 import hashlib
+from memory_headroom import HeadroomError
 
 # Plain descriptions OmniVoice can design a voice from, for speakers that
 # have neither a clip nor a description of their own. No accent is named
@@ -469,6 +470,8 @@ def build_dub_track(lines, drama_dir: str, character_clone_map: dict, progress_c
                 call_with_backoff(lambda: _synthesize_cloned(clone, ln.en, partial))
                 os.replace(partial, clip_path)
                 clip = AudioSegment.from_file(clip_path)
+            except HeadroomError:
+                raise  # every later line would be refused too; stop before dub_track.wav is rewritten
             except Exception as e:
                 if os.path.exists(partial):
                     os.remove(partial)
@@ -593,7 +596,7 @@ def build_track_subprocess_worker(lines, drama_dir, character_clone_map,
                 mix_original_background(out_path, background_source, drama_dir,
                                         backend=separation_backend)
                 result["background_mixed"] = True
-            except audio_preprocess.VocalSeparationError:
+            except (audio_preprocess.VocalSeparationError, HeadroomError):
                 result["background_mixed"] = False
                 result["background_error"] = ("Background music could not be separated; "
                                               "the dub track was kept without it.")

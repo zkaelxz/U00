@@ -50,6 +50,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `audio_preprocess.py`
 - `diarize.py`
 - `forced_align.py`
+- `memory_headroom.py` (the Settings keep-free VRAM/RAM check the model loaders call)
 - `mixed_language.py`
 - `ollama_unload.py`
 - `raw_transcript.py`
@@ -67,8 +68,10 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `emotion.py`
 - `en_cleanup.py`
 - `glossary_io.py` (term categories/policies and glossary file import/export)
+- `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
 - `live_cue_translation.py` (the per-cue context and error note for Live)
 - `live_fetch.py`
+- `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
 - `translate_engines.py`
 - `translation_guide.py`
