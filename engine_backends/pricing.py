@@ -118,6 +118,8 @@ PRICING_PER_MILLION_TOKENS = {
     # the $0.3/$0.15 cache-miss prices below; Pro: $0.044/$0.022 vs.
     # $1.32/$0.66) -- CACHE_READ_PRICE_FACTOR's flat 10% already
     # over-estimates that case too, conservatively.
+    "deepseek-flash": {"input": 0.3, "output": 1.2},
+    # Still accepted by DeepSeek and billed as deepseek-flash; presets and usage rows may carry it.
     "deepseek-v4-flash": {"input": 0.3, "output": 1.2},
     "deepseek-v4-pro": {"input": 1.32, "output": 3.96},
     # Legacy aliases, retired July 2026 -- kept so old usage_log rows still
