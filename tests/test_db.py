@@ -1505,7 +1505,8 @@ class TestImportTimeSafety:
         # import rather than the already-imported module every other test
         # in this process shares.
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        shutil.copy(os.path.join(project_root, "db.py"), os.path.join(temp_dir, "db.py"))
+        shutil.copytree(os.path.join(project_root, "db"), os.path.join(temp_dir, "db"),
+                        ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy(os.path.join(project_root, "core.py"), os.path.join(temp_dir, "core.py"))
         # db.py takes its library location from portable.data_dir() (Step 80b).
         shutil.copy(os.path.join(project_root, "portable.py"), os.path.join(temp_dir, "portable.py"))
@@ -2072,7 +2073,7 @@ def _alter_columns_in_db_py():
     import re
     # db may be split into a db/ package; read every module so the scan
     # can't pass on an empty file list.
-    root = os.path.dirname(db.__file__)
+    root = os.path.dirname(os.path.dirname(db.__file__))
     if os.path.isdir(os.path.join(root, "db")):
         paths = [os.path.join(d, f) for d, _, fs in os.walk(os.path.join(root, "db"))
                  for f in fs if f.endswith(".py")]

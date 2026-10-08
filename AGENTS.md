@@ -66,7 +66,7 @@ whole: `db`, `background_jobs`, `diagnostics`, `cli`, `core`, plus every file li
 `OVERSIZED_MODULE_BYTES` in `tests/test_static_analysis.py` (e.g. `scanlate`,
 `bulk_translate`, `services/transcribe_service`).
 
-| Area | UI `frontend/src/pages/` | Router `api/routers/` | Service `services/` | Root / domain module | db (`db.py` tables) | Tests `tests/` | E2E `frontend/e2e/` | Doc `docs/` |
+| Area | UI `frontend/src/pages/` | Router `api/routers/` | Service `services/` | Root / domain module | db (`db/` tables) | Tests `tests/` | E2E `frontend/e2e/` | Doc `docs/` |
 |---|---|---|---|---|---|---|---|---|
 | Library / titles | Library.tsx, LibraryTools.tsx, libraryParity/ | library_routes.py, drama_routes.py | library_service.py, drama_service.py, ownership_service.py | title_library.py | dramas, series | test_library_service.py, test_drama_service.py, test_api_dramas.py, test_title_library.py | library*.spec.ts | database.md |
 | Transcription (ASR) | workspace/stages/TranscribeStage.tsx | transcribe_routes.py, asr_options_routes.py, diarization_routes.py | transcribe_service.py, asr_options_service.py, diarization_service.py | asr_backend.py, vad_segments.py, forced_align.py, diarize.py | dramas, lines | test_transcribe_service.py, test_asr_backend.py, test_diarize.py | transcribe-*.spec.ts | engine-backends.md, asr-experiments.md |

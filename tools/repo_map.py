@@ -400,8 +400,8 @@ LAYERS = (
     ("Services (services/*_service.py)", lambda r: r.startswith("services/")),
     ("Translation engines (engine_backends/)", lambda r: r.startswith("engine_backends/")),
     ("Sources and site adapters (sources/)", lambda r: r.startswith("sources/")),
-    ("Root domain modules", lambda r: "/" not in r and r not in ("db.py", "cli.py")),
-    ("Database (db.py: never open whole; list it with `repo_map.py db`)", lambda r: r == "db.py"),
+    ("Root domain modules", lambda r: "/" not in r and r != "cli.py" and not r.startswith("db/")),
+    ("Database (db/: never open whole; list it with `repo_map.py db`)", lambda r: r.startswith("db/")),
     ("Entry points and tooling (not the app's runtime logic)", lambda r: True),
 )
 # Layers whose file names say what they are print names only; their purposes
@@ -421,6 +421,10 @@ def print_map(files):
     for title, belongs in LAYERS:
         mine = [r for r in remaining if belongs(r) and not r.endswith("__init__.py")]
         remaining = [r for r in remaining if not belongs(r)]
+        if title.startswith("Database"):
+            # __init__.py is the whole package today, so `mine` is empty.
+            print(f"\n## {title}\ndb/: python tools/repo_map.py db")
+            continue
         if not mine:
             continue
         print(f"\n## {title}")
