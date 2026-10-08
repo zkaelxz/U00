@@ -17,6 +17,7 @@ export const TOGGLES: { key: SettingsToggleKey; label: string }[] = [
   { key: 'gpu_limit_enabled', label: 'Limit GPU jobs running at once' },
   { key: 'notify_on_completion', label: 'Notify when a job finishes' },
   { key: 'use_gpu', label: 'Use the GPU for transcription' },
+  { key: 'unload_ollama_before_transcribe', label: "Free Ollama's GPU memory before transcribing" },
   { key: 'bulk_auto_resume', label: 'Resume batches on start' },
 ]
 
@@ -39,7 +40,7 @@ export const updateGpuMaxParallel = (n: number, f?: Fetch) =>
 
 export function gpuMaxParallelHelp(n: number): string {
   const base =
-    'How many GPU jobs may run together. A job only joins a running one when the graphics card has at least 2 GB of memory free; without nvidia-smi they run one at a time.'
+    'How many GPU jobs run together. A job joins a running one only if the GPU has 2 GB free; without nvidia-smi they run one at a time.'
   return n > 1
     ? `${base} Ollama only runs requests in parallel if the OLLAMA_NUM_PARALLEL environment variable is set, and each parallel slot uses more graphics memory.`
     : base
@@ -57,7 +58,7 @@ export const setEngineKey = (engine: string, value: string, f?: Fetch) =>
 export const clearEngineKey = (engine: string, f?: Fetch) =>
   postJson<EngineKeyResult>(`${keyPath(engine)}/clear`, { confirm: true }, f)
 
-// Endpoint URLs (Ollama, GPT-SoVITS): saved to .env on the
+// Endpoint URLs (Ollama): saved to .env on the
 // PC behind the same guard as keys.
 const endpointPath = (name: EndpointName) => `/api/settings/endpoints/${encodeURIComponent(name)}`
 export const setEndpointUrl = (name: EndpointName, url: string, f?: Fetch) =>

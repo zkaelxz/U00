@@ -5,12 +5,15 @@ pip-cache permission hint, install names that are real PyPI distributions,
 the task map, approx. sizes, PyPI links, the not-offered canvas package
 and the qwen-asr transformers downgrade warning. No network, no real pip.
 """
+import os
+
 import pytest
 
 import diagnostics
 from services import diagnostics_gaps_service as svc
 
 FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
+CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")]
 
 # Canonical PyPI distribution names this app installs, checked by hand
 # against pypi.org. Static on purpose: a new package must be added here
@@ -18,7 +21,7 @@ FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
 KNOWN_PYPI_DISTS = {
     "faster-whisper", "ctranslate2", "opencv-python", "anthropic", "openai", "requests",
     "beautifulsoup4", "pyannote-audio", "soundfile", "pydub",
-    "omnivoice", "chatterbox-tts", "hume-tada", "pytesseract", "pillow", "paddleocr",
+    "omnivoice", "pytesseract", "pillow", "paddleocr",
     "manga-ocr", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
     "transformers", "torch", "torchaudio", "uroman", "sentencepiece", "yt-dlp",
     "opencc-python-reimplemented", "sudachidict-core", "safetensors", "huggingface-hub",
@@ -62,7 +65,7 @@ def test_service_install_and_upgrade_commands_carry_the_flags(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
     ((cmd, _t),) = svc._install_commands("jieba")
-    assert cmd[3:] == ["install", *FLAGS, "jieba"]
+    assert cmd[3:] == ["install", *FLAGS, "jieba", *CONSTRAINTS]
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
     for cmd, _t in svc._install_commands("torch"):
         assert cmd[3:6] == ["install", *FLAGS]
@@ -122,7 +125,7 @@ def test_service_installs_opencv_python_for_cv2(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
     ((cmd, _t),) = svc._install_commands("cv2")
-    assert cmd[-1] == "opencv-python"
+    assert cmd[-3:] == ["opencv-python", *CONSTRAINTS]
 
 
 def test_dependency_install_uses_the_dist_name(monkeypatch):
@@ -130,7 +133,7 @@ def test_dependency_install_uses_the_dist_name(monkeypatch):
     monkeypatch.setattr(diagnostics, "stream_pip_install",
                         lambda args, py=None: seen.append(args) or iter(()))
     list(diagnostics.stream_dependency_install("PIL"))
-    assert seen == [["pillow"]]
+    assert seen == [["pillow", *CONSTRAINTS]]
 
 
 # ---- C: task map ----
@@ -189,17 +192,17 @@ def test_pypi_url_is_built_only_from_a_valid_name(monkeypatch):
 
 # ---- F: not offered, downgrade warning ----
 
-def test_moss_is_not_offered_and_refused():
-    reason = diagnostics.known_install_limitation_reason("moss_transcribe_diarize")
+def test_lncrawl_is_not_offered_and_refused():
+    reason = diagnostics.known_install_limitation_reason("lightnovel-crawler")
     assert reason and "not offered" in reason
-    assert "moss_transcribe_diarize" not in svc.installable_packages()
+    assert "lightnovel-crawler" not in svc.installable_packages()
     assert diagnostics.known_install_limitation_reason("jieba") is None
 
 
-def test_moss_install_is_refused_by_the_service(monkeypatch):
+def test_lncrawl_install_is_refused_by_the_service(monkeypatch):
     monkeypatch.setattr(svc, "guard", lambda confirm: None)
     with pytest.raises(svc.AdminActionUnknownPackage):
-        svc.install_dependency("moss_transcribe_diarize", confirm=True)
+        svc.install_dependency("lightnovel-crawler", confirm=True)
 
 
 @pytest.mark.parametrize("have,warned", [("5.2.0", True), ("4.57.6", False), (None, False)])
@@ -216,7 +219,7 @@ def test_qwen_asr_warns_before_downgrading_transformers(monkeypatch, have, warne
 def test_dependency_install_refuses_a_not_offered_package(monkeypatch):
     monkeypatch.setattr(diagnostics, "stream_pip_install",
                         lambda *a, **k: pytest.fail("must not run pip"))
-    items = list(diagnostics.stream_dependency_install("moss_transcribe_diarize"))
+    items = list(diagnostics.stream_dependency_install("lightnovel-crawler"))
     assert items[-1]["done"] is True and items[-1]["ok"] is False
     assert "not offered" in items[0]["line"]
 
@@ -282,3 +285,24 @@ def test_package_info_reports_min_version_and_below_min(monkeypatch):
     p = svc.get_install_presets()["packages"]
     assert p["jieba"]["min_version"] == "0.42" and p["jieba"]["below_min"] is True
     assert p["pypinyin"]["below_min"] is False
+
+
+def test_install_commands_omit_constraints_when_file_is_absent(monkeypatch, tmp_path):
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setattr(svc, "default_project_root", lambda: str(tmp_path))
+    ((cmd, _t),) = svc._install_commands("jieba")
+    assert cmd[3:] == ["install", *FLAGS, "jieba"]
+    assert all("-c" not in c for c, _t in svc._qwen_asr_fallback_commands("qwen-asr"))
+
+
+def test_install_commands_include_constraints_when_file_exists(monkeypatch, tmp_path):
+    import shutil
+    (tmp_path / "constraints.txt").write_text("av<19\n")
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setattr(svc, "default_project_root", lambda: str(tmp_path))
+    want = ["-c", str(tmp_path / "constraints.txt")]
+    ((cmd, _t),) = svc._install_commands("jieba")
+    assert cmd[-2:] == want
+    for cmd, _t in svc._qwen_asr_fallback_commands("qwen-asr"):
+        assert cmd[-2:] == want

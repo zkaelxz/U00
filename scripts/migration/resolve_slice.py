@@ -20,7 +20,7 @@ COL = 34  # description text starts at this column in the FILE_ORGANIZATION.md t
 
 
 def git_show(ref_path):
-    return subprocess.run(["git", "show", ref_path], capture_output=True, text=True, check=True).stdout
+    return subprocess.run(["git", "show", ref_path], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout
 
 
 def keep_both(path):
@@ -127,7 +127,7 @@ def fix_file_org():
     print("FILE_ORGANIZATION.md rebuilt from base + entries for", svc, router)
     # Only services/ and api/routers/ entries are carried over; list any other
     # line this branch added (frontend/, tests/, ...) so it is re-added by hand.
-    mb = subprocess.run(["git", "merge-base", "HEAD", "MERGE_HEAD"], capture_output=True, text=True).stdout.strip()
+    mb = subprocess.run(["git", "merge-base", "HEAD", "MERGE_HEAD"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
     before = set(git_show(f"{mb}:FILE_ORGANIZATION.md").splitlines()) if mb else set()
     kept = set(out.splitlines())
     lost = [ln for ln in branch.splitlines() if ln not in before and ln not in kept]
@@ -139,7 +139,7 @@ def fix_file_org():
 
 def conflicted_schema_modules():
     out = subprocess.run(["git", "diff", "--name-only", "--diff-filter=U"],
-                         capture_output=True, text=True, check=True).stdout.split()
+                         capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout.split()
     return [p for p in out if p.startswith("api/schemas/") and p.endswith(".py")]
 
 
