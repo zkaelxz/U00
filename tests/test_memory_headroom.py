@@ -206,3 +206,10 @@ def test_loaded_models_reports_memory_and_reserve(monkeypatch, reserve):
     assert row["vram"]["state"] == "ok" and row["vram"]["reserved_bytes"] == 4 * 1024 ** 3
     assert row["ram"]["state"] == "unknown" and row["ram"]["free_bytes"] is None
     assert not any("/" in str(v) for v in row["vram"].values() if isinstance(v, str) and v != "ok")
+
+
+def test_reading_the_reserve_never_creates_a_library(tmp_path, monkeypatch):
+    import db
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "library" / "library.db"))
+    assert mh.reserved_mb("vram") == 0.0
+    assert not (tmp_path / "library").exists()
