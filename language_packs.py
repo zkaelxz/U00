@@ -14,6 +14,7 @@ so the prompt stays short and, for one run, identical across its batches.
 import json
 import logging
 import os
+import re
 import threading
 from typing import Optional
 
@@ -69,6 +70,17 @@ def _styles(raw, where: str) -> dict:
     return {"default": default, "options": options}
 
 
+def _not_in(raw, where: str, source: str) -> list:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise PackError(f"{where}: 'not_in' must be a list of words.")
+    words = [_text(w, where, "not_in word", MAX_SOURCE_LEN, required=True) for w in raw]
+    if any(source not in w or w == source for w in words):
+        raise PackError(f"{where}: each 'not_in' word must be a longer word containing the source.")
+    return words
+
+
 def _entry(raw, n: int, where: str, styles: dict) -> dict:
     where = f"{where}, entry {n}"
     if not isinstance(raw, dict):
@@ -87,11 +99,13 @@ def _entry(raw, n: int, where: str, styles: dict) -> dict:
     category = raw.get("category") or "honorific"
     if category not in ENTRY_CATEGORIES:
         raise PackError(f"{where}: 'category' must be one of {', '.join(ENTRY_CATEGORIES)}.")
+    source = _text(raw.get("source"), where, "source", MAX_SOURCE_LEN, required=True)
     return {
-        "source": _text(raw.get("source"), where, "source", MAX_SOURCE_LEN, required=True),
+        "source": source,
         "en": en, "category": category,
         "note": _text(raw.get("note"), where, "note", MAX_NOTE_LEN),
         "context": _text(raw.get("context"), where, "context", MAX_NOTE_LEN),
+        "not_in": _not_in(raw.get("not_in"), where, source),
     }
 
 
@@ -184,28 +198,65 @@ def _user_sources(user_terms) -> set:
     return taken
 
 
+def _ascii_edge(c: str) -> bool:
+    return c.isascii() and c.isalnum()
+
+
+def _spans(word: str, text: str) -> list:
+    """Where `word` occurs in `text`. A word that starts or ends with an ASCII
+    letter or digit must not touch another one, so OP is not found in TOP."""
+    pattern = re.escape(word)
+    if _ascii_edge(word[0]):
+        pattern = r"(?<![A-Za-z0-9])" + pattern
+    if _ascii_edge(word[-1]):
+        pattern += r"(?![A-Za-z0-9])"
+    return [m.span() for m in re.finditer(pattern, text)]
+
+
 def matching_entries(choices: dict, text: str, user_terms=None,
                      limit: int = MAX_PROMPT_ENTRIES) -> list:
     """Pack entries to send for `text`, as dicts with source, en, note, context,
     category and pack. `choices` is {pack id: style or None} for the packs
     turned on. An entry is dropped when its source is not in `text` or when
     the user's own glossary has a term (or alias) with the same source, so the
-    user's wording always wins. Order is stable (pack order, then file order)
-    so the same text always gives the same prompt."""
+    user's wording always wins. Matching is longest-first: text already used by
+    a longer entry (or named in an entry's `not_in`) cannot trigger a shorter
+    one, so 様 does not fire inside お疲れ様. Order is stable (pack order, then
+    file order) so the same text always gives the same prompt."""
     taken = _user_sources(user_terms)
     packs = all_packs()
-    found, seen = [], set()
-    for pack_id, style in choices.items():
-        pack = packs.get(pack_id)
-        if pack is None:
+    candidates, seen = [], set()
+    for pack_id in packs:
+        if pack_id not in choices:
             continue
+        pack, style = packs[pack_id], choices[pack_id]
         for entry in pack["entries"]:
             src = entry["source"]
             if src in taken or src in seen or src not in text:
                 continue
             seen.add(src)
-            found.append({"source": src, "en": rendering(entry, pack, style), "note": entry["note"],
-                          "context": entry["context"], "category": entry["category"], "pack": pack_id})
+            candidates.append((pack_id, pack, style, entry))
+    # Blockers first, then entries longest to shortest, each claiming its spans.
+    claimed = []
+
+    def free(span):
+        return not any(span[0] < c[1] and c[0] < span[1] for c in claimed)
+
+    for _, _, _, entry in candidates:
+        for word in entry["not_in"]:
+            claimed.extend(_spans(word, text))
+    keep = set()
+    for k in sorted(range(len(candidates)), key=lambda i: -len(candidates[i][3]["source"])):
+        spans = [s for s in _spans(candidates[k][3]["source"], text) if free(s)]
+        if spans:
+            keep.add(k)
+            claimed.extend(spans)
+    found = []
+    for k, (pack_id, pack, style, entry) in enumerate(candidates):
+        if k in keep:
+            found.append({"source": entry["source"], "en": rendering(entry, pack, style),
+                          "note": entry["note"], "context": entry["context"],
+                          "category": entry["category"], "pack": pack_id})
     return found[:limit]
 
 

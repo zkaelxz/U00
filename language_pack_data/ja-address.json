@@ -7,7 +7,7 @@
  "styles": {
   "default": "romanised",
   "options": {
-   "romanised": "Keep honorifics romanised (for example senpai, -san, oppa, unnie)",
+   "romanised": "Keep honorifics romanised (for example senpai, -san, -chan, -sama)",
    "natural": "Translate them into natural English"
   }
  },
@@ -79,7 +79,13 @@
    },
    "category": "honorific",
    "note": "Very respectful; keep the suffix attached to the name.",
-   "context": "to customers, nobles, someone revered"
+   "context": "to customers, nobles, someone revered",
+   "not_in": [
+    "様子",
+    "同様",
+    "異様",
+    "模様"
+   ]
   },
   {
    "source": "お兄ちゃん",

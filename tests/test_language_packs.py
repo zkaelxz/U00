@@ -129,6 +129,38 @@ class TestSelection:
         assert a == lp.matching_entries({"zh-address": None}, text)
         assert [e["source"] for e in a] == ["前辈", "哥哥", "姐姐"]
 
+    def test_order_follows_pack_order_not_the_choices_dict(self):
+        a = lp.matching_entries({"zh-address": None, "shared-drama": None}, "老师 CP")
+        b = lp.matching_entries({"shared-drama": None, "zh-address": None}, "老师 CP")
+        assert a == b and [e["pack"] for e in a] == list(dict.fromkeys(e["pack"] for e in a))
+        order = list(lp.all_packs())
+        assert [e["pack"] for e in a] == sorted((e["pack"] for e in a), key=order.index)
+
+    @pytest.mark.parametrize("pack, text, absent", [
+        ("ja-address", "お疲れ様でした", "様"),
+        ("ja-address", "様子がおかしい、同様です", "様"),
+        ("ko-address", "날씨가 좋아요", "씨"),
+        ("ko-address", "아저씨, 아가씨", "씨"),
+        ("ko-address", "인형이랑 형사", "형"),
+        ("shared-drama", "TOP COPY EDIT", "OP"),
+    ])
+    def test_short_entries_do_not_fire_inside_other_words(self, pack, text, absent):
+        packs = {pack: None, "ja-common": None, "ko-common": None}
+        assert absent not in [e["source"] for e in lp.matching_entries(packs, text)]
+
+    def test_longer_entry_consumes_its_span_but_a_separate_use_still_matches(self):
+        sources = [e["source"] for e in lp.matching_entries({"ja-address": None, "ja-common": None}, "お疲れ様 田中様")]
+        assert "お疲れ様" in sources and "様" in sources
+        assert "様" not in [e["source"] for e in lp.matching_entries({"ja-address": None, "ja-common": None}, "お疲れ様")]
+
+    def test_ascii_entries_need_word_boundaries(self):
+        assert [e["source"] for e in lp.matching_entries({"shared-drama": None}, "the OP and ED")] == ["OP", "ED"]
+        assert lp.matching_entries({"shared-drama": None}, "TOPS CPU") == []
+
+    def test_traditional_script_text_matches(self):
+        found = lp.matching_entries({"zh-address": None, "zh-common": None}, "老師，學長說媽媽的彈幕")
+        assert {"老師", "學長", "媽媽", "彈幕"} <= {e["source"] for e in found}
+
     def test_prompt_is_capped(self):
         pack = lp.validate_pack(_pack(entries=[{"source": f"w{i}", "en": "x"} for i in range(100)]), "f")
         lp._cache = {"t-pack": pack}
@@ -198,6 +230,14 @@ class TestTitleChoice:
         svc.set_title_packs(did, {"packs": {"zh-address": None}})
         found = svc.entries_for_text(isolated_db.get_drama(did), "老师好")
         assert [e["source"] for e in found] == ["老师"]
+
+    def test_packs_of_a_previous_source_language_stop_applying(self, isolated_db):
+        did = _drama(isolated_db, "ja", ["先生"])
+        svc.set_title_packs(did, {"packs": {"ja-address": None}})
+        assert svc.entries_for_text(isolated_db.get_drama(did), "先生")
+        isolated_db.update_drama(did, source_language="ko")
+        assert svc.entries_for_text(isolated_db.get_drama(did), "先生") == []
+        assert svc.block_for(isolated_db.get_drama(did), [Line(0, 0, 1, "先生")]) == ""
 
     def test_unknown_pack_and_title(self, isolated_db):
         with pytest.raises(NotFoundError):

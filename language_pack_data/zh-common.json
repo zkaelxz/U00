@@ -16,6 +16,12 @@
    "category": "kinship"
   },
   {
+   "source": "媽媽",
+   "en": "Mom",
+   "category": "kinship",
+   "note": ""
+  },
+  {
    "source": "奶奶",
    "en": "Grandma",
    "category": "kinship",
@@ -51,9 +57,21 @@
    "note": "A close female friend."
   },
   {
+   "source": "閨蜜",
+   "en": "best friend",
+   "category": "kinship",
+   "note": "A close female friend."
+  },
+  {
    "source": "总裁",
    "en": "CEO",
    "category": "role"
+  },
+  {
+   "source": "總裁",
+   "en": "CEO",
+   "category": "role",
+   "note": ""
   },
   {
    "source": "校花",
@@ -94,6 +112,12 @@
   },
   {
    "source": "弹幕",
+   "en": "scrolling comments",
+   "category": "streamer",
+   "note": "Keep 'danmaku' if the scrolling comments are on screen."
+  },
+  {
+   "source": "彈幕",
    "en": "scrolling comments",
    "category": "streamer",
    "note": "Keep 'danmaku' if the scrolling comments are on screen."

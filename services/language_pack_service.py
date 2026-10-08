@@ -108,7 +108,11 @@ def entries_for_text(drama: dict, text: str, user_terms=None) -> list:
     """The matching pack entries for any text of this title. For code that
     builds its own prompt (a Live path, a one-line helper)."""
     choice, _ = _stored_choice(drama["id"], _language(drama))
-    packs = choice.get("packs") or {}
+    # A choice saved before the source language changed may name packs of the
+    # old language; the UI only lists the new language's, so those could never
+    # be switched off.
+    offered = {p["id"] for p in language_packs.packs_for_language(_language(drama))}
+    packs = {k: v for k, v in (choice.get("packs") or {}).items() if k in offered}
     return language_packs.matching_entries(packs, text, user_terms) if packs else []
 
 

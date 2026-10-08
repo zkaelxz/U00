@@ -7,7 +7,7 @@
  "styles": {
   "default": "romanised",
   "options": {
-   "romanised": "Keep honorifics romanised (for example senpai, -san, oppa, unnie)",
+   "romanised": "Keep honorifics romanised (for example oppa, unnie, noona, hyung)",
    "natural": "Translate them into natural English"
   }
  },
@@ -50,7 +50,16 @@
    },
    "category": "honorific",
    "note": "Also used for an older man who is not a relative.",
-   "context": "man to an older brother or older man"
+   "context": "man to an older brother or older man",
+   "not_in": [
+    "인형",
+    "형사",
+    "모형",
+    "형태",
+    "형제",
+    "원형",
+    "유형"
+   ]
   },
   {
    "source": "선배",
@@ -78,7 +87,10 @@
    },
    "category": "honorific",
    "note": "Attach to the title or name. In natural style often dropped or turned into 'Mr.' or 'Ms.'.",
-   "context": "respectful suffix"
+   "context": "respectful suffix",
+   "not_in": [
+    "아님"
+   ]
   },
   {
    "source": "씨",
@@ -88,7 +100,14 @@
    },
    "category": "honorific",
    "note": "Attach to the name. Polite but not warm.",
-   "context": "polite, to a peer or someone lower in rank"
+   "context": "polite, to a peer or someone lower in rank",
+   "not_in": [
+    "날씨",
+    "한씨",
+    "마음씨",
+    "솜씨",
+    "말씨"
+   ]
   },
   {
    "source": "사장님",

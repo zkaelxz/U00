@@ -23,7 +23,27 @@
    "context": "to a more experienced person"
   },
   {
+   "source": "前輩",
+   "en": {
+    "natural": "senior",
+    "pinyin": "qianbei"
+   },
+   "category": "honorific",
+   "note": "Often said instead of the name.",
+   "context": "to a more experienced person"
+  },
+  {
    "source": "学长",
+   "en": {
+    "natural": "senior",
+    "pinyin": "xuezhang"
+   },
+   "category": "honorific",
+   "note": "Male senior at school; can be 'Senior' plus the name.",
+   "context": "to an older male schoolmate"
+  },
+  {
+   "source": "學長",
    "en": {
     "natural": "senior",
     "pinyin": "xuezhang"
@@ -43,6 +63,16 @@
    "context": "to an older female schoolmate"
   },
   {
+   "source": "學姐",
+   "en": {
+    "natural": "senior",
+    "pinyin": "xuejie"
+   },
+   "category": "honorific",
+   "note": "Female senior at school; can be 'Senior' plus the name.",
+   "context": "to an older female schoolmate"
+  },
+  {
    "source": "学妹",
    "en": {
     "natural": "junior",
@@ -52,6 +82,16 @@
    "context": "older schoolmate referring to a younger girl"
   },
   {
+   "source": "學妹",
+   "en": {
+    "natural": "junior",
+    "pinyin": "xuemei"
+   },
+   "category": "honorific",
+   "context": "older schoolmate referring to a younger girl",
+   "note": ""
+  },
+  {
    "source": "学弟",
    "en": {
     "natural": "junior",
@@ -59,6 +99,16 @@
    },
    "category": "honorific",
    "context": "older schoolmate referring to a younger boy"
+  },
+  {
+   "source": "學弟",
+   "en": {
+    "natural": "junior",
+    "pinyin": "xuedi"
+   },
+   "category": "honorific",
+   "context": "older schoolmate referring to a younger boy",
+   "note": ""
   },
   {
    "source": "师兄",
@@ -157,6 +207,16 @@
   },
   {
    "source": "老师",
+   "en": {
+    "natural": "teacher",
+    "pinyin": "laoshi"
+   },
+   "category": "honorific",
+   "note": "Often attached to the name: 'Teacher Li'.",
+   "context": "student to teacher"
+  },
+  {
+   "source": "老師",
    "en": {
     "natural": "teacher",
     "pinyin": "laoshi"
