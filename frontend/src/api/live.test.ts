@@ -77,6 +77,17 @@ describe('sessions', () => {
     expect(statusLine({ status: 'error', message: 'ffmpeg failed' }, 0)).toBe('Stopped with an error: ffmpeg failed')
   })
 
+  it('shows the stage a chunk is in, and what a stop is waiting on', () => {
+    expect(statusLine({ status: 'running', message: 'Capturing audio: waiting for chunk 2 (10 s of stream each)' }, 0))
+      .toBe('Capturing audio: waiting for chunk 2 (10 s of stream each) · 0 lines')
+    expect(statusLine({ status: 'running', message: 'Chunk 1: transcribing with Whisper small (GPU)' }, 1))
+      .toBe('Chunk 1: transcribing with Whisper small (GPU) · 1 line')
+    const slow = 'Chunk 1: translating with qwen3:8b (Ollama) Still waiting on Ollama after 75 s: it may be loading the model.'
+    expect(statusLine({ status: 'running', message: slow }, 1)).toBe(`${slow} · 1 line`)
+    const cancelling = 'Cancelling... Whisper is still transcribing chunk 1 and cannot be interrupted mid-chunk; it stops when that finishes (the previous chunk took about 12 s).'
+    expect(statusLine({ status: 'running', message: cancelling }, 1)).toBe(`${cancelling} · 1 line`)
+  })
+
   it('summarises the advanced options', () => {
     expect(advancedSummary({ ...DEFAULT_FORM })).toBe('Whisper small · chunk 20s · overlap 3s · stop after 60 min · CPU')
     expect(DEFAULT_OPTIONS).not.toHaveProperty('url')

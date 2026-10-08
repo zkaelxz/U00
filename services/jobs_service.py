@@ -22,7 +22,7 @@ import time
 from typing import Optional
 
 import db
-from services import ownership_service
+from services import job_stage_service, ownership_service
 import diagnostics
 import background_jobs
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -388,7 +388,7 @@ def _with_live_progress(record: dict) -> dict:
     if record.get("status") != "running":
         return record
     try:
-        live = background_jobs.get_status(record.get("job_id"))
+        live = job_stage_service.annotate(background_jobs.get_status(record.get("job_id")))
     except Exception:
         return record
     if not live or live.get("status") != "running":
