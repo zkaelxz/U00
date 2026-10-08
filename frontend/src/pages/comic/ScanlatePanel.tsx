@@ -37,12 +37,15 @@ import {
   usableEngines,
 } from './scanlateLogic'
 import { AI_ENGINE_LABEL } from '../../helpText'
+import type { ScopeCounts } from './chapterLogic'
 
 interface Props {
   dramaId: number
   // The page on screen (for "Redo this page"), or null when there is none.
   pageId: number | null
   pageNumber: number | null
+  // Page counts for "this chapter" and "all chapters" (hidden pages never count).
+  scopes?: ScopeCounts
   onChanged: () => void
 }
 
@@ -52,7 +55,7 @@ const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
   { value: 'ml', label: 'ML model (downloads once)' },
 ]
 
-export function ScanlatePanel({ dramaId, pageId, pageNumber, onChanged }: Props) {
+export function ScanlatePanel({ dramaId, pageId, pageNumber, scopes, onChanged }: Props) {
   const pc = usePcOnly()
   const [config, setConfig] = useState<ScanlateConfig | null>(null)
   const [notes, setNotes] = useState<ScanlatePageNotes[]>([])
@@ -64,6 +67,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, onChanged }: Props)
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
+  const [scope, setScope] = useState<'chapter' | 'all'>('all')
   const [exported, setExported] = useState<ScanlateExportFormat[]>([])
   const [jobKind, setJobKind] = useState<'run' | 'export' | null>(null)
   const [loadKey, setLoadKey] = useState(0)
@@ -116,6 +120,10 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, onChanged }: Props)
   const blocked = runBlockedReason(config, engine)
   const usable = usableEngines(config)
 
+  // "This chapter" only when the title has more than one chapter.
+  const chapterScope = scope === 'chapter' && scopes?.chapter ? scopes.chapter : null
+  const target = chapterScope ?? scopes?.all ?? null
+  const targetName = chapterScope ? 'this chapter' : scopes?.chapter ? 'all chapters' : 'all pages'
   const start = async (mode: ScanlateRunMode) => {
     setError(null)
     setStarting(true)
@@ -124,6 +132,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, onChanged }: Props)
       const r = await scanlateApi.run(dramaId, {
         mode,
         page_id: mode === 'page' && pageId ? pageId : undefined,
+        chapter_id: mode !== 'page' && chapterScope ? chapterScope.id : undefined,
         confirm: mode === 'all' ? true : undefined,
         engine,
         detect_backend: detector,
@@ -245,15 +254,26 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, onChanged }: Props)
         </Field>
       </div>
 
+      {scopes?.chapter && (
+        <Field label="Translate" help="Pages marked as not part of the story are always skipped.">
+          <select value={chapterScope ? 'chapter' : 'all'} onChange={(e) => setScope(e.target.value as 'chapter' | 'all')}>
+            <option value="chapter">
+              This chapter: {scopes.chapter.label} ({scopes.chapter.pages} {scopes.chapter.pages === 1 ? 'page' : 'pages'})
+            </option>
+            <option value="all">All chapters ({scopes.all.pages} pages)</option>
+          </select>
+        </Field>
+      )}
+
       <div className="actions">
         <button
           type="button"
           className={buttonClass('primary')}
-          disabled={!config || !!blocked || running}
+          disabled={!config || !!blocked || running || target?.pages === 0}
           aria-describedby={blocked ? 'scanlate-blocked' : undefined}
           onClick={() => void start('missing')}
         >
-          {running && jobKind === 'run' ? 'Translating…' : 'Translate all pages'}
+          {running && jobKind === 'run' ? 'Translating…' : `Translate ${targetName}`}
         </button>
         <button
           type="button"
@@ -270,7 +290,7 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, onChanged }: Props)
         )}
       </div>
       <p className="muted scanlate-hint">
-        Translate all pages skips pages that already have text. Redo replaces a page's text boxes, including edits.
+        {target ? `${target.todo} of ${target.pages} pages have no text yet. ` : ''}Translate skips pages that already have text. Redo replaces a page's text boxes, including edits.
       </p>
 
       {jobId && <JobPanel job={job} pollError={pollError} />}
@@ -331,8 +351,8 @@ export function ScanlatePanel({ dramaId, pageId, pageNumber, onChanged }: Props)
           </Field>
           <div className="actions">
             <ConfirmButton
-              name="every page"
-              label="Redo all…"
+              name={chapterScope ? 'every page of this chapter' : 'every page'}
+              label={chapterScope ? 'Redo chapter…' : 'Redo all…'}
               verb="redo"
               confirmLabel="Replace text on every page"
               busy={running}

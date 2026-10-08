@@ -38,7 +38,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 **Dubbing, subtitles & video**: `dub.py`, `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse), `video_export.py`, `media_inspect.py`, `subtitle_formats.py`, `video_download.py`
 
-**OCR, scanlation & reading**: `ocr.py`, `scanlate.py`, `hardsub_ocr.py`, `segment.py`, `dictionary.py`, `reader.py`
+**OCR, scanlation & reading**: `ocr.py`, `scanlate.py`, `comic_chapters.py` (chapter labels and hidden pages per comic page, kept in the drama folder's `chapters.json`), `hardsub_ocr.py`, `segment.py`, `dictionary.py`, `reader.py`
 
 **Story & learning**: `universe_wiki.py`, `story_context.py`, `qa.py`, `line_tools.py`, `debug_view.py`, `adaptive_style.py`,
 `vocab_export.py`
@@ -51,7 +51,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `artifact_service.py`, `asr_options_service.py`, `assistant_github_service.py`, `assistant_pytest_guard.py`,
 `assistant_roles_service.py`, `auth_service.py`, `auto_backup_service.py`, `backup_import_service.py`,
 `benchmark_lab_service.py`, `blocked_retry_service.py`, `bug_report_service.py`, `capped_body.py`,
-`characters_service.py`, `comic_view_service.py`, `compare_transcription_service.py`, `cover_art_service.py`,
+`characters_service.py`, `comic_chapters_service.py`, `comic_view_service.py`, `compare_transcription_service.py`, `cover_art_service.py`,
 `delete_service.py`, `diagnostics_gaps_service.py`, `diagnostics_installs_service.py`,
 `diagnostics_service.py`, `diarization_service.py`, `discover_catalog_service.py`,
 `discover_lookup_service.py`, `disk_usage_service.py`, `drama_service.py`, `dub_service.py`,

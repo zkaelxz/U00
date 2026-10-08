@@ -24,6 +24,7 @@ import threading
 import time
 
 import background_jobs
+import comic_chapters
 import db
 
 from . import ladder, registry, store
@@ -84,10 +85,11 @@ def _claim_page_index(pages_dir: str, idx: int):
     return claim
 
 
-def add_page_images(drama_id: int, images, ids_out: list = None) -> int:
+def add_page_images(drama_id: int, images, ids_out: list = None, chapter: dict = None) -> int:
     """`images`: iterable of (bytes, ext). Returns how many pages were
     added (and appends each new page's id to `ids_out` when given). Same
-    files and rows as Scanlate's own upload path.
+    files and rows as Scanlate's own upload path. `chapter`
+    (comic_chapters.chapter_ref) labels the new pages' chapter.
 
     Safe against a second writer (security review MED-2): a per-drama lock
     covers the index computation and the writes in this process, and each
@@ -100,6 +102,7 @@ def add_page_images(drama_id: int, images, ids_out: list = None) -> int:
     pages_dir = os.path.join(db.drama_dir(drama_id), "pages")
     os.makedirs(pages_dir, exist_ok=True)
     added = 0
+    written = []
     with _page_lock(drama_id):
         idx = _next_page_index(drama_id, pages_dir)
         for content, ext in images:
@@ -134,11 +137,19 @@ def add_page_images(drama_id: int, images, ids_out: list = None) -> int:
                         raise
                     if ids_out is not None:
                         ids_out.append(pid)
+                    written.append(os.path.join("pages", fname))
                 finally:
                     os.remove(claim)
                 break
             idx += 1
             added += 1
+    if chapter and written:
+        try:
+            comic_chapters.record_pages(drama_id, chapter, written)
+        except OSError:
+            # Unlabelled pages still read fine ("Chapter unknown"); losing
+            # the chapter's pages to a full disk would be worse.
+            _warn("Could not record a chapter's label")
     return added
 
 
@@ -154,6 +165,10 @@ def _discard_pages(drama_id: int, page_ids):
         path = os.path.join(db.drama_dir(drama_id), p["filename"])
         if os.path.exists(path):
             os.remove(path)
+    try:
+        comic_chapters.forget_pages(drama_id, [p["filename"] for p in rows])
+    except OSError:
+        _warn("Could not drop a removed chapter's label")
 
 
 _fsync = os.fsync   # module-level so a test can fail this call alone
@@ -418,7 +433,10 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                         continue
                     page_ids = []
                     try:
-                        outcome = {"pages": add_page_images(drama_id, images, ids_out=page_ids)}
+                        outcome = {"pages": add_page_images(
+                            drama_id, images, ids_out=page_ids,
+                            chapter=comic_chapters.chapter_ref(ch.chapter_id, ch.title, ch.url,
+                                                               source))}
                     except Exception:
                         _warn("Could not add a chapter's pages")
                         # If this raises, pages may remain: the chapter stays "partial".
