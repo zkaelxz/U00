@@ -164,10 +164,10 @@ Related helpers:
 - checks `authenticated()` appears only on own-session routes under
   `/api/auth/`;
 - `test_doc_route_table_matches_the_app` parses the table in
-  `docs/route-permissions.md` (`| Declaration | Routes | Paths |`) and
-  fails if any row's route count or any listed `METHOD /path` differs from
-  what the app declares. A new route therefore needs a row edit in that
-  doc, in the same change.
+  `docs/route-permissions.md` (`| Route | Declaration |`) and
+  fails if any `METHOD /path` or its declaration differs from what the app
+  declares, or if a row is not one route sorted by path then method. A new
+  route therefore needs one row in that doc, in the same change.
 
 The same file also covers CSRF, local-only, loopback and bypass cases.
 
@@ -348,8 +348,9 @@ the client to follow.
    `media.stream`; use `local_only()` for anything touching the PC; reserve
    `public_route()` and `authenticated()` for the cases above. Use
    `{drama_id}`/`{series_id}` in the path for an owned item.
-4. **Route-table row** in `docs/route-permissions.md`: add
-   `METHOD /path` to the declaration's row and bump its count.
+4. **Route-table row** in `docs/route-permissions.md`: add one
+   row (the route as `METHOD /path`, then its declaration) in sorted
+   position, path first and then method. There are no counts to update.
 5. **Ownership**: an item in the path is guarded automatically. An item in a
    body, or a job id, is checked in the service; list new path parameters in
    `OWNERSHIP_EXEMPT_PARAMS` (with a reason) in `tests/test_api_ownership.py`

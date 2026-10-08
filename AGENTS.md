@@ -50,7 +50,7 @@ Done means:
 3. A test patch on a moved name points at the module that now uses it; no assertion removed or loosened; same pass count.
 4. Inside the `db` package (once it exists) call other db functions as `db.<name>`.
 5. The new module is named in `FILE_ORGANIZATION.md`; a new top-level `.py` is also added to the
-   expected-files list (today `diagnostics.EXPECTED_TOP_LEVEL_FILES`; check the current location first).
+   expected-files list (`expected_files.EXPECTED_TOP_LEVEL_FILES`: one sorted line per name; check the current location first).
 6. Split PRs do not edit `OVERSIZED_MODULE_BYTES`: stale entries only warn, and one ratchet PR after each wave removes them.
 7. Run the area's tests, then `tests/test_static_analysis.py`, `tests/test_split_guards*` (if present) and
    `tests/test_diagnostics_and_export.py`, then the full suite, and report counts.
