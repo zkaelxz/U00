@@ -179,9 +179,9 @@ class TestLinesGlossaryService:
         did, _ = _lines_drama(isolated_db)
         with pytest.raises(ConflictError):
             gs.start_lines_glossary_run(did, engine_name="ollama")
-        nllb, _ = _lines_drama(isolated_db, engine="nllb")
+        fake_mt, _ = _lines_drama(isolated_db, engine="fake_mt")
         with pytest.raises(UnsupportedOperationError):
-            gs.start_lines_glossary_run(nllb)
+            gs.start_lines_glossary_run(fake_mt)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a: None)
         with pytest.raises(DependencyUnavailableError):
             gs.start_lines_glossary_run(did)

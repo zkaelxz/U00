@@ -1,102 +1,9 @@
-"""Local engines: NLLB-200 and Ollama."""
+"""Local engine: Ollama."""
 
 import re
 
 from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import read_json_capped, request_translations_with_retry
-
-
-# ---------------------------------------------------------------------------
-# Local NLLB-200 -- genuinely free, fully offline neural MT, no API key
-# ---------------------------------------------------------------------------
-
-# NLLB-200's own language codes for the three source languages this app
-# supports, plus English (needed as a target for zh/ja/ko ->
-# English, the app's existing default, and as a source for the standalone
-# tool's new English -> zh/ja/ko direction). zh always maps to Simplified
-# here (NLLB has a separate zho_Hant code for Traditional) -- see
-# NLLBEngine's docstring for why that's a real, currently-unaddressed
-# limitation rather than an oversight.
-_NLLB_LANG_CODES = {"zh": "zho_Hans", "ja": "jpn_Jpan", "ko": "kor_Hang", "en": "eng_Latn"}
-
-NLLB_MODELS = {
-    "facebook/nllb-200-distilled-600M": "600M -- fastest, lightest download (~2.4GB), practical on CPU",
-    "facebook/nllb-200-distilled-1.3B": "1.3B -- better quality, slower, heavier download (~5.2GB)",
-}
-
-# Keyed by (model_name, source_language, target_language) -- NLLB bakes
-# both src_lang and tgt_lang into the pipeline object itself, so a drama
-# that mixes source languages across runs (or the standalone tool,
-# which can ask for either direction) needs a separate pipeline per
-# language pair, same shape as Whisper's own _whisper_model_cache in
-# core.py.
-_nllb_pipeline_cache = {}
-
-
-class NLLBEngine:
-    """Fully local, offline neural machine translation via Meta's NLLB-200
-    -- no API key, no network once the model's downloaded once, no
-    per-token cost. This is a REAL translation engine, not a placeholder
-    like a stub: it actually produces usable (if rougher) English,
-    just with meaningfully lower quality than Claude/DeepSeek/Gemini on
-    tone, idiom, and character-voice consistency, since it's pure
-    sequence-to-sequence MT with no instruction-following ability at all
-    -- not an LLM. Good for a genuinely
-    free bulk draft, or for fully offline/no-budget use; expect to
-    hand-polish idiom-heavy or emotionally nuanced lines afterward.
-
-    Known limitation: chinese_script isn't threaded through here yet --
-    zh always uses NLLB's Simplified code (zho_Hans). NLLB does have a
-    separate zho_Hant code for Traditional, so a Traditional-script drama
-    translated through this engine is feeding NLLB text in a script it
-    isn't being told to expect, which will cost some accuracy. Worth
-    fixing if this engine sees real use on Traditional-script content;
-    not done here since it needs the same context-threading this file's
-    source_language fix just added, for a script that isn't the default.
-
-    Requires: `pip install transformers sentencepiece torch` (already a
-    dependency of several other optional features in this app). The
-    model downloads from Hugging Face on first use and is cached on disk
-    afterward, the same as a Whisper model -- no API key involved at any
-    point, this only ever runs locally.
-    """
-    name = "nllb"
-    supports_reference = False
-
-    def __init__(self, api_key: str = None, model: str = "facebook/nllb-200-distilled-600M"):
-        # api_key is unused (kept for get_engine's consistent constructor
-        # signature across engines -- NLLB needs no key at all).
-        self.model_name = model
-
-    def _get_pipeline(self, source_language: str, target_language: str = "en"):
-        cache_key = (self.model_name, source_language, target_language)
-        # One .get(): release_gpu_models() may clear the cache at any moment.
-        pipe = _nllb_pipeline_cache.get(cache_key)
-        if pipe is None:
-            from transformers import pipeline
-            src_lang = _NLLB_LANG_CODES.get(source_language, "zho_Hans")
-            tgt_lang = _NLLB_LANG_CODES.get(target_language, "eng_Latn")
-            pipe = pipeline(
-                "translation", model=self.model_name, src_lang=src_lang, tgt_lang=tgt_lang)
-            _nllb_pipeline_cache[cache_key] = pipe
-        return pipe
-
-    def translate_batch(self, zh_lines, context: dict):
-        title_language = context.get("source_language", "zh")
-        target_language = context.get("target_language", "en")
-        # NLLB bakes the source language into the pipeline, so lines spoken
-        # in another language are translated in their own group.
-        line_languages = context.get("line_languages")
-        if not line_languages or len(line_languages) != len(zh_lines):
-            line_languages = [None] * len(zh_lines)
-        out = [""] * len(zh_lines)
-        for lang in dict.fromkeys(line_languages):
-            positions = [i for i, ln_lang in enumerate(line_languages) if ln_lang == lang]
-            pipe = self._get_pipeline(lang or title_language, target_language)
-            results = pipe([zh_lines[i] for i in positions])
-            for i, r in zip(positions, results):
-                out[i] = r["translation_text"]
-        return out
 
 
 # Ollama's own default context window can be as small as 2-4k tokens,
@@ -125,18 +32,15 @@ def estimate_ollama_num_ctx(system_text: str, numbered: str, floor: int = OLLAMA
 _OLLAMA_ID_KEYED_JSON_SCHEMA = {"type": "object", "additionalProperties": {"type": "string"}}
 
 
-# Local Ollama models offered in the picker. qwen3:8b is the default: it
-# beat qwen2.5:7b on translation benchmarks at the same size (see the
-# model registry). 14B is opt-in -- its quantized weights
-# don't fit cleanly alongside everything else in 8 GB of VRAM, so Ollama
-# offloads part of it to the CPU and it runs much slower there.
-OLLAMA_DEFAULT_MODEL = "qwen3:8b"
+# Local Ollama models offered in the picker. gemma4:12b is the default: it fits
+# a 12 GB GPU fully, while the 26b/31b tags offload to the CPU and run slower.
+# A title or preset that saved another tag (an old Qwen one, say) keeps it and
+# still runs if Ollama has it; it is just no longer offered here.
+OLLAMA_DEFAULT_MODEL = "gemma4:12b"
 
 
 OLLAMA_MODELS = {
-    "qwen3:8b": "Qwen3 8B -- recommended default, fits a typical 8 GB GPU",
-    "qwen2.5:14b": "Qwen2.5 14B -- may not fit in 8 GB; expect CPU offload (much slower)",
-    "gemma4:12b": "Gemma 4 12B -- about 8 GB, fits fully on a 12 GB GPU; too big for 8 GB",
+    "gemma4:12b": "Gemma 4 12B -- recommended default, about 8 GB, fits fully on a 12 GB GPU; too big for 8 GB",
     "gemma4:26b": "Gemma 4 26B (MoE) -- about 16-19 GB, won't fit a 12 GB GPU; offloads to the CPU and runs slower",
     "gemma4:31b": "Gemma 4 31B -- about 19-20 GB, won't fit a 12 GB GPU; offloads to the CPU and runs much slower",
 }
@@ -308,3 +212,31 @@ def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
         reachable = False
     _ollama_reachability_cache[base_url] = (now, reachable)
     return reachable
+
+
+def check_ollama_model_installed(base_url: str, model: str) -> None:
+    """Raises OllamaUnavailableError (the same plain texts the chat call uses)
+    when the server is down or `model` isn't pulled, so a live session fails
+    at Start rather than on its first chunk."""
+    import requests
+    base_url = base_url.rstrip("/")
+    try:
+        resp = requests.get(f"{base_url}/api/tags", timeout=5, stream=True)
+        tags = read_json_capped(resp, 5)
+    except Exception:
+        raise OllamaUnavailableError(
+            "ollama_unreachable",
+            "Ollama isn't running. Start it, or pick another translator in Settings.") from None
+    installed = set()
+    for entry in tags.get("models") or []:
+        for key in ("name", "model"):
+            name = entry.get(key) if isinstance(entry, dict) else None
+            if isinstance(name, str):
+                installed.add(name)
+    # Ollama resolves a bare "name" to "name:latest".
+    wanted = model if ":" in model else f"{model}:latest"
+    if wanted not in installed:
+        raise OllamaUnavailableError(
+            "ollama_model_missing",
+            f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
+            "or pick another model in Settings.")

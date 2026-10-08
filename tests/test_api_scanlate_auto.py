@@ -379,6 +379,19 @@ def _run(client, did, **body):
     return client.post(f"/api/scanlate/dramas/{did}/run", json=body)
 
 
+def test_run_refused_when_paddle_vl_manga_needs_newer_transformers(client, fake_detect, monkeypatch):
+    import ocr
+    did = _drama()
+    _page(did, 0)
+    monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend",
+                        lambda lang: "paddle_vl_manga")
+    monkeypatch.setattr(ocr, "paddle_vl_manga_problem", lambda: "update transformers")
+    r = _run(client, did, engine="fake")
+    assert r.status_code == 503, r.text
+    assert "update transformers" in r.text
+    assert fake_detect == []
+
+
 def test_translate_all_skips_pages_with_regions(client, fake_detect):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
@@ -522,8 +535,8 @@ def test_answers_are_applied_by_key_not_position(monkeypatch):
 
 def test_source_language_and_usage_reach_machine_translation(isolated_db):
     class MT:
-        name = "nllb"
-        model = "nllb"
+        name = "fake_mt"
+        model = "fake_mt"
         supports_reference = False
         last_usage = {}
 

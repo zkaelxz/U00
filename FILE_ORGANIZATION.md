@@ -30,7 +30,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `check_setup.py`, `process_guard.py`, `portable.py`, `storage.py`, `benchmark.py`, `action_tiers.py`
 
 **ASR, transcription & alignment**: `asr_backend.py`, `asr_benchmark.py`, `audio_preprocess.py`, `mixed_language.py`, `vad_segments.py`,
-`forced_align.py`, `word_align.py`, `raw_transcript.py`, `resegment.py`, `sensevoice_tags.py`, `sensitivity_preset.py`, `diarize.py`,
+`forced_align.py`, `word_align.py`, `ollama_unload.py`, `raw_transcript.py`, `resegment.py`, `sensevoice_tags.py`, `sensitivity_preset.py`, `diarize.py`,
 `voice_id.py`
 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**: `translate_engines.py`, `translation_guide.py`, `translation_memory.py`, `auto_qc.py`, `en_cleanup.py`,
@@ -57,7 +57,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `discover_lookup_service.py`, `disk_usage_service.py`, `drama_service.py`, `dub_service.py`,
 `egress_proxy.py`, `engine_routing_service.py`, `event_stream_service.py`, `export_service.py`,
 `extension_service.py`, `fixflag_transcribe.py`, `glossary_retranslate_service.py`, `glossary_service.py`, `jellyfin_service.py`,
-`job_checkpoint_service.py`, `job_timing_service.py`, `jobs_service.py`, `library_admin_service.py`,
+`job_checkpoint_service.py`, `job_timing_service.py`, `jobs_service.py`, `library_admin_service.py`, `loaded_models_service.py`,
 `library_service.py`, `line_ai_service.py`, `line_provenance_service.py`, `line_tools_service.py`,
 `lines_service.py`, `live_service.py`, `lncrawl_service.py`, `maintenance_assistant_service.py`,
 `media_export_service.py`, `media_peaks_service.py`, `media_playback_service.py`, `media_upload_service.py`,
@@ -83,7 +83,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `library.py`, `reader.py`, `review.py`, `sources.py`, `system.py`,
+`api/schemas/`: `characters.py`, `common.py`, `library.py`, `loaded_models.py`, `reader.py`, `review.py`, `sources.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
@@ -96,6 +96,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 `drama_routes.py`, `dub_routes.py`, `engine_routing_routes.py`, `events_routes.py`, `export_routes.py`,
 `extension_routes.py`, `glossary_routes.py`, `jellyfin_routes.py`, `job_stage_routes.py`, `jobs_routes.py`,
 `library_admin_routes.py`, `library_routes.py`, `line_ai_routes.py`, `lines_routes.py`, `live_routes.py`,
+`loaded_models_routes.py`,
 `media_routes.py`, `metadata_research_routes.py`, `metadata_routes.py`, `model_reeval_routes.py`,
 `model_registry_routes.py`, `narration_routes.py`, `notification_center_routes.py`, `notification_routes.py`,
 `notion_routes.py`, `novel_files_routes.py`, `novel_routes.py`, `reader_routes.py`, `restructure_routes.py`,

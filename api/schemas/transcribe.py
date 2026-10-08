@@ -134,6 +134,8 @@ class TranscribeConfig(BaseModel):
     audio_available: bool
     alignment_method: str
     asr_backend_choice: str
+    # Set when the saved backend was removed and the default is shown instead.
+    asr_backend_notice: Optional[str] = None
     whisper_size: str
     whisper_model_cached: bool
     # Audio seconds per second of work on the last finished run of this model and device.
@@ -260,6 +262,8 @@ class LiveSessionStatus(BaseModel):
     session_id: str
     status: str   # queued | running | done | error | cancelled
     message: str
+    engine: Optional[str] = None
+    model: Optional[str] = None
     progress: float
     cues: List[LiveCue]
     next_index: int
@@ -269,6 +273,7 @@ class LiveSessionSummary(BaseModel):
     session_id: str
     status: str
     engine: Optional[str] = None
+    model: Optional[str] = None
     cue_count: int
 
 

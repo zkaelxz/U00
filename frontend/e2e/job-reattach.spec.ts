@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { withExportLines, withTranslateLines } from './stageLineMocks'
+import { openExportBlocks } from './exportBlocks'
 
 // Leaving a stage while its job runs and coming back picks the job up again
 // (useReattachJob). Job starts and job reads are mocked; nothing runs.
@@ -93,6 +94,7 @@ test('Export media shows the earlier export and a running export on revisit', as
   await page.goto('/#/drama/1/translate')
   await goToStage(page, /^Export/)
   await page.getByText('Video and audio', { exact: true }).click()
+  await openExportBlocks(page)
 
   const link = page.getByTestId('artifact-video').getByRole('link')
   await expect(link).toHaveText('Download burned_video_1.mp4')
@@ -114,7 +116,7 @@ test('a dub left running is shown again on the Dub stage, with Generate disabled
   default_engine: 'omnivoice',
       defaults: { max_speedup: 1.3, max_slowdown: 0.85, speedup_range: [1, 2], slowdown_range: [0.5, 1] },
       speakers: [], gpu_required: false, speakable_line_count: 3, track_available: false,
-      gpt_sovits_configured: false, can_keep_background: true,
+      can_keep_background: true,
     },
   }))
   await page.route('**/api/jobs/dub_1', (route) => route.fulfill({ json: job('dub_1', 'running') }))

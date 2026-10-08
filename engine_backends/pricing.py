@@ -16,9 +16,13 @@ import re
 # https://docs.claude.com for the current list and update both this and
 # PRICING_PER_MILLION_TOKENS below.
 CLAUDE_MODELS = {
-    "claude-sonnet-5": "Sonnet 5 -- balanced quality and cost (recommended default)",
-    "claude-opus-4-8": "Opus 4.8 -- highest quality, most expensive",
+    "claude-sonnet-5-5": "Sonnet 5.5 -- balanced quality and cost (recommended default)",
+    "claude-opus-5-5": "Opus 5.5 -- highest quality",
     "claude-haiku-4-5-20251001": "Haiku 4.5 -- fastest and cheapest, lower nuance",
+    # Kept selectable so a saved preset, title or promoted benchmark model that
+    # names one of these still runs instead of being refused as "not offered".
+    "claude-sonnet-5": "Sonnet 5 -- previous generation",
+    "claude-opus-4-8": "Opus 4.8 -- previous generation, costs more than Opus 5.5",
     "claude-sonnet-4-6": "Sonnet 4.6 -- previous generation",
 }
 
@@ -91,8 +95,9 @@ PRICING_PER_MILLION_TOKENS = {
     "claude-sonnet-5": {"input": 2.0, "output": 10.0},
     "claude-haiku-4-5-20251001": {"input": 1.0, "output": 5.0},
     "claude-opus-4-8": {"input": 5.0, "output": 25.0},
-    # Anthropic's pricing page, October 2026. Cache reads are 10% of input and
-    # 5-minute cache writes 125%, which CACHE_*_PRICE_FACTOR already encode.
+    # Anthropic's pricing page, October 2026. 5-minute cache writes are 125% of
+    # input, as CACHE_WRITE_PRICE_FACTOR encodes. Cache reads on these two are
+    # 5% of input, so CACHE_READ_PRICE_FACTOR's 10% over-estimates them.
     "claude-sonnet-5-5": {"input": 2.0, "output": 10.0},
     "claude-opus-5-5": {"input": 4.0, "output": 20.0},
     "claude-fable-5-1": {"input": 10.0, "output": 50.0},

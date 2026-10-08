@@ -54,7 +54,7 @@ def _build_engine(engine_name: str):
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
+    if api_key is None:
         raise MissingKeyError(engine_name)
     try:
         return translate_engines.get_engine(
@@ -65,6 +65,17 @@ def _build_engine(engine_name: str):
     except Exception:
         raise DependencyUnavailableError(
             f"The {engine_name} engine could not be started on this PC.") from None
+
+
+def _require_ocr_backend(drama_id: int) -> None:
+    """detect_and_ocr_page turns any OCR failure into empty text, so a
+    backend that can't run is refused here, with its plain reason."""
+    import ocr
+    lang = pages_svc.require_drama(drama_id).get("source_language") or "zh"
+    if settings_service.resolve_ocr_backend(lang) == "paddle_vl_manga":
+        problem = ocr.paddle_vl_manga_problem()
+        if problem:
+            raise DependencyUnavailableError(problem)
 
 
 def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm: bool = False,
@@ -88,6 +99,7 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int = None, confirm
         raise InvalidInputError("page_id is only used to redo one page.")
     if mode == "all" and not confirm:
         raise ConflictError(_CONFIRM_ALL)
+    _require_ocr_backend(drama_id)
     engine_name = engine or settings_service.get_default_engine()
     built = _build_engine(engine_name)
     targets = [page_id] if mode == "page" else [p["id"] for p in pages]

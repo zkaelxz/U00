@@ -151,12 +151,15 @@ def test_other_installs_carry_a_torch_pins_file_that_is_removed(monkeypatch):
     seen, pins = [], []
     _fake_pip(monkeypatch, seen, read_pins=pins)
     for fn in (svc.install_dependency, svc.upgrade_dependency):
-        assert fn("chatterbox-tts", confirm=True)["ok"] is True
+        assert fn("omnivoice", confirm=True)["ok"] is True
     assert len(seen) == 2 and len(pins) == 2
     for path, text in pins:
         assert text.split() == ["torch==2.11.0+cu128", "torchvision==0.26.0+cu128"]
         assert not os.path.exists(path)
     assert seen[0][0][3:6] == ["install", *FLAGS]
+
+
+CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")]
 
 
 def test_no_pins_file_without_torch(monkeypatch):
@@ -165,7 +168,7 @@ def test_no_pins_file_without_torch(monkeypatch):
     seen = []
     _fake_pip(monkeypatch, seen)
     svc.install_dependency("pydub", confirm=True)
-    assert seen[0][0][3:] == ["install", *FLAGS, "pydub"]
+    assert seen[0][0][3:] == ["install", *FLAGS, "pydub", *CONSTRAINTS]
 
 
 def test_a_package_needing_another_torch_is_refused_with_a_plain_hint(monkeypatch):
@@ -173,13 +176,13 @@ def test_a_package_needing_another_torch_is_refused_with_a_plain_hint(monkeypatc
     _versions(monkeypatch, torch="2.11.0+cu128")
     seen = []
     _fake_pip(monkeypatch, seen, returncode=1, lines=[
-        "ERROR: Cannot install chatterbox-tts==0.2 because these package versions have "
+        "ERROR: Cannot install omnivoice==0.2 because these package versions have "
         "conflicting dependencies.",
         "The conflict is caused by:",
-        "    chatterbox-tts 0.2 depends on torch==2.6.0",
+        "    omnivoice 0.2 depends on torch==2.6.0",
         "    The user requested (constraint) torch==2.11.0+cu128",
         "ERROR: ResolutionImpossible"])
-    out = svc.install_dependency("chatterbox-tts", confirm=True)
+    out = svc.install_dependency("omnivoice", confirm=True)
     assert out["ok"] is False
     assert "nothing was changed" in out["hint"] and "torch 2.11.0+cu128" in out["hint"]
 
