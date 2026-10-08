@@ -32,6 +32,7 @@ import {
   ENDPOINTS,
   OCR_LABELS,
   parseCap,
+  parseKeepFreeGb,
   parseNumCtx,
   parseUploadMb,
   DEFAULT_UPLOAD_MB,
@@ -222,16 +223,25 @@ export function AdvancedCard(props: Props) {
         summary={[
           p.whisper_model_path ? 'Whisper folder set' : 'Whisper downloads',
           p.ollama_num_ctx_override ? `num_ctx ${p.ollama_num_ctx_override}` : 'num_ctx auto',
+          p.keep_free_vram_gb || p.keep_free_ram_gb ? 'Memory kept free' : 'No memory reserve',
         ].join(' · ')}
         fromPrefs={(x) => ({
           whisper_model_path: x.whisper_model_path,
           ollama_num_ctx_override: x.ollama_num_ctx_override ? String(x.ollama_num_ctx_override) : '',
+          keep_free_vram_gb: x.keep_free_vram_gb ? String(x.keep_free_vram_gb) : '',
+          keep_free_ram_gb: x.keep_free_ram_gb ? String(x.keep_free_ram_gb) : '',
         })}
         toPatch={(d) => {
           const n = parseNumCtx(String(d.ollama_num_ctx_override))
           if (!n.ok) return n
+          const vram = parseKeepFreeGb(String(d.keep_free_vram_gb))
+          if (!vram.ok) return vram
+          const ram = parseKeepFreeGb(String(d.keep_free_ram_gb))
+          if (!ram.ok) return ram
           const paths = pathPatch(d, ['whisper_model_path'])
-          return paths.ok ? { ok: true, value: { ...paths.value, ollama_num_ctx_override: n.value } } : paths
+          return paths.ok
+            ? { ok: true, value: { ...paths.value, ollama_num_ctx_override: n.value, keep_free_vram_gb: vram.value, keep_free_ram_gb: ram.value } }
+            : paths
         }}
       >
         {(d, set) => (
@@ -241,6 +251,12 @@ export function AdvancedCard(props: Props) {
             </Field>
             <Field label="Ollama context window" unit="tokens" help="Blank or 0 sizes it from each prompt (recommended). A value here can only raise it above that, never lower it.">
               <input type="text" inputMode="numeric" value={String(d.ollama_num_ctx_override)} onChange={(e) => set('ollama_num_ctx_override', e.target.value)} placeholder="Auto" />
+            </Field>
+            <Field label="Keep free graphics memory" unit="GB" help="For other programs on this PC, such as Jellyfin transcoding. A local model that would use this memory is not loaded and the job stops with a message. Sizes are estimates. Blank or 0 turns it off.">
+              <input type="text" inputMode="decimal" value={String(d.keep_free_vram_gb)} onChange={(e) => set('keep_free_vram_gb', e.target.value)} placeholder="Off" />
+            </Field>
+            <Field label="Keep free RAM" unit="GB" help="The same for system memory when a model runs on the CPU. Blank or 0 turns it off.">
+              <input type="text" inputMode="decimal" value={String(d.keep_free_ram_gb)} onChange={(e) => set('keep_free_ram_gb', e.target.value)} placeholder="Off" />
             </Field>
           </>
         )}
