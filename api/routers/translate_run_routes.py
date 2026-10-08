@@ -64,6 +64,11 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
         drama_id, thinking, reflect)
 
 
+def _may_remember(request: Request, body) -> bool:
+    return translate_thinking_service.may_remember(
+        holds_paid_engines(request), body.engine, *[f.engine for f in (body.fallback_chain or ())])
+
+
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranslateRunStarted,
              summary="Start a translation (normal, Reflect and/or bulk) as a background job",
              responses={400: {"model": ErrorResponse},
@@ -72,8 +77,10 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
 def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
                             *[f.engine for f in (body.fallback_chain or ())])
-    return translate_run_service.start_translate_run(
-        drama_id, engine_name=body.engine, model=body.model,
+    return translate_thinking_service.start_with_thinking(
+        translate_run_service.start_translate_run, drama_id, body.thinking,
+        _may_remember(request, body),
+        engine_name=body.engine, model=body.model,
         style_preset=body.style_preset, style_note=body.style_note,
         locale=body.locale, force_retranslate=body.force_retranslate,
         context_window=body.context_window,
@@ -87,11 +94,7 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
         include_genre_notes=body.include_genre_notes,
         # The Settings episode-summary engine may be a cloud one: skipped
         # for a caller without engines.paid rather than refusing the run.
-        allow_paid_summary=holds_paid_engines(request),
-        thinking=body.thinking,
-        save_thinking=translate_thinking_service.may_remember(
-            holds_paid_engines(request), body.engine,
-            *[f.engine for f in (body.fallback_chain or ())]))
+        allow_paid_summary=holds_paid_engines(request))
 
 
 @router.get("/dramas/{drama_id}/glossary-affected", dependencies=[require_permission("lines.read")],
@@ -121,8 +124,9 @@ def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request
                                 drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
                             *[f.engine for f in (body.fallback_chain or ())])
-    return glossary_retranslate_service.start_affected_retranslate(
-        drama_id, body.line_ids, body.preview_hash,
+    return translate_thinking_service.start_with_thinking(
+        glossary_retranslate_service.start_affected_retranslate, drama_id, body.thinking,
+        _may_remember(request, body), body.line_ids, body.preview_hash,
         include_hand_edited=body.include_hand_edited, term_ids=body.term_ids,
         engine_name=body.engine, model=body.model, style_preset=body.style_preset,
         style_note=body.style_note, locale=body.locale, context_window=body.context_window,
@@ -132,11 +136,7 @@ def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request
         if body.fallback_chain else None,
         reflect=body.reflect, default_female_pronouns=body.default_female_pronouns,
         include_genre_notes=body.include_genre_notes,
-        allow_paid_summary=holds_paid_engines(request),
-        thinking=body.thinking,
-        save_thinking=translate_thinking_service.may_remember(
-            holds_paid_engines(request), body.engine,
-            *[f.engine for f in (body.fallback_chain or ())]))
+        allow_paid_summary=holds_paid_engines(request))
 
 
 @router.post("/dramas/{drama_id}/bulk/resume", dependencies=[require_permission("jobs.start")], response_model=TranslateBulkResumeResult,

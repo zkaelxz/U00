@@ -134,10 +134,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                          translate_engines.estimate_cost_for_engine(eng, inp, out, cache_read,
                                                                     cache_write),
                          cache_read_tokens=cache_read)
-    # {speaker_label: "Name (pronouns)"}, named characters only -- a line
-    # whose speaker has no name set is shown to the translator with no
-    # name at all (see translate_lines_with_engine's own docstring),
-    # never the raw diarization label, which isn't a name.
+    # {speaker_label: "Name (pronouns)"}, named characters only: an unnamed
+    # speaker is shown with no name, never the raw diarization label.
     _series_id = (db.get_drama(drama_id) or {}).get("series_id")
     character_names = tguide.build_speaker_labels(
         db.list_characters_with_series_names(drama_id),

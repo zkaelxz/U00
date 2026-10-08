@@ -41,7 +41,7 @@ import translate_engines
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
 from services import (engine_routing_service, library_service, settings_service,
-                      translate_service, translate_thinking_service, workspace_job_service)
+                      translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
     InvalidInputError,
@@ -333,14 +333,11 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                         locale: str = "en-US", force_retranslate: bool = False,
                         context_window: int = None, context_window_ahead: int = None,
                         batch_size: int = None, line_ids: list = None,
-                        gemini_free_tier: bool = None,
-                        job_cost_cap_usd: float = None,
+                        gemini_free_tier: bool = None, job_cost_cap_usd: float = None,
                         fallback_chain: list = None, reflect: bool = False,
                         bulk: bool = False, default_female_pronouns: bool = None,
-                        include_genre_notes: bool = None,
-                        allow_paid_summary: bool = True,
-                        own_lines_only: bool = False, expected_en: dict = None,
-                        thinking: bool = None, save_thinking: bool = True) -> dict:
+                        include_genre_notes: bool = None, allow_paid_summary: bool = True,
+                        own_lines_only: bool = False, expected_en: dict = None, thinking: bool = None) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
@@ -382,10 +379,6 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     since and is dropped (ConflictError if none is left). With line_ids,
     the result's line_ids are the ids the job will actually translate.
 
-    thinking: None = the title's remembered choice. An explicit value is used
-    for this run and saved for the title once the run is accepted, unless
-    save_thinking is False (the caller may not change what later paid runs do).
-
     NotFoundError (drama), InvalidInputError, UnsupportedOperationError
     (nothing to translate / cap refusal / mode not available for the
     engine), DependencyUnavailableError (no key), ConflictError (already
@@ -398,8 +391,6 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     is_novel = drama.get("content_mode") == "novel_narration"
     style_preset = style_preset or ("novel" if is_novel else "audio_drama")
-    run_thinking = (thinking if thinking is not None
-                    else translate_thinking_service.get_title_choice(drama_id))
     defaults = get_translate_config_defaults(is_novel)
     context_window = defaults["context_window"] if context_window is None else context_window
     context_window_ahead = (defaults["context_window_ahead"]
@@ -522,14 +513,10 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         if not started:
             raise ConflictError("A translation is already running for this drama.")
         save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
-        if save_thinking:
-            translate_thinking_service.save_title_choice(drama_id, thinking)
         return {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
                 "model": getattr(engines[0], "model", model),
                 "target_line_count": len(eligible), "fallback_engines": [],
-                "reflect": reflect, "bulk": True,
-                "thinking": translate_thinking_service.effective(
-                    [engine_name], run_thinking, reflect)}
+                "reflect": reflect, "bulk": True}
 
     summary_engine, summary_choice = pick_summary_engine(allow_paid=allow_paid_summary)
 
@@ -543,20 +530,16 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
         summary_monthly_cap_usd=month_cap_usd() or None,
-        target_ids=target_ids, own_lines_only=own_lines_only, thinking=run_thinking,
+        target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
         gpu_touching=any(c["engine"] == "ollama" for c in chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})")
     if not started:
         raise ConflictError("A translation is already running for this drama.")
     save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
-    if save_thinking:
-        translate_thinking_service.save_title_choice(drama_id, thinking)
     started = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
                "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
                "fallback_engines": [c["engine"] for c in chain[1:]],
-               "reflect": reflect, "bulk": False,
-               "thinking": translate_thinking_service.effective(
-                   [c["engine"] for c in chain], run_thinking, reflect)}
+               "reflect": reflect, "bulk": False}
     if target_ids is not None:
         # expected_en may have dropped some of the caller's ids.
         started["line_ids"] = sorted(ln.id for ln in eligible)
