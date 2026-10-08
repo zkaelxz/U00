@@ -4,12 +4,12 @@ drama: the read-only stage config and the advisory
 pre-run cost estimate. Distinct from the standalone translator
 under /api/translate. It also adds the start-translate job;
 see services/translate_run_service.py for the scope decision.
-Parity X02/X22 add "Apply tier" (lines.edit: per-drama stage config) and
+It also adds "Apply tier" (lines.edit: per-drama stage config) and
 "Save as preset" (admin.library, like preset rename: a library catalogue
 write; a new name deletes nothing. Replacing a preset of the same name
 needs overwrite=true, else 409, and overwrite is PC-only like other
 deletes: refused with 403 from a non-loopback client when auth is on).
-Parity X03 adds "Apply a preset" to an existing drama (lines.edit, like
+"Apply a preset" works on an existing drama (lines.edit, like
 "Apply tier": it saves only the engine on the drama and starts nothing).
 The glossary-affected preview (`lines.read`: it carries line text) and its
 run (`jobs.start`, engine-checked like the run above) re-translate only
