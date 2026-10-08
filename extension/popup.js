@@ -12,6 +12,9 @@ const els = {
   translate: document.getElementById("translate"),
   translateAll: document.getElementById("translateAll"),
   toggle: document.getElementById("toggle"),
+  captureChapter: document.getElementById("captureChapter"),
+  captureFromHere: document.getElementById("captureFromHere"),
+  cancelCapture: document.getElementById("cancelCapture"),
   textDirection: document.getElementById("textDirection"),
   translateText: document.getElementById("translateText"),
   dramaTitle: document.getElementById("dramaTitle"),
@@ -213,6 +216,68 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message && message.type === "progress" && message.text) say(message.text);
 });
 
+// Scrolls the reader and translates every page it mounts. The work runs in
+// the page, so it carries on if this popup closes; the page shows its own
+// progress and Cancel for that case.
+function showCapturing(running) {
+  els.cancelCapture.hidden = !running;
+  els.captureChapter.disabled = running;
+  els.captureFromHere.disabled = running;
+  // The page refuses a plain translate during a capture; disabling the buttons says why up front.
+  els.translate.disabled = running;
+  els.translateAll.disabled = running;
+}
+
+async function runCapture(fromHere) {
+  const tab = await activeTab();
+  if (!tab || !tab.id) return say("No active tab.", true);
+  const dramaId = els.drama.value ? Number(els.drama.value) : null;
+  if (els.store.checked && !dramaId) {
+    return say("Pick a drama to save into, or untick saving.", true);
+  }
+  say("Starting…");
+  showCapturing(true);
+  try {
+    await ensureContentScript(tab.id);
+    if (dramaId) {
+      const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
+      const site = siteOf(tab.url) || (status && status.ok ? status.data.host : "");
+      if (site) await chrome.runtime.sendMessage({ type: "rememberDrama", site, dramaId });
+    }
+    await chrome.tabs.sendMessage(tab.id, { type: "setOverlays", visible: els.overlay.checked });
+    const result = await chrome.tabs.sendMessage(tab.id, {
+      type: "captureChapter", dramaId, store: els.store.checked, fromHere });
+    if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
+    const { message, translated = 0, stored = 0 } = result.data;
+    const store = els.store.checked;
+    const destination = describeDestination({
+      sent: store ? stored : translated, cached: 0, store, dramaId }).join(", ");
+    say(destination ? `${message} ${destination}.` : message, result.data.reason === "error");
+    if (store && dramaId && stored) showOpenLink(dramaId);
+  } catch (e) {
+    say(`Couldn't run on this page (${e.message}).`, true);
+  } finally {
+    showCapturing(false);
+  }
+}
+
+// A popup reopened mid-capture picks the run back up.
+async function syncCaptureUi() {
+  try {
+    const tab = await activeTab();
+    const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
+    const capture = status && status.ok && status.data.capture;
+    if (capture) {
+      showCapturing(true);
+      say(capture.text);
+    }
+  } catch (e) { /* no content script on this tab yet */ }
+}
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message && message.type === "captureDone") showCapturing(false);
+});
+
 async function runText() {
   const tab = await activeTab();
   if (!tab || !tab.id) return say("No active tab.", true);
@@ -242,6 +307,17 @@ async function runText() {
 els.drama.addEventListener("change", showDramaTitle);
 els.translate.addEventListener("click", () => run(false));
 els.translateAll.addEventListener("click", () => run(true));
+els.captureChapter.addEventListener("click", () => runCapture(false));
+els.captureFromHere.addEventListener("click", () => runCapture(true));
+els.cancelCapture.addEventListener("click", async () => {
+  const tab = await activeTab();
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "cancelCapture" });
+    say("Stopping…");
+  } catch (e) {
+    say(`Couldn't reach this page (${e.message}).`, true);
+  }
+});
 els.translateText.addEventListener("click", runText);
 els.toggle.addEventListener("click", async () => {
   const tab = await activeTab();
@@ -265,4 +341,4 @@ els.openLink.addEventListener("click", (event) => {
 });
 els.noticeAction.addEventListener("click", () => noticeHandler && noticeHandler());
 
-load();
+load().then(syncCaptureUi);
