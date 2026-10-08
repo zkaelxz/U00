@@ -43,10 +43,11 @@ UNSPLIT_TITLE = "Unsplit text"
 EARLIER_TITLE = "Earlier text (not split)"
 _MATCH_CHARS = 200
 _CACHE_ENTRIES = 4096
+_CHECKPOINT_MIN_OFFSET = 20_000   # below this a slice is cheap to decode directly
 _TEXT_CACHE_ENTRIES = 2   # up to MAX_TEXT_CHARS each
 
 _cache_lock = threading.Lock()
-_chars_cache: dict = {}
+_index_cache: dict = {}
 _match_cache: dict = {}
 _text_cache: dict = {}
 
@@ -124,16 +125,23 @@ def _in_translation(f, block: dict, raw_key, tkey, translation: str) -> bool:
     return found
 
 
+def _index(f, block: dict, raw_key) -> tuple:
+    """(characters, checkpoints) of a block, built in one pass per file
+    version; the checkpoints keep a deep slice from re-decoding the text
+    before it."""
+    key = (raw_key, block["start"], block["length"])
+    with _cache_lock:
+        known = _index_cache.get(key)
+    if known is None:
+        known = manifest.index_block(f, block["start"], block["length"])
+        _remember(_index_cache, key, known, _CACHE_ENTRIES)
+    return known
+
+
 def _chars(f, block: dict, raw_key) -> int:
     if block["chars"] is not None:
         return block["chars"]
-    key = (raw_key, block["start"], block["length"])
-    with _cache_lock:
-        known = _chars_cache.get(key)
-    if known is None:
-        known = manifest.count_chars(f, block["start"], block["length"])
-        _remember(_chars_cache, key, known, _CACHE_ENTRIES)
-    return known
+    return _index(f, block, raw_key)[0]
 
 
 def _raw_file(drama_id: int):
@@ -192,7 +200,13 @@ def read_chapter(drama_id: int, number: int, offset: int = 0,
     tkey, translation = _translation(drama_id)
     with open(path, "rb") as f:
         chars = _chars(f, b, raw_key)
-        text = manifest.slice_text(f, b["start"], b["length"], offset, limit)
+        if offset >= chars:
+            text = ""
+        elif offset < _CHECKPOINT_MIN_OFFSET:
+            text = manifest.slice_text(f, b["start"], b["length"], offset, limit)
+        else:
+            text = manifest.slice_text(f, b["start"], b["length"], offset, limit,
+                                       _index(f, b, raw_key)[1])
         inside = _in_translation(f, b, raw_key, tkey, translation)
     end = offset + len(text)
     return {"drama_id": drama_id, "number": number, "title": b["title"], "source": b["source"],

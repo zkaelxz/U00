@@ -298,6 +298,8 @@ def _store_raw_novel(drama_id: int, text: str) -> dict:
     replaced = os.path.isfile(path)
     # Dropped first: if the drop fails after the file was replaced, an
     # equal-size new file would be read through the old manifest.
-    chapter_manifest.drop(drama_id)
+    if not chapter_manifest.drop(drama_id):
+        raise ConflictError("The saved chapter list is in use and could not be reset. "
+                            "Close anything using it and try again.")
     _write_atomic(drama_id, RAW_NOVEL_FILENAME, text)
     return {"drama_id": drama_id, "replaced": replaced, **_file_status(path)}

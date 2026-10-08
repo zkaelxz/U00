@@ -21,6 +21,7 @@ raw-novel readers use (UTF-8, replacement characters, universal
 newlines), in chunks, so a multi-megabyte file is never held whole.
 """
 
+import bisect
 import io
 import json
 import logging
@@ -42,6 +43,12 @@ _MAX_TITLE = 200
 # A UTF-8 character is at most 4 bytes; this many bytes always hold the last
 # `n` characters of a block for n up to _TAIL_CHARS.
 _TAIL_CHARS = 400
+# A checkpoint is taken at a line end at least this many bytes after the
+# previous one; 64 KiB keeps a 10M-character block to a few hundred entries.
+_CHECKPOINT_BYTES = 64 * 1024
+# A block with no line break for this long gets no further checkpoints
+# rather than being held in memory.
+_MAX_PENDING_BYTES = 8 * 1024 * 1024
 
 
 def manifest_path(drama_id: int) -> str:
@@ -105,9 +112,16 @@ def _open_text(f, start: int, length: int):
                             errors="replace", newline=None)
 
 
-def slice_text(f, start: int, length: int, skip: int, take: int) -> str:
+def slice_text(f, start: int, length: int, skip: int, take: int, checkpoints=None) -> str:
     """`take` characters after `skip` characters of the block at bytes
-    [start, start+length) of the open binary file `f`."""
+    [start, start+length) of the open binary file `f`. `checkpoints` (from
+    index_block) lets the read begin near `skip` instead of at the block's
+    start."""
+    if checkpoints and skip > 0:
+        at = bisect.bisect_right(checkpoints, (skip, float("inf"))) - 1
+        if at >= 0:
+            chars_before, bytes_before = checkpoints[at]
+            start, length, skip = start + bytes_before, length - bytes_before, skip - chars_before
     text = _open_text(f, start, length)
     while skip > 0:
         got = text.read(min(skip, _CHUNK))
@@ -115,6 +129,34 @@ def slice_text(f, start: int, length: int, skip: int, take: int) -> str:
             return ""
         skip -= len(got)
     return text.read(max(0, take))
+
+
+def index_block(f, start: int, length: int) -> tuple:
+    """(total characters, checkpoints) of the block in one pass. A
+    checkpoint is (characters before, bytes before) at a point just after a
+    newline byte: there the decoder holds no half character and no pending
+    carriage return, so decoding from it gives the same characters as
+    decoding from the block's start."""
+    checkpoints = []
+    total = done = 0
+    buf = bytearray()
+    f.seek(start)
+    while done + len(buf) < length:
+        data = f.read(min(_CHUNK, length - done - len(buf)))
+        if not data:
+            break
+        buf += data
+        if len(buf) >= _CHECKPOINT_BYTES:
+            cut = buf.rfind(b"\n") + 1
+            if cut:
+                total += chars_of(bytes(buf[:cut]).decode("utf-8", errors="replace"))
+                done += cut
+                del buf[:cut]
+                checkpoints.append((total, done))
+            elif len(buf) > _MAX_PENDING_BYTES:
+                return total + count_chars(f, start + done, length - done), checkpoints
+    total += chars_of(bytes(buf).decode("utf-8", errors="replace"))
+    return total, checkpoints
 
 
 def count_chars(f, start: int, length: int) -> int:
@@ -169,14 +211,17 @@ def load(drama_id: int) -> Optional[dict]:
         return None
 
 
-def drop(drama_id: int) -> None:
-    """Called when the raw novel is replaced or removed."""
+def drop(drama_id: int) -> bool:
+    """Called when the raw novel is replaced or removed. False when the
+    manifest is still there afterwards, so the caller can refuse to go on."""
     try:
         os.remove(manifest_path(drama_id))
     except FileNotFoundError:
         pass
     except OSError:
         log.warning("Could not remove the chapter manifest for drama %s", drama_id)
+        return False
+    return True
 
 
 def _save(drama_id: int, size: int, chapters: list) -> None:

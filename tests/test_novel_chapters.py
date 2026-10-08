@@ -348,8 +348,8 @@ def test_unsplit_file_is_decoded_once_until_it_changes(isolated_db, monkeypatch)
     with open(_raw(did), "w", encoding="utf-8") as f:
         f.write("字" * 5000)
     seen = []
-    real = chapter_manifest.count_chars
-    monkeypatch.setattr(chapter_manifest, "count_chars",
+    real = chapter_manifest.index_block
+    monkeypatch.setattr(chapter_manifest, "index_block",
                         lambda *a, **k: seen.append(1) or real(*a, **k))
     for _ in range(3):
         assert svc.list_chapters(did)["char_count"] == 5000
@@ -372,3 +372,116 @@ def test_retry_of_an_already_recorded_chapter_keeps_the_list(isolated_db):
                             content_chars=second["chars"], title=second["title"], source="xbanxia")
     after = chapter_manifest.load(did)
     assert after == known
+
+
+class _CountingFile:
+    """Binary file that adds the bytes read through it to `tally`."""
+
+    def __init__(self, f, tally):
+        self._f, self._tally = f, tally
+
+    def read(self, n=-1):
+        data = self._f.read(n)
+        self._tally[0] += len(data)
+        return data
+
+    def __getattr__(self, name):
+        return getattr(self._f, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self._f.close()
+
+
+def _count_reads(monkeypatch):
+    tally = [0]
+    real_open = open
+    monkeypatch.setattr(svc, "open", lambda p, m="r", *a, **k: _CountingFile(
+        real_open(p, m, *a, **k), tally) if "b" in m else real_open(p, m, *a, **k), raising=False)
+    return tally
+
+
+def test_offset_past_the_end_reads_nothing(isolated_db, monkeypatch):
+    did = _drama()
+    db.drama_dir(did)
+    with open(_raw(did), "w", encoding="utf-8") as f:
+        f.write("字" * 100_000)
+    svc.list_chapters(did)
+    tally = _count_reads(monkeypatch)
+    for offset in (100_000, 10**12):
+        got = svc.read_chapter(did, 1, offset=offset)
+        assert got["text"] == "" and got["next_offset"] is None
+    assert tally[0] == 0
+
+
+def test_paging_a_five_million_char_block_reads_each_byte_about_once(isolated_db, monkeypatch):
+    did = _drama()
+    db.drama_dir(did)
+    line = "字" * 49 + "\n"
+    with open(_raw(did), "w", encoding="utf-8", newline="") as f:
+        f.write(line * 100_000)
+    size = os.path.getsize(_raw(did))
+    tally = _count_reads(monkeypatch)
+    offset, got_chars, pages = 0, 0, 0
+    while offset is not None:
+        got = svc.read_chapter(did, 1, offset=offset, limit=svc.MAX_SLICE_CHARS)
+        got_chars += len(got["text"])
+        offset, pages = got["next_offset"], pages + 1
+    assert got_chars == 5_000_000 and pages == 100
+    assert tally[0] < 3 * size
+
+
+def test_deep_slices_match_a_plain_decode(isolated_db):
+    did = _drama()
+    db.drama_dir(did)
+    body = ("甲乙丙\r\n丁戊\r己庚辛壬\n" * 30_000).encode("utf-8")
+    body = body[:-1] + b"\xe4\xb8"   # ends inside a character
+    with open(_raw(did), "wb") as f:
+        f.write(body)
+    expected = body.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+    assert svc.list_chapters(did)["char_count"] == len(expected)
+    for offset in (0, 19_999, 20_000, 65_537, 123_457, len(expected) - 3):
+        got = svc.read_chapter(did, 1, offset=offset, limit=1000)
+        assert got["text"] == expected[offset:offset + 1000], offset
+
+
+def test_a_manifest_that_cannot_be_dropped_blocks_the_replace(isolated_db, monkeypatch):
+    from services import novel_files_service
+    from services.service_errors import ConflictError
+    did = _drama()
+    _import(did, 1)
+    before = open(_raw(did), "rb").read()
+    real_remove = os.remove
+
+    def locked(path):
+        if os.path.basename(path) == chapter_manifest.MANIFEST_FILENAME:
+            raise PermissionError("in use")
+        return real_remove(path)
+
+    monkeypatch.setattr(chapter_manifest.os, "remove", locked)
+    assert chapter_manifest.drop(did) is False
+    with pytest.raises(ConflictError) as err:
+        novel_files_service.save_raw_novel_text(did, "fresh paste")
+    assert str(db.DRAMAS_DIR) not in str(err.value)
+    assert open(_raw(did), "rb").read() == before
+
+
+def test_a_manifest_that_cannot_be_dropped_blocks_the_removal(isolated_db, monkeypatch):
+    from services import delete_service
+    from services.service_errors import ConflictError
+    did = _drama()
+    _import(did, 1)
+    real_remove = os.remove
+
+    def locked(path):
+        if os.path.basename(path) == chapter_manifest.MANIFEST_FILENAME:
+            raise PermissionError("in use")
+        return real_remove(path)
+
+    monkeypatch.setattr(chapter_manifest.os, "remove", locked)
+    with pytest.raises(ConflictError) as err:
+        delete_service.remove_raw_novel(did, confirm=True)
+    assert str(db.DRAMAS_DIR) not in str(err.value)
+    assert os.path.exists(_raw(did))
