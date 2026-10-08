@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import db
 import diagnostics
+import expected_files
 from core import Line, lines_to_srt, lines_to_bilingual_srt
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -155,7 +156,7 @@ class TestDiagnostics:
         real_files = {f for f in os.listdir(PROJECT_ROOT)
                      if f.endswith(".py") and os.path.isfile(os.path.join(PROJECT_ROOT, f))
                      and f not in ("__init__.py", "conftest.py")}
-        missing_from_list = real_files - set(diagnostics.EXPECTED_TOP_LEVEL_FILES)
+        missing_from_list = real_files - set(expected_files.EXPECTED_TOP_LEVEL_FILES)
         assert missing_from_list == set(), \
             f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES: {missing_from_list}"
 
