@@ -19,7 +19,7 @@ export const EXPIRY_CHOICES: { days: number | null; label: string }[] = [
 export const DEFAULT_EXPIRY_DAYS = 90
 
 export const ADMIN_TOKENS_PC_ONLY =
-  "An admin account's extension devices can only be added or revoked on the main PC."
+  "An admin account's extension devices can only be added on the main PC. You can revoke one from anywhere."
 export const NO_SEND_PERMISSION =
   'Adding a device needs permission to use the browser extension (extension.send). Ask whoever runs Baihe on the main PC.'
 

@@ -113,7 +113,7 @@ function OwnDevices({ canCreate, block }: { canCreate: boolean; block: string | 
       ) : list.length === 0 ? (
         <p className="muted">No devices yet.</p>
       ) : (
-        <TokenList tokens={list} nowMs={nowMs} busy={busy} block={block} onRevoke={revoke} />
+        <TokenList tokens={list} nowMs={nowMs} busy={busy} block={null} onRevoke={revoke} />
       )}
       {!canCreate ? (
         <p className="settings-note">{NO_SEND_PERMISSION}</p>

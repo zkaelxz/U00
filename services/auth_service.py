@@ -586,7 +586,11 @@ def revoke_session(session_id: int, user_id: int = None) -> bool:
 
 
 def revoke_all_for_user(user_id: int, actor_id=None) -> int:
+    """Ends every session and every extension device token: a token is a
+    long-lived credential that "sign them out everywhere" must not leave
+    behind."""
     n = db.auth_delete_user_sessions(user_id)
+    _revoke_device_tokens(user_id, actor_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "session.revoke_all", f"user {user_id}: {n}")
     return n
@@ -664,10 +668,13 @@ def revoke_other_sessions(user_id: int, current_session_id: int, ip: str = "", *
     """Signs out every device of the caller except the one asking, and
     gives the one asking a new session token and CSRF token (returned once,
     for its cookies): a copy of this device's cookie taken earlier dies too.
+    The caller's extension device tokens are revoked as well.
     The new session keeps the old one's sign-in time and expiry."""
     _require_pc_for_own_admin(is_admin, at_pc)
     now = time.time() if now is None else now
     n = db.auth_delete_user_sessions(user_id, except_id=current_session_id)
+    # Extension tokens aren't tied to a session, so "other devices" includes them.
+    _revoke_device_tokens(user_id, user_id)
     token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     sid = db.auth_rotate_session(current_session_id, user_id, _hash(token), _hash(csrf),
                                  now, ip_prefix(ip))

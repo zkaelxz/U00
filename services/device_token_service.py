@@ -24,8 +24,9 @@ Security rules kept here:
   removed, account deactivated) also revokes the user's tokens, so a later
   re-grant doesn't silently revive a forgotten one.
 - A user manages only their own tokens (the user id comes from their
-  session); the owner at the PC lists and revokes anyone's (PC-only routes).
-  Anything that changes an admin account's tokens is PC-only (D5).
+  session) and may revoke them from anywhere; the owner at the PC lists and
+  revokes anyone's (PC-only routes). Creating an admin account's token, or
+  revoking it as someone else, is PC-only (D5).
 """
 
 import hashlib
@@ -54,16 +55,15 @@ _TOUCH_INTERVAL_SECONDS = 60
 _KEEP_ENDED_SECONDS = 30 * 24 * 3600
 _GENERIC_401 = "Authentication required."
 _NOT_FOUND = "That device token isn't active."
-ADMIN_TOKENS_AT_PC_ONLY = ("An admin account's extension devices can only be added or "
-                           "revoked at the PC.")
+ADMIN_TOKENS_AT_PC_ONLY = ("An admin account's extension devices can only be added at "
+                           "the PC. You can revoke one from anywhere.")
 
 # Creation: a few per hour per user is plenty for setting up computers.
 _create_limiter = auth_service.SlidingWindowRateLimiter(5, 3600)
 
 
 class _FailureLimiter(auth_service.SlidingWindowRateLimiter):
-    """Counts only failed presentations; `blocked` peeks without counting,
-    so a client over the limit is refused before any lookup."""
+    """Counts only failed presentations; `blocked` peeks without counting."""
 
     def blocked(self, key: str) -> bool:
         now = self._clock()
@@ -158,11 +158,11 @@ def list_own(user_id: int, now: float = None) -> list:
     return [_public(r, now) for r in device_tokens.list_for_user(user_id)]
 
 
-def revoke_own(user_id: int, token_id: int, ip: str = "", *, is_admin: bool,
-               at_pc: bool, now: float = None) -> dict:
+def revoke_own(user_id: int, token_id: int, ip: str = "", now: float = None) -> dict:
     """404 for any id that isn't one of the caller's unrevoked tokens,
-    whether or not it exists."""
-    _require_pc_for_admin(is_admin, at_pc)
+    whether or not it exists. Allowed from anywhere, admins included:
+    revoking only removes access, and an admin with a lost laptop is away
+    from the PC."""
     now = time.time() if now is None else now
     if not device_tokens.revoke(token_id, now, user_id=user_id):
         raise NotFoundError(_NOT_FOUND)
@@ -228,12 +228,13 @@ def _principal_for(row: dict, now: float):
 def authenticate(authorization_headers, ip: str = "", now: float = None) -> dict:
     """The principal for a request's `Authorization` header values (the
     header only: never a query string or cookie). Exactly one header, the
-    Bearer scheme and a well-formed token, else 401. 429 while the client is
-    over the failure limit; 403 when the user lacks `extension.send`.
+    Bearer scheme and a well-formed token, else 401. A token that verifies
+    succeeds even from an address over the failure limit (a revoked laptop
+    retrying must not lock out valid tokens behind the same address); an
+    unverified one gets 429 while the client is over the limit, which still
+    caps guessing and database lookups per address. 403 when the user lacks `extension.send`.
     Records the use at most once a minute per token."""
     keys = _failure_keys(ip)
-    if any(limiter.blocked(key) for limiter, key in keys):
-        raise RateLimitedError("Too many attempts. Try again later.")
     now = time.time() if now is None else now
     principal = row = None
     values = list(authorization_headers or ())
@@ -246,6 +247,13 @@ def authenticate(authorization_headers, ip: str = "", now: float = None) -> dict
             if row and hmac.compare_digest(row["token_hash"], digest):
                 principal = _principal_for(row, now)
     if principal is None:
+        # A request with no Authorization header isn't a guess, so it neither
+        # counts nor is blocked: otherwise anything behind a shared address
+        # could fill the window with header-less requests.
+        if not values:
+            raise UnauthenticatedError(_GENERIC_401)
+        if any(limiter.blocked(key) for limiter, key in keys):
+            raise RateLimitedError("Too many attempts. Try again later.")
         for limiter, key in keys:
             limiter.record(key)
         raise UnauthenticatedError(_GENERIC_401)

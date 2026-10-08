@@ -198,7 +198,7 @@ class TestCreate:
         ids = [_make_token(u["id"], f"D{i}")["device_token"]["id"] for i in range(svc.MAX_LIVE_TOKENS)]
         with pytest.raises(svc.ConflictError):
             _make_token(u["id"], "one too many")
-        svc.revoke_own(u["id"], ids[0], is_admin=False, at_pc=False)
+        svc.revoke_own(u["id"], ids[0])
         _make_token(u["id"], "fits again")
         other, _ = _member("other@example.com")
         _make_token(other["id"])   # the cap is per user
@@ -232,7 +232,7 @@ class TestCreate:
     def test_old_ended_rows_are_pruned_on_create(self, isolated_db):
         u, _ = _member()
         old = _make_token(u["id"], "old", now=1000.0)["device_token"]["id"]
-        svc.revoke_own(u["id"], old, is_admin=False, at_pc=False, now=1000.0)
+        svc.revoke_own(u["id"], old, now=1000.0)
         _make_token(u["id"], "new", now=1000.0 + 31 * 86400)
         assert [t["label"] for t in svc.list_own(u["id"])] == ["new"]
 
@@ -300,9 +300,41 @@ class TestOwnership:
                        raise_server_exceptions=False)
         assert c.get(ADMIN, headers=_h(s)).status_code == 403
         assert c.post(f"{ADMIN}/1/revoke", headers=_h(s)).status_code == 403
-        # An admin account's own tokens are PC-only too.
+        # Creating an admin account's token is PC-only too.
         r = c.post(OWN, json={"label": "Laptop"}, headers=_h(s))
         assert r.status_code == 403 and device_tokens.list_for_user(admin["id"]) == []
+
+    def test_admin_revokes_their_own_token_away_from_the_pc(self, isolated_db):
+        admin = auth_service.grant_admin_local("owner@example.com")
+        s = auth_service.create_session(admin["id"], "pytest", "127.0.0.1")
+        tid = svc.create_token(_principal(admin["id"], is_admin=True), "Laptop",
+                               at_pc=True)["device_token"]["id"]
+        app = create_app(ApiSettings(household_port=8610, serve_frontend=False, **SIGN_IN),
+                         listener="household")
+        c = TestClient(app, base_url=f"http://{PUBLIC_HOST}", client=("127.0.0.1", 5000),
+                       raise_server_exceptions=False)
+        r = c.post(f"{OWN}/{tid}/revoke", headers=_h(s))
+        assert r.status_code == 200 and r.json() == {"revoked": 1}
+        assert device_tokens.get(tid)["revoked_at"] is not None
+
+    def test_session_revocation_paths_revoke_device_tokens(self, isolated_db):
+        def live(uid):
+            return [t for t in svc.list_own(uid) if t["status"] == "active"]
+        u, phone = _member()
+        other, _ = _member("other@example.com")
+        _make_token(other["id"])
+        _make_token(u["id"])
+        auth_service.revoke_all_for_user(u["id"])
+        assert live(u["id"]) == [] and len(live(other["id"])) == 1
+        _make_token(u["id"])
+        auth_service.admin_revoke_sessions(u["id"], actor_id=other["id"])
+        assert live(u["id"]) == []
+        _make_token(u["id"])
+        phone = auth_service.create_session(u["id"], "pytest", "203.0.113.9")
+        out = auth_service.revoke_other_sessions(u["id"], phone["session_id"], "203.0.113.9",
+                                                 is_admin=False, at_pc=False)
+        assert live(u["id"]) == [] and out["revoked"] == 0
+        assert len(live(other["id"])) == 1
 
     def test_member_creates_on_the_household_listener(self, isolated_db):
         u, s = _member()
@@ -395,7 +427,7 @@ class TestRequireDeviceToken:
         u, _ = _member()
         c = _bridge()
         revoked = _make_token(u["id"], "r")
-        svc.revoke_own(u["id"], revoked["device_token"]["id"], is_admin=False, at_pc=False)
+        svc.revoke_own(u["id"], revoked["device_token"]["id"])
         expiring = _make_token(u["id"], "e", days=1)
         assert c.get("/api/bridge/ping", headers=_bearer(expiring["token"])).status_code == 200
         real_time = svc.time.time
@@ -448,10 +480,30 @@ class TestRequireDeviceToken:
         codes = [c.get("/api/bridge/ping", headers=_bearer("baihe_dt_" + "x" * 43)).status_code
                  for _ in range(21)]
         assert codes == [401] * 20 + [429]
-        # Blocked before any lookup, a valid token included, from that address only.
-        assert c.get("/api/bridge/ping", headers=_bearer(tok)).status_code == 429
-        assert _bridge(ip="192.0.2.5").get("/api/bridge/ping",
-                                            headers=_bearer(tok)).status_code == 200
+        # Another guess is still refused, but a token that verifies is not.
+        assert c.get("/api/bridge/ping",
+                     headers=_bearer("baihe_dt_" + "y" * 43)).status_code == 429
+        assert c.get("/api/bridge/ping", headers=_bearer(tok)).status_code == 200
+
+    def test_revoked_token_retries_never_block_a_valid_token(self, isolated_db):
+        u, _ = _member()
+        good = _make_token(u["id"], "Desk")["token"]
+        lost = _make_token(u["id"], "Lost laptop")
+        svc.revoke_own(u["id"], lost["device_token"]["id"])
+        c = _bridge(ip="198.51.100.7")
+        for _ in range(60):
+            assert c.get("/api/bridge/ping",
+                         headers=_bearer(lost["token"])).status_code in (401, 429)
+        assert c.get("/api/bridge/ping", headers=_bearer(good)).status_code == 200
+
+    def test_requests_without_an_authorization_header_are_not_counted(self, isolated_db):
+        u, _ = _member()
+        tok = _make_token(u["id"])["token"]
+        c = _bridge(ip="198.51.100.7")
+        for _ in range(150):
+            assert c.get("/api/bridge/ping").status_code == 401
+        assert c.get("/api/bridge/ping", headers=_bearer(tok)).status_code == 200
+        assert not svc._fail_by_client.blocked(auth_service.rate_limit_key("198.51.100.7"))
 
     def test_successes_and_403s_are_not_failures(self, isolated_db):
         u, _ = _member()

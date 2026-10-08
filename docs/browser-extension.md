@@ -245,7 +245,9 @@ being built in three parts:
    network prefix) and revoke one at once; at most 10 active per person,
    5 new per hour, expiry (30 days, 90 when none is given, a year or
    never, which must be chosen explicitly). The owner at the PC (or an admin there) sees and revokes
-   everyone's. Losing `extension.send` or the account revokes a person's
+   everyone's; an admin can still revoke their own from anywhere, but adds
+   one only at the PC. Losing `extension.send`, the account, or ending
+   their sessions (Sign out all other devices included) revokes a person's
    tokens. `api.auth.require_device_token()` checks a token: only from
    `Authorization: Bearer`, never a cookie or URL; one 401 for any bad
    token, failures throttled per address; the person must still hold

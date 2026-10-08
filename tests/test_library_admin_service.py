@@ -591,7 +591,7 @@ def test_restore_never_takes_extension_device_tokens_from_the_upload(isolated_db
     me = {"user_id": uid, "is_admin": False, "permissions": ["extension.send"]}
     old = device_token_service.create_token(me, "Old laptop")
     data = _backup_bytes()
-    device_token_service.revoke_own(uid, old["device_token"]["id"], is_admin=False, at_pc=True)
+    device_token_service.revoke_own(uid, old["device_token"]["id"])
     new = device_token_service.create_token(me, "New laptop")
     # Tamper: the zip's DB gains a token whose value the attacker chose.
     path = _zip_db(data)

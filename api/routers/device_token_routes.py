@@ -76,8 +76,7 @@ def create(body: DeviceTokenCreateRequest, request: Request):
 def revoke_own(request: Request, device_token_id: int = _TokenId):
     principal = _own(request)
     return _no_store(DeviceTokenRevoked(**svc.revoke_own(
-        principal["user_id"], device_token_id, ip=client_ip(request),
-        is_admin=principal["is_admin"], at_pc=is_local_request(request))))
+        principal["user_id"], device_token_id, ip=client_ip(request))))
 
 
 @router.get("/api/extension/devices", dependencies=[local_only()],
