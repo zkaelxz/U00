@@ -217,7 +217,10 @@ def replace_audio_with_dub_cmd(video_path: str, dub_audio_path: str, out_path: s
             "ffmpeg", "-y", *local_input(), "-i", video_path, *local_input("wav"),
             "-i", dub_audio_path,
             "-filter_complex",
-            f"[0:a]volume={float(keep_original_at_db)}dB[orig];[orig][1:a]amix=inputs=2:duration=first[aout]",
+            # normalize=0 stops amix scaling each input by 1/N (dub ~6 dB quiet); the
+            # limiter guards the now-unscaled sum, and level=0 stops its auto makeup gain.
+            f"[0:a]volume={float(keep_original_at_db)}dB[orig];[orig][1:a]amix=inputs=2:duration=first:normalize=0,"
+            "alimiter=limit=0.977:level=0[aout]",
             "-map", "0:v", "-map", "[aout]", "-c:v", "copy", out_path,
         ]
     return [
