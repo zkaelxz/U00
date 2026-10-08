@@ -105,6 +105,7 @@ class ScanlateRunRequest(BaseModel):
     mode: Literal["missing", "page", "all"] = "missing"
     page_id: Optional[int] = Field(None, ge=1, le=2**31 - 1)
     confirm: bool = False
+    chapter_id: Optional[str] = Field(None, min_length=1, max_length=200)
     engine: Optional[str] = Field(None, min_length=1, max_length=40)
     detect_backend: Literal["auto", "cv", "ml"] = "auto"
 

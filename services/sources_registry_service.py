@@ -25,7 +25,8 @@ import db
 from services import ownership_service
 from services.service_errors import (InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
-from sources import auth_browser, cache as src_cache, health, ladder, pacing, registry, store
+from services.sources_extension_service import require_not_extension_only
+from sources import auth_browser, cache as src_cache, extension_marker, health, ladder, pacing, registry, store
 from sources import http as src_http
 from sources import profiles as src_profiles
 from translate_engines import redact_secrets, safe_url, strip_url_queries
@@ -147,6 +148,7 @@ def _summary(name: str, cls) -> dict:
         "pace": pacing.effective_level(cls.pacing_profile, store.source_pace(name)),
         "fast_allowed": bool(cls.pacing_profile.fast_allowed),
         "slowed_down": pacing.is_slowed(name),
+        "extension_only": extension_marker.is_marked(name),
     }
 
 
@@ -185,6 +187,7 @@ def get_source(name: str) -> dict:
         "terms": scrub_any(d["terms"]),
         "terms_enforced": False,
         "health_detail": _health_view(name),
+        **extension_marker.view(name, tiers),
     })
     return out
 
@@ -247,7 +250,9 @@ def list_tracked(principal=None) -> list:
         if drama_id is None or ownership_service.can_see_drama(principal, drama_id):
             return drama_id
         return None
+    marks = extension_marker.marked_sources()
     return [{"source": r["source"], "series_id": r["series_id"], "title": scrub(r["title"]),
+             "extension_only": r["source"] in marks,
              "url": safe_url(r.get("url")), "drama_id": linked(r.get("drama_id")),
              "last_checked": r.get("last_checked"),
              "last_check_error": (registry.SOURCE_REMOVED if r["source"] in registry.REMOVED_SOURCES
@@ -315,6 +320,22 @@ def set_source_pace(name: str, level) -> dict:
     store.set_source_pace(name, level)
     src_http.reset_pacing_state(keep_slowdown=True)
     return _summary(name, cls)
+
+
+def set_extension_only(name: str, extension_only: bool, note=None, principal=None) -> dict:
+    """Marks or clears "works only through the browser extension". Records the person's
+    claim; it changes no test result. 404 unknown source; 422 a note that is too long."""
+    require_source(name)
+    if not extension_only:
+        extension_marker.clear(name)
+        return extension_marker.view(name)
+    try:
+        text = scrub(extension_marker.clean_note(note))
+    except ValueError as e:
+        raise InvalidInputError(str(e)) from None
+    uid = None if principal is None else principal.get("user_id")
+    extension_marker.mark(name, uid, text)
+    return extension_marker.view(name, ladder.load_capabilities(name).to_dict().get("tiers"))
 
 
 def update_settings(changes: dict) -> dict:
@@ -460,6 +481,8 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
 
     if tracked or source not in registry.REMOVED_SOURCES:
         require_source(source)     # a removed source's series can still be untracked
+    if tracked:
+        require_not_extension_only(source)
     series_id = (series_id or "").strip()
     if not series_id:
         raise InvalidInputError("series_id is required.")

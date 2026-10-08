@@ -28,6 +28,8 @@ __all__ = [
     "SourceNotification",
     "SourceToggle",
     "SourcePaceRequest",
+    "SourceExtensionOnlyRequest",
+    "SourceExtensionOnly",
     "SourcesSettingsUpdate",
     "SourceCacheClearRequest",
     "SourceProfileRollbackRequest",
@@ -163,6 +165,7 @@ class SourceSummary(BaseModel):
     pace: str = Field(description="careful, normal or fast.")
     fast_allowed: bool = Field(description="False until the adapter records evidence for fast.")
     slowed_down: bool = Field(description="True while this session's automatic slowdown is active.")
+    extension_only: bool = Field(default=False, description="The person marked this source as working only through the browser extension.")
 
 
 class SourceHealth(BaseModel):
@@ -204,6 +207,10 @@ class SourceDetail(SourceSummary):
                                   "Enforcement is off: never read this as permitted.")
     terms_enforced: bool
     health_detail: SourceHealth
+    extension_marked_at: Optional[float] = None
+    extension_note: str = ""
+    extension_works_without: bool = Field(
+        default=False, description="A Static or Browser test passed after the marker was set.")
 
 
 class SourceAttempt(BaseModel):
@@ -269,6 +276,7 @@ class TrackedSeries(BaseModel):
     drama_id: Optional[int] = None
     last_checked: Optional[float] = None
     last_check_error: Optional[str] = None
+    extension_only: bool = Field(default=False, description="Scheduled checks skip this series: its source works only through the browser extension.")
     # New chapters are also saved as CBZ files (comic sources).
     save_cbz: bool = False
 
@@ -292,6 +300,19 @@ class SourceToggle(BaseModel):
 class SourcePaceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     pace: str = Field(max_length=20, description="careful, normal or fast (fast only where allowed).")
+
+
+class SourceExtensionOnlyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    extension_only: StrictBool
+    note: Optional[StrictStr] = Field(default=None, max_length=200)
+
+
+class SourceExtensionOnly(BaseModel):
+    extension_only: bool
+    extension_marked_at: Optional[float] = None
+    extension_note: str = ""
+    extension_works_without: bool = False
 
 
 class SourcesSettingsUpdate(BaseModel):

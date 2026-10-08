@@ -36,6 +36,9 @@ import {
   seriesMeta,
   settingsChanges,
   settingsSummary,
+  accessMethodLabel,
+  isoDay,
+  statusLabel,
   tierLines,
 } from './sourcesFormat'
 
@@ -372,5 +375,40 @@ describe('paceHelp', () => {
   })
   it('reports an automatic slowdown first', () => {
     expect(paceHelp(src('a', { slowed_down: true }))).toMatch(/^Slowed down/)
+  })
+})
+
+describe('extension-only marker', () => {
+  const tiers = {
+    STATIC_HTTP: { tested: true, ok: false, reason: 'EMPTY_SPA_SHELL', detail: null, at: 1 },
+    USER_ASSISTED_BROWSER: { tested: false, ok: false, reason: null, detail: null, at: null },
+  }
+  const marked = { extension_only: true, extension_marked_at: Date.UTC(2026, 9, 8) / 1000, extension_works_without: false }
+
+  it('shows the marker on the "You in a browser" line only', () => {
+    expect(tierLines(tiers)).toEqual(['Static: failed (empty spa shell)', 'You in a browser: untested'])
+    expect(tierLines(tiers, marked)).toEqual([
+      'Static: failed (empty spa shell)',
+      'You in a browser: works (marked by you, 2026-10-08)',
+    ])
+  })
+
+  it('keeps a real result for that tier', () => {
+    const tested = { ...tiers, USER_ASSISTED_BROWSER: { tested: true, ok: false, reason: 'TIMEOUT', detail: null, at: 1 } }
+    expect(tierLines(tested, marked)[1]).toBe('You in a browser: failed (timeout)')
+  })
+
+  it('names the status and access method, until a test passes without the extension', () => {
+    const d = { status: 'UNTESTED', access_method: null, ...marked } as never
+    expect(statusLabel(d)).toBe('Extension only')
+    expect(accessMethodLabel(d)).toBe('Browser extension')
+    const worked = { status: 'VERIFIED', access_method: 'STATIC_HTTP', ...marked, extension_works_without: true } as never
+    expect(statusLabel(worked)).toBe('Verified')
+    expect(accessMethodLabel(worked)).toBe('Static http')
+    expect(statusLabel({ status: 'UNTESTED', access_method: null } as never)).toBe('Untested')
+  })
+
+  it('formats the day in UTC', () => {
+    expect(isoDay(Date.UTC(2026, 0, 2, 23, 59) / 1000)).toBe('2026-01-02')
   })
 })

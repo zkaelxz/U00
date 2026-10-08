@@ -53,7 +53,9 @@ export function SourceSettings(props: Props) {
   return <LocalSettings {...props} />
 }
 
-function Health({ light }: { light: string }) {
+function Health({ light, extensionOnly }: { light: string; extensionOnly?: boolean }) {
+  // Old request failures are not news for a site the person reads through the extension.
+  if (extensionOnly) return <Badge tone="info">Extension only</Badge>
   return <Badge tone={healthTone(light)}>{healthText(light)}</Badge>
 }
 
@@ -170,6 +172,13 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
     },
     [sources, onSource],
   )
+  const extensionChanged = useCallback(
+    (name: string, on: boolean) => {
+      const s = sources.find((x) => x.name === name)
+      if (s && !!s.extension_only !== on) onSource({ ...s, extension_only: on })
+    },
+    [sources, onSource],
+  )
   const signin = (s: SourceSummary) => (s.auth_supported ? (s.has_saved_signin ? 'Sign-in saved' : 'No sign-in') : '')
   const domains = profiles.filter((p) => p.versions.length > 0)
 
@@ -183,7 +192,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
             <li key={s.name}>
               <div className="source-card-line">
                 <strong>{s.display_name}</strong>
-                <Health light={s.health} />
+                <Health light={s.health} extensionOnly={s.extension_only} />
               </div>
               <div className="source-card-line">
                 {onBox(s)}
@@ -194,7 +203,9 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
                 <span className="muted">{signin(s)}</span>
                 {detailsButton(s)}
               </div>
-              {open === s.name && <SourceDetail name={s.name} onHealth={onHealth} onSignin={signinChanged} />}
+              {open === s.name && (
+                <SourceDetail name={s.name} onHealth={onHealth} onSignin={signinChanged} onExtensionOnly={extensionChanged} />
+              )}
             </li>
           ))}
         </ul>
@@ -220,7 +231,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
                   <tr>
                     <td>{s.display_name}</td>
                     <td>
-                      <Health light={s.health} />
+                      <Health light={s.health} extensionOnly={s.extension_only} />
                     </td>
                     <td>{onBox(s)}</td>
                     <td>{adultBox(s)}</td>
@@ -231,7 +242,12 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
                   {open === s.name && (
                     <tr className="source-detail-row">
                       <td colSpan={7}>
-                        <SourceDetail name={s.name} onHealth={onHealth} onSignin={signinChanged} />
+                        <SourceDetail
+                          name={s.name}
+                          onHealth={onHealth}
+                          onSignin={signinChanged}
+                          onExtensionOnly={extensionChanged}
+                        />
                       </td>
                     </tr>
                   )}
