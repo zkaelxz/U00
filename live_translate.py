@@ -75,6 +75,7 @@ import wave
 import background_jobs
 import live_fetch
 from live_cue_translation import CueTranslator
+from live_tokens import LEADING_NON_WORD_RE, TOKEN_RE, tokens
 
 
 class LiveCaptureError(RuntimeError):
@@ -371,15 +372,6 @@ def write_padded_chunk(tail: dict, chunk_path: str, out_path: str) -> float:
     return tail["seconds"]
 
 
-# One token per CJK/kana character (no spaces to split on), one per run
-# of other letters/digits (space-separated languages, Korean included).
-# Punctuation and whitespace aren't tokens at all, so "北京。" and
-# "北京，" compare equal -- Whisper's punctuation of the same audio often
-# differs between two transcriptions, its words much less so.
-_CJK_CHARS = "぀-ヿ㐀-䶿一-鿿豈-﫿"
-_TOKEN_RE = re.compile(rf"[{_CJK_CHARS}]|[^\W_{_CJK_CHARS}]+")
-_LEADING_NON_WORD_RE = re.compile(r"^[\W_]+")
-
 # How many tokens at the very start of the padded transcription may be
 # skipped before the match begins -- the overlap audio starts at an
 # arbitrary point, often mid-word, and Whisper can render that partial
@@ -387,10 +379,6 @@ _LEADING_NON_WORD_RE = re.compile(r"^[\W_]+")
 # Skipped tokens are inside the overlap window, so dropping them loses
 # nothing the previous chunk didn't already emit.
 _MAX_LEADING_SKIP = 2
-
-
-def _tokens(text: str):
-    return [m.group(0).casefold() for m in _TOKEN_RE.finditer(text or "")]
 
 
 def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> list:
@@ -423,7 +411,7 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
     segments = list(segments)
     if overlap_seconds <= 0 or not segments:
         return segments
-    tail = _tokens(tail_text)
+    tail = tokens(tail_text)
     if not tail:
         return segments
 
@@ -431,7 +419,7 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
     for pos, seg in enumerate(segments):
         if seg["start"] >= overlap_seconds:
             break
-        for m in _TOKEN_RE.finditer(seg.get("text") or ""):
+        for m in TOKEN_RE.finditer(seg.get("text") or ""):
             head.append((m.group(0).casefold(), pos, m.end()))
     head_tokens = [t for t, _, _ in head]
 
@@ -455,7 +443,7 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
         if pos < cut_pos:
             continue
         if pos == cut_pos:
-            rest = _LEADING_NON_WORD_RE.sub("", (seg.get("text") or "")[cut_char:]).strip()
+            rest = LEADING_NON_WORD_RE.sub("", (seg.get("text") or "")[cut_char:]).strip()
             if not rest:
                 continue
             start = seg["start"] if seg["end"] <= overlap_seconds else max(seg["start"], overlap_seconds)
