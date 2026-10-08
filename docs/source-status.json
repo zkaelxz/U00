@@ -62,7 +62,7 @@
       "status": "confirmed_live",
       "last_verified": "",
       "reason": "",
-      "notes": "Mirrors: `baozimh.org`, `godamh.com`, `baozimh.one`, `bzmh.org`, `g-mh.org`. **`www.twmanga.com` and `www.twbzmg.com` are regional mirrors of the blocked `baozimh.com` brand (footer '© 2026 BAOZIMH.COM 包子漫畫'), NOT part of the godamh/baozimh.org family this adapter targets (JSON API on `api-get-v3.mgsearcher.com`, `/manga/<slug>` paths); they use `/comic/<slug>` and `/comic/chapter/<slug>/<section>_<chapter>.html`. Don't assume they share selectors. No adapter exists for them; the owner's fallback is the browser extension. Vetting: `docs/research/twmanga-vetting.md`.**",
+      "notes": "Mirrors: `baozimh.org`, `godamh.com`, `baozimh.one`, `bzmh.org`, `g-mh.org`. `www.twmanga.com` and `www.twbzmg.com` are regional mirrors of the blocked `baozimh.com` brand, not part of this family (different markup, no JSON API); they have their own adapter, `twmanga`.",
       "hosts": [
         "baozimh.org",
         "godamh.com",
@@ -122,6 +122,16 @@
       "hosts": [
         "mangak.io",
         "api.mangak.io"
+      ]
+    },
+    "twmanga": {
+      "status": "caveat",
+      "last_verified": "2026-10-08",
+      "reason": "Checked from the cloud sandbox only, on one two-chapter series and a second, longer one: not yet run on the owner's machine. The site's terms of service were not found, so ToS is unreviewed. Series with more than one section, chapters whose images span several pages, and search beyond page 1 were not checked.",
+      "notes": "2026-10-08, static HTTP, no browser: the adapter itself fetched a series page, its chapter list (oldest first), a chapter's 47 image URLs on `s1.bzcdn.net`, and downloaded one image (no Referer or cookie). Search returns server-rendered cards (page 1 only). The chapter link is a `page_direct` 302 to the other mirror; the adapter builds the chapter URL from its slots instead and refuses any final host other than `www.twmanga.com` / `www.twbzmg.com`. No robots.txt (the path answers with the 404 page). The apex `baozimh.com` answers 403 with a gatekeeper challenge and is never requested. Pacing floor 5 s per host, one request at a time. Vetting: `docs/research/twmanga-vetting.md`.",
+      "hosts": [
+        "www.twmanga.com",
+        "www.twbzmg.com"
       ]
     }
   },
