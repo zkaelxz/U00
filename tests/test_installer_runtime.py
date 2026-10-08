@@ -783,7 +783,7 @@ class TestDefaultPortIsDefinedOnce:
     CI YAML, prose), so this fails when one of their literals drifts."""
 
     LITERAL_FILES = (
-        "start.bat", "start.ps1", "README.md", "CLAUDE.md",
+        "start.bat", "start.ps1", "README.md", "docs/user-guide.md", "CLAUDE.md",
         "frontend/vite.config.ts", "frontend/src/report/capture.test.ts",
         ".github/workflows/windows-installer.yml", ".github/workflows/windows-bootstrap.yml",
     )
@@ -798,7 +798,7 @@ class TestDefaultPortIsDefinedOnce:
         from api import api_config
         text = Path(ROOT, rel).read_text(encoding="utf-8")
         # 8601 is the "pick another port" example in the docs and start scripts;
-        # 8611 is the e2e suite's own port (README).
+        # 8611 is the e2e suite's own port (docs/user-guide.md).
         ports = {int(p) for p in re.findall(r"\b86\d\d\b", text)} - {8601, 8611}
         assert ports == {api_config.DEFAULT_PORT}, f"{rel} disagrees with api_config.DEFAULT_PORT"
 
