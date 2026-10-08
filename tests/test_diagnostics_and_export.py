@@ -145,7 +145,7 @@ class TestDiagnostics:
     def test_file_completeness_detects_all_present_in_real_project(self):
         result = diagnostics.check_file_completeness(PROJECT_ROOT)
         assert result["all_present"] is True, \
-            f"missing: {result['missing_top_level']} {result['missing_tabs']}"
+            f"missing: {result['missing_top_level']}"
 
     def test_expected_top_level_files_list_is_not_stale(self):
         """Step 25d item 9: this list is hand-maintained on purpose (so a
@@ -905,7 +905,7 @@ class TestFormatDiagnosticsReport:
             "api_keys": {"claude": True, "gemini": False},
             "dependencies": {"anthropic": {"installed": True, "tier": "engine"},
                              "torch": {"installed": False, "tier": "feature"}},
-            "files": {"all_present": True, "missing_top_level": [], "missing_tabs": []},
+            "files": {"all_present": True, "missing_top_level": []},
         }
         base.update(overrides)
         return base
