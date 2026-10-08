@@ -24,6 +24,16 @@ TESSERACT_LANG_ZH_TRADITIONAL = "chi_tra"
 # per-page override both offer the same choices, from this one list.
 OCR_BACKEND_OPTIONS = ["auto", "manga_ocr", "paddle", "paddle_vl_manga", "tesseract"]
 
+# Burned-in video captions only: manga_ocr and paddle_vl_manga are trained on
+# manga bubbles, so they are not offered here.
+HARDSUB_OCR_BACKEND_OPTIONS = ["tesseract", "paddle", "auto"]
+
+
+def default_hardsub_backend(source_language: str) -> str:
+    """PaddleOCR for Chinese (confirmed more accurate on
+    stylized/small captions), Tesseract otherwise."""
+    return "paddle" if source_language == "zh" else "tesseract"
+
 
 def resolve_tesseract_lang(source_language: str, chinese_script: str = "simplified") -> str:
     """chinese_script only matters for "zh" -- ja/ko ignore it. Traditional
@@ -120,6 +130,30 @@ def extract_text_paddle(image_path: str, lang: str = "ch") -> str:
     return "\n".join(lines)
 
 
+_PADDLE_VL_MANGA_REPO = "jzhang533/PaddleOCR-VL-For-Manga"
+# The manga repo's tokenizer files lack `image_token`, so its own processor
+# fails to load; the base repo's processor is compatible with the manga weights.
+_PADDLE_VL_PROCESSOR_REPO = "PaddlePaddle/PaddleOCR-VL"
+_PADDLE_VL_MIN_TRANSFORMERS_MAJOR = 5
+_PADDLE_VL_OLD_TRANSFORMERS = (
+    "PaddleOCR-VL-For-Manga needs transformers 5 or newer. Update transformers in Diagnostics.")
+
+
+def paddle_vl_manga_problem():
+    """Fixed-text reason the PaddleOCR-VL-For-Manga backend can't run
+    here, or None. Shared by the extractor and the Scanlate start check so
+    both show the same message."""
+    import importlib.metadata
+    try:
+        installed = importlib.metadata.version("transformers")
+    except importlib.metadata.PackageNotFoundError:
+        return "PaddleOCR-VL-For-Manga needs transformers and torch. Install them in Diagnostics."
+    digits = "".join(ch for ch in installed.split(".")[0] if ch.isdigit())
+    if int(digits or 0) < _PADDLE_VL_MIN_TRANSFORMERS_MAJOR:
+        return _PADDLE_VL_OLD_TRANSFORMERS
+    return None
+
+
 def extract_text_paddle_vl_manga(image_path: str) -> str:
     """Opt-in second Japanese OCR backend: jzhang533/PaddleOCR-VL-For-Manga
     (Hugging Face, Apache-2.0) -- a manga-specific fine-tune of
@@ -133,34 +167,58 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
     manga_ocr on your own pages is what decides whether to switch (see
     the Scanlate tab's manual comparison).
 
-    Requires: `pip install transformers huggingface_hub torch`
+    Requires: `pip install "transformers>=5" huggingface_hub torch`
     Downloads the model on first use (needs internet once; cached after).
 
-    NOTE: same honesty as scanlate.detect_bubbles_ml()'s own docstring --
-    written against the documented `transformers` VLM-loading pattern
-    (AutoProcessor + AutoModelForCausalLM, trust_remote_code=True, the
-    common shape for a HF-hosted vision-language OCR model), not verified
-    end-to-end. Sanity-check against manga_ocr's output on a real page
-    before relying on it.
-    """
-    from PIL import Image
-    from transformers import AutoModelForCausalLM, AutoProcessor
+    Uses transformers' native `paddleocr_vl` model, not the repo's remote
+    modeling code: that code targets transformers 4.57 and fails on 5.x
+    (KeyError: 'default' in its RoPE init), needs einops, and would run
+    downloaded code.
 
-    repo_id = "jzhang533/PaddleOCR-VL-For-Manga"
+    Verified (transformers 5.19.0, CPU torch, real weights): a rendered
+    crop of "今日はいい天気ですね" OCRs to exactly that string; loading prints
+    a harmless warning about tied lm_head weights. NOT verified: real
+    manga pages, vertical text, the GPU/bfloat16 path, speed, or the
+    256-token limit. Compare against manga_ocr on a real page before
+    relying on it.
+    """
+    problem = paddle_vl_manga_problem()
+    if problem:
+        from services.service_errors import DependencyUnavailableError
+        raise DependencyUnavailableError(problem)
+    from PIL import Image
+    import torch
+    from transformers import AutoModelForImageTextToText, AutoProcessor
+
     global _paddle_vl_manga_model, _paddle_vl_manga_processor
     if "_paddle_vl_manga_model" not in globals():
+        cuda = torch.cuda.is_available()
+        if cuda:
+            from services import vram_service
+            vram_service.check_fits("PaddleOCR-VL-For-Manga")
         globals()["_paddle_vl_manga_processor"] = AutoProcessor.from_pretrained(
-            repo_id, trust_remote_code=True)
-        model = AutoModelForCausalLM.from_pretrained(repo_id, trust_remote_code=True)
+            _PADDLE_VL_PROCESSOR_REPO, trust_remote_code=False)
+        model = AutoModelForImageTextToText.from_pretrained(
+            _PADDLE_VL_MANGA_REPO, trust_remote_code=False,
+            dtype=torch.bfloat16 if cuda else torch.float32)
+        if cuda:
+            model = model.to("cuda")
         model.eval()
         globals()["_paddle_vl_manga_model"] = model
 
     model = globals()["_paddle_vl_manga_model"]
     processor = globals()["_paddle_vl_manga_processor"]
     image = Image.open(image_path).convert("RGB")
-    inputs = processor(images=image, text="OCR:", return_tensors="pt")
+    messages = [{"role": "user", "content": [{"type": "image", "image": image},
+                                             {"type": "text", "text": "OCR:"}]}]
+    inputs = processor.apply_chat_template(
+        messages, add_generation_prompt=True, tokenize=True, return_dict=True,
+        return_tensors="pt").to(model.device, dtype=model.dtype)
     output_ids = model.generate(**inputs, max_new_tokens=256)
-    return processor.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+    # generate() returns prompt + answer; decoding the prompt too would put
+    # the "OCR:" instruction in the extracted text.
+    generated = output_ids[:, inputs["input_ids"].shape[1]:]
+    return processor.batch_decode(generated, skip_special_tokens=True)[0].strip()
 
 
 def extract_text_manga_ocr(image_path: str) -> str:

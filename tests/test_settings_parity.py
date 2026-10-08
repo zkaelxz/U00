@@ -58,8 +58,8 @@ def test_preference_defaults(isolated_db, env_file):
     prefs = settings_service.get_preferences()
     assert prefs == {
         "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
-        "episode_summary_engine": "ollama", "monthly_cap_usd": None,
-        "ollama_num_ctx_override": 0, "whisper_model_path": "", "ocr_backend": "auto",
+        "scene_aware_batches": True, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
+        "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "whisper_model_path": "", "ocr_backend": "auto",
         "ocr_prefer_paddle_vl_manga": False, "tesseract_cmd": "", "lncrawl_cmd": "",
         "cookies_browser": None, "cookies_file": ""}
     assert settings_service.get_monthly_cap_usd() == 0.0
@@ -98,9 +98,11 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
 
 @pytest.mark.parametrize("key,bad", [
     ("default_engine", "not-an-engine"),
-    ("default_locale", "fr-FR"), ("episode_summary_engine", "nllb"),
+    ("default_locale", "fr-FR"), ("episode_summary_engine", "fake_mt"),
     ("monthly_cap_usd", -1), ("monthly_cap_usd", True), ("monthly_cap_usd", "5"),
     ("ollama_num_ctx_override", 1.5), ("ollama_num_ctx_override", -1),
+    ("max_upload_mb", 99), ("max_upload_mb", 1_048_577), ("max_upload_mb", 0), ("max_upload_mb", -5),
+    ("max_upload_mb", 500.5), ("max_upload_mb", True), ("max_upload_mb", "2048"),
     ("ollama_num_ctx_override", True), ("ocr_backend", "easyocr"),
     ("ocr_prefer_paddle_vl_manga", "yes"), ("cookies_browser", "netscape"),
     ("tesseract_cmd", "a\x00b"), ("cookies_file", "x" * 1025),
@@ -200,7 +202,8 @@ def test_api_get_and_post_preferences(client):
     assert body["preferences"]["default_engine"] == "claude"
     assert "manga_ocr" in body["choices"]["ocr_backends"]
     assert "firefox" in body["choices"]["cookie_browsers"]
-    assert set(body["endpoints"]) == {"ollama_url", "gpt_sovits_url"}
+    assert set(body["endpoints"]) == {"ollama_url"}
+    assert "gpt_sovits_url" not in body["engine_keys"]
     r = client.post("/api/settings", json={"default_locale": "en-AU", "monthly_cap_usd": 3,
                                            "tesseract_cmd": "/usr/bin/tesseract"})
     assert r.status_code == 200
@@ -218,19 +221,30 @@ def test_api_rejects_bad_or_unknown_without_echo(client, body):
 
 
 def test_api_endpoint_routes(client, env_file):
-    r = client.post("/api/settings/endpoints/gpt_sovits_url",
-                    json={"url": "http://127.0.0.1:9880", "confirm": True})
-    assert r.status_code == 200 and r.json()["url"] == "http://127.0.0.1:9880"
-    assert client.get("/api/settings").json()["endpoints"]["gpt_sovits_url"] == \
-        "http://127.0.0.1:9880"
-    bad = client.post("/api/settings/endpoints/gpt_sovits_url",
+    r = client.post("/api/settings/endpoints/ollama_url",
+                    json={"url": "http://127.0.0.1:11434", "confirm": True})
+    assert r.status_code == 200 and r.json()["url"] == "http://127.0.0.1:11434"
+    assert client.get("/api/settings").json()["endpoints"]["ollama_url"] == \
+        "http://127.0.0.1:11434"
+    bad = client.post("/api/settings/endpoints/ollama_url",
                       json={"url": "http://u:hunter2@h", "confirm": True})
     assert bad.status_code == 422 and "hunter2" not in bad.text
-    assert client.post("/api/settings/endpoints/gpt_sovits_url",
+    assert client.post("/api/settings/endpoints/ollama_url",
                        json={"url": "http://h"}).status_code == 422  # no confirm
-    r = client.post("/api/settings/endpoints/gpt_sovits_url/clear", json={"confirm": True})
+    r = client.post("/api/settings/endpoints/ollama_url/clear", json={"confirm": True})
     assert r.status_code == 200 and r.json()["configured"] is False
-    assert "BAIHE_GPT_SOVITS_URL" not in env_file.read_text()
+    assert "BAIHE_OLLAMA_URL" not in env_file.read_text()
+
+
+def test_the_removed_gpt_sovits_address_is_not_settable_and_a_stored_one_is_never_shown(
+        client, env_file):
+    env_file.write_text("BAIHE_GPT_SOVITS_URL=http://old-sovits.example:9880\n", encoding="utf-8")
+    for path in ("/api/settings/endpoints/gpt_sovits_url", "/api/settings/endpoints/gpt_sovits_url/clear"):
+        r = client.post(path, json={"url": "http://127.0.0.1:9880", "confirm": True})
+        assert r.status_code == 422
+    body = client.get("/api/settings")
+    assert "old-sovits" not in body.text and "gpt_sovits" not in body.text
+    assert "old-sovits" in env_file.read_text()  # left alone, just unused
 
 
 def test_api_endpoint_routes_need_key_write_gate(isolated_db, env_file):
@@ -313,11 +327,11 @@ def test_translate_config_uses_default_engine_locale_style_and_cap(isolated_db, 
     did = _seed(isolated_db)
     cfg = translate_run_service.get_translate_config(did)
     assert cfg["translation_engine"] == "claude" and cfg["default_locale"] == "en-US"
-    settings_service.set_settings({"default_engine": "nllb", "default_locale": "en-GB",
+    settings_service.set_settings({"default_engine": "fake_mt", "default_locale": "en-GB",
                                    "default_style_note": "Short lines.",
                                    "monthly_cap_usd": 9})
     cfg = translate_run_service.get_translate_config(did)
-    assert cfg["translation_engine"] == "nllb"
+    assert cfg["translation_engine"] == "fake_mt"
     assert cfg["default_locale"] == "en-GB" and cfg["default_style_note"] == "Short lines."
     assert cfg["monthly_cap_usd"] == 9.0
     # A drama with its own engine keeps it.

@@ -31,23 +31,24 @@ __all__ = [
 
 
 class DubTtsEngine(BaseModel):
-    """One selectable TTS engine for the Dub stage."""
+    """One selectable voice engine for the Dub stage."""
     key: str
     label: str
-    requires_internet: bool
+    # Fixed text saying what this engine needs that is missing here (its
+    # package, or ffmpeg); None when it can run.
+    unavailable_reason: Optional[str] = None
 
 
 class DubSpeaker(BaseModel):
-    """One speaker's resolved voices and engine, as the Generate button
-    would resolve them. D2: no reference-audio path, only a boolean."""
+    """One speaker's resolved engine, as the Generate button would resolve
+    it. No reference-audio path, only a boolean."""
     speaker_label: str
     character_name: Optional[str] = None
-    edge_voice: Optional[str] = None
-    offline_voice: Optional[str] = None
     engine: str
     has_clone_ref: bool
     # Voice-clone setup: why this speaker won't be cloned as configured
-    # (e.g. a clone engine with no clip or voice design falls back to plain TTS).
+    # (e.g. a clone engine with no clip or voice design falls back to the
+    # engine picked in Dub, or its stored engine was removed).
     clone_warning: Optional[str] = None
 
 
@@ -61,8 +62,7 @@ class DubDefaults(BaseModel):
 
 class DubConfig(BaseModel):
     """Read-only Dub-stage summary for one drama.
-    D2: no filesystem path, no GPT-SoVITS URL or secret -- only the
-    `gpt_sovits_configured` boolean."""
+    No filesystem path or secret."""
     drama_id: int
     content_mode: Optional[str] = None
     is_narration: bool
@@ -70,12 +70,15 @@ class DubConfig(BaseModel):
     narration_language_options: List[str]
     source_language: str
     tts_engines: List[DubTtsEngine]
+    default_engine: str
+    # Plain reason nothing can be generated whatever engine is picked (no
+    # engine installed, or a character stored with a removed engine).
+    blocker: Optional[str] = None
     defaults: Optional[DubDefaults] = None
     speakers: List[DubSpeaker]
     gpu_required: bool
     speakable_line_count: int
     track_available: bool
-    gpt_sovits_configured: bool
     can_keep_background: bool = False
 
 
@@ -91,7 +94,7 @@ class DubPacingLine(BaseModel):
 
 class DubPacing(BaseModel):
     """Per-line pacing from the last dub run; `available` is False when
-    there is nothing to show (never dubbed, or narration). D2: no paths."""
+    there is nothing to show (never dubbed, or narration). No paths."""
     available: bool
     counts: Dict[str, int]
     lines: List[DubPacingLine]
@@ -126,7 +129,7 @@ class NarrationRunResult(BaseModel):
 
 class DubRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    tts_engine: str = Field(default="edge_tts", max_length=40)
+    tts_engine: str = Field(default="omnivoice", max_length=40)
     max_speedup: Optional[float] = Field(default=None, ge=1.0, le=2.0)
     max_slowdown: Optional[float] = Field(default=None, ge=0.5, le=1.0)
     narration_language: Optional[str] = Field(default=None, max_length=20)
@@ -137,7 +140,7 @@ class DubRunStarted(BaseModel):
     job_id: str
 
 
-# Voice-clone setup (parity audit blocker #7; inventory C01, C03, C09, C13):
+# Voice-clone setup:
 # services/voice_clone_service.py. No path, filename or URL anywhere.
 # ---------------------------------------------------------------------------
 class VoiceCloneExtractRequest(BaseModel):

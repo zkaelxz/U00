@@ -14,17 +14,14 @@ export interface AsrOptions {
   // with the tested version, any other sends one line at a time.
   qwen_asr_version: string | null
   qwen_asr_batching_available: boolean
-  moss_experimental: boolean
   // Qwen3 ASR with speech detection: also refine line times with the forced aligner.
   qwen_vad_refine_timing: boolean
   // Detect the spoken language of each speech span and mark lines that differ from the title's.
   mixed_languages: boolean
-  moss_installed: boolean
 }
 
 export interface AsrOptionsUpdate {
   qwen_asr_batch_size?: number
-  moss_experimental?: boolean
   qwen_vad_refine_timing?: boolean
   mixed_languages?: boolean
 }
@@ -67,13 +64,9 @@ export function parseBatchSize(raw: string, min: number, max: number): number | 
   return n >= min && n <= max ? n : null
 }
 
-// Transcribe > Advanced "ASR backend" choices: MOSS only while its
-// experimental toggle is on. A drama already set to it still shows it (the
-// select keeps the current value).
-export function asrBackendOptions(mossEnabled: boolean): string[] {
-  return mossEnabled
-    ? ['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'moss_td']
-    : ['whisper', 'qwen3_asr', 'qwen3_asr_vad']
+// Transcribe > Advanced "ASR backend" choices.
+export function asrBackendOptions(): string[] {
+  return ['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long']
 }
 
 // The muted line under the batch-size field.

@@ -1,5 +1,6 @@
 export type SettingsToggleKey =
   | 'gpu_limit_enabled'
+  | 'unload_ollama_before_transcribe'
   | 'notify_on_completion'
   | 'use_gpu'
   | 'gemini_free_tier'
@@ -12,8 +13,10 @@ export interface SettingsPreferences {
   default_engine: string
   default_locale: string
   default_style_note: string
+  scene_aware_batches: boolean // translate batches start at scene breaks
   episode_summary_engine: string
   monthly_cap_usd: number | null // null: BAIHE_MONTHLY_CAP_USD from .env applies
+  max_upload_mb: number // media/backup upload cap; BAIHE_MAX_UPLOAD_MB wins when set
   ollama_num_ctx_override: number // 0: sized from the prompt
   whisper_model_path: string
   ocr_backend: string
@@ -40,7 +43,7 @@ export interface SettingsChoices {
   cookie_browsers: string[]
 }
 
-export type EndpointName = 'ollama_url' | 'gpt_sovits_url'
+export type EndpointName = 'ollama_url'
 
 // engine_keys maps a setting name to "is a key/endpoint configured"; the
 // API never returns a key, and neither does this type. endpoints carries a
@@ -50,6 +53,8 @@ export interface SettingsOverview extends Record<SettingsToggleKey, boolean> {
   gpu_max_parallel: number // 1..4; 1 = one GPU job at a time
   preferences: SettingsPreferences
   endpoints: Record<EndpointName, string | null>
+  upload_max_mb_from_env: boolean // true: the environment sets the limit, the saved one is ignored
+  effective_upload_max_mb: number
   monthly_cap_env_usd: number
   effective_monthly_cap_usd: number
   // Full month vs what the cap counts since an active reset (UTC ISO time).

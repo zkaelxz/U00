@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { openExportBlocks } from './exportBlocks'
+import { DEFAULT_OPEN, expectExpanded, mockSoftsubRun, toggle } from './exportBlocksCases'
 import { withExportLines } from './stageLineMocks'
 
 // Reads, the ASS/subtitle text and the flag actions hit the real seeded API
@@ -11,8 +13,18 @@ const job = (status: string, extra: object = {}) => ({
   gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1, ...extra,
 })
 
+// The seeded drama has no narration or dub, so those two starts are disabled; these jobs need them.
+const withTracks = (page: Page) =>
+  page.route('**/api/workflow/dramas/1/progress', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), has_dub_track: true, has_narration_track: true } })
+  })
+
 const openGroup = (page: Page, name: string) => page.getByText(name, { exact: true }).click()
-const openMedia = (page: Page) => openGroup(page, 'Video and audio')
+const openMedia = async (page: Page) => {
+  await openGroup(page, 'Video and audio')
+  await openExportBlocks(page)
+}
 
 async function mockJob(page: Page, startPath: string, finalStatus: 'done' | 'cancelled') {
   const bodies: unknown[] = []
@@ -94,6 +106,7 @@ test('a drama that is not novel narration has no EPUB section', async ({ page })
 })
 
 test('audiobook job can be cancelled', async ({ page }) => {
+  await withTracks(page)
   await mockJob(page, '/api/export/dramas/1/audiobook', 'cancelled')
   await page.goto('/#/drama/1/export')
   await openMedia(page)
@@ -123,13 +136,17 @@ test('burned-in video sends the style and offers the artifact on done', async ({
 })
 
 test('a 422 from a job start is shown as a banner', async ({ page }) => {
+  await page.route('**/api/workflow/dramas/1/progress', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), has_narration_track: true } })
+  })
   await page.route('**/api/export/dramas/1/audiobook', (route) =>
     route.fulfill({ status: 422, json: { error: { code: 'invalid_input', message: 'No narration audio yet.' } } }),
   )
   await page.goto('/#/drama/1/export')
   await openMedia(page)
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
-  await expect(page.getByRole('alert').filter({ hasText: 'not valid' })).toBeVisible()
+  await expect(page.getByRole('alert').filter({ hasText: 'No narration audio yet.' })).toBeVisible()
 })
 
 test('subtitle-track video sends the chosen subtitles and offers the artifact', async ({ page }) => {
@@ -151,6 +168,7 @@ test('subtitle-track video sends the chosen subtitles and offers the artifact', 
 })
 
 test('dubbed video sends the mix choice and offers its own artifact', async ({ page }) => {
+  await withTracks(page)
   const { bodies, finish } = await mockJob(page, '/api/export/dramas/1/dubbed-video', 'done')
   await page.route('**/api/artifacts/dramas/1/dubbed_video/info', (route) =>
     route.fulfill({ json: { name: 'dubbed_video_1.mp4', size: 2048, kind: 'dubbed_video' } }),
@@ -215,4 +233,51 @@ test('when nothing can copy, Copy selects the text and says so', async ({ page }
   const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '')
   expect(selected).toContain('[Script Info]')
   expect(errors).toEqual([])
+})
+
+test.describe('media export blocks fold under their headings', () => {
+  test('only the subtitle-track video starts open, and the toggle is a real button', async ({ page }) => {
+    await page.goto('/#/drama/1/export')
+    await openGroup(page, 'Video and audio')
+    await expectExpanded(page, DEFAULT_OPEN)
+    await expect(page.getByRole('button', { name: 'Start subtitle-track video export' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Start audiobook export' })).toBeHidden()
+    // The explanatory text lives in the folded content.
+    await expect(page.getByText('Encodes the narration audio')).toBeHidden()
+  })
+
+  test('Enter and Space on the focused heading fold and unfold it', async ({ page }) => {
+    await page.goto('/#/drama/1/export')
+    await openGroup(page, 'Video and audio')
+    const audiobook = toggle(page, 'Audiobook')
+    await audiobook.focus()
+    await page.keyboard.press('Enter')
+    await expect(audiobook).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByText('Encodes the narration audio')).toBeVisible()
+    await page.keyboard.press('Space')
+    await expect(audiobook).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  test('each choice survives a reload', async ({ page }) => {
+    await page.goto('/#/drama/1/export')
+    await openGroup(page, 'Video and audio')
+    await toggle(page, 'Video with a subtitle track').click()
+    await toggle(page, 'Burned-in video').click()
+    await page.reload()
+    await expectExpanded(page, { ...DEFAULT_OPEN, 'Video with a subtitle track': false, 'Burned-in video': true })
+  })
+
+  test('a running job and its download link stay visible while the block is folded', async ({ page }) => {
+    const { finish } = await mockSoftsubRun(page)
+    await page.goto('/#/drama/1/export')
+    await openGroup(page, 'Video and audio')
+    const group = page.getByRole('group', { name: 'Video with a subtitle track' })
+    await group.getByRole('button', { name: 'Start subtitle-track video export' }).click()
+    await expect(group.getByTestId('job-status')).toContainText('Running')
+    await toggle(page, 'Video with a subtitle track').click()
+    await expect(group.getByRole('button', { name: 'Start subtitle-track video export' })).toBeHidden()
+    await expect(group.getByTestId('job-status')).toContainText('Running')
+    finish()
+    await expect(page.getByTestId('artifact-softsub').getByRole('link')).toHaveText('Download softsub_video_1.mkv')
+  })
 })

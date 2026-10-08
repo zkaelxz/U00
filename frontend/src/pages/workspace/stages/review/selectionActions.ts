@@ -1,4 +1,5 @@
 import { compareSelectedProblem } from './compareTranscriptionLogic'
+import { retimeSelectedProblem } from './retimeLogic'
 import { formatLineNumbers } from './useLineSelection'
 
 export interface SelectionActionContext {
@@ -11,6 +12,8 @@ export interface SelectionActionContext {
   notify: (message: string) => void
   // Opens Review's Compare transcription section on the ticked lines.
   openCompare: () => void
+  // Opens Review's Re-time with Qwen3 aligner section on the ticked lines.
+  openRetime: () => void
 }
 
 export interface SelectionAction {
@@ -42,5 +45,11 @@ export const SELECTION_ACTIONS: SelectionAction[] = [
     label: 'Compare transcription…',
     unavailable: ({ selectedIds }) => compareSelectedProblem(selectedIds.length),
     run: ({ openCompare }) => openCompare(),
+  },
+  {
+    id: 're-time',
+    label: 'Re-time with Qwen3 aligner…',
+    unavailable: ({ selectedIds }) => retimeSelectedProblem(selectedIds.length),
+    run: ({ openRetime }) => openRetime(),
   },
 ]

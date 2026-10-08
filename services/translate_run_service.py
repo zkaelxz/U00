@@ -41,9 +41,13 @@ import translate_engines
 import translation_guide
 from services import (engine_routing_service, library_service, settings_service,
                       translate_service, workspace_job_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, NotFoundError,
-                                      UnsupportedOperationError)
+from services.service_errors import (
+    ConflictError,
+    InvalidInputError,
+    MissingKeyError,
+    NotFoundError,
+    UnsupportedOperationError,
+)
 
 # Engines that report usage, so the spending cap applies to them.
 _CAP_ENGINES = ("claude", "deepseek", "gemini", "openai")
@@ -142,7 +146,13 @@ def get_translate_config(drama_id: int) -> dict:
                                    if not (e == "gemini" and free_tier)],
         # Probed only when the drama translates with Ollama; None = not checked.
         "ollama_reachable": ollama_reachable() if engine_name == "ollama" else None,
+        "default_female_pronouns": _saved_bool(drama.get("default_female_pronouns")),
+        "include_genre_notes": _saved_bool(drama.get("include_genre_notes")),
     }
+
+
+def _saved_bool(value) -> Optional[bool]:
+    return None if value is None else bool(value)
 
 
 def ollama_reachable() -> bool:
@@ -302,8 +312,7 @@ def _require_offered_model(engine_name: str, model) -> None:
     (translate_service.list_engines, the same list preset saving checks);
     ollama takes any safe-shaped name (_is_safe_ollama_model); an engine
     without a model list allows only its own default. A free-form model
-    string would otherwise reach the engine as is (nllb hands it to
-    transformers.pipeline as a Hugging Face repo id)."""
+    string would otherwise reach the engine as is."""
     if model is None:
         return
     if engine_name == "ollama":
@@ -360,8 +369,9 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     default_female_pronouns / include_genre_notes: the "Default
     ambiguous pronouns to she/her" and "Include baihe/GL genre guidance"
     toggles (a preset's values, which the client holds; nothing links a
-    drama to a preset in the DB). None means the defaults: she/her off,
-    genre guidance on.
+    drama to a preset in the DB). None means the title's saved choice, or
+    without one the defaults: she/her off, genre guidance on. A value passed
+    is saved for the title once the run starts.
 
     own_lines_only (with line_ids): run_translate_job's own_lines_only -- a
     line edited while the job runs keeps the edit.
@@ -440,9 +450,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     for c in chain:
         name = c["engine"]
         api_key = translate_service.resolve_api_key(name)
-        if api_key is None and name != "nllb":
-            raise DependencyUnavailableError(
-                f"No {name} key is configured. Set one in Settings first.")
+        if api_key is None:
+            raise MissingKeyError(name)
         free_tier = name == "gemini" and gemini_free_tier
         if free_tier and c["model"] in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
             raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
@@ -486,7 +495,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     series_id = drama.get("series_id")
     glossary_terms, style_guidelines, _names = workspace_job_service.build_run_style_context(
         drama_id, drama, lines, style_preset,
-        include_genre_notes=True if include_genre_notes is None else include_genre_notes,
+        include_genre_notes=include_genre_notes,
         default_female_pronouns=default_female_pronouns)
 
     if force_retranslate and any(ln.en for ln in lines):
@@ -504,6 +513,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
             description=f"Bulk {'Reflect ' if reflect else ''}translation (drama #{drama_id})")
         if not started:
             raise ConflictError("A translation is already running for this drama.")
+        save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
         return {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
                 "model": getattr(engines[0], "model", model),
                 "target_line_count": len(eligible), "fallback_engines": [],
@@ -526,6 +536,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})")
     if not started:
         raise ConflictError("A translation is already running for this drama.")
+    save_style_toggles(drama_id, include_genre_notes, default_female_pronouns)
     started = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
                "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
                "fallback_engines": [c["engine"] for c in chain[1:]],
@@ -534,6 +545,21 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         # expected_en may have dropped some of the caller's ids.
         started["line_ids"] = sorted(ln.id for ln in eligible)
     return started
+
+
+def save_style_toggles(drama_id: int, include_genre_notes=None,
+                       default_female_pronouns=None) -> None:
+    """Stores the toggles a run was started with as the title's choice, so
+    every later run that is not handed them (retry, glossary re-translate,
+    line AI, CLI) and the Translate stage use the same values. None leaves
+    a stored value as it is."""
+    saved = {}
+    if include_genre_notes is not None:
+        saved["include_genre_notes"] = int(bool(include_genre_notes))
+    if default_female_pronouns is not None:
+        saved["default_female_pronouns"] = int(bool(default_female_pronouns))
+    if saved:
+        db.update_drama(drama_id, **saved)
 
 
 def bulk_job_id(drama_id: int) -> str:

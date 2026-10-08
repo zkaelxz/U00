@@ -7,6 +7,9 @@ import type { TranslateEngine } from './translate'
 export interface TranslateRunConfig {
   drama_id: number
   translation_engine: string
+  // The owner's saved choice for this title; null/omitted = never chosen.
+  default_female_pronouns?: boolean | null
+  include_genre_notes?: boolean | null
   engines: TranslateEngine[]
   // guidance: what the style asks the translator for (parity X04)
   style_presets: { key: string; label: string; guidance?: string }[]
@@ -240,9 +243,9 @@ export interface CharacterEntry {
   // Optional: older mocks and servers may omit it.
   voice_actor?: string
   pronouns: string
-  tts_voice: string
-  offline_voice: string
   clone_engine: string
+  // Why the stored engine can no longer generate (it was removed); "" when fine.
+  clone_engine_removed?: string
   voice_design: string
   has_ref_audio: boolean
   ref_text_present: boolean
@@ -261,8 +264,6 @@ export interface CharacterUpdate {
   character_name?: string
   voice_actor?: string
   pronouns?: string
-  tts_voice?: string
-  offline_voice?: string
   clone_engine?: string
   voice_design?: string
   ref_text?: string

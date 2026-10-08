@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 ---
 
-You build one Baihe API slice. Read only the files the task names, plus `docs/remote-access-decision.md` (the permission model and route table) and `api/auth.py`. Pick an existing merged slice close to your task and copy its shape.
+You build one Baihe API slice. Read only the files the task names, plus `docs/remote-access-decision.md` (the permission model), `docs/route-permissions.md` (the route table) and `api/auth.py`. Pick an existing merged slice close to your task and copy its shape.
 
 The pattern:
 - **Service:** `services/<x>_service.py` is UI-free, returns plain dicts and raises errors from `services/service_errors.py`.
@@ -19,7 +19,7 @@ The pattern:
   - Routes that need the admin listener use `local_only()`.
 - **Schemas:** new Pydantic models are appended at the end of the matching domain module in `api/schemas/` (`common` only for a shape several domains share), and its name is added to that module's `__all__`; `api/schemas/__init__.py` already star-imports every module. Do not edit existing classes.
 - **Server:** add one line to `api/server.py`.
-- **Route table:** add a row per route to the table in `docs/remote-access-decision.md`.
+- **Route table:** add a row per route to the table in `docs/route-permissions.md`.
 - **Docs:** add an entry to `FILE_ORGANIZATION.md` for new files.
 - **Tests:** `tests/test_api_<x>.py`, using `isolated_db` and fakes, with no network or models. Cover:
   - success;
@@ -29,7 +29,7 @@ The pattern:
 
 Every `requests` call has `timeout=`. LLM results are matched by id, never by position. Errors go through `translate_engines.redact_secrets`.
 
-Work on the branch the lead names, off the latest `origin/baihe-subtitler`, and confirm the base before starting. Don't touch `tabs/`, `ui/` or `app.py` (Streamlit freeze).
+Work on the branch the lead names, off the latest `origin/baihe-subtitler`, and confirm the base before starting.
 
 Before handing back, run:
 - `python -c "import api.server"`

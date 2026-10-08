@@ -135,7 +135,7 @@ class TestAutotuneStart:
         assert isolated_db.drama_dir(did) not in r.text
 
     @pytest.mark.parametrize("body", [
-        {"candidates": []}, {"candidates": [200]}, {"candidates": [3001]},
+        {"candidates": []}, {"candidates": [99]}, {"candidates": [3001]},
         {"candidates": [300, 400, 500, 600, 700, 800, 900]}, {"candidates": [True]},
         {"candidates": ["300"]}, {"candidates": [300, 300]}, {"initial_prompt": "x" * 1001},
         {"bogus": 1}])
@@ -254,7 +254,8 @@ class TestNovelGlossaryStart:
         assert body["status"] == "done"
         assert [p["term"] for p in body["proposals"]] == ["青云宗"]
         assert set(body["proposals"][0]) == {"term", "suggested_translation", "category",
-                                             "policy", "reason", "already_in_glossary"}
+                                             "policy", "reason", "already_in_glossary",
+                                             "occurrences", "alternatives", "confidence"}
         assert isolated_db.drama_dir(did) not in r.text
 
     def test_status_never_contains_key(self, client, isolated_db, monkeypatch, fake_engine):

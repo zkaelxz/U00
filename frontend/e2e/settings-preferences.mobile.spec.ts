@@ -7,7 +7,7 @@ import { openSettingsGroups } from './settingsNav'
 
 // Cards are always open; the Advanced Card's Sections are opened here.
 const CARDS = ['Translation style', 'Spending']
-const SECTIONS = ['OCR', 'Offline and performance', 'Downloads', 'Server addresses']
+const SECTIONS = ['OCR', 'Offline and performance', 'Downloads', 'Uploads', 'Server addresses']
 
 test('settings preference sections fit a phone with 44px targets', async ({ page }) => {
   const unmocked: string[] = []

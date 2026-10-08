@@ -13,13 +13,7 @@ export const ENDPOINTS: { name: EndpointName; label: string; placeholder: string
     name: 'ollama_url',
     label: 'Ollama URL',
     placeholder: 'http://127.0.0.1:11434',
-    help: 'Where the local Ollama server runs. Blank uses Ollama’s default on this PC.',
-  },
-  {
-    name: 'gpt_sovits_url',
-    label: 'GPT-SoVITS URL',
-    placeholder: 'http://127.0.0.1:9880',
-    help: 'The voice-cloning server used for dubbing. Blank uses http://127.0.0.1:9880.',
+    help: 'Where Ollama runs. Blank uses its default on this PC.',
   },
 ]
 
@@ -66,6 +60,22 @@ export function parseNumCtx(raw: string): Parsed<number> {
   if (n > MAX_NUM_CTX) return { ok: false, error: `At most ${MAX_NUM_CTX.toLocaleString('en-US')}.` }
   return { ok: true, value: n }
 }
+
+export const MIN_UPLOAD_MB = 100
+export const MAX_UPLOAD_MB = 1_048_576
+
+/** Upload size limit in MB (mirrors settings_service._check_upload_mb). Blank puts the default back. */
+export function parseUploadMb(raw: string, defaultMb: number): Parsed<number> {
+  const t = raw.trim()
+  if (!t) return { ok: true, value: defaultMb }
+  const n = Number(t)
+  if (!/^\d+$/.test(t) || n < MIN_UPLOAD_MB || n > MAX_UPLOAD_MB) {
+    return { ok: false, error: `Enter a whole number of MB from ${MIN_UPLOAD_MB} to ${MAX_UPLOAD_MB.toLocaleString('en-US')}.` }
+  }
+  return { ok: true, value: n }
+}
+
+export const DEFAULT_UPLOAD_MB = 20480
 
 const MAX_PATH = 1024
 

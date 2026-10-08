@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ApiError } from '../../../../api/client'
 import type { MediaKind } from '../../../../api/media'
 import { getTranscribeConfig } from '../../../../api/workspace'
-import { addLine, deleteLine, listAllLines, mergeLines, splitLine } from '../../../../api/restructure'
+import { addLine, deleteLine, listAllLines, mergeLines, restoreSnapshot, splitLine } from '../../../../api/restructure'
 import {
   acceptTm as acceptTmSuggestion,
   addNote,
@@ -26,6 +26,7 @@ import { routeHref } from '../../../../router'
 import type { RestructureResult } from '../../../../types/restructure'
 import type { LineFilter, ReviewLine, ReviewLinesPage, TmSuggestion } from '../../../../types/review'
 import type { NewLine } from './AddLineForm'
+import type { Edge } from './Waveform'
 import { FindReplacePanel } from './FindReplacePanel'
 import { LineActionsSheet, type SheetState, type SheetView } from './LineActionsSheet'
 import { useLineSelectionContext } from './LineSelectionContext'
@@ -36,6 +37,9 @@ import { canRetranscribe } from './retranscribeLogic'
 import {
   adjacentRun,
   buildPatch,
+  formatTime,
+  timingPatch,
+  type TimingField,
   charCount,
   codePointOffset,
   draftFromLine,
@@ -53,10 +57,17 @@ import {
   stepFrom,
   structureErrorText,
   suggestionPatch,
+  undoDoneMessage,
+  undoHandleOf,
+  undoRefusal,
   type LanguageScope,
   type LineDraft,
   type PanelMode,
+  type UndoHandle,
+  type UndoKind,
 } from './reviewLogic'
+import { UndoNotice } from './UndoNotice'
+import { retireUndoOffer, useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
 import { ShortcutSheet } from './ShortcutSheet'
@@ -81,6 +92,7 @@ interface Props {
   // click on the same line count again.
   // resolve gets null once the line is open, else a plain message.
   onCompareSelected?: () => void
+  onRetimeSelected?: () => void
   goTo?: { target: LineTarget; seq: number; resolve: (message: string | null) => void } | null
 }
 
@@ -92,6 +104,8 @@ const WIDE = '(min-width: 641px)'
 // How long a line opened from a search result stays highlighted.
 const JUMP_HIGHLIGHT_MS = 4000
 const ALL_LINES_ONLY = 'Merge and add work in the All lines view (no filter or search).'
+// Shown when the server did not return what an undo needs (an older server).
+const RECORDS_UNDO = ' Undo in Records → Line history.'
 const DRAFT_NOT_SAVED = 'Your edit to this line could not be saved, so nothing else was changed. Close this and check the line.'
 const SEARCH_DEBOUNCE_MS = 300
 const STATUS_MS = 8000
@@ -116,7 +130,10 @@ function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
 // edit mode, the "⋯" line sheet with structure edits, a sticky toolbar with the
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, onCompareSelected, goTo }: Props) {
+// Loaded on first use so the canvas code stays out of the main bundle.
+const Waveform = lazy(() => import('./Waveform'))
+
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
@@ -155,12 +172,18 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     }
   }, [dramaId])
   const [status, setStatus] = useState<string | null>(null)
+  // The last structural edit, while it can still be undone.
+  // `at` is the edited line's position before the edit, where focus goes after an undo.
+  const [undo, setUndo] = useUndoOffer<{ handle: UndoHandle; message: string; kind: UndoKind; at: number }>('lines', dramaId)
+  useEffect(() => setUndo(null), [dramaId, setUndo])
   const [keysOpen, setKeysOpen] = useState(false)
   // Row density is a per-viewer choice, remembered in localStorage.
   const [compact, setCompact] = usePersistedState('review.compact', false)
   const [replaceOpen, setReplaceOpen] = useState(() => readSectionOpen(browserStorage(), 'review.findreplace', false))
 
   const player = useRef<PlayerHandle>(null)
+  // Phones start with the waveform folded away; elsewhere it is open.
+  const [waveOpen, setWaveOpen] = usePersistedState('review.waveform', !isPhone)
   // Phones: the player's video and tools sit here, under the sticky toolbar.
   const [playerDock, setPlayerDock] = useState<HTMLDivElement | null>(null)
   // Tablets and wider, with a video: the video, seek bar and subtitles sit in the side card.
@@ -293,6 +316,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const ctl = useMemo(() => {
     const find = (id: number | null) => st.current.shown.find((l) => l.id === id) ?? null
     const replaceLine = (saved: ReviewLine) => {
+      // A saved edit changes what any undo would overwrite.
+      retireUndoOffer()
       setData((d) => (d ? { ...d, lines: d.lines.map((l) => (l.id === saved.id ? saved : l)) } : d))
       setFound((f) => (f ? f.map((l) => (l.id === saved.id ? saved : l)) : f))
       st.current.shown = st.current.shown.map((l) => (l.id === saved.id ? saved : l))
@@ -517,6 +542,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           const now = st.current.edit
           if (now) setEditNow({ ...now, note: null })
           setIssue(null)
+          // A note on a line the undo would remove makes the server refuse it.
+          retireUndoOffer()
           setStatus('Note saved.')
           st.current.onChanged()
         }, (e) => failLine(cur.lineId, e))
@@ -598,7 +625,41 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       },
     }
 
-    return { actions, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo, saveEdit, stillDirty, setEditNow }
+    // Timing hotkeys and waveform drags queue, so each edit starts from the
+    // line the previous save returned (a stale base would 409).
+    let timingQueue: Promise<unknown> = Promise.resolve()
+    const setTiming = (id: number, field: TimingField, value: (line: ReviewLine) => number): Promise<boolean> => {
+      const run = timingQueue.then(async () => {
+        const line = find(id)
+        if (!line) return false
+        if (st.current.edit?.lineId === id) {
+          setStatus('Save or discard your edit first.')
+          return false
+        }
+        const at = st.current.shown.findIndex((l) => l.id === id)
+        const patch = timingPatch(line, { prev: st.current.shown[at - 1], next: st.current.shown[at + 1] }, field, value(line))
+        if (typeof patch === 'string') {
+          setStatus(patch)
+          return false
+        }
+        if (patch === null) return true
+        try {
+          const saved = await patchLine(dramaId, id, patch)
+          replaceLine(saved)
+          setIssue(null)
+          setStatus(`#${lineNumber(saved.idx)} ${field} ${formatTime(saved[field])}`)
+          st.current.onChanged()
+          return true
+        } catch (e) {
+          failLine(id, e)
+          return false
+        }
+      })
+      timingQueue = run
+      return run
+    }
+    const retime = (id: number, edge: Edge, value: number) => setTiming(id, edge, () => value)
+    return { actions, retime, setTiming, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo, saveEdit, stillDirty, setEditNow }
   }, [dramaId])
 
   const { actions } = ctl
@@ -654,7 +715,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // ---- structure edits (sheet) ----
   const runStructure = async (
     call: (ids: number[]) => Promise<RestructureResult>,
-    after: (r: RestructureResult, ids: number[]) => { id: number | null; message: string },
+    after: (r: RestructureResult, ids: number[]) => { id: number | null; message: string; undo?: { kind: UndoKind; at: number } },
   ) => {
     // Claimed synchronously, before any await, so a double click sends one edit.
     if (busyRef.current) return
@@ -674,7 +735,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       const ids = (await listAllLines(dramaId)).map((l) => l.id)
       if (!pageStillMatches(ids, shown.map((l) => l.id), searching ? 'search' : filter, page)) throw mismatch()
       const r = await call(ids)
-      const { id, message } = after(r, ids)
+      const { id, message, undo: undoable } = after(r, ids)
+      const handle = undoable ? undoHandleOf(r) : null
       setSheet(null)
       setEdit(null)
       setAi(null)
@@ -687,7 +749,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           if (pos !== -1) setPage(pageForPosition(pos))
         }
       }
-      setStatus(message)
+      if (handle && undoable) setUndo({ handle, message, ...undoable })
+      else retireUndoOffer()
+      setStatus(handle ? null : message + (undoable ? RECORDS_UNDO : ''))
       onChanged()
     } catch (e) {
       setStructError(e)
@@ -697,7 +761,45 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     }
   }
 
-  const UNDO = ' Undo in Records → Line history.'
+  const doUndo = async () => {
+    if (!undo || busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    setStructError(null)
+    try {
+      // Saves an open draft first; a saved edit changes the lines, so the server then
+      // refuses the undo rather than overwrite it.
+      if (!(await ctl.leaveEdit())) return
+      const ids = (await listAllLines(dramaId)).map((l) => l.id)
+      const r = await restoreSnapshot(dramaId, undo.handle.historyId, ids, undo.handle.fingerprint)
+      setUndo(null)
+      setSheet(null)
+      setEdit(null)
+      selection.clear()
+      // The notice (and the Undo button that had focus) goes away: focus the restored line.
+      const back = r.line_ids[undo.at] ?? r.line_ids[r.line_ids.length - 1]
+      if (back !== undefined) {
+        pending.current = { target: back }
+        if (!searching && filter === 'all') setPage(pageForPosition(r.line_ids.indexOf(back)))
+      }
+      setStatus(undoDoneMessage(undo.kind))
+      onChanged()
+    } catch (e) {
+      const refused = undoRefusal(e)
+      if (refused) {
+        if (!refused.keepOffer) {
+          setUndo(null)
+          // Focus was on the Undo button, which goes away with the notice.
+          if (activeId !== null) ctl.focusTo(activeId)
+        }
+        setStatus(refused.text)
+      } else setStructError(e)
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
+
   const sheetLine = sheet ? (shown.find((l) => l.id === sheet.lineId) ?? null) : null
   const sheetRun = sheetLine ? shown.slice(shown.findIndex((l) => l.id === sheetLine.id)) : []
 
@@ -706,9 +808,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     if (!line) return
     void runStructure(
       (ids) => splitLine(dramaId, line.id, { expected_line_ids: ids, at_char: c.at_char, expected_zh: line.zh, at_time: c.at_time, en_at_char: c.en_at_char }),
-      (r) => {
+      (r, before) => {
         const [a, b] = r.lines
-        return { id: b?.id ?? a?.id ?? null, message: a && b ? `Split #${lineNumber(a.idx)} into #${lineNumber(a.idx)}–#${lineNumber(b.idx)}.${UNDO}` : `Line split.${UNDO}` }
+        return {
+          id: b?.id ?? a?.id ?? null,
+          message: a && b ? `Split #${lineNumber(a.idx)} into #${lineNumber(a.idx)}–#${lineNumber(b.idx)}.` : 'Line split.',
+          undo: { kind: 'split', at: before.indexOf(line.id) },
+        }
       },
     )
   }
@@ -720,9 +826,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         if (!run || run.some((id, i) => id !== lineIds[i])) throw mismatch()
         return mergeLines(dramaId, lineIds, ids)
       },
-      (r) => {
+      (r, before) => {
         const head = r.lines[0]
-        return { id: head?.id ?? lineIds[0], message: `Merged ${lineRange(chosen)}${head ? ` into #${lineNumber(head.idx)}` : ''}.${UNDO}` }
+        return {
+          id: head?.id ?? lineIds[0],
+          message: `Merged ${lineRange(chosen)}${head ? ` into #${lineNumber(head.idx)}` : ''}.`,
+          undo: { kind: 'merge', at: before.indexOf(lineIds[0]) },
+        }
       },
     )
   }
@@ -741,7 +851,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       (r, before) => {
         const pos = before.indexOf(line.id)
         const id = r.line_ids[pos] ?? r.line_ids[pos - 1] ?? null
-        return { id, message: `Deleted #${lineNumber(line.idx)}.${UNDO}` }
+        return { id, message: `Deleted #${lineNumber(line.idx)}.`, undo: { kind: 'delete', at: pos } }
       },
     )
   }
@@ -950,6 +1060,23 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         if (!mediaKind) return false
         player.current?.toggleLoop()
         return true
+      case 's':
+      case 't': {
+        if (!mediaKind || !player.current) return false
+        const now = player.current.getCurrentTime()
+        ctl.setTiming(active.id, combo === 's' ? 'start' : 'end', () => now)
+        return true
+      }
+      case 'z':
+      case 'x':
+      case 'c':
+      case 'v': {
+        const step = event.shiftKey ? 0.5 : 0.1
+        const delta = combo === 'z' || combo === 'c' ? -step : step
+        const field = combo === 'z' || combo === 'x' ? 'start' : 'end'
+        ctl.setTiming(active.id, field, (line) => line[field] + delta)
+        return true
+      }
       case 'm':
       case 'a':
         if (limited) setStatus(ALL_LINES_ONLY)
@@ -991,6 +1118,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     clear: selection.clear,
     notify: setStatus,
     openCompare: onCompareSelected ?? (() => {}),
+    openRetime: onRetimeSelected ?? (() => {}),
   }
   const allShownSelected = shown.length > 0 && shown.every((l) => selection.selectedSet.has(l.id))
   const loading = !searching && data === null && !error
@@ -999,6 +1127,29 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // Phones: the pager shares the player's row so the sticky toolbar stays short.
   const pagerInPlayer = isPhone && mediaKind !== null && showPager
   const sideVideo = isWide && !isPhone && mediaKind === 'video' && !emptyDrama
+
+  // Wider screens keep it in the sticky toolbar so it stays in view while the
+  // list scrolls; phones put it under the player dock, where it scrolls away.
+  const waveform =
+    mediaKind && !emptyDrama ? (
+      <div className="review-wave-section">
+        <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={waveOpen} onClick={() => setWaveOpen(!waveOpen)}>
+          {waveOpen ? 'Hide waveform' : 'Show waveform'}
+        </button>
+        {waveOpen && (
+          <Suspense fallback={null}>
+            <Waveform
+              dramaId={dramaId}
+              lines={shown}
+              active={active}
+              player={player}
+              onRetime={ctl.retime}
+              editingActive={!!active && edit !== null && edit.lineId === active.id}
+            />
+          </Suspense>
+        )}
+      </div>
+    ) : null
 
   return (
     <section className={sideVideo ? 'review-editor has-side' : 'review-editor'} aria-label="Lines" ref={sectionRef}>
@@ -1025,21 +1176,25 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onCompact={setCompact}
           player={
             mediaKind ? (
-              <Player
-                ref={player}
-                dramaId={dramaId}
-                kind={mediaKind}
-                lines={shown}
-                selected={active}
-                captionVersion={reloads}
-                panelHost={isPhone ? playerDock : sideVideo ? sideDock : undefined}
-                trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
-              />
+              <>
+                <Player
+                  ref={player}
+                  dramaId={dramaId}
+                  kind={mediaKind}
+                  lines={shown}
+                  selected={active}
+                  captionVersion={reloads}
+                  panelHost={isPhone ? playerDock : sideVideo ? sideDock : undefined}
+                  trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
+                />
+                {!isPhone && waveform}
+              </>
             ) : null
           }
         />
         )}
         {isPhone && mediaKind && !emptyDrama && <div className="review-player-dock" ref={setPlayerDock} />}
+        {isPhone && waveform}
         {data && (
           <p className="sr-only" data-testid="line-counts">
             {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
@@ -1059,6 +1214,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         <p className="review-status" role="status">
           {status}
         </p>
+        {undo && <UndoNotice message={undo.message} busy={busy} onUndo={() => void doUndo()} onDismiss={() => setUndo(null)} />}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {hiddenEdit && (
           <div className="banner review-hidden-edit" role="alert" data-testid="hidden-edit">
@@ -1204,6 +1360,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             })
           }}
           onClose={() => setSheet(null)}
+          onPlayRange={(start, end) => sheetLine && player.current?.playLine({ id: sheetLine.id, idx: sheetLine.idx, start, end })}
           onPlay={() => closeSheetThen(() => sheetLine && player.current?.playLine(sheetLine))}
           onEditDetails={() => closeSheetThen(() => sheetLine && void ctl.openEdit(sheetLine.id, true))}
           canRetranscribe={canRetranscribeLine}

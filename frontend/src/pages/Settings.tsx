@@ -21,9 +21,9 @@ import { DevicesCard } from './settings/DevicesCard'
 import { AutoBackupCard } from './settings/AutoBackupCard'
 import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionSection } from './settings/ExtensionSection'
+import { LoadedModelsCard } from './settings/LoadedModelsCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
-import { NotionSection } from './settings/NotionSection'
 import { PastCostsCard } from './settings/PastCostsCard'
 import { SpendHistoryCard } from './settings/SpendHistoryCard'
 import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
@@ -36,11 +36,13 @@ import './settings/settings.css'
 
 const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
   gpu_limit_enabled:
-    'Queues GPU-heavy jobs beyond "GPU jobs at once" so they do not run out of memory.',
-  notify_on_completion: 'Shows a notification when a background job finishes.',
-  use_gpu: 'Transcribe on the graphics card when one is available (faster).',
+    'Jobs beyond "GPU jobs at once" wait in line, so the GPU does not run out of memory.',
+  notify_on_completion: 'Shows a notification when a job finishes.',
+  use_gpu: 'Transcribe on the GPU when there is one (faster).',
+  unload_ollama_before_transcribe:
+    'Ollama keeps its model in GPU memory for a few minutes after translating, which can make transcription run out of memory.',
   bulk_auto_resume:
-    'Resume interrupted translation batches when the app starts. Off by default: resumed batches can spend on your engine account.',
+    'Resumes interrupted translation batches at startup. Off by default: resumed batches can spend on your engine account.',
 }
 
 type FoldId = 'jobs' | 'engines' | 'defaults' | 'alerts' | 'sharing' | 'integrations' | 'advanced' | 'experimental'
@@ -101,12 +103,19 @@ export default function SettingsPage() {
   // The fold holding the Developer Mode card only exists once the settings load.
   const route = useRoute()
   const wantsDeveloperMode = route.name === 'settings' && route.section === 'developer-mode'
+  const wantsUploads = route.name === 'settings' && route.section === 'uploads'
   const loaded = settings !== null
   useEffect(() => {
     if (!wantsDeveloperMode || !loaded) return
     setSignals((cur) => ({ ...cur, experimental: (cur.experimental ?? 0) + 1 }))
     setJumpTo((cur) => ({ id: 'developer-mode', n: (cur?.n ?? 0) + 1 }))
   }, [wantsDeveloperMode, loaded])
+  // The Uploads block sits in the Advanced fold, which is only rendered once the settings load.
+  useEffect(() => {
+    if (!wantsUploads || !loaded) return
+    setSignals((cur) => ({ ...cur, advanced: (cur.advanced ?? 0) + 1 }))
+    setJumpTo((cur) => ({ id: 'advanced', n: (cur?.n ?? 0) + 1 }))
+  }, [wantsUploads, loaded])
   useEffect(() => {
     if (!jumpTo) return
     const el = document.getElementById(`settings-${jumpTo.id}`)
@@ -208,6 +217,7 @@ export default function SettingsPage() {
               <div className="setting-list">
                 {toggleField('gpu_limit_enabled')}
                 {toggleField('use_gpu')}
+                {toggleField('unload_ollama_before_transcribe')}
                 <Field label="GPU jobs at once" help={gpuMaxParallelHelp(settings.gpu_max_parallel)}>
                   <input
                     type="number"
@@ -221,6 +231,7 @@ export default function SettingsPage() {
                 </Field>
               </div>
             </Card>
+            <LoadedModelsCard />
             <Card title="Notifications">
               <div className="setting-list">{toggleField('notify_on_completion')}</div>
             </Card>
@@ -228,7 +239,7 @@ export default function SettingsPage() {
               <div className="setting-list">{toggleField('bulk_auto_resume')}</div>
             </Card>
           </Fold>
-          <Fold id="engines" signals={signals} summary="Keys, tests and which engine does what">
+          <Fold id="engines" signals={signals} summary="Keys, tests, which engine does what">
             <EngineRoutingCard
               refreshToken={routingToken}
               settings={settings}
@@ -264,13 +275,12 @@ export default function SettingsPage() {
       </Fold>
       {settings && prefProps && (
         <>
-          <Fold id="integrations" signals={signals} summary="Jellyfin, Notion, web search, browser extension">
+          <Fold id="integrations" signals={signals} summary="Jellyfin, web search, browser extension">
             <JellyfinSection />
-            <NotionSection />
             <WebSearchSection />
             <ExtensionSection />
           </Fold>
-          <Fold id="advanced" signals={signals} summary="OCR, offline models, downloads and server addresses" single>
+          <Fold id="advanced" signals={signals} summary="OCR, offline models, downloads, uploads, server addresses" single>
             <AdvancedCard {...prefProps} />
           </Fold>
           <Fold id="experimental" signals={signals} summary="Transcription experiments, Developer Mode">
