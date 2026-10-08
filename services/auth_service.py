@@ -53,6 +53,14 @@ ADMIN_VIEW_PERMISSIONS = ("admin.users.read",)
 ADMIN_WRITE_PERMISSIONS = ("admin.library", "admin.settings", "admin.diagnostics", "admin.users")
 PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
 
+# library.db tables that hold who may sign in and what they may do. A
+# library restore never takes them from the upload: it keeps the live
+# library's rows of RESTORE_LIVE_TABLES and leaves the rest empty (every
+# session is revoked), so an old or crafted backup can't bring back a
+# revoked extension device token or plant one. A user backup leaves them all out.
+RESTORE_LIVE_TABLES = ("users", "user_permissions", "audit_log", "extension_device_tokens")
+RESTORE_KEPT_TABLES = RESTORE_LIVE_TABLES + ("auth_sessions",)
+
 # Defaults; `configure_timeouts` (from the API settings, BAIHE_API_SESSION_*)
 # may change them at startup. Both are enforced on every lookup, so a
 # shorter setting also applies to sessions created before it.
@@ -195,6 +203,7 @@ def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False) ->
     else:
         db.auth_update_user(user_id, is_active=0)
     db.auth_delete_user_sessions(user_id)
+    _revoke_device_tokens(user_id, actor_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "user.deactivate", f"user {user_id}")
     return get_user(user_id)
@@ -295,6 +304,8 @@ def revoke_admin(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
         for p in HOUSEHOLD_DEFAULT_PERMISSIONS:
             db.auth_grant_permission(user_id, p)
     db.auth_delete_user_sessions(user_id)
+    if "extension.send" not in effective_permissions(user_id):
+        _revoke_device_tokens(user_id, actor_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "user.revoke_admin", f"user {user_id}")
     return _admin_view(get_user(user_id), actor_id, time.time())
@@ -396,6 +407,8 @@ def grant_permission(user_id: int, permission: str, actor_id=None) -> dict:
 def revoke_permission(user_id: int, permission: str, actor_id=None) -> dict:
     _require_user(user_id)
     db.auth_revoke_permission(user_id, permission)
+    if permission == "extension.send":
+        _revoke_device_tokens(user_id, actor_id)
     write_audit(actor_id, "permission.revoke", f"user {user_id}: {permission}")
     return get_user(user_id)
 
@@ -542,6 +555,14 @@ def verify_csrf(session_token, csrf_token, now: float = None) -> bool:
     if not found:
         return False
     return hmac.compare_digest(found[0]["csrf_hash"], _hash(csrf_token))
+
+
+def _revoke_device_tokens(user_id: int, actor_id=None) -> None:
+    """Losing `extension.send` (or the account) also revokes the user's
+    extension device tokens, so a later re-grant doesn't revive one they
+    forgot about."""
+    from services import device_token_service   # it imports this module
+    device_token_service.revoke_all_for_user(user_id, actor_id=actor_id)
 
 
 def _recheck_streams(user_id=None) -> None:

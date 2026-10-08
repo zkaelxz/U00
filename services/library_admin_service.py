@@ -50,7 +50,7 @@ import storage
 import subtitle_formats
 import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
-from services import (drama_service, ownership_service, settings_service,
+from services import (auth_service, drama_service, ownership_service, settings_service,
                       translate_run_service, translate_service)
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -654,8 +654,7 @@ USER_BACKUP_TABLES = {
     "style_profile": ("style_scope", "the global profile is learned from everyone's edits"),
     "known_titles": ("keep", "the household's title catalogue"),
     "presets": ("keep", "household workspace presets"),
-    "users": ("empty", "auth"), "user_permissions": ("empty", "auth"),
-    "auth_sessions": ("empty", "auth"), "audit_log": ("empty", "auth"),
+    **{t: ("empty", "auth") for t in auth_service.RESTORE_KEPT_TABLES},
     "bulk_jobs": ("empty", "provider batch ids of this PC's API accounts; a restored "
                            "in-flight batch could be polled again"),
     "bulk_job_lines": ("empty", "belongs to bulk_jobs"),

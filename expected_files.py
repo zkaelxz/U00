@@ -10,7 +10,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "run_tests.py", "translation_guide.py", "glossary_io.py",
     "story_context.py", "storage.py", "universe_wiki.py", "background_jobs.py",
     "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "en_cleanup.py", "page_fetch.py",
-    "page_server.py",
+    "page_server.py", "device_tokens.py",
     "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
     # This list had drifted -- these were all real,
     # hard-imported modules missing from it, which meant the missing-file
