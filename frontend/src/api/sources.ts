@@ -22,6 +22,7 @@ import type {
   SourcesJobStarted,
   SourcesSettings,
   SourcesSettingsUpdate,
+  SourcePace,
   SourceSummary,
   TrackedSeries,
 } from '../types/sources'
@@ -75,6 +76,8 @@ export const setSourceEnabled = (name: string, enabled: boolean, f?: Fetch) =>
   postJson<SourceSummary>(`${BASE}/${seg(name)}/enabled`, { enabled }, pcOnlyFetch(f))
 export const setAdultEnabled = (name: string, enabled: boolean, f?: Fetch) =>
   postJson<SourceSummary>(`${BASE}/${seg(name)}/adult`, { enabled }, pcOnlyFetch(f))
+export const setSourcePace = (name: string, pace: SourcePace, f?: Fetch) =>
+  postJson<SourceSummary>(`${BASE}/${seg(name)}/pace`, { pace }, pcOnlyFetch(f))
 export const resetSourceHealth = (name: string, f?: Fetch) =>
   postJson<SourceHealth>(`${BASE}/${seg(name)}/health/reset`, undefined, pcOnlyFetch(f))
 export const updateSourcesSettings = (changes: SourcesSettingsUpdate, f?: Fetch) =>

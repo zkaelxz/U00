@@ -54,6 +54,7 @@ DEFAULT_SETTINGS = {
     "auto_queue_new_chapters": False,
     "demo_source_enabled": False,
     "disabled_sources": [],
+    "source_pace": {},              # source -> careful|normal|fast; absent means normal
     "adult_sources": [],            # sources the person opted in to adult-flagged works for
     "extraction_diagnostics": False,  # Always show Review Extraction + diagnostics
     # An HTTP(S) proxy URL (e.g. "http://127.0.0.1:8080") every
@@ -363,6 +364,16 @@ def all_settings() -> dict:
         for row in conn.execute("SELECT key, value FROM settings"):
             out[row["key"]] = json.loads(row["value"])
     return out
+
+
+def source_pace(source: str) -> str:
+    return (get_setting("source_pace") or {}).get(source, "normal")
+
+
+def set_source_pace(source: str, level: str):
+    current = dict(get_setting("source_pace") or {})
+    current[source] = level
+    set_setting("source_pace", current)
 
 
 def adult_enabled(source: str) -> bool:

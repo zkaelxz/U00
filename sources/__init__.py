@@ -8,6 +8,7 @@ and hands it to the existing Scanlate / Workspace paths unchanged.
   models.py          vocabulary: tiers, failure reasons, statuses, records
   base.py            the SourceAdapter interface
   http.py            the one paced client every request goes through
+  pacing.py          per-source pace levels and the automatic slowdown
   detect.py          naming what a response shows (challenge, geo, SPA...)
   ladder.py          the access-method ladder + capabilities / Test Now
   health.py          🟢/🟡/🔴 per source, with backoff

@@ -36,11 +36,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
+import applog
 from translate_engines import safe_url
 
-from . import detect, health, store
+from . import detect, health, pacing, store
 from .cache import RawCache
-from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REASONS,
+from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REASONS, ENVIRONMENT_BLOCK_REASONS,
                      FailureReason, FetchFailed, SourceUnavailable)
 
 DEFAULT_TIMEOUT = 20
@@ -169,7 +170,17 @@ class PacingPolicy:
     session_break_max_delay: float = 90.0
 
     @classmethod
-    def from_settings(cls, host_min_interval: dict = None) -> "PacingPolicy":
+    def from_settings(cls, host_min_interval: dict = None, source: str = None,
+                      profile=None) -> "PacingPolicy":
+        """The global pace, adjusted to the level chosen for `source` when an
+        adapter passes its pacing profile; without one nothing changes."""
+        policy = cls._from_global(host_min_interval)
+        if source is None or profile is None:
+            return policy
+        return pacing.apply_level(policy, profile, store.source_pace(source))
+
+    @classmethod
+    def _from_global(cls, host_min_interval: dict = None) -> "PacingPolicy":
         s = store.all_settings()
         lo = max(0.0, float(s["pace_min_delay"]))
         hi = max(lo, float(s["pace_max_delay"]))
@@ -776,6 +787,8 @@ def _state(source: str, max_concurrent: int) -> dict:
 
 
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+_PUSHBACK_KINDS = {FailureReason.RATE_LIMIT.value: "rate_limit", FailureReason.TIMEOUT.value: "timeout"}
+_BLOCK_VALUES = {r.value for r in ENVIRONMENT_BLOCK_REASONS}
 
 
 def _host_key(url: str) -> str:
@@ -807,13 +820,16 @@ def _host(host: str, min_interval: float) -> dict:
         return hs
 
 
-def reset_pacing_state():
+def reset_pacing_state(keep_slowdown: bool = False):
     """Test helper / settings-change hook: forget every host's last
     request time and declared minimum interval, rebuild the concurrency
-    limits, and forget which mirror last worked for each source."""
+    limits, and forget which mirror last worked for each source. A settings
+    change keeps the slowdown a source earned; it is not a way to clear it."""
     with _state_lock:
         _source_state.clear()
         _host_state.clear()
+    if not keep_slowdown:
+        pacing.reset_slowdown()
 
 
 class SourceClient:
@@ -914,9 +930,10 @@ class SourceClient:
         self._acquire_cancellable(hs["lock"])
         try:
             gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
-            gap = max(gap, hs["min_interval"])
-            if hs["last"] is not None:
-                wait = hs["last"] + gap - self.clock()
+            gap = max(gap, hs["min_interval"]) * pacing.multiplier(self.source)
+            held = pacing.hold_remaining(self.source, self.clock())
+            if hs["last"] is not None or held > 0:
+                wait = max(held, hs["last"] + gap - self.clock() if hs["last"] is not None else 0.0)
                 if wait > 0:
                     self._status(f"Waiting {wait:.1f}s before next request...", wait)
                     self._sleep_cancellable(wait)
@@ -941,7 +958,8 @@ class SourceClient:
             st["since_break"] = 0
         if st["since_break"] >= st["break_at"]:
             pause = self.rng.uniform(self.policy.session_break_min_delay,
-                                     self.policy.session_break_max_delay)
+                                     self.policy.session_break_max_delay) \
+                * pacing.multiplier(self.source)
             self._status(f"Taking a break ({pause:.0f}s)...", pause)
             self._sleep_cancellable(pause)
             st["since_break"] = 0
@@ -987,6 +1005,7 @@ class SourceClient:
         st = _state(self.source, self.policy.max_concurrent)
 
         attempt_no = 0
+        slowed = False
         while True:
             with st["sem"]:
                 self._wait_turn(host, st)
@@ -1042,6 +1061,8 @@ class SourceClient:
                                                        at=time.time(), **ev))
                     if record_health:
                         health.record_success(self.source, latency)
+                    if pacing.note_success(self.source):
+                        self._status("Pace relaxed one step")
                     # Content a redirect fetched from another host, or over a
                     # downgraded scheme, is never stored under the URL that
                     # was asked for.
@@ -1064,6 +1085,7 @@ class SourceClient:
                 # every automated request and goes to the person.
                 if reason in CHALLENGE_REASONS:
                     self.attempts.append(attempt)
+                    self._note_pushback("challenge", resp, False)
                     if record_health:
                         health.record_failure(self.source, reason.value,
                                               f"Challenge at {url}")
@@ -1074,6 +1096,9 @@ class SourceClient:
                 retryable = reason == FailureReason.RATE_LIMIT or resp.status_code >= 500
 
             self.attempts.append(attempt)
+            slowed = self._note_pushback(_PUSHBACK_KINDS.get(attempt.reason)
+                                         or ("block" if attempt.reason in _BLOCK_VALUES else None),
+                                         resp, slowed)
             if retryable and attempt_no < self.policy.max_retries:
                 backoff = min(self.policy.backoff_base * (2 ** attempt_no), MAX_SINGLE_BACKOFF)
                 retry_hdr = (resp.headers if resp is not None else {})
@@ -1094,6 +1119,26 @@ class SourceClient:
                                       attempt.describe())
             self._status("Idle", 0.0)
             raise FetchFailed(attempt.describe(), FailureReason(attempt.reason), attempt)
+
+    def _note_pushback(self, kind, resp, already_slowed: bool) -> bool:
+        """Feeds a 429 / block / timeout / challenge into the source's
+        automatic slowdown. One request doubles the delays at most once,
+        however many times it is retried. Returns whether it has by now."""
+        if kind is None:
+            return already_slowed
+        retry_after = None
+        if resp is not None:
+            ra = {k.lower(): v for k, v in resp.headers.items()}.get("retry-after")
+            if ra and str(ra).strip().isdigit():
+                retry_after = float(ra)
+        if not pacing.note_trouble(self.source, kind, self.clock(), retry_after,
+                                   escalate=not already_slowed):
+            return already_slowed
+        message = f"Slowed down: {self.source} asked us to wait"
+        self.stats["notice"] = message
+        self._status(message)
+        applog.get_logger().warning(message)
+        return True
 
     def paced(self, fn, url: str, access_method: str, action: str = None):
         """Runs a non-HTTP fetch (e.g. a headless-browser render) under the

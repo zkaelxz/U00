@@ -300,7 +300,9 @@ def http_client(client=None, url: str = "") -> SourceClient:
         return client
     cls = registry.adapter_class_for_url(url)
     return SourceClient(cls.name if cls else GENERIC_SOURCE,
-                        policy=PacingPolicy.from_settings(cls.host_min_interval if cls else None))
+                        policy=PacingPolicy.from_settings(
+                            cls.host_min_interval if cls else None, cls.name if cls else None,
+                            cls.pacing_profile if cls else None))
 
 
 def _default_capabilities(client: SourceClient):

@@ -156,6 +156,7 @@ baihe-subtitler/
 │   ├── base.py                    the adapter interface every site implements
 │   ├── models.py                  shared vocabulary (result/chapter/etc. types) for the system
 │   ├── registry.py                which adapters exist and which are switched on
+│   ├── pacing.py                  per-source pace levels (careful/normal/fast) and the automatic slowdown
 │   ├── pipeline.py                hands fetched content to the rest of the app
 │   ├── detect.py                  names what happened when a fetch didn't go as expected
 │   ├── domains.py                 domain lists for sites that move: ordered failover, last good domain,

@@ -13,6 +13,8 @@ export interface SourceSupports {
   login: boolean
 }
 
+export type SourcePace = 'careful' | 'normal' | 'fast'
+
 export type HealthLight = 'green' | 'yellow' | 'red'
 
 export interface SourceSummary {
@@ -28,6 +30,9 @@ export interface SourceSummary {
   adult_enabled: boolean
   health: HealthLight | string
   has_saved_signin: boolean
+  pace: SourcePace
+  fast_allowed: boolean
+  slowed_down: boolean
 }
 
 export interface SourceHealth {
