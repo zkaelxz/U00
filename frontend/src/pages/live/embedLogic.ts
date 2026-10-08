@@ -209,6 +209,25 @@ export function delayNote(info: PlayerInfo | null, delay: number, opts: { unsupp
     : `Playing about ${m} s behind live.`
 }
 
+/**
+ * Seconds the captions must wait for the picture: the delay it really has, so
+ * a stream that rewinds less than the slider asks is not outrun by its own
+ * captions. 0 while the picture is not behind live (not started, moving,
+ * unreported, ignoring seeks), because holding captions then only makes them
+ * later still. Once a seek was confirmed, a picture that no longer sits at the
+ * target (the viewer used the player's own LIVE button or scrubbed) is held for
+ * what it measures, since the overlay cannot intercept those clicks.
+ */
+export function captionDelay(info: PlayerInfo | null, delay: number, opts: { unsupported: boolean; moving: boolean; unreachable: boolean; offset?: number }): number {
+  const offset = opts.offset ?? 0
+  if (notStarted(info) || opts.unsupported || opts.moving) return 0
+  const m = measuredDelay(info, offset)
+  if (m === null || m > IMPLAUSIBLE_DELAY_S) return 0
+  const reached = delayReached(info, delay, offset)
+  if (opts.unreachable && !reached) return 0
+  return reached ? reachableDelay(info, delay, offset) : m
+}
+
 /** The postMessage payloads for the YouTube player. */
 export const ytListenMessage = () => JSON.stringify({ event: 'listening', id: 1, channel: 'widget' })
 export const ytSeekMessage = (to: number) => JSON.stringify({ event: 'command', func: 'seekTo', args: [to, true] })

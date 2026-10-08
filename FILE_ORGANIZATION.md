@@ -72,6 +72,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `glossary_io.py` (term categories/policies and glossary file import/export)
 - `language_packs.py` (built-in language pack glossaries, read from the JSON files in `language_pack_data/`)
 - `live_agreement.py` (streaming recognition: commits stable words from overlapping Whisper hypotheses into cues)
+- `live_cue_feed.py` (a Live cue shown as transcript first, translation filled in later, by id)
 - `live_cue_translation.py` (the per-cue context and error note for Live)
 - `live_fetch.py`
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
@@ -115,6 +116,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 - `browser_support.py` (JavaScript-page browser/package messages)
 - `bulk_import.py`
+- `device_tokens.py` (the browser extension's per-device token table; rules in `services/device_token_service.py`)
 - `epub_io.py`
 - `known_sites.py`
 - `metadata_lookup.py`
@@ -144,6 +146,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `compare_transcription_service.py`
 - `cover_art_service.py`
 - `delete_service.py`
+- `device_token_service.py`
 - `diagnostics_gaps_service.py`
 - `diagnostics_installs_service.py`
 - `diagnostics_service.py`
@@ -190,6 +193,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `narration_service.py`
 - `notification_service.py`
 - `novel_attach_service.py`
+- `novel_chapters_service.py`
 - `novel_files_service.py`
 - `oidc_service.py`
 - `ownership_service.py`
@@ -248,7 +252,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `reader.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
+`api/schemas/`: `characters.py`, `common.py`, `language_packs.py`, `library.py`, `loaded_models.py`, `novel_chapters.py`, `reader.py`, `review.py`, `sources.py`, `spend_history.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
@@ -266,6 +270,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `characters_routes.py`
 - `comic_routes.py`
 - `delete_routes.py`
+- `device_token_routes.py`
 - `diagnostics_gaps_routes.py`
 - `diagnostics_installs_routes.py`
 - `diagnostics_routes.py`
@@ -342,5 +347,6 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - Nothing writes outside `library/` except exports you explicitly download.
 - Optional dependencies are imported inside functions, never at module top level.
 - Adding a new top-level module, `services/*.py` or `api/routers/*.py` file? Add it as one bullet, in sorted position, to the right group above, in the same PR (a top-level module also gets one sorted line in `expected_files.py`).
+- `sources/chapter_manifest.py`: `raw_novel_chapters.json` beside the raw novel (title, site, time and byte range per imported chapter); `services/novel_chapters_service.py` reads it.
 - `sources/novel_follow.py`: following next-chapter links from a pasted novel URL (`follow_novel`); builds on `sources/adaptive.py`, which does not import it.
 - `sources/extension_marker.py`: the person's "works only through the browser extension" marker per source (`source_extension_only` table in `sources.db`); imports and scheduled checks consult it, `services/sources_extension_service.py` holds the early stop.
