@@ -113,6 +113,11 @@ describe('modelOptionLabel', () => {
   it('uses the server label for an offered extra model', () => {
     expect(modelOptionLabel(engine, 'claude-new')).toContain('newly listed')
   })
+  it('labels any server-flagged cloud model, even without a server label', () => {
+    const cloud = { cloud_models: ['gpt-oss:120b-cloud'] }
+    expect(modelOptionLabel(cloud, 'gpt-oss:120b-cloud')).toMatch(/CLOUD: sends text off this PC/)
+    expect(modelOptionLabel(cloud, 'gemma4:12b')).toBe('gemma4:12b')
+  })
   it('falls back to the id', () => {
     expect(modelOptionLabel(engine, 'claude-sonnet-5')).toBe('claude-sonnet-5')
     expect(modelOptionLabel(undefined, 'x')).toBe('x')

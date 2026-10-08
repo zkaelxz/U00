@@ -26,4 +26,5 @@ from api.schemas.reader import *  # noqa: F401,F403
 from api.schemas.novel_chapters import *  # noqa: F401,F403
 from api.schemas.voice import *  # noqa: F401,F403
 from api.schemas.transcribe import *  # noqa: F401,F403
+from api.schemas.subtitle_import import *  # noqa: F401,F403
 from api.schemas.spend_history import *  # noqa: F401,F403

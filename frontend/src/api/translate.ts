@@ -29,8 +29,14 @@ export function languagePair(
 
 /** What a model picker shows for `model`: its server label when it has one (a model
  *  offered from the provider's list), else the id. */
-export function modelOptionLabel(engine: { model_labels?: Record<string, string> } | null | undefined, model: string): string {
-  return engine?.model_labels?.[model] ?? model
+export function modelOptionLabel(
+  engine: { model_labels?: Record<string, string>; cloud_models?: string[] } | null | undefined,
+  model: string,
+): string {
+  const label = engine?.model_labels?.[model]
+  if (label) return label
+  // The server decides what is a cloud tag; a hosted model is never shown as plain text.
+  return engine?.cloud_models?.includes(model) ? `${model} -- CLOUD: sends text off this PC` : model
 }
 
 // Engines that can run now (key configured). The Translate page lists these
