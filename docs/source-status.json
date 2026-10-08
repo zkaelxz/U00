@@ -62,7 +62,7 @@
       "status": "confirmed_live",
       "last_verified": "",
       "reason": "",
-      "notes": "Mirrors: `baozimh.org`, `godamh.com`, `baozimh.one`, `bzmh.org`, `g-mh.org`. **`www.twbzmg.com` is the same brand (Taiwan-region deployment) but not yet added/verified as a mirror — don't assume it shares selectors.**",
+      "notes": "Mirrors: `baozimh.org`, `godamh.com`, `baozimh.one`, `bzmh.org`, `g-mh.org`. **`www.twmanga.com` and `www.twbzmg.com` are regional mirrors of the blocked `baozimh.com` brand (footer '© 2026 BAOZIMH.COM 包子漫畫'), NOT part of the godamh/baozimh.org family this adapter targets (JSON API on `api-get-v3.mgsearcher.com`, `/manga/<slug>` paths); they use `/comic/<slug>` and `/comic/chapter/<slug>/<section>_<chapter>.html`. Don't assume they share selectors. No adapter exists for them; the owner's fallback is the browser extension. Vetting: `docs/research/twmanga-vetting.md`.**",
       "hosts": [
         "baozimh.org",
         "godamh.com",
