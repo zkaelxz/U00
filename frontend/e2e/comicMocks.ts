@@ -230,7 +230,7 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
     if (opts.pagesDelayMs) await new Promise((r) => setTimeout(r, opts.pagesDelayMs))
     const hidden = new Set(opts.hidden ?? [])
     const groups = (opts.chapters ?? []).map((c, k, all) => ({
-      id: `src:c${k + 1}`, title: c.title, known: true, host: 'reader.example',
+      id: `src:c${k + 1}`, title: c.title, known: true,
       first_page: all.slice(0, k).reduce((n, g) => n + g.pages, 0) + 1, page_count: c.pages, hidden_count: 0,
     }))
     const groupOf = (i: number) => groups.find((g) => i + 1 >= g.first_page && i + 1 < g.first_page + g.page_count)
