@@ -19,9 +19,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, WHISPER_SIZES,
-  advancedSummary, appendCues, buildStartBody, checkLiveUrl, describeLiveError, feedCues, fmtTs, getLive, isActive,
-  listLive, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
+  DEFAULT_FORM, DEFAULT_OPTIONS, LIVE_DEFAULT_ENGINE, LIVE_DEFAULT_MODEL, LIVE_LANGUAGES, MAX_MINUTES_RANGE, MAX_URL_LEN, OVERLAP_RANGE, POLL_MS, SEGMENT_RANGE, THINKING_SWITCH_ENGINES, WHISPER_SIZES,
+  advancedSummary, appendCues, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, getLive, isActive,
+  listLive, pickEngine, pickSession, resolveModel, startLive, statusLine, stopLive, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
 import { Field } from '../components/Field'
@@ -79,13 +79,30 @@ export default function LivePage() {
   }, [])
 
   const usable = engines ? usableEngines(engines) : []
-  const engine = usable.some((e) => e.name === form.engine) ? form.engine : (usable[0]?.name ?? '')
+  const engine = pickEngine(usable, form.engine)
 
+  const canSwitchThinking = THINKING_SWITCH_ENGINES.includes(engine)
   const engineEntry = usable.find((e) => e.name === engine)
   const { model, fellBack } = resolveModel(engineEntry, form.model)
   const modelNote = enginesFailed
     ? "Couldn't load the model list; the engine's default model will be used."
     : fellBack ? "That model isn't offered any more; the engine's default model will be used." : null
+
+  // Ollama is the default and runs on this PC: say plainly when it is not
+  // there, instead of failing at Start. Nothing switches engine for the user.
+  const [ollamaNote, setOllamaNote] = useState<string | null>(null)
+  const [recheck, setRecheck] = useState(0)
+  const checkModel = engine === 'ollama' ? model : null
+  useEffect(() => {
+    setOllamaNote(null)
+    if (checkModel === null) return
+    let alive = true
+    checkOllama(checkModel).then(
+      (r) => { if (alive) setOllamaNote(r.ok ? null : (r.message ?? 'Ollama is not ready.')) },
+      () => {},
+    )
+    return () => { alive = false }
+  }, [checkModel, recheck])
 
   // Poll the shown session: at once, then every POLL_MS while it is active.
   const sessionId = session?.id
@@ -229,8 +246,17 @@ export default function LivePage() {
             </select>
           </Field>
           <ModelSelect engine={engineEntry} value={model} disabled={active} onChange={(m) => setOpt('model', m)}
-            help="Engine default uses the model the engine runs on its own." />
+            defaultModel={engine === LIVE_DEFAULT_ENGINE ? LIVE_DEFAULT_MODEL : undefined}
+            help={engine === LIVE_DEFAULT_ENGINE
+              ? 'Runs on this PC through Ollama. Pick another engine above to send the text to a hosted service instead.'
+              : 'Engine default uses the model the engine runs on its own.'} />
         </div>
+        {ollamaNote && (
+          <p className="error" role="alert" data-testid="live-ollama-note">
+            {ollamaNote} Pick another engine above, or fix Ollama and{' '}
+            <button type="button" className="link" onClick={() => setRecheck((n) => n + 1)}>check again</button>.
+          </p>
+        )}
         {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
         <Section storageKey="live.advanced" title="Advanced" summary={advancedSummary(form)}>
           <div className="field-row">
@@ -260,6 +286,17 @@ export default function LivePage() {
             <input type="checkbox" checked={form.use_gpu} disabled={active} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
             Use GPU for Whisper
           </label>
+          <Field label="Reply without thinking"
+            help="Faster lines: the translator answers straight away instead of reasoning first. Works with Ollama and DeepSeek.">
+            <Toggle checked={form.reply_without_thinking && canSwitchThinking}
+              disabled={active || !canSwitchThinking}
+              onChange={(v) => setOpt('reply_without_thinking', v)} />
+          </Field>
+          {!canSwitchThinking && (
+            <p className="muted" data-testid="live-thinking-note">
+              {engineShortName({ name: engine })} can't switch thinking off from here, so this setting doesn't apply to it.
+            </p>
+          )}
         </Section>
         <div className="actions">
           {active ? (

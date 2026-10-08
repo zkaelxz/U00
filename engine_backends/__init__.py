@@ -13,6 +13,7 @@ translate_engines at call time.
   openai_compat.py      DeepSeekEngine, OpenAIEngine
   gemini.py             GeminiEngine, rate-limit status, free-tier limits
   local.py              OllamaEngine, Ollama reachability
+  thinking.py           the "reply without thinking" switch (DeepSeek, Ollama)
   llm_tasks.py          call_llm_json and the single-prompt features (speaker
                         tagging, pacing, consistency, summaries, flagging)
   engine_registry.py    ENGINES, capability tags, notes, model overrides, get_engine

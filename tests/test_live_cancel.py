@@ -290,6 +290,7 @@ class TestBlockedLookupAndCapture:
         finally:
             if proc.poll() is None:
                 background_jobs.kill_tree(proc)
+            proc.stdin.close()
 
     @pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
     def test_stop_capture_kill_skips_the_graceful_wait(self):
@@ -307,6 +308,15 @@ def _gone(pid):
         with open(f"/proc/{pid}/stat") as fh:
             return fh.read().split(")")[-1].split()[0] == "Z"
     except FileNotFoundError:
-        return True
+        if os.path.isdir("/proc"):
+            return True
+        # No /proc (macOS): a missing file says nothing, so probe the pid itself.
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            return False
+        return False
     except OSError:
         return False

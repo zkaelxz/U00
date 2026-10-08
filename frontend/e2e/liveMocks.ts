@@ -26,6 +26,7 @@ export const cue = (n: number) => ({
 })
 
 interface LiveMocks {
+  ollamaChecks: string[]
   posts: { url: string; body: unknown; headers: Record<string, string> }[]
   polls: string[]
   unmocked: string[]
@@ -41,9 +42,9 @@ interface LiveMocks {
 
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
 
-export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean } = {}): Promise<LiveMocks> {
+export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
-    posts: [], polls: [], unmocked: [],
+    posts: [], polls: [], unmocked: [], ollamaChecks: [],
     state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, model: null },
   }
   // Registered first, so it only answers what nothing below handles.
@@ -71,6 +72,13 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   await page.route('**/api/translate/engines', (route) => opts.enginesFail
     ? json(route, { error: { code: 'internal', message: 'Boom.' } }, 500)
     : json(route, { items: opts.ollama ? [OLLAMA, ...ENGINES] : ENGINES }))
+  await page.route('**/api/live/ollama-check*', (route) => {
+    const model = new URL(route.request().url()).searchParams.get('model') ?? ''
+    m.ollamaChecks.push(model)
+    return json(route, opts.ollamaMissing
+      ? { ok: false, model, message: `Ollama doesn't have the model ${model}. Run "ollama pull ${model}" first, or pick another model in Settings.` }
+      : { ok: true, model, message: null })
+  })
   // The header asks whether to show the Assistant link (Developer Mode off).
   await page.route('**/api/assistant/settings', (route) => json(route, { developer_mode: false, engine: null, model: null, engine_choices: [] }))
   await page.route('**/api/live/sessions', (route) => {

@@ -49,7 +49,7 @@ test('live page on a phone: the model picker fits and is a 44px target', async (
   await expect(live.getByLabel('Model', { exact: true })).toBeVisible()
   await noSideways(page)
   expect(await smallTargets(page)).toEqual([])
-  await live.getByLabel('Model', { exact: true }).selectOption('gemma4:12b')
+  await expect(live.getByLabel('Model', { exact: true })).toHaveValue('gemma4:12b')
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   await live.getByRole('button', { name: 'Start', exact: true }).tap()
   await expect.poll(() => m.posts.length).toBe(1)

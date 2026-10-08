@@ -12,6 +12,10 @@ import time
 
 import background_jobs
 
+# background_jobs.py is frozen, so it has no public hook for "set a field on a
+# running job and announce it"; this module takes its lock and calls its private
+# _mirror_locked/_emit_change itself. Replace with a public helper when the
+# freeze lifts.
 _timers = {}   # job_id -> the pending slow-note timer of its current stage
 
 
@@ -37,8 +41,8 @@ def set_stage(job_id: str, message: str, cancel_message: str = None,
         # While cancelling, annotate() keeps showing the cancel text.
         if not job.get("cancel_requested"):
             job["message"] = message
+        # _mirror_locked also pushes the change event.
         background_jobs._mirror_locked(job_id)
-        background_jobs._emit_change(job_id)
     previous = _timers.pop(job_id, None)
     if previous is not None:
         previous.cancel()
@@ -53,6 +57,14 @@ def set_stage(job_id: str, message: str, cancel_message: str = None,
         timer.daemon = True
         _timers[job_id] = timer
         timer.start()
+
+
+def clear_stage(job_id: str):
+    """Drops the job's pending slow-note timer; call when its thread ends, or
+    one Timer per finished job would stay in _timers for the life of the process."""
+    timer = _timers.pop(job_id, None)
+    if timer is not None:
+        timer.cancel()
 
 
 def annotate(job):
