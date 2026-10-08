@@ -114,7 +114,7 @@ The table has 174 rows. 10 are not pending (listed at the end), leaving **163**.
 |---|---|---|
 | 1 | Translation pronouns/honorifics from real model output | real LLM |
 | 1c | Dependency fixes: YouTube clip, speaker detection, Ollama, edge-tts | real site, models, audio |
-| 1d | Free engines run every AI button | real Ollama/NLLB/Gemini free tier; the "Test mode" engine no longer exists (free set is `ollama`, `nllb`, `engine_registry.py`) |
+| 1d | Free engines run every AI button | real Ollama/Gemini free tier; the "Test mode" engine no longer exists (free set is `ollama`, `engine_registry.py`) |
 | 1f | Gemini free-tier rate checker | real Gemini key vs AI Studio dashboard |
 | 4 | Re-run speaker detection with a new speaker count | needs saved diarization from real audio |
 | 4d | Real mid-run stop for speaker detection | real long audio, CPU/GPU monitor |
@@ -122,7 +122,7 @@ The table has 174 rows. 10 are not pending (listed at the end), leaving **163**.
 | 4g | Vocal separation progress and cancel | real audio and model |
 | 4h | Word-level realignment dependency message | needs torch/torchaudio installed with only `uroman` missing |
 | 4i | Large job result completes | real diarization or dub on 250+ lines |
-| 5 | Ollama uses qwen3:8b, no OOM | real GPU; the roadmap already resolved the general figures |
+| 5 | Ollama uses gemma4:12b, no OOM | real GPU; the roadmap already resolved the general figures |
 | 5b | Ollama URL, merge preview, Live capture js_runtimes | real Ollama and a live YouTube stream |
 | 5c | Global GPU-job guard | real GPU jobs (a transcription and an OCR) |
 | 6 | Transcription quality, SenseVoice, Groq ASR | real audio, models, Groq key |
@@ -160,7 +160,7 @@ The table has 174 rows. 10 are not pending (listed at the end), leaving **163**.
 | 23k | Authenticated browser-assisted extraction | real account |
 | 23l | zerosumonline adapter, generic import of five sites | real sites (the mangaz half is gone, #648) |
 | 25 | Transcript paste then Transcribe & Align after closing the tab | real audio and alignment model |
-| 25c | Offline Piper voice produces audio | real Piper voice |
+| 25c | Offline Piper voice produces audio | nothing to check: Piper was removed |
 | 25f | Navigator translate-page, baihehub search | real key and site |
 | 25g | ToS-refused import; two unvoiced characters dub differently | real TTS for the second half |
 | 25u | Discover translation with Ollama and no key | real Ollama |

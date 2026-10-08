@@ -39,6 +39,7 @@ import core
 import db
 import translate_engines
 import translation_guide
+from engine_backends.engine_registry import legacy_ids
 from services import (engine_routing_service, library_service, settings_service,
                       translate_service, workspace_job_service)
 from services.service_errors import (
@@ -312,8 +313,7 @@ def _require_offered_model(engine_name: str, model) -> None:
     (translate_service.list_engines, the same list preset saving checks);
     ollama takes any safe-shaped name (_is_safe_ollama_model); an engine
     without a model list allows only its own default. A free-form model
-    string would otherwise reach the engine as is (nllb hands it to
-    transformers.pipeline as a Hugging Face repo id)."""
+    string would otherwise reach the engine as is."""
     if model is None:
         return
     if engine_name == "ollama":
@@ -324,7 +324,7 @@ def _require_offered_model(engine_name: str, model) -> None:
                    if e["name"] == engine_name), None)
     allowed = models if models is not None else [
         translate_engines.builtin_default_model(engine_name), _default_model(engine_name)]
-    if not isinstance(model, str) or model not in allowed:
+    if not isinstance(model, str) or model not in (*allowed, *legacy_ids(engine_name)):
         raise InvalidInputError("That model isn't offered for this engine.")
 
 
@@ -451,7 +451,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     for c in chain:
         name = c["engine"]
         api_key = translate_service.resolve_api_key(name)
-        if api_key is None and name != "nllb":
+        if api_key is None:
             raise MissingKeyError(name)
         free_tier = name == "gemini" and gemini_free_tier
         if free_tier and c["model"] in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
@@ -533,7 +533,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
         summary_monthly_cap_usd=month_cap_usd() or None,
         target_ids=target_ids, own_lines_only=own_lines_only,
-        gpu_touching=any(c["engine"] == "ollama" for c in chain),
+        gpu_touching=translate_engines.chain_touches_local_gpu(chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})")
     if not started:
         raise ConflictError("A translation is already running for this drama.")

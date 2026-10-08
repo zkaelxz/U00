@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { CATALOGUE_TAB_ENABLED } from '../src/pages/discover/discoverFormat'
 import { mockDiscover, openTab, posts } from './discoverMocks'
 
 // Desktop: the Discover page (#/discover). Every /api/discover call is mocked (discoverMocks.ts).
@@ -9,7 +10,10 @@ const openSection = async (page: Page, title: string) => {
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
-test('nav entry, empty catalogue loads starter titles, search and filters', async ({ page }) => {
+// The Catalogue tab is hidden while CATALOGUE_TAB_ENABLED is false.
+const catalogueTest = CATALOGUE_TAB_ENABLED ? test : test.skip
+
+catalogueTest('nav entry, empty catalogue loads starter titles, search and filters', async ({ page }) => {
   const s = await mockDiscover(page, { titles: [] })
   await page.goto('/#/discover')
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Discover' })).toHaveAttribute('aria-current', 'page')
@@ -39,13 +43,13 @@ test('opening the page makes no 404 request to /api/discover', async ({ page }) 
   })
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
-  await expect(page.getByTestId('catalog-count')).toBeVisible()
+  if (CATALOGUE_TAB_ENABLED) await expect(page.getByTestId('catalog-count')).toBeVisible()
   await expect.poll(() => s.calls.some((c) => c.path.endsWith('/bulk-extract/result'))).toBe(true)
   await expect.poll(() => s.calls.some((c) => c.path.endsWith('/navigation-help/result'))).toBe(true)
   expect(notFound).toEqual([])
 })
 
-test('add to Library, already-added 409, PC-only remove', async ({ page }) => {
+catalogueTest('add to Library, already-added 409, PC-only remove', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
   const list = page.getByTestId('catalog-list')
@@ -68,7 +72,7 @@ test('add to Library, already-added 409, PC-only remove', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('remote viewer: no remove button', async ({ page }) => {
+catalogueTest('remote viewer: no remove button', async ({ page }) => {
   await mockDiscover(page, { local: false })
   await page.goto('/#/discover')
   await expect(page.getByTestId('catalog-list').getByText('Deleting is PC only.').first()).toBeVisible()
@@ -158,7 +162,7 @@ test('add a title from a URL suggestion, then by hand', async ({ page }) => {
     title_original: '雪夜', title_en: 'Snow Night', author: 'Lin', tags: '', summary_en: 'Two girls, one winter.',
     source_name: 'url', source_url: 'https://example.cn/snow', language: 'zh', media_type: 'audio_drama',
   })
-  await expect(page.getByTestId('catalog-count')).toHaveText('3 of 3 saved titles')
+  if (CATALOGUE_TAB_ENABLED) await expect(page.getByTestId('catalog-count')).toHaveText('3 of 3 saved titles')
 
   // By hand: the title is required.
   await page.getByRole('button', { name: 'Add to catalogue' }).click()
@@ -200,7 +204,7 @@ test('bulk import: pattern, extract job, review, add', async ({ page }) => {
 })
 
 test('no configured engine: AI actions say what is missing', async ({ page }) => {
-  await mockDiscover(page, { engines: [{ name: 'nllb', label: 'NLLB', free: false, models: null, key_configured: true }] })
+  await mockDiscover(page, { engines: [{ name: 'fake_mt', label: 'Fake MT', free: false, models: null, key_configured: true }] })
   await page.goto('/#/discover')
   await expect(page.getByTestId('no-engine')).toBeVisible()
   await openTab(page, 'Find a title')
@@ -210,20 +214,37 @@ test('no configured engine: AI actions say what is missing', async ({ page }) =>
   await expect(page.getByRole('button', { name: 'Extract entries' })).toBeDisabled()
 })
 
-test('tabs: catalogue first, remembered choice, one panel at a time', async ({ page }) => {
+test('tabs: first tab by default, remembered choice, one panel at a time', async ({ page }) => {
   await mockDiscover(page)
   await page.goto('/#/discover')
   const tabs = page.getByRole('tablist', { name: 'Discover tasks' }).getByRole('tab')
-  await expect(tabs).toHaveText(['Catalogue', 'Find a title', 'Add titles'])
+  await expect(tabs).toHaveText(CATALOGUE_TAB_ENABLED ? ['Catalogue', 'Find a title', 'Add titles'] : ['Find a title', 'Add titles'])
   await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByTestId('catalog-list')).toBeVisible()
-  await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeHidden()
-  await openTab(page, 'Find a title')
+  if (CATALOGUE_TAB_ENABLED) {
+    await expect(page.getByTestId('catalog-list')).toBeVisible()
+    await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeHidden()
+    await openTab(page, 'Find a title')
+    await expect(page.getByTestId('catalog-list')).toBeHidden()
+  } else {
+    await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeVisible()
+    await expect(page.getByTestId('catalog-list')).toHaveCount(0)
+    await openTab(page, 'Add titles')
+    await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeHidden()
+    await openTab(page, 'Find a title')
+  }
   await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeVisible()
-  await expect(page.getByTestId('catalog-list')).toBeHidden()
   await page.reload()
   await expect(page.getByRole('tab', { name: 'Find a title' })).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('tab', { name: 'Find a title' }).press('ArrowRight')
   await expect(page.getByRole('tab', { name: 'Add titles' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByLabel('Fill from a page (optional)')).toBeVisible()
+})
+
+test('a saved Catalogue tab choice falls back to the first visible tab', async ({ page }) => {
+  test.skip(CATALOGUE_TAB_ENABLED, 'only meaningful while the tab is hidden')
+  await mockDiscover(page)
+  await page.addInitScript(() => window.localStorage.setItem('baihe.discover.tab', 'catalogue'))
+  await page.goto('/#/discover')
+  await expect(page.getByRole('tab', { name: 'Find a title' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeVisible()
 })

@@ -16,7 +16,6 @@ import { visibleRailGroups, type NavContext } from './navItems'
 // Feather-style 24px paths, keyed by registry label. Labels stay the accessible names when the rail is collapsed.
 const ICONS: Record<string, string> = {
   Library: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15zM20 22H6.5A2.5 2.5 0 0 1 4 19.5',
-  'Saved manga': 'M4 4h6v16H4zM14 4h6v16h-6z',
   'Library tools': 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z',
   Sources: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18',
   Discover: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5',

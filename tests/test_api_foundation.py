@@ -371,7 +371,7 @@ class TestSettingsEndpoint:
 
     def test_overview_contract_shape(self, client, isolated_db):
         body = client.get("/api/settings").json()
-        assert set(body) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "notify_on_completion",
+        assert set(body) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "unload_ollama_before_transcribe", "notify_on_completion",
                              "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "preferences", "endpoints",
                              "upload_max_mb_from_env", "effective_upload_max_mb",
                              "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
@@ -475,7 +475,7 @@ class TestTranslateEndpoints:
         monkeypatch.setattr(translate_engines, "standalone_direction_support",
                             lambda *a: (False, "Not supported."))
         resp = client.post("/api/translate", json={
-            "text": "hello", "engine": "nllb",
+            "text": "hello", "engine": "fake_mt",
             "source_language": "en", "target_language": "zh",
         })
         assert resp.status_code == 400
@@ -826,6 +826,14 @@ class TestTranscribeConfigEndpoints:
     everything start action -- see services/transcribe_service.py's own
     docstring for the scope decision and what's deliberately out."""
 
+    def test_a_title_saved_with_the_removed_moss_backend_loads_with_a_notice(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D", asr_backend_choice="moss_td", source_language="ko")
+        resp = client.get(f"/api/transcribe/dramas/{did}/config")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["asr_backend_choice"] == "whisper" and "MOSS" in body["asr_backend_notice"]
+        assert isolated_db.get_drama(did)["asr_backend_choice"] == "moss_td"
+
     def test_get_config_contract_shape(self, client, isolated_db):
         from services import transcribe_service
         did = isolated_db.create_drama(title_en="D")
@@ -833,7 +841,8 @@ class TestTranscribeConfigEndpoints:
         assert body == {
             "drama_id": did, "transcript_mode": "have_transcript", "has_audio_pipeline": True,
             "audio_available": False, "alignment_method": "whisper_diff",
-            "asr_backend_choice": "whisper", "whisper_size": core.DEFAULT_WHISPER_SIZE,
+            "asr_backend_choice": "whisper", "asr_backend_notice": None,
+            "whisper_size": core.DEFAULT_WHISPER_SIZE,
             "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None, "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": body["whisper_installed"],

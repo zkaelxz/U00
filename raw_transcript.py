@@ -49,7 +49,7 @@ def _git_commit() -> str:
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--short=12", "HEAD"], cwd=os.path.dirname(os.path.abspath(__file__)),
-            capture_output=True, text=True, timeout=3, check=False)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3, check=False)
         return out.stdout.strip() if out.returncode == 0 else ""
     except Exception:
         return ""

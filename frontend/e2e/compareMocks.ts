@@ -12,7 +12,7 @@ export const OPTIONS = {
     { id: 'whisper', label: 'Whisper', available: true, reason: null },
     { id: 'qwen3_asr', label: 'Qwen3 ASR', available: false, reason: 'Qwen3-ASR needs torch, which isn’t installed yet. Open Diagnostics to install it.' },
     { id: 'qwen3_asr_vad', label: 'Qwen3 ASR with speech detection', available: false, reason: 'Qwen3-ASR needs torch, which isn’t installed yet. Open Diagnostics to install it.' },
-    { id: 'moss_td', label: 'MOSS (experimental)', available: false, reason: 'MOSS is experimental and turned off.' },
+    { id: 'qwen3_asr_long', label: 'Qwen3 ASR on long windows', available: false, reason: 'Qwen3-ASR needs torch, which isn’t installed yet. Open Diagnostics to install it.' },
   ],
   translation_engine: 'claude',
 }

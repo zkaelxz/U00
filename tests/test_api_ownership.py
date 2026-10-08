@@ -40,6 +40,8 @@ NON_ADMIN = auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS + auth_service.OPT_IN_PER
 # covers the parent; the service scopes the child to it) or not drama-scoped.
 OWNERSHIP_EXEMPT_PARAMS = {
     "title_id": "discover known_titles: household-wide (plan B, decision 6)",
+    "pack_id": "a built-in language pack id, not an item (read-only data shipped with the app)",
+    "language": "a source language code for the language-pack default (admin.settings)",
     "name": "a source adapter name or a model file name, not an item",
     "notification_id": "source notifications: household-wide (decision 6)",
     "chapter_id": "a source chapter id, not an item; the AI-recover route takes the drama in "
@@ -54,7 +56,6 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "report_id": "bug report (admin.diagnostics / PC-only)",
     "channel": "notification channel (PC-only)",
     "revision": "a Hugging Face model-cache revision, not an item (PC-only delete)",
-    "voice": "a Piper voice in the model cache, not an item (PC-only delete)",
     "backlog_id": "maintenance-assistant backlog item: app-wide, PC-only (Step 42)",
     "case_id": "benchmark case: household-wide admin tool (admin.diagnostics / PC-only)",
     "run_id": "benchmark run record: household-wide admin tool (admin.diagnostics)",

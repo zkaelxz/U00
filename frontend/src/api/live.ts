@@ -5,8 +5,10 @@
  * reading is `library.read`, stopping `jobs.cancel`. Sessions live in the
  * API process only: a 404 after a restart means the session is gone.
  */
+import type { TranslateEngine } from '../types/translate'
 import type {
   LiveCue,
+  LiveOllamaCheck,
   LiveSessionStart,
   LiveSessionStarted,
   LiveSessionStatus,
@@ -35,26 +37,38 @@ const FEED_SHOWN = 50
 const CUES_KEPT = 1000
 export const POLL_MS = 2000
 
+// What the form starts on: Ollama with this model, so the audio's text stays on
+// this PC. Another engine is one pick away.
+export const LIVE_DEFAULT_ENGINE = 'ollama'
+export const LIVE_DEFAULT_MODEL = 'gemma4:12b'
+// Engines whose request can switch thinking off (engine_backends/thinking.py).
+export const THINKING_SWITCH_ENGINES = ['deepseek', 'ollama']
+
 export interface LiveForm {
   url: string
   source_language: string
   engine: string
+  // '' = the engine's own default model.
+  model: string
   whisper_size: string
   segment_seconds: number
   overlap_seconds: number
   max_minutes: number
   use_gpu: boolean
+  reply_without_thinking: boolean
 }
 
 export const DEFAULT_FORM: LiveForm = {
   url: '',
   source_language: 'zh',
   engine: '',
+  model: '',
   whisper_size: 'small',
   segment_seconds: 20,
   overlap_seconds: 3,
   max_minutes: 60,
   use_gpu: false,
+  reply_without_thinking: true,
 }
 
 // The options remembered per browser (everything but the link).
@@ -67,6 +81,9 @@ const sessionPath = (id: string) => {
   return `/api/live/sessions/${id}`
 }
 
+/** No model asks about the one Start runs when none is chosen: the server decides, so the answer can't drift from it. */
+export const checkOllama = (model: string, f?: Fetch) =>
+  getJson<LiveOllamaCheck>(model ? `/api/live/ollama-check?model=${encodeURIComponent(model)}` : '/api/live/ollama-check', f)
 export const startLive = (body: LiveSessionStart, f?: Fetch) =>
   postJson<LiveSessionStarted>('/api/live/sessions', body, f)
 export const listLive = (f?: Fetch) => getJson<LiveSessionSummary[]>('/api/live/sessions', f)
@@ -92,6 +109,22 @@ export function checkLiveUrl(url: string): string | null {
 const clamp = (v: number, [lo, hi]: [number, number], fallback: number) =>
   Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback
 
+/** The engine to show: the remembered one if it can run, else Ollama, else the first that can. */
+export function pickEngine(usable: Pick<TranslateEngine, 'name'>[], saved: string): string {
+  if (usable.some((e) => e.name === saved)) return saved
+  return (usable.find((e) => e.name === LIVE_DEFAULT_ENGINE) ?? usable[0])?.name ?? ''
+}
+
+/** The remembered model if the engine still offers it, else '' (its default);
+ *  `fellBack` is true when a remembered choice had to be dropped. */
+export function resolveModel(engine: Pick<TranslateEngine, 'name' | 'models'> | undefined, saved: string): { model: string; fellBack: boolean } {
+  // Ollama's form default is a named model, so '' and a dropped choice both land on it.
+  const fallback = engine?.name === LIVE_DEFAULT_ENGINE && engine.models?.includes(LIVE_DEFAULT_MODEL) ? LIVE_DEFAULT_MODEL : ''
+  if (!saved) return { model: fallback, fellBack: false }
+  const ok = !!engine?.models?.includes(saved)
+  return { model: ok ? saved : fallback, fellBack: !ok }
+}
+
 /** The POST body: numbers clamped as the service would, overlap at most half the chunk. */
 export function buildStartBody(form: LiveForm): LiveSessionStart {
   const segment = Math.round(clamp(form.segment_seconds, SEGMENT_RANGE, DEFAULT_FORM.segment_seconds))
@@ -103,8 +136,10 @@ export function buildStartBody(form: LiveForm): LiveSessionStart {
     segment_seconds: segment,
     overlap_seconds: overlap,
     engine: form.engine || null,
+    model: form.model || null,
     max_minutes: clamp(form.max_minutes, MAX_MINUTES_RANGE, DEFAULT_FORM.max_minutes),
     use_gpu: form.use_gpu === true,
+    reply_without_thinking: form.reply_without_thinking !== false,
   }
 }
 
@@ -136,8 +171,8 @@ export function pickSession(list: LiveSessionSummary[]): string | null {
 }
 
 /** One status line for the session. */
-export function statusLine(s: Pick<LiveSessionStatus, 'status' | 'message'>, lines: number): string {
-  const n = `${lines} line${lines === 1 ? '' : 's'}`
+export function statusLine(s: Pick<LiveSessionStatus, 'status' | 'message'> & { model?: string | null }, lines: number): string {
+  const n = `${lines} line${lines === 1 ? '' : 's'}${s.model ? ` · ${s.model}` : ''}`
   switch (s.status) {
     case 'queued':
       return s.message || 'Waiting for the GPU…'
@@ -154,7 +189,7 @@ export function statusLine(s: Pick<LiveSessionStatus, 'status' | 'message'>, lin
 
 /** One line for the Advanced summary (its current values). */
 export function advancedSummary(f: LiveForm): string {
-  return `Whisper ${f.whisper_size} · chunk ${f.segment_seconds}s · overlap ${f.overlap_seconds}s · stop after ${f.max_minutes} min · ${f.use_gpu ? 'GPU' : 'CPU'}`
+  return `Whisper ${f.whisper_size} · chunk ${f.segment_seconds}s · overlap ${f.overlap_seconds}s · stop after ${f.max_minutes} min · ${f.use_gpu ? 'GPU' : 'CPU'} · ${f.reply_without_thinking ? 'no thinking' : 'thinking allowed'}`
 }
 
 // A 403 on start: from another device this needs a permission the owner grants.

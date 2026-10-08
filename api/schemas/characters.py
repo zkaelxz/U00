@@ -58,21 +58,22 @@ __all__ = [
 
 class CharactersEntry(BaseModel):
     """One speaker's character/voice settings. No reference-audio
-    filename or path -- only the two booleans (D2)."""
+    filename or path -- only the two booleans."""
     speaker_label: str
     character_name: str
     voice_actor: str = ""
     pronouns: str
-    tts_voice: str
-    offline_voice: str
     clone_engine: str
+    # Plain reason the stored clone_engine can't generate any more (it was
+    # removed); "" when it is fine or unset.
+    clone_engine_removed: str = ""
     voice_design: str
     has_ref_audio: bool
     ref_text_present: bool
     series_character_id: Optional[int] = None
     series_character_name: str
     line_count: int
-    # C07/C04: the linked series character's pronouns (the default when
+    # The linked series character's pronouns (the default when
     # this drama sets none) and up to two short sample source lines.
     series_pronouns: str = ""
     sample_lines: List[str] = Field(default_factory=list)
@@ -88,8 +89,6 @@ class CharactersUpdateRequest(BaseModel):
     character_name: Optional[str] = None
     voice_actor: Optional[str] = None
     pronouns: Optional[str] = None
-    tts_voice: Optional[str] = None
-    offline_voice: Optional[str] = None
     clone_engine: Optional[str] = None
     voice_design: Optional[str] = None
     ref_text: Optional[str] = None
@@ -165,7 +164,7 @@ class GlossaryTermUpsert(BaseModel):
 
 
 class GlossaryImportRequest(BaseModel):
-    """Parity T03: a glossary file's text (CSV, TSV or JSON), pasted or read
+    """A glossary file's text (CSV, TSV or JSON), pasted or read
     by the browser; filename only hints the format. overwrite_existing
     needs confirm=true."""
     model_config = ConfigDict(extra="forbid")
@@ -184,7 +183,7 @@ class GlossaryImportResult(BaseModel):
 
 
 class GlossaryBulkDeleteRequest(BaseModel):
-    """Parity X13: term ids (never positions); needs confirm=true."""
+    """Term ids (never positions); needs confirm=true."""
     model_config = ConfigDict(extra="forbid")
     term_ids: List[StrictInt] = Field(min_length=1, max_length=1000)
     confirm: StrictBool = False
@@ -287,7 +286,7 @@ class NovelGlossaryApplyResult(BaseModel):
     unknown: List[str]
 
 
-# Parity X15-X17: add and edit a series' people
+# Add and edit a series' people
 # (services/series_people_service.py). Responses reuse CharactersSeriesEntry.
 # ---------------------------------------------------------------------------
 class SeriesPersonCreate(BaseModel):
@@ -309,7 +308,7 @@ class SeriesPersonUpdate(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Characters extras (inventory C02, C08): recurring-voice suggestions and
+# Characters extras: recurring-voice suggestions and
 # "remember as a known series character" (services/characters_service.py).
 # ---------------------------------------------------------------------------
 class CharactersVoiceSuggestion(BaseModel):
@@ -406,7 +405,7 @@ class CharactersRememberResult(BaseModel):
     created: bool
 
 
-# Glossary helpers (parity X10/X28): glossary from the drama's source lines,
+# Glossary helpers: glossary from the drama's source lines,
 # and per-term edits on applying either extraction's proposals.
 # ---------------------------------------------------------------------------
 class LinesGlossaryRunResult(BaseModel):

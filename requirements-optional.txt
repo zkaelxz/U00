@@ -5,16 +5,13 @@
 openai>=1.30            # DeepSeek (OpenAI-compatible API)
 transformers>=5.15      # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
                          # transformers' own classes; 5.13/5.14 lack `prompt=` and the
-                         # language prefill, so 5.15 is the floor), the local NLLB-200 engine
-                         # (genuinely free, fully offline, no API key ever; downloads a model,
-                         # 2.4-5.2GB depending on size picked on first use), Scanlate's ML
+                         # language prefill, so 5.15 is the floor), Scanlate's ML
                          # bubble detector and PaddleOCR-VL-For-Manga.
-                         # Chatterbox (==5.2.0), TADA (<5) and qwen-tts (==4.57.3) pin other
-                         # transformers versions and can't share this environment.
                          # On Python 3.13/3.14, verify torch installs a CUDA build before relying
                          # on GPU inference:
                          #   python -c "import torch; print(torch.cuda.is_available())"
-sentencepiece>=0.2.1      # tokenizer NLLB-200 needs
+sentencepiece>=0.2.1      # tokenizer PaddleOCR-VL-For-Manga declares (LlamaTokenizer,
+                         # tokenizer.model)
 
 # --- download audio/video directly from a URL (video_download.py) ---
 yt-dlp>=2026.7.4          # YouTube and many other sites. Update often
@@ -36,26 +33,12 @@ soundfile>=0.12         # diarize.py reads the normalized audio.wav through
 nagisa>=0.2
 soynlp>=0.0.493
 
-f5-tts>=0.9             # local, GPU recommended
-
-# Novel narration voices (optional, local; GPU strongly recommended). Pick
-# one per character in Workspace section 6; each downloads its own model on
-# first use. Left commented out because they can't all share one
-# environment: OmniVoice needs transformers>=5.3 (it shares an environment
-# with Qwen3-ASR), Chatterbox pins
-# transformers==5.2.0 and torch==2.6.0, and TADA needs transformers<5 and
-# torch>=2.7 -- pip can't satisfy any two of them together. Uncomment the
-# one you want (or give each its own venv).
+# --- local voices ---
+# Dubbing and novel narration voice (optional, local; GPU strongly
+# recommended). Downloads its model on first use. Left commented out
+# because it needs transformers>=5.3.
 # omnivoice>=0.2        # Apache-2.0: cloning from a 3-10s clip, and voice
                          # design from a description (no clip needed)
-# chatterbox-tts>=0.1   # MIT: emotion-aware delivery. Adds an
-                         # imperceptible PerTh watermark to its audio.
-# hume-tada>=0.1        # code MIT; model weights under Meta's Llama 3.2
-                         # Community License -- accept it on Hugging Face and
-                         # `huggingface-cli login` before first use
-# GPT-SoVITS (MIT) isn't a pip package: download it from
-# https://github.com/RVC-Boss/GPT-SoVITS and run its own `python api_v2.py`
-# server; set its URL in Settings if it isn't http://127.0.0.1:9880.
 
 # --- vocal separation before transcription (audio_preprocess.py) ---
 # Strips background music from a music-bed source (audio dramas,
@@ -71,9 +54,6 @@ demucs>=4.0
 # Downloads its own model (~1.1GB) on first use.
 torchaudio>=2.0
 uroman>=1.2
-
-# --- offline TTS ---
-piper-tts>=1.2
 
 # --- OCR ---
 pytesseract>=0.3        # also needs the Tesseract binary + language packs
@@ -134,7 +114,7 @@ ebooklib>=0.18          # EPUB
 plyer>=2.1
 
 # --- JavaScript-rendered sites (baihehub, Fanjiao) ---
-playwright>=1.40        # then run: playwright install chromium
+playwright>=1.40        # uses an installed Chrome or Edge; no browser download needed then
 
 # --- Sources tab: main-text extraction from a pasted novel-chapter URL ---
 # Apache-2.0. Optional -- without it a simpler built-in extractor is used.

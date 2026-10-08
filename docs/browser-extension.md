@@ -31,14 +31,42 @@ It reaches pages the adapters can't (blob-protected chapters like manhuaku's, ti
 Click the extension on a page you're reading:
 
 - **Translate this page** — the largest page-sized image on screen.
-- **Translate everything visible** — a spread, or a whole visible strip.
+- **Everything visible** — a spread, or a whole visible strip. For a whole chapter in a scrolling reader, see *Capturing a whole chapter* below.
 - **Send pages to** — which drama they land in. Remembered per site, so
   reading a long series isn't a per-page decision.
 - **Also save the page into that drama** — untick to translate for
-  reading only, without importing anything.
-- **Draw translations over the page** / **Show / hide translations** — the
+  reading only, without importing anything. The result line says where
+  the pages went: "Sent N pages to *title*", or, with saving off, that
+  they were drawn on the page only and not saved. Pages already
+  translated in this tab show as "M already translated, not sent
+  again". After a save, **Open in Baihe** opens that drama's comic page
+  (`http://127.0.0.1:8600/#/comic/<id>`, the app's default port; the link
+  holds only the drama id). The picker repeats the full title of the
+  chosen drama below it, since a dropdown truncates long titles. It
+  doesn't show saved page counts: the `/health` list the popup reads has
+  none.
+- **Draw over page** / **Show / hide** — the
   overlay toggle. Click any overlaid bubble to see the original text
   underneath it.
+
+### Capturing a whole chapter
+
+Some readers (vertical-scroll ones with a "5 / 70" counter) mount only the pages near the screen, so **Everything visible** sees a handful. Use:
+
+- **Capture whole chapter** — scrolls to the top, then down the reader about 0.9 of a screen per step, pausing 250–600 ms between steps like a person reading.
+- **Capture from here** — the same, starting from where you are.
+
+After each step it waits for the reader to mount and load new pages, reads those that are new, and sends them in order, 12 at a time, drawing the translation as each batch comes back. Progress reads "Page 24 of 70" when the reader shows its own counter, otherwise a count. The page also shows a small box with **Cancel**, because the popup closes the moment you click away (the capture carries on without it); the popup's **Cancel capture** does the same. Your scroll position is put back afterwards.
+
+It stops, and says why, when it reaches the end of the chapter, finds no new pages for 6 steps in a row, hits the 300-page limit, is cancelled, or a send fails. Pages already translated stay saved and drawn.
+
+How it behaves:
+
+- **Order.** Pages are ordered by the reader's own index when its elements carry one (`data-index`, `data-page`, `aria-posinset`), otherwise by position in the scrolled content, and sent in that order, so the saved pages land in the drama in chapter order.
+- **Cost.** A capture can send up to 300 pages, each a separate engine call. The bridge's `/health` only says whether an engine is configured, not whether it is paid, so the popup can't warn about it; check your engine's pricing before capturing a long chapter with a paid one. While a capture runs, the popup's Translate buttons are disabled and the page refuses a plain translate, so no page is saved twice.
+- **Duplicates.** Pages are de-duplicated by content hash, so two identical pages in a chapter (say, blank ones) count once. Running it again on the same tab skips everything already translated; after a reload the cache is empty, so a second capture into the same drama saves the pages again.
+- **The site is left alone.** It makes no requests of its own and never touches the site's APIs or tokens: it only reads pixels the reader's own JavaScript has already drawn for you, one step at a time. It needs no extra permissions.
+- **Overlays.** A virtualised reader throws pages away when they scroll far off, and their overlays go with them. The translation is already sent and saved; scrolling back does not redraw it.
 
 Paging back to something already translated is instant: results are
 cached by image content hash, so nothing is ever translated twice.
@@ -50,7 +78,7 @@ A separate section of the popup, for prose rather than comic pages:
 - Pick a direction (**zh/ja/ko → English**, or **English → zh/ja/ko**) —
   the same directions the **Translate** page in Baihe itself supports,
   since this reuses that exact pipeline.
-- **Translate this page's text** — if you've selected text on the page,
+- **Translate text** — if you've selected text on the page,
   that selection is what gets sent. With nothing selected, the extension
   captures the page's own largest contiguous block of paragraph text
   (skipping `<nav>`/`<header>`/`<footer>`/`<aside>` and anything too
@@ -101,6 +129,8 @@ reach the extension.
   extensions gallery, the built-in PDF viewer, `chrome://` pages.
 - **Canvas-only viewers** give no `<img>` to anchor an overlay to, so
   positioning falls back to the canvas element's own box.
+  During a chapter capture, a canvas is re-hashed before bubbles are drawn, and skipped if
+  the reader repainted it with another page meanwhile.
 - **Two-page spreads and right-to-left order** affect which box belongs
   to which page; the app derives reading order per page, but a spread
   sent as one image is treated as one page.
@@ -225,6 +255,13 @@ A real Chromium and mangaz.com's own reader, one page load. The captured page wa
 
 **Also not verified:** manhuaku.net and Bilibili Manga, and the real toolbar-click flow. Clicking the icon grants `activeTab`, which Playwright can't do, so that grant was simulated with a throwaway copy of the extension; the shipped manifest stays loopback-only.
 
+Chapter capture was checked with a throwaway Playwright page that mounts and unmounts 70 images as it scrolls, like a virtualised reader (the extension's messaging stubbed): chapter order kept even with a shuffled DOM, a repeated page sent once, batches of at most 12, only a window of pages in the DOM at once, cancel, the stall stop, the 300 cap on 320 pages, and a second run sending nothing. A real Bilibili Manga chapter in real Chrome has not been tried.
+
 The browser-side test suite is static only. There is no automated test
 that drives a real browser, on purpose: this project's tests are mocked
 throughout and CI has no browser.
+
+## Marking a source as extension-only
+
+If a site only works through the extension (its automated Static and Browser tests fail), open **Sources > Source settings > Details** and switch on **Works only with the browser extension**. It is your own note: the tests keep their real results, and the source shows *Extension only* instead of *Untested*. Pasted links, search, series and chapter imports, tracking and scheduled checks then stop before reading that site and point you here. If a later Static or Browser test passes, Details offers to clear the marker; it is never cleared automatically.
+

@@ -134,19 +134,11 @@ export interface RunFieldProblem {
 export function runOptionProblem(
   mode: string | undefined,
   alignment: string,
-  asr: string,
-  mossEnabled: boolean,
 ): RunFieldProblem | null {
   if (mode === 'whisper' && alignment === 'qwen3_forced_align') {
     return {
       field: 'alignment_method',
       message: 'Qwen3 forced alignment needs a transcript to align, but this drama transcribes with Whisper alone. Pick Whisper (diff) or supply a transcript.',
-    }
-  }
-  if (mode === 'whisper' && asr === 'moss_td' && !mossEnabled) {
-    return {
-      field: 'asr_backend_choice',
-      message: 'MOSS-Transcribe-Diarize is experimental and turned off. Turn it on in Settings, or pick another ASR backend.',
     }
   }
   return null
@@ -160,7 +152,6 @@ export function runProblemFromError(err: unknown): RunFieldProblem | null {
   const message = safeDetail(e.message)
   if (!message) return null
   if (/forced alignment/i.test(message)) return { field: 'alignment_method', message }
-  if (/\bMOSS\b/.test(message)) return { field: 'asr_backend_choice', message }
   if (/speakers?\b/i.test(message)) return { field: 'speakers', message }
   return null
 }

@@ -324,12 +324,12 @@ def _create_library_tables(conn):
             speaker_label TEXT,      -- raw diarization label OR tagged character name this maps to
             character_name TEXT,
             voice_actor TEXT,
-            tts_voice TEXT,          -- fallback free TTS voice for this character (an edge-tts name)
-            offline_voice TEXT,      -- offline/Piper fallback voice (a Piper voice name); NULL = default
+            tts_voice TEXT,          -- legacy: an Edge TTS voice name; no longer read
+            offline_voice TEXT,      -- legacy: a Piper voice name; no longer read
             ref_audio_filename TEXT, -- reference clip for voice cloning (relative to drama dir)
             ref_text TEXT,           -- transcript of what's said in the reference clip
             elevenlabs_voice_id TEXT,-- hosted clone (engine removed); kept as a record, unused
-            clone_engine TEXT,       -- local voice engine (dub.CLONE_ENGINES key); NULL = F5-TTS
+            clone_engine TEXT,       -- local voice engine (dub.CLONE_ENGINES key); NULL = the engine picked for the run; a removed key (f5tts) is refused
             voice_design TEXT,       -- described voice (OmniVoice voice design) for a character with no clip
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
             UNIQUE(drama_id, speaker_label)
@@ -1176,9 +1176,8 @@ def _migrate_drama_columns(conn):
                           # sent anywhere. The series-level counterpart is
                           # series.instructions, inherited by every drama in the series.
                           ("project_instructions", "TEXT"),
-                          # Roadmap 112: the Notion page this drama was last exported
-                          # to (services/notion_service.py), so a re-export updates
-                          # that page in place. Only the id, never a token or URL.
+                          # Legacy: nothing writes it now. Kept so older databases
+                          # and backups load; dropping it needs a table rebuild.
                           ("notion_page_id", "TEXT"),
                           # Per-title reading-speed flag strictness
                           # (subtitle_formats.READING_SPEED_MODES).
@@ -1214,8 +1213,7 @@ def _migrate_series_and_character_columns(conn):
     if "voice_design" not in char_cols:
         _safe_alter(conn, "ALTER TABLE characters ADD COLUMN voice_design TEXT")
     if "offline_voice" not in char_cols:
-        # Piper can't load an edge-tts voice name, so the offline
-        # engine gets its own per-character voice instead of reading tts_voice.
+        # Kept for databases that already have the column; nothing reads it now.
         _safe_alter(conn, "ALTER TABLE characters ADD COLUMN offline_voice TEXT")
     if "series_character_id" not in char_cols:
         # Links this drama's speaker to a persistent series_characters row,
@@ -2201,15 +2199,6 @@ def set_status_if(drama_id: int, expected: str, new: str) -> bool:
             (new, datetime.datetime.utcnow().isoformat(), drama_id, expected))
         conn.commit()
         return cur.rowcount > 0
-
-
-def set_drama_notion_page_id(drama_id: int, page_id):
-    """Roadmap 112: records (or clears, with None) the Notion page a drama
-    was exported to. Left out of update_drama on purpose: an export is not
-    an edit, so updated_at stays as it was."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE dramas SET notion_page_id = ? WHERE id = ?", (page_id, drama_id))
-        conn.commit()
 
 
 def delete_drama(drama_id: int):

@@ -68,11 +68,14 @@ Known limitations, stated plainly rather than glossed over:
 import os
 import re
 import subprocess
+import threading
 import time
 import wave
 
 import background_jobs
 import live_fetch
+from live_cue_translation import CueTranslator
+from live_tokens import LEADING_NON_WORD_RE, TOKEN_RE, tokens
 
 
 class LiveCaptureError(RuntimeError):
@@ -235,8 +238,12 @@ def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 
            FFMPEG_FORMAT_WHITELIST, "-i", "pipe:0", "-vn", "-ac", "1", "-ar", str(sample_rate),
            "-f", "segment", "-segment_time", str(segment_seconds), "-reset_timestamps", "1",
            pattern]
+    # Its own process group/session, so background_jobs.kill_tree (the cancel
+    # path) takes down anything ffmpeg started along with it.
+    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+             else {"start_new_session": True})
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL)
+                            stderr=subprocess.DEVNULL, **group)
     try:
         pump = live_fetch.StreamPump(source_url, proc.stdin, proxy=proxy).start()
     except BaseException:
@@ -246,17 +253,23 @@ def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 
     return SegmentCapture(proc, pump)
 
 
-def stop_capture(capture, timeout: float = 5.0):
+def stop_capture(capture, timeout: float = 5.0, kill: bool = False):
     """Stops the fetcher (no new bytes), then ffmpeg -- SIGTERM lets it
     flush the segment it's writing, a kill follows after `timeout` -- and
     then waits for the fetcher's threads, which by then have nothing left
-    to block on. Also takes a bare Popen."""
+    to block on. Also takes a bare Popen. kill=True skips the graceful
+    flush and kills ffmpeg's whole process tree at once: for a cancel, where
+    the half-written segment is thrown away anyway."""
     pump = getattr(capture, "pump", None)
     proc = getattr(capture, "proc", capture)
     if pump is not None:
         pump.halt()
     try:
-        if proc.poll() is None:
+        if kill:
+            if proc.poll() is None:
+                background_jobs.kill_tree(proc)
+                proc.wait()
+        elif proc.poll() is None:
             proc.terminate()
             try:
                 proc.wait(timeout=timeout)
@@ -359,15 +372,6 @@ def write_padded_chunk(tail: dict, chunk_path: str, out_path: str) -> float:
     return tail["seconds"]
 
 
-# One token per CJK/kana character (no spaces to split on), one per run
-# of other letters/digits (space-separated languages, Korean included).
-# Punctuation and whitespace aren't tokens at all, so "北京。" and
-# "北京，" compare equal -- Whisper's punctuation of the same audio often
-# differs between two transcriptions, its words much less so.
-_CJK_CHARS = "぀-ヿ㐀-䶿一-鿿豈-﫿"
-_TOKEN_RE = re.compile(rf"[{_CJK_CHARS}]|[^\W_{_CJK_CHARS}]+")
-_LEADING_NON_WORD_RE = re.compile(r"^[\W_]+")
-
 # How many tokens at the very start of the padded transcription may be
 # skipped before the match begins -- the overlap audio starts at an
 # arbitrary point, often mid-word, and Whisper can render that partial
@@ -375,10 +379,6 @@ _LEADING_NON_WORD_RE = re.compile(r"^[\W_]+")
 # Skipped tokens are inside the overlap window, so dropping them loses
 # nothing the previous chunk didn't already emit.
 _MAX_LEADING_SKIP = 2
-
-
-def _tokens(text: str):
-    return [m.group(0).casefold() for m in _TOKEN_RE.finditer(text or "")]
 
 
 def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> list:
@@ -411,7 +411,7 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
     segments = list(segments)
     if overlap_seconds <= 0 or not segments:
         return segments
-    tail = _tokens(tail_text)
+    tail = tokens(tail_text)
     if not tail:
         return segments
 
@@ -419,7 +419,7 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
     for pos, seg in enumerate(segments):
         if seg["start"] >= overlap_seconds:
             break
-        for m in _TOKEN_RE.finditer(seg.get("text") or ""):
+        for m in TOKEN_RE.finditer(seg.get("text") or ""):
             head.append((m.group(0).casefold(), pos, m.end()))
     head_tokens = [t for t, _, _ in head]
 
@@ -443,7 +443,7 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
         if pos < cut_pos:
             continue
         if pos == cut_pos:
-            rest = _LEADING_NON_WORD_RE.sub("", (seg.get("text") or "")[cut_char:]).strip()
+            rest = LEADING_NON_WORD_RE.sub("", (seg.get("text") or "")[cut_char:]).strip()
             if not rest:
                 continue
             start = seg["start"] if seg["end"] <= overlap_seconds else max(seg["start"], overlap_seconds)
@@ -468,7 +468,8 @@ DEFAULT_OVERLAP_SECONDS = 3
 def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
                    source_language: str, whisper_size: str, engine, use_gpu: bool = False,
                    context_prompt: str = "", overlap_seconds: float = 0.0,
-                   overlap_tail_text: str = ""):
+                   overlap_tail_text: str = "", on_stage=None, is_cancelled=None,
+                   translator=None):
     """
     Transcribes one chunk and translates each resulting line, shifting
     timestamps by this chunk's position in the stream so cues from
@@ -493,12 +494,26 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     the same way a name primed via initial_prompt elsewhere in this app
     measurably helps recognition. Empty for the very first chunk, since
     there's no previous chunk yet.
+
+    on_stage("transcribing" | "translating"): called as each step starts.
+    is_cancelled: polled between steps; a cancel raises
+    background_jobs.JobCancelled. The Whisper call itself cannot be
+    interrupted, so a cancel during it is seen as soon as it returns.
+    translator: kept across chunks so a cue sees the lines before it.
     """
     import core
 
+    def checkpoint():
+        if is_cancelled is not None and is_cancelled():
+            raise background_jobs.JobCancelled(f"live chunk {chunk_index}")
+
+    if on_stage:
+        on_stage("transcribing")
+    translator = translator or CueTranslator(engine, source_language)
     segments = core.transcribe_for_timing(
         chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
         initial_prompt=context_prompt)
+    checkpoint()
     segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text)
     offset = chunk_index * segment_seconds - overlap_seconds
     cues = []
@@ -506,11 +521,10 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
         text = (seg.get("text") or "").strip()
         if not text:
             continue
-        try:
-            translated = engine.translate_batch([text], {})[0]
-        except Exception as exc:
-            from translate_engines import redact_secrets
-            translated = f"[translation failed: {redact_secrets(str(exc))}]"
+        checkpoint()
+        if on_stage:
+            on_stage("translating")
+        translated = translator.translate(text)
         cues.append({
             "start": offset + seg["start"], "end": offset + seg["end"],
             "text": text, "translated": translated,
@@ -545,11 +559,48 @@ def current_generation(job_id: str) -> int:
     return _generations.get(job_id, 0)
 
 
+def _run_abortable(fn, should_stop, poll: float = 0.25):
+    """Runs fn() on a helper thread and returns its result, or raises
+    background_jobs.JobCancelled as soon as should_stop() is true. The
+    thread is abandoned (daemon), not killed: for a call like yt-dlp's
+    in-process lookup, which has no cancel point of its own."""
+    box = {}
+
+    def work():
+        try:
+            box["value"] = fn()
+        except BaseException as exc:
+            box["error"] = exc
+
+    worker = threading.Thread(target=work, daemon=True, name="live-resolve")
+    worker.start()
+    while True:
+        worker.join(poll)
+        if not worker.is_alive():
+            break
+        if should_stop():
+            raise background_jobs.JobCancelled("live")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+def _wait(seconds: float, should_stop, step: float = 0.25):
+    """Sleeps up to `seconds`, returning early once should_stop() is true."""
+    end = time.monotonic() + seconds
+    while not should_stop():
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(step, remaining))
+
+
 def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   source_language: str, whisper_size: str, engine, use_gpu: bool = False,
                   poll_interval: float = 2.0, cookies_browser: str = None, cookies_file: str = None,
                   overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float = None,
-                  stream_url_check=None, proxy: str = None):
+                  stream_url_check=None, proxy: str = None, report_stage=None,
+                  reply_without_thinking: bool = True):
     """
     The background-thread target (see background_jobs.start_job). Runs
     until request_cancel(job_id) is set or the stream itself ends, then
@@ -585,6 +636,10 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     resolve_stream_url and start_segment_capture. Both default to None
     (no check, no proxy).
 
+    report_stage(message, cancel_message=, slow_after=, slow_note=): how the
+    job names the step it is in (services/job_stage_service.set_stage bound
+    to the job id); None just sets the job's message.
+
     A fetch failure, or ffmpeg ending with an error, ends the job with
     a LiveCaptureError carrying a fixed message (no URL); a stream that
     simply ends finishes it normally.
@@ -593,15 +648,89 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     my_generation = bump_generation(job_id)
     started = time.monotonic()
 
-    background_jobs.update_progress(job_id, 0.0, "Resolving stream URL...")
-    source_url = resolve_stream_url(url, cookies_browser=cookies_browser, cookies_file=cookies_file,
-                                    proxy=proxy)
+    def should_stop():
+        return (background_jobs.is_cancel_requested(job_id)
+                or current_generation(job_id) != my_generation)
+
+    def report(message, **stage_options):
+        """Names the current step. report_stage (the service's) also takes
+        the cancel text and slow-step note; without one only the message."""
+        if report_stage is not None:
+            report_stage(message, **stage_options)
+        else:
+            background_jobs.update_progress(job_id, 0.0, message)
+
+    report("Resolving the stream address...")
+    try:
+        source_url = _run_abortable(
+            lambda: resolve_stream_url(url, cookies_browser=cookies_browser,
+                                       cookies_file=cookies_file, proxy=proxy),
+            should_stop)
+    except background_jobs.JobCancelled:
+        background_jobs.update_progress(job_id, 1.0, "Stopped.")
+        return
     if stream_url_check is not None:
         stream_url_check(source_url)
 
-    background_jobs.update_progress(job_id, 0.0, "Starting capture...")
+    from engine_backends.local import abort_check_var
+    from translate_engines import _cancel_check_var
+    report("Starting capture...")
     proc = start_segment_capture(source_url, out_dir, segment_seconds, proxy=proxy)
 
+    # The engine name and model are not secrets (no key, no URL), so they can
+    # be named in the status the owner reads.
+    engine_label = (getattr(engine, "model", None) or getattr(engine, "name", "") or "the engine")
+    engine_name = str(getattr(engine, "name", "") or "the translator").capitalize()
+    stage_clock = {"key": None, "since": 0.0, "transcribe_seconds": None}
+
+    def enter_stage(stage, idx):
+        """False when that stage (of that chunk) is already the current one."""
+        key = (stage, idx)
+        if stage_clock["key"] == key:
+            return False
+        now = time.monotonic()
+        if stage_clock["key"] and stage_clock["key"][0] == "transcribing":
+            stage_clock["transcribe_seconds"] = now - stage_clock["since"]
+        stage_clock.update(key=key, since=now)
+        return True
+
+    def set_chunk_stage(stage, idx):
+        if not enter_stage(stage, idx):
+            return
+        if stage == "transcribing":
+            last = stage_clock["transcribe_seconds"]
+            wait = (f"the previous chunk took about {max(1, round(last))} s" if last is not None
+                    else "there is no time estimate yet")
+            report(
+                f"Chunk {idx}: transcribing with Whisper {whisper_size}"
+                + (" (GPU)" if use_gpu else " (CPU)"),
+                cancel_message=(f"Cancelling... Whisper is still transcribing chunk {idx} and "
+                                f"cannot be interrupted mid-chunk; it stops when that finishes "
+                                f"({wait})."),
+                slow_after=90,
+                slow_note="Still transcribing after {secs} s: Whisper is slow on this "
+                          "hardware or the GPU is busy.")
+        else:
+            report(
+                f"Chunk {idx}: translating with {engine_label} ({engine_name})",
+                slow_after=60,
+                slow_note="Still waiting on " + engine_name + " after {secs} s: it may be "
+                          "loading the model or busy with another job. Stop still works.")
+
+    def set_waiting_stage():
+        if not enter_stage("capturing", last_completed + 1):
+            return
+        report(
+            f"Capturing audio: waiting for chunk {last_completed + 1} "
+            f"({segment_seconds} s of stream each)",
+            slow_after=segment_seconds * 2 + 30,
+            slow_note="No new audio for {secs} s: the stream may have stalled.")
+
+    # Backoff waits notice a cancel; a blocked Ollama request is abandoned.
+    cancel_token = _cancel_check_var.set(should_stop)
+    abort_token = abort_check_var.set(should_stop)
+
+    translator = CueTranslator(engine, source_language, reply_without_thinking)
     all_cues = []
     last_completed = -1
     context_prompt = ""
@@ -610,8 +739,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     prev_tail = None
     try:
         while True:
-            if (background_jobs.is_cancel_requested(job_id)
-                    or current_generation(job_id) != my_generation):
+            if should_stop():
                 break
             if max_seconds is not None and time.monotonic() - started >= max_seconds:
                 background_jobs.update_progress(job_id, 0.0, "Stopped: time limit reached.")
@@ -628,12 +756,11 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                 break
 
             for idx, path in list_completed_chunks(out_dir, last_completed):
-                if (current_generation(job_id) != my_generation
+                if (should_stop()
                         or (max_seconds is not None and time.monotonic() - started >= max_seconds)):
                     # Stopped mid-batch -- don't burn through the rest of
                     # this batch's already-queued chunks either.
                     break
-                background_jobs.update_progress(job_id, 0.0, f"Processing chunk {idx}...")
                 padded_path = None
                 try:
                     # Read before this chunk's file is deleted below --
@@ -648,7 +775,15 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                     new_cues = process_chunk(
                         chunk_input, idx, segment_seconds, source_language, whisper_size,
                         engine, use_gpu=use_gpu, context_prompt=context_prompt,
-                        overlap_seconds=pad_seconds, overlap_tail_text=tail_text)
+                        translator=translator,
+                        overlap_seconds=pad_seconds, overlap_tail_text=tail_text,
+                        on_stage=lambda stage, idx=idx: set_chunk_stage(stage, idx),
+                        # Only the Stop button's generation bump discards a chunk
+                        # between steps; a plain cancel lets the lines already
+                        # transcribed finish (as it always did) and ends the
+                        # job at the next loop check. A blocked Ollama call is
+                        # aborted either way, through the cancel check above.
+                        is_cancelled=lambda: current_generation(job_id) != my_generation)
                     if current_generation(job_id) != my_generation:
                         # The session moved on while this one chunk's own
                         # transcribe/translate call was in flight -- its
@@ -673,6 +808,9 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                             c["text"] for c in new_cues if c["end"] > chunk_end - tail["seconds"])
                     prev_tail = tail
                     background_jobs.set_result(job_id, list(all_cues))
+                except background_jobs.JobCancelled:
+                    # The while loop's own check ends the job.
+                    break
                 finally:
                     last_completed = idx
                     for leftover in (path, padded_path):
@@ -682,7 +820,15 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                             os.remove(leftover)
                         except OSError:
                             pass
-            time.sleep(poll_interval)
+            set_waiting_stage()
+            _wait(poll_interval, should_stop)
     finally:
-        stop_capture(proc)
+        _cancel_check_var.reset(cancel_token)
+        abort_check_var.reset(abort_token)
+        # A cancel kills ffmpeg's tree at once; a stream that just ended
+        # lets it flush its last segment.
+        if should_stop():
+            stop_capture(proc, kill=True)
+        else:
+            stop_capture(proc)
         background_jobs.update_progress(job_id, 1.0, "Stopped.")

@@ -255,7 +255,7 @@ class TestNovelGlossary:
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda *a: None)
         with pytest.raises(DependencyUnavailableError):
             gs.start_novel_glossary_run(did)
-        did2, _ = _novel_drama(isolated_db, engine="nllb")
+        did2, _ = _novel_drama(isolated_db, engine="fake_mt")
         with pytest.raises(UnsupportedOperationError):
             gs.start_novel_glossary_run(did2)
 

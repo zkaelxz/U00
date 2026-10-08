@@ -730,23 +730,6 @@ def test_diagnostics_registers_the_real_requirements():
     assert "qwen-asr" not in task["packages"]
 
 
-def test_the_incompatibility_notes_for_chatterbox_and_tada_are_kept():
-    import diagnostics
-    deps = diagnostics.OPTIONAL_DEPENDENCIES
-    assert "Qwen3-ASR" in deps["chatterbox-tts"][1] and "5.2.0" in deps["chatterbox-tts"][1]
-    assert "Qwen3-ASR" in deps["hume-tada"][1] and "below 5" in deps["hume-tada"][1]
-    assert "Qwen3-ASR" not in deps["omnivoice"][1]
-
-
-def test_the_moss_note_no_longer_says_it_conflicts_with_qwen3_and_stays_not_offered():
-    import diagnostics
-    moss = diagnostics.OPTIONAL_DEPENDENCIES["moss-transcribe-diarize"]
-    assert "can't share" not in moss[1] and moss[2] == "experimental"
-    reason = diagnostics.NOT_OFFERED_FOR_INSTALL["moss-transcribe-diarize"]
-    assert "5.6" in reason and "Qwen3" not in reason
-    assert diagnostics.known_install_limitation_reason("moss-transcribe-diarize")
-
-
 def test_the_model_row_names_the_download_size_and_that_old_weights_are_not_reused():
     import diagnostics
     row = next(r for r in diagnostics.get_model_engine_versions() if r["name"] == "Qwen3-ASR")

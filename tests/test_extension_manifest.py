@@ -18,6 +18,7 @@ for, applied to JavaScript this test suite can't execute.
 """
 import json
 import os
+import struct
 
 import pytest
 
@@ -62,6 +63,20 @@ class TestTheManifest:
         ]
         for name in named:
             assert os.path.exists(os.path.join(EXTENSION_DIR, name)), name
+
+    def test_its_icons_exist_at_the_declared_sizes(self, manifest):
+        """A missing or wrong-sized file makes Chrome fall back to the
+        generic letter tile (or refuse to load the extension)."""
+        declared = dict(manifest["icons"])
+        declared_action = manifest["action"]["default_icon"]
+        assert set(declared) == {"16", "32", "48", "128"}
+        assert set(declared_action) == {"16", "32"}
+        for size, name in {**declared, **declared_action}.items():
+            with open(os.path.join(EXTENSION_DIR, name), "rb") as fh:
+                header = fh.read(24)
+            assert header[:8] == b"\x89PNG\r\n\x1a\n", name
+            width, height = struct.unpack(">II", header[16:24])
+            assert (width, height) == (int(size), int(size)), name
 
     def test_it_can_only_reach_the_bridge_port(self, manifest):
         """The bridge's port is fixed, and a loopback pattern without it
@@ -142,6 +157,90 @@ class TestItAgreesWithTheServer:
         assert "/upload" not in background and "/translate" not in background
 
 
+class TestBatchSizeMatchesTheServer:
+    def test_content_script_batches_at_the_servers_limit(self):
+        import re
+        match = re.search(r"const MAX_IMAGES_PER_REQUEST = (\d+);", _read("content.js"))
+        assert match, "content.js must declare MAX_IMAGES_PER_REQUEST"
+        assert int(match.group(1)) == page_server.MAX_IMAGES_PER_REQUEST
+
+
+class TestChapterCaptureStaysPolite:
+    """The scroll-through capture reads what the reader has already
+    rendered; these pin the numbers and shapes that keep it that way."""
+
+    def _const(self, name):
+        import re
+        match = re.search(rf"const {name} = (\d+);", _code("content.js"))
+        assert match, f"content.js must declare {name}"
+        return int(match.group(1))
+
+    def test_the_page_cap_is_the_documented_300(self):
+        assert self._const("CAPTURE_MAX_PAGES") == 300
+
+    def test_steps_are_paced_like_a_person_scrolling(self):
+        low, high = self._const("CAPTURE_STEP_MIN_MS"), self._const("CAPTURE_STEP_MAX_MS")
+        assert 250 <= low < high <= 600
+
+    def test_the_scroll_step_matches_the_server_side_scroll(self):
+        import re
+        import page_scroll
+        assert "innerHeight * 0.9" in page_scroll.SCROLL_THROUGH_JS
+        assert re.search(r"const CAPTURE_STEP_FRACTION = 0\.9;", _code("content.js"))
+
+    def test_capture_sends_through_the_shared_batcher_at_the_servers_limit(self):
+        code = _code("content.js")
+        assert code.count("async function sendInBatches(") == 1
+        run = code[code.index("async function runCapture("):]
+        assert "sendInBatches(batch," in run
+        assert "limit = MAX_IMAGES_PER_REQUEST" in run
+        assert self._const("MAX_IMAGES_PER_REQUEST") == page_server.MAX_IMAGES_PER_REQUEST
+
+    def test_translate_is_refused_while_a_capture_runs(self):
+        code = _code("content.js")
+        visible = code[code.index("async function translateVisible("):]
+        assert "if (state.capture)" in visible[:visible.index("looksLikeChallengePage")]
+        popup = _code("popup.js")
+        capturing = popup[popup.index("function showCapturing("):popup.index("async function runCapture(")]
+        assert "els.translate.disabled = running" in capturing
+        assert "els.translateAll.disabled = running" in capturing
+
+    def test_canvas_draw_target_is_its_pixel_hash(self):
+        code = _code("content.js")
+        assert "canvasIds" not in code
+        run = code[code.index("async function runCapture("):]
+        assert "srcKey: drawTargetKey(el, extracted.hash)" in run
+        assert "await currentDrawTargetKey(el) === srcKey" in run
+        assert 'toBlob(' in code[code.index("async function currentDrawTargetKey"):code.index("function showCaptureChip")]
+
+    def test_capture_done_is_sent_on_every_exit_and_popup_saves_overlay(self):
+        code = _code("content.js")
+        capture = code[code.index("async function captureChapter("):code.index("async function runCapture(")]
+        assert capture.index("finally") < capture.index('type: "captureDone"')
+        assert code.count('type: "captureDone"') == 1
+        popup = _code("popup.js")
+        start = popup[popup.index("async function startCapture("):popup.index("async function syncCaptureUi")]
+        assert "chrome.storage.local.set({ overlay: els.overlay.checked })" in start
+        run = popup[popup.index("async function run(all)"):popup.index("function showCapturing")]
+        assert "els.captureChapter.disabled = true" in run
+        assert "pageRunInFlight = false" in run
+
+    def test_double_send_guards_claim_before_any_await(self):
+        popup = _code("popup.js")
+        run = popup[popup.index("async function run(all)"):popup.index("function showCapturing")]
+        capture = popup[popup.index("async function runCapture("):popup.index("async function startCapture(")]
+        guard = "if (pageRunInFlight || captureInFlight) return;"
+        assert guard in run and guard in capture
+        assert run.index("pageRunInFlight = true") < run.index("await")
+        assert capture.index("captureInFlight = true") < capture.index("await")
+
+    def test_capture_makes_no_calls_of_its_own(self):
+        code = _code("content.js")
+        capture = code[code.index("const CAPTURE_MAX_PAGES"):code.index("function cancelCapture")]
+        for banned in ("fetch(", "XMLHttpRequest", "sendBeacon", "new WebSocket"):
+            assert banned not in capture
+
+
 class TestTextCaptureStaysWithinTheSameModel:
     """Step 96's text-capture mode is a second input surface on the same
     extension, not a second extension -- it has to follow the same rules
@@ -172,3 +271,29 @@ class TestImageHashWorksOnPlainHttpPages:
         code = _code("content.js")
         assert "crypto.subtle" in code and "weakHash(buffer)" in code
         assert code.index("weakHash(buffer)") < code.index("crypto.subtle.digest")
+
+
+class TestThePopupSaysWherePagesWent:
+    def test_the_open_link_targets_the_comic_route_with_only_an_id(self):
+        import api.api_config as api_config
+        popup = _code("popup.js")
+        assert f'APP_URL = "http://127.0.0.1:{api_config.DEFAULT_PORT}"' in popup
+        assert "/#/comic/${dramaId}" in popup
+        assert "token" not in popup.lower().split("showopenlink", 1)[1].split("}", 1)[0]
+
+    def test_opening_the_link_needs_no_new_permission(self, manifest):
+        assert "tabs" not in manifest["permissions"]
+        assert manifest["host_permissions"] == ["http://127.0.0.1:8756/*"]
+
+    def test_the_result_line_names_the_destination_and_the_unsaved_case(self):
+        popup = _code("popup.js")
+        for wording in ("Sent ${sent} page", "already translated, not sent again",
+                        "on the page only, not saved"):
+            assert wording in popup
+
+    def test_the_markup_keeps_its_ids_and_shows_the_full_drama_title(self):
+        html = _read("popup.html")
+        for element_id in ("drama", "store", "status", "openInBaihe", "dramaTitle"):
+            assert f'id="{element_id}"' in html
+        assert 'aria-live="polite"' in html
+        assert "width: 340px" in html

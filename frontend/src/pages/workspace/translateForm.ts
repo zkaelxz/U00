@@ -34,7 +34,8 @@ export interface RunForm {
 
 // Engines that only translate (no free-form prompting) cannot run Reflect.
 // Mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
-const TRANSLATION_ONLY = ['nllb']
+// Mutable only so tests can register a stand-in; the app never changes it.
+export const TRANSLATION_ONLY: string[] = []
 
 export function isTranslationOnly(engine: string): boolean {
   return TRANSLATION_ONLY.includes(engine)
@@ -323,6 +324,18 @@ export function withPresetEngine(c: TranslateRunConfig, p: TranslatePresetApplie
 // A warning only: Translate stays enabled, so the server's own error is the final word.
 export function ollamaWarning(effEngine: string, reachable: boolean | null | undefined): boolean {
   return effEngine === 'ollama' && reachable === false
+}
+
+// Plain-language privacy/limit notice for a hosted model; null for anything
+// that runs on this PC. The default model is never a cloud one, so an empty
+// model never triggers it.
+export function cloudModelNotice(
+  engine: { cloud_models?: string[] } | null | undefined,
+  model: string,
+): string | null {
+  if (!model || !engine?.cloud_models?.includes(model)) return null
+  return 'This is a cloud model: the subtitle text is sent off this PC to Ollama\'s servers. '
+    + 'Free use has limits; if you hit them, Ollama\'s message is shown and the run can be resumed later.'
 }
 
 // The guidance text for a style key ('' when the server sent none).

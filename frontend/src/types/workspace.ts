@@ -34,6 +34,8 @@ export interface TranscribeConfig {
   audio_available: boolean
   alignment_method: string
   asr_backend_choice: string
+  // Set when the saved backend was removed and the default is shown instead.
+  asr_backend_notice: string | null
   whisper_size: string
   whisper_model_cached: boolean
   // Audio seconds per second of work on the last finished run of this model and device; null if none yet.

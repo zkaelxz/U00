@@ -66,7 +66,7 @@ class TranslateHistoryResponse(BaseModel):
 
 
 class TranslateRequest(BaseModel):
-    """Never carries an API key (D2) -- the server resolves one per engine
+    """Never carries an API key -- the server resolves one per engine
     itself; see services/translate_service.py's own resolve logic."""
     # Mirrored by MAX_TRANSLATE_TEXT_CHARS in frontend/src/api/translate.ts.
     text: str = Field(max_length=2_000_000)
@@ -88,7 +88,7 @@ class ClearHistoryResult(BaseModel):
 class TranslateRunStylePreset(BaseModel):
     key: str
     label: str
-    guidance: str = ""   # parity X04: what this style asks the translator for
+    guidance: str = ""   # what this style asks the translator for
 
 
 class TranslateRunWorkflowTier(BaseModel):
@@ -108,7 +108,7 @@ class TranslateRunDefaults(BaseModel):
 
 class TranslateRunConfig(BaseModel):
     """Read-only Translate-stage summary. Booleans and
-    numbers only -- never a key or the novel text (D2)."""
+    numbers only -- never a key or the novel text."""
     drama_id: int
     translation_engine: str
     engines: List[TranslateEngine]
@@ -130,7 +130,7 @@ class TranslateRunConfig(BaseModel):
     month_spend: float
     cap_applies_by_engine: Dict[str, bool]
     bulk_supported_engines: List[str]
-    # parity X24; never the URL. None when the drama's engine isn't Ollama
+    # Never the URL. None when the drama's engine isn't Ollama
     # (not probed).
     ollama_reachable: Optional[bool] = None
     # The owner's saved choice for this title; None = never chosen (the form
@@ -313,7 +313,7 @@ class TranslateBulkCancelResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Parity X02/X22: apply a workflow tier, save translate settings as a preset
+# Apply a workflow tier, save translate settings as a preset
 # (services/translate_run_service.py apply_workflow_tier / save_translate_preset).
 # ---------------------------------------------------------------------------
 WorkflowTierKey = Literal[tuple(_translate_engines.WORKFLOW_TIERS)]
@@ -325,7 +325,7 @@ class WorkflowTierApply(BaseModel):
 
 
 class TranslateErrorsDismissed(BaseModel):
-    """X01: the last run's failed-batch notice is cleared; lines untouched.
+    """The last run's failed-batch notice is cleared; lines untouched.
     `dismissed` is False when there was nothing to clear."""
     drama_id: int
     dismissed: bool
@@ -349,7 +349,7 @@ class TranslatePresetApply(BaseModel):
 
 
 class TranslatePresetApplied(BaseModel):
-    """Parity X03: the preset's engine (when set) is saved on the drama; the
+    """The preset's engine (when set) is saved on the drama; the
     rest is for the form. Nothing is started."""
     drama_id: int
     preset_id: int

@@ -63,21 +63,14 @@ def test_the_modules_call_the_native_classes_by_name():
             text = f.read()
         for needle in needles:
             assert needle in text, f"{path} no longer calls {needle!r}"
-        assert "qwen_asr" not in text
+        # memory_headroom keys its Qwen3-ASR load check by this label.
+        assert "qwen_asr" not in text.replace('before_load("qwen_asr"', "")
 
 
 def test_repo_ids_are_the_transformers_native_checkpoints():
     assert qwen3_native.asr_repo_id("1.7B") == "Qwen/Qwen3-ASR-1.7B-hf"
     assert qwen3_native.asr_repo_id("0.6B") == "Qwen/Qwen3-ASR-0.6B-hf"
     assert qwen3_native.ALIGNER_REPO == "Qwen/Qwen3-ForcedAligner-0.6B-hf"
-
-
-def test_chatterbox_pin_is_a_known_downgrade_of_transformers(monkeypatch):
-    monkeypatch.setattr(diagnostics, "get_installed_version",
-                        lambda name: "5.19.0" if name == "transformers" else None)
-    warning = diagnostics.install_downgrade_warning("chatterbox-tts")
-    assert warning and "5.2.0" in warning and "Qwen3-ASR" in warning
-    assert diagnostics.install_downgrade_warning("omnivoice") is None
 
 
 # ---------------------------------------------------------------------------
@@ -175,15 +168,3 @@ def test_diagnostics_row_shows_a_too_old_transformers_as_not_ready(monkeypatch):
     monkeypatch.setattr(importlib.metadata, "version", lambda name: "5.19.0")
     row = next(r for r in diagnostics.get_model_engine_versions() if r["name"] == "Qwen3-ASR")
     assert row["version"] == "5.19.0"
-
-
-@pytest.mark.parametrize("have,warned", [("5.19.0", True), ("5.0.0", True), ("4.57.6", False),
-                                         (None, False)])
-def test_tada_warns_before_taking_transformers_below_5(monkeypatch, have, warned):
-    """hume-tada declares transformers<5,>=4.57.1 (PyPI metadata)."""
-    monkeypatch.setattr(diagnostics, "get_installed_version",
-                        lambda dist: have if dist == "transformers" else None)
-    warning = diagnostics.install_downgrade_warning("hume-tada")
-    assert (warning is not None) is warned
-    if warned:
-        assert have in warning and "Qwen3-ASR" in warning

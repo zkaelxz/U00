@@ -34,7 +34,7 @@ except ImportError:  # Python built without lzma: zipfile raises RuntimeError in
 
 import background_jobs
 import db
-import dub
+import dub_narration
 import ocr as ocr_module
 from services import drama_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
@@ -74,7 +74,7 @@ def _check_idle(drama_id: int):
 
 def _novel_path(drama_id: int, create: bool) -> str:
     base = db.drama_dir(drama_id) if create else os.path.join(db.DRAMAS_DIR, str(drama_id))
-    return os.path.join(base, dub.NOVEL_SOURCE_FILENAME)
+    return os.path.join(base, dub_narration.NOVEL_SOURCE_FILENAME)
 
 
 def _read_novel(drama_id: int) -> str:

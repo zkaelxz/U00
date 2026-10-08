@@ -79,7 +79,7 @@ describe('row text', () => {
     expect(kindHelp(item({ kind: 'tier' }))).toBeNull()
     expect(kindHelp(item({ kind: 'preset', can_switch: true, replacement: 'b' }))).toBeNull()
     expect(kindHelp(item({ kind: 'preset', can_switch: false, replacement: 'new-model' }))).toMatch(/^new-model isn't offered for this engine/)
-    expect(kindHelp(item({ kind: 'preset', can_switch: false }))).toBe("To pick a different model, change the preset in a drama's Translate step.")
+    expect(kindHelp(item({ kind: 'preset', can_switch: false }))).toBe("To pick another model, change the preset in a drama's Translate step.")
   })
 })
 
@@ -92,10 +92,10 @@ describe('compare link', () => {
   })
 
   it('keeps odd model names intact through the round trip', () => {
-    const href = compareHref(item({ engine: 'ollama', model: 'qwen2.5:14b', replacement: 'qwen3:8b' }))!
+    const href = compareHref(item({ engine: 'ollama', model: 'gemma4:26b', replacement: 'gemma4:12b' }))!
     const route = parseRoute(href)
     expect(route.name === 'benchmark' && parseCompareParam(route.compare)).toEqual([
-      { engine: 'ollama', model: 'qwen2.5:14b' }, { engine: 'ollama', model: 'qwen3:8b' },
+      { engine: 'ollama', model: 'gemma4:26b' }, { engine: 'ollama', model: 'gemma4:12b' },
     ])
   })
 

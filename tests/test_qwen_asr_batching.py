@@ -151,7 +151,7 @@ def test_route_reads_and_saves_on_the_pc(isolated_db):
     r = c.get("/api/settings/asr-options")
     assert r.status_code == 200
     body = r.json()
-    assert body["qwen_asr_batch_size"] == 1 and body["moss_experimental"] is False
+    assert body["qwen_asr_batch_size"] == 1 and "moss_experimental" not in body
     assert (body["qwen_asr_batch_min"], body["qwen_asr_batch_max"]) == (1, 16)
     r = c.post("/api/settings/asr-options", json={"qwen_asr_batch_size": 4})
     assert r.status_code == 200 and r.json()["qwen_asr_batch_size"] == 4

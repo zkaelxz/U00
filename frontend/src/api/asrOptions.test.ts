@@ -15,10 +15,8 @@ const OPTS = {
   qwen_asr_batch_max: 16,
   qwen_asr_version: '5.19.0',
   qwen_asr_batching_available: true,
-  moss_experimental: false,
   qwen_vad_refine_timing: false,
   mixed_languages: false,
-  moss_installed: false,
 }
 
 describe('deviceNote (Step 101)', () => {
@@ -66,10 +64,9 @@ describe('asr options API', () => {
   })
 })
 
-describe('asrBackendOptions (Step 104)', () => {
-  it('offers MOSS only while the experimental toggle is on', () => {
-    expect(asrBackendOptions(false)).toEqual(['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long'])
-    expect(asrBackendOptions(true)).toEqual(['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long', 'moss_td'])
+describe('asrBackendOptions', () => {
+  it('lists the selectable backends', () => {
+    expect(asrBackendOptions()).toEqual(['whisper', 'qwen3_asr', 'qwen3_asr_vad', 'qwen3_asr_long'])
   })
 })
 

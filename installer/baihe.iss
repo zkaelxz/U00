@@ -857,7 +857,9 @@ begin
       end;
       if DeleteSettings and FileExists(UninstDataDir + '\.env') then
         if DeleteFile(UninstDataDir + '\.env') then
-          AddLine(Removed, 'your settings and API keys (.env)');
+          AddLine(Removed, 'your settings and API keys (.env)')
+        else
+          AddLine(Left, 'your settings and API keys (.env) - couldn''t be deleted; remove it by hand');
       if DeleteModels then
         DeleteTree(UninstDataDir + '\model_cache', 'downloaded AI models', Removed, Left);
       // The launcher's own files (not user data), by name, then its folder

@@ -23,7 +23,6 @@ from services.service_errors import (
 
 # translate_engines.ENGINES keys whose engine class needs no API key to run
 # (see translate_engines.py's own ENGINES / FREE_ENGINES):
-#   - nllb: a locally-downloaded model, no key at all.
 #   - ollama: its key is optional, defaulting to the literal "local" when
 #     nothing is configured (resolve_api_key below) -- it points
 #     at a locally-run server, not a hosted API that requires an account
@@ -40,9 +39,22 @@ ENGINE_MODEL_DICTS = {
     "claude": translate_engines.CLAUDE_MODELS,
     "gemini": translate_engines.GEMINI_MODELS,
     "openai": translate_engines.OPENAI_MODELS,
+    # Local tags only: this dict is also what Diagnostics lets the owner
+    # pick a new default from, and a hosted tag must never become one.
     "ollama": translate_engines.OLLAMA_MODELS,
-    "nllb": translate_engines.NLLB_MODELS,
 }
+
+
+def _saved_ollama_models() -> list:
+    """Ollama model tags saved in presets, so a preset's hosted tag that is
+    not built in is still offered (and flagged) rather than silently dropped."""
+    tags = []
+    for preset in db.list_presets():
+        tag = preset.get("engine_model")
+        if (preset.get("translation_engine") == "ollama" and isinstance(tag, str)
+                and translate_engines.MODEL_ID_RE.fullmatch(tag) and ".." not in tag):
+            tags.append(tag)
+    return list(dict.fromkeys(tags))
 
 
 def list_engines(env_path: Optional[str] = None) -> list:
@@ -71,12 +83,24 @@ def list_engines(env_path: Optional[str] = None) -> list:
             builtin = translate_engines.builtin_default_model(name)
             base = models if models is not None else ([builtin] if builtin else [])
             models = list(dict.fromkeys(base + extras + chosen))
+        if name == "ollama":
+            # Offered per run only; saved presets' tags are included so one
+            # saved with a hosted tag outside the built-in list is still flagged.
+            models = list(dict.fromkeys(
+                (models or []) + list(translate_engines.OLLAMA_CLOUD_MODELS)
+                + _saved_ollama_models()))
+        cloud = [m for m in models or [] if name == "ollama" and translate_engines.is_ollama_cloud_model(m)]
+        labels = {m: model_registry_service.extra_model_label(name, m) for m in extras}
+        # Without this the picker would show a hosted tag as plain text,
+        # indistinguishable from a local model.
+        labels.update({m: f"{m} -- CLOUD: sends text off this PC" for m in cloud})
         engines.append({
             "name": name,
             "label": translate_engines.engine_picker_label(name, gemini_free_tier),
             "free": name in translate_engines.FREE_ENGINES,
             "models": models,
-            "model_labels": {m: model_registry_service.extra_model_label(name, m) for m in extras},
+            "model_labels": labels,
+            "cloud_models": cloud,
             "key_configured": key_configured,
         })
     return engines
@@ -92,14 +116,11 @@ def list_history(limit: int = 50, principal=None) -> list:
 def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optional[str]:
     """The literal value to pass into translate_engines.get_engine, per
     engine:
-      - nllb: None -- a locally-downloaded model, nothing to pass.
       - ollama: a resolved key/URL if configured, else the literal "local"
         (it points at a locally-run server).
       - everything else: whatever services.settings_service.resolve_key
         finds, or None if nothing is configured.
     """
-    if engine_name == "nllb":
-        return None
     if engine_name in translate_engines.KEYLESS_ENGINES:
         return settings_service.resolve_key(engine_name, env_path) or "local"
     return settings_service.resolve_key(engine_name, env_path)
@@ -126,7 +147,7 @@ def translate(text: str, engine_name: str, source_language: str, target_language
         raise UnsupportedOperationError(message)
 
     api_key = resolve_api_key(engine_name, env_path)
-    if api_key is None and engine_name != "nllb":
+    if api_key is None:
         raise MissingKeyError(engine_name)
 
     engine = translate_engines.get_engine(

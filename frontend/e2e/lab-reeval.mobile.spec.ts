@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openBenchSections } from './benchSections'
 
 import { mockReeval, overview } from './reevalMocks'
 import { hitHeight, installHitArea } from './hitArea'
@@ -36,8 +37,9 @@ async function smallTargets(page: Page) {
 test('re-evaluation on a phone: stacked report, 44px targets, no sideways scroll, two-step promote', async ({ page }) => {
   const { calls, unmocked } = await mockReeval(page, overview({ withReport: true, error: 'Skipped: estimated $0.0400, above the $0.02 limit set for scheduled runs.' }))
   await page.goto('/#/benchmark')
+  await openBenchSections(page)
   const c = card(page)
-  await expect(c.getByTestId('reeval-production')).toContainText('Ollama · qwen3:8b')
+  await expect(c.getByTestId('reeval-production')).toContainText('Ollama · gemma4:12b')
   const rows = c.getByRole('list', { name: 'Candidates against production' })
   await expect(rows.locator(':scope > li')).toHaveCount(2)
 
@@ -60,14 +62,14 @@ test('re-evaluation on a phone: stacked report, 44px targets, no sideways scroll
   if (SHOTS) await c.screenshot({ path: `${SHOTS}/reeval-phone.png` })
 
   // Promote on a phone: the first tap arms it; nothing is sent until the second.
-  const qwen = rows.locator(':scope > li', { hasText: 'qwen2.5:14b' })
-  await qwen.getByRole('button', { name: 'Promote Ollama · qwen2.5:14b to production' }).tap()
+  const bigger = rows.locator(':scope > li', { hasText: 'gemma4:26b' })
+  await bigger.getByRole('button', { name: 'Promote Ollama · gemma4:26b to production' }).tap()
   expect(calls.filter((x) => x.path.endsWith('/promote'))).toEqual([])
-  const confirm = qwen.getByRole('button', { name: 'Confirm: make Ollama · qwen2.5:14b production' })
+  const confirm = bigger.getByRole('button', { name: 'Confirm: make Ollama · gemma4:26b production' })
   expect((await hitHeight(confirm))).toBeGreaterThanOrEqual(44)
   await noSideways(page)
   await confirm.tap()
-  await expect(c.getByTestId('reeval-promote-status')).toHaveText('Ollama · qwen2.5:14b is now the production model.')
+  await expect(c.getByTestId('reeval-promote-status')).toHaveText('Ollama · gemma4:26b is now the production model.')
   expect(calls.find((x) => x.path.endsWith('/promote'))?.body).toEqual({ confirm: true, reason: '' })
   expect(unmocked).toEqual([])
 })

@@ -538,7 +538,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     if stage == "translation":
         for cfg in checked:
             key = translate_service.resolve_api_key(cfg["engine"])
-            if key is None and cfg["engine"] != "nllb":
+            if key is None:
                 raise MissingKeyError(cfg['engine'])
             engines.append(key)
     if _job_active():
@@ -561,7 +561,8 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
     started = background_jobs.start_job(
         JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd,
-        gpu_touching=stage != "translation" or any(c["engine"] in ("ollama", "nllb") for c in checked),
+        gpu_touching=stage != "translation" or any(
+            translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
         description="Benchmark run")
     if not started:
         # Nothing ran: leave no rows behind.

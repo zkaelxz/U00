@@ -1,5 +1,6 @@
 export type SettingsToggleKey =
   | 'gpu_limit_enabled'
+  | 'unload_ollama_before_transcribe'
   | 'notify_on_completion'
   | 'use_gpu'
   | 'gemini_free_tier'
@@ -17,6 +18,8 @@ export interface SettingsPreferences {
   monthly_cap_usd: number | null // null: BAIHE_MONTHLY_CAP_USD from .env applies
   max_upload_mb: number // media/backup upload cap; BAIHE_MAX_UPLOAD_MB wins when set
   ollama_num_ctx_override: number // 0: sized from the prompt
+  keep_free_vram_gb: number // 0: off
+  keep_free_ram_gb: number // 0: off
   whisper_model_path: string
   ocr_backend: string
   ocr_prefer_paddle_vl_manga: boolean
@@ -42,7 +45,7 @@ export interface SettingsChoices {
   cookie_browsers: string[]
 }
 
-export type EndpointName = 'ollama_url' | 'gpt_sovits_url'
+export type EndpointName = 'ollama_url'
 
 // engine_keys maps a setting name to "is a key/endpoint configured"; the
 // API never returns a key, and neither does this type. endpoints carries a

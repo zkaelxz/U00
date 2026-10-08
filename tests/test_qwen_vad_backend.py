@@ -190,9 +190,8 @@ def test_refine_through_the_backend_is_off_unless_asked(fakes, monkeypatch):
     assert len(run(vad([(1.0, 3.0)]))) == 1
 
 
-def test_backend_is_registered_and_not_experimental():
+def test_backend_is_registered():
     assert isinstance(ab.get_backend("qwen3_asr_vad"), ab.Qwen3ASRVadBackend)
-    assert "qwen3_asr_vad" not in ab.EXPERIMENTAL_BACKENDS
 
 
 def test_refine_option_defaults_off_and_saves(isolated_db):
@@ -440,9 +439,8 @@ def test_long_backend_with_language_detection_runs_as_the_short_span_backend(
     assert len(out) == 2 and aligned == []
 
 
-def test_long_backend_is_registered_and_not_experimental():
+def test_long_backend_is_registered():
     assert isinstance(ab.get_backend("qwen3_asr_long"), ab.Qwen3ASRLongBackend)
-    assert "qwen3_asr_long" not in ab.EXPERIMENTAL_BACKENDS
 
 
 def test_pipeline_runs_the_long_backend_and_reports_it(tmp_path, monkeypatch):
