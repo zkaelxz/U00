@@ -34,7 +34,7 @@ export type AdminBusy = { kind: AdminAction; name: string } | null
 export function installBlockedReason(jobsActive: boolean, busy: AdminBusy): string | null {
   if (busy?.kind === 'reset') return 'Wait for the reset to finish.'
   if (busy) return 'Wait for the install to finish.'
-  if (jobsActive) return 'Wait for running jobs to finish before installing.'
+  if (jobsActive) return 'Wait for running jobs to finish.'
   return null
 }
 
@@ -187,8 +187,6 @@ const ENGINE_REPO_HINTS: Record<string, RegExp> = {
   'Qwen3-ASR': /qwen/i,
   'SenseVoice (FunASR)': /sensevoice|funasr|funaudio/i,
   OmniVoice: /omnivoice/i,
-  Chatterbox: /chatterbox/i,
-  TADA: /tada/i,
   'manga-ocr': /manga-?ocr/i,
 }
 

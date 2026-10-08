@@ -7,7 +7,8 @@ import { openAdvanced } from './minPauseHelpers'
 export async function pickSensitiveAndSave(page: Page): Promise<Record<string, unknown>> {
   let saved = ''
   await page.route('**/api/transcribe/dramas/1/config', async (route) => {
-    const resp = await route.fetch()
+    // Always read with GET: route.fetch() would forward the POST and save into the shared library.
+    const resp = await route.fetch({ method: 'GET' })
     const cfg = await resp.json()
     if (route.request().method() === 'GET') {
       await route.fulfill({ response: resp, json: { ...cfg, sensitivity_preset: 'normal' } })

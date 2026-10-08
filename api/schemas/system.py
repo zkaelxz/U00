@@ -288,8 +288,7 @@ class JobListResponse(BaseModel):
 
 
 class SettingsPreferences(BaseModel):
-    """Persisted PC-side preferences (settings parity G05, G08, G09, G13,
-    G14, G15). Paths are paths only: a cookies file's contents are never
+    """Persisted PC-side preferences. Paths are paths only: a cookies file's contents are never
     read or returned. The four paths are returned only to the PC itself;
     any other caller gets "" there and only the *_configured booleans."""
     default_engine: str
@@ -324,12 +323,13 @@ class SettingsChoices(BaseModel):
 class SettingsOverview(BaseModel):
     """Non-secret settings snapshot -- engine_keys
     reports only whether a key/endpoint is configured, never its value
-    (D2: keys are server-side only). endpoints carries the Ollama
-    and GPT-SoVITS URLs only when they have no userinfo,
+    (keys are server-side only). endpoints carries the Ollama
+    URL only when it has no userinfo,
     query or fragment (settings_service.validate_endpoint_url)."""
     engine_keys: dict[str, bool]
     gpu_limit_enabled: bool
     gpu_max_parallel: int = 1
+    unload_ollama_before_transcribe: bool = True
     notify_on_completion: bool
     use_gpu: bool = False
     gemini_free_tier: bool = False
@@ -363,14 +363,14 @@ class MonthCounterResetResult(BaseModel):
 
 
 class SettingsUpdateRequest(BaseModel):
-    """Non-secret Settings writes (preferences added for
-    settings parity). Unknown fields are rejected; keys and endpoint URLs
+    """Non-secret Settings writes (preferences). Unknown fields are rejected; keys and endpoint URLs
     are never accepted here (they have their own guarded routes).
     settings_service.set_settings re-validates every value. For
     monthly_cap_usd, null clears the saved cap (the .env value applies)."""
     model_config = ConfigDict(extra="forbid")
     gpu_limit_enabled: Optional[StrictBool] = None
     gpu_max_parallel: Optional[StrictInt] = None  # clamped to 1..4
+    unload_ollama_before_transcribe: Optional[StrictBool] = None
     notify_on_completion: Optional[StrictBool] = None
     use_gpu: Optional[StrictBool] = None
     gemini_free_tier: Optional[StrictBool] = None
@@ -433,7 +433,7 @@ class EngineKeyResult(BaseModel):
 
 
 class EndpointUrlSetRequest(BaseModel):
-    """Ollama / GPT-SoVITS URL (settings parity G06). An
+    """Ollama URL. An
     http(s) URL with no userinfo, query or fragment."""
     model_config = ConfigDict(extra="forbid")
     url: str = Field(..., max_length=300)
@@ -447,7 +447,7 @@ class EndpointUrlResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API batch 1: Diagnostics gaps -- /api/diagnostics/...
+# Diagnostics gaps -- /api/diagnostics/...
 # ---------------------------------------------------------------------------
 class DiagnosticsSetupPython(BaseModel):
     version: Optional[str] = None
@@ -693,7 +693,7 @@ class DiagnosticsResetResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API batch 1: browser-extension bridge control (PC only) -- /api/extension/...
+# Browser-extension bridge control (PC only) -- /api/extension/...
 # ---------------------------------------------------------------------------
 class ExtensionStatus(BaseModel):
     """No port and no token, ever."""
@@ -724,7 +724,7 @@ class ExtensionToken(BaseModel):
 
 
 class ExtensionEngineSettings(BaseModel):
-    """The extension's saved translation engine (inventory G16). `ready`:
+    """The extension's saved translation engine. `ready`:
     an engine is chosen and its key is configured. Never a key value."""
     engine: Optional[str] = None
     model: Optional[str] = None
@@ -886,7 +886,7 @@ class BugReportDeleted(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Diagnostics parity (react-misc-parity): model-cache delete (Q14).
+# Diagnostics: model-cache delete.
 # ---------------------------------------------------------------------------
 class DiagnosticsCacheDeleteResult(BaseModel):
     deleted: bool

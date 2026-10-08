@@ -33,7 +33,7 @@ def fake_repo(tmp_path):
         "app.py", "portable.py", "db.py", "check_setup.py", "README.md", "__init__.py",
         "requirements-core.txt", "requirements-media.txt", "constraints.txt",
         "api/__init__.py", "api/__main__.py", "services/settings_service.py",
-        "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json",
+        "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json", "extension/icons/icon-16.png",
         "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
         "installer/launcher.py", "installer/postinstall.py", "run_tests.py",
         # Never ships
@@ -62,7 +62,7 @@ SHIPS = {
     "app.py", "portable.py", "db.py", "check_setup.py", "README.md", "__init__.py",
     "requirements-core.txt", "requirements-media.txt", "constraints.txt",
     "api/__init__.py", "api/__main__.py", "services/settings_service.py",
-    "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json",
+    "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json", "extension/icons/icon-16.png",
     "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
     "installer/launcher.py", "installer/postinstall.py", "run_tests.py",
 }

@@ -49,7 +49,7 @@ class TestConfig:
             "drama_id", "content_mode", "is_narration", "narration_language",
             "narration_language_options", "source_language", "tts_engines", "default_engine",
             "blocker", "defaults", "speakers", "gpu_required", "speakable_line_count", "track_available",
-            "gpt_sovits_configured", "can_keep_background"}
+            "can_keep_background"}
         assert body["drama_id"] == did
         assert body["speakable_line_count"] == 2
         assert set(body["defaults"]) == {"max_speedup", "max_slowdown", "speedup_range",
@@ -146,18 +146,17 @@ class TestEngineAvailability:
         did = _seed(isolated_db)
         real = importlib.util.find_spec
         monkeypatch.setattr(importlib.util, "find_spec",
-                            lambda name, *a, **k: None if name == "chatterbox" else real(name, *a, **k))
+                            lambda name, *a, **k: None if name == "omnivoice" else real(name, *a, **k))
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
         engines = {e["key"]: e for e in client.get(f"/api/dub/dramas/{did}/config").json()["tts_engines"]}
-        assert engines["chatterbox"]["unavailable_reason"] == "Chatterbox is not installed. Install it in Diagnostics."
+        assert engines["omnivoice"]["unavailable_reason"] == "OmniVoice is not installed. Install it in Diagnostics."
 
     def test_no_engine_installed_is_a_plain_blocker_not_an_error(self, client, isolated_db, monkeypatch):
         import importlib.util
         did = _seed(isolated_db)
         real = importlib.util.find_spec
         monkeypatch.setattr(importlib.util, "find_spec",
-                            lambda name, *a, **k: None if name in ("omnivoice", "chatterbox", "tada")
-                            else real(name, *a, **k))
+                            lambda name, *a, **k: None if name == "omnivoice" else real(name, *a, **k))
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
         resp = client.get(f"/api/dub/dramas/{did}/config")
         assert resp.status_code == 200

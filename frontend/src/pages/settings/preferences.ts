@@ -13,13 +13,7 @@ export const ENDPOINTS: { name: EndpointName; label: string; placeholder: string
     name: 'ollama_url',
     label: 'Ollama URL',
     placeholder: 'http://127.0.0.1:11434',
-    help: 'Where the local Ollama server runs. Blank uses Ollama’s default on this PC.',
-  },
-  {
-    name: 'gpt_sovits_url',
-    label: 'GPT-SoVITS URL',
-    placeholder: 'http://127.0.0.1:9880',
-    help: 'The voice-cloning server used for dubbing. Blank uses http://127.0.0.1:9880.',
+    help: 'Where Ollama runs. Blank uses its default on this PC.',
   },
 ]
 

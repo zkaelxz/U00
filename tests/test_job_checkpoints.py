@@ -339,17 +339,17 @@ def test_queued_gpu_jobs_show_their_place_in_line(isolated_db, monkeypatch):
 
 def test_fit_check_refuses_an_oversized_load_with_a_clear_message():
     with pytest.raises(vram_service.InsufficientVramError) as ei:
-        vram_service.check_fits("TADA 3B", free_mb=3000)
+        vram_service.check_fits("OmniVoice", free_mb=1000)
     msg = str(ei.value)
-    assert "TADA 3B" in msg and "6.3 GB" in msg and "2.9 GB is free" in msg
+    assert "OmniVoice" in msg and "2.0 GB" in msg and "1.0 GB is free" in msg
     assert "CUDA" not in msg and "out of memory" not in msg.lower()
-    vram_service.check_fits("TADA 3B", free_mb=8000)          # fits
+    vram_service.check_fits("OmniVoice", free_mb=8000)        # fits
     vram_service.check_fits("Unknown model", free_mb=1)        # no estimate: allowed
 
 
 def test_unknown_free_memory_never_blocks(monkeypatch):
     monkeypatch.setattr(vram_service, "free_vram_mb", lambda: None)
-    vram_service.check_fits("TADA 3B")
+    vram_service.check_fits("OmniVoice")
 
 
 def test_free_memory_comes_from_torch_when_loaded(monkeypatch):
@@ -369,17 +369,13 @@ def test_free_memory_falls_back_to_nvidia_smi(monkeypatch):
     assert vram_service.free_vram_mb() == 1024.0
 
 
-@pytest.mark.parametrize("loader,args", [("_get_chatterbox", ()), ("_get_omnivoice_model", ()),
-                                         ("_get_tada", (None,))])
-def test_dub_loaders_check_vram_before_loading(monkeypatch, loader, args):
+def test_dub_loader_checks_vram_before_loading(monkeypatch):
     import dub
     monkeypatch.setattr(dub, "_cuda_available", lambda: True)
     monkeypatch.setattr(vram_service, "free_vram_mb", lambda: 100.0)
-    monkeypatch.setattr(dub, "_chatterbox", None)
     monkeypatch.setattr(dub, "_omnivoice_model", None)
-    monkeypatch.setitem(dub._tada, "model", None)
     with pytest.raises(vram_service.InsufficientVramError):
-        getattr(dub, loader)(*args)
+        dub._get_omnivoice_model()
 
 
 def test_provenance_is_ignored_once_the_translation_changes(isolated_db):
@@ -588,9 +584,9 @@ def test_cli_narrate_prep_resumes_and_can_start_over(isolated_db, monkeypatch):
     import argparse
     import os
     import cli
-    import dub
+    import dub_narration
     did = _narration_setup(isolated_db, monkeypatch)
-    with open(os.path.join(isolated_db.drama_dir(did), dub.NOVEL_SOURCE_FILENAME), "w",
+    with open(os.path.join(isolated_db.drama_dir(did), dub_narration.NOVEL_SOURCE_FILENAME), "w",
               encoding="utf-8") as f:
         f.write("novel")
     monkeypatch.setattr(cli, "chunk_novel_text", lambda text: [f"段落{i}" for i in range(40)])

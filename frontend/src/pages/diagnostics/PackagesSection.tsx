@@ -275,14 +275,14 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         {noTranscription && presets && (
           <div className="diag-stack" data-testid="transcription-missing" role="group" aria-labelledby={`${tasksId}-tr`} ref={noTranscriptionRef}>
             <h4 id={`${tasksId}-tr`}>Transcription isn't installed yet</h4>
-            <p className="muted">Needed to turn audio or video into subtitles. This is the same install as Install by task below.</p>
+            <p className="muted">Needed to turn audio or video into subtitles. Same install as "Install by task" below.</p>
             <ul aria-label="Transcription" className="pkg-list task-list">{taskRow(noTranscription)}</ul>
           </div>
         )}
         {presets && presets.tasks.length > 0 && (
           <div className="diag-stack" data-testid="install-tasks" role="group" aria-labelledby={tasksId}>
             <h4 id={tasksId}>Install by task</h4>
-            <p className="muted">Pick what you want to do; only the packages it needs are installed.</p>
+            <p className="muted">Pick a task; only the packages it needs are installed.</p>
             {groupTasks(sortTasksNeedingInstall(presets.tasks.filter((t) => t !== noTranscription))).map((g) => (
               <Section key={g.group} title={g.group} count={g.tasks.length} storageKey={`diagnostics.tasks.${g.group}`}
                 summary={taskGroupSummary(g.tasks)}>
