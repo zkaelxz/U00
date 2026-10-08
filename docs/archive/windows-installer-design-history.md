@@ -1,6 +1,6 @@
 # Windows installer design: cut history
 
-Text removed from [`../windows-installer-design.md`](../windows-installer-design.md) because it was dated narrative, provenance or a stale status rather than current behaviour. Each block is the original text, verbatim, under the part of the doc it came from. Some of it is also wrong now (noted per block).
+Text removed from [`../windows-installer-design.md`](../windows-installer-design.md) because it was dated narrative, provenance or a stale status rather than current behaviour. Each block is the original text, verbatim, under the part of the doc it came from.
 
 ## Header (dates and provenance)
 
@@ -9,7 +9,7 @@ Text removed from [`../windows-installer-design.md`](../windows-installer-design
 > Design and as-built reference (the installer was built 2026-09-30).
 > `python -m api` serves the API and the prebuilt React screens from one
 > process on `http://127.0.0.1:8600/`. Read it with
-> [`archive/windows-installer-research-notes.md`](archive/windows-installer-research-notes.md),
+> [`windows-installer-research-notes.md`](windows-installer-research-notes.md),
 > whose 2026-09-28 decisions are folded in below.
 
 ## Header (verification status)

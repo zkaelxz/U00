@@ -4,6 +4,25 @@ The feature walkthroughs, setup details and troubleshooting that used to sit in 
 
 Related docs: [`STATUS.md`](STATUS.md) (what is built and what is next), [`engine-backends.md`](engine-backends.md) (translation, transcription and dubbing engines), [`asr-experiments.md`](asr-experiments.md) (Whisper model choice), [`browser-extension.md`](browser-extension.md), [`household-access.md`](household-access.md), [`runbook.md`](runbook.md) (restore, certificate), [`technical-notes.md`](technical-notes.md) (bugs found and fixed).
 
+## What the app is
+
+- **Pages.** Library, Library tools, Saved manga, Translate text, Sources, Discover, Live, Jobs, Settings, Admin, Diagnostics, Benchmark Lab and Assistant in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
+- **Access.** `python -m api` serves the built `frontend/dist` at `/`. The PC's own port is loopback-only and needs no login; other household devices can use a separate listener with Google sign-in, which is opt-in ([`household-access.md`](household-access.md)). **Audit log** and **Users** are on the Admin page.
+- **Background services.** `python -m api` also starts the scheduled chapter check and other schedulers (`api/background.py`), and the browser-extension bridge (`page_server.py`) when the extension setting is on.
+- **Three content modes**: audio drama (your audio or video plus a transcript, aligned to real timing), novel narration (paste the text; the app chunks it, tags speakers with the LLM, translates, and can generate a narration/dub) and streamer VOD (see [Streamer VODs and series](#streamer-vods-and-series)).
+- **Video input**: upload `.mp4`/`.mov`/`.mkv`/`.webm` or download from a URL via yt-dlp; the audio is extracted for alignment and the video kept for export.
+- **Line tools.** A line's actions sheet in Review has "Alternatives (AI)" and "Grammar breakdown (AI)" for study.
+
+## Install details
+
+- **ffmpeg** (with libass, for burning subtitles):
+```bash
+brew install ffmpeg            # macOS
+sudo apt install ffmpeg        # Ubuntu/Debian
+# Windows: download from ffmpeg.org and add to PATH
+```
+- **Automatic updates (source checkouts).** Before launch, `start.bat` fast-forwards a clone on `baihe-subtitler` to `origin/baihe-subtitler`. It never discards, stashes or overwrites your changes and leaves untracked and ignored files (`library\`, `.env`, `venv\`, `frontend\dist`) alone. When it updates it prints `Updated to <commit>: N new commits` and the latest subjects. If `requirements-core.txt` or the constraints files changed it reinstalls dependencies in the same launch; if the screens' source changed it rebuilds `frontend\dist` when `npm` exists, otherwise it says to run `start.bat --build-frontend` or unzip the release's frontend zip. It does nothing without a `.git` folder, without `git` on PATH, for an installed copy, or when GitHub can't be reached. A copy with local commits that aren't on origin is not updated (the update wouldn't sit on top of them).
+
 ## Running the app and the CLI
 
 Double-click `start.bat`, or from the repo root inside the venv (once `frontend/dist` exists):
@@ -85,7 +104,7 @@ Lines are tagged with an emotional register (14, including sarcasm, dry humour, 
 
 ### Streamer VODs and series
 
-For a streamer, "Title (English)" and "Title (original language)" are the translated and untranslated stream name, and the **Source URL** field keeps the original link (auto-filled for URL downloads). Assign every stream to one **series** to share its glossary, style profile and named characters. Speaker labels (`SPEAKER_00`) are not stable across recordings, so a named character lives at series level: add it from the Characters section, then pick it from the dropdown in later streams. Typing a name does not add it to the series unless you tick "Remember {name} in this series".
+For a streamer, "English title" and "Original title" are the translated and untranslated stream name, and the **Source URL** field keeps the original link (auto-filled for URL downloads). Assign every stream to one **series** to share its glossary, style profile and named characters. Speaker labels (`SPEAKER_00`) are not stable across recordings, so a named character lives at series level: add it from the Characters section, then pick it from the dropdown in later streams. Typing a name does not add it to the series unless you tick "Remember {name} in this series".
 
 ### Raw novel
 
@@ -102,7 +121,7 @@ Whisper often mishears proper nouns in Chinese without it showing. In order of v
 4. **Wider beam search** (8-10): costs time only.
 
 Other transcribe options (Workspace > Source > "Transcribe audio or video"; fine controls under Advanced):
-- **Min silence** (ms; default 300, range 100-3000; lower values split at shorter pauses and can cut mid-sentence) and **VAD threshold** (the Silero speech-detection threshold, 0.1-0.9): the first controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing phantom lines. A "Sensitivity" preset (normal / sensitive) sets both.
+- **Min silence** (ms; default 300, range 100-3000; lower values split at shorter pauses and can cut mid-sentence) and **VAD threshold** (the Silero speech-detection threshold, 0.1-0.9): the first controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing phantom lines. A "Sensitivity" preset (normal / sensitive): sensitive lowers a VAD threshold you haven't changed from 0.5 to 0.35 and drops Whisper's repeat penalties; it leaves Min silence alone.
 - **Separate vocals first** (removes background music before transcribing): vocal separation with `audio-separator` (preferred) or Demucs. Adds a full extra pass; skip it unless the background is music alone (in the benchmark it hurt with noise and did nothing on clean audio).
 - **Realign long segments** (experimental, off by default): re-aligns a line against its own audio with Meta's MMS aligner (`pip install torchaudio uroman`, ~1.1GB model on first use). It only re-times text Whisper already produced.
 - **Coverage checks.** Review shows a "Coverage and pacing" section (long lines, large gaps, no source text, not translated) to look at before translating. The Source stage has a separate "Speech coverage" > "Check coverage".
@@ -143,7 +162,7 @@ With no source audio, line timings come from each generated TTS clip, so downloa
 ## Dubbing & voice cloning
 
 - **Voice engine**: OmniVoice is the only engine and is not bundled; install it in Diagnostics (`pip install omnivoice`, needs `transformers` 5.3+). It clones a voice from a 3-10s clip or designs one from a description, and speaks Chinese, Japanese and Korean. A speaker with no clip gets a designed voice. "Find clips in the audio" pulls reference clips from a diarized audio drama. Not verified end to end in development: test on one short line first.
-- **Removed engines**: Edge TTS, Piper, F5-TTS, TADA, Chatterbox and GPT-SoVITS were removed. A title or character that still names one shows a plain "removed" message and will not generate until you pick OmniVoice; saved settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no longer used and can be deleted by hand (Diagnostics' disk usage view lists it as "Old voices").
+- **Removed engines**: Edge TTS, Piper, F5-TTS, TADA, Chatterbox and GPT-SoVITS were removed. A title or character that still names one shows a plain "removed" message and will not generate until you pick OmniVoice; saved settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no longer used and can be deleted by hand (Library tools > Disk usage lists it as "Old voices").
 - **Fitting to timing**: a dubbed clip longer than its slot is sped up at most 1.4x (pitch kept), a shorter one slowed at most 0.85x; past the limit the line runs over, so shorten it with the pacing check. Both limits are adjustable (`--max-speedup` / `--max-slowdown` on `cli.py dub`). Editing a line and generating again re-voices only that line.
 - **Narration**: consecutive lines from the same speaker in a paragraph are voiced in one call; each stays its own cue.
 - **Audiobook export**: Export > "Video and audio" > Audiobook > "Start audiobook export" builds an M4B with chapter markers from the novel's headings (or one per paragraph); CLI: `python cli.py dub --id N --m4b`.
@@ -248,7 +267,7 @@ The app already retries on CPU. The cause is usually a CPU-only PyTorch/ctransla
 
 ### If your exported subtitles are blank
 
-A `.srt` with correct timestamps but no text means the lines aren't translated yet (an aligned but untranslated drama exports every entry empty). Check "Lines translated X / Y" and press Translate first (Ollama is free). The export buttons warn before this: zero translated lines disables the English/bilingual downloads, and a partial translation shows how many lines will export blank.
+A `.srt` with correct timestamps but no text means the lines aren't translated yet (an aligned but untranslated drama exports every entry empty). Check that the lines are translated (the Library header shows "X of Y lines" for the whole library; Review shows each line) and press Translate first (Ollama is free). The export buttons warn before this: zero translated lines disables the English/bilingual downloads, and a partial translation shows how many lines will export blank.
 
 ## Testing & diagnostics
 
@@ -271,7 +290,7 @@ The Diagnostics page (nav item "Diagnostics") reports, in one place:
 - **Jobs** -- a summary of background jobs; the full list of every job across the app (translate, transcribe, dub, diarize, Live capture, etc.) with progress, a per-job cancel button and delete for finished jobs is the separate **Jobs** page.
 - **Model health** -- every model the app is set up to use, flagged when it is retired, deprecated or no longer listed by its provider (the provider check runs only when you press "Check providers now").
 - **Packages** -- installed versions, install-by-task presets, per-package Install / Update (PC only), a "Test first" upgrade check and the GPU PyTorch set-up.
-- **Ports** and **Log** (recent redacted lines of the app's own log, 50/100/200), plus **Audit log** and **Users** sections.
+- **Ports** and **Log** (recent redacted lines of the app's own log, 50/100/200), 
 - **Danger zone** -- the "Reset library" button described in [Resetting for testing](#resetting-for-testing).
 - A link to the Benchmark Lab, which is its own page (below).
 

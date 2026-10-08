@@ -179,7 +179,8 @@ of the diff.
    `manifest.json` must name the product and this AppId, or this app's
    uninstall entry must point at the folder).
 2. `PrepareToInstall`: check both folders again, note whether the data folder
-   is new, check it can be written, and stop the background service (§11) and
+   is new, check it can be written (a probe file is written and deleted, so an unplugged
+   drive stops Setup before anything is replaced), and stop the background service (§11) and
    any server a previous install started (`launcher.py --stop`) so its files
    can be replaced.
 3. Copy files. The wheels go to `{tmp}` and are deleted afterwards.
@@ -188,23 +189,23 @@ of the diff.
       The marker comes first, and the launcher refuses to start an install
       without it, so even a failed install never puts the library in the
       program folder.
-   2. Bootstraps pip by running it as a module from its own wheel (`runpy`,
+   2. Limits a new data folder outside the profile to this account (§2); this
+      runs right after the log header, before the wheel check.
+   3. Re-checks every bundled wheel against the shipped copy of the lock
+      (`<wheels>\wheels.lock.txt`; exit code 6 on a mismatch, an extra wheel or
+      a missing one) before anything is installed.
+   4. Bootstraps pip by running it as a module from its own wheel (`runpy`,
       the equivalent of `python -m pip`; running `pip.whl\pip` directly fails
       on Windows, where pip refuses to modify itself unless run as `-m pip`).
       No network is needed, and nothing is fetched from bootstrap.pypa.io.
-   3. Re-checks every bundled wheel against the shipped copy of the lock
-      (`<wheels>\wheels.lock.txt`; exit code 6 on a mismatch, an extra wheel or
-      a missing one) before anything is installed, then
+   5. Installs the wheels:
       `pip install --no-index --find-links <wheels> --require-hashes --no-deps -r <wheels>\wheels.lock.txt`.
       `PIP_USER`, `PIP_REQUIRE_VIRTUALENV`, `PIP_INDEX_URL` and similar variables
       from the user's environment are dropped first, and `-s` keeps the user's
       own site-packages out.
-   4. Limits a new data folder outside the profile to this account (§2). In
-      the code this runs first, right after the log header, before the wheel
-      check.
-   5. Checks that the core packages import, then runs `check_setup.py`
+   6. Checks that the core packages import, then runs `check_setup.py`
       (ffmpeg, JS runtime, CUDA) for the log only.
-   6. Logs everything to `<data>\launcher\install.log`.
+   7. Logs everything to `<data>\launcher\install.log`.
    If this step fails, Setup shows a plain-words error with the log path.
    It exits with **code 100** (outside Inno's own 1-8) so a silent install can detect the failure, and the
    "Start Baihe Studio now" option is skipped. Its own exit codes are 2 to 6
@@ -249,7 +250,9 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
   yt-dlp, Playwright's Node driver and its Chromium, lncrawl, pip. When the
   server ends for any reason, Windows ends them all, and nothing else. The
   launcher passes a per-install name in `BAIHE_PROCESS_GROUP_NAME` so
-  `--stop` can end the job by name; from `start.bat` the job is anonymous.
+  `--stop` can end the job by name; from `start.bat` the job is anonymous. The
+  server removes the name from its own environment, so the processes it starts
+  don't inherit it.
 - **Closing the server's window** (or Windows shutting down) runs the same
   clean stop as below first, in the ~5 s Windows allows
   (`SetConsoleCtrlHandler`); then the process ends and the job takes its
@@ -320,6 +323,7 @@ Running a newer `BaiheStudio-Setup-<v>.exe`:
   and its `site-packages` is kept, so optional packages added through
   Diagnostics survive. Then `postinstall.py` runs `pip install` again against
   the new bundled wheels, which changes only what changed.
+- The data folder is never touched.
 - A Python minor-version bump (3.12 → 3.13) would make the kept `site-packages`
   unusable; the release would then need "uninstall first" or an
   `[InstallDelete]` for `python\Lib\site-packages`.
@@ -390,7 +394,7 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   `._pth`, wheel commands, lock parser and verifier, manifest, ISCC arguments),
   `tests/test_installer_iss.py` (static checks of the `.iss` and the workflow),
   `tests/test_installer_runtime.py` (launcher and post-install logic with fakes)
-  and   `tests/test_portable.py` (`data_dir()`). Also related:
+  and `tests/test_portable.py` (`data_dir()`). Also related:
   `tests/test_installer_service.py` (the service against a fake `sc`, `icacls`
   and `netsh`), `tests/test_caddyfile_template.py`, `tests/test_shutdown.py`,
   `tests/test_update_service.py` and `tests/test_constraints_lock_parity.py`.
@@ -413,7 +417,7 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   - **Clean-uninstall check.** A second install is removed with `/CLEAN`: its
     folders and a `%TEMP%\baihe_*` folder must be gone while a non-Baihe
     temp folder, a neighbouring file and the first install's data are untouched.
-  - **Service steps.** Nine "Service --" steps install the service by default
+  - **Service steps.** Six "Service --" steps install the service by default
     and check it runs at boot on loopback, an update keeps the data, the
     service and its stored port, `set-port` moves it and back, `enable-remote`
     refuses without settings and the Caddyfile validates, and uninstall removes
@@ -610,8 +614,8 @@ The CI checks the menu only through its non-interactive `-Status`.
 3. **Nothing here creates a firewall rule or opens a port.** `enable-remote`
    and `status` print the exact command for the owner to run by hand
    (`firewall_rule_command`: inbound TCP 443, for `caddy.exe` only, private and
-   domain profiles); the script only ever runs `netsh ... show rule`.
-   Forwarding 443 and the domain name are the owner's steps
+   domain profiles) to run by hand in an administrator prompt; the script only ever runs `netsh ... show rule`.
+   Forwarding 443 and the domain name (and any dynamic DNS) are the owner's steps
    (`docs/household-access.md`).
 4. The service stays local-only until `enable-remote` is run.
 
