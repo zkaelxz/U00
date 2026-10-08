@@ -43,6 +43,16 @@ def test_bundled_samples_ship_in_a_small_included_directory():
         assert not bi.is_excluded(os.path.relpath(path, gaps.default_project_root()))
 
 
+def test_bundled_samples_are_a_real_png_and_wav():
+    with open(svc._IMAGE, "rb") as f:
+        assert f.read(8) == b"\x89PNG\r\n\x1a\n"
+    with open(svc._CLIP, "rb") as f:
+        head = f.read(12)
+    assert head[:4] == b"RIFF" and head[8:12] == b"WAVE"
+    for path in (svc._CLIP, svc._IMAGE):
+        assert os.path.getsize(path) < 300 * 1024
+
+
 # --- ASR -------------------------------------------------------------------
 
 class _Backend:
@@ -199,26 +209,53 @@ def test_ocr_requirement_skips_an_undownloaded_model(monkeypatch):
         svc._ocr_requirement("manga_ocr")
 
 
-def test_paddle_models_are_found_where_paddlex_keeps_them(monkeypatch, tmp_path):
+def _paddle_home(monkeypatch, tmp_path, folders):
     monkeypatch.delenv("PADDLE_PDX_CACHE_HOME", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    assert svc._paddle_models_present() is False
-    (tmp_path / ".paddlex" / "official_models" / "PP-OCRv5_server_det").mkdir(parents=True)
-    assert svc._paddle_models_present() is True
+    models = tmp_path / ".paddlex" / "official_models"
+    for name in folders:
+        (models / name).mkdir(parents=True)
+
+
+def test_paddle_owners_real_folders_are_present(monkeypatch, tmp_path):
+    _paddle_home(monkeypatch, tmp_path, [
+        "PP-LCNet_x1_0_textline_ori", "PP-OCRv6_medium_det", "PP-OCRv6_medium_rec"])
+    assert svc._paddle_models_state() == "present"
+
+
+def test_paddle_other_models_only_is_missing(monkeypatch, tmp_path):
+    _paddle_home(monkeypatch, tmp_path, ["PP-LCNet_x1_0_textline_ori", "PP-OCRv6_medium_det",
+                                         "PP-DocLayout-L"])
+    assert svc._paddle_models_state() == "missing"
+
+
+def test_paddle_no_folder_or_empty_folder_is_unknown(monkeypatch, tmp_path):
+    _paddle_home(monkeypatch, tmp_path, [])
+    assert svc._paddle_models_state() == "unknown"
+    (tmp_path / ".paddlex" / "official_models").mkdir(parents=True)
+    assert svc._paddle_models_state() == "unknown"
 
 
 def test_paddle_cache_override_is_honoured(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "empty-home"))
-    (tmp_path / "elsewhere" / "official_models" / "m").mkdir(parents=True)
+    for n in ("a_det", "a_rec", "a_textline_ori"):
+        (tmp_path / "elsewhere" / "official_models" / n).mkdir(parents=True)
     monkeypatch.setenv("PADDLE_PDX_CACHE_HOME", str(tmp_path / "elsewhere"))
-    assert svc._paddle_models_present() is True
+    assert svc._paddle_models_state() == "present"
+
+
+def test_paddle_missing_models_are_skipped_not_claimed_for_unknown(monkeypatch):
+    monkeypatch.setattr(svc, "_installed", lambda m: True)
+    monkeypatch.setattr(svc, "_paddle_models_state", lambda: "missing")
+    with pytest.raises(svc._Skip):
+        svc._ocr_requirement("paddle")
 
 
 def test_paddle_models_not_found_is_could_not_check_never_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(svc, "_installed", lambda m: True)
-    monkeypatch.setattr(svc, "_paddle_models_present", lambda: False)
+    monkeypatch.setattr(svc, "_paddle_models_state", lambda: "unknown")
     monkeypatch.setattr(settings_service, "resolve_ocr_backend", lambda lang, **kw: "paddle")
     r = _run("ocr")
     assert r["status"] == svc.COULD_NOT_CHECK
@@ -354,3 +391,130 @@ def test_routes_are_declared_and_start(env, monkeypatch):
     _wait()
     body = client.get("/api/diagnostics/real-model-check").json()
     assert body["checks"][0]["status"] == "pass" and body["finished"] is True
+
+
+# --- Qwen: exact repos, offline, tone-only -------------------------------------
+
+class _QwenBackend:
+    model_size = "1.7B"
+
+    def __init__(self, long_windows=True, segments=None, load=False):
+        self.long_windows, self.segments, self.load = long_windows, segments or [], load
+        self.calls, self.offline = 0, []
+
+    def transcribe(self, audio, language, on_device=None, on_gpu_fallback=None, **kw):
+        import huggingface_hub.constants as hc
+        self.calls += 1
+        self.offline.append((os.environ.get("HF_HUB_OFFLINE"), hc.HF_HUB_OFFLINE))
+        if self.load:
+            on_device("Qwen3-ASR", "GPU")
+        return self.segments
+
+
+@pytest.fixture
+def qwen(monkeypatch):
+    import sys
+    import types
+    import asr_backend
+    # A stand-in so the offline switch is exercised without the real package.
+    constants = types.ModuleType("huggingface_hub.constants")
+    constants.HF_HUB_OFFLINE = False
+    hub = types.ModuleType("huggingface_hub")
+    hub.constants = constants
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
+    state = {"backend": _QwenBackend(), "repos": ["Qwen/Qwen3-ASR-1.7B", "Qwen/Qwen3-ForcedAligner-0.6B"]}
+    monkeypatch.setattr(asr_options_service, "stored_asr_backend", lambda d: "qwen3_asr_long")
+    monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
+    monkeypatch.setattr(svc, "_installed", lambda m: True)
+    monkeypatch.setattr(asr_backend, "get_backend", lambda name: state["backend"])
+    monkeypatch.setattr(svc.diagnostics, "scan_hf_cache",
+                        lambda: [{"repo_id": r} for r in state["repos"]])
+    return state
+
+
+def test_qwen_with_only_another_qwen_model_cached_is_skipped_and_never_loads(qwen):
+    qwen["repos"] = ["Qwen/Qwen3-ASR-0.6B", "Qwen/Qwen3-ASR-1.7B-Extra"]
+    r = _run("asr")
+    assert r["status"] == svc.SKIPPED and "not downloaded" in r["reason"]
+    assert qwen["backend"].calls == 0
+
+
+def test_qwen_long_needs_the_aligner_too(qwen):
+    qwen["repos"] = ["Qwen/Qwen3-ASR-1.7B"]
+    assert _run("asr")["status"] == svc.SKIPPED
+    assert qwen["backend"].calls == 0
+    qwen["backend"] = _QwenBackend(long_windows=False, load=True)
+    assert _run("asr")["status"] == svc.PASS
+
+
+def test_qwen_repo_ids_come_from_the_backend_constants(qwen, monkeypatch):
+    import forced_align
+    monkeypatch.setattr(forced_align, "ALIGNER_REPO_ID", "Org/Other-Aligner")
+    assert _run("asr")["status"] == svc.SKIPPED
+
+
+def test_the_check_runs_models_offline_and_restores_the_switch(qwen, monkeypatch):
+    import huggingface_hub.constants as hc
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    before = hc.HF_HUB_OFFLINE
+    qwen["backend"] = _QwenBackend(load=True)
+    assert _run("asr")["status"] == svc.PASS
+    assert qwen["backend"].offline == [("1", True)]
+    assert "HF_HUB_OFFLINE" not in os.environ and hc.HF_HUB_OFFLINE == before
+
+
+def test_tone_only_is_skipped_not_passed_when_no_model_loaded(qwen):
+    r = _run("asr")
+    assert r["status"] == svc.SKIPPED
+    assert r["reason"] == ("Tone only: speech detection found no speech, "
+                           "so the recognition model was not loaded.")
+
+
+def test_a_loaded_model_passes_even_with_no_segments(qwen):
+    qwen["backend"] = _QwenBackend(load=True)
+    r = _run("asr")
+    assert r["status"] == svc.PASS and "0 segment(s)" in r["reason"]
+
+
+# --- No raw exception text in results ----------------------------------------------
+
+def _no_url(text):
+    for bad in ("http", "192.168", "11434", "/api/chat", "localhost", "private-host"):
+        assert bad not in text
+
+
+def test_ollama_http_error_never_leaks_the_url(ollama):
+    import requests
+    ollama["chat_error"] = requests.HTTPError(
+        "500 Server Error: Internal Server Error for url: http://private-host:11434/api/chat")
+    r = _run("translate")
+    assert r["status"] == svc.FAIL and "ran out of memory" in r["reason"]
+    _no_url(r["reason"])
+
+
+def test_invalid_ollama_url_never_leaks_the_url(ollama):
+    import requests
+    ollama["installed_error"] = requests.exceptions.InvalidURL(
+        "Invalid URL 'http://private-host:11434:99/api/tags': bad port")
+    r = _run("translate")
+    assert r["status"] == svc.FAIL and "not valid" in r["reason"]
+    _no_url(r["reason"])
+
+
+def test_unknown_exception_reports_only_its_class_name(ollama):
+    ollama["chat_error"] = ValueError("failed at http://192.168.1.9:11434/api/chat C:\\Users\\me\\x")
+    r = _run("translate")
+    assert r["reason"] == "Unexpected error (ValueError)."
+
+
+def test_api_result_carries_no_url(env, monkeypatch, ollama):
+    import requests
+    ollama["chat_error"] = requests.HTTPError(
+        "500 for url: http://private-host:11434/api/chat")
+    monkeypatch.setattr(svc, "_CHECKS", tuple(c for c in svc._CHECKS if c[0] == "translate"))
+    svc.start(confirm=True)
+    _wait()
+    state = svc.get_state()
+    assert state["checks"][0]["status"] == svc.FAIL
+    _no_url(str(state))

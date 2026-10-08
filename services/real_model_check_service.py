@@ -19,11 +19,14 @@ guard as the other Diagnostics actions; the `smoke` CLI command
 same checks. Reasons never carry paths or URLs.
 """
 
+import contextlib
 import importlib.util
 import os
 import re
 import shutil
 import threading
+
+import requests
 
 import background_jobs
 import diagnostics
@@ -52,6 +55,12 @@ class _Skip(Exception):
     """The check cannot run on this machine (not a fault)."""
 
 
+class _Failed(Exception):
+    """A failure whose message we wrote ourselves, so it is safe to show.
+    Any other exception can carry a URL, host or path in its text and is
+    reported by class name only."""
+
+
 class _CouldNotCheck(Exception):
     """We cannot tell whether the check's prerequisite is met, so it is
     neither run nor reported as missing."""
@@ -71,6 +80,38 @@ def _installed(module: str) -> bool:
 def _hf_repo_cached(fragment: str) -> bool:
     fragment = fragment.lower()
     return any(fragment in e["repo_id"].lower() for e in diagnostics.scan_hf_cache())
+
+
+def _hf_repo_exact(repo_id: str) -> bool:
+    # A substring match would let another Qwen model stand in for the one the
+    # backend loads, and the load would then download the real one.
+    return any(e["repo_id"].lower() == repo_id.lower() for e in diagnostics.scan_hf_cache())
+
+
+@contextlib.contextmanager
+def _offline_models():
+    """The check must never download. The backends load with plain
+    from_pretrained, so switch Hugging Face to offline for the run: the
+    libraries read the env var at import, hence the constant as well."""
+    names = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
+    saved = {n: os.environ.get(n) for n in names}
+    os.environ.update({n: "1" for n in names})
+    constants, old_flag = None, None
+    try:
+        from huggingface_hub import constants
+        old_flag, constants.HF_HUB_OFFLINE = constants.HF_HUB_OFFLINE, True
+    except ImportError:
+        constants = None
+    try:
+        yield
+    finally:
+        for n, v in saved.items():
+            if v is None:
+                os.environ.pop(n, None)
+            else:
+                os.environ[n] = v
+        if constants is not None:
+            constants.HF_HUB_OFFLINE = old_flag
 
 
 def _spoken_text(segments) -> str:
@@ -99,15 +140,30 @@ def _check_asr(speech_clip=None, expected_text=None) -> str:
     else:
         if not _installed("qwen_asr"):
             raise _Skip("qwen-asr is not installed.")
-        if not _hf_repo_cached("Qwen3-ASR"):
-            raise _Skip("The Qwen3-ASR model is not downloaded.")
     if not os.path.isfile(_CLIP):
-        raise RuntimeError("The bundled audio sample is missing; reinstall the app.")
+        raise _Failed("The bundled audio sample is missing; reinstall the app.")
     if speech_clip and not os.path.isfile(speech_clip):
-        raise RuntimeError("The speech clip was not found.")
+        raise _Failed("The speech clip was not found.")
 
     import asr_backend
     runner = asr_backend.get_backend(backend)
+    if backend != "whisper":
+        import forced_align
+        repos = [asr_backend.qwen3_asr_repo_id(runner.model_size)]
+        # The aligner loads only once speech is found, so a tone never needs
+        # it, but the speech clip and real titles do.
+        if getattr(runner, "long_windows", False):
+            repos.append(forced_align.ALIGNER_REPO_ID)
+        if not all(_hf_repo_exact(r) for r in repos):
+            raise _Skip("A Qwen3-ASR model is not downloaded.")
+    loaded = []
+
+    def finish(detail):
+        # The Qwen backends return before loading anything when speech
+        # detection finds none, so a plain tone proves nothing about the model.
+        if backend != "whisper" and not loaded:
+            raise _Skip("Tone only: speech detection found no speech, so the recognition model was not loaded.")
+        return detail
 
     def transcribe(path):
         fallback = []
@@ -116,40 +172,57 @@ def _check_asr(speech_clip=None, expected_text=None) -> str:
                                          on_gpu_fallback=fallback.append)
         else:
             segments = runner.transcribe(path, _LANGUAGE, use_gpu=use_gpu,
-                                         on_gpu_fallback=lambda _task_or_exc, *rest: fallback.append(1))
+                                         on_device=lambda *_: loaded.append(1),
+                                         on_gpu_fallback=lambda *_: fallback.append(1))
         if fallback:
             # A silent CPU fallback is the breakage this check exists to surface.
-            raise RuntimeError("The GPU could not be used, so it ran on the CPU instead.")
+            raise _Failed("The GPU could not be used, so it ran on the CPU instead.")
         return segments
 
-    segments = transcribe(_CLIP)
-    detail = (f"{backend} ran on the {'GPU' if use_gpu else 'CPU'} ({len(segments or [])} segment(s)). "
-              "A pass means the model loaded and ran, not that words were recognised.")
-    if speech_clip:
-        heard = _spoken_text(transcribe(speech_clip))
-        if not expected_text:
-            return detail + f" The speech clip produced {len(heard.strip())} character(s); no expected text was given to compare."
-        if _comparable(expected_text) not in _comparable(heard):
-            raise RuntimeError("The speech clip was transcribed, but the text did not match the expected text.")
-        detail += " The speech clip matched the expected text."
-    return detail
+    with _offline_models():
+        segments = transcribe(_CLIP)
+        detail = (f"{backend} ran on the {'GPU' if use_gpu else 'CPU'} ({len(segments or [])} segment(s)). "
+                  "A pass means the model loaded and ran, not that words were recognised.")
+        if speech_clip:
+            heard = _spoken_text(transcribe(speech_clip))
+            if not expected_text:
+                detail += f" The speech clip produced {len(heard.strip())} character(s); no expected text was given to compare."
+                return finish(detail)
+            if _comparable(expected_text) not in _comparable(heard):
+                raise _Failed("The speech clip was transcribed, but the text did not match the expected text.")
+            detail += " The speech clip matched the expected text."
+    return finish(detail)
 
 
-def _paddle_models_present() -> bool:
+# ocr.py builds PaddleOCR with text-line orientation on and lets PaddleX pick
+# the models, so no model names are fixed in Baihe; these are the folder-name
+# endings of the three models that call needs (detection, recognition,
+# text-line orientation), whatever PP-OCR version PaddleX chooses.
+_PADDLE_ROLES = ("_det", "_rec", "textline_ori")
+
+
+def _paddle_models_state() -> str:
     """PaddleX keeps its models outside the Hugging Face cache, in
     <cache>/official_models, where <cache> is PADDLE_PDX_CACHE_HOME or
-    ~/.paddlex. False means "none found there", not "not downloaded"."""
+    ~/.paddlex. "present" when all three roles have a folder, "missing"
+    when the folder holds models but none for a role, and "unknown" when it
+    cannot be read or is empty: the layout differs between versions, so
+    absence there is not proof."""
     root = os.environ.get("PADDLE_PDX_CACHE_HOME", "").strip()
     if not root:
         home = os.path.expanduser("~")
         if home == "~":
-            return False
+            return "unknown"
         root = os.path.join(home, ".paddlex")
     try:
         with os.scandir(os.path.join(root, "official_models")) as entries:
-            return any(True for _ in entries)
+            names = [e.name.lower() for e in entries if e.is_dir()]
     except OSError:
-        return False
+        return "unknown"
+    if not names:
+        return "unknown"
+    found = [any(n.endswith(role) for n in names) for role in _PADDLE_ROLES]
+    return "present" if all(found) else "missing"
 
 
 def _ocr_requirement(backend: str) -> None:
@@ -173,9 +246,10 @@ def _ocr_requirement(backend: str) -> None:
     else:
         if not _installed("paddleocr"):
             raise _Skip("paddleocr is not installed.")
-        if not _paddle_models_present():
-            # Absence from the usual folder is not proof: PaddleX can be
-            # pointed elsewhere and the layout differs between versions.
+        state = _paddle_models_state()
+        if state == "missing":
+            raise _Skip("Some PaddleOCR models are not downloaded.")
+        if state == "unknown":
             raise _CouldNotCheck(
                 "Could not check whether the PaddleOCR models are downloaded: none were found in "
                 "the folder PaddleX normally uses (set PADDLE_PDX_CACHE_HOME if you keep them "
@@ -187,11 +261,11 @@ def _check_ocr() -> str:
     backend = settings_service.resolve_ocr_backend(_LANGUAGE)
     _ocr_requirement(backend)
     if not os.path.isfile(_IMAGE):
-        raise RuntimeError("The bundled image sample is missing; reinstall the app.")
+        raise _Failed("The bundled image sample is missing; reinstall the app.")
     import ocr
     text = ocr.extract_text_from_images([_IMAGE], backend=backend, source_language=_LANGUAGE)
     if not text.strip():
-        raise RuntimeError(f"{backend} found no text in a sample that has text.")
+        raise _Failed(f"{backend} found no text in a sample that has text.")
     return f"{backend} read {len(text.strip())} character(s)."
 
 
@@ -210,12 +284,22 @@ def _check_translate() -> str:
         })
     except translate_engines.OllamaUnavailableError as exc:
         if exc.reason == "ollama_timeout":
-            raise RuntimeError(exc.message) from None
+            raise _Failed(exc.message) from None
         raise _Skip(exc.message) from None
+    except requests.exceptions.HTTPError:
+        # Ollama answers 500 when the model does not fit in GPU memory. The
+        # exception text ends with the request URL, so it is never shown.
+        raise _Failed(f"Ollama refused the request or ran out of memory loading {model}.") from None
+    except requests.exceptions.InvalidURL:
+        raise _Failed("The Ollama address in Settings is not valid.") from None
+    except (requests.exceptions.InvalidSchema, requests.exceptions.MissingSchema):
+        raise _Failed("The Ollama address in Settings is not valid.") from None
+    except requests.exceptions.RequestException:
+        raise _Failed("Could not reach Ollama.") from None
     answer = strip_ollama_thinking(
         str((reply.get("message") or {}).get("content") or ""))
     if not answer:
-        raise RuntimeError(f"{model} returned an empty answer.")
+        raise _Failed(f"{model} returned an empty answer.")
     return f"{model} translated one line."
 
 
@@ -237,7 +321,10 @@ def _run_check(check_id: str, label: str, fn, **options) -> dict:
         # An optional package that turned out to be missing or broken.
         status, reason = SKIPPED, f"A required package could not be loaded ({exc.name or 'import error'})."
     except Exception as exc:
-        status, reason = FAIL, str(exc) or type(exc).__name__
+        # Raw exception text can carry URLs, hosts or paths; only our own
+        # _Failed messages are shown.
+        status, reason = FAIL, (str(exc) if isinstance(exc, _Failed)
+                                else f"Unexpected error ({type(exc).__name__}).")
     return {"id": check_id, "label": label, "status": status, "reason": _redact(reason)}
 
 
