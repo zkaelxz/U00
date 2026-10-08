@@ -34,9 +34,12 @@ test('More filters and Continue fit a phone', async ({ page }) => {
   await page.route('**/api/library/recent', (r) => r.fulfill({ json: { items: [] } }))
   await page.goto('/')
   const shelf = page.getByRole('region', { name: 'Continue' })
-  // Phone: two items, then Show more.
-  await expect(shelf.getByRole('listitem')).toHaveCount(2)
-  await expect(shelf.getByRole('button', { name: 'Show more (1)' })).toBeVisible()
+  // Phone: one item, then More.
+  await expect(shelf.getByRole('listitem')).toHaveCount(1)
+  await shelf.getByRole('button', { name: 'More (2)' }).click()
+  await expect(shelf.getByRole('listitem')).toHaveCount(3)
+  await expect(shelf.getByRole('button', { name: 'Less' })).toBeVisible()
+  await shelf.getByRole('button', { name: 'Less' }).click()
   await page.getByText('More filters', { exact: true }).click()
   await expect(page.getByRole('checkbox', { name: 'wuxia' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
