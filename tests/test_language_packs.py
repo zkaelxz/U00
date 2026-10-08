@@ -138,15 +138,21 @@ class TestSelection:
 
     @pytest.mark.parametrize("pack, text, absent", [
         ("ja-address", "お疲れ様でした", "様"),
-        ("ja-address", "様子がおかしい、同様です", "様"),
-        ("ko-address", "날씨가 좋아요", "씨"),
+        ("ja-address", "様子がおかしい、同様です、様々な人", "様"),
+        ("ko-address", "날씨가 좋아요, 글씨, 씨앗", "씨"),
         ("ko-address", "아저씨, 아가씨", "씨"),
-        ("ko-address", "인형이랑 형사", "형"),
+        ("ko-address", "인형이랑 형사, 형식, 형편", "형"),
         ("shared-drama", "TOP COPY EDIT", "OP"),
     ])
     def test_short_entries_do_not_fire_inside_other_words(self, pack, text, absent):
-        packs = {pack: None, "ja-common": None, "ko-common": None}
-        assert absent not in [e["source"] for e in lp.matching_entries(packs, text)]
+        language = lp.all_packs()[pack]["language"]
+        found = lp.matching_entries({pack: None}, text, language=None if language == "any" else language)
+        assert absent not in [e["source"] for e in found]
+
+    def test_users_longer_term_blocks_the_short_entry(self):
+        terms = [{"term_original": "お嬢様", "aliases": ""}]
+        assert lp.matching_entries({"ja-address": None}, "お嬢様", terms) == []
+        assert "様" in [e["source"] for e in lp.matching_entries({"ja-address": None}, "田中様")]
 
     def test_longer_entry_consumes_its_span_but_a_separate_use_still_matches(self):
         sources = [e["source"] for e in lp.matching_entries({"ja-address": None, "ja-common": None}, "お疲れ様 田中様")]

@@ -214,49 +214,52 @@ def _spans(word: str, text: str) -> list:
 
 
 def matching_entries(choices: dict, text: str, user_terms=None,
-                     limit: int = MAX_PROMPT_ENTRIES) -> list:
+                     limit: int = MAX_PROMPT_ENTRIES, language: Optional[str] = None) -> list:
     """Pack entries to send for `text`, as dicts with source, en, note, context,
     category and pack. `choices` is {pack id: style or None} for the packs
     turned on. An entry is dropped when its source is not in `text` or when
     the user's own glossary has a term (or alias) with the same source, so the
-    user's wording always wins. Matching is longest-first: text already used by
-    a longer entry (or named in an entry's `not_in`) cannot trigger a shorter
-    one, so 様 does not fire inside お疲れ様. Order is stable (pack order, then
+    user's wording always wins. Matching is longest-first over every entry of
+    every pack for `language` (default: the languages of the enabled packs)
+    and over the user's terms, enabled or not, and only enabled entries are
+    returned: 様 must not fire inside お疲れ様 or the user's お嬢様 just because
+    the pack holding the longer word is off. Order is stable (pack order, then
     file order) so the same text always gives the same prompt."""
     taken = _user_sources(user_terms)
     packs = all_packs()
-    candidates, seen = [], set()
-    for pack_id in packs:
-        if pack_id not in choices:
-            continue
-        pack, style = packs[pack_id], choices[pack_id]
-        for entry in pack["entries"]:
+    languages = {language} if language else {packs[i]["language"] for i in choices if i in packs}
+    in_scope = [pid for pid, p in packs.items() if p["language"] in languages | {ANY_LANGUAGE}]
+    claimants, emit = {}, {}
+    for pack_id in in_scope:
+        for entry in packs[pack_id]["entries"]:
             src = entry["source"]
-            if src in taken or src in seen or src not in text:
-                continue
-            seen.add(src)
-            candidates.append((pack_id, pack, style, entry))
-    # Blockers first, then entries longest to shortest, each claiming its spans.
+            claimants.update((w, None) for w in entry["not_in"] if w in text)
+            if src in text:
+                claimants[src] = None
+                if pack_id in choices and src not in taken and src not in emit:
+                    emit[src] = (pack_id, entry)
+    for src in taken:
+        if src in text:
+            claimants[src] = None
     claimed = []
 
     def free(span):
         return not any(span[0] < c[1] and c[0] < span[1] for c in claimed)
 
-    for _, _, _, entry in candidates:
-        for word in entry["not_in"]:
-            claimed.extend(_spans(word, text))
     keep = set()
-    for k in sorted(range(len(candidates)), key=lambda i: -len(candidates[i][3]["source"])):
-        spans = [s for s in _spans(candidates[k][3]["source"], text) if free(s)]
+    for src in sorted(claimants, key=lambda w: -len(w)):
+        spans = [sp for sp in _spans(src, text) if free(sp)]
         if spans:
-            keep.add(k)
+            keep.add(src)
             claimed.extend(spans)
     found = []
-    for k, (pack_id, pack, style, entry) in enumerate(candidates):
-        if k in keep:
-            found.append({"source": entry["source"], "en": rendering(entry, pack, style),
-                          "note": entry["note"], "context": entry["context"],
-                          "category": entry["category"], "pack": pack_id})
+    for pack_id in in_scope:
+        for entry in packs[pack_id]["entries"]:
+            src = entry["source"]
+            if src in keep and emit.get(src, (None, None))[1] is entry:
+                found.append({"source": src, "en": rendering(entry, packs[pack_id], choices[pack_id]),
+                              "note": entry["note"], "context": entry["context"],
+                              "category": entry["category"], "pack": pack_id})
     return found[:limit]
 
 

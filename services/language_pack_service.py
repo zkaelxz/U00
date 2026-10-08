@@ -113,7 +113,7 @@ def entries_for_text(drama: dict, text: str, user_terms=None) -> list:
     # be switched off.
     offered = {p["id"] for p in language_packs.packs_for_language(_language(drama))}
     packs = {k: v for k, v in (choice.get("packs") or {}).items() if k in offered}
-    return language_packs.matching_entries(packs, text, user_terms) if packs else []
+    return language_packs.matching_entries(packs, text, user_terms, language=_language(drama)) if packs else []
 
 
 def block_for(drama: dict, lines, user_terms=None) -> str:
