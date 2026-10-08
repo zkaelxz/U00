@@ -13,7 +13,7 @@ const setup = (ffmpegFound = true) => ({
   ffmpeg: { found: ffmpegFound, version: '6.1', libass: true },
   js_runtime: { found: true, name: 'deno' },
   cuda: { torch_installed: false, cuda_available: null },
-  files: { all_present: true, missing_top_level: [], missing_tabs: [] },
+  files: { all_present: true, missing_top_level: [] },
   library_writable: true,
 })
 
@@ -27,7 +27,7 @@ const overview = {
     paddleocr: { installed: false, powers: 'OCR (PaddleOCR backend)', tier: 'feature' },
     'lightnovel-crawler': { installed: false, powers: 'novel text import', tier: 'feature' },
   },
-  file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
+  file_completeness: { missing_top_level: [], all_present: true },
   library_writable: true,
   gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
   model_engine_versions: [

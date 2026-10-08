@@ -116,7 +116,7 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
   }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")
-  const missing = c.files.missing_top_level.length + c.files.missing_tabs.length
+  const missing = c.files.missing_top_level.length
   add('files', 'App files', missing === 0, 'all present', `${missing} missing`)
   add('library', 'Library folder', c.library_writable, 'writable', "can't be written to")
   return rows
