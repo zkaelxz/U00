@@ -1,9 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openTranscribeOptions } from './sourceHelpers'
 
-// Phone project: the (i) text stays inside the screen. Opened with focus(),
-// like review-bulk.spec.ts: a tap focuses then clicks, and Field's click
-// toggle closes what the focus just opened.
+// Phone project: the (i) text stays inside the screen. Real taps are covered
+// in field-help-tap.mobile.spec.ts.
 async function openAdvanced(page: Page) {
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
