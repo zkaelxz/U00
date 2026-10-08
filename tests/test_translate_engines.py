@@ -1615,25 +1615,37 @@ class TestFreeEngineLabelling:
         # given key is free depends on a setting, not the engine itself.
         assert "gemini" not in te.FREE_ENGINES
 
-    def test_every_free_engine_note_is_marked(self):
+    def test_every_free_engine_note_says_free(self):
         for name in te.FREE_ENGINES:
-            assert "🧪" in te.ENGINE_NOTES[name]
+            assert te.ENGINE_NOTES[name].startswith("Free")
             assert te.engine_picker_label(name) == te.ENGINE_NOTES[name]
 
-    def test_paid_engine_notes_are_unmarked(self):
-        for name in ("claude", "deepseek"):
-            assert "🧪" not in te.ENGINE_NOTES[name]
+    def test_paid_engine_notes_say_paid(self):
+        for name in ("claude", "deepseek", "openai"):
+            assert te.ENGINE_NOTES[name].startswith("Paid")
+
+    def test_ollama_note_names_local_gemma_4(self):
+        note = te.ENGINE_NOTES["ollama"]
+        assert "Gemma 4" in note and "GPU" in note and "private" in note and "Free" in note
+        assert "testing" not in note and "lower quality" not in note
+
+    def test_every_note_fits_the_narrow_dropdown(self):
+        for name in te.ENGINES:
+            assert 0 < len(te.ENGINE_NOTES[name]) <= 80, name
+        assert len(te.GEMINI_FREE_TIER_NOTE) <= 80
+
+    def test_note_models_match_the_model_lists(self):
+        assert "claude-sonnet-5-5" in te.CLAUDE_MODELS and "claude-opus-5-5" in te.CLAUDE_MODELS
+        assert all(m.startswith("gemma4") for m in te.OLLAMA_MODELS)
 
     def test_gemini_label_is_plain_by_default(self):
         assert te.engine_picker_label("gemini") == te.ENGINE_NOTES["gemini"]
-        assert "🧪" not in te.engine_picker_label("gemini", gemini_free_tier=False)
+        assert "Free" not in te.engine_picker_label("gemini", gemini_free_tier=False)
 
     def test_gemini_label_switches_when_free_tier_is_on(self):
         label = te.engine_picker_label("gemini", gemini_free_tier=True)
-        assert "🧪" in label
-        assert str(te.GEMINI_FREE_TIER_LIMITS["flash"]["rpm"]) in label
-        assert str(te.GEMINI_FREE_TIER_LIMITS["flash-lite"]["rpm"]) in label
-        assert "Pro" in label
+        assert label.startswith("Free")
+        assert "Google may use your text" in label
 
     def test_free_tier_flag_never_changes_other_engines_labels(self):
         for name in te.ENGINES:

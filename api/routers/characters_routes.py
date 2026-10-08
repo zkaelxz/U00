@@ -1,13 +1,12 @@
 """
-api/routers/characters_routes.py -- per-drama characters and voice config
-(Phase 6).
+api/routers/characters_routes.py -- per-drama characters and voice config.
 
 Speaker labels can contain spaces, unicode or slashes, so they travel in
 JSON bodies, never path segments. Only fields the client actually sets
 are forwarded to the service (omitted = leave alone, "" = clear).
 
-Also here: recurring-voice suggestions (C02: list, accept, reject) and
-"remember as a known series character" (C08).
+Also here: recurring-voice suggestions (list, accept, reject) and
+"remember as a known series character".
 
 Reference clips and voice-bank save: voice_clone_routes.py. Dub generation:
 dub_routes.py.

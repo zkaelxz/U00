@@ -78,7 +78,7 @@ class SpeakerTimeSummary(BaseModel):
 
 class DiarizationConfig(BaseModel):
     """Read-only Diarize-stage summary for one drama -- hf_token_configured is a boolean only, never the token value
-    itself (D2)."""
+    itself."""
     drama_id: int
     hf_token_configured: bool
     expected_speakers: Optional[int] = None
@@ -88,7 +88,7 @@ class DiarizationConfig(BaseModel):
     # "cuda" or "cpu" -- where the last run's pipeline ran.
     last_device: Optional[str] = None
     audio_available: bool
-    manual_speaker_count: int = 0   # parity D06: hand-corrected speakers
+    manual_speaker_count: int = 0   # hand-corrected speakers
     speaker_summary: Optional[SpeakerTimeSummary] = None   # None: no saved detection
 
 
@@ -134,6 +134,8 @@ class TranscribeConfig(BaseModel):
     audio_available: bool
     alignment_method: str
     asr_backend_choice: str
+    # Set when the saved backend was removed and the default is shown instead.
+    asr_backend_notice: Optional[str] = None
     whisper_size: str
     whisper_model_cached: bool
     # Audio seconds per second of work on the last finished run of this model and device.
@@ -226,7 +228,7 @@ class TranscribeRunResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API batch 1: Live capture (spec L-1, polling) -- /api/live/sessions
+# Live capture (polling) -- /api/live/sessions
 # ---------------------------------------------------------------------------
 class LiveSessionStart(BaseModel):
     """Keys are resolved server-side; no browser cookies over the API.
@@ -281,7 +283,7 @@ class LiveSessionStopped(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Route batch 2C: auto-tune speech splitting + glossary from novel
+# Auto-tune speech splitting + glossary from novel
 # ---------------------------------------------------------------------------
 AutotuneCandidateMs = Annotated[StrictInt, Field(ge=300, le=3000)]
 
@@ -322,7 +324,7 @@ class AutotuneApplyRequest(BaseModel):
     candidate_ms: AutotuneCandidateMs
 
 
-# --- Re-transcribe one line (parity audit B1, inventory R23) ---------------
+# --- Re-transcribe one line ---------------
 class RetranscribeLineRequest(BaseModel):
     """Optional body. Same prompt rules as TranscribeRunRequest: a non-empty
     initial_prompt replaces the automatic prompt; otherwise the server uses

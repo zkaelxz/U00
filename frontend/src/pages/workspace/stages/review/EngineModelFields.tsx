@@ -1,7 +1,7 @@
 import { Field } from '../../../../components/Field'
 import { humanize } from '../../../../components/labels'
 import type { TranslateEngine } from '../../../../types/translate'
-import { modelOptionLabel } from '../../../../api/translate'
+import { engineNotesHelp, engineOptionLabel, modelOptionLabel } from '../../../../api/translate'
 import { AI_ENGINE_LABEL } from '../../../../helpText'
 
 // Engine and model pickers shared by the check jobs and fix-flagged. Paid
@@ -24,11 +24,11 @@ export function EngineModelFields({
   const models = engines.find((e) => e.name === (engine || defaultEngine))?.models ?? null
   const engineLabel = (name: string) => {
     const e = engines.find((x) => x.name === name)
-    return e ? `${e.label}${e.key_configured ? '' : ' (no key)'}` : humanize('engine', name)
+    return e ? engineOptionLabel(e) : humanize('engine', name)
   }
   return (
     <>
-      <Field label={AI_ENGINE_LABEL} help={help}>
+      <Field label={AI_ENGINE_LABEL} help={`${help} ${engineNotesHelp(engines)}`}>
         <select value={engine} onChange={(e) => onChange({ engine: e.target.value, model: '' })}>
           <option value="">Default{defaultEngine ? ` (${humanize('engine', defaultEngine)})` : ''}</option>
           {engines.map((e) => (
