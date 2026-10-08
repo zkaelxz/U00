@@ -24,31 +24,7 @@ import threading
 import diarize
 import storage
 
-# Every top-level .py file expected to exist for the
-# app to run. Kept as an explicit list (not auto-discovered) so a
-# missing file shows up as "missing" rather than just not being checked.
-EXPECTED_TOP_LEVEL_FILES = [
-    "core.py", "db.py", "translate_engines.py",
-    "diarize.py", "dub.py", "video_export.py", "ocr.py", "segment.py",
-    "dictionary.py", "reader.py", "scanlate.py", "metadata_lookup.py",
-    "known_sites.py", "title_library.py", "vocab_export.py",
-    "qa.py", "bulk_import.py", "epub_io.py", "cli.py", "diagnostics.py",
-    "run_tests.py", "translation_guide.py", "glossary_io.py",
-    "story_context.py", "storage.py", "universe_wiki.py", "background_jobs.py",
-    "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "en_cleanup.py", "page_fetch.py",
-    "page_server.py",
-    "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
-    # This list had drifted -- these were all real,
-    # hard-imported modules missing from it, which meant the missing-file
-    # health check below could no longer actually catch one of them going
-    # missing.
-    "applog.py", "audio_preprocess.py", "auto_qc.py", "benchmark.py",
-    "bulk_translate.py", "check_setup.py", "hardsub_ocr.py", "live_translate.py", "live_fetch.py",
-    "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
-    "sensevoice_tags.py", "sensitivity_preset.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
-    "translation_memory.py", "action_tiers.py", "media_inspect.py",
-    "vad_segments.py", "mixed_language.py", "ollama_unload.py", "process_guard.py",   # the installed server's Job Object (python -m api imports it)
-]
+from expected_files import EXPECTED_TOP_LEVEL_FILES
 
 # name -> (import name, feature it powers, required vs optional)
 OPTIONAL_DEPENDENCIES = {
@@ -75,7 +51,7 @@ OPTIONAL_DEPENDENCIES = {
     "pykakasi": ("pykakasi", "Japanese furigana (Reader)", "feature"),
     "kiwipiepy": ("kiwipiepy", "Korean word segmentation (Reader)", "feature"),
     "transformers": ("transformers", "ML bubble detection (Scanlate), PaddleOCR-VL-For-Manga "
-                                     "(needs transformers 5+), MOSS-Transcribe-Diarize, qwen-asr", "feature"),
+                                     "(needs transformers 5+), qwen-asr", "feature"),
     "torch": ("torch", "ML bubble detection/inpainting (Scanlate), PaddleOCR-VL-For-Manga, "
                         "word-level realignment, several TTS/ASR backends", "feature"),
     "torchaudio": ("torchaudio", "word-level realignment (MMS forced alignment, experimental)",
@@ -113,12 +89,6 @@ OPTIONAL_DEPENDENCIES = {
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
     "qwen-asr": ("qwen_asr", "Qwen3-ASR transcription engine and Qwen3 forced alignment "
                              "(line timing); best in its own Python 3.12 environment", "feature"),
-    # Not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
-    # and needs transformers>=5.6, which qwen-asr's transformers==4.57.6 pin rules out.
-    "moss-transcribe-diarize": ("moss_transcribe_diarize",
-                                "experimental one-pass transcription + speaker labels "
-                                "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
-                                "can't share an install with Qwen3-ASR)", "experimental"),
     "cryptography": ("cryptography", "Google sign-in token checks, live capture of AES-128 "
                                      "encrypted HLS streams", "feature"),
     "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
@@ -217,19 +187,9 @@ def pypi_url(name: str):
     return f"https://pypi.org/project/{canonical_dist(dist)}/"
 
 
-# Packages that aren't on PyPI: Diagnostics links to their real source
-# instead of a PyPI page someone else could register (canonical dist -> URL).
-NON_PYPI_SOURCES = {
-    "moss-transcribe-diarize": "https://github.com/OpenMOSS/MOSS-Transcribe-Diarize",
-}
-
-
 def package_source_url(name: str):
-    """Where Diagnostics links a package: its real repository for a non-PyPI
-    one, nothing for any other "experimental" entry, else pypi_url()."""
-    dist = canonical_dist(pip_install_name(name))
-    if dist in NON_PYPI_SOURCES:
-        return NON_PYPI_SOURCES[dist]
+    """Where Diagnostics links a package: nothing for an "experimental" entry
+    (not necessarily on PyPI), else pypi_url()."""
     dep = OPTIONAL_DEPENDENCIES.get(name)
     if dep and dep[2] == "experimental":
         return None
@@ -239,10 +199,6 @@ def package_source_url(name: str):
 # Packages the generic Install button must not offer, with the reason shown
 # instead (dist canonical name -> reason).
 NOT_OFFERED_FOR_INSTALL = {
-    "moss-transcribe-diarize": "not offered: it isn't on PyPI. It installs from its GitHub "
-                               "repository (OpenMOSS/MOSS-Transcribe-Diarize) into this app's "
-                               "environment, and it upgrades Transformers to 5.x, which stops "
-                               "Qwen3-ASR and Qwen3 forced alignment working.",
     "lightnovel-crawler": "not offered: it's a separate program under the GPL-3.0 licence that "
                           "you install yourself, e.g. `pipx install lightnovel-crawler` (or "
                           "`pip install lightnovel-crawler` in its own environment). Baihe only "
@@ -369,7 +325,7 @@ def check_ffmpeg():
     if not path:
         return {"found": False, "path": None, "version": None, "libass": None}
     try:
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, errors="replace", timeout=5)
         version_line = result.stdout.splitlines()[0] if result.stdout else "unknown version"
         # Burned-in (hardsub) export and the styled preview need ffmpeg built
         # with libass; `-version` prints the build's configure flags.
@@ -424,7 +380,7 @@ def _warn_ytdlp_old(today=None):
 def _warn_deno_old():
     if not shutil.which("deno"):
         return None
-    out = subprocess.run(["deno", "--version"], capture_output=True, text=True, timeout=5).stdout
+    out = subprocess.run(["deno", "--version"], capture_output=True, errors="replace", timeout=5).stdout
     ver = _ints(out, 2)
     if ver and ver < DENO_MIN_VERSION:
         return ("Deno is older than 2.3, which yt-dlp may not work with. "
@@ -952,8 +908,7 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 # Only these two tiers ever get a generic Install button -- "required" is
 # already installed by definition (the app wouldn't be running otherwise)
 # and "dev" (pytest) has nothing to do with a running app session.
-# "experimental" (the MOSS backend) is listed but never installed from here:
-# it isn't on PyPI.
+# "experimental" entries are listed but never installed from here.
 INSTALLABLE_TIERS = ("feature", "engine")
 
 # Added to every install: pip's wheel cache can be unwritable or locked on
@@ -1039,8 +994,14 @@ def stream_pip_install(pip_args: list, python_executable: str = None):
     on a real machine is exactly the case this must not hide)."""
     python_executable = python_executable or sys.executable
     cmd = [python_executable, "-m", "pip", "install", *PIP_INSTALL_FLAGS] + list(pip_args)
+    yield from _stream_pip(cmd)
+
+
+def _stream_pip(cmd: list):
+    # errors="replace": pip writes in the locale code page, and a bad byte must
+    # not kill the stream.
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
+                            errors="replace", bufsize=1)
     for line in proc.stdout:
         yield {"line": line.rstrip("\n")}
     returncode = proc.wait()
@@ -1051,12 +1012,7 @@ def stream_pip_uninstall(pip_args: list, python_executable: str = None):
     """Same shape as stream_pip_install, for `<python> -m pip uninstall -y`."""
     python_executable = python_executable or sys.executable
     cmd = [python_executable, "-m", "pip", "uninstall", "-y"] + list(pip_args)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
-    for line in proc.stdout:
-        yield {"line": line.rstrip("\n")}
-    returncode = proc.wait()
-    yield {"done": True, "ok": returncode == 0, "returncode": returncode}
+    yield from _stream_pip(cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -1182,6 +1138,16 @@ def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
     return results
 
 
+def constraints_pip_args(project_root: str = None) -> list:
+    """`["-c", <constraints.txt>]` when the file exists, else []. Every pip
+    install that resolves dependencies passes this so a transitive pull
+    can't cross a cap (e.g. av 19 breaking faster-whisper). Portable and
+    installer layouts may ship without the file, so absence is not an error."""
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    constraints_path = os.path.join(project_root, "constraints.txt")
+    return ["-c", constraints_path] if os.path.exists(constraints_path) else []
+
+
 def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     """pip args for `python -m pip install --upgrade <pip_name>`, adding
     constraints.txt's existing version caps (pyannote.audio<5,
@@ -1192,12 +1158,7 @@ def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     of constraints.txt's other pinned packages (e.g. transformers). A
     constraint for a package not named in the file is a no-op, so passing
     it unconditionally is always safe."""
-    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
-    constraints_path = os.path.join(project_root, "constraints.txt")
-    args = ["--upgrade", pip_name]
-    if os.path.exists(constraints_path):
-        args += ["-c", constraints_path]
-    return args
+    return ["--upgrade", pip_name, *constraints_pip_args(project_root)]
 
 
 # ---------------------------------------------------------------------------
@@ -1380,13 +1341,13 @@ def _make_throwaway_venv(base_dir: str, name: str, python_executable: str, paren
     venv_dir = os.path.join(base_dir, name)
     try:
         proc = subprocess.run([python_executable, "-m", "venv", "--without-pip", venv_dir],
-                              capture_output=True, text=True, timeout=300)
+                              capture_output=True, errors="replace", timeout=300)
         if proc.returncode != 0:
             return None, (proc.stderr or proc.stdout).strip() or f"exit code {proc.returncode}"
         venv_py = _venv_python(venv_dir)
         purelib = subprocess.run(
             [venv_py, "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
-            capture_output=True, text=True, timeout=60).stdout.strip()
+            capture_output=True, errors="replace", timeout=60).stdout.strip()
         os.makedirs(purelib, exist_ok=True)
         with open(os.path.join(purelib, "_baihe_parent_env.pth"), "w", encoding="utf-8") as f:
             f.write("\n".join(parent_dirs) + "\n")
@@ -1469,7 +1430,7 @@ def _dist_version_in(venv_py: str, pip_name: str):
         out = subprocess.run(
             [venv_py, "-c", "import importlib.metadata, sys; "
                             "print(importlib.metadata.version(sys.argv[1]))", pip_name],
-            capture_output=True, text=True, timeout=60)
+            capture_output=True, errors="replace", timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
     return out.stdout.strip() if out.returncode == 0 else None
@@ -1770,7 +1731,7 @@ def external_gpu_load() -> dict | None:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
              "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5, check=True)
+            capture_output=True, text=True, errors="replace", timeout=5, check=True)
         line = result.stdout.strip().splitlines()[0]
         util_percent, used_mb, total_mb = (float(x.strip()) for x in line.split(","))
         return {"utilization_percent": util_percent, "memory_used_mb": used_mb,
@@ -1819,17 +1780,13 @@ def stream_gpu_torch_reinstall(python_executable: str = None, project_root: str 
     stream_pip_install, across both subprocess calls in sequence -- only
     the LAST item has "done", so a caller can tell the whole sequence
     (uninstall + install) apart from either step finishing early."""
-    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
-    constraints_path = os.path.join(project_root, "constraints.txt")
-
     for item in stream_pip_uninstall(["torch", "torchaudio"], python_executable):
         if not item.get("done"):
             yield item
 
     index_url = f"https://download.pytorch.org/whl/{gpu_torch_cuda_index()}"
-    install_args = ["torch", "torchaudio", "--index-url", index_url]
-    if os.path.exists(constraints_path):
-        install_args += ["-c", constraints_path]
+    install_args = ["torch", "torchaudio", "--index-url", index_url,
+                    *constraints_pip_args(project_root)]
     yield from stream_pip_install(install_args, python_executable)
 
 
@@ -1852,7 +1809,8 @@ def stream_dependency_install(name: str, python_executable: str = None,
     if name == "torch" and shutil.which("nvidia-smi"):
         yield from stream_gpu_torch_reinstall(python_executable, project_root)
     else:
-        yield from stream_pip_install([pip_install_name(name)], python_executable)
+        yield from stream_pip_install(
+            [pip_install_name(name), *constraints_pip_args(project_root)], python_executable)
 
 
 # ---------------------------------------------------------------------------
@@ -1938,7 +1896,7 @@ def nvidia_driver_info():
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=5, check=True)
+            capture_output=True, text=True, errors="replace", timeout=5, check=True)
         name, driver = (x.strip() for x in result.stdout.strip().splitlines()[0].rsplit(",", 1))
         return {"gpu_name": name[:120], "driver_version": driver[:40]}
     except Exception:
@@ -2036,10 +1994,7 @@ def torch_setup_pip_args(variant: str, project_root: str = None) -> list:
     spec = TORCH_VARIANTS[variant]
     pins = [f"{n}=={spec['versions'][n]}" for n in TORCH_FAMILY]
     tail = ["--index-url", spec["index_url"]]
-    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
-    constraints = os.path.join(project_root, "constraints.txt")
-    if os.path.exists(constraints):
-        tail += ["-c", constraints]
+    tail += constraints_pip_args(project_root)
     return [["--force-reinstall", "--no-deps", *pins, *tail], [*pins, *tail]]
 
 
