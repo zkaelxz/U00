@@ -339,35 +339,58 @@ class TestAbsurdTimes:
         assert parsed.cues[0].start == 1.5
 
 
+class _CountedLine:
+    """Counts reads of start/end, so a scaling test measures work done instead of
+    wall-clock time, which a loaded CI runner can stretch past any fixed bound."""
+
+    def __init__(self, start, end, reads):
+        self._start, self._end, self._reads = start, end, reads
+
+    @property
+    def start(self):
+        self._reads[0] += 1
+        return self._start
+
+    @property
+    def end(self):
+        self._reads[0] += 1
+        return self._end
+
+
 class TestMatchingScales:
-    def _lines(self, n):
-        return [Line(idx=i, start=float(i), end=float(i) + 1.0, zh="", en="") for i in range(n)]
+    N = 20000
+    # A scan of every line per cue would read about N * N * 2 times (8e8). The
+    # windowed search reads at most two attributes of MATCH_WINDOW lines per cue.
+    MAX_READS = (2 * sp.MATCH_WINDOW + 20) * N
+
+    def _lines(self, n, reads, first=None):
+        spans = [(float(i), float(i) + 1.0) for i in range(n)]
+        if first:
+            spans[0] = first
+        return [_CountedLine(a, b, reads) for a, b in spans]
 
     def test_many_cues_over_many_lines_is_fast(self):
-        import time
-        lines = self._lines(20000)
-        cues = [sp.Cue(i + 0.1, i + 0.9, "x", i + 1) for i in range(20000)]
-        started = time.perf_counter()
+        reads = [0]
+        lines = self._lines(self.N, reads)
+        cues = [sp.Cue(i + 0.1, i + 0.9, "x", i + 1) for i in range(self.N)]
         matched = sp.match_cues_to_lines(cues, lines)
-        assert time.perf_counter() - started < 1.0
-        assert len(matched) == 20000 and matched[1234][0].number == 1235
+        assert reads[0] < self.MAX_READS
+        assert len(matched) == self.N and matched[1234][0].number == 1235
 
     def test_zero_length_cues_over_many_lines_are_bounded(self):
-        import time
-        lines = self._lines(20000)
-        cues = [sp.Cue(i + 0.5, i + 0.5, "x", i + 1) for i in range(20000)]
-        started = time.perf_counter()
+        reads = [0]
+        lines = self._lines(self.N, reads)
+        cues = [sp.Cue(i + 0.5, i + 0.5, "x", i + 1) for i in range(self.N)]
         matched = sp.match_cues_to_lines(cues, lines)
-        assert time.perf_counter() - started < 1.0
-        assert len(matched) == 20000
+        assert reads[0] < self.MAX_READS
+        assert len(matched) == self.N
 
     def test_nested_lines_do_not_make_every_cue_scan_everything(self):
-        import time
-        lines = [Line(idx=0, start=0.0, end=1e6, zh="", en="")] + self._lines(20000)[1:]
-        cues = [sp.Cue(i + 0.1, i + 0.9, "x", i + 1) for i in range(20000)]
-        started = time.perf_counter()
+        reads = [0]
+        lines = self._lines(self.N, reads, first=(0.0, 1e6))
+        cues = [sp.Cue(i + 0.1, i + 0.9, "x", i + 1) for i in range(self.N)]
         sp.match_cues_to_lines(cues, lines)
-        assert time.perf_counter() - started < 1.0
+        assert reads[0] < self.MAX_READS
 
     def test_largest_overlap_wins_and_an_equal_one_goes_to_the_earlier_line(self):
         lines = [Line(idx=0, start=0.0, end=2.0, zh="", en=""),
