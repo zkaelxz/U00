@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { asrBackendOptions, batchingNote, deviceNote, getAsrOptions, getDiarizationConfig, parseBatchSize, updateAsrOptions } from './asrOptions'
+import { asrBackendOptions, batchingNote, deviceNote, getAsrOptions, getDiarizationConfig, parseBatchSize, startVoiceDetectorDownload, updateAsrOptions, voiceDetectorNote } from './asrOptions'
 
 function fakeFetch(status: number, body: unknown, calls: { url: string; init?: RequestInit }[] = []) {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -17,6 +17,10 @@ const OPTS = {
   qwen_asr_batching_available: true,
   qwen_vad_refine_timing: false,
   mixed_languages: false,
+  voice_detector: 'auto' as const,
+  asmr_vad_onnxruntime_installed: true,
+  asmr_vad_model_downloaded: false,
+  asmr_vad_download_job_id: 'asmr_vad_download',
 }
 
 describe('deviceNote (Step 101)', () => {
@@ -75,5 +79,24 @@ describe('batchingNote (Step 103)', () => {
     expect(batchingNote({ qwen_asr_version: '0.0.6', qwen_asr_batching_available: true })).toMatch(/can run/)
     expect(batchingNote({ qwen_asr_version: '0.0.9', qwen_asr_batching_available: false })).toMatch(/one at a time/)
     expect(batchingNote({ qwen_asr_version: null, qwen_asr_batching_available: false })).toMatch(/not installed/)
+  })
+})
+
+describe('voice detector', () => {
+  it('says nothing for Standard, and names what the ASMR detector still needs', () => {
+    expect(voiceDetectorNote({ ...OPTS, voice_detector: 'standard' })).toBeNull()
+    expect(voiceDetectorNote({ ...OPTS, asmr_vad_onnxruntime_installed: false })).toMatch(/onnxruntime/)
+    expect(voiceDetectorNote(OPTS)).toMatch(/not downloaded/)
+    expect(voiceDetectorNote({ ...OPTS, asmr_vad_model_downloaded: true })).toBeNull()
+  })
+
+  it('saves the choice and starts the download with POSTs', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    await updateAsrOptions({ voice_detector: 'asmr' }, fakeFetch(200, { ...OPTS, voice_detector: 'asmr' }, calls))
+    await startVoiceDetectorDownload(fakeFetch(200, { job_id: 'asmr_vad_download', started: true }, calls))
+    expect(calls[0].url).toBe('/api/settings/asr-options')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ voice_detector: 'asmr' })
+    expect(calls[1].url).toBe('/api/settings/asr-options/voice-detector/download')
+    expect(calls[1].init?.method).toBe('POST')
   })
 })

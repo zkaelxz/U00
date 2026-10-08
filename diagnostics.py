@@ -53,6 +53,7 @@ EXPECTED_TOP_LEVEL_FILES = [
 # name -> (import name, feature it powers, required vs optional)
 OPTIONAL_DEPENDENCIES = {
     "faster_whisper": ("faster_whisper", "audio alignment/timing", "feature"),
+    "onnxruntime": ("onnxruntime", "ASMR VAD", "feature"),
     "ctranslate2": ("ctranslate2", "Whisper GPU detection (installed with faster-whisper)", "feature"),
     "cv2": ("cv2", "Scanlate bubble detection/inpainting", "feature"),
     "anthropic": ("anthropic", "Claude translation engine", "engine"),
@@ -2085,7 +2086,7 @@ def _packaging():
     when these installs can run at all)."""
     try:
         from packaging import requirements, specifiers, version
-    except ImportError:          # pragma: no cover - depends on the environment
+    except ImportError:  # pragma: no cover - depends on the environment
         from pip._vendor.packaging import requirements, specifiers, version
     return version, specifiers, requirements
 

@@ -18,12 +18,20 @@ export interface AsrOptions {
   qwen_vad_refine_timing: boolean
   // Detect the spoken language of each speech span and mark lines that differ from the title's.
   mixed_languages: boolean
+  voice_detector: VoiceDetector
+  // Booleans only: the model's folder and download address stay on the PC.
+  asmr_vad_onnxruntime_installed: boolean
+  asmr_vad_model_downloaded: boolean
+  asmr_vad_download_job_id: string
 }
+
+export type VoiceDetector = 'auto' | 'asmr' | 'standard'
 
 export interface AsrOptionsUpdate {
   qwen_asr_batch_size?: number
   qwen_vad_refine_timing?: boolean
   mixed_languages?: boolean
+  voice_detector?: VoiceDetector
 }
 
 interface DiarizationConfig {
@@ -74,4 +82,29 @@ export function batchingNote(o: Pick<AsrOptions, 'qwen_asr_version' | 'qwen_asr_
   if (o.qwen_asr_batching_available) return `Batching can run with the installed qwen-asr ${o.qwen_asr_version}.`
   if (!o.qwen_asr_version) return 'qwen-asr is not installed, so nothing is batched.'
   return `Batching is tested with qwen-asr 0.0.6 only; with ${o.qwen_asr_version} installed, lines are sent one at a time.`
+}
+
+export const VOICE_DETECTOR_LABELS: Record<VoiceDetector, string> = {
+  auto: 'Auto (ASMR for ASMR titles)',
+  asmr: 'ASMR',
+  standard: 'Standard',
+}
+
+// PC only: starts the opt-in model download (about 119 MB).
+export const startVoiceDetectorDownload = (f?: Fetch) =>
+  postJson<{ job_id: string; started: boolean }>(`${BASE}/voice-detector/download`, {}, pcOnlyFetch(f))
+
+// The muted line under the choice: what is missing for the ASMR detector, or null when nothing is.
+// Auto and ASMR both fall back to Standard on a run, so a missing piece is a heads-up, not an error.
+export function voiceDetectorNote(
+  o: Pick<AsrOptions, 'voice_detector' | 'asmr_vad_onnxruntime_installed' | 'asmr_vad_model_downloaded'>,
+): string | null {
+  if (o.voice_detector === 'standard') return null
+  if (!o.asmr_vad_onnxruntime_installed) {
+    return 'The ASMR detector needs onnxruntime (install it in Diagnostics > Packages). Until then, runs use Standard.'
+  }
+  if (!o.asmr_vad_model_downloaded) {
+    return 'The ASMR detector model is not downloaded yet, so runs use Standard until it is.'
+  }
+  return null
 }
