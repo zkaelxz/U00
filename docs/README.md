@@ -51,6 +51,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`asr-experiments.md`** — the transcription options (backends, batch size, mixed languages, vocal separation), install and failure-mode notes, and a dated snapshot of the benchmarks.
 - **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
 - **`design/`** and **`specs/`** — the UI refresh spec (with before/after screenshots) and earlier API/UX/Step 141 proposals; the specs were written against the removed Streamlit tabs.
+- **`specs/stereo-track.md`** — the stereo-track DSP (`stereo_cues.py`, `stereo_render.py`, `loudness.py`): method, conventions, measured accuracy and limits.
 - **`STATUS.md`** — current state, in-flight work and what's next.
 - **`archive/`** — historical records kept for reference, not sources of
   truth: the migration review, handoff and React/FastAPI phase log, the
