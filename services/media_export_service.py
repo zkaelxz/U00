@@ -29,7 +29,7 @@ import threading
 
 import background_jobs
 import db
-import dub
+import dub_narration
 import video_export
 from services import artifact_service, export_service
 from services.media_upload_service import VIDEO_EXTENSIONS
@@ -112,7 +112,7 @@ def _audiobook_job(job_id, drama_id, lines, ddir, title, narrate_original):
     with _fixed_write_errors(), tempfile.TemporaryDirectory() as tmp:
         tmp_out = os.path.join(tmp, "audiobook.m4b")
         try:
-            dub.export_narration_m4b(lines, ddir, title=title, out_path=tmp_out,
+            dub_narration.export_narration_m4b(lines, ddir, title=title, out_path=tmp_out,
                                      narrate_original=narrate_original,
                                      cancel_job_id=job_id)
         except (subprocess.CalledProcessError, OSError):

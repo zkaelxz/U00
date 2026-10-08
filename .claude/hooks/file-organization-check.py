@@ -2,7 +2,7 @@
 """PostToolUse hook (Write): remind the session to add a new module to FILE_ORGANIZATION.md.
 
 Root CLAUDE.md requires a FILE_ORGANIZATION.md entry in the same PR for every new
-top-level module, tabs/*.py, services/*.py or api/routers/*.py file. This only warns
+top-level module, services/*.py or api/routers/*.py file. This only warns
 (adds context for Claude); it never blocks, and it stays silent on any error.
 """
 import json
@@ -19,7 +19,7 @@ def main():
         parts = rel.split("/")
         watched = (
             (len(parts) == 1 and rel.endswith(".py"))
-            or (len(parts) == 2 and parts[0] in ("tabs", "services") and rel.endswith(".py"))
+            or (len(parts) == 2 and parts[0] == "services" and rel.endswith(".py"))
             or (len(parts) == 3 and parts[:2] == ["api", "routers"] and rel.endswith(".py"))
         )
         if not watched or parts[-1] == "__init__.py" or parts[-1].startswith("test_"):

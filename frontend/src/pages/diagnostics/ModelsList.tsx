@@ -116,7 +116,7 @@ export function ModelsList({ engines, installable, cache, pc, jobsActive, busy: 
       {hasCache && (
         <p className="muted">
           {canDelete
-            ? 'A deleted model downloads again the next time a feature needs it. Deleting waits for running jobs.'
+            ? 'A deleted model downloads again when a feature needs it. Deleting waits for running jobs.'
             : PC_ONLY_DELETE_NOTE}
         </p>
       )}

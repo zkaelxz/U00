@@ -6,7 +6,7 @@ Related docs: [`STATUS.md`](STATUS.md) (what is built and what is next), [`engin
 
 ## What the app is
 
-- **Pages.** Library, Library tools, Saved manga, Translate text, Sources, Discover, Live, Jobs, Settings, Admin, Diagnostics, Benchmark Lab and Assistant in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
+- **Pages.** Library, Library tools (with Saved manga), Translate text, Sources, Discover, Live, Jobs, Settings, Admin, Diagnostics, Benchmark Lab and Assistant in the nav, plus each drama's Workspace stages, the Reader and Comic (`frontend/src/pages/`).
 - **Access.** `python -m api` serves the built `frontend/dist` at `/`. The PC's own port is loopback-only and needs no login; other household devices can use a separate listener with Google sign-in, which is opt-in ([`household-access.md`](household-access.md)). **Audit log** and **Users** are on the Admin page.
 - **Background services.** `python -m api` also starts the scheduled chapter check and other schedulers (`api/background.py`), and the browser-extension bridge (`page_server.py`) when the extension setting is on.
 - **Three content modes**: audio drama (your audio or video plus a transcript, aligned to real timing), novel narration (paste the text; the app chunks it, tags speakers with the LLM, translates, and can generate a narration/dub) and streamer VOD (see [Streamer VODs and series](#streamer-vods-and-series)).

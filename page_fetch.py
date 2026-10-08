@@ -26,6 +26,7 @@ import threading
 from contextlib import contextmanager
 
 from browser_support import BROWSER_MISSING, PACKAGE_MISSING
+from page_scroll import scroll_through_and_settle
 
 # Root containers common to SPA frameworks. Their presence alongside
 # very little text is a strong signal the content hasn't rendered.
@@ -592,23 +593,6 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
             yield page, captured
 
 
-# Readers that load each page image as it scrolls into view fill in
-# nothing for a single jump to the bottom: step down about a screen at a
-# time (bounded to ~10 s), then land at the bottom as before.
-_SCROLL_THROUGH_JS = """
-async () => {
-    let y = 0;
-    for (let i = 0; i < 40; i++) {
-        y += Math.max(window.innerHeight * 0.9, 400);
-        window.scrollTo(0, y);
-        await new Promise(r => setTimeout(r, 250));
-        if (y >= document.documentElement.scrollHeight) break;
-    }
-    window.scrollTo(0, document.body.scrollHeight);
-}
-"""
-
-
 @contextmanager
 def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     """A rendered, settled page, open for the caller to read from --
@@ -629,11 +613,7 @@ def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="networkidle")
-            try:
-                page.evaluate(_SCROLL_THROUGH_JS)
-                page.wait_for_load_state("networkidle", timeout=timeout * 1000)
-            except Exception:
-                pass  # a scroll-triggered navigation or a slow settle isn't fatal
+            scroll_through_and_settle(page, timeout * 1000)
             if wait_selector:
                 try:
                     page.wait_for_selector(wait_selector, timeout=timeout * 1000)
@@ -898,6 +878,7 @@ def fetch_with_profile(url: str, profile_dir: str, timeout: int = 30, wait_selec
             page = context.new_page()
             _goto(page, url, _PROXIES.get(id(context)), allow_unguarded=launcher is not None,
                   timeout=timeout * 1000, wait_until="networkidle")
+            scroll_through_and_settle(page, timeout * 1000)
             if wait_selector:
                 try:
                     page.wait_for_selector(wait_selector, timeout=timeout * 1000)

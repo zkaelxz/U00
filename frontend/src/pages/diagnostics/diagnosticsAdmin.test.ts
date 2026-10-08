@@ -130,7 +130,7 @@ describe('packages', () => {
 
   it('gives one blocked reason for install and for reset', () => {
     expect(installBlockedReason(false, null)).toBeNull()
-    expect(installBlockedReason(true, null)).toBe('Wait for running jobs to finish before installing.')
+    expect(installBlockedReason(true, null)).toBe('Wait for running jobs to finish.')
     expect(installBlockedReason(false, { kind: 'install', name: 'x' })).toBe('Wait for the install to finish.')
     expect(installBlockedReason(false, { kind: 'reset', name: 'library' })).toBe('Wait for the reset to finish.')
     expect(resetBlockedReason(true, null)).toBe('Stop running jobs first (see Jobs above).')

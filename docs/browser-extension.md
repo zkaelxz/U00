@@ -31,12 +31,12 @@ It reaches pages the adapters can't (blob-protected chapters like manhuaku's, ti
 Click the extension on a page you're reading:
 
 - **Translate this page** — the largest page-sized image on screen.
-- **Translate everything visible** — a spread, or a whole visible strip.
+- **Everything visible** — a spread, or a whole visible strip.
 - **Send pages to** — which drama they land in. Remembered per site, so
   reading a long series isn't a per-page decision.
-- **Also save the page into that drama** — untick to translate for
+- **Save page into drama** — untick to translate for
   reading only, without importing anything.
-- **Draw translations over the page** / **Show / hide translations** — the
+- **Draw over page** / **Show / hide** — the
   overlay toggle. Click any overlaid bubble to see the original text
   underneath it.
 
@@ -50,7 +50,7 @@ A separate section of the popup, for prose rather than comic pages:
 - Pick a direction (**zh/ja/ko → English**, or **English → zh/ja/ko**) —
   the same directions the **Translate** page in Baihe itself supports,
   since this reuses that exact pipeline.
-- **Translate this page's text** — if you've selected text on the page,
+- **Translate text** — if you've selected text on the page,
   that selection is what gets sent. With nothing selected, the extension
   captures the page's own largest contiguous block of paragraph text
   (skipping `<nav>`/`<header>`/`<footer>`/`<aside>` and anything too
@@ -228,3 +228,8 @@ A real Chromium and mangaz.com's own reader, one page load. The captured page wa
 The browser-side test suite is static only. There is no automated test
 that drives a real browser, on purpose: this project's tests are mocked
 throughout and CI has no browser.
+
+## Marking a source as extension-only
+
+If a site only works through the extension (its automated Static and Browser tests fail), open **Sources > Source settings > Details** and switch on **Works only with the browser extension**. It is your own note: the tests keep their real results, and the source shows *Extension only* instead of *Untested*. Pasted links, search, series and chapter imports, tracking and scheduled checks then stop before reading that site and point you here. If a later Static or Browser test passes, Details offers to clear the marker; it is never cleared automatically.
+
