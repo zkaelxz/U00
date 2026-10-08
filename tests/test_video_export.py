@@ -339,3 +339,11 @@ def test_a_dash_manifest_saved_as_mp4_opens_no_connection(tmp_path):
         assert listener.connections > 0
     finally:
         listener.close()
+
+
+def test_dub_mix_does_not_normalize_and_limits_without_makeup_gain(tmp_path):
+    cmd = ve.replace_audio_with_dub_cmd("in.mp4", "dub.wav", str(tmp_path / "m.mkv"), -20)
+    graph = cmd[cmd.index("-filter_complex") + 1]
+    assert "amix=inputs=2:duration=first:normalize=0" in graph
+    assert "alimiter=limit=0.977:level=0" in graph
+    assert graph.index("amix") < graph.index("alimiter")
