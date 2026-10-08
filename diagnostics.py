@@ -33,7 +33,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "dictionary.py", "reader.py", "scanlate.py", "metadata_lookup.py",
     "known_sites.py", "title_library.py", "vocab_export.py",
     "qa.py", "bulk_import.py", "epub_io.py", "cli.py", "diagnostics.py",
-    "run_tests.py", "translation_guide.py",
+    "run_tests.py", "translation_guide.py", "glossary_io.py",
     "story_context.py", "storage.py", "universe_wiki.py", "background_jobs.py",
     "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "en_cleanup.py", "page_fetch.py",
     "page_server.py",
