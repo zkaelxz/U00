@@ -228,3 +228,8 @@ A real Chromium and mangaz.com's own reader, one page load. The captured page wa
 The browser-side test suite is static only. There is no automated test
 that drives a real browser, on purpose: this project's tests are mocked
 throughout and CI has no browser.
+
+## Marking a source as extension-only
+
+If a site only works through the extension (its automated Static and Browser tests fail), open **Sources > Source settings > Details** and switch on **Works only with the browser extension**. It is your own note: the tests keep their real results, and the source shows *Extension only* instead of *Untested*. Pasted links, search, series and chapter imports, tracking and scheduled checks then stop before reading that site and point you here. If a later Static or Browser test passes, Details offers to clear the marker; it is never cleared automatically.
+

@@ -25,6 +25,7 @@ import background_jobs
 from services import url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
+from services.sources_extension_service import require_url_not_extension_only
 from services.sources_registry_service import scrub, safe_url
 from services.sources_search_service import (URL_PREVIEW_JOB_ID, error_view, JobFailed,
                                              start_job)
@@ -161,5 +162,6 @@ def start_preview(url, local: bool = True) -> dict:
     """Starts `sources_url_preview` after the public-address check. `local`
     (a request at this PC) allows the signed-in profile and the browser."""
     url = check_public_url(url)
+    require_url_not_extension_only(url)
     return start_job(URL_PREVIEW_JOB_ID, _preview_job, URL_PREVIEW_JOB_ID, url, bool(local),
                   description="Sources URL preview")

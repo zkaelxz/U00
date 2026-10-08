@@ -68,7 +68,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `review_extras_service.py`, `review_jobs_service.py`, `review_lines_service.py`, `review_records_service.py`,
 `safe_fetch.py`, `saved_comics_service.py`, `scanlate_pages_service.py`, `scanlate_render_service.py`,
 `scanlate_run_service.py`, `series_people_service.py`, `service_errors.py`, `settings_service.py`,
-`shutdown_service.py`, `source_domains_service.py`, `source_service.py`, `sources_extraction_service.py`,
+`shutdown_service.py`, `source_domains_service.py`, `source_service.py`, `sources_extension_service.py`, `sources_extraction_service.py`,
 `sources_import_service.py`, `sources_registry_service.py`, `sources_save_service.py`,
 `sources_search_service.py`, `sources_signin_service.py`, `sources_tools_service.py`,
 `sources_tracking_service.py`, `sources_url_service.py`, `speech_coverage_service.py`,
@@ -117,3 +117,4 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - Optional dependencies are imported inside functions, never at module top level.
 - Adding a new top-level module, `services/*.py` or `api/routers/*.py` file? Add its name above in the same PR.
 - `sources/novel_follow.py`: following next-chapter links from a pasted novel URL (`follow_novel`); builds on `sources/adaptive.py`, which does not import it.
+- `sources/extension_marker.py`: the person's "works only through the browser extension" marker per source (`source_extension_only` table in `sources.db`); imports and scheduled checks consult it, `services/sources_extension_service.py` holds the early stop.

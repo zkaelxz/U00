@@ -195,7 +195,9 @@ export function NewChapters({
                 <li key={key}>
                   <span>
                     {t.title || t.series_id} · {display(t.source)}
-                    {t.last_check_error ? (
+                    {t.extension_only ? (
+                      <span className="muted"> · extension only: skipped</span>
+                    ) : t.last_check_error ? (
                       <span className="warn"> · last check failed: {t.last_check_error}</span>
                     ) : !t.last_checked ? (
                       ' · not checked yet'

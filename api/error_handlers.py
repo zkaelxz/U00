@@ -18,6 +18,7 @@ so the React client (and later the browser extension) can branch on
 | 429  | rate_limited            | `RateLimitedError`                          |
 | 404  | not_found               | `NotFoundError`, unknown route              |
 | 400  | unsupported_operation   | `UnsupportedOperationError`                 |
+| 400  | extension_only          | `ExtensionOnlyError` (a source marked as extension-only) |
 | 405  | unsupported_operation   | a method the route does not allow           |
 | 409  | conflict                | `ConflictError`                             |
 | 413  | too_large               | an over-cap request body (HTTPException)    |

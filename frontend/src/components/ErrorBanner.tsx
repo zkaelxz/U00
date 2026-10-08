@@ -1,3 +1,4 @@
+import { routeHref } from '../router'
 import { describeError, type DescribeOptions } from './errorMessages'
 
 export function ErrorBanner({ error, onDismiss, describe }: {
@@ -13,6 +14,9 @@ export function ErrorBanner({ error, onDismiss, describe }: {
       <div>
         <strong>{title}</strong>
         {detail && <div className="muted">{detail}</div>}
+        {(error as { code?: string }).code === 'extension_only' && (
+          <div><a href={routeHref({ name: 'settings' })}>Extension help</a></div>
+        )}
       </div>
       {onDismiss && (
         <button type="button" className="link" onClick={onDismiss}>

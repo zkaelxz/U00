@@ -41,3 +41,18 @@ describe('ErrorBanner', () => {
     expect(renderToStaticMarkup(createElement(ErrorBanner, { error: null }))).toBe('')
   })
 })
+
+describe('extension_only', () => {
+  const e = err('extension_only', 'This site only works through the browser extension.')
+
+  it('says it plainly', () => {
+    expect(describeError(e).title).toContain('only works through the browser extension')
+  })
+
+  it('links to the extension help', () => {
+    const html = renderToStaticMarkup(createElement(ErrorBanner, { error: e }))
+    expect(html).toContain('Extension help')
+    expect(html).toContain('href="#/settings"')
+    expect(renderToStaticMarkup(createElement(ErrorBanner, { error: err('conflict') }))).not.toContain('Extension help')
+  })
+})

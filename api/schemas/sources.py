@@ -27,6 +27,8 @@ __all__ = [
     "TrackedSeries",
     "SourceNotification",
     "SourceToggle",
+    "SourceExtensionOnlyRequest",
+    "SourceExtensionOnly",
     "SourcesSettingsUpdate",
     "SourceCacheClearRequest",
     "SourceProfileRollbackRequest",
@@ -159,6 +161,7 @@ class SourceSummary(BaseModel):
     adult_enabled: bool
     health: str = Field(description="green, yellow or red.")
     has_saved_signin: bool
+    extension_only: bool = Field(default=False, description="The person marked this source as working only through the browser extension.")
 
 
 class SourceHealth(BaseModel):
@@ -200,6 +203,10 @@ class SourceDetail(SourceSummary):
                                   "Enforcement is off: never read this as permitted.")
     terms_enforced: bool
     health_detail: SourceHealth
+    extension_marked_at: Optional[float] = None
+    extension_note: str = ""
+    extension_works_without: bool = Field(
+        default=False, description="A Static or Browser test passed after the marker was set.")
 
 
 class SourceAttempt(BaseModel):
@@ -265,6 +272,7 @@ class TrackedSeries(BaseModel):
     drama_id: Optional[int] = None
     last_checked: Optional[float] = None
     last_check_error: Optional[str] = None
+    extension_only: bool = Field(default=False, description="Scheduled checks skip this series: its source works only through the browser extension.")
     # New chapters are also saved as CBZ files (comic sources).
     save_cbz: bool = False
 
@@ -283,6 +291,19 @@ class SourceNotification(BaseModel):
 class SourceToggle(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: StrictBool
+
+
+class SourceExtensionOnlyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    extension_only: StrictBool
+    note: Optional[StrictStr] = Field(default=None, max_length=200)
+
+
+class SourceExtensionOnly(BaseModel):
+    extension_only: bool
+    extension_marked_at: Optional[float] = None
+    extension_note: str = ""
+    extension_works_without: bool = False
 
 
 class SourcesSettingsUpdate(BaseModel):

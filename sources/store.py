@@ -117,6 +117,15 @@ CREATE TABLE IF NOT EXISTS source_capabilities (
     data TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+-- One row = the person marked this source as working only through the browser
+-- extension. A separate table (not the capabilities JSON) so a tier test, which
+-- rewrites that record, can never wipe the marker.
+CREATE TABLE IF NOT EXISTS source_extension_only (
+    source TEXT PRIMARY KEY,
+    marked_at REAL NOT NULL,
+    marked_by_user_id INTEGER,
+    note TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS access_attempts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,

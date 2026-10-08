@@ -18,6 +18,8 @@ const GENERIC: Record<string, string> = {
   forbidden: 'Not allowed from this device or account.',
   unauthenticated: 'Your session has ended. Sign in again.',
   rate_limited: 'Too many requests. Wait a moment and try again.',
+  extension_only:
+    'This site only works through the browser extension. Open the chapter in Chrome and use the extension.',
 }
 
 // A PC-only call refused with 403 (the viewer is not at the main PC).

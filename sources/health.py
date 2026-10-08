@@ -99,11 +99,14 @@ def get(source: str) -> dict:
 
 def recent_failures(limit: int = 20) -> list:
     """Sources whose current failure streak is open, newest first, as
-    {source, category, count, last_failure}. No error text or URLs."""
+    {source, category, count, last_failure}. No error text or URLs. A source the person
+    marked as extension-only is left out: it is read through the extension, so an old
+    failure from the automated tiers is not news."""
     with store.connect() as conn:
         rows = conn.execute(
             "SELECT source, last_error_type, consecutive_failures, last_failure FROM source_health "
             "WHERE consecutive_failures > 0 AND last_failure IS NOT NULL "
+            "AND source NOT IN (SELECT source FROM source_extension_only) "
             "ORDER BY last_failure DESC LIMIT ?", (int(limit),)).fetchall()
     return [{"source": r["source"], "category": category(r["last_error_type"]),
              "count": r["consecutive_failures"], "last_failure": r["last_failure"]}

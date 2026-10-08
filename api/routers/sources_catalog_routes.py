@@ -14,7 +14,8 @@ from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import is_local_request, local_only, require_permission
 from api.schemas import (ErrorResponse, SourceAttempt, SourceCacheClearRequest,
-                         SourceCacheStats, SourceDetail, SourceHealth, SourceNotification,
+                         SourceCacheStats, SourceDetail, SourceExtensionOnly,
+                         SourceExtensionOnlyRequest, SourceHealth, SourceNotification,
                          SourceProfileDomain, SourceProfileRollbackRequest,
                          SourceProfileVersion, SourcesSettings, SourcesSettingsUpdate,
                          SourcesJobStarted, SourceSummary, SourceToggle,
@@ -137,6 +138,15 @@ def post_enabled(payload: SourceToggle, name: str = _NAME):
              responses={**_ERR, 400: {"model": ErrorResponse}})
 def post_adult(payload: SourceToggle, name: str = _NAME):
     return svc.set_adult_enabled(name, payload.enabled)
+
+
+@router.post("/{name}/extension-only", dependencies=[require_permission("admin.settings")],
+             response_model=SourceExtensionOnly,
+             summary="Mark or unmark a source as working only through the browser extension",
+             responses=_ERR)
+def post_extension_only(payload: SourceExtensionOnlyRequest, request: Request, name: str = _NAME):
+    return svc.set_extension_only(name, payload.extension_only, payload.note,
+                                  principal=request.state.principal)
 
 
 @router.post("/{name}/health/reset", dependencies=[require_permission("admin.settings")], response_model=SourceHealth,
