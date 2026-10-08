@@ -10,8 +10,10 @@ import { adminErrorText } from './diagnosticsAdmin'
 import { jobProgressLine } from './jobPoll'
 import { useServerJobStatus } from './useServerJobStatus'
 
-const STATUS_TEXT: Record<RealModelCheckStatus, string> = { pass: 'Passed', fail: 'Failed', skipped: 'Skipped' }
-const STATUS_TONE = { pass: 'ok', fail: 'bad', skipped: 'neutral' } as const
+const STATUS_TEXT: Record<RealModelCheckStatus, string> = {
+  pass: 'Passed', fail: 'Failed', skipped: 'Skipped', could_not_check: 'Could not check',
+}
+const STATUS_TONE = { pass: 'ok', fail: 'bad', skipped: 'neutral', could_not_check: 'neutral' } as const
 
 export function RealModelCheckResults({ checks }: { checks: RealModelCheckResult[] }) {
   return (
@@ -62,8 +64,8 @@ function RealModelCheckBody({ local, jobsActive }: { local: boolean; jobsActive:
       <div className="diag-stack" data-testid="real-model-check">
         <p className="muted">
           Runs a short transcription, an OCR read and one Ollama translation with the models you have installed.
-          Nothing is downloaded: a missing package, model or Ollama is skipped. It uses the GPU, so close other
-          GPU apps first.
+          Nothing is downloaded: a missing package, model or Ollama is skipped. A pass means the model loaded
+          and ran, not that words were recognised. It uses the GPU, so close other GPU apps first.
         </p>
         {error && <p className="error" role="alert">{error}</p>}
         {running && status?.job && (

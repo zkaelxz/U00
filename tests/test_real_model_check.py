@@ -46,15 +46,19 @@ def test_bundled_samples_ship_in_a_small_included_directory():
 # --- ASR -------------------------------------------------------------------
 
 class _Backend:
-    def __init__(self, segments=None, fallback=False, error=None):
+    def __init__(self, segments=None, fallback=False, error=None, clip_text=None):
         self.segments, self.fallback, self.error = segments or [{"text": "x"}], fallback, error
+        self.clip_text, self.seen = clip_text, []
 
     def transcribe(self, audio, language, on_gpu_fallback=None, **kw):
-        assert os.path.samefile(audio, svc._CLIP) and language == "zh"
+        assert language == "zh"
+        self.seen.append(audio)
         if self.error:
             raise self.error
         if self.fallback:
             on_gpu_fallback(RuntimeError("cuda"))
+        if self.clip_text is not None and not os.path.samefile(audio, svc._CLIP):
+            return [{"text": self.clip_text}]
         return self.segments
 
 
@@ -79,6 +83,43 @@ def _run(check_id):
 def test_asr_passes(asr):
     r = _run("asr")
     assert r["status"] == svc.PASS and "GPU" in r["reason"]
+
+
+def test_asr_pass_says_the_model_ran_not_that_words_were_recognised(asr):
+    assert "not that words were recognised" in _run("asr")["reason"]
+
+
+def test_asr_speech_clip_is_compared_with_the_expected_text(asr, tmp_path):
+    clip = tmp_path / "speech.wav"
+    clip.write_bytes(b"x")
+    asr["backend"] = _Backend(clip_text="你好, 世界!")
+    r = svc._run_check("asr", "Transcription", svc._check_asr,
+                       speech_clip=str(clip), expected_text="你好世界")
+    assert r["status"] == svc.PASS and "matched the expected text" in r["reason"]
+    assert [os.path.basename(p) for p in asr["backend"].seen] == ["clip.wav", "speech.wav"]
+
+
+def test_asr_speech_clip_that_does_not_match_fails_without_echoing_the_transcript(asr, tmp_path):
+    clip = tmp_path / "speech.wav"
+    clip.write_bytes(b"x")
+    asr["backend"] = _Backend(clip_text="completely different")
+    r = svc._run_check("asr", "Transcription", svc._check_asr,
+                       speech_clip=str(clip), expected_text="你好")
+    assert r["status"] == svc.FAIL and "completely" not in r["reason"]
+
+
+def test_asr_speech_clip_without_expected_text_is_run_but_not_compared(asr, tmp_path):
+    clip = tmp_path / "speech.wav"
+    clip.write_bytes(b"x")
+    asr["backend"] = _Backend(clip_text="hello")
+    r = svc._run_check("asr", "Transcription", svc._check_asr, speech_clip=str(clip))
+    assert r["status"] == svc.PASS and "no expected text" in r["reason"]
+
+
+def test_asr_missing_speech_clip_fails_without_naming_its_path(asr, tmp_path):
+    r = svc._run_check("asr", "Transcription", svc._check_asr,
+                       speech_clip=str(tmp_path / "private-name.wav"))
+    assert r["status"] == svc.FAIL and "private-name" not in r["reason"]
 
 
 def test_asr_skips_when_model_not_downloaded(asr):
@@ -158,6 +199,33 @@ def test_ocr_requirement_skips_an_undownloaded_model(monkeypatch):
         svc._ocr_requirement("manga_ocr")
 
 
+def test_paddle_models_are_found_where_paddlex_keeps_them(monkeypatch, tmp_path):
+    monkeypatch.delenv("PADDLE_PDX_CACHE_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    assert svc._paddle_models_present() is False
+    (tmp_path / ".paddlex" / "official_models" / "PP-OCRv5_server_det").mkdir(parents=True)
+    assert svc._paddle_models_present() is True
+
+
+def test_paddle_cache_override_is_honoured(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "empty-home"))
+    (tmp_path / "elsewhere" / "official_models" / "m").mkdir(parents=True)
+    monkeypatch.setenv("PADDLE_PDX_CACHE_HOME", str(tmp_path / "elsewhere"))
+    assert svc._paddle_models_present() is True
+
+
+def test_paddle_models_not_found_is_could_not_check_never_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(svc, "_installed", lambda m: True)
+    monkeypatch.setattr(svc, "_paddle_models_present", lambda: False)
+    monkeypatch.setattr(settings_service, "resolve_ocr_backend", lambda lang, **kw: "paddle")
+    r = _run("ocr")
+    assert r["status"] == svc.COULD_NOT_CHECK
+    assert "not downloaded" not in r["reason"] and "missing" not in r["reason"].lower()
+    assert str(tmp_path) not in r["reason"]
+
+
 # --- Translate -------------------------------------------------------------
 
 @pytest.fixture
@@ -227,7 +295,7 @@ def test_job_runs_all_checks_independently(env, monkeypatch):
     def boom():
         raise RuntimeError(f"bad {SECRET}")
     monkeypatch.setattr(svc, "_CHECKS", (
-        ("asr", "Transcription", lambda: "ok"),
+        ("asr", "Transcription", lambda **_: "ok"),
         ("ocr", "OCR", boom),
         ("translate", "Translation (Ollama)", lambda: (_ for _ in ()).throw(svc._Skip("no ollama")))))
     assert svc.start(confirm=True) == {"job_id": svc.JOB_ID, "started": True}
@@ -238,10 +306,30 @@ def test_job_runs_all_checks_independently(env, monkeypatch):
     assert state["finished"] and SECRET not in str(state)
 
 
+def test_could_not_check_does_not_fail_the_job(env, monkeypatch):
+    def unsure(**_):
+        raise svc._CouldNotCheck("cannot tell")
+    monkeypatch.setattr(svc, "_CHECKS", (("ocr", "OCR", unsure),))
+    svc.start(confirm=True)
+    assert _wait()["result"] == {"status": svc.PASS}
+    assert svc.get_state()["checks"][0]["status"] == "could_not_check"
+
+
+def test_run_checks_releases_gpu_models_even_when_stopped(monkeypatch):
+    released = []
+    monkeypatch.setattr("core.release_gpu_models", lambda: released.append(1))
+
+    def stop(i, label):
+        raise background_jobs.JobCancelled()
+    with pytest.raises(background_jobs.JobCancelled):
+        svc.run_checks(before_check=stop)
+    assert released == [1]
+
+
 def test_a_second_start_while_running_is_refused(env, monkeypatch):
     import threading
     gate = threading.Event()
-    monkeypatch.setattr(svc, "_CHECKS", (("asr", "Transcription", lambda: gate.wait(5) and "ok"),))
+    monkeypatch.setattr(svc, "_CHECKS", (("asr", "Transcription", lambda **_: gate.wait(5) and "ok"),))
     svc.start(confirm=True)
     try:
         with pytest.raises(gaps.AdminActionJobsRunning):
@@ -258,7 +346,7 @@ def test_routes_are_declared_and_start(env, monkeypatch):
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
     from api.server import create_app
-    monkeypatch.setattr(svc, "_CHECKS", (("asr", "Transcription", lambda: "ok"),))
+    monkeypatch.setattr(svc, "_CHECKS", (("asr", "Transcription", lambda **_: "ok"),))
     client = TestClient(create_app())
     assert client.post("/api/diagnostics/real-model-check", json={}).status_code == 422
     r = client.post("/api/diagnostics/real-model-check", json={"confirm": True})

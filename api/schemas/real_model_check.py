@@ -28,7 +28,7 @@ class RealModelCheckStart(BaseModel):
 class RealModelCheckResult(BaseModel):
     id: Literal["asr", "ocr", "translate"]
     label: str
-    status: Literal["pass", "fail", "skipped"]
+    status: Literal["pass", "fail", "skipped", "could_not_check"]
     reason: str
 
 

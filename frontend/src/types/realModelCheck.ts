@@ -1,6 +1,6 @@
 // Mirrors api/schemas/real_model_check.py.
 
-export type RealModelCheckStatus = 'pass' | 'fail' | 'skipped'
+export type RealModelCheckStatus = 'pass' | 'fail' | 'skipped' | 'could_not_check'
 
 export interface RealModelCheckResult {
   id: 'asr' | 'ocr' | 'translate'

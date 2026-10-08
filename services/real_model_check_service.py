@@ -5,19 +5,23 @@ translation with the models the user actually has set up. It complements
 the "Test first" run, which only exercises mocked tests and so cannot see
 GPU or model breakage.
 
-Three independent checks, each reported as pass / fail / skipped with a
-short redacted reason. A missing optional package, a model that is not
-downloaded or an Ollama that is not running is "skipped", never "failed":
-nothing here downloads or pulls a model. The samples ship in assets/smoke/
-(the installer includes assets/ but not tests/), so this works on an
-installed copy.
+Three independent checks, each reported as pass / fail / skipped /
+could-not-check with a short redacted reason. A missing optional package, a
+model that is not downloaded or an Ollama that is not running is "skipped",
+never "failed": nothing here downloads or pulls a model. "Could not check"
+is for when we cannot tell where a model lives, so we must not claim it is
+missing. The samples ship in assets/smoke/ (the installer includes assets/
+but not tests/), so this works on an installed copy.
 
-Runs as one GPU-touching background job behind the same install guard as
-the other Diagnostics actions. Reasons never carry paths or URLs.
+The app runs it as one GPU-touching background job behind the same install
+guard as the other Diagnostics actions; the `smoke` CLI command
+(real_model_check_cli.py) calls run_checks directly, so both report the
+same checks. Reasons never carry paths or URLs.
 """
 
 import importlib.util
 import os
+import re
 import shutil
 import threading
 
@@ -28,7 +32,7 @@ from services import diagnostics_gaps_service as gaps
 from services.service_errors import ServiceError
 
 JOB_ID = "real_model_check"
-PASS, FAIL, SKIPPED = "pass", "fail", "skipped"
+PASS, FAIL, SKIPPED, COULD_NOT_CHECK = "pass", "fail", "skipped", "could_not_check"
 
 # Fixed Chinese samples: the app's default source language, and the clip is
 # a plain tone, so a pass means the model loaded and ran, not that it
@@ -48,6 +52,11 @@ class _Skip(Exception):
     """The check cannot run on this machine (not a fault)."""
 
 
+class _CouldNotCheck(Exception):
+    """We cannot tell whether the check's prerequisite is met, so it is
+    neither run nor reported as missing."""
+
+
 def _redact(text) -> str:
     return diagnostics.redact_for_support("" if text is None else str(text))[:300]
 
@@ -64,7 +73,17 @@ def _hf_repo_cached(fragment: str) -> bool:
     return any(fragment in e["repo_id"].lower() for e in diagnostics.scan_hf_cache())
 
 
-def _check_asr() -> str:
+def _spoken_text(segments) -> str:
+    return " ".join(str(s.get("text") or "") for s in segments or [] if isinstance(s, dict))
+
+
+def _comparable(text: str) -> str:
+    # ASR punctuation and spacing vary between backends; the words are
+    # what the expected text is meant to pin down.
+    return re.sub(r"[\W_]+", "", text.casefold())
+
+
+def _check_asr(speech_clip=None, expected_text=None) -> str:
     from services import asr_options_service, settings_service, transcribe_service
     # No global ASR setting exists (the choice is per title), so this is
     # the backend a new Chinese title would get.
@@ -84,20 +103,53 @@ def _check_asr() -> str:
             raise _Skip("The Qwen3-ASR model is not downloaded.")
     if not os.path.isfile(_CLIP):
         raise RuntimeError("The bundled audio sample is missing; reinstall the app.")
+    if speech_clip and not os.path.isfile(speech_clip):
+        raise RuntimeError("The speech clip was not found.")
 
     import asr_backend
-    fallback = []
     runner = asr_backend.get_backend(backend)
-    if backend == "whisper":
-        segments = runner.transcribe(_CLIP, _LANGUAGE, whisper_size=size, use_gpu=use_gpu,
-                                     on_gpu_fallback=fallback.append)
-    else:
-        segments = runner.transcribe(_CLIP, _LANGUAGE, use_gpu=use_gpu,
-                                     on_gpu_fallback=lambda _task_or_exc, *rest: fallback.append(1))
-    if fallback:
-        # A silent CPU fallback is the breakage this check exists to surface.
-        raise RuntimeError("The GPU could not be used, so it ran on the CPU instead.")
-    return f"{backend} ran on the {'GPU' if use_gpu else 'CPU'} ({len(segments or [])} segment(s))."
+
+    def transcribe(path):
+        fallback = []
+        if backend == "whisper":
+            segments = runner.transcribe(path, _LANGUAGE, whisper_size=size, use_gpu=use_gpu,
+                                         on_gpu_fallback=fallback.append)
+        else:
+            segments = runner.transcribe(path, _LANGUAGE, use_gpu=use_gpu,
+                                         on_gpu_fallback=lambda _task_or_exc, *rest: fallback.append(1))
+        if fallback:
+            # A silent CPU fallback is the breakage this check exists to surface.
+            raise RuntimeError("The GPU could not be used, so it ran on the CPU instead.")
+        return segments
+
+    segments = transcribe(_CLIP)
+    detail = (f"{backend} ran on the {'GPU' if use_gpu else 'CPU'} ({len(segments or [])} segment(s)). "
+              "A pass means the model loaded and ran, not that words were recognised.")
+    if speech_clip:
+        heard = _spoken_text(transcribe(speech_clip))
+        if not expected_text:
+            return detail + f" The speech clip produced {len(heard.strip())} character(s); no expected text was given to compare."
+        if _comparable(expected_text) not in _comparable(heard):
+            raise RuntimeError("The speech clip was transcribed, but the text did not match the expected text.")
+        detail += " The speech clip matched the expected text."
+    return detail
+
+
+def _paddle_models_present() -> bool:
+    """PaddleX keeps its models outside the Hugging Face cache, in
+    <cache>/official_models, where <cache> is PADDLE_PDX_CACHE_HOME or
+    ~/.paddlex. False means "none found there", not "not downloaded"."""
+    root = os.environ.get("PADDLE_PDX_CACHE_HOME", "").strip()
+    if not root:
+        home = os.path.expanduser("~")
+        if home == "~":
+            return False
+        root = os.path.join(home, ".paddlex")
+    try:
+        with os.scandir(os.path.join(root, "official_models")) as entries:
+            return any(True for _ in entries)
+    except OSError:
+        return False
 
 
 def _ocr_requirement(backend: str) -> None:
@@ -121,9 +173,13 @@ def _ocr_requirement(backend: str) -> None:
     else:
         if not _installed("paddleocr"):
             raise _Skip("paddleocr is not installed.")
-        # PaddleOCR keeps its models here, outside the Hugging Face cache.
-        if not os.path.isdir(os.path.join(os.path.expanduser("~"), ".paddlex", "official_models")):
-            raise _Skip("The PaddleOCR models are not downloaded.")
+        if not _paddle_models_present():
+            # Absence from the usual folder is not proof: PaddleX can be
+            # pointed elsewhere and the layout differs between versions.
+            raise _CouldNotCheck(
+                "Could not check whether the PaddleOCR models are downloaded: none were found in "
+                "the folder PaddleX normally uses (set PADDLE_PDX_CACHE_HOME if you keep them "
+                "elsewhere). Nothing was downloaded.")
 
 
 def _check_ocr() -> str:
@@ -168,11 +224,13 @@ _CHECKS = (("asr", "Transcription", _check_asr),
            ("translate", "Translation (Ollama)", _check_translate))
 
 
-def _run_check(check_id: str, label: str, fn) -> dict:
+def _run_check(check_id: str, label: str, fn, **options) -> dict:
     try:
-        status, reason = PASS, fn()
+        status, reason = PASS, fn(**options)
     except _Skip as exc:
         status, reason = SKIPPED, str(exc)
+    except _CouldNotCheck as exc:
+        status, reason = COULD_NOT_CHECK, str(exc)
     except background_jobs.JobCancelled:
         raise
     except ImportError as exc:
@@ -183,15 +241,21 @@ def _run_check(check_id: str, label: str, fn) -> dict:
     return {"id": check_id, "label": label, "status": status, "reason": _redact(reason)}
 
 
-def _job():
+def run_checks(speech_clip=None, expected_text=None, before_check=None, on_result=None) -> list:
+    """Runs every check in order and returns their results. The app's job and
+    the CLI both call this, so they cannot report different checks.
+    before_check(index, label) may raise to stop the run; on_result gets
+    each result as it lands."""
+    results = []
+    options = {"asr": {"speech_clip": speech_clip, "expected_text": expected_text}}
     try:
         for i, (check_id, label, fn) in enumerate(_CHECKS):
-            if background_jobs.is_cancel_requested(JOB_ID):
-                raise background_jobs.JobCancelled()
-            background_jobs.update_progress(JOB_ID, i / len(_CHECKS), f"Checking {label.lower()}")
-            result = _run_check(check_id, label, fn)
-            with _LOCK:
-                _STATE["checks"].append(result)
+            if before_check:
+                before_check(i, label)
+            result = _run_check(check_id, label, fn, **options.get(check_id, {}))
+            results.append(result)
+            if on_result:
+                on_result(result)
     finally:
         # The models stay resident otherwise, holding VRAM the user was
         # told to free for this check.
@@ -200,6 +264,22 @@ def _job():
             core.release_gpu_models()
         except Exception:
             pass
+    return results
+
+
+def _job():
+    def before_check(i, label):
+        if background_jobs.is_cancel_requested(JOB_ID):
+            raise background_jobs.JobCancelled()
+        background_jobs.update_progress(JOB_ID, i / len(_CHECKS), f"Checking {label.lower()}")
+
+    def on_result(result):
+        with _LOCK:
+            _STATE["checks"].append(result)
+
+    try:
+        run_checks(before_check=before_check, on_result=on_result)
+    finally:
         with _LOCK:
             _STATE["finished"] = True
     with _LOCK:

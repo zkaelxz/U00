@@ -17,6 +17,17 @@ describe('RealModelCheckResults', () => {
     expect(html).toContain('Failed')
     expect(html).toContain('paddleocr is not installed.')
   })
+
+  it('shows could-not-check as its own status, not as skipped or passed', () => {
+    const html = renderToStaticMarkup(
+      <RealModelCheckResults checks={[
+        { id: 'ocr', label: 'OCR', status: 'could_not_check', reason: 'Could not check where the models are.' },
+      ]} />,
+    )
+    expect(html).toContain('Could not check')
+    expect(html).not.toContain('Passed')
+    expect(html).not.toContain('Skipped')
+  })
 })
 
 describe('RealModelCheck', () => {

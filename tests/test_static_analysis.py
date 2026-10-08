@@ -700,7 +700,7 @@ OVERSIZED_MODULE_BYTES = {
     "db.py": 298957,
     "diagnostics.py": 110977,
     "services/transcribe_service.py": 102565,
-    "cli.py": 90791,
+    "cli.py": 90858,
     "scanlate.py": 89904,
     "background_jobs.py": 89431,
     "bulk_translate.py": 86382,

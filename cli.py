@@ -76,6 +76,7 @@ import translation_guide as tguide
 import bulk_translate, raw_transcript
 import dub as dub_module
 import dub_narration as dn
+import real_model_check_cli
 import background_jobs
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
                       glossary_service, jobs_service, lines_service, line_provenance_service,
@@ -1635,6 +1636,7 @@ def main():
                           help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
     p_doctor.set_defaults(func=cmd_doctor)
 
+    real_model_check_cli.register(sub)
     args = p.parse_args()
     args.func(args)
 
