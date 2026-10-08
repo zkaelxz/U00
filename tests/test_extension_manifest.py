@@ -205,12 +205,34 @@ class TestChapterCaptureStaysPolite:
         assert "els.translate.disabled = running" in capturing
         assert "els.translateAll.disabled = running" in capturing
 
-    def test_canvases_get_a_per_canvas_draw_target(self):
+    def test_canvas_draw_target_is_its_pixel_hash(self):
         code = _code("content.js")
-        assert "canvasIds = new WeakMap()" in code
+        assert "canvasIds" not in code
         run = code[code.index("async function runCapture("):]
-        assert "srcKey === null" not in run
-        assert "drawTargetKey(el) === srcKey" in run
+        assert "srcKey: drawTargetKey(el, extracted.hash)" in run
+        assert "await currentDrawTargetKey(el) === srcKey" in run
+        assert 'toBlob(' in code[code.index("async function currentDrawTargetKey"):code.index("function showCaptureChip")]
+
+    def test_capture_done_is_sent_on_every_exit_and_popup_saves_overlay(self):
+        code = _code("content.js")
+        capture = code[code.index("async function captureChapter("):code.index("async function runCapture(")]
+        assert capture.index("finally") < capture.index('type: "captureDone"')
+        assert code.count('type: "captureDone"') == 1
+        popup = _code("popup.js")
+        start = popup[popup.index("async function startCapture("):popup.index("async function syncCaptureUi")]
+        assert "chrome.storage.local.set({ overlay: els.overlay.checked })" in start
+        run = popup[popup.index("async function run(all)"):popup.index("function showCapturing")]
+        assert "els.captureChapter.disabled = true" in run
+        assert "pageRunInFlight = false" in run
+
+    def test_double_send_guards_claim_before_any_await(self):
+        popup = _code("popup.js")
+        run = popup[popup.index("async function run(all)"):popup.index("function showCapturing")]
+        capture = popup[popup.index("async function runCapture("):popup.index("async function startCapture(")]
+        guard = "if (pageRunInFlight || captureInFlight) return;"
+        assert guard in run and guard in capture
+        assert run.index("pageRunInFlight = true") < run.index("await")
+        assert capture.index("captureInFlight = true") < capture.index("await")
 
     def test_capture_makes_no_calls_of_its_own(self):
         code = _code("content.js")

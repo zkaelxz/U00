@@ -614,7 +614,7 @@
         { ok: false, error: "No answer from the extension's background worker." };
       if (response.ok) {
         sentAny = true;
-        onBatch(batch, response.data || {});
+        await onBatch(batch, response.data || {});
         done += batch.length;
         continue;
       }
@@ -627,7 +627,7 @@
       // Every image in this batch was judged not to be a page: nothing
       // is wrong, so carry on with the next batch.
       if (response.status === 422) {
-        onBatch(batch, { pages: [], skipped: batch.map(({ extracted }) => ({
+        await onBatch(batch, { pages: [], skipped: batch.map(({ extracted }) => ({
           key: extracted.hash, url: extracted.url, reason: response.error || "" })) });
         done += batch.length;
         continue;
@@ -904,15 +904,23 @@
     await Promise.race([loaded, sleep(CAPTURE_LOAD_WAIT_MS)]);
   }
 
-  // A canvas has no src, so a content key would skip re-reading a canvas the reader repainted
-  // with another page. Its identity is only used to check the draw target, not to dedupe.
-  const canvasIds = new WeakMap();
-  let nextCanvasId = 0;
+  // A canvas has no src, so its draw target is identified by the hash of its pixels: a reader that
+  // repaints the canvas with another page while a batch is in flight changes the hash, and the
+  // bubbles are not drawn on the wrong page.
+  function drawTargetKey(el, hash) {
+    return el.tagName === "CANVAS" ? hash : elementKey(el);
+  }
 
-  function drawTargetKey(el) {
+  async function currentDrawTargetKey(el) {
     if (el.tagName !== "CANVAS") return elementKey(el);
-    if (!canvasIds.has(el)) canvasIds.set(el, ++nextCanvasId);
-    return `canvas#${canvasIds.get(el)}`;
+    try {
+      const blob = await new Promise((resolve, reject) => {
+        el.toBlob((b) => (b ? resolve(b) : reject(new Error("unreadable"))), "image/png");
+      });
+      return await sha256Hex(await blob.arrayBuffer());
+    } catch (e) {
+      return null;
+    }
   }
 
   function elementKey(el) {
@@ -954,12 +962,19 @@
     const ui = showCaptureChip(run);
     const scroller = makeScroller();
     const startTop = scroller.top();
+    // A popup reopened mid-run waits for this, so every exit path sends it.
+    let done = { failed: true, text: "The capture stopped unexpectedly." };
     try {
-      return await runCapture(run, ui, scroller, { dramaId, store, fromHere });
+      const result = await runCapture(run, ui, scroller, { dramaId, store, fromHere });
+      done = result.ok
+        ? { failed: result.data.reason === "error", text: result.data.message }
+        : { failed: true, text: result.error };
+      return result;
     } finally {
       scroller.to(startTop);
       ui.chip.remove();
       state.capture = null;
+      try { chrome.runtime.sendMessage({ type: "captureDone", ...done }).catch(() => {}); } catch (e) { /* popup closed */ }
     }
   }
 
@@ -1017,7 +1032,7 @@
           continue;
         }
         seq += 1;
-        queue.push({ extracted, elements: [el], srcKey: drawTargetKey(el), seq,
+        queue.push({ extracted, elements: [el], srcKey: drawTargetKey(el, extracted.hash), seq,
                      order: { index: readerIndexOf(el), pos: scroller.positionOf(el) } });
       }
       return found;
@@ -1041,7 +1056,7 @@
             dramaId, store, sourceUrl: location.href,
             filterPages: items.length > 1,
           });
-        }, (items, data) => {
+        }, async (items, data) => {
           const byHash = new Map();
           for (const page of data.pages || []) byHash.set(page.key, page.regions || []);
           for (const { extracted, elements, srcKey } of items) {
@@ -1052,7 +1067,7 @@
             // later page while this batch was in flight; drawing then
             // would put these bubbles on the wrong page.
             for (const el of elements) {
-              if (el.isConnected && drawTargetKey(el) === srcKey) {
+              if (el.isConnected && await currentDrawTargetKey(el) === srcKey) {
                 drawOverlay(el, regions);
                 counts.drawn += 1;
               }
@@ -1134,7 +1149,6 @@
     if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
     const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally.join(", ")}.`;
     reportProgress(message);
-    try { chrome.runtime.sendMessage({ type: "captureDone" }).catch(() => {}); } catch (e) { /* popup closed */ }
     toast(message, 8000);
     return { ok: true, data: { reason, message, found: seen.size, ...counts, pages: [] } };
   }

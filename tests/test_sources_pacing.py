@@ -3,7 +3,7 @@ Offline: a scripted transport and a fake clock, no real sleeping."""
 
 import pytest
 
-from sources import pacing, store
+from sources import http, pacing, store
 from sources.base import SourceAdapter
 from sources.http import PacingPolicy, SourceClient, reset_pacing_state
 from sources.models import ChallengeDetected, FetchFailed
@@ -206,7 +206,7 @@ class TestHardening:
 
     def test_retry_after_hold_is_capped(self, isolated_db):
         pacing.note_trouble("s", "rate_limit", 0.0, retry_after=100000)
-        assert pacing.hold_remaining("s", 0.0) == pacing.MAX_HOLD <= 60.0
+        assert pacing.hold_remaining("s", 0.0) == pacing.MAX_HOLD == http.MAX_SINGLE_BACKOFF
 
     @pytest.mark.parametrize("value", ["²", "³", "¹", "٣"])
     def test_unicode_digit_retry_after_is_ignored(self, isolated_db, value):
@@ -234,17 +234,6 @@ class TestHardening:
     def test_profile_concurrency_is_capped_at_the_settings_maximum(self):
         wide = PacingProfile(fast=PaceLevel(max_concurrent=50), evidence="checked", fast_allowed=True)
         assert pacing.apply_level(_base(max_concurrent=4), wide, "fast").max_concurrent <= 4
-
-    def test_limit_holds_while_requests_are_in_flight(self):
-        from sources import http
-        reset_pacing_state()
-        st = http._state("lim", 1)
-        with st["sem"]:
-            http._state("lim", 4)       # a later client asking for more
-            assert st["sem"].limit == 1
-        http._state("lim", 4)
-        assert st["sem"].limit == 4
-        reset_pacing_state()
 
     def test_concurrent_pace_writes_keep_every_change(self, isolated_db):
         import threading

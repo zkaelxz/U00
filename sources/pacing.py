@@ -35,9 +35,9 @@ _CAREFUL_BREAKS = dict(session_break_min_requests=8, session_break_max_requests=
 MAX_SLOWDOWN = 8.0        # delays never grow past this multiple of the chosen level
 QUIET_REQUESTS = 20       # clean requests that win back one step (halving)
 TIMEOUT_STREAK = 3        # timeouts in a row that count as the site struggling
-# Longest Retry-After we hold the next request for. It equals the cap on a
-# single retry wait in sources/http.py so one server cannot stall a fetch
-# for longer than a retry could.
+# Longest Retry-After we hold the next request for, and (as
+# http.MAX_SINGLE_BACKOFF) the cap on one retry wait, so one server cannot
+# stall a fetch for longer than a retry could.
 MAX_HOLD = 60.0
 MAX_CONCURRENT = 4        # the settings maximum; a profile cannot raise it
 

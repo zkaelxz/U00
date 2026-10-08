@@ -129,6 +129,8 @@ reach the extension.
   extensions gallery, the built-in PDF viewer, `chrome://` pages.
 - **Canvas-only viewers** give no `<img>` to anchor an overlay to, so
   positioning falls back to the canvas element's own box.
+  During a chapter capture, a canvas is re-hashed before bubbles are drawn, and skipped if
+  the reader repainted it with another page meanwhile.
 - **Two-page spreads and right-to-left order** affect which box belongs
   to which page; the app derives reading order per page, but a spread
   sent as one image is treated as one page.
