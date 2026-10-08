@@ -232,3 +232,18 @@ test('says plainly when the player ignores every seek instead of showing a huge 
   await expect(note).toContainText("can't be delayed", { timeout: 40_000 })
   await expect(note).not.toContainText('43')
 })
+
+test('a player whose clock starts near 0 and runs is still judged by whether it obeys seeks', async ({ page }) => {
+  test.setTimeout(60_000)
+  const { live } = await startRunning(page, YT, ytHtml(300, 4, { elapsedS: 43_826, advancing: true }))
+  const note = live.getByTestId('live-video-note')
+  await expect(note).toHaveText('Playing about 15 s behind live.', { timeout: 45_000 })
+  await page.waitForTimeout(6_000)
+  await expect(note).toHaveText('Playing about 15 s behind live.')
+})
+
+test('a player whose clock starts near 0 and runs but drops every seek is marked unreachable', async ({ page }) => {
+  test.setTimeout(60_000)
+  const { live } = await startRunning(page, YT, ytHtml(300, 99, { elapsedS: 43_826, advancing: true }))
+  await expect(live.getByTestId('live-video-note')).toContainText("can't be delayed", { timeout: 45_000 })
+})

@@ -20,6 +20,8 @@ const SEEK_TRIES = 3
 const PROBE_SETTLE_S = 4
 /** Seconds the probe first steps back, so a playhead already at the edge still shows that seeks are obeyed. */
 const PROBE_BACK_S = 30
+/** Below this a step back is too small to tell an obeyed seek from playback drift. */
+const PROBE_MIN_STEP_S = 5
 
 export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: number }) {
   const frame = useRef<HTMLIFrameElement>(null)
@@ -50,6 +52,7 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
     // 0: not probing, 1: stepping back, 2: seeking to the live edge.
     let probing = 0
     let probeFrom: number | undefined
+    let probeStep = PROBE_BACK_S
     let sinceProbe = 0
     let playAsked = false
     let unstartedS = 0
@@ -126,13 +129,20 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
         if (tries < SEEK_TRIES) {
           tries += 1
           appliedFor = null
-        } else if (!probed && info?.duration !== undefined) {
+        } else if (!probed && info?.duration !== undefined && info.currentTime !== undefined) {
           // The seeks were heard but the playhead is not where duration says: ask for the live edge itself and read the player's own clock there.
           probed = true
-          probing = 1
-          sinceProbe = 0
           probeFrom = info.currentTime
-          send(ytSeekMessage(Math.max(0, (info.currentTime ?? 0) - PROBE_BACK_S)))
+          sinceProbe = 0
+          probeStep = Math.min(PROBE_BACK_S, probeFrom)
+          if (probeStep < PROBE_MIN_STEP_S) {
+            // A playhead this close to 0 cannot show a step back; judge the edge seek alone.
+            probing = 2
+            send(ytSeekMessage(info.duration))
+          } else {
+            probing = 1
+            send(ytSeekMessage(probeFrom - probeStep))
+          }
         } else {
           moving = false
           unreachable = !delayReached(info, delayRef.current, offset)
@@ -141,7 +151,7 @@ export function StreamEmbed({ stream, delay }: { stream: StreamRef; delay: numbe
       if (probing === 1 && ++sinceProbe >= PROBE_SETTLE_S) {
         // Only an obeyed step back proves the later jump to the edge is a real measurement.
         const t = info?.currentTime
-        if (probeFrom !== undefined && t !== undefined && probeFrom - t >= PROBE_BACK_S / 2 && info?.duration !== undefined) {
+        if (probeFrom !== undefined && t !== undefined && probeFrom - t >= probeStep / 2 && info?.duration !== undefined) {
           probing = 2
           sinceProbe = 0
           probeFrom = t
