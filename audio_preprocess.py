@@ -386,14 +386,15 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
     progress) and "device" ("gpu" or "cpu", once the model is loaded)."""
     order = {"auto": ("audio_separator", "demucs")}.get(backend, (backend,))
     errors = []
+    runners = [_BACKENDS[name] for name in order]  # an unknown name fails before anything else
     # Before the loop: a refusal must not be mistaken for a backend failure
     # and retried on the other backend.
     memory_headroom.check_separation(use_gpu)
-    for name in order:
+    for run in runners:
         try:
-            return _BACKENDS[name](audio_path, out_path, progress_cb=progress_cb,
-                                   cancel_check_cb=cancel_check_cb,
-                                   use_gpu=use_gpu, event_cb=event_cb)
+            return run(audio_path, out_path, progress_cb=progress_cb,
+                       cancel_check_cb=cancel_check_cb,
+                       use_gpu=use_gpu, event_cb=event_cb)
         except VocalSeparationCancelled:
             raise
         except VocalSeparationError as exc:

@@ -294,3 +294,10 @@ class TestRefusalStopsTheRun:
         assert Engine.calls == 1
         assert len(errors) == 1 and "no room" in errors[0]["error"]
         assert not any(l.en for l in lines)
+
+
+def test_reading_the_reserve_never_creates_a_library(tmp_path, monkeypatch):
+    import db
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "library" / "library.db"))
+    assert mh.reserved_mb("vram") == 0.0
+    assert not (tmp_path / "library").exists()

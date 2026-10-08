@@ -19,6 +19,7 @@ not measurements; the error text says so. Cloud engines and a remote Ollama
 use none of this machine's memory and are never checked.
 """
 
+import os
 import sys
 from urllib.parse import urlsplit
 
@@ -57,6 +58,9 @@ def reserved_mb(memory: str) -> float:
     """The configured reserve in MB (0 = off). A settings read problem means
     off: it must not change behaviour."""
     try:
+        import db
+        if not os.path.exists(db.DB_PATH):
+            return 0.0  # no library yet means no saved setting; reading would create one
         from services import settings_service
         return max(0.0, float(settings_service.get_preference(KEEP_FREE_KEYS[memory]) or 0)) * 1024
     except Exception:
