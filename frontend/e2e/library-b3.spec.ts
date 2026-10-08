@@ -36,15 +36,17 @@ const stats = {
 test('dashboard: API calls, cache-hit share, header stats line (L01)', async ({ page }) => {
   await page.route('**/api/library/stats', (r) => r.fulfill({ json: stats }))
   await page.goto('/')
-  await expect(page.getByTestId('stats')).toHaveText(
-    '5 dramas · 2875 of 4210 lines translated · $3.47 spent · 318 API calls · 30% cache hits',
-  )
+  await expect(page.getByTestId('stats')).toHaveText('5 dramas · 2,875 of 4,210 lines · 1,335 left')
+  await page.getByText('$3.47 spent').click()
+  await expect(page.getByTestId('stats-usage')).toHaveText('318 API calls · 30% cache hits')
   await expect(page.getByTestId('stats-breakdown')).toHaveCount(0)
 })
 
-test('dashboard from the real API shows the call count', async ({ page }) => {
+// The seeded library has no logged usage, so the fold must not render empty.
+test('dashboard from the real API shows the line and no empty usage fold', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('stats')).toContainText(/\d+ API calls?/)
+  await expect(page.getByTestId('stats')).toContainText(/\d+ dramas? · [\d,]+ of [\d,]+ lines/)
+  await expect(page.locator('.stats-usage')).toHaveCount(0)
 })
 
 const costs = {
