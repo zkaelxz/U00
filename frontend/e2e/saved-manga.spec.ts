@@ -12,8 +12,8 @@ const label = (page: Page) => page.getByTestId('comic-page-label')
 test('lists saved series, reads a chapter, continues where it left off', async ({ page }) => {
   const s = await mockManga(page)
   await page.goto('/#/manga')
-  // The left rail has its own Saved manga item; Library is no longer current here.
-  await expect(page.getByRole('link', { name: 'Saved manga', exact: true })).toHaveAttribute('aria-current', 'page')
+  // No rail item of its own: Library tools is current here.
+  await expect(page.getByRole('link', { name: 'Library tools', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { name: 'Saved manga' })).toBeVisible()
   const list = page.getByRole('list', { name: 'Saved series' })
   await expect(list).toContainText('MangaK · 2 chapters · last saved 2 min ago')
@@ -87,41 +87,11 @@ test('leaving the reader mid-scroll stays on the list', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('save folder: pick one, go back to the default, open it', async ({ page }) => {
+test('the empty list points to Sources', async ({ page }) => {
   const s = await mockManga(page, { empty: true })
   await page.goto('/#/manga')
   await expect(page.getByTestId('manga-empty')).toContainText('No saved chapters yet')
-  const card = page.getByRole('region', { name: 'Save folder' })
-  await expect(card.getByTestId('save-folder')).toHaveText('C:\\Baihe\\data\\saved_comics')
-  await expect(card).toContainText('Default')
-
-  const input = card.getByLabel('Save to another folder', { exact: true })
-  await input.fill('relative')
-  await card.getByRole('button', { name: 'Use this folder' }).click()
-  await expect(card.getByRole('alert')).toContainText('starting with its drive')
-
-  await input.fill('D:\\Manga')
-  await card.getByRole('button', { name: 'Use this folder' }).click()
-  await expect(card.getByTestId('save-folder')).toHaveText('D:\\Manga')
-  await expect(card).toContainText('Picked on this PC')
-  await expect(input).toHaveValue('')
-
-  await card.getByRole('button', { name: 'Use the default' }).click()
-  await expect(card.getByTestId('save-folder')).toHaveText('C:\\Baihe\\data\\saved_comics')
-  expect(s.folderPosts).toEqual([{ folder: 'relative' }, { folder: 'D:\\Manga' }, { folder: '' }])
-
-  await card.getByRole('button', { name: 'Open folder' }).click()
-  await expect.poll(() => s.opened).toBe(1)
-  expect(s.unmocked).toEqual([])
-})
-
-test('from another device the save folder card is not shown', async ({ page }) => {
-  const s = await mockManga(page, { local: false })
-  await page.goto('/#/manga')
-  await expect(page.getByRole('list', { name: 'Saved series' })).toBeVisible()
+  await expect(page.getByTestId('manga-empty').getByRole('link', { name: 'Sources' })).toHaveAttribute('href', '#/sources')
   await expect(page.getByRole('region', { name: 'Save folder' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Open folder' })).toHaveCount(0)
-  // Asked at most once before /api/meta answered (refused, so the card stays hidden); never opened or changed.
-  expect(s.calls.filter((c) => c !== 'GET /api/saved-comics/folder')).toEqual([])
   expect(s.unmocked).toEqual([])
 })

@@ -70,6 +70,8 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/library/filter-options': { studios: [], authors: [], voice_actors: [], custom_tags: [] },
   '/api/library/presets': EMPTY,
   '/api/library/voice-bank': EMPTY,
+  // Library tools lists the saved manga series.
+  '/api/saved-comics/series': [],
   // The header bell (every page) polls this.
   '/api/notifications': EMPTY,
   // The header Jobs button (every page) reads this.

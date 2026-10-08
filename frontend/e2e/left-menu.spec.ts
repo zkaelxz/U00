@@ -12,7 +12,6 @@ const rail = (page: Page) => page.getByRole('navigation', { name: 'Main' })
 // Every page the rail lists for the owner at the PC (Assistant needs Developer Mode, covered in assistant.spec.ts).
 const ITEMS: [string, RegExp][] = [
   ['Library', /#\/library$/],
-  ['Saved manga', /#\/manga$/],
   ['Library tools', /#\/library-tools$/],
   ['Sources', /#\/sources$/],
   ['Discover', /#\/discover$/],
@@ -67,10 +66,10 @@ test('a very long title is cut off in the rail instead of scrolling it sideways'
   expect(overflow).toBeLessThanOrEqual(0)
 })
 
-test('manga routes mark Saved manga current, not Library', async ({ page }) => {
+test('manga routes mark Library tools current, not Library', async ({ page }) => {
   for (const hash of ['#/manga', '#/manga/mangadex/one-piece', '#/manga/mangadex/one-piece/ch1']) {
     await page.goto(`/${hash}`)
-    await expect(rail(page).getByRole('link', { name: 'Saved manga', exact: true })).toHaveAttribute('aria-current', 'page')
+    await expect(rail(page).getByRole('link', { name: 'Library tools', exact: true })).toHaveAttribute('aria-current', 'page')
     await expect(rail(page).getByRole('link', { name: 'Library', exact: true })).not.toHaveAttribute('aria-current', 'page')
   }
 })

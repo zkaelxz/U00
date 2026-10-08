@@ -27,6 +27,9 @@ import { useAdminJob } from './libraryAdmin/useAdminJob'
 import { RENAME_MAX, groupHistory, showFold, validateRename } from './libraryForm'
 import { costLabel, costMeta, countsLine, sharedLine, sharedSeries } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
+import { listSavedSeries } from '../api/savedComics'
+import { SavedSeriesRows } from './SavedManga'
+import './manga/manga.css'
 import { SERIES_HELP } from '../helpText'
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
@@ -186,6 +189,7 @@ export default function LibraryToolsPage() {
   const history = useLoad(getHistory, reloadKey)
   const presets = useLoad(getPresets, reloadKey)
   const voices = useLoad(getVoiceBank, reloadKey)
+  const saved = useLoad(listSavedSeries, reloadKey)
   const exporter = useAdminJob(ADMIN_JOB_IDS.export, 'export')
   const onChanged = () => setReloadKey((k) => k + 1)
   const grouped = history.data ? groupHistory(history.data.items) : undefined
@@ -197,7 +201,7 @@ export default function LibraryToolsPage() {
       <header className="page-head">
         <div className="page-head-text">
           <h2 className="page-title">Library tools</h2>
-          <p className="page-meta">Series, costs, reading history, presets, backups and disk usage. Titles and Continue stay on the Library page.</p>
+          <p className="page-meta">Series, saved manga, costs, reading history, presets, backups and disk usage. Titles and Continue stay on the Library page.</p>
         </div>
         <ButtonLink variant="secondary" href="#/library">Back to Library</ButtonLink>
       </header>
@@ -255,6 +259,9 @@ export default function LibraryToolsPage() {
             extra={(id, name) => voices.data?.items.find((v) => v.id === id)?.clip_available
               ? <VoiceBankPlayButton entryId={id} name={name} /> : null}
           />
+        </ToolSection>
+        <ToolSection title="Saved manga" count={saved.data?.length} summary="Chapters saved as CBZ files" error={saved.error}>
+          {saved.data && <SavedSeriesRows items={saved.data} />}
         </ToolSection>
         <h3 className="tools-group-title">Activity</h3>
         <ToolSection

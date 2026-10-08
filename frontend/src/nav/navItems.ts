@@ -70,13 +70,9 @@ export const NAV_ITEMS: NavItem[] = [
     requires: 'library.read',
     rail: { group: 'library', active: ['library', 'drama', 'read', 'comic'] },
   }),
-  item('Saved manga', { name: 'manga' }, {
-    requires: 'library.read',
-    rail: { group: 'library', active: ['manga', 'manga-series', 'manga-read'] },
-  }),
   item('Library tools', { name: 'library-tools' }, {
     requires: 'library.read',
-    rail: { group: 'library', active: ['library-tools'] },
+    rail: { group: 'library', active: ['library-tools', 'manga', 'manga-series', 'manga-read'] },
   }),
   item('Translate text', { name: 'translate' }, {
     requires: 'library.read',
