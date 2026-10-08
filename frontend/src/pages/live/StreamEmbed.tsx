@@ -23,7 +23,7 @@ const PROBE_BACK_S = 30
 /** Below this a step back is too small to tell an obeyed seek from playback drift. */
 const PROBE_MIN_STEP_S = 5
 
-export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; delay: number; captions?: ReactNode }) {
+export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; delay: number; captions?: (effectiveDelay: number) => ReactNode }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const box = useRef<HTMLDivElement>(null)
   const delayRef = useRef(delay)
@@ -32,6 +32,10 @@ export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; de
   const [note, setNote] = useState(canDelay(stream) ? WAITING_NOTE : NO_DELAY_NOTE)
   // Set by the effect below; re-applies the delay (seek) from the last report.
   const applyRef = useRef<() => void>(() => {})
+  // Captions wait for the picture only while it really plays behind live; a stream that ignores seeks
+  // is already ahead of the lines, so holding captions back would only make them later still.
+  const pictureDelayed = canDelay(stream) && note !== NO_DELAY_NOTE && note !== UNREACHABLE_NOTE
+  const captionNode = captions?.(pictureDelayed ? delay : 0)
   const key = stream.kind === 'twitch-channel' ? stream.name : stream.id
 
   useEffect(() => {
@@ -203,9 +207,9 @@ export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; de
           loading="eager"
           onLoad={() => stream.kind === 'youtube' && frame.current?.contentWindow?.postMessage(ytListenMessage(), YT_ORIGIN)}
         />
-        {captions}
+        {captionNode}
       </div>
-      {captions && document.fullscreenEnabled && (
+      {captionNode && document.fullscreenEnabled && (
         // The picture and its captions go full screen together; the player's own
         // full-screen button would leave the captions behind.
         <p className="muted live-video-note">

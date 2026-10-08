@@ -354,7 +354,7 @@ export default function LivePage() {
             {streamRef && showVideo && (
               <>
                 <StreamEmbed stream={streamRef} delay={videoDelay}
-                  captions={captionsOn ? <LiveCaptions cues={session.cues} delay={canDelay(streamRef) ? videoDelay : 0} /> : undefined} />
+                  captions={captionsOn ? (d) => <LiveCaptions cues={session.cues} delay={d} /> : undefined} />
                 {canDelay(streamRef) && (
                   <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up.">
                     <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={videoDelay}

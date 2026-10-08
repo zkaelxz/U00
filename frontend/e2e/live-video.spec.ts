@@ -238,6 +238,7 @@ test('captions draw over the picture, honour the delay and can be turned off', a
 
   await live.getByRole('switch', { name: 'Captions over video' }).click()
   await expect(live.locator('.live-caption')).toHaveCount(0)
+})
 
 test('a stream whose duration is the time since it began is delayed by probing the live edge', async ({ page }) => {
   test.setTimeout(60_000)
@@ -270,4 +271,12 @@ test('a player whose clock starts near 0 and runs but drops every seek is marked
   test.setTimeout(60_000)
   const { live } = await startRunning(page, YT, ytHtml(300, 99, { elapsedS: 43_826, advancing: true }))
   await expect(live.getByTestId('live-video-note')).toContainText("can't be delayed", { timeout: 45_000 })
+})
+
+test('captions are not held back for a stream the player cannot delay', async ({ page }) => {
+  test.setTimeout(60_000)
+  const { live } = await startRunning(page, YT, ytHtml(300, 99, { elapsedS: 43_826 }))
+  await expect(live.getByTestId('live-video-note')).toContainText("can't be delayed", { timeout: 40_000 })
+  await live.getByLabel('Video delay', { exact: true }).fill('20')
+  await expect(live.getByTestId('live-caption')).toContainText('Line 1:', { timeout: 10_000 })
 })
