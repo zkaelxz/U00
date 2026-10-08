@@ -7,9 +7,10 @@ import type { JobRecord } from '../../types/jobs'
 import {
   arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
   formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
-  runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel, toggleCompare, type RunSelection,
+  formatJudgeScore, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, tierLabel,
+  toggleCompare, type RunSelection,
 } from './benchmarkForm'
-import { BENCH_INTRO, BENCH_SECTIONS } from './benchmarkHelp'
+import { BENCH_INTRO, BENCH_PAGE_HELP, BENCH_SECTIONS } from './benchmarkHelp'
 
 const options: BenchmarkOptions = {
   stages: ['translation', 'transcription', 'ocr'],
@@ -322,7 +323,62 @@ describe('page sections', () => {
   })
 
   it('keeps the help copy short', () => {
-    const lines = [...BENCH_INTRO, ...Object.values(BENCH_SECTIONS).flatMap((s) => [s.purpose, ...s.steps])]
+    const lines = [...BENCH_INTRO, ...BENCH_PAGE_HELP, ...Object.values(BENCH_SECTIONS).flatMap((s) => [s.purpose, ...s.steps])]
     for (const line of lines) expect(line.split(/\s+/).length, line).toBeLessThanOrEqual(14)
+  })
+})
+
+describe('judge', () => {
+  const judged = (over: Partial<RunSelection> = {}) => sel({ judge: { engine: 'deepseek', model: '' }, ...over })
+
+  it('is sent only on translation runs, with the model when one is picked', () => {
+    expect(runRequestBody(sel()).judge).toBeUndefined()
+    expect(runRequestBody(judged()).judge).toEqual({ engine: 'deepseek' })
+    expect(runRequestBody(judged({ judge: { engine: 'deepseek', model: 'small' } })).judge).toEqual({ engine: 'deepseek', model: 'small' })
+    expect(runRequestBody(judged({ stage: 'ocr', configs: [{ engine: 'tesseract' }] })).judge).toBeUndefined()
+  })
+
+  it('changes the estimate key, so an estimate made without it no longer unlocks Start', () => {
+    expect(estimateKey(judged())).not.toBe(estimateKey(sel()))
+    expect(estimateKey(judged({ label: 'x' }))).toBe(estimateKey(judged()))
+  })
+
+  it('flags a judge that may be a tested model, and the tick is what lets it through', () => {
+    const same = judged({ configs: [{ engine: 'deepseek', model: 'small' }], judge: { engine: 'deepseek', model: 'small' } })
+    expect(judgeOverlap(same)).toHaveLength(1)
+    // Either side on the engine's default may be the same model, so it is flagged too.
+    expect(judgeOverlap(judged({ configs: [{ engine: 'deepseek', model: 'small' }] }))).toHaveLength(1)
+    expect(judgeOverlap(judged())).toHaveLength(0)
+    expect(judgeOverlap(judged({ configs: [{ engine: 'deepseek', model: 'big' }], judge: { engine: 'deepseek', model: 'small' } }))).toHaveLength(0)
+    expect(runRequestBody(same).judge?.allow_same_model).toBeUndefined()
+    expect(runRequestBody({ ...same, allowSameJudge: true }).judge?.allow_same_model).toBe(true)
+    // A tick with nothing to accept sends nothing.
+    expect(runRequestBody({ ...judged(), allowSameJudge: true }).judge?.allow_same_model).toBeUndefined()
+  })
+
+  it('holds Start back until the same-model warning is accepted', () => {
+    const same = judged({ configs: [{ engine: 'deepseek' }] })
+    const ready = (s: RunSelection) =>
+      startState({ sel: s, maxConfigs: 4, estimate: estimate(), estimateFor: estimateKey(s), pcRemote: false, running: false, missingKeys: [] })
+    expect(ready(same).ok).toBe(false)
+    expect(ready(same).reasons[0]).toMatch(/judge with a model you are also testing/)
+    expect(ready({ ...same, allowSameJudge: true }).ok).toBe(true)
+  })
+
+  it('asks for the judge engine key too', () => {
+    const missing = enginesMissingKey(judged({ judge: { engine: 'claude', model: '' } }), options.translation_engines)
+    expect(missing.map((e) => e.name)).toEqual(['claude'])
+  })
+
+  it('shows scores and cost in plain words', () => {
+    expect(formatJudgeScore(null)).toBe('')
+    expect(formatJudgeScore({ accuracy: 0.9, tone: 0.8, naturalness: 0.7, overall: 0.8 })).toBe('80.0% (accuracy 90 · tone 80 · natural 70)')
+    const line = judgeRunLine({
+      engine: 'deepseek', model: null, status: 'done', same_as_tested: false, cost_usd: 0.0123, scored: 5, average: { overall: 0.8 }, note: null,
+    })
+    expect(line).toBe('Judge 80.0% · 5 scored · judge cost $0.01')
+    expect(judgeRunLine({ engine: null, model: null, status: 'stopped_cap', same_as_tested: false, cost_usd: 0, scored: 0, average: {}, note: null })).toBe(
+      'Judge — · 0 scored · judge cost $0.00 · stopped at cap',
+    )
   })
 })

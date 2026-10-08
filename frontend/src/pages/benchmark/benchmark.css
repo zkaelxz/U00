@@ -175,3 +175,10 @@
 .bench-help .field-help-text { left: 0; max-width: min(24rem, calc(100vw - 4.5rem)); }
 .bench-help-step { display: block; }
 .bench-help-step + .bench-help-step { margin-top: var(--space-1); }
+
+/* Optional judge picker in the run form. */
+.bench-judge { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: var(--space-2); }
+.bench-judge legend { padding: 0; margin-bottom: var(--space-2); font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--muted); }
+.bench-judge-warning { display: grid; gap: var(--space-2); }
+.bench-judge-warning p { margin: 0; }
+.bench-check { display: inline-flex; align-items: center; gap: var(--space-2); }

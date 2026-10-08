@@ -50,7 +50,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 `artifact_service.py`, `asr_options_service.py`, `assistant_github_service.py`, `assistant_pytest_guard.py`,
 `assistant_roles_service.py`, `auth_service.py`, `auto_backup_service.py`, `backup_import_service.py`,
-`benchmark_lab_service.py`, `blocked_retry_service.py`, `bug_report_service.py`, `capped_body.py`,
+`benchmark_judge_service.py`, `benchmark_lab_service.py`, `benchmark_set_builder_service.py`,
+`blocked_retry_service.py`, `bug_report_service.py`, `capped_body.py`,
 `characters_service.py`, `comic_view_service.py`, `compare_transcription_service.py`, `cover_art_service.py`,
 `delete_service.py`, `diagnostics_gaps_service.py`, `diagnostics_installs_service.py`,
 `diagnostics_service.py`, `diarization_service.py`, `discover_catalog_service.py`,
@@ -83,7 +84,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slots.py`, `server.py`,
 `static_frontend.py`
 
-`api/schemas/`: `characters.py`, `common.py`, `library.py`, `reader.py`, `review.py`, `sources.py`, `system.py`,
+`api/schemas/`: `benchmark.py`, `characters.py`, `common.py`, `library.py`, `reader.py`, `review.py`, `sources.py`, `system.py`,
 `transcribe.py`, `translate.py`, `voice.py`; other schema modules sit beside it as `api/*_schemas.py`.
 
 ### api/routers/
