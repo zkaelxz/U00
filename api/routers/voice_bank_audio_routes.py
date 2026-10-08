@@ -1,7 +1,7 @@
 """
 api/routers/voice_bank_audio_routes.py -- play one voice-bank entry's
-saved clip (L19). `media.stream` (opt-in, like every other media byte
-route); `entry_id` is household-wide (voice bank, decision 6). Only an
+saved clip. `media.stream` (opt-in, like every other media byte
+route); `entry_id` is household-wide (voice bank). Only an
 audio file inside the voice-bank folder is served (see
 services/voice_bank_audio_service.py), under a generic file name, with
 nosniff; Range and HEAD come from FileResponse.

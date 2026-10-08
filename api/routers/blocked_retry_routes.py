@@ -1,6 +1,6 @@
 """
 api/routers/blocked_retry_routes.py -- retry one line an engine blocked on
-content-moderation grounds, usually with another engine (parity item R10).
+content-moderation grounds, usually with another engine.
 Thin adapter over `services.blocked_retry_service`.
 
 Synchronous, so it takes a slot from the shared LLM cap (api/llm_slots.py;

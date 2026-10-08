@@ -1,5 +1,5 @@
 """
-api/routers/notion_routes.py -- the Notion export (roadmap item 112). See
+api/routers/notion_routes.py -- the Notion export. See
 services/notion_service.py.
 
 Every route is local_only(): the settings hold the owner's Notion token and

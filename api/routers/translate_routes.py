@@ -2,7 +2,7 @@
 api/routers/translate_routes.py -- Translate-standalone endpoints.
 
 The two read-only routes: the engine list
-(name/label/free/models/key_configured, never a key value -- D2) and
+(name/label/free/models/key_configured, never a key value) and
 translate history. The translate action itself resolves
 a server-side key per engine rather than accepting one from the
 caller. Clearing history is also here -- a confirm-gated

@@ -1,6 +1,6 @@
 """
 api/routers/sources_search_routes.py -- Sources search and series/chapter
-listing (spec S-3; API batch 1). Thin: see services/sources_search_service.py.
+listing. Thin: see services/sources_search_service.py.
 
 Same /api/sources prefix as sources_catalog_routes.py; the paths here have
 a different shape from its /{name}, /{name}/<action> routes, so neither
@@ -9,7 +9,7 @@ GET /jobs/{job_id}/result, cancel with POST /api/jobs/{job_id}/cancel.
 
 All three are `library.read` (the remote-access decision's "read and
 search allowed"): nothing here writes the library, files or settings.
-Importing chapters (spec S-4) is `sources.import`, in
+Importing chapters is `sources.import`, in
 sources_import_routes.py. The result route also serves the check-now job
 and, only to a request from this PC, the sign-in and tier-test jobs
 (sources_local_routes.py).

@@ -1,6 +1,5 @@
 """
-api/routers/diarization_routes.py -- Diarize-stage endpoints for one drama
-(Phase 6's second Workspace stage).
+api/routers/diarization_routes.py -- Diarize-stage endpoints for one drama.
 
 One config read, the job-starting action, and re-labelling lines from the
 speaker turns already saved. Job status/cancel is not duplicated here: poll the started job through

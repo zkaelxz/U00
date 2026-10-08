@@ -1,15 +1,15 @@
 """
 api/routers/sources_extraction_routes.py -- the pasted-URL extraction
-extras (SO09, SO06, SO10). Thin: see
+extras. Thin: see
 services/sources_extraction_service.py and, for the comic import job,
 services/sources_import_service.py.
 
-`POST /url/import-comic` (SO06) is `sources.import` like the novel URL
+`POST /url/import-comic` is `sources.import` like the novel URL
 import: it fetches from this PC and adds pages to a drama. The URL is
 checked (public address) in the request; a request not from this PC gets
 static HTTP only. The AI fallback is opt-in, as on /url/import.
 
-Review extraction (SO10) lives under /dramas/{drama_id}/extraction, so the
+Review extraction lives under /dramas/{drama_id}/extraction, so the
 path guard hides a drama the caller can't see (404). Reading the review,
 re-running it with corrections, its image thumbnails and importing it are
 `sources.import`, like the import that opened it (re-running reads only the
@@ -73,7 +73,7 @@ def post_comic_url_import(body: SourcesComicUrlImportRequest, request: Request):
         ai_engine=ai_engine_for(request, body.use_ai, body.engine), review=body.review)
 
 
-# ----- SO10: Review extraction ------------------------------------------------
+# ----- Review extraction ------------------------------------------------
 
 _REVIEW = "/dramas/{drama_id}/extraction"
 

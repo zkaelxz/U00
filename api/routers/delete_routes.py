@@ -1,6 +1,6 @@
 """
-api/routers/delete_routes.py -- the PC-only deletes that had no API yet
-(migration handoff "Next queue" item 2). Thin adapters over
+api/routers/delete_routes.py -- the PC-only deletes that had no API yet.
+Thin adapters over
 `services.delete_service`.
 
 Every route is a POST, declared `local_only()` (deletes are PC-only, see

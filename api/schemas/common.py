@@ -30,7 +30,7 @@ class ErrorResponse(BaseModel):
 
 class TranslateEngine(BaseModel):
     """One entry from translate_engines.ENGINES --
-    key_configured is a boolean only, never a key value (D2)."""
+    key_configured is a boolean only, never a key value."""
     name: str
     label: str
     free: bool

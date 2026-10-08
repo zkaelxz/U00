@@ -1,7 +1,6 @@
 """
 api/routers/novel_files_routes.py -- the English novel translation
-reference and the raw original-language novel for one drama (parity audit
-B1 #3/#4). Thin adapters over services/novel_files_service.py.
+reference and the raw original-language novel for one drama. Thin adapters over services/novel_files_service.py.
 
 Uploads, pastes and the reference removal are PC-only (`local_only()`, the
 user rule "uploads, deletes and settings are PC-only"); the multipart POSTs

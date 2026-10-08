@@ -1,6 +1,6 @@
 """
 api/routers/sources_import_routes.py -- importing from Sources into an
-existing drama (Discover/Sources/Live specs S-4 and S-5). Thin: see
+existing drama (Discover/Sources/Live specs). Thin: see
 services/sources_import_service.py and services/sources_url_service.py.
 
 Same /api/sources prefix as sources_catalog_routes.py and
@@ -13,8 +13,8 @@ POST /api/jobs/{job_id}/cancel.
 /url/preview and /url/import are declared BEFORE /{name}/import, so
 "/url/import" is never read as a source named "url".
 
-The novel URL import takes an opt-in AI fallback (`use_ai`, `engine`;
-parity SO09): the engine name is checked and `engines.paid` required for a
+The novel URL import takes an opt-in AI fallback (`use_ai`, `engine`):
+the engine name is checked and `engines.paid` required for a
 paid one before the job starts.
 `follow_pages` (default 1) also follows next-chapter links on the same
 site into a review of the pages read; nothing is written until the person

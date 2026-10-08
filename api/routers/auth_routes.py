@@ -1,5 +1,5 @@
 """
-api/routers/auth_routes.py -- Google sign-in (step 134). Thin: the flow,
+api/routers/auth_routes.py -- Google sign-in. Thin: the flow,
 token checks and user resolution live in `services/oidc_service.py`.
 
     GET  /api/auth/login?return_to=/path   public_route()   302 to Google
@@ -18,7 +18,7 @@ return a coarse device label ("Chrome on Android") and IP prefix only: no
 token, hash, user agent or full address. Writes need the CSRF header like
 every other one. A revoked device's next request is a 401, and its open
 event streams end at once. An admin may list their devices anywhere but
-sign them out only at the PC (403 elsewhere; D5). Signing out every other
+sign them out only at the PC (403 elsewhere). Signing out every other
 device also rotates this device's session (new session and CSRF cookies).
 
 With `BAIHE_API_AUTH=off` login, callback and logout answer 404 and `/me`
@@ -40,8 +40,8 @@ A failed sign-in redirects to `/?login_error=<code>` with one of
      user: {id, email, display_name, is_admin, is_local_owner} | null,
      permissions: [...]}
 `zone` is "pc" for a direct loopback request (what `local_only()` accepts)
-and "internet" for anything else, until the network-zones slice adds
-"lan". It never carries the client id, secret, public URL or any token.
+and "internet" for anything else, until "lan"
+is added. It never carries the client id, secret, public URL or any token.
 """
 
 import threading

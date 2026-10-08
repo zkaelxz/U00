@@ -1,6 +1,6 @@
 """
 api/notion_schemas.py -- request/response models for the Notion export
-(roadmap item 112, api/routers/notion_routes.py).
+(api/routers/notion_routes.py).
 """
 from typing import Literal, Optional
 

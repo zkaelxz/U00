@@ -1,6 +1,6 @@
 """
 api/routers/source_routes.py -- Source-stage config endpoints for one
-drama (Phase 6).
+drama.
 
 Config only (language/script/content mode/transcript mode); upload is
 media_routes.py, transcription transcribe_routes.py. POST for the write, matching every other mutation endpoint in

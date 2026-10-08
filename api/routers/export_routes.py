@@ -1,6 +1,5 @@
 """
-api/routers/export_routes.py -- Export-stage endpoints for one drama
-(Phase 6's first Workspace stage).
+api/routers/export_routes.py -- Export-stage endpoints for one drama.
 
 The read-only readiness summary, subtitle text generation (SRT/VTT) as a
 plain-text download, and the three flagging actions -- each
@@ -10,8 +9,8 @@ EPUB export (novel-narration dramas only) as a binary download.
 ASS subtitle text (POST, per-request style, plain-text
 download) and the style-options listing are also here, along with the audiobook export
 job and the burned-in video job
-(POST, returns {job_id}, output downloads via /api/artifacts). Parity
-E17/E19 add the soft-subtitle and dubbed video jobs (same shape), and E22
+(POST, returns {job_id}, output downloads via /api/artifacts). The
+soft-subtitle and dubbed video jobs (same shape) and
 "Mark as exported" (status only; admin.library like the other drama status
 writes).
 """
