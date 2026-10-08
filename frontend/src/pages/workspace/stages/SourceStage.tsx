@@ -30,6 +30,7 @@ import { useStage } from '../StageContext'
 import { DetailsPanel } from './DetailsPanel'
 import { FillInPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
+import { SubtitleImport } from './SubtitleImport'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
@@ -302,7 +303,17 @@ export default function SourceStage() {
       <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} />
     </div>
   )
-  const groups = kind === 'audio' ? [transcribe, novel] : [novel, transcribe]
+  const subtitles = (
+    <Section
+      key="subtitles"
+      storageKey="source.group.subtitles"
+      title="Import subtitle file"
+      summary="SRT, VTT, ASS or LRC"
+    >
+      <SubtitleImport dramaId={dramaId} busy={busy} onImported={onJobDone} onRealignStarted={setJobId} />
+    </Section>
+  )
+  const groups = kind === 'audio' ? [transcribe, novel, subtitles] : [novel, transcribe, subtitles]
 
   return (
     <div className="stage-source">

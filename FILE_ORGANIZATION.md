@@ -26,7 +26,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 
 ## Top-level modules
 
-**App entry & infrastructure**: `cli.py`, `run_tests.py`, `core.py`, `db.py`, `background_jobs.py`, `applog.py`, `diagnostics.py`, `expected_files.py`,
+**App entry & infrastructure**: `cli.py`, `cli_subtitle.py` (the `import-subtitle` command), `run_tests.py`, `core.py`, `db.py`, `background_jobs.py`, `applog.py`, `diagnostics.py`, `expected_files.py`,
 `check_setup.py`, `process_guard.py`, `portable.py`, `storage.py`, `benchmark.py`, `action_tiers.py`
 
 **ASR, transcription & alignment**: `asr_backend.py`, `asr_benchmark.py`, `audio_preprocess.py`, `mixed_language.py`, `vad_segments.py`,
@@ -36,7 +36,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**: `translate_engines.py`, `translation_guide.py`, `translation_memory.py`, `auto_qc.py`, `en_cleanup.py`,
 `emotion.py`, `bulk_translate.py`, `live_translate.py`, `live_fetch.py`
 
-**Dubbing, subtitles & video**: `dub.py`, `video_export.py`, `media_inspect.py`, `subtitle_formats.py`, `video_download.py`
+**Dubbing, subtitles & video**: `dub.py`, `video_export.py`, `media_inspect.py`, `subtitle_formats.py`, `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers),
+`subtitle_sidecar.py` (sidecar file-name ranking, language from characters), `video_download.py`
 
 **OCR, scanlation & reading**: `ocr.py`, `scanlate.py`, `hardsub_ocr.py`, `segment.py`, `dictionary.py`, `reader.py`
 
@@ -68,7 +69,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 `review_extras_service.py`, `review_jobs_service.py`, `review_lines_service.py`, `review_records_service.py`,
 `safe_fetch.py`, `saved_comics_service.py`, `scanlate_pages_service.py`, `scanlate_render_service.py`,
 `scanlate_run_service.py`, `series_people_service.py`, `service_errors.py`, `settings_service.py`,
-`shutdown_service.py`, `source_domains_service.py`, `source_service.py`, `sources_extraction_service.py`,
+`shutdown_service.py`, `source_domains_service.py`, `subtitle_import_service.py`, `source_service.py`, `sources_extraction_service.py`,
 `sources_import_service.py`, `sources_registry_service.py`, `sources_save_service.py`,
 `sources_search_service.py`, `sources_signin_service.py`, `sources_tools_service.py`,
 `sources_tracking_service.py`, `sources_url_service.py`, `speech_coverage_service.py`,
@@ -104,7 +105,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 `saved_comics_routes.py`, `scanlate_routes.py`, `series_people_routes.py`, `settings_routes.py`,
 `sharing_routes.py`, `source_domains_routes.py`, `source_routes.py`, `sources_catalog_routes.py`,
 `sources_extraction_routes.py`, `sources_import_routes.py`, `sources_local_routes.py`,
-`sources_search_routes.py`, `sources_tools_routes.py`, `stronger_engine_routes.py`, `system_routes.py`,
+`sources_search_routes.py`, `sources_tools_routes.py`, `stronger_engine_routes.py`, `subtitle_import_routes.py`, `system_routes.py`,
 `transcribe_routes.py`, `translate_routes.py`, `translate_run_routes.py`, `translation_version_routes.py`,
 `update_routes.py`, `usage_recost_routes.py`, `voice_bank_audio_routes.py`, `voice_clone_routes.py`,
 `web_search_routes.py`, `workflow_routes.py`
