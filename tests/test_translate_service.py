@@ -64,7 +64,8 @@ def test_list_engines_models_match_translate_engines_dicts(tmp_path):
     engines = {e["name"]: e for e in translate_service.list_engines(env_path)}
     assert engines["claude"]["models"] == list(translate_engines.CLAUDE_MODELS.keys())
     assert engines["gemini"]["models"] == list(translate_engines.GEMINI_MODELS.keys())
-    assert engines["ollama"]["models"] == list(translate_engines.OLLAMA_MODELS.keys())
+    assert engines["ollama"]["models"] == (list(translate_engines.OLLAMA_MODELS.keys())
+                                           + list(translate_engines.OLLAMA_CLOUD_MODELS.keys()))
     assert engines["fake"]["models"] is None
 
 
