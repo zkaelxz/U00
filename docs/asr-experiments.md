@@ -2,7 +2,7 @@
 
 How to turn on each transcription option, what it needs, and what went wrong
 before. How the backends fit together is in `engine-backends.md` section 3, not
-here. Checked against the code on `baihe-subtitler` at `cd2e4ab` (2026-10-08).
+here. Checked against the code on `baihe-subtitler` at `7bad622` (2026-10-08).
 
 Numbers are only in "Measured results (snapshot)" at the end. They were measured
 once, on one machine, before some defaults changed. Do not read them as current
@@ -33,7 +33,7 @@ else gets `whisper` (`stored_asr_backend`).
 | Backend | Boundaries and timing | Needs |
 |---|---|---|
 | `whisper` | Whisper's | `faster-whisper` |
-| `qwen3_asr` | Whisper's; Qwen3-ASR replaces only the text. Cannot add lines Whisper missed. | `qwen-asr` |
+| `qwen3_asr` | Whisper's; Qwen3-ASR replaces only the text. Cannot add lines Whisper missed. | `qwen-asr`, `torch`, plus Whisper's pass (`faster-whisper`, or Groq) |
 | `qwen3_asr_vad` | Silero speech spans (about 15 s cap); the forced aligner only if "Refine line timing" is on | `qwen-asr`, `torch`, `faster-whisper` |
 | `qwen3_asr_long` | Gentler speech detection, windows up to 30 s, one line per sentence, forced aligner always on | same |
 
@@ -85,7 +85,7 @@ Demucs. RoFormer was very slow on 4 CPU cores in one timing (see the snapshot).
 ## Which Whisper model to pick
 
 Default `large-v3-turbo`. It was about twice as fast as large-v3 and close in
-accuracy on clean speech, and `medium` was never ahead of it, so the CPU default is
+accuracy on clean speech, and `medium` was never clearly ahead of it (Chinese clean: 6.84 vs 7.15, within noise), so the CPU default is
 turbo too. Details by language (numbers in the snapshot):
 
 | Language | What the tests showed |
@@ -101,7 +101,7 @@ Download size: turbo ~1.6 GB, medium ~1.5 GB, large-v3 ~3 GB
 
 ## Guidance from the benchmarks
 
-Each row rests on the snapshot below (read speech, 60 clips per cell, CPU), so
+Each row rests on the snapshot below (read speech, 60 clips per cell, CPU; the noisy-audio rows use 20 per language), so
 differences under about 1 point are noise.
 
 | Topic | Guidance | Current default |
@@ -110,7 +110,7 @@ differences under about 1 point are noise.
 | Beam size | 1 saved 7-35% of time with no clear accuracy cost in most cells. Exceptions: medium Korean +0.5, large-v3 Japanese +1.5 points (borderline). | 5 |
 | Initial prompt | Use only names that occur in the series and keep it short. A prompt of the utterance's own names (a ceiling, not a glossary) gave -0.7 points on clean audio and -3.8 on very bad audio; a shared glossary was not distinguishable from no prompt; unrelated names did nothing on clean audio and added 4.6 points on very bad audio. | glossary feeds it |
 | Mixed audio | Do not use one fixed language or whole-file auto-detect on a mixed file; use Mixed languages. | off |
-| Qwen3 numbers | Cut tight to the speech, Qwen3-ASR writes numbers as words instead of digits. The speech-detection backend therefore gives it up to 2 s of surrounding silence per span (`CONTEXT_PAD_S`), never into a neighbouring span, and joins spans up to 1 s apart (0.3 s when detecting languages). Lines keep their span's times. | built in |
+| Qwen3 numbers | Cut tight to the speech, Qwen3-ASR writes numbers as words instead of digits. The speech-detection backend therefore gives it up to 2 s of surrounding silence per span (`CONTEXT_PAD_S`), never into a neighbouring span, and `qwen3_asr_vad` joins spans up to 1 s apart (0.3 s when detecting languages); `qwen3_asr_long` joins spans up to 3 s apart (`LONG_MERGE_GAP_S` in `asr_backend.py`). Lines keep their span's times. | built in |
 | Vocal separation | Helped only with music-only backgrounds; hurt with noise (+8 points at 0 dB) and adds RTF 0.44 (Demucs). | off |
 
 ## Known failure modes
@@ -124,14 +124,15 @@ differences under about 1 point are noise.
 | Chinese output in Traditional characters (medium most often) | Use turbo or large-v3. A Chinese initial prompt cut it in one test. |
 | Qwen3-ASR will not load | Diagnostics warns when transformers 5 or newer is installed with qwen-asr (use 4.57.6 or uninstall), and on Windows when the data folder path has non-ASCII characters (move it to a plain path). |
 | Qwen3-ASR install fails building `sox` | See "Installing qwen-asr". |
-| Batch size has no effect | Installed qwen-asr is not 0.0.6. |
+| Batch size has no effect | Installed qwen-asr is not 0.0.6, Mixed languages is on (one span per call), or the backend is `whisper`. |
 
 ## Installing qwen-asr
 
 Diagnostics > Packages > Install runs `python -m pip install --no-cache-dir
---disable-pip-version-check qwen-asr` with the app's own interpreter, plus a temporary
-constraints file pinning the installed torch family (pip refuses a package that would
-replace torch). Optional packages install from PyPI at click time. The Windows
+--disable-pip-version-check qwen-asr` with the app's own interpreter, plus `-c
+constraints.txt` when that file exists and a temporary constraints file pinning the
+installed torch family (pip refuses a package that would replace torch). The `sox`
+fallback below passes the same constraints. Optional packages install from PyPI at click time. The Windows
 installer's hash-pinned `wheels/` cover `requirements-core.txt` only.
 
 qwen-asr 0.0.6 depends on `sox`, a source-only package pip must build. That fails when
@@ -148,7 +149,8 @@ Manual check on Windows:
 2. Install Qwen3-ASR (several GB with PyTorch). Either the plain install finishes, or
    the output starts with "Installing Qwen3-ASR without its `sox` dependency" and then
    finishes. A red result shows the hint above.
-3. Select Qwen3-ASR on a short clip and transcribe; the package row shows installed.
+3. Run `python -c "import qwen_asr.inference.qwen3_asr"` in Baihe's Python, then select
+   Qwen3-ASR on a short clip and transcribe; the package row shows installed.
 
 ## Speaker detection on the GPU (manual check)
 
@@ -180,8 +182,10 @@ notice; the saved value is left as it was (`REMOVED_ASR_BACKENDS`).
 Measured **2026-10-04 and 05** on one CPU-only container (4 cores, 15 GB; Whisper int8,
 Qwen3-ASR 1.7B bfloat16), one run per cell, with faster-whisper 1.2.1, ctranslate2
 4.8.2, qwen-asr 0.0.6, transformers 4.57.6, torch 2.14.1+cpu. Sources: the public
-FLEURS test splits (`google/fleurs`, CC BY 4.0, first 60 rows per language, read
-speech) plus three private clips that are not in the repo. The scripts are not in the
+FLEURS test splits (`google/fleurs`, CC BY 4.0, first 60 rows per language for the clean
+runs, read speech; the noisy runs used the first 20 per language, and the mixed
+recordings 20 random 4-15 s utterances per language) plus three private clips that are
+not in the repo. The scripts are not in the
 repo either, so none of this can be re-run from here. I could not verify any figure
 below against code or data in this repo; the exact sources, row ids, file hashes and
 harness are in the archive file.
@@ -209,8 +213,8 @@ Gaps under about 1 point are within the 95% intervals.
 
 The Whisper settings tried one at a time (VAD off, beam 1, condition on previous
 text, no temperature fallback, a generic language prompt) did not clearly beat the
-defaults anywhere. The largest moves, all with intervals touching zero: medium beam 1
-(+0.5, Korean), large-v3 without VAD (+1.0 Korean, +1.1 Japanese), large-v3 beam 1
+defaults anywhere. The largest moves, all with intervals touching zero except medium beam 1 Korean
+(+0.5, +0.04 to +1.12), large-v3 without VAD (+1.0 Korean, +1.1 Japanese), large-v3 beam 1
 (+1.5 Japanese). Condition-on-previous-text and the temperature fallback changed
 nothing because every clip fits one 30 s window.
 
