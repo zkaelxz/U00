@@ -159,13 +159,16 @@ def test_other_installs_carry_a_torch_pins_file_that_is_removed(monkeypatch):
     assert seen[0][0][3:6] == ["install", *FLAGS]
 
 
+CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")]
+
+
 def test_no_pins_file_without_torch(monkeypatch):
     _no_jobs(monkeypatch)
     _versions(monkeypatch)
     seen = []
     _fake_pip(monkeypatch, seen)
     svc.install_dependency("pydub", confirm=True)
-    assert seen[0][0][3:] == ["install", *FLAGS, "pydub"]
+    assert seen[0][0][3:] == ["install", *FLAGS, "pydub", *CONSTRAINTS]
 
 
 def test_a_package_needing_another_torch_is_refused_with_a_plain_hint(monkeypatch):
