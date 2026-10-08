@@ -39,7 +39,7 @@ ENGINE_MODEL_DICTS = {
     "claude": translate_engines.CLAUDE_MODELS,
     "gemini": translate_engines.GEMINI_MODELS,
     "openai": translate_engines.OPENAI_MODELS,
-    "ollama": translate_engines.OLLAMA_MODELS,
+    "ollama": {**translate_engines.OLLAMA_MODELS, **translate_engines.OLLAMA_CLOUD_MODELS},
 }
 
 
@@ -69,12 +69,18 @@ def list_engines(env_path: Optional[str] = None) -> list:
             builtin = translate_engines.builtin_default_model(name)
             base = models if models is not None else ([builtin] if builtin else [])
             models = list(dict.fromkeys(base + extras + chosen))
+        cloud = list(translate_engines.OLLAMA_CLOUD_MODELS) if name == "ollama" else []
+        labels = {m: model_registry_service.extra_model_label(name, m) for m in extras}
+        # Without this the picker would show a hosted tag as plain text,
+        # indistinguishable from a local model.
+        labels.update({m: f"{m} -- CLOUD: sends text off this PC" for m in cloud})
         engines.append({
             "name": name,
             "label": translate_engines.engine_picker_label(name, gemini_free_tier),
             "free": name in translate_engines.FREE_ENGINES,
             "models": models,
-            "model_labels": {m: model_registry_service.extra_model_label(name, m) for m in extras},
+            "model_labels": labels,
+            "cloud_models": cloud,
             "key_configured": key_configured,
         })
     return engines

@@ -532,7 +532,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
         summary_monthly_cap_usd=month_cap_usd() or None,
         target_ids=target_ids, own_lines_only=own_lines_only,
-        gpu_touching=any(c["engine"] == "ollama" for c in chain),
+        gpu_touching=any(translate_engines.ollama_touches_local_gpu(c["engine"], c["model"])
+                         for c in chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})")
     if not started:
         raise ConflictError("A translation is already running for this drama.")
