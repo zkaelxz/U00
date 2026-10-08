@@ -487,6 +487,22 @@ def test_ollama_is_local_only_on_loopback(isolated_db, monkeypatch, url, local):
             svc.require_cloud_consent("ollama")
 
 
+def test_ollama_cloud_model_is_not_local_and_needs_consent(isolated_db):
+    assert svc.cloud_consent_given("ollama", "gemma4:12b") is True
+    assert svc.cloud_consent_given("ollama", "gemma4:31b-cloud") is False
+    with pytest.raises(svc.ConflictError):
+        svc.require_cloud_consent("ollama", "gpt-oss:120b-cloud")
+
+
+def test_build_engine_refuses_a_saved_ollama_cloud_model_without_consent(isolated_db, monkeypatch):
+    svc.set_settings({"engine": "ollama", "model": "gemma4:cloud"})
+    assert svc._is_local_engine("ollama") is False
+    with pytest.raises(svc.ConflictError):
+        svc.build_engine()
+    with pytest.raises(svc.ConflictError):
+        svc.build_engine("ollama", "gpt-oss:120b-cloud")
+
+
 def test_ollama_consent_can_be_saved_for_a_remote_server(isolated_db, monkeypatch):
     from services import settings_service
     monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: "http://10.0.0.2:11434")

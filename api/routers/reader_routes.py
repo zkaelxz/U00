@@ -83,12 +83,12 @@ def _download(content, media_type: str, filename: str) -> Response:
                              "X-Content-Type-Options": "nosniff"})
 
 
-def _require_llm_allowed(request: Request, engine: Optional[str]):
+def _require_llm_allowed(request: Request, engine: Optional[str], model: Optional[str] = None):
     """For a route whose declared permission isn't jobs.start (the lookup):
     an LLM call still needs jobs.start, then the paid-engine check."""
     if not _holds(request, "jobs.start"):
         raise ForbiddenError("Not allowed.")
-    require_engines_allowed(request, engine)
+    require_engines_allowed(request, engine, model=model)
 
 
 @router.get("/dramas/{drama_id}/page", dependencies=[require_permission("library.read")], response_model=ReaderPageResponse,
@@ -164,7 +164,7 @@ def get_caption_track(track: Track, drama_id: int = Path(ge=1)):
 def post_lookup(body: ReaderLookupRequest, request: Request, drama_id: int = Path(ge=1)):
     if not body.use_llm:
         return reader_service.lookup_page_definitions(drama_id, body.page, body.chapter_size)
-    _require_llm_allowed(request, body.engine)
+    _require_llm_allowed(request, body.engine, body.model)
     with _llm_slot(request):
         return reader_service.lookup_page_definitions(
             drama_id, body.page, body.chapter_size, use_llm=True,
@@ -220,7 +220,7 @@ def get_vocab_apkg(request: Request, drama_id: int = Path(ge=1), rich: bool = Qu
              summary="Who is this character (spoiler-scoped when up_to_line_idx is set)",
              responses=_LLM_ERRS)
 def post_story_who(body: ReaderWhoRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with _llm_slot(request):
         return reader_service.who_is_character(drama_id, body.name, body.up_to_line_idx,
                                                engine_name=body.engine, model=body.model)
@@ -229,7 +229,7 @@ def post_story_who(body: ReaderWhoRequest, request: Request, drama_id: int = Pat
 @router.post("/dramas/{drama_id}/story/explain", dependencies=[require_permission("jobs.start")], response_model=ReaderAnswer,
              summary="Explain a reference or phrase", responses=_LLM_ERRS)
 def post_story_explain(body: ReaderExplainRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with _llm_slot(request):
         return reader_service.explain_reference(drama_id, body.phrase, body.up_to_line_idx,
                                                 engine_name=body.engine, model=body.model)
@@ -238,7 +238,7 @@ def post_story_explain(body: ReaderExplainRequest, request: Request, drama_id: i
 @router.post("/dramas/{drama_id}/story/recap", dependencies=[require_permission("jobs.start")], response_model=ReaderRecap,
              summary="Recap what came before a page", responses=_LLM_ERRS)
 def post_story_recap(body: ReaderRecapRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with _llm_slot(request):
         return reader_service.recap(drama_id, body.page, body.chapter_size,
                                     engine_name=body.engine, model=body.model)
@@ -248,7 +248,7 @@ def post_story_recap(body: ReaderRecapRequest, request: Request, drama_id: int =
              summary="Character relationship map (with Mermaid text)", responses=_LLM_ERRS)
 def post_story_relationships(body: ReaderScopedLlmRequest, request: Request,
                              drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with _llm_slot(request):
         return reader_service.relationship_map(drama_id, body.up_to_line_idx,
                                                engine_name=body.engine, model=body.model)
@@ -269,7 +269,7 @@ def get_wiki(drama_id: int = Path(ge=1),
              summary="Extract wiki entries from the lines up to the boundary (LLM)",
              responses=_LLM_ERRS)
 def post_wiki_update(body: ReaderWikiUpdateRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with _llm_slot(request):
         return reader_service.update_wiki(drama_id, body.up_to_line_idx,
                                           engine_name=body.engine, model=body.model,
@@ -300,7 +300,7 @@ def get_wiki_markdown(drama_id: int = Path(ge=1),
              summary="One grounded Q&A turn (stateless; the client sends the history)",
              responses=_LLM_ERRS)
 def post_ask(body: ReaderAskRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     history = [t.model_dump() for t in body.chat_history]
     with _llm_slot(request):
         return reader_service.ask_about_drama(drama_id, body.question, history,

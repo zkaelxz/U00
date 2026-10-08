@@ -561,7 +561,8 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
     started = background_jobs.start_job(
         JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd,
-        gpu_touching=stage != "translation" or any(c["engine"] == "ollama" for c in checked),
+        gpu_touching=stage != "translation" or any(
+            translate_engines.ollama_touches_local_gpu(c["engine"], c["model"]) for c in checked),
         description="Benchmark run")
     if not started:
         # Nothing ran: leave no rows behind.

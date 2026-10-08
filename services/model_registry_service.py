@@ -451,6 +451,10 @@ def _override_error(engine: str, model) -> "str | None":
     if not isinstance(model, str) or not translate_engines.MODEL_ID_RE.fullmatch(model) \
             or ".." in model:
         return "That isn't a valid model name."
+    if engine == "ollama" and translate_engines.is_ollama_cloud_model(model):
+        # A default is used by every call that names Ollama without a model,
+        # so a hosted tag there would send text off this PC with no notice.
+        return "A cloud model can't be the default; pick it per run."
     picker = translate_service.ENGINE_MODEL_DICTS.get(engine)
     if picker is not None:
         ok = model in picker or model in _listed_extras(engine)

@@ -93,7 +93,7 @@ def get_style(drama_id: int = Path(ge=1)):
              responses={**_R, 403: {"model": ErrorResponse}, 429: {"model": ErrorResponse}})
 def post_style_learn(body: StyleLearnRequest, request: Request, drama_id: int = Path(ge=1)):
     _global_style_pc_only(request, drama_id)
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     with llm_slot(request):
         return svc.learn_style(drama_id, body.engine, body.model, body.gemini_free_tier)
 
