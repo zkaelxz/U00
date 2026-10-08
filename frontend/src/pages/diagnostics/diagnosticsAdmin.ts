@@ -34,7 +34,7 @@ export type AdminBusy = { kind: AdminAction; name: string } | null
 export function installBlockedReason(jobsActive: boolean, busy: AdminBusy): string | null {
   if (busy?.kind === 'reset') return 'Wait for the reset to finish.'
   if (busy) return 'Wait for the install to finish.'
-  if (jobsActive) return 'Wait for running jobs to finish before installing.'
+  if (jobsActive) return 'Wait for running jobs to finish.'
   return null
 }
 
@@ -89,6 +89,10 @@ function ffmpegProblem(c: DiagnosticsSetupChecks): string {
   return 'FFmpeg has no libass (burned-in subtitles and the styled preview need it)'
 }
 
+const BROWSER_NAMES: Record<string, string> = {
+  Chrome: 'Google Chrome', Edge: 'Microsoft Edge', custom: 'the browser named by BAIHE_BROWSER_PATH',
+}
+
 /** The Setup rows ("Label: value", or "Problem: …") from setup-checks plus the overview's GPU. */
 export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): SetupRow[] {
   const rows: SetupRow[] = []
@@ -102,8 +106,13 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
     'no JS runtime (some video sites lose formats)')
   if (c.browser) {
+    if (c.browser.package !== undefined) {
+      add('playwright', 'Playwright package', c.browser.package, 'installed',
+        'Playwright package not installed (add it from Diagnostics > Packages, the playwright row, or run pip install playwright; no browser download is needed when Chrome or Edge is installed)')
+    }
     add('browser', 'Browser for JavaScript-only sites', c.browser.found,
-      `found (${c.browser.name ?? 'browser'})`, 'not found (install Chrome or Edge)')
+      `Using ${BROWSER_NAMES[c.browser.name ?? ''] ?? c.browser.name ?? 'a browser'}`,
+      'None found: install Chrome or Edge, or use Install browser support (Diagnostics > Setup)')
   }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")

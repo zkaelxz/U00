@@ -1176,9 +1176,8 @@ def _migrate_drama_columns(conn):
                           # sent anywhere. The series-level counterpart is
                           # series.instructions, inherited by every drama in the series.
                           ("project_instructions", "TEXT"),
-                          # Roadmap 112: the Notion page this drama was last exported
-                          # to (services/notion_service.py), so a re-export updates
-                          # that page in place. Only the id, never a token or URL.
+                          # Legacy: nothing writes it now. Kept so older databases
+                          # and backups load; dropping it needs a table rebuild.
                           ("notion_page_id", "TEXT"),
                           # Per-title reading-speed flag strictness
                           # (subtitle_formats.READING_SPEED_MODES).
@@ -2198,15 +2197,6 @@ def set_status_if(drama_id: int, expected: str, new: str) -> bool:
             (new, datetime.datetime.utcnow().isoformat(), drama_id, expected))
         conn.commit()
         return cur.rowcount > 0
-
-
-def set_drama_notion_page_id(drama_id: int, page_id):
-    """Roadmap 112: records (or clears, with None) the Notion page a drama
-    was exported to. Left out of update_drama on purpose: an export is not
-    an edit, so updated_at stays as it was."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE dramas SET notion_page_id = ? WHERE id = ?", (page_id, drama_id))
-        conn.commit()
 
 
 def delete_drama(drama_id: int):

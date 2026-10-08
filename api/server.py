@@ -80,7 +80,6 @@ from api.routers import (
     narration_routes,
     notification_center_routes,
     notification_routes,
-    notion_routes,
     novel_files_routes,
     novel_routes,
     reader_routes,
@@ -109,6 +108,7 @@ from api.routers import (
     translate_routes,
     translate_run_routes,
     translation_version_routes,
+    spend_history_routes,
     update_routes,
     usage_recost_routes,
     voice_bank_audio_routes,
@@ -262,7 +262,6 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(metadata_routes.router)
     app.include_router(metadata_research_routes.router)
     app.include_router(jellyfin_routes.router)
-    app.include_router(notion_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
     app.include_router(review_extras_routes.router)
@@ -292,6 +291,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(notification_center_routes.router)
     app.include_router(asr_options_routes.router)
     app.include_router(usage_recost_routes.router)
+    app.include_router(spend_history_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(scanlate_routes.router)
     app.include_router(engine_routing_routes.router)
