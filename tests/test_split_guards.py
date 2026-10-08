@@ -97,13 +97,16 @@ class TestFrontendSize:
                    if s > MAX_FRONTEND_BYTES and p not in OVERSIZED_FRONTEND_BYTES}
         assert too_big == {}, (
             f"Frontend files over {MAX_FRONTEND_BYTES} bytes: {too_big}. "
-            "Split the file; do not add to the allowlist.")
+            "Split the file; do not add to the allowlist. See 'Splitting files' in AGENTS.md.")
 
     def test_allowlisted_frontend_files_never_grow(self):
         sizes = _frontend_sizes()
         grown = {p: (limit, sizes[p]) for p, limit in OVERSIZED_FRONTEND_BYTES.items()
                  if sizes.get(p, 0) > limit}
-        assert grown == {}, f"allowlisted files grew past their recorded size (limit, now): {grown}"
+        assert grown == {}, (
+            f"allowlisted files grew past their recorded size (limit, now): {grown}. "
+            "Undo the growth: put the new code in a new file instead of enlarging these, "
+            "and do not raise the number in OVERSIZED_FRONTEND_BYTES.")
 
     def test_stale_allowlist_entries_are_reported_not_failed(self):
         # A split PR must not need to edit the allowlist, so stale entries only
@@ -197,7 +200,9 @@ class TestFrontDoorNamesResolve:
     @pytest.mark.parametrize("module", _FRONT_DOORS)
     def test_every_referenced_name_exists(self, module):
         missing = _missing_front_door_names(module)
-        assert missing == {}, f"{module} is missing names used elsewhere: {missing}"
+        assert missing == {}, (
+            f"{module} is missing names used elsewhere: {missing}. A name moved out of {module} must stay "
+            "importable from it (re-export it there), or every file listed here must import it from its new module.")
 
     def test_scanner_finds_attribute_and_string_targets(self):
         src = ("import db\nfrom unittest import mock\n"

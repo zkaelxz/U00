@@ -126,20 +126,29 @@ class TestEveryRouteDeclared:
 
     def test_doc_route_table_matches_the_app(self, dist):
         """Every row of the route table in docs/route-permissions.md
-        (declaration, count, listed METHOD /path) equals what the app declares."""
+        (one `METHOD /path` and its declaration per row) equals what the app
+        declares, and the rows are sorted with one route per line."""
         import pathlib
         import re
         doc = (pathlib.Path(__file__).resolve().parent.parent / "docs"
                / "route-permissions.md").read_text(encoding="utf-8")
-        header = doc.index("| Declaration | Routes | Paths |")
-        documented, counts = {}, {}
+        header = doc.index("| Route | Declaration |")
+        documented, order, problems = {}, [], []
         for line in doc[header:].splitlines()[2:]:
             if not line.startswith("|"):
                 break
-            cells = [c.strip() for c in line.strip().strip("|").split("|", 2)]
-            name = cells[0]
-            documented[name] = set(re.findall(r"`([A-Z]+ /[^`]*)`", cells[2]))
-            counts[name] = int(cells[1])
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            routes = re.findall(r"`([A-Z]+ /[^`]*)`", cells[0])
+            if len(routes) != 1 or len(cells) != 2:
+                problems.append(f"not exactly one route per row: {line}")
+                continue
+            if routes[0] in documented:
+                problems.append(f"{routes[0]}: listed twice")
+            documented[routes[0]] = cells[1]
+            method, path = routes[0].split(" ", 1)
+            order.append((path, method))
+        if order != sorted(order):
+            problems.append("rows are not sorted by path, then method")
 
         def label(decls):
             kind, perm = decls[0]
@@ -151,25 +160,15 @@ class TestEveryRouteDeclared:
             if path in DOCS_PATHS:
                 continue
             for m in methods:
-                actual.setdefault(label(decls), set()).add(f"{m} {path}")
+                actual[f"{m} {path}"] = label(decls)
 
-        problems = []
-        for name in sorted(set(documented) | set(actual)):
-            doc_routes, app_routes = documented.get(name, set()), actual.get(name, set())
-            if name not in documented:
-                problems.append(f"{name}: no row in the doc (app has {len(app_routes)} routes)")
-                continue
-            if name not in actual:
-                problems.append(f"{name}: row in the doc but the app declares no such routes")
-                continue
-            if counts[name] != len(doc_routes):
-                problems.append(f"{name}: Routes column says {counts[name]} but the row lists {len(doc_routes)}")
-            if counts[name] != len(app_routes):
-                problems.append(f"{name}: Routes column says {counts[name]} but the app has {len(app_routes)}")
-            for r in sorted(app_routes - doc_routes):
-                problems.append(f"{name}: missing from the doc: {r}")
-            for r in sorted(doc_routes - app_routes):
-                problems.append(f"{name}: in the doc but not declared in the app: {r}")
+        for r in sorted(set(actual) - set(documented)):
+            problems.append(f"missing from the doc: {r} ({actual[r]})")
+        for r in sorted(set(documented) - set(actual)):
+            problems.append(f"in the doc but not declared in the app: {r}")
+        for r in sorted(set(actual) & set(documented)):
+            if actual[r] != documented[r]:
+                problems.append(f"{r}: doc says {documented[r]} but the app declares {actual[r]}")
         assert not problems, ("docs/route-permissions.md route table is out of date:\n  "
                               + "\n  ".join(problems))
 
