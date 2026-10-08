@@ -127,7 +127,7 @@ def post_run(body: ScanlateRunRequest, request: Request, drama_id: int = Path(ge
     require_engines_allowed(request, engine)
     return scanlate_run_service.start_run(
         drama_id, mode=body.mode, page_id=body.page_id, confirm=body.confirm, engine=engine,
-        detect_backend=body.detect_backend)
+        detect_backend=body.detect_backend, chapter_id=body.chapter_id)
 
 
 @router.post("/dramas/{drama_id}/render", dependencies=[require_permission("jobs.start")],
