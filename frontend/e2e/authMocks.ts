@@ -93,6 +93,8 @@ const GET_FIXTURES: Record<string, unknown> = {
     idle_timeout_days: 14,
     absolute_timeout_days: 30,
   },
+  // Settings > Browser extension devices, for a signed-in person: none yet.
+  '/api/auth/device-tokens': { tokens: [], max_active: 10 },
 }
 
 // The Library admin panel polls its last backup/export job and artifact;

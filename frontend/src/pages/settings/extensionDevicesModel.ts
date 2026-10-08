@@ -27,12 +27,12 @@ export interface ExtensionDevicesView {
   // The signed-in person's own tokens.
   own: boolean
   canCreate: boolean
-  // Everyone's tokens: the owner or an admin at the main PC.
+  // Everyone's tokens: PC only (the server's local_only()).
   all: boolean
 }
 
-/** Own tokens for a signed-in person (sign-in on); everyone's for an admin at
- * the main PC, which is the owner with sign-in off. Nothing otherwise. */
+/** Own tokens for a signed-in person (sign-in on); everyone's for the owner or
+ * an admin at the main PC. Nothing otherwise. */
 export function extensionDevicesView(s: SessionState, pc: PcMode): ExtensionDevicesView {
   if (s.status !== 'ready') return { own: false, canCreate: false, all: false }
   const me = s.me
@@ -40,7 +40,7 @@ export function extensionDevicesView(s: SessionState, pc: PcMode): ExtensionDevi
   return {
     own,
     canCreate: own && me.permissions.includes('extension.send'),
-    all: me.permissions.includes('admin.users') && pc === 'local',
+    all: pc === 'local' && !!me.user && (me.user.is_local_owner || me.user.is_admin),
   }
 }
 

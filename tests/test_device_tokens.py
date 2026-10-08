@@ -35,7 +35,7 @@ PUBLIC_HOST = "baihe.example.com"
 SIGN_IN = {"google_client_id": "cid", "google_client_secret": "s3cr3t-value",
            "public_url": f"https://{PUBLIC_HOST}"}
 OWN = "/api/auth/device-tokens"
-ADMIN = "/api/admin/device-tokens"
+ADMIN = "/api/extension/devices"
 
 
 @pytest.fixture(autouse=True)
@@ -277,7 +277,7 @@ class TestOwnership:
         assert _bridge().get("/api/bridge/ping", headers=_bearer(tok["token"])).status_code == 401
         assert "device_token.admin_revoke" in str(auth_service.list_audit(50))
 
-    def test_admin_routes_refused_on_the_household_listener(self, isolated_db):
+    def test_pc_routes_refused_on_the_household_listener(self, isolated_db):
         admin = auth_service.grant_admin_local("owner@example.com")
         s = auth_service.create_session(admin["id"], "pytest", "127.0.0.1")
         app = create_app(ApiSettings(household_port=8610, serve_frontend=False, **SIGN_IN),

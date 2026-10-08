@@ -29,7 +29,7 @@ const me = (o: Partial<AuthMe>): SessionState => ({
   },
 })
 const pcOwner = me({
-  auth_enabled: false, zone: 'pc', permissions: ['admin.users', 'extension.send'],
+  auth_enabled: false, zone: 'pc', permissions: ['admin.settings'],
   user: { id: null, email: null, display_name: 'PC', is_admin: true, is_local_owner: true },
 })
 
@@ -39,8 +39,12 @@ describe('extension devices helpers', () => {
     expect(extensionDevicesView(me({ permissions: ['extension.send'] }), 'remote'))
       .toEqual({ own: true, canCreate: true, all: false })
     expect(extensionDevicesView(pcOwner, 'local')).toEqual({ own: false, canCreate: false, all: true })
-    // The owner's view waits for the PC check; an admin session away from the PC has no admin.users.
+    // Everyone's devices are PC only, and wait for the PC check.
     expect(extensionDevicesView(pcOwner, 'unknown')).toEqual({ own: false, canCreate: false, all: false })
+    expect(extensionDevicesView(pcOwner, 'remote')).toEqual({ own: false, canCreate: false, all: false })
+    const admin = me({ user: { id: 1, email: 'a@example.com', display_name: 'A', is_admin: true, is_local_owner: false } })
+    expect(extensionDevicesView(admin, 'local').all).toBe(true)
+    expect(extensionDevicesView(admin, 'remote').all).toBe(false)
     expect(extensionDevicesView(me({ signed_in: false, user: null }), 'remote').own).toBe(false)
     expect(extensionDevicesView({ status: 'loading' }, 'local')).toEqual({ own: false, canCreate: false, all: false })
   })

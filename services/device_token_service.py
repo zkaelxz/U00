@@ -24,7 +24,7 @@ Security rules kept here:
   removed, account deactivated) also revokes the user's tokens, so a later
   re-grant doesn't silently revive a forgotten one.
 - A user manages only their own tokens (the user id comes from their
-  session); an admin lists and revokes anyone's through the admin routes.
+  session); the owner at the PC lists and revokes anyone's (PC-only routes).
   Anything that changes an admin account's tokens is PC-only (D5).
 """
 

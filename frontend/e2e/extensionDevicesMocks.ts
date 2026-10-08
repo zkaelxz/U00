@@ -6,7 +6,7 @@ import { mockDevices } from './deviceSessionsMocks'
 // Settings > Browser extension devices. Builds on the signed-in devices mock
 // (me, Settings reads, a catch-all that aborts and records any other write)
 // and adds a small stateful /api/auth/device-tokens and
-// /api/admin/device-tokens. No real token is ever created.
+// /api/extension/devices. No real token is ever created.
 
 type Token = {
   id: number; label: string; created_at: number; last_used_at: number | null; last_used_ip_prefix: string
@@ -62,11 +62,11 @@ export async function mockExtensionDevices(page: Page, me: MeBody): Promise<Toke
     s.own = s.own.map((t) => (t.id === Number(m[1]) ? { ...t, status: 'revoked', revoked_at: now() } : t))
     return route.fulfill({ json: { revoked: 1 } })
   })
-  await page.route('**/api/admin/device-tokens**', (route) => {
+  await page.route('**/api/extension/devices**', (route) => {
     const r = route.request()
     const path = new URL(r.url()).pathname
-    if (r.method() === 'GET' && path === '/api/admin/device-tokens') return route.fulfill({ json: { tokens: s.all } })
-    const m = path.match(/^\/api\/admin\/device-tokens\/(\d+)\/revoke$/)
+    if (r.method() === 'GET' && path === '/api/extension/devices') return route.fulfill({ json: { tokens: s.all } })
+    const m = path.match(/^\/api\/extension\/devices\/(\d+)\/revoke$/)
     if (r.method() !== 'POST' || !m) return route.abort()
     s.sent.push(r)
     s.all = s.all.map((t) => (t.id === Number(m[1]) ? { ...t, status: 'revoked', revoked_at: now() } : t))

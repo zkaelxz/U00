@@ -62,8 +62,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "auth_session_id": "the caller's own sign-in session; auth_service scopes it to the "
                        "caller's user id from their session (404 otherwise)",
     "device_token_id": "an extension device token: the own route scopes it to the caller's "
-                       "user id from their session (404 otherwise); the admin route is "
-                       "admin.users",
+                       "user id from their session (404 otherwise); the route for "
+                       "everyone's tokens is local_only()",
 }
 # Routes naming a job or Live session. The path guard can't see these, so
 # each one is listed with the owner check its service runs (review L-4): a

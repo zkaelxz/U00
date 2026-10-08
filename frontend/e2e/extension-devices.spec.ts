@@ -71,7 +71,7 @@ test('without extension.send the list shows but adding explains why', async ({ p
 })
 
 test("the owner at the PC sees everyone's devices and can revoke any", async ({ page }) => {
-  const s = await mockExtensionDevices(page, { ...ME.authOff, permissions: ['admin.settings', 'admin.users'] })
+  const s = await mockExtensionDevices(page, ME.authOff)
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: true } }))
   await page.goto('/#/settings')
@@ -83,12 +83,14 @@ test("the owner at the PC sees everyone's devices and can revoke any", async ({ 
   await all.getByRole('button', { name: 'Revoke Home desktop (Jane)' }).click()
   await all.getByRole('button', { name: 'Confirm revoke Home desktop (Jane)' }).click()
   await expect(all).toContainText('Revoked Home desktop (Jane).')
-  expect(s.sent.map((r) => new URL(r.url()).pathname)).toEqual(['/api/admin/device-tokens/21/revoke'])
+  expect(s.sent.map((r) => new URL(r.url()).pathname)).toEqual(['/api/extension/devices/21/revoke'])
   expect(s.unmocked).toEqual([])
 })
 
-test('hidden from the owner without admin.users', async ({ page }) => {
+test("hidden from the owner's account away from the main PC", async ({ page }) => {
   await mockExtensionDevices(page, ME.authOff)
+  await page.route('**/api/meta', (r) =>
+    r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
   await page.goto('/#/settings')
   await openSettingsGroups(page)
   await expect(page.getByRole('region', { name: 'Sharing' })).toBeVisible()

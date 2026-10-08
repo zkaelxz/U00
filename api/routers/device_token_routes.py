@@ -6,17 +6,18 @@ Thin: the rules live in `services/device_token_service.py`.
     POST /api/auth/device-tokens                     extension.send    add one (token shown once)
     POST /api/auth/device-tokens/{device_token_id}/revoke
                                                      authenticated()   revoke one of mine
-    GET  /api/admin/device-tokens                    admin.users       everyone's
-    POST /api/admin/device-tokens/{device_token_id}/revoke
-                                                     admin.users       revoke anyone's
+    GET  /api/extension/devices                      local_only()      everyone's
+    POST /api/extension/devices/{device_token_id}/revoke
+                                                     local_only()      revoke anyone's
 
 The own routes act only on the caller's tokens: the user id comes from the
 session, never the request, and an id that isn't one of the caller's live
 tokens is a 404 whether or not it exists. Listing and revoking need no
 permission, so someone who lost `extension.send` can still see and revoke
 what they made. With sign-in off they answer 404 (the owner at the PC has
-no account); the PC owner uses the admin routes, which the household
-listener refuses (admin writes are PC-only) and Caddy blocks. Responses
+no account). Everyone's tokens are for the owner at the PC only
+(`local_only()`, like the rest of `/api/extension/*`, which Caddy also
+refuses): the household listener never serves them. Responses
 never carry a hash; the create response is the only one with the token,
 and like every response here it is `Cache-Control: no-store`.
 """
@@ -25,7 +26,7 @@ from fastapi import APIRouter, Path, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from api.auth import (authenticated, client_ip, is_auth_enabled, is_local_request,
+from api.auth import (authenticated, client_ip, is_auth_enabled, is_local_request, local_only,
                       require_permission)
 from api.schemas import (AdminDeviceTokenList, DeviceTokenCreated, DeviceTokenCreateRequest,
                          DeviceTokenList, DeviceTokenRevoked, ErrorResponse)
@@ -37,7 +38,6 @@ router = APIRouter(tags=["auth"])
 _NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 _MAX_ID = 2 ** 62   # past SQLite's integer range the lookup would raise, not 404
 _TokenId = Path(..., ge=1, le=_MAX_ID)
-_ADMIN = [require_permission("admin.users")]
 
 
 def _no_store(body: BaseModel) -> JSONResponse:
@@ -80,14 +80,14 @@ def revoke_own(request: Request, device_token_id: int = _TokenId):
         is_admin=principal["is_admin"], at_pc=is_local_request(request))))
 
 
-@router.get("/api/admin/device-tokens", dependencies=_ADMIN,
-            response_model=AdminDeviceTokenList, summary="Every browser-extension device")
+@router.get("/api/extension/devices", dependencies=[local_only()],
+            response_model=AdminDeviceTokenList, summary="PC only: every browser-extension device")
 def admin_list():
     return _no_store(AdminDeviceTokenList(tokens=svc.admin_list()))
 
 
-@router.post("/api/admin/device-tokens/{device_token_id}/revoke", dependencies=_ADMIN,
-             response_model=DeviceTokenRevoked, summary="Revoke anyone's extension device")
+@router.post("/api/extension/devices/{device_token_id}/revoke", dependencies=[local_only()],
+             response_model=DeviceTokenRevoked, summary="PC only: revoke anyone's extension device")
 def admin_revoke(request: Request, device_token_id: int = _TokenId):
     return _no_store(DeviceTokenRevoked(**svc.admin_revoke(
         device_token_id, request.state.principal.get("user_id"),
