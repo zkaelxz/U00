@@ -39,8 +39,22 @@ ENGINE_MODEL_DICTS = {
     "claude": translate_engines.CLAUDE_MODELS,
     "gemini": translate_engines.GEMINI_MODELS,
     "openai": translate_engines.OPENAI_MODELS,
-    "ollama": {**translate_engines.OLLAMA_MODELS, **translate_engines.OLLAMA_CLOUD_MODELS},
+    # Local tags only: this dict is also what Diagnostics lets the owner
+    # pick a new default from, and a hosted tag must never become one.
+    "ollama": translate_engines.OLLAMA_MODELS,
 }
+
+
+def _saved_ollama_models() -> list:
+    """Ollama model tags saved in presets, so a preset's hosted tag that is
+    not built in is still offered (and flagged) rather than silently dropped."""
+    tags = []
+    for preset in db.list_presets():
+        tag = preset.get("engine_model")
+        if (preset.get("translation_engine") == "ollama" and isinstance(tag, str)
+                and translate_engines.MODEL_ID_RE.fullmatch(tag) and ".." not in tag):
+            tags.append(tag)
+    return list(dict.fromkeys(tags))
 
 
 def list_engines(env_path: Optional[str] = None) -> list:
@@ -69,7 +83,13 @@ def list_engines(env_path: Optional[str] = None) -> list:
             builtin = translate_engines.builtin_default_model(name)
             base = models if models is not None else ([builtin] if builtin else [])
             models = list(dict.fromkeys(base + extras + chosen))
-        cloud = list(translate_engines.OLLAMA_CLOUD_MODELS) if name == "ollama" else []
+        if name == "ollama":
+            # Offered per run only; saved presets' tags are included so one
+            # saved with a hosted tag outside the built-in list is still flagged.
+            models = list(dict.fromkeys(
+                (models or []) + list(translate_engines.OLLAMA_CLOUD_MODELS)
+                + _saved_ollama_models()))
+        cloud = [m for m in models or [] if name == "ollama" and translate_engines.is_ollama_cloud_model(m)]
         labels = {m: model_registry_service.extra_model_label(name, m) for m in extras}
         # Without this the picker would show a hosted tag as plain text,
         # indistinguishable from a local model.

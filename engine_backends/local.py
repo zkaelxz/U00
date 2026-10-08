@@ -2,6 +2,8 @@
 
 import re
 
+from services import capped_body
+
 from .prompts import build_batch_user_message, build_stable_system_text
 from .shared import read_json_capped, redact_secrets, request_translations_with_retry
 
@@ -127,12 +129,14 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
-        resp.close()
         status = getattr(exc.response, "status_code", None)
         model = str(payload.get("model") or "")
+        # The body of a streamed response is unreadable once it is closed.
+        detail = _error_detail(resp) if status == 429 and is_ollama_cloud_model(model) else ""
+        resp.close()
         if is_ollama_cloud_model(model):
             if status == 429:
-                raise OllamaCloudLimitError(_error_detail(exc.response)) from None
+                raise OllamaCloudLimitError(detail) from None
             if status in (401, 403):
                 raise OllamaUnavailableError(
                     "ollama_cloud_signin",
@@ -161,6 +165,10 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
             "Ollama isn't running. Start it, or pick another translator in Settings.") from None
 
 
+_ERROR_BODY_MAX_BYTES = 2048
+_ERROR_BODY_DEADLINE_SECONDS = 5
+
+
 class OllamaCloudLimitError(Exception):
     """Ollama's hosted service answered 429. `status_code` lets
     shared._is_rate_limit_error back off and retry; the message is what
@@ -179,7 +187,9 @@ def _error_detail(resp) -> str:
     # The body can echo request headers on some proxies, so it is redacted
     # and cut before it can be shown or stored.
     try:
-        return redact_secrets((resp.text or "").strip())[:200]
+        body = capped_body.read_capped(resp, _ERROR_BODY_MAX_BYTES, _ERROR_BODY_DEADLINE_SECONDS,
+                                       lambda: ValueError("error body too large"))
+        return redact_secrets(body.decode("utf-8", errors="replace").strip())[:200]
     except Exception:
         return ""
 

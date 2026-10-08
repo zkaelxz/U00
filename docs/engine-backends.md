@@ -130,7 +130,10 @@ uses `requests` should call `read_json_capped` rather than `resp.json()`.
     stored here, but the subtitle text is processed on Ollama's servers and free use is capped.
     They are never a default or fallback, are skipped by the GPU/headroom checks
     (`ollama_touches_local_gpu`), and a 429 becomes `OllamaCloudLimitError`, which the normal
-    backoff retries. The direct `ollama.com/api` path (Bearer key) is not built.
+    backoff retries. The direct `ollama.com/api` path (Bearer key) is not built. Any tag
+    ending `-cloud` or `:cloud` counts as hosted (`is_ollama_cloud_model`); the engine list
+    flags those, and a household user needs `engines.paid` to use one. They are kept out of
+    `ENGINE_MODEL_DICTS["ollama"]` and refused as a Diagnostics default replacement.
   - Gemini free tier (`GEMINI_FREE_TIER_LIMITS`): Flash 10 requests/min and
     250/day; Flash-Lite 15/min and 1000/day; 250,000 tokens/min shared across
     models. Pro isn't available. The free-tier note drops these numbers. Google may use the text to improve its

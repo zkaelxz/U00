@@ -31,6 +31,31 @@ class Resp:
             raise err
 
 
+class StreamedErrorResp(Resp):
+    """A stream=True error reply: the body is only readable through
+    iter_content while open, as with requests."""
+
+    def __init__(self, status, body: bytes):
+        super().__init__(status=status)
+        self._raw, self.closed = body, False
+
+    @property
+    def text(self):
+        raise AssertionError("a streamed body must be read through iter_content")
+
+    @text.setter
+    def text(self, value):
+        pass
+
+    def iter_content(self, size):
+        if self.closed:
+            raise RuntimeError("read after close")
+        yield self._raw
+
+    def close(self):
+        self.closed = True
+
+
 def _reply(content):
     return Resp({"message": {"content": content}})
 
@@ -77,7 +102,8 @@ def test_quota_error_retries_then_gives_plain_message_with_redaction(monkeypatch
 
     def post(*a, **k):
         calls.append(1)
-        return Resp(status=429, text="weekly limit reached. Authorization: Bearer sk-secret1234567890abcd")
+        return StreamedErrorResp(
+            429, b"weekly limit reached. Authorization: Bearer sk-secret1234567890abcd")
     monkeypatch.setattr("requests.post", post)
     engine = te.OllamaEngine(model=CLOUD)
     # The translate loop wraps each batch in call_with_backoff; 429 must read as a rate limit.
@@ -88,6 +114,13 @@ def test_quota_error_retries_then_gives_plain_message_with_redaction(monkeypatch
     assert "rate-limited or over the free usage cap" in msg
     assert "sk-secret1234567890abcd" not in msg
     assert "weekly limit reached" in msg
+
+
+def test_quota_detail_is_cut_to_200_characters(monkeypatch):
+    monkeypatch.setattr("requests.post", lambda *a, **k: StreamedErrorResp(429, b"x" * 1500))
+    with pytest.raises(te.OllamaCloudLimitError) as info:
+        te._ollama_chat("http://localhost:11434", {"model": CLOUD})
+    assert str(info.value).count("x") == 200
 
 
 def test_local_429_is_not_rewritten(monkeypatch):
@@ -149,3 +182,97 @@ def test_model_health_does_not_call_cloud_tag_retired_or_unlisted(isolated_db):
     assert a["status"] == "current"
     other = model_registry_service._assess("ollama", "gpt-oss:120b-cloud", {}, {})
     assert other["status"] not in ("retired", "not_listed")
+
+
+# --- cloud tags are never a default -----------------------------------------
+
+def test_ollama_default_picker_lists_local_tags_only():
+    assert CLOUD not in translate_service.ENGINE_MODEL_DICTS["ollama"]
+
+
+@pytest.mark.parametrize("tag", [CLOUD, "gpt-oss:120b-cloud", "gemma4:cloud"])
+def test_cloud_tag_cannot_replace_the_ollama_default(isolated_db, tag):
+    with pytest.raises(InvalidInputError, match="can't be the default"):
+        model_registry_service.set_model_override("default", "ollama", te.effective_default_model("ollama"), tag)
+    assert te.effective_default_model("ollama") == "gemma4:12b"
+
+
+def test_run_naming_ollama_without_a_model_never_resolves_to_a_cloud_tag(isolated_db):
+    engine = te.get_engine("ollama", None)
+    assert not te.is_ollama_cloud_model(engine.model)
+
+
+def test_cloud_flag_covers_any_cloud_shaped_tag_including_saved_presets(isolated_db):
+    import db
+    db.save_preset(name="big", translation_engine="ollama", engine_model="gpt-oss:120b-cloud")
+    ollama = next(e for e in translate_service.list_engines() if e["name"] == "ollama")
+    assert "gpt-oss:120b-cloud" in ollama["models"]
+    assert "gpt-oss:120b-cloud" in ollama["cloud_models"]
+    assert "off this PC" in ollama["model_labels"]["gpt-oss:120b-cloud"]
+    for m in ollama["models"]:
+        assert (m in ollama["cloud_models"]) == te.is_ollama_cloud_model(m)
+
+
+# --- cloud tags need engines.paid -------------------------------------------
+
+def _household(email, extra=()):
+    from api import auth as api_auth
+    from services import auth_service
+    u = auth_service.add_user(email)
+    for perm in extra:
+        auth_service.grant_permission(u["id"], perm)
+    sess = auth_service.create_session(u["id"])
+    return {"Cookie": f"{api_auth.COOKIE_NAME}={sess['session_token']}",
+            api_auth.CSRF_HEADER: sess["csrf_token"]}
+
+
+@pytest.fixture
+def remote(isolated_db):
+    from fastapi.testclient import TestClient
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    return TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
+                      client=("203.0.113.9", 5000), raise_server_exceptions=False)
+
+
+@pytest.fixture
+def run_url(isolated_db):
+    import db
+    # The engine gate runs after the path guard, so it needs a real drama.
+    return f"/api/translate-run/dramas/{db.create_drama(title_en='T', source_language='zh')}/run"
+
+
+def test_cloud_tag_run_is_refused_without_engines_paid(remote, run_url):
+    h = _household("kid@example.com")
+    r = remote.post(run_url, json={"engine": "ollama", "model": CLOUD}, headers=h)
+    assert r.status_code == 403
+    assert "paid-engine permission" in r.json()["error"]["message"]
+    r = remote.post(run_url, json={"engine": "ollama", "model": "gemma4:12b",
+                                   "fallback_chain": [{"engine": "ollama", "model": CLOUD}]}, headers=h)
+    assert r.status_code == 403
+
+
+def test_cloud_tag_run_is_allowed_with_engines_paid_and_local_tags_stay_free(remote, run_url):
+    paid = _household("paid@example.com", ["engines.paid"])
+    assert remote.post(run_url, json={"engine": "ollama", "model": CLOUD}, headers=paid).status_code != 403
+    free = _household("free@example.com")
+    assert remote.post(run_url, json={"engine": "ollama", "model": "gemma4:12b"}, headers=free).status_code != 403
+
+
+def test_cloud_tag_live_start_needs_engines_paid(remote):
+    h = _household("kid@example.com", ["media.import_url"])
+    body = {"url": "https://example.com/v", "engine": "ollama", "model": CLOUD}
+    assert remote.post("/api/live/sessions", json=body, headers=h).status_code == 403
+
+
+def test_cloud_tag_gate_unit():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from api import auth as api_auth
+    from services.service_errors import ForbiddenError
+    with patch.object(api_auth, "holds", return_value=False):
+        with pytest.raises(ForbiddenError):
+            api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", CLOUD))
+        api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", "gemma4:12b"), ("claude", None))
+    with patch.object(api_auth, "holds", return_value=True):
+        api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", CLOUD))

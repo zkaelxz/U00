@@ -14,7 +14,8 @@ from typing import List
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import is_local_request, require_engines_allowed, require_permission
+from api.auth import (is_local_request, require_cloud_model_allowed, require_engines_allowed,
+                      require_permission)
 from api.schemas import (ErrorResponse, LiveSessionStart, LiveSessionStarted,
                          LiveSessionStatus, LiveSessionStopped, LiveSessionSummary)
 from services import live_service
@@ -32,6 +33,7 @@ _ERRS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
              responses=_ERRS)
 def post_session(body: LiveSessionStart, request: Request):
     require_engines_allowed(request, body.engine)
+    require_cloud_model_allowed(request, (body.engine, body.model))
     return live_service.start_session(
         body.url, source_language=body.source_language, whisper_size=body.whisper_size,
         segment_seconds=body.segment_seconds, overlap_seconds=body.overlap_seconds,

@@ -426,6 +426,9 @@ describe('cloud model notice', () => {
     expect(cloudModelNotice(engine, 'gemma4:31b-cloud')).toMatch(/off this PC/)
     expect(cloudModelNotice(engine, 'gemma4:31b-cloud')).toMatch(/limits/)
   })
+  it('follows the server flag for a cloud tag that is not built in', () => {
+    expect(cloudModelNotice({ cloud_models: ['gpt-oss:120b-cloud'] }, 'gpt-oss:120b-cloud')).toMatch(/off this PC/)
+  })
   it('stays quiet for local, empty and unknown engines', () => {
     expect(cloudModelNotice(engine, 'gemma4:12b')).toBeNull()
     expect(cloudModelNotice(engine, '')).toBeNull()

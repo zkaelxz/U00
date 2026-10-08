@@ -320,6 +320,21 @@ def require_engines_allowed(request: Request, *engine_names):
         raise ForbiddenError(_GENERIC_403)
 
 
+def require_cloud_model_allowed(request: Request, *engine_models):
+    """Raises 403 unless the caller holds `engines.paid` or none of the
+    (engine, model) pairs names an Ollama cloud tag. A hosted tag sends the
+    text off the PC and spends the owner's Ollama quota, so it is held to
+    the same permission as a paid engine even though Ollama is free."""
+    if holds(request, "engines.paid"):
+        return
+    from translate_engines import is_ollama_cloud_model
+    if any(engine in (None, "ollama") and is_ollama_cloud_model(model)
+           for engine, model in engine_models):
+        raise ForbiddenError("Ollama cloud models send your text off this PC and use the "
+                             "owner's Ollama quota, so they need paid-engine permission. "
+                             "Pick a local model instead.")
+
+
 def require_paid_engines(request: Request):
     """Raises 403 unless the caller holds `engines.paid` (for a cloud
     service that isn't a translate engine, e.g. Groq transcription)."""

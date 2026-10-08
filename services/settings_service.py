@@ -82,6 +82,23 @@ def resolve_key(settings_key: str, env_path: str = None) -> Optional[str]:
     return resolve_env_names(ENV_NAMES.get(settings_key, ()), env_path)
 
 
+def ollama_endpoint_is_loopback() -> bool:
+    """Whether the configured Ollama URL points at this PC."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    url = resolve_key("ollama_url") or "http://localhost:11434"
+    try:
+        host = urlsplit(url if "://" in url else "http://" + url).hostname or ""
+    except ValueError:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def resolve_env_names(names, env_path: str = None) -> Optional[str]:
     """Server-side only: the first non-empty value among `names`, from .env
     then real environment variables. Shared with notification_service's
