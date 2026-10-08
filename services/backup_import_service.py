@@ -17,7 +17,7 @@ series, glossary, series characters and translation memory of the dramas'
 series, and (when the file has them) each drama's media folder. Not written:
 per-profile reading progress and personal notes (profile ids mean something
 else here), usage/bulk-job/research-cache tables (see
-auto_backup_service._SKIPPED_TABLES), the drama's Notion page link, and
+auto_backup_service._SKIPPED_TABLES), `notion_page_id` (old backups may carry it; dropped on import), and
 anything outside the chosen dramas. Responses hold ids, titles and counts,
 never paths.
 
