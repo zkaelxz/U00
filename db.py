@@ -1176,9 +1176,8 @@ def _migrate_drama_columns(conn):
                           # sent anywhere. The series-level counterpart is
                           # series.instructions, inherited by every drama in the series.
                           ("project_instructions", "TEXT"),
-                          # Roadmap 112: the Notion page this drama was last exported
-                          # to (services/notion_service.py), so a re-export updates
-                          # that page in place. Only the id, never a token or URL.
+                          # Legacy: nothing writes it now. Kept so older databases
+                          # and backups load; dropping it needs a table rebuild.
                           ("notion_page_id", "TEXT"),
                           # Per-title reading-speed flag strictness
                           # (subtitle_formats.READING_SPEED_MODES).
