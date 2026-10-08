@@ -7,7 +7,6 @@ import { useEffect, useRef, useState } from 'react'
 
 import { MAX_QUESTION, askAssistant, prepareDeveloperReport, saveAssistantSettings, type Escalation } from '../../api/assistant'
 import { Badge } from '../../components/Badge'
-import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { humanize } from '../../components/labels'
 import { Section } from '../../components/Section'
@@ -99,11 +98,10 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
   }
 
   return (
-    <Card
-      title="Ask"
-      meta="Questions about this app's code, logs and settings. Answers can take a minute."
-      aria-label="Ask the assistant"
-      actions={
+    <section aria-label="Ask the assistant">
+      <Section title="Ask" summary="Questions about this app's code, logs and settings" storageKey="assistant.chat" defaultOpen>
+      <p className="muted">Questions about this app&apos;s code, logs and settings. Answers can take a minute.</p>
+      <div className="assistant-actions">
         <button
           type="button"
           className={buttonClass('ghost', 'sm')}
@@ -115,8 +113,7 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
         >
           New chat
         </button>
-      }
-    >
+      </div>
       {exchanges.length > 0 && (
         <ol className="assistant-chat" aria-label="Conversation" aria-busy={asking || undefined}>
           {exchanges.map((x, i) => (
@@ -195,7 +192,8 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
         />
       )}
       {reportFor !== null && <ReportSheet exchanges={exchanges.slice(0, reportFor + 1)} onClose={() => setReportFor(null)} />}
-    </Card>
+      </Section>
+    </section>
   )
 }
 
