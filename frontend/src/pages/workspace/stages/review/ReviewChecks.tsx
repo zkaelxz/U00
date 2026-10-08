@@ -17,7 +17,7 @@ import { lineNumber } from '../../../../lineNumber'
 import type { Coverage, Pacing, ShortenResult, Tendencies, VersionCompare, VersionItem } from '../../../../types/review'
 import { FindingList } from './FindingList'
 import { ShortenOverlong, TOO_LONG } from './ShortenOverlong'
-import { coverageGroups, pacingFindings, type GoToLine } from './reviewResults'
+import { coverageGroups, pacingFindings, pacingKindCounts, pacingKindLabel, type GoToLine } from './reviewResults'
 
 interface Props {
   dramaId: number
@@ -130,11 +130,20 @@ function CoverageSection({ coverage, pacing, onGoTo }: {
   pacing: Pacing | null
   onGoTo: GoToLine
 }) {
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
   const groups = coverage ? coverageGroups(coverage) : []
-  const pace = pacing ? pacingFindings(pacing.flags) : []
-  const total = groups.reduce((n, g) => n + g.items.length, 0) + pace.length
+  const kinds = pacing ? pacingKindCounts(pacing.flags) : []
+  const pace = pacing ? pacingFindings(pacing.flags, hidden) : []
+  const paceTotal = pacing?.flags.length ?? 0
+  const total = groups.reduce((n, g) => n + g.items.length, 0) + paceTotal
   if (total === 0) return null
-  const summary = [...groups.map((g) => `${g.title} ${g.items.length}`), ...(pace.length ? [`Pacing ${pace.length}`] : [])]
+  const summary = [...groups.map((g) => `${g.title} ${g.items.length}`), ...(paceTotal ? [`Pacing ${paceTotal}`] : [])]
+  const toggle = (issue: string) =>
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(issue)) next.add(issue)
+      return next
+    })
   return (
     <Section storageKey="review.coverage" title="Coverage and pacing" count={total} summary={summary.join(' · ')}>
       {groups.map((g) => (
@@ -144,10 +153,23 @@ function CoverageSection({ coverage, pacing, onGoTo }: {
           <FindingList items={g.items} onGoTo={onGoTo} />
         </div>
       ))}
-      {pace.length > 0 && (
+      {paceTotal > 0 && (
         <div>
           <h4>Pacing</h4>
-          <p className="muted review-hint-text">The translation is a poor fit for the line's time slot.</p>
+          <p className="muted review-hint-text">The translation is a poor fit for the line's time slot, worst first.</p>
+          <div role="group" aria-label="Pacing kinds">
+            {kinds.map((k) => (
+              <button
+                key={k.issue}
+                type="button"
+                className={buttonClass('ghost', 'sm')}
+                aria-pressed={!hidden.has(k.issue)}
+                onClick={() => toggle(k.issue)}
+              >
+                {hidden.has(k.issue) ? 'Show' : 'Hide'} {pacingKindLabel(k.issue).toLowerCase()} ({k.count})
+              </button>
+            ))}
+          </div>
           <FindingList items={pace} onGoTo={onGoTo} testId="pacing-list" />
         </div>
       )}

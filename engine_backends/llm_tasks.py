@@ -177,24 +177,29 @@ def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size
     return labels
 
 
-def smart_segment_lines(en_lines, target_wpm: float = 160, min_seconds: float = 1.2):
+def smart_segment_lines(en_lines, target_wpm: float = 160, min_seconds: float = 1.2,
+                        too_long_margin: float = 1.15, short_ratio: float = 0.4):
     """Post-translation pacing pass (idea borrowed from KrillinAI/
     VideoLingo): flags English lines that are too short to read
     comfortably at their assigned duration, or too long to say
     naturally within it, using a simple words-per-minute estimate.
     Returns a list of {idx, issue, suggestion} for lines worth a second
     look before dubbing -- this doesn't auto-edit anything, just tells
-    you where the pacing is likely to feel rushed or dragged out."""
+    you where the pacing is likely to feel rushed or dragged out.
+    `severity` (how many times over the slot, or how empty it is) lets a
+    caller list the worst first."""
     flags = []
     for ln in en_lines:
         duration = max(ln.end - ln.start, 0.01)
         word_count = len(ln.en.split())
         needed_seconds = word_count / (target_wpm / 60)
-        if needed_seconds > duration * 1.15:
+        if needed_seconds > duration * too_long_margin:
             flags.append({"idx": ln.idx, "issue": "too_long_for_slot",
+                          "severity": needed_seconds / duration,
                           "detail": f"~{needed_seconds:.1f}s needed, only {duration:.1f}s available"})
-        elif duration > min_seconds and needed_seconds < duration * 0.4:
+        elif duration > min_seconds and needed_seconds < duration * short_ratio:
             flags.append({"idx": ln.idx, "issue": "very_short_relative_to_slot",
+                          "severity": duration / max(needed_seconds, 0.01),
                           "detail": f"~{needed_seconds:.1f}s needed, {duration:.1f}s available -- "
                                     "may sound like a long pause"})
     return flags

@@ -140,12 +140,21 @@ const PACING_ISSUES: Record<string, string> = {
   very_short_relative_to_slot: 'Very short for its time slot',
 }
 
-export function pacingFindings(flags: PacingFlag[]): Finding[] {
-  return flags.map((f, i) => ({
+export const pacingKindLabel = (issue: string) => PACING_ISSUES[issue] ?? issue.replace(/_/g, ' ')
+
+/** How many flags of each issue kind, most numerous first. */
+export function pacingKindCounts(flags: PacingFlag[]): { issue: string; count: number }[] {
+  const counts = new Map<string, number>()
+  for (const f of flags) counts.set(f.issue, (counts.get(f.issue) ?? 0) + 1)
+  return [...counts].map(([issue, count]) => ({ issue, count })).sort((a, b) => b.count - a.count)
+}
+
+export function pacingFindings(flags: PacingFlag[], hidden: ReadonlySet<string> = new Set()): Finding[] {
+  return flags.map((f, i) => ({ f, i })).filter(({ f }) => !hidden.has(f.issue)).map(({ f, i }) => ({
     key: `pace-${f.id ?? 'x'}-${i}`,
     lineId: f.id,
     where: where(f.idx),
-    text: [PACING_ISSUES[f.issue] ?? f.issue.replace(/_/g, ' '), f.detail].filter(Boolean).join(': '),
+    text: [pacingKindLabel(f.issue), f.detail].filter(Boolean).join(': '),
   }))
 }
 

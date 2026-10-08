@@ -17,6 +17,7 @@ grammar) live in services/line_ai_service.py.
     engine is refused once the monthly spending cap is used up.
 """
 import db
+import review_thresholds
 import translate_engines
 from core import Line
 from services import drama_service, line_ai_service, lines_service
@@ -27,8 +28,12 @@ MAX_SHORTEN_IDS = 1000
 SHORTEN_SNAPSHOT_LABEL = "before auto-shorten"
 
 
-def _too_long_lines(lines) -> list:
-    too_long = {f["idx"] for f in translate_engines.smart_segment_lines(lines)
+def _too_long_lines(lines, drama) -> list:
+    # Same thresholds as the Review page's pacing list, so the count it shows
+    # is the set this rewrites.
+    found = translate_engines.smart_segment_lines(
+        lines, **review_thresholds.thresholds_for(drama).pacing_kwargs())
+    too_long = {f["idx"] for f in found
                 if f["issue"] == "too_long_for_slot"}
     return [ln for ln in lines if ln.idx in too_long and (ln.en or "").strip()]
 
@@ -95,7 +100,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
     if drama_service.job_running_for_drama(drama_id):
         raise ConflictError("A background job is still running for this drama -- wait for it "
                             "to finish or cancel it before shortening lines.")
-    targets = _too_long_lines(db.load_line_objects(drama_id))
+    targets = _too_long_lines(db.load_line_objects(drama_id), drama)
     if line_ids is not None:
         wanted = set(line_ids)
         targets = [ln for ln in targets if ln.id in wanted]

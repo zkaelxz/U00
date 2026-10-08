@@ -316,6 +316,7 @@ export interface PacingFlag {
   id: number | null
   idx: number
   issue: string
+  severity?: number | null
   detail: string | null
 }
 
