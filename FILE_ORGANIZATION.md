@@ -43,7 +43,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 **Story & learning**: `universe_wiki.py`, `story_context.py`, `qa.py`, `line_tools.py`, `debug_view.py`, `adaptive_style.py`,
 `vocab_export.py`
 
-**Discovery, sources & I/O**: `page_fetch.py`, `metadata_lookup.py`, `bulk_import.py`, `title_library.py`, `known_sites.py`, `navigator.py`,
+**Discovery, sources & I/O**: `page_fetch.py`, `page_scroll.py` (scroll-through-then-settle step shared by the rendered and signed-in fetches), `metadata_lookup.py`, `bulk_import.py`, `title_library.py`, `known_sites.py`, `navigator.py`,
 `epub_io.py`, `page_server.py`
 
 ## services/
