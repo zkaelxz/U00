@@ -7,6 +7,7 @@ import re
 import time
 
 from core import LANGUAGE_NAMES
+from sentence_groups import render_grouped
 from services import capped_body
 from memory_headroom import HeadroomError
 
@@ -427,7 +428,8 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
 
 
 def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
-                                     line_ids=None, engine_name: str = None, line_languages=None):
+                                     line_ids=None, engine_name: str = None, line_languages=None,
+                                     sentence_groups=None):
     """
     The shared id-keyed request/parse/retry-missing logic behind every
     LLM translation engine's own translate_batch (Claude/DeepSeek/
@@ -450,6 +452,12 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
     retries the specific lines that came back missing (once) before
     giving up and leaving only THOSE blank, rather than treating one
     incomplete response as a reason to redo (or lose) the whole batch.
+
+    sentence_groups: optional lists of positions in zh_lines that are one
+    sentence cut into timed fragments (sentence_groups.group_fragments).
+    Each is shown as the whole sentence plus its numbered parts; the reply
+    is still one translation per fragment id. Omitted, the request is
+    exactly the plain numbered list.
     """
     ids = list(range(1, len(zh_lines) + 1))
     # The lines' own permanent ids when every line has one and
@@ -460,7 +468,28 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
         ids = list(line_ids)
     pos = {i: p for p, i in enumerate(ids)}
 
+    groups_by_id = {}
+    for group in sentence_groups or []:
+        group_ids = [ids[p] for p in group]
+        groups_by_id.update({i: group_ids for i in group_ids})
+
+    def build_grouped_batch_text(batch_ids):
+        # A retry re-sends the whole sentence of any missing fragment, so the
+        # model sees the sentence it is distributing; ids already answered
+        # are ignored when the reply is parsed.
+        wanted = set(batch_ids)
+        for i in batch_ids:
+            wanted.update(groups_by_id.get(i, ()))
+        shown = [i for i in ids if i in wanted]
+        line_text = {i: build_numbered_lines(
+            [i], [zh_lines[pos[i]]], [speaker_names[pos[i]]] if speaker_names else None,
+            [line_languages[pos[i]]] if line_languages and len(line_languages) == len(zh_lines)
+            else None) for i in shown}
+        return render_grouped(shown, line_text, groups_by_id, {i: zh_lines[pos[i]] for i in shown})
+
     def build_batch_text(batch_ids):
+        if groups_by_id:
+            return build_grouped_batch_text(batch_ids)
         batch_lines = [zh_lines[pos[i]] for i in batch_ids]
         batch_names = ([speaker_names[pos[i]] for i in batch_ids] if speaker_names else None)
         batch_langs = ([line_languages[pos[i]] for i in batch_ids]

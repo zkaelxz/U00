@@ -64,6 +64,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "segment.py",
     "sensevoice_tags.py",
     "sensitivity_preset.py",
+    "sentence_groups.py",
     "storage.py",
     "story_context.py",
     "subtitle_formats.py",

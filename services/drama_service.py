@@ -49,8 +49,8 @@ _TEXT_FIELDS = ("title_en", "title_zh", "author", "studio", "director", "voice_a
                 "summary", "genre", "custom_tags", "source_url", "episode_summary",
                 "project_instructions")
 _INT_FIELDS = ("chapter_count", "episode_number")
-# The Translate stage's two toggles, stored 0/1 (translate_run_service.save_style_toggles).
-_BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes")
+# The Translate stage's toggles, stored 0/1 (translate_run_service.save_style_toggles).
+_BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes", "translate_by_sentence")
 
 # Hardening H1: sqlite ints are 64-bit and a Python int above that raises
 # OverflowError (a 500), so every id/count the client sends is capped well

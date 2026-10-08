@@ -1,6 +1,7 @@
 """Reflect mode and the per-run translate loop."""
 
 import inspect
+import sentence_groups
 from .fallback import FallbackEngine
 from .llm_tasks import call_llm_json
 from .pricing import estimate_cost_for_engine
@@ -286,9 +287,15 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  character_names: dict = None, ollama_num_ctx_override: int = None,
                                  reflect: bool = False, notes_cb=None, cost_cap_usd: float = None,
                                  cap_cb=None, target_ids=None, detail_cb=None,
-                                 scene_aware_batches: bool = False):
+                                 scene_aware_batches: bool = False, translate_by_sentence=None):
     """scene_aware_batches: start batches at scene breaks (plan_batches)
     instead of cutting fixed slices of batch_size. Same maximum size.
+
+    translate_by_sentence: show the model each run of timed fragments that
+    makes one sentence as that whole sentence, and put its English back onto
+    the fragments (sentence_groups). None means the title's saved choice
+    (drama_meta["translate_by_sentence"]), so every translate path agrees.
+    Inert for Reflect mode and for engines that don't follow instructions.
 
     detail_cb: optional callable (fraction, message) for a job that wants
     finer progress than progress_cb: fires at the start and end of every
@@ -426,6 +433,13 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
     batches = (plan_batches(target_lines, batch_size) if scene_aware_batches
                else [target_lines[i:i + batch_size]
                      for i in range(0, len(target_lines), batch_size)])
+    if translate_by_sentence is None:
+        translate_by_sentence = bool((drama_meta or {}).get("translate_by_sentence"))
+    sentence_mode = (translate_by_sentence and not reflect
+                     and getattr(engine, "supports_reference", False))
+    groups = sentence_groups.group_fragments(target_lines, lines) if sentence_mode else []
+    if groups:
+        batches = sentence_groups.align_batches_to_groups(batches, groups)
     n_batches = len(batches)
     last_frac = 0.0
 
@@ -472,27 +486,67 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
             report(last_frac, f"{batch_label} - Engine busy, waiting {delay:.0f} s to retry "
                               f"(attempt {next_attempt} of {max_retries})")
 
-        def _translate_chunk(chunk):
-            """Runs one translate attempt for chunk (the whole batch, or
-            one bisected half of it). Returns
-            (translations, critiques) -- critiques is None outside Reflect
-            mode. A ContentModerationBlocked (or any other exception)
-            propagates to the caller, which decides what to do about it."""
+        def _context_for(chunk):
             chunk_context = dict(context)
             chunk_context["speaker_labels"] = [character_names.get(ln.speaker) for ln in chunk]
             chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
             chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
             chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
-            if reflect:
-                return call_with_backoff(
-                    lambda: reflect_translate_batch(engine, [ln.zh for ln in chunk], chunk_context,
-                                                    usage_cb=record_usage, pass_cb=_on_pass))
+            return chunk_context
+
+        def _call_engine(chunk, chunk_context):
             translations = call_with_backoff(
                 lambda: engine.translate_batch([ln.zh for ln in chunk], chunk_context))
             if hasattr(engine, "last_usage"):
                 u = engine.last_usage
                 record_usage(u.get("input_tokens", 0), u.get("output_tokens", 0),
                              u.get("cache_read_tokens", 0), u.get("cache_write_tokens", 0))
+            return translations
+
+        def _settle_sentences(chunk, translations, chunk_groups):
+            """Gives each fragment of a sentence group its English (see
+            sentence_groups.settle_group); fragments of a group the model's
+            reply can't be used for are translated the normal way, in one
+            extra request, so the mode never leaves a blank the plain path
+            wouldn't."""
+            if len(translations) != len(chunk):
+                return translations  # reported as a length mismatch by the caller
+            position = {id(ln): p for p, ln in enumerate(chunk)}
+            out, redo = list(translations), []
+            for group in chunk_groups:
+                where = [position[id(ln)] for ln in group]
+                settled = sentence_groups.settle_group(
+                    [ln.zh for ln in group], [out[p] for p in where])
+                if settled is None:
+                    redo.extend(where)
+                else:
+                    for p, text in zip(where, settled):
+                        out[p] = text
+            if redo:
+                redo_lines = [chunk[p] for p in redo]
+                for p, text in zip(redo, _call_engine(redo_lines, _context_for(redo_lines))):
+                    out[p] = text
+            return out
+
+        def _translate_chunk(chunk):
+            """Runs one translate attempt for chunk (the whole batch, or
+            one bisected half of it). Returns
+            (translations, critiques) -- critiques is None outside Reflect
+            mode. A ContentModerationBlocked (or any other exception)
+            propagates to the caller, which decides what to do about it."""
+            chunk_context = _context_for(chunk)
+            if reflect:
+                return call_with_backoff(
+                    lambda: reflect_translate_batch(engine, [ln.zh for ln in chunk], chunk_context,
+                                                    usage_cb=record_usage, pass_cb=_on_pass))
+            chunk_groups = sentence_groups.complete_groups(chunk, groups)
+            if chunk_groups:
+                position = {id(ln): p for p, ln in enumerate(chunk)}
+                chunk_context["sentence_groups"] = [[position[id(ln)] for ln in g]
+                                                    for g in chunk_groups]
+            translations = _call_engine(chunk, chunk_context)
+            if chunk_groups:
+                translations = _settle_sentences(chunk, translations, chunk_groups)
             return translations, None
 
         def _process_chunk(chunk, allow_bisect):

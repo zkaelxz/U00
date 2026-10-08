@@ -790,8 +790,11 @@ def cmd_translate(args):
                 d["id"], d, lines, style_preset,
                 include_genre_notes=include_genre_notes,
                 default_female_pronouns=default_female_pronouns)
+        by_sentence = getattr(args, "translate_by_sentence", None)
         translate_run_service.save_style_toggles(
-            d["id"], include_genre_notes, default_female_pronouns)
+            d["id"], include_genre_notes, default_female_pronouns, by_sentence)
+        if by_sentence is not None:
+            d["translate_by_sentence"] = int(by_sentence)
         target_ids = None
         if glossary_affected:
             # Same selection as the app's "Re-translate lines affected by the
@@ -1416,6 +1419,11 @@ def main():
                                 "for the title (on until chosen otherwise).")
     p_translate.add_argument("--genre-notes", action="store_false", dest="no_genre_notes",
                            default=None, help="Include the genre guidance and save that.")
+    p_translate.add_argument("--translate-by-sentence", action="store_true", default=None,
+                help="Translate whole sentences, then split the English across the short lines; saved for the title (off until chosen).")
+    p_translate.add_argument("--no-translate-by-sentence", action="store_false",
+                dest="translate_by_sentence", default=None,
+                help="Turn translate-by-sentence off and save that.")
     p_translate.add_argument("--force", action="store_true",
                               help="Re-translate everything, including lines that already have a translation")
     p_translate.add_argument("--glossary-affected", action="store_true",
@@ -1593,6 +1601,11 @@ def main():
                                 "for the title (on until chosen otherwise).")
     p_run.add_argument("--genre-notes", action="store_false", dest="no_genre_notes",
                            default=None, help="Include the genre guidance and save that.")
+    p_run.add_argument("--translate-by-sentence", action="store_true", default=None,
+                help="Translate whole sentences, then split the English across the short lines; saved for the title (off until chosen).")
+    p_run.add_argument("--no-translate-by-sentence", action="store_false",
+                dest="translate_by_sentence", default=None,
+                help="Turn translate-by-sentence off and save that.")
     p_run.add_argument("--transcript", default=None, metavar="FILE",
                        help="Chinese transcript to align (- for stdin); needs --id. "
                             "Default: <drama folder>/transcript.txt.")

@@ -75,6 +75,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `live_fetch.py`
 - `live_tokens.py` (token comparison shared by the chunk overlap dedup and the agreement rule)
 - `live_translate.py`
+- `sentence_groups.py` (translate-by-sentence: grouping timed fragments and splitting the English back)
 - `translate_engines.py`
 - `translation_guide.py`
 - `translation_memory.py`

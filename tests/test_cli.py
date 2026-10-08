@@ -138,6 +138,37 @@ class TestCmdTranslateParity:
         drama = isolated_db.get_drama(did)
         assert (drama["include_genre_notes"], drama["default_female_pronouns"]) == (1, 0)
 
+    def test_translate_by_sentence_flag_is_saved_and_reaches_the_run(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        seen = []
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+                            lambda lines, engine, **kw: seen.append(kw["drama_meta"]) or (lines, []))
+
+        def run_cli(**flags):
+            with contextlib.redirect_stdout(io.StringIO()):
+                cli.cmd_translate(_translate_args(id=did, **flags))
+            return seen[-1].get("translate_by_sentence")
+
+        assert not run_cli()  # absent and never chosen: off
+        assert run_cli(translate_by_sentence=True) == 1
+        assert isolated_db.get_drama(did)["translate_by_sentence"] == 1
+        assert run_cli() == 1  # absent: the saved choice
+        assert run_cli(translate_by_sentence=False) == 0
+        assert isolated_db.get_drama(did)["translate_by_sentence"] == 0
+
+    @pytest.mark.parametrize("command", ["translate", "run"])
+    @pytest.mark.parametrize("flags,expected", [
+        ([], None), (["--translate-by-sentence"], True), (["--no-translate-by-sentence"], False)])
+    def test_translate_by_sentence_flags_are_three_state(self, monkeypatch, command, flags, expected):
+        captured = {}
+        monkeypatch.setattr(cli, "cmd_translate", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(cli, "cmd_run", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(sys, "argv", ["cli.py", command, "--id", "1", "--api-key", "k"] + flags)
+        cli.main()
+        assert captured["args"].translate_by_sentence is expected
+
     @pytest.mark.parametrize("flags,female,no_genre", [
         ([], None, None),
         (["--female-pronouns", "--no-genre-notes"], True, True),

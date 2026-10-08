@@ -42,3 +42,18 @@ test('bulk batches panel on a phone', async ({ page }) => {
     await page.screenshot({ path: `${process.env.SHOTS_DIR}/phone-viewport.png` })
   }
 })
+
+test('translate by sentence toggle fits a phone and works by tap', async ({ page }) => {
+  await page.goto('/#/drama/1/translate')
+  const run = page.getByRole('region', { name: 'Translate run' })
+  await run.getByText('Advanced', { exact: true }).click()
+  const toggle = run.getByRole('switch', { name: 'Translate by sentence' })
+  await expect(toggle).toBeVisible()
+  await toggle.tap()
+  await expect(toggle).toBeChecked()
+  const { scroll, client } = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }))
+  expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+})
