@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from . import ai_extract as ax
 from . import detect, generic_import, profiles, store
 from .generic_import import GENERIC_SOURCE, ComicImportResult, NoContentFound, NovelImportResult
-from .ladder import TIER_LABELS, access_facts
+from .ladder import TIER_LABELS, access_facts, browser_tier_state
 from .models import PROTECTION_REASONS, AccessTier
 
 EXTRACTION_TIER_LABELS = {
@@ -71,6 +71,7 @@ class ExtractionReport:
     data: dict = None
     access: dict = field(default_factory=dict)          # ladder.access_facts()
     resource_types: list = field(default_factory=list)  # ContentAccess values found on the page
+    browser_tier: str = ""                              # ladder.browser_tier_state()
 
     def note(self, line: str):
         self.lines.append(line)
@@ -102,6 +103,7 @@ def _note_access(report: ExtractionReport, lr):
     report.protection = [r.value for r in lr.reasons if r in PROTECTION_REASONS]
     report.access = access_facts(lr)
     report.resource_types = list(lr.resource_types)
+    report.browser_tier = browser_tier_state(lr)
     if report.protection:
         report.note("Protection detected: " + ", ".join(report.protection) +
                     " -- recorded, never decoded or worked around.")
