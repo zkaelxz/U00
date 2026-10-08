@@ -11,7 +11,7 @@ import pytest
 
 import db
 from services import disk_usage_service as dus
-from services.service_errors import InvalidInputError
+from services.service_errors import InvalidInputError, UnsupportedOperationError
 
 
 def _write(path, size):
@@ -218,3 +218,123 @@ class TestStillNeverCleared:
             dus.clear("library/backups", confirm=True, expected_size_bytes=item["size_bytes"],
                       expected_file_count=item["file_count"], confirm_irreplaceable=True)
         assert os.path.exists(os.path.join(tree, "library", "backups", "big.zip"))
+
+
+class TestDeviceNumberUnknown:
+    """os.DirEntry.stat() reports st_dev 0 on Windows; that must not read as
+    another volume."""
+
+    @staticmethod
+    def _dir_stat(dev):
+        return os.stat_result((0o040755, 1, dev, 1, 0, 0, 0, 0, 0, 0))
+
+    def test_zero_device_is_not_another_volume(self, tmp_path, monkeypatch):
+        folder = tmp_path / "plain"
+        folder.mkdir()
+        assert dus._on_another_volume(str(folder), self._dir_stat(0)) is False
+        monkeypatch.setattr(os, "lstat", lambda p, *a, **k: self._dir_stat(0))
+        assert dus._on_another_volume(str(folder), os.lstat(str(folder))) is False
+
+    def test_different_device_is_another_volume(self, tmp_path, monkeypatch):
+        folder = tmp_path / "mounted"
+        folder.mkdir()
+        monkeypatch.setattr(os, "lstat", lambda p, *a, **k: self._dir_stat(7))
+        assert dus._on_another_volume(str(folder), self._dir_stat(9)) is True
+        assert dus._on_another_volume(str(folder), self._dir_stat(7)) is False
+
+    def test_walk_with_zero_entry_devices_finds_no_link(self, tree):
+        real_scandir = os.scandir
+
+        class Entry:
+            def __init__(self, e):
+                self._e = e
+
+            def __getattr__(self, name):
+                return getattr(self._e, name)
+
+            def stat(self, follow_symlinks=True):
+                values = list(self._e.stat(follow_symlinks=follow_symlinks))
+                values[2] = 0
+                return os.stat_result(values)
+
+        class Scan:
+            def __init__(self, it):
+                self._it = it
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                return Entry(next(self._it))
+
+            def __enter__(self):
+                self._it.__enter__()
+                return self
+
+            def __exit__(self, *a):
+                return self._it.__exit__(*a)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(os, "scandir", lambda p=".": Scan(real_scandir(p)))
+            item = _item(dus.scan(""), "library")
+        assert not item["contains_link"] and item["linked_bytes"] is None
+
+
+class TestNetworkTargets:
+    @pytest.mark.parametrize("target,network", [
+        (r"\\host\share\dir", True),
+        (r"\\?\UNC\host\share", True),
+        (r"\\?\C:\data", False),
+        (r"\\.\C:\data", False),
+        (r"C:\data", False),
+        ("/mnt/data", False),
+    ])
+    def test_unc_detection(self, target, network):
+        from services import disk_usage_links as links
+        assert links._is_network_path(target) is network
+
+    def test_network_target_is_skipped_before_any_stat(self, tmp_path, monkeypatch):
+        from services import disk_usage_links as links
+        measured = []
+        sizes = links.LinkedSizes(str(tmp_path), [], dus._within, lambda *a: measured.append(a))
+        monkeypatch.setattr(os, "readlink", lambda p: r"\\host\share")
+        monkeypatch.setattr(os.path, "realpath", lambda p: r"\\host\share")
+
+        def no_stat(*a, **k):
+            raise AssertionError("a network path must not be stat'ed")
+
+        monkeypatch.setattr(os, "stat", no_stat)
+        assert sizes.of(["link"], budget=None) == (0, 0, False)
+        assert measured == []
+
+
+class TestSkippedTargets:
+    @pytest.mark.parametrize("which", ["program", "home"])
+    def test_link_to_program_or_home_folder_is_not_followed(self, tree, big, monkeypatch, which):
+        target = big / which
+        _write(str(target / "f.bin"), 1000)
+        if which == "program":
+            monkeypatch.setattr(dus, "_program_dir", lambda: os.path.realpath(str(target)))
+        else:
+            monkeypatch.setattr(dus, "_home_dirs", lambda: [os.path.realpath(str(target))])
+        _link(target, os.path.join(tree, "library", "backups", "auto"))
+        link = _item(dus.scan("library/backups"), "auto")
+        assert link["is_link"] and link["protected"]
+        assert not link["linked_bytes"]
+
+
+class TestMoveRefusesLinks:
+    def test_move_refuses_a_link(self, tree, big, tmp_path):
+        backups = os.path.join(tree, "library", "backups")
+        os.rename(backups, backups + ".old")
+        _link(big, backups)
+        with pytest.raises((InvalidInputError, UnsupportedOperationError)):
+            dus.move("library/backups", str(tmp_path / "dest"), confirm=True)
+        assert (big / "a.zip").exists()
+
+    def test_move_refuses_a_folder_on_another_volume(self, tree, monkeypatch, tmp_path):
+        backups = os.path.join(tree, "library", "backups")
+        _on_another_volume(monkeypatch, backups)
+        with pytest.raises((InvalidInputError, UnsupportedOperationError)):
+            dus.move("library/backups", str(tmp_path / "dest"), confirm=True)
+        assert os.path.exists(os.path.join(backups, "small.zip"))

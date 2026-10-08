@@ -18,6 +18,19 @@ import stat
 MAX_LINK_TARGETS = 64
 
 
+def _is_network_path(real: str) -> bool:
+    """A UNC path (\\\\host\\share). Resolving or measuring one makes Windows
+    contact that host (possible NTLM credential exposure) and a slow host
+    would stall the scan while it holds the scan lock. The local `\\\\?\\X:`
+    and `\\\\.\\X:` forms are not network paths."""
+    p = real.replace("/", "\\")
+    if not p.startswith("\\\\"):
+        return False
+    if p[2:4] in ("?\\", ".\\"):
+        return p[4:].upper().startswith("UNC\\")
+    return True
+
+
 class LinkedSizes:
     """The size of the folders links lead to, for one scan.
 
@@ -36,12 +49,25 @@ class LinkedSizes:
     def of(self, link_paths: list, budget, cut: bool = False):
         """(bytes, files, complete) for the folders `link_paths` lead to, or
         None when none of them was measured here (a file link, a target that
-        is counted where it lives, or one that is skipped)."""
+        is counted where it lives, or one that is skipped). A target on a
+        network path is never touched and makes the result incomplete."""
         total = files = 0
-        measured = False
+        measured = skipped_network = False
         complete = not cut
         for path in link_paths:
+            # The raw target is checked first: realpath on Windows can itself
+            # reach out to the host a link names.
+            try:
+                raw = os.readlink(path)
+            except OSError:
+                raw = ""
+            if _is_network_path(raw):
+                skipped_network = True
+                continue
             real = os.path.realpath(path)
+            if _is_network_path(real):
+                skipped_network = True
+                continue
             try:
                 is_dir = stat.S_ISDIR(os.stat(real).st_mode)
             except OSError:
@@ -57,6 +83,9 @@ class LinkedSizes:
             files += found.files
             measured = True
             complete = complete and not found.unreadable and not budget.hit
+        if skipped_network:
+            # Reported as incomplete rather than silently counted as empty.
+            return total, files, False
         return (total, files, complete) if measured else None
 
     def _skip(self, path: str, real: str) -> bool:

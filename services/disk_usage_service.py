@@ -369,6 +369,15 @@ def _unopenable_name(path: str, name: str) -> bool:
     return len(path) >= MAX_PATH or name.endswith((".", " "))
 
 
+def _device_differs(st, ref_dev) -> bool:
+    """True only when both device numbers are known and differ. On Windows
+    os.DirEntry.stat() always reports st_dev 0 (only os.stat/os.lstat fill it),
+    so 0 means "unknown", not "another volume"; reading it as a different
+    device would turn every Windows folder into a link. Windows junctions and
+    mounted volumes are reparse points, which _is_link_stat already catches."""
+    return bool(ref_dev) and bool(st.st_dev) and st.st_dev != ref_dev
+
+
 def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
     """Size, file count and what the folder holds: a protected file name, a
     link, or a part that could not be read. Links are counted as themselves
@@ -421,7 +430,7 @@ def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
                 # A folder on another volume (a POSIX mount point) is refused
                 # like a Windows junction: Clear must never move or delete
                 # what lives on a different disk.
-                link = _is_link_stat(st) or (stat.S_ISDIR(st.st_mode) and root_dev is not None and st.st_dev != root_dev)
+                link = _is_link_stat(st) or (stat.S_ISDIR(st.st_mode) and _device_differs(st, root_dev))
                 if link:
                     m.has_link = True
                     if len(m.links) < disk_usage_links.MAX_LINK_TARGETS:
@@ -561,7 +570,7 @@ def _on_another_volume(path: str, st) -> bool:
     if not stat.S_ISDIR(st.st_mode):
         return False
     try:
-        return os.lstat(os.path.dirname(path)).st_dev != st.st_dev
+        return _device_differs(st, os.lstat(os.path.dirname(path)).st_dev)
     except OSError:
         return False
 
