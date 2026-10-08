@@ -36,7 +36,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 **Translation & quality (engines live in `engine_backends/`; `translate_engines.py` is its front door)**: `translate_engines.py`, `translation_guide.py`, `translation_memory.py`, `auto_qc.py`, `en_cleanup.py`,
 `emotion.py`, `bulk_translate.py`, `live_translate.py`, `live_fetch.py`
 
-**Dubbing, subtitles & video**: `dub.py`, `video_export.py`, `media_inspect.py`, `subtitle_formats.py`, `video_download.py`
+**Dubbing, subtitles & video**: `dub.py`, `video_export.py`, `media_inspect.py`, `subtitle_formats.py`, `video_download.py`,
+`stereo_cues.py`, `stereo_render.py`, `loudness.py` (stereo-track DSP libraries, numpy only; `docs/specs/stereo-track.md`)
 
 **OCR, scanlation & reading**: `ocr.py`, `scanlate.py`, `hardsub_ocr.py`, `segment.py`, `dictionary.py`, `reader.py`
 
