@@ -3,7 +3,8 @@ then the translation filled into the same cue.
 
 A cue's id is its position in the session's list, which only ever grows, so a
 client can match an update to the line it already shows by id and never by
-position in a reply. Each cue carries its own translation state so one slow
+position in a reply. Cues are never trimmed or edited once done, so a
+client only re-reads cues still pending. Each cue carries its own translation state so one slow
 or failed line never hides the others."""
 import background_jobs
 

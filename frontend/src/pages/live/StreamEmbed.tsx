@@ -10,7 +10,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   AUTOPLAY_WAIT_S, DVR_WAIT_S, MUTED_NOTE, NO_DELAY_NOTE, WAITING_NOTE, YT_ORIGIN, canDelay, delayNote, delayReached, embedSrc,
-  UNREACHABLE_NOTE, notStarted, parseYouTubeInfo, planDelay, probeOffset, ytCommand, ytListenMessage, ytSeekMessage, type PlayerInfo, type StreamRef,
+  UNREACHABLE_NOTE, captionDelay, notStarted, parseYouTubeInfo, planDelay, probeOffset, ytCommand, ytListenMessage, ytSeekMessage, type PlayerInfo, type StreamRef,
 } from './embedLogic'
 
 /** Seconds to wait for the player to confirm a seek before sending it again. */
@@ -32,10 +32,9 @@ export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; de
   const [note, setNote] = useState(canDelay(stream) ? WAITING_NOTE : NO_DELAY_NOTE)
   // Set by the effect below; re-applies the delay (seek) from the last report.
   const applyRef = useRef<() => void>(() => {})
-  // Captions wait for the picture only while it really plays behind live; a stream that ignores seeks
-  // is already ahead of the lines, so holding captions back would only make them later still.
-  const pictureDelayed = canDelay(stream) && note !== NO_DELAY_NOTE && note !== UNREACHABLE_NOTE
-  const captionNode = captions?.(pictureDelayed ? delay : 0)
+  // Seconds the picture really plays behind live; the captions wait that long, not the slider's figure.
+  const [pictureDelay, setPictureDelay] = useState(0)
+  const captionNode = captions?.(pictureDelay)
   const key = stream.kind === 'twitch-channel' ? stream.name : stream.id
 
   useEffect(() => {
@@ -63,9 +62,11 @@ export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; de
     let unstartedS = 0
     let alive = true
     setNote(WAITING_NOTE)
+    setPictureDelay(0)
     setMuted(false)
     const send = (msg: string) => frame.current?.contentWindow?.postMessage(msg, YT_ORIGIN)
     const show = () => {
+      setPictureDelay(captionDelay(info, delayRef.current, { unsupported, moving, unreachable, offset }))
       if (unreachable && !moving && !delayReached(info, delayRef.current, offset)) setNote(UNREACHABLE_NOTE)
       else setNote(delayNote(info, delayRef.current, { unsupported, moving, offset }))
     }

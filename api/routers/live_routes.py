@@ -60,7 +60,7 @@ def get_ollama_check(model: str = Query(None, max_length=100)):
 
 @router.get("/sessions/{session_id}", dependencies=[require_permission("library.read")],
             response_model=LiveSessionStatus,
-            summary="Session status and cues[after:] (poll with after=next_index)",
+            summary="Session status and cues[after:] (poll from the oldest still-pending cue id)",
             responses=_ERRS)
 def get_session(request: Request, session_id: str = _SID,
                 after: int = Query(0, ge=0, le=10**9)):

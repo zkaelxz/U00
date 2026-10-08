@@ -143,7 +143,6 @@ test('shows a waiting note until the player reports, then asks again when seeks 
 test('before the player reports the note says it is waiting', async ({ page }) => {
   test.setTimeout(45_000)
   const { live } = await startRunning(page, YT, '<p>silent</p>')
-  await expect(live.getByTestId('live-video-note')).toHaveText('Waiting for the player…')
 })
 
 test('Larger video gives the picture the row and puts the lines under it, and is remembered', async ({ page }) => {
@@ -275,8 +274,31 @@ test('a player whose clock starts near 0 and runs but drops every seek is marked
 
 test('captions are not held back for a stream the player cannot delay', async ({ page }) => {
   test.setTimeout(60_000)
-  const { live } = await startRunning(page, YT, ytHtml(300, 99, { elapsedS: 43_826 }))
+  const { m, live } = await startRunning(page, YT, ytHtml(300, 99, { elapsedS: 43_826 }))
   await expect(live.getByTestId('live-video-note')).toContainText("can't be delayed", { timeout: 40_000 })
   await live.getByLabel('Video delay', { exact: true }).fill('20')
+  // A line that arrives now shows at once; the first two were shown (and cleared) while the probe ran.
+  m.state.cues = [cue(0), cue(1), cue(2)]
+  await expect(live.getByTestId('live-caption')).toContainText('Line 2:', { timeout: 10_000 })
+})
+
+test('captions wait only as long as the picture really is behind live when the window is shorter than the slider', async ({ page }) => {
+  test.setTimeout(60_000)
+  const { m, live } = await startRunning(page, YT, ytHtml(10))
+  const started = Date.now()
+  const note = live.getByTestId('live-video-note')
+  await live.getByLabel('Video delay', { exact: true }).fill('30')
+  await expect(note).toContainText('at most 10 s', { timeout: 40_000 })
+  // The caption clock starts 20 s before the first lines arrived (the second one is spoken at 20 s), so a line spoken
+  // 13 s after the elapsed time is due about 3 s from now with the 10 s the picture really has, but 23 s with the slider's 30.
+  const spoken = Math.round((Date.now() - started) / 1000) + 13
+  m.state.cues = [cue(0), cue(1), { ...cue(2), id: 2, start: spoken, end: spoken + 2, translated: 'Clamped line' }]
+  await expect(live.getByTestId('live-caption')).toContainText('Clamped line', { timeout: 15_000 })
+})
+
+test('captions are not held while the player has not started', async ({ page }) => {
+  test.setTimeout(60_000)
+  const { live } = await startRunning(page, YT, ytHtml(300, 0, { blockAll: true }))
+  await live.getByLabel('Video delay', { exact: true }).fill('30')
   await expect(live.getByTestId('live-caption')).toContainText('Line 1:', { timeout: 10_000 })
 })

@@ -603,12 +603,10 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     at a time, so a caller reading it mid-update never sees a partial
     write.
 
-    Stale-chunk guard: this call's own generation (bump_generation(),
-    captured once at the top) is re-checked before a chunk's result is
-    applied. If the Stop button bumped the generation while a chunk's
-    transcribe/translate call was still running, that chunk's result is
-    discarded -- it belongs to a session that already moved on -- instead
-    of landing after the fact.
+    Stale-chunk guard: this call's generation (bump_generation(), captured
+    at the top) is re-checked before a chunk is applied. If Stop bumped it
+    mid-chunk, the chunk is not added to the cues (its ids are reused); the
+    lines on_cues showed stay pending/cancelled until the next result.
 
     overlap_seconds: how much of each chunk's own audio tail is prepended
     to the next chunk before transcribing it (see the module docstring

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  DVR_WAIT_S, NOT_STARTED_NOTE, NO_DELAY_NOTE, UNREACHABLE_NOTE, WAITING_NOTE, canDelay, delayNote, delayReached, embedSrc, measuredDelay, notStarted, parseStreamUrl, parseYouTubeInfo, planDelay, probeOffset, ytCommand,
+  DVR_WAIT_S, NOT_STARTED_NOTE, NO_DELAY_NOTE, UNREACHABLE_NOTE, WAITING_NOTE, canDelay, captionDelay, delayNote, delayReached, embedSrc, measuredDelay, notStarted, parseStreamUrl, parseYouTubeInfo, planDelay, probeOffset, ytCommand,
 } from './embedLogic'
 
 const ID = 'dQw4w9WgXcQ'
@@ -209,5 +209,26 @@ describe('a live stream whose duration is the time since it began', () => {
     expect(probeOffset(20, report({ duration: 43830, currentTime: 22 }))).toBeNull()
     expect(probeOffset(undefined, report({ duration: 43830, currentTime: 22 }))).toBeNull()
     expect(probeOffset(20, null)).toBeNull()
+  })
+})
+
+describe('captionDelay', () => {
+  const flags = { unsupported: false, moving: false, unreachable: false }
+  it('is the delay the picture has once it got there', () => {
+    expect(captionDelay(report({ duration: 300, currentTime: 285 }), 15, flags)).toBe(15)
+  })
+  it('is the clamped window when the slider asks for more than the stream keeps', () => {
+    expect(captionDelay(report({ duration: 10, currentTime: 0 }), 30, flags)).toBe(10)
+  })
+  it('is 0 while the picture is not yet behind live', () => {
+    expect(captionDelay(null, 15, flags)).toBe(0)
+    expect(captionDelay(report({ duration: 300 }), 15, flags)).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 285 }), 30, { ...flags, moving: true })).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 300, playerState: -1 }), 15, flags)).toBe(0)
+  })
+  it('is 0 for a stream that cannot be delayed or ignores seeks', () => {
+    expect(captionDelay(report({ duration: 0 }), 15, { ...flags, unsupported: true })).toBe(0)
+    expect(captionDelay(report({ duration: 300, currentTime: 300 }), 20, { ...flags, unreachable: true })).toBe(0)
+    expect(captionDelay(report({ duration: 43826, currentTime: 100 }), 20, flags)).toBe(0)
   })
 })
