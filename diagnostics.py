@@ -1750,7 +1750,7 @@ def external_gpu_load() -> dict | None:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
              "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, errors="replace", timeout=5, check=True)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=True)
         line = result.stdout.strip().splitlines()[0]
         util_percent, used_mb, total_mb = (float(x.strip()) for x in line.split(","))
         return {"utilization_percent": util_percent, "memory_used_mb": used_mb,
@@ -1918,7 +1918,7 @@ def nvidia_driver_info():
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
-            capture_output=True, text=True, errors="replace", timeout=5, check=True)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=True)
         name, driver = (x.strip() for x in result.stdout.strip().splitlines()[0].rsplit(",", 1))
         return {"gpu_name": name[:120], "driver_version": driver[:40]}
     except Exception:

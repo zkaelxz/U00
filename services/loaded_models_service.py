@@ -125,7 +125,8 @@ def _gpu_from_nvidia_smi():
     out = subprocess.run(
         [exe, "--query-gpu=name,memory.total,memory.used,memory.free",
          "--format=csv,noheader,nounits"],
-        capture_output=True, text=True, timeout=NVIDIA_SMI_TIMEOUT_SECONDS, check=True)
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=NVIDIA_SMI_TIMEOUT_SECONDS, check=True)
     name, total, used, free = [part.strip() for part in out.stdout.splitlines()[0].split(",")]
     mib = 1024 * 1024
     return {"state": "ok", "name": name, "total_bytes": int(total) * mib,
