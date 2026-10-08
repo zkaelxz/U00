@@ -78,7 +78,7 @@ map), [`docs/README.md`](docs/README.md) (docs index),
 - **Transcription** with Whisper (optional Qwen3-ASR), **speaker diarization**, OCR for page scans and burned-in captions, and **Live** near-live stream translation.
 - **Multi-engine translation**: Claude, DeepSeek, Gemini, OpenAI or Ollama, with glossaries, term policies, style presets, emotion tags, a review queue and a consistency checker.
 - **Review and polish**: line merging, pacing checks with one-click LLM shortening, translation versions, undo, locale variants (American/British/Australian English).
-- **AI dubbing** with local voice engines (OmniVoice, Chatterbox, TADA, GPT-SoVITS), including voice cloning; audiobook (.m4b) export.
+- **AI dubbing** with the local OmniVoice voice engine, including voice cloning and voice design; audiobook (.m4b) export.
 - **Export**: SRT/VTT/ASS, burned-in (hardsub) or toggleable (softsub) video, dub track mixing, EPUB, bulk zip.
 - **Interactive Reader** with pinyin/furigana, click-to-define, in-app Q&A, in-app playback and Anki vocabulary export.
 - **Scanlate** (manga/comic typesetting): detect bubbles, clean, translate, place text, adjust, render.
@@ -190,11 +190,11 @@ Diagnostics > Danger zone > **Reset everything** deletes every drama, translatio
 
 | Engine | Cost | Notes |
 |---|---|---|
-| `claude` | Paid per token (API key from console.anthropic.com, billed separately from a Claude.ai subscription) | Best tone and character voice; novel reference with prompt caching. Model picker in Workspace > Translation (Sonnet 5, Opus 4.8, Haiku 4.5, Sonnet 4.6); see `CLAUDE_MODELS` in `translate_engines.py`. |
+| `claude` | Paid per token (API key from console.anthropic.com, billed separately from a Claude.ai subscription) | Best tone and character voice; novel reference with prompt caching. Model picker in Workspace > Translation (Sonnet 5.5 default, Opus 5.5, Haiku 4.5, plus older Sonnet and Opus kept for saved presets); see `CLAUDE_MODELS` in `translate_engines.py`. |
 | `deepseek` | Paid, far cheaper than Claude | Strong on Chinese; a good default for context-aware, glossary-aware work. |
-| `gemini` | Paid, close to DeepSeek (Flash-Lite tier); key from aistudio.google.com | Strong on Chinese/Japanese. Translation only: transcription still uses Whisper. Lineup changes often; see `GEMINI_MODELS`. |
+| `gemini` | Paid, cheap (Flash-Lite tier); key from aistudio.google.com | Strong on Chinese/Japanese. Translation only: transcription still uses Whisper. Lineup changes often; see `GEMINI_MODELS`. |
 | `openai` | Paid per token; `BAIHE_OPENAI_KEY` | GPT models (default `gpt-5-mini`) over Chat Completions. Newer GPT-5+ models appear in the picker after Diagnostics > Model health with "offer provider models" on, costed at a high ceiling ($5 in / $40 out per 1M tokens) because their real price is unknown; see `OPENAI_MODELS`. |
-| `ollama` | Free, uses your hardware | Local via [Ollama](https://ollama.com); a usable model wants real RAM/VRAM; rougher on nuance. |
+| `ollama` | Free, uses your hardware | Local Gemma 4 via [Ollama](https://ollama.com) on your GPU; free and private. The default 12B wants about 8 GB of VRAM. |
 
 Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration mode and take the novel reference; an engine that can't follow instructions tags everything "Narrator".
 
@@ -283,9 +283,8 @@ With no source audio, line timings come from each generated TTS clip, so downloa
 
 ## Dubbing & voice cloning
 
-- **Voice engines**: no engine is bundled; install one in Diagnostics, then pick it in the Dub stage (OmniVoice is the default). A speaker with no clip gets a designed voice (OmniVoice) or Chatterbox's built-in voice; GPT-SoVITS and TADA need a clean reference clip and its exact text for every speaker. "Auto-extract reference clips" pulls clips from a diarized audio drama. Not verified end to end in development: test on one short line first.
-- **Removed engines**: Edge TTS, Piper and F5-TTS were removed. A title or character that still names one shows a plain "removed" message and will not generate until you pick another engine; saved settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no longer used and can be deleted by hand.
-- **Engines, picked per character or per run**: OmniVoice (`pip install omnivoice`; clones from a 3-10s clip or designs a voice from a description), GPT-SoVITS (not a pip package: run its `api_v2.py`; default server `http://127.0.0.1:9880`, changeable in Settings), Chatterbox (`pip install chatterbox-tts`; emotion-aware, carries a PerTh watermark; run emotion detection first), TADA (`pip install hume-tada`; weights under Meta's Llama 3.2 licence, accept it on Hugging Face and run `huggingface-cli login`). OmniVoice, Chatterbox and TADA pin conflicting `transformers`/`torch` versions, so install only one per environment.
+- **Voice engine**: OmniVoice is the only engine and is not bundled; install it in Diagnostics (`pip install omnivoice`, needs `transformers` 5.3+). It clones a voice from a 3-10s clip or designs one from a description, and speaks Chinese, Japanese and Korean. A speaker with no clip gets a designed voice. "Auto-extract reference clips" pulls clips from a diarized audio drama. Not verified end to end in development: test on one short line first.
+- **Removed engines**: Edge TTS, Piper, F5-TTS, TADA, Chatterbox and GPT-SoVITS were removed. A title or character that still names one shows a plain "removed" message and will not generate until you pick OmniVoice; saved settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no longer used and can be deleted by hand, and so can a `BAIHE_GPT_SOVITS_URL` line in `.env`.
 - **Fitting to timing**: a dubbed clip longer than its slot is sped up at most 1.4x (pitch kept), a shorter one slowed at most 0.85x; past the limit the line runs over, so shorten it with the pacing check. Both limits are adjustable (`--max-speedup` / `--max-slowdown` on `cli.py dub`). Editing a line and generating again re-voices only that line.
 - **Narration**: consecutive lines from the same speaker in a paragraph are voiced in one call; each stays its own cue.
 - **Audiobook export**: "Generate audiobook (.m4b)" in Export builds an M4B with chapter markers from the novel's headings (or one per paragraph); CLI: `python cli.py dub --id N --m4b`.

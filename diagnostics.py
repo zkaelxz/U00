@@ -47,7 +47,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
     "sensevoice_tags.py", "sensitivity_preset.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
     "translation_memory.py", "action_tiers.py", "media_inspect.py",
-    "vad_segments.py", "mixed_language.py", "process_guard.py",   # the installed server's Job Object (python -m api imports it)
+    "vad_segments.py", "mixed_language.py", "ollama_unload.py", "process_guard.py",   # the installed server's Job Object (python -m api imports it)
 ]
 
 # name -> (import name, feature it powers, required vs optional)
@@ -63,16 +63,8 @@ OPTIONAL_DEPENDENCIES = {
     "soundfile": ("soundfile", "speaker diarization, vocal separation chunking, word-level realignment", "feature"),
     "pydub": ("pydub", "dub/narration track mixing", "feature"),
     # Keys are the real pip names -- Diagnostics' Install button runs
-    # `pip install <key>`. These three can't share one environment (see
-    # requirements-optional.txt), which the descriptions say before anyone clicks.
-    "omnivoice": ("omnivoice", "local voice cloning + voice design (OmniVoice; can't share an "
-                               "install with Chatterbox/TADA)", "feature"),
-    "chatterbox-tts": ("chatterbox", "emotion-aware local voice (Chatterbox; adds a PerTh "
-                                     "watermark; can't share an install with OmniVoice/TADA)",
-                       "feature"),
-    "hume-tada": ("tada", "long-narration local voice (TADA; model weights under the Llama 3.2 "
-                          "Community License; can't share an install with OmniVoice/Chatterbox)",
-                  "feature"),
+    # `pip install <key>`.
+    "omnivoice": ("omnivoice", "local voice cloning + voice design (OmniVoice)", "feature"),
     "pytesseract": ("pytesseract", "OCR (Tesseract backend)", "feature"),
     "PIL": ("PIL", "OCR, Scanlate rendering, cover art upload", "feature"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
@@ -121,12 +113,6 @@ OPTIONAL_DEPENDENCIES = {
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
     "qwen-asr": ("qwen_asr", "Qwen3-ASR transcription engine and Qwen3 forced alignment "
                              "(line timing); best in its own Python 3.12 environment", "feature"),
-    # Not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
-    # and needs transformers>=5.6, which qwen-asr's transformers==4.57.6 pin rules out.
-    "moss-transcribe-diarize": ("moss_transcribe_diarize",
-                                "experimental one-pass transcription + speaker labels "
-                                "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
-                                "can't share an install with Qwen3-ASR)", "experimental"),
     "cryptography": ("cryptography", "Google sign-in token checks, live capture of AES-128 "
                                      "encrypted HLS streams", "feature"),
     "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
@@ -196,8 +182,7 @@ def canonical_dist(name: str) -> str:
 APPROX_DOWNLOAD_MB = {
     "faster-whisper": 80, "ctranslate2": 40, "opencv-python": 45, "anthropic": 2, "openai": 2,
     "requests": 1, "beautifulsoup4": 1, "pyannote-audio": 20, "soundfile": 2,
-    "pydub": 1, "omnivoice": 60, "chatterbox-tts": 60,
-    "hume-tada": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "manga-ocr": 20,
+    "pydub": 1, "omnivoice": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "manga-ocr": 20,
     "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3,
     "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
     "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
@@ -208,8 +193,7 @@ APPROX_DOWNLOAD_MB = {
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
     "jiwer": 3, "sacrebleu": 2,
 }
-PULLS_TORCH = {"pyannote-audio", "omnivoice", "chatterbox-tts", "hume-tada",
-               "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
+PULLS_TORCH = {"pyannote-audio", "omnivoice", "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
 
 
 def approx_download_mb(name: str):
@@ -227,19 +211,9 @@ def pypi_url(name: str):
     return f"https://pypi.org/project/{canonical_dist(dist)}/"
 
 
-# Packages that aren't on PyPI: Diagnostics links to their real source
-# instead of a PyPI page someone else could register (canonical dist -> URL).
-NON_PYPI_SOURCES = {
-    "moss-transcribe-diarize": "https://github.com/OpenMOSS/MOSS-Transcribe-Diarize",
-}
-
-
 def package_source_url(name: str):
-    """Where Diagnostics links a package: its real repository for a non-PyPI
-    one, nothing for any other "experimental" entry, else pypi_url()."""
-    dist = canonical_dist(pip_install_name(name))
-    if dist in NON_PYPI_SOURCES:
-        return NON_PYPI_SOURCES[dist]
+    """Where Diagnostics links a package: nothing for an "experimental" entry
+    (not necessarily on PyPI), else pypi_url()."""
     dep = OPTIONAL_DEPENDENCIES.get(name)
     if dep and dep[2] == "experimental":
         return None
@@ -249,10 +223,6 @@ def package_source_url(name: str):
 # Packages the generic Install button must not offer, with the reason shown
 # instead (dist canonical name -> reason).
 NOT_OFFERED_FOR_INSTALL = {
-    "moss-transcribe-diarize": "not offered: it isn't on PyPI. It installs from its GitHub "
-                               "repository (OpenMOSS/MOSS-Transcribe-Diarize) into this app's "
-                               "environment, and it upgrades Transformers to 5.x, which stops "
-                               "Qwen3-ASR and Qwen3 forced alignment working.",
     "lightnovel-crawler": "not offered: it's a separate program under the GPL-3.0 licence that "
                           "you install yourself, e.g. `pipx install lightnovel-crawler` (or "
                           "`pip install lightnovel-crawler` in its own environment). Baihe only "
@@ -311,14 +281,8 @@ INSTALL_TASKS = [
      "help": "Re-align lines to individual words (experimental).",
      "packages": ["torch", "torchaudio", "uroman", "soundfile"]},
     {"id": "tts_omnivoice", "group": "Dubbing", "label": "Voice cloning: OmniVoice",
-     "help": "Clone or design a voice locally. Can't share an install with Chatterbox/TADA.",
+     "help": "Clone or design a voice locally.",
      "packages": ["omnivoice", "torch", "pydub", "huggingface_hub"]},
-    {"id": "tts_chatterbox", "group": "Dubbing", "label": "Voice cloning: Chatterbox",
-     "help": "Emotion-aware local voice. Can't share an install with OmniVoice/TADA.",
-     "packages": ["chatterbox-tts", "torch", "pydub", "huggingface_hub"]},
-    {"id": "tts_tada", "group": "Dubbing", "label": "Long narration: TADA",
-     "help": "Local voice for novel narration. Can't share an install with OmniVoice/Chatterbox.",
-     "packages": ["hume-tada", "torch", "pydub", "huggingface_hub"]},
     {"id": "hardsub_ocr", "group": "Video", "label": "Read burned-in captions (OCR)",
      "help": "Pull hard-coded subtitles out of video frames.",
      "packages": ["cv2", "numpy", "PIL", "pytesseract", "paddleocr"],
@@ -745,19 +709,6 @@ MODEL_ENGINE_REGISTRY = [
      "url": "https://github.com/k2-fsa/OmniVoice",
      "help": "A local voice-cloning engine that can also design a new voice from a text "
              "description, not just clone an existing sample."},
-    {"name": "GPT-SoVITS", "kind": "service",
-     "note": "Separate local server (not pip-installed)",
-     "url": "https://github.com/RVC-Boss/GPT-SoVITS",
-     "help": "A separate local voice-cloning server you run yourself -- the app talks to it over "
-             "its own local API rather than installing it as a package."},
-    {"name": "Chatterbox", "kind": "package", "package": "chatterbox-tts",
-     "url": "https://github.com/resemble-ai/chatterbox",
-     "help": "A local voice-cloning engine that can vary emotional delivery; adds an inaudible "
-             "watermark to its output."},
-    {"name": "TADA", "kind": "package", "package": "hume-tada",
-     "url": "https://github.com/HumeAI/tada",
-     "help": "A local voice engine tuned for long narration (e.g. novel narration) rather than "
-             "short dubbed lines."},
 ]
 
 
@@ -769,10 +720,8 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
     check a version) -- "not installed" if it isn't present. A "repo"
     entry (a bare model checkpoint this app's own code names directly, not
     a pip-versioned package) shows its Hugging Face repo id(s) as its
-    identifier instead of a version number; a "service" entry (an engine
-    running as its own separate server) shows its note. Neither a "repo"
-    nor a "service" entry has a real "not installed" state of its own, so
-    both count as installed. "installed" is a real boolean computed here
+    identifier instead of a version number and has no real "not
+    installed" state of its own, so it counts as installed. "installed" is a real boolean computed here
     from the actual check, not a string match against "not installed" in
     whatever renders it (that match would silently break
     if this literal ever changed). Makes no network call. "package" is the real pip/importlib.metadata distribution name for a
@@ -789,9 +738,6 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
     for entry in MODEL_ENGINE_REGISTRY:
         if entry["kind"] == "repo":
             version = ", ".join(entry["repo_ids"])
-            installed = True
-        elif entry["kind"] == "service":
-            version = entry["note"]
             installed = True
         else:
             try:
@@ -986,8 +932,7 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 # Only these two tiers ever get a generic Install button -- "required" is
 # already installed by definition (the app wouldn't be running otherwise)
 # and "dev" (pytest) has nothing to do with a running app session.
-# "experimental" (the MOSS backend) is listed but never installed from here:
-# it isn't on PyPI.
+# "experimental" entries are listed but never installed from here.
 INSTALLABLE_TIERS = ("feature", "engine")
 
 # Added to every install: pip's wheel cache can be unwritable or locked on
@@ -1223,16 +1168,9 @@ def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     own `-c` flag whenever the file exists -- the same mechanism
     stream_gpu_torch_reinstall already uses for torch/torchaudio,
     generalized here since an Upgrade click can just as easily target any
-    of constraints.txt's other pinned packages (e.g. transformers, which
-    OmniVoice/Chatterbox/TADA each need a specific range of -- see
-    OPTIONAL_DEPENDENCIES above). A constraint for a package not named in
-    the file is a no-op, so passing it unconditionally is always safe.
-    Note: this does NOT stop someone from upgrading OmniVoice, Chatterbox
-    and TADA into the same environment despite them documented above as
-    unable to share one -- no code anywhere enforces that today (the
-    existing Install button doesn't either, it's caption-text-only), so
-    Upgrade deliberately matches that existing behavior rather than
-    inventing a new guard for just this one action."""
+    of constraints.txt's other pinned packages (e.g. transformers). A
+    constraint for a package not named in the file is a no-op, so passing
+    it unconditionally is always safe."""
     project_root = project_root or os.path.dirname(os.path.abspath(__file__))
     constraints_path = os.path.join(project_root, "constraints.txt")
     args = ["--upgrade", pip_name]
