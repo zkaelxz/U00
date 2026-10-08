@@ -10,6 +10,7 @@ back-and-forth messages to diagnose. This turns that into one glance.
 
 import getpass
 import json
+import importlib
 import importlib.metadata
 import importlib.util
 import os
@@ -28,7 +29,7 @@ import storage
 # app to run. Kept as an explicit list (not auto-discovered) so a
 # missing file shows up as "missing" rather than just not being checked.
 EXPECTED_TOP_LEVEL_FILES = [
-    "core.py", "db.py", "translate_engines.py",
+    "core.py", "db.py", "translate_engines.py", "asmr_vad.py",
     "diarize.py", "dub.py", "video_export.py", "ocr.py", "segment.py",
     "dictionary.py", "reader.py", "scanlate.py", "metadata_lookup.py",
     "known_sites.py", "title_library.py", "vocab_export.py",
@@ -137,15 +138,10 @@ OPTIONAL_DEPENDENCIES = {
 }
 
 # Import-name slots in OPTIONAL_DEPENDENCIES that are really external
-# programs: check_dependency asks this function instead of importlib, so the
-# program is found where it will be run from (PATH or its Settings path) and
-# its Python code is never looked up or imported.
-def _lncrawl_installed() -> bool:
-    from services import lncrawl_service
-    return lncrawl_service.is_installed()
-
-
-EXTERNAL_PROGRAMS = {"lncrawl": _lncrawl_installed}
+# programs, mapped to the service whose is_installed() finds them: the program
+# is looked up where it will be run from (PATH or its Settings path) and its
+# Python code is never looked up or imported.
+EXTERNAL_PROGRAMS = {"lncrawl": "services.lncrawl_service"}
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +188,7 @@ APPROX_DOWNLOAD_MB = {
     "lightnovel-crawler": 30,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
-    "jiwer": 3, "sacrebleu": 2,
+    "jiwer": 3, "sacrebleu": 2, "onnxruntime": 15,
 }
 PULLS_TORCH = {"pyannote-audio", "omnivoice", "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
 
@@ -266,7 +262,7 @@ def install_downgrade_warning(name: str):
 INSTALL_TASKS = [
     {"id": "transcribe", "group": "Audio", "label": "Transcribe speech (Whisper)",
      "help": "Turn a drama's audio into timed lines.",
-     "packages": ["faster_whisper", "ctranslate2", "soundfile", "numpy"]},
+     "packages": ["faster_whisper", "ctranslate2", "soundfile", "numpy", "onnxruntime"]},
     {"id": "music_removal", "group": "Audio", "label": "Remove background music",
      "help": "Clean the audio before transcribing so dialogue is easier to hear.",
      "packages": ["demucs", "audio-separator", "torch", "soundfile", "numpy"],
@@ -494,7 +490,7 @@ def check_dependency(module_name: str) -> bool:
     are looked up as programs instead."""
     if module_name in EXTERNAL_PROGRAMS:
         try:
-            return bool(EXTERNAL_PROGRAMS[module_name]())
+            return bool(importlib.import_module(EXTERNAL_PROGRAMS[module_name]).is_installed())
         except Exception:
             return False
     try:

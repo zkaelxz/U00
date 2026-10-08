@@ -19,7 +19,7 @@ CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")
 # against pypi.org. Static on purpose: a new package must be added here
 # after checking its real distribution name.
 KNOWN_PYPI_DISTS = {
-    "faster-whisper", "ctranslate2", "opencv-python", "anthropic", "openai", "requests",
+    "onnxruntime", "faster-whisper", "ctranslate2", "opencv-python", "anthropic", "openai", "requests",
     "beautifulsoup4", "pyannote-audio", "soundfile", "pydub",
     "omnivoice", "pytesseract", "pillow", "paddleocr",
     "manga-ocr", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
@@ -163,9 +163,11 @@ def test_presets_report_installed_state_sizes_and_what_to_install(monkeypatch):
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda dist: None)
     out = svc.get_install_presets()
     t = next(t for t in out["tasks"] if t["id"] == "transcribe")
-    assert t["installed_count"] == 2 and t["to_install"] == ["faster_whisper", "ctranslate2"]
+    assert t["installed_count"] == 2 and t["to_install"] == [
+        "faster_whisper", "ctranslate2", "onnxruntime"]
     assert t["approx_mb"] == (diagnostics.APPROX_DOWNLOAD_MB["faster-whisper"]
-                              + diagnostics.APPROX_DOWNLOAD_MB["ctranslate2"])
+                              + diagnostics.APPROX_DOWNLOAD_MB["ctranslate2"]
+                              + diagnostics.APPROX_DOWNLOAD_MB["onnxruntime"])
     scan = next(t for t in out["tasks"] if t["id"] == "scanlate")
     assert "pypdf" in scan["packages"]
     assert "pypdf" in scan["to_install"]
