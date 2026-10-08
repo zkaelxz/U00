@@ -34,7 +34,7 @@ export type AdminBusy = { kind: AdminAction; name: string } | null
 export function installBlockedReason(jobsActive: boolean, busy: AdminBusy): string | null {
   if (busy?.kind === 'reset') return 'Wait for the reset to finish.'
   if (busy) return 'Wait for the install to finish.'
-  if (jobsActive) return 'Wait for running jobs to finish before installing.'
+  if (jobsActive) return 'Wait for running jobs to finish.'
   return null
 }
 

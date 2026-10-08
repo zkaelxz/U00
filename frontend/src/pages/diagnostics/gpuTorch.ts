@@ -30,7 +30,7 @@ export function stateText(s: DiagnosticsGpuTorchStatus): string {
     case 'mismatched': return 'torch, torchvision and torchaudio don\'t match. Set them up again together.'
     case 'cpu_on_gpu': return 'This PC has an NVIDIA GPU, but the installed PyTorch is CPU only.'
     case 'recommended': return 'The recommended PyTorch is installed.'
-    case 'different': return 'A PyTorch different from the recommended one is installed. It may work; the recommended set is the one the app is tested with.'
+    case 'different': return 'A different PyTorch than the recommended one is installed. It may work, but the app is tested with the recommended set.'
   }
 }
 
@@ -40,7 +40,7 @@ export const stateIsProblem = (s: DiagnosticsGpuTorchStatus) =>
 
 /** Why the setup can't run for this variant, or null. */
 export function setupBlockedReason(s: DiagnosticsGpuTorchStatus, v: DiagnosticsTorchVariant): string | null {
-  if (!s.python_supported) return 'This Python version has no PyTorch wheels for the recommended set.'
+  if (!s.python_supported) return 'This Python version has no PyTorch builds for the recommended set.'
   if (v.needs_nvidia && !s.nvidia.found) return 'No NVIDIA GPU found. Install the NVIDIA driver first, or use the CPU version.'
   if (v.needs_nvidia && s.nvidia.status === 'too_old') return 'Update the NVIDIA driver first (nvidia.com), then set up GPU PyTorch.'
   return null
