@@ -10,7 +10,7 @@ skip them.
 """
 import comic_chapters
 import db
-from services.service_errors import InvalidInputError, NotFoundError
+from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
 def _groups(drama_id: int):
@@ -45,7 +45,10 @@ def set_visibility(drama_id: int, hidden: bool, page_ids=None, chapter_id=None, 
             raise InvalidInputError("edge must be 'first', 'last' or 'all'.")
         files = _chapter(groups, chapter_id)["filenames"]
         names = files if edge == "all" else files[:count] if edge == "first" else files[-count:]
-    comic_chapters.set_hidden(drama_id, names, hidden)
+    try:
+        comic_chapters.set_hidden(drama_id, names, hidden)
+    except comic_chapters.ManifestUnreadable:
+        raise ConflictError("The chapter data could not be updated, so no pages were changed.")
     now_hidden = set(comic_chapters.load(drama_id)["hidden"])
     live = {p["filename"] for p in pages}
     return {"changed": len(set(names)), "hidden_count": len(now_hidden & live)}
