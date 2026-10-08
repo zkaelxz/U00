@@ -562,44 +562,32 @@ def mix_original_background(track_path: str, source_audio_path: str, drama_dir: 
     return track_path
 
 
-def build_track_subprocess_worker(lines, drama_dir, character_clone_map, is_narration,
+def build_track_subprocess_worker(lines, drama_dir, character_clone_map,
                                   max_speedup, max_slowdown, result_queue,
-                                  narrate_original=False, source_language="zh",
                                   background_source=None, separation_backend="auto"):
-    """Entry point for running build_dub_track()/build_narration_track()
-    in its own OS process via background_jobs.start_process_job(), so
-    Cancel can actually stop it. Confirmed safe to hard-stop: each clip
-    is written to its own file, and both functions already reuse (rather
-    than re-synthesize) any clip that exists from a prior partial run -- a
-    kill mid-run loses only the clip(s) mid-synthesis, which the next run
-    regenerates on its own. (build_narration_track, which can have several
-    clips in flight at once, writes each under a temporary name first.)
+    """Entry point for running build_dub_track() in its own OS process via
+    background_jobs.start_process_job(), so Cancel can actually stop it.
+    Confirmed safe to hard-stop: each clip is written to its own file, and
+    build_dub_track reuses (rather than re-synthesizes) any clip that
+    exists from a prior partial run -- a kill mid-run loses only the
+    clip(s) mid-synthesis, which the next run regenerates on its own.
+    (Novel narration has its own worker, dub_narration's
+    build_narration_subprocess_worker.)
 
-    Puts back the (mutated) lines -- both functions set .dub_filename
-    per line, and build_narration_track also rewrites .start/.end to the
-    clip's actual timing -- since the caller needs those values, not
-    just out_path/errors. Must stay a plain, top-level, picklable
-    function; lines are plain Line dataclasses, already picklable.
-    max_speedup/max_slowdown: build_dub_track's time-stretch clamp (a
-    narration has no timing to fit, so it ignores them).
-    narrate_original/source_language: narration
-    only (build_dub_track's video-dub path ignores both -- dubbing a video
-    in its own original language doesn't make sense). background_source:
-    path of the original audio; when given on a video dub, its
+    Puts back the (mutated) lines -- build_dub_track sets .dub_filename
+    per line -- since the caller needs those values, not just
+    out_path/errors. Must stay a plain, top-level, picklable function;
+    lines are plain Line dataclasses, already picklable.
+    background_source: path of the original audio; when given, its
     background is mixed back under the finished track. A failed/missing
     separation never loses the dub -- the plain track is kept and the result
     carries background_mixed False plus a fixed background_error text."""
     try:
-        if is_narration:
-            out_path, errors = build_narration_track(
-                lines, drama_dir, character_clone_map,
-                narrate_original=narrate_original, source_language=source_language)
-        else:
-            out_path, errors = build_dub_track(
-                lines, drama_dir, character_clone_map,
-                max_speedup=max_speedup, max_slowdown=max_slowdown)
+        out_path, errors = build_dub_track(
+            lines, drama_dir, character_clone_map,
+            max_speedup=max_speedup, max_slowdown=max_slowdown)
         result = {"lines": lines, "out_path": out_path, "errors": errors}
-        if background_source and not is_narration:
+        if background_source:
             import audio_preprocess
             try:
                 mix_original_background(out_path, background_source, drama_dir,
@@ -612,13 +600,3 @@ def build_track_subprocess_worker(lines, drama_dir, character_clone_map, is_narr
         result_queue.put(("ok", result))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, str(exc)))
-
-
-# Narration lives in dub_narration.py; re-exported so callers keep using dub.X.
-# Imported last because dub_narration reads dub's helpers when it loads.
-from dub_narration import (  # noqa: E402,F401
-    NARRATION_TTS_MAX_CHARS, NOVEL_SOURCE_FILENAME, _CHAPTER_HEADING_RE,
-    _CHAPTER_HEADING_MAX_CHARS, _SENTENCE_END, is_chapter_heading,
-    narration_paragraph_ends, _narration_steps, build_narration_track,
-    narration_chapters, _ffmetadata_escape, _wav_duration_ms,
-    narration_ffmetadata, export_narration_m4b)

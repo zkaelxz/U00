@@ -1,8 +1,7 @@
 """
 dub_narration.py -- novel narration: chapter detection, narration track
-assembly and M4B audiobook export. Split out of dub.py, which re-exports
-every name here; import it through dub, not directly (it needs dub's
-voice and clip helpers, and dub imports this module).
+assembly and M4B audiobook export. Split out of dub.py; depends on dub's
+voice and clip helpers, never the other way round.
 """
 
 import os
@@ -309,3 +308,21 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
         subprocess.run(cmd, check=True, capture_output=True,
                        timeout=M4B_ENCODE_TIMEOUT_SECONDS)
     return out_path
+
+
+def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, result_queue,
+                                      narrate_original=False, source_language="zh"):
+    """Process-job entry point for build_narration_track(), so Cancel can
+    actually stop it. Safe to hard-stop: clips are reused from a prior
+    partial run, and clips in flight are written under a temporary name
+    first. Puts back the mutated lines because build_narration_track
+    rewrites .start/.end and .dub_filename. Must stay a plain top-level
+    picklable function; callers bind the options by keyword so
+    background_jobs' trailing result_queue lands in the right slot."""
+    try:
+        out_path, errors = build_narration_track(
+            lines, drama_dir, character_clone_map,
+            narrate_original=narrate_original, source_language=source_language)
+        result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors}))
+    except Exception as exc:
+        result_queue.put(("error", type(exc).__name__, str(exc)))
