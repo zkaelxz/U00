@@ -81,7 +81,7 @@ export function BuildSetSection({ pc, onDone }: { pc: PcMode; onDone: () => void
             ))}
           </select>
         </Field>
-        <Field label="Set name">
+        <Field label="New set name">
           <input value={form.setName} maxLength={MAX_SET_NAME} onChange={(e) => set({ setName: e.target.value })} placeholder="e.g. moon-reviewed" />
         </Field>
         <Field label="Lines to use" help="Reviewed: only lines you edited and saved, or approved into translation memory. All lines: every line with a source and a translation, including ones you read and left as they were.">
