@@ -10,6 +10,7 @@ import { routeCrumbs } from '../../nav/breadcrumbs'
 import { routeHref } from '../../router'
 import { isComicType } from '../comic/comicLogic'
 import type { WorkflowProgress } from '../../types/workspace'
+import { COMIC_STAGE_TITLE, ComicStageNotice, isLineStageForComic } from './ComicStageNotice'
 import { STAGE_COMPONENTS } from './stageRegistry'
 import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, nextAction, stageStates, startStage } from './stages'
 import { JobPill } from './JobPill'
@@ -51,7 +52,11 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const active = stage !== null ? startStage(stage, null, false) : opened
   const states = stageStates(progress?.stages)
   const phone = useMediaQuery('(max-width: 640px)')
-  const next = nextAction(active, progress)
+  const comic = !!drama && isComicType(drama.media_type)
+  const comicNotice = comic && isLineStageForComic(active)
+  // The line stages are empty for a comic, so "Next" never sends it there.
+  const rawNext = nextAction(active, progress)
+  const next = comic && rawNext && isLineStageForComic(rawNext.stage) ? null : rawNext
   // On Review the phone's fixed edit bar owns the bottom edge, so the bar stays away.
   const nextHref = next ? routeHref({ name: 'drama', id, stage: next.stage }) : null
   const Stage = active ? STAGE_COMPONENTS[active] : null
@@ -110,9 +115,9 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
             href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id, page: null })}
             variant="ghost"
             size="sm"
-            className="ws-read"
+            className={comic ? 'ws-read ws-read-comic' : 'ws-read'}
           >
-            Read
+            {comic ? 'Open in Scanlate' : 'Read'}
           </ButtonLink>
         )}
         {next && nextHref && !phone && (
@@ -126,13 +131,15 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           const st = states[s]
           const count = stageCount(s, progress)
           // The state (and count) is the link's description, not its name, so "Review" stays "Review".
-          const desc = [st && STAGE_STATE_WORDS[st], count].filter(Boolean).join(' · ')
+          const skipped = comic && isLineStageForComic(s)
+          const desc = skipped ? COMIC_STAGE_TITLE : [st && STAGE_STATE_WORDS[st], count].filter(Boolean).join(' · ')
           return (
             <a
               key={s}
               href={routeHref({ name: 'drama', id, stage: s })}
               aria-current={s === active ? 'page' : undefined}
               data-state={st}
+              data-comic-skipped={skipped ? 'true' : undefined}
               title={desc ? `${STAGE_LABELS[s]}: ${desc}` : undefined}
             >
               {st ? (
@@ -157,7 +164,9 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       </nav>
       </div>
       <ErrorBanner error={error} />
-      {ctx && Stage ? (
+      {comicNotice ? (
+        <ComicStageNotice id={id} />
+      ) : ctx && Stage ? (
         <StageContext.Provider value={ctx}>
           <Stage />
         </StageContext.Provider>
