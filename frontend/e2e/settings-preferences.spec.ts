@@ -16,6 +16,8 @@ const PREFS = {
   monthly_cap_usd: null as number | null,
   max_upload_mb: 20480,
   ollama_num_ctx_override: 0,
+  keep_free_vram_gb: 0,
+  keep_free_ram_gb: 0,
   whisper_model_path: '',
   ocr_backend: 'auto',
   ocr_prefer_paddle_vl_manga: false,
@@ -148,6 +150,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
   await offline.getByRole('button', { name: 'Save' }).click()
   await expect(offline.getByRole('alert')).toContainText('whole number')
   await offline.getByLabel('Ollama context window', { exact: true }).fill('16384')
+  await offline.getByLabel('Keep free graphics memory', { exact: true }).fill('4')
   await offline.getByLabel('Offline Whisper model folder', { exact: true }).fill('D:\\models\\whisper-small')
   await offline.getByRole('button', { name: 'Save' }).click()
   await expect(offline.getByRole('status')).toHaveText('Saved.')
@@ -166,7 +169,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
 
   expect(posts.map((p) => p.body)).toEqual([
     { monthly_cap_usd: 12.5 },
-    { whisper_model_path: 'D:\\models\\whisper-small', ollama_num_ctx_override: 16384 },
+    { whisper_model_path: 'D:\\models\\whisper-small', ollama_num_ctx_override: 16384, keep_free_vram_gb: 4 },
     { ocr_backend: 'manga_ocr', ocr_prefer_paddle_vl_manga: true, tesseract_cmd: 'C:\\Tess\\tesseract.exe' },
     { cookies_browser: 'firefox' },
   ])

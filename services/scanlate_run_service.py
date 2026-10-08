@@ -34,6 +34,7 @@ No FastAPI import.
 import background_jobs
 import db
 import translate_engines
+from memory_headroom import HeadroomError
 from services import comic_chapters_service
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
@@ -162,6 +163,8 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
         result, new_context = scanlate.translate_regions_by_id(
             keyed, engine, drama, previous_context=context, usage_cb=usage_cb,
             glossary_terms=glossary)
+    except HeadroomError:
+        raise  # the Ollama check refuses on every page; stop the job once
     except Exception as exc:
         notes.append(("warning", f"Translation failed ({type(exc).__name__}: {exc}). The OCR "
                                  "text was saved; use Redo this page to try again."))
@@ -263,7 +266,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
         try:
             counts[_process_page(drama_id, drama, pid, mode, engine, engine_name,
                                  detect_kwargs, glossary)] += 1
-        except background_jobs.JobCancelled:
+        except (background_jobs.JobCancelled, HeadroomError):
             raise
         except Exception as exc:
             counts["failed"] += 1
