@@ -146,14 +146,21 @@ async function run(all) {
     if (pages) parts.push(`${pages} page${pages === 1 ? "" : "s"} translated`);
     if (cached) parts.push(`${cached} already done`);
     if (skipped) parts.push(`${skipped} skipped as not a page`);
+    const failed = result.data.failed;
+    if (failed) parts.push(failed.message);
     say(parts.join(", ") + (notes.length ? ` — ${notes[0][1]}` : ""),
-        notes.some((n) => n[0] === "error"));
+        !!failed || notes.some((n) => n[0] === "error"));
   } catch (e) {
     // The usual cause is a page the browser won't let an extension into
     // (the Chrome Web Store, a PDF viewer, chrome:// pages).
     say(`Couldn't run on this page (${e.message}).`, true);
   }
 }
+
+// Interim status from a long translateVisible run in the page.
+chrome.runtime.onMessage.addListener((message) => {
+  if (message && message.type === "progress" && message.text) say(message.text);
+});
 
 async function runText() {
   const tab = await activeTab();
