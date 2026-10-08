@@ -13,6 +13,7 @@ import { attachNotice, epubRange } from '../preambleForm'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { LncrawlPanel } from './LncrawlPanel'
+import { NovelFilePanel } from './NovelFilePanel'
 import { epubSizeProblem } from './novelFile'
 import { useNovelFilesVersion } from './novelFileEvents'
 import './preamble.css'
@@ -26,13 +27,16 @@ interface Props {
   kind?: 'audio' | 'novel' | 'comic'
   // Open by default when this is the first workflow for the drama's media type.
   primary?: boolean
+  // Nothing is attached and novel text is not this title's main workflow: one collapsed
+  // row, with the raw-novel upload inside it instead of in Transcribe.
+  optional?: boolean
 }
 
 // OCR backend ids ("manga_ocr") as readable names; the option value stays raw.
 const OCR_LABELS: Record<string, string> = { manga_ocr: 'Manga OCR', paddle: 'PaddleOCR', tesseract: 'Tesseract' }
 const ocrLabel = (b: string) => OCR_LABELS[b] ?? humanizeValue(b)
 
-export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = 'audio', primary = false }: Props) {
+export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = 'audio', primary = false, optional = false }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [status, setStatus] = useState<NovelStatus | null>(null)
   const [mode, setMode] = useState<NovelMode>('replace')
@@ -141,15 +145,19 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
   )
 
   return (
-    <section className="panel" aria-label="Novel text">
-      <Section storageKey="source.novel" defaultOpen={primary} title="Novel text" summary={summary}>
-        <h4 className="source-subhead">Raw source novel (original language, used as reference)</h4>
-        <p className="muted" data-testid="raw-status">
-          {hasRaw
-            ? 'Saved. It only primes the Whisper prompt and glossary extraction; it is not translated.'
-            : 'None saved. Add one under Transcribe if you want the Whisper prompt to use its names.'}
-        </p>
-        <h4 className="source-subhead">Text used for translation</h4>
+    <section className="panel" aria-label={optional ? 'Attach novel text (optional)' : 'Novel text'}>
+      <Section storageKey="source.novel" defaultOpen={primary} title={optional ? 'Attach novel text (optional)' : 'Novel text'} summary={optional && !status?.has_novel_text ? undefined : summary}>
+        {!optional && (
+          <>
+            <h4 className="source-subhead">Raw source novel (original language, used as reference)</h4>
+            <p className="muted" data-testid="raw-status">
+              {hasRaw
+                ? 'Saved. It only primes the Whisper prompt and glossary extraction; it is not translated.'
+                : 'None saved. Add one under Transcribe if you want the Whisper prompt to use its names.'}
+            </p>
+            <h4 className="source-subhead">Text used for translation</h4>
+          </>
+        )}
         {comic && ocrSection}
         <p className="muted" data-testid="novel-status">
           {status?.has_novel_text
@@ -221,6 +229,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
           }}
         />
         {!comic && ocrSection}
+        {optional && <NovelFilePanel kind="raw" busy={busy} />}
         {notice && <p role="status">{notice}</p>}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
       </Section>

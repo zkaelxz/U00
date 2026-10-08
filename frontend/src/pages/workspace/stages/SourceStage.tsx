@@ -31,6 +31,8 @@ import { DetailsPanel } from './DetailsPanel'
 import { FillInPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
 import { NovelPanel } from './NovelPanel'
+import { novelSections } from './novelFile'
+import { useNovelPresence } from './novelFileEvents'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
 import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
@@ -271,6 +273,13 @@ export default function SourceStage() {
 
   // The workflow for the drama's media type comes first and opens by default.
   const kind = mediaKind(drama.media_type)
+  const novelPresence = useNovelPresence(dramaId, reloads)
+  const presenceSections = novelSections(kind, drama.media_type, drama.content_mode, novelPresence)
+  // Saving a raw novel from the optional row must not move that panel to Transcribe under the
+  // viewer's hands, so the row stays until the page is reloaded or another title is opened.
+  const [optionalFor, setOptionalFor] = useState<number | null>(null)
+  if (novelPresence && presenceSections === 'optional' && optionalFor !== dramaId) setOptionalFor(dramaId)
+  const sections = presenceSections === 'full' && optionalFor === dramaId && kind === 'audio' ? 'optional' : presenceSections
   const transcribe = (
     <Section
       key="transcribe"
@@ -282,6 +291,7 @@ export default function SourceStage() {
     >
       <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} confirmReplace={confirmReplace}
         replaceUnconfirmed={mustConfirm && !replace} onReplaceRefused={() => setServerHasMedia(true)} busy={busy}
+        showRawNovel={sections === 'full'}
         onJobStarted={(id, expected, sentFile) => {
           // Otherwise every later run would upload the same file again and keep another full copy.
           if (sentFile) {
@@ -297,9 +307,9 @@ export default function SourceStage() {
       />
     </Section>
   )
-  const novel = (
+  const novel = sections !== 'hidden' && (
     <div key="novel" className="source-group">
-      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} />
+      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} optional={sections === 'optional'} />
     </div>
   )
   const groups = kind === 'audio' ? [transcribe, novel] : [novel, transcribe]
