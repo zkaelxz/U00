@@ -75,7 +75,7 @@ OPTIONAL_DEPENDENCIES = {
     "pykakasi": ("pykakasi", "Japanese furigana (Reader)", "feature"),
     "kiwipiepy": ("kiwipiepy", "Korean word segmentation (Reader)", "feature"),
     "transformers": ("transformers", "ML bubble detection (Scanlate), PaddleOCR-VL-For-Manga "
-                                     "(needs transformers 5+), MOSS-Transcribe-Diarize, qwen-asr", "feature"),
+                                     "(needs transformers 5+), qwen-asr", "feature"),
     "torch": ("torch", "ML bubble detection/inpainting (Scanlate), PaddleOCR-VL-For-Manga, "
                         "word-level realignment, several TTS/ASR backends", "feature"),
     "torchaudio": ("torchaudio", "word-level realignment (MMS forced alignment, experimental)",
