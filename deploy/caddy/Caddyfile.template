@@ -142,7 +142,7 @@
 		path /api/review-extras/dramas/*/style/reset /api/review-extras/dramas/*/style/restore
 		path /api/review/dramas/*/versions/*/delete
 		path /api/discover/titles/*/delete
-		path /api/sources/*/signin/open /api/sources/*/signin/forget /api/sources/*/tier-test
+		path /api/sources/*/signin/open /api/sources/*/signin/forget /api/sources/*/tier-test /api/sources/*/pace
 		path /api/sources/dramas/*/extraction/save-profile
 		path /api/sources/dramas/*/extraction/approve-profile
 		path /api/library/presets/*/delete /api/library/voice-bank/*/delete

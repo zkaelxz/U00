@@ -816,7 +816,7 @@ class TestCacheCeiling:
 
     def test_lowering_the_setting_trims_now(self, isolated_db, monkeypatch):
         from services import sources_registry_service as svc
-        monkeypatch.setattr(svc.src_http, "reset_pacing_state", lambda: None)
+        monkeypatch.setattr(svc.src_http, "reset_pacing_state", lambda **kw: None)
         c = cache_mod.RawCache("keep_originals")
         c.put("https://c.invalid/a", b"a" * (600 * 1024))
         c.put("https://c.invalid/b", b"b" * (600 * 1024))

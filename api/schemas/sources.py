@@ -27,6 +27,7 @@ __all__ = [
     "TrackedSeries",
     "SourceNotification",
     "SourceToggle",
+    "SourcePaceRequest",
     "SourceExtensionOnlyRequest",
     "SourceExtensionOnly",
     "SourcesSettingsUpdate",
@@ -161,6 +162,9 @@ class SourceSummary(BaseModel):
     adult_enabled: bool
     health: str = Field(description="green, yellow or red.")
     has_saved_signin: bool
+    pace: str = Field(description="careful, normal or fast.")
+    fast_allowed: bool = Field(description="False until the adapter records evidence for fast.")
+    slowed_down: bool = Field(description="True while this session's automatic slowdown is active.")
     extension_only: bool = Field(default=False, description="The person marked this source as working only through the browser extension.")
 
 
@@ -291,6 +295,11 @@ class SourceNotification(BaseModel):
 class SourceToggle(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: StrictBool
+
+
+class SourcePaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pace: str = Field(max_length=20, description="careful, normal or fast (fast only where allowed).")
 
 
 class SourceExtensionOnlyRequest(BaseModel):

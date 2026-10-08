@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from statistics import median
 from urllib.parse import urljoin, urlsplit
 
-from . import auth_browser, ladder, registry, store
+from . import auth_browser, ladder, pacing, registry, store
 from .http import PacingPolicy, SourceClient
 from .models import AccessTier, ContentAccess, SourceError
 
@@ -299,8 +299,10 @@ def http_client(client=None, url: str = "") -> SourceClient:
     if client is not None:
         return client
     cls = registry.adapter_class_for_url(url)
-    return SourceClient(cls.name if cls else GENERIC_SOURCE,
-                        policy=PacingPolicy.from_settings(cls.host_min_interval if cls else None))
+    policy = PacingPolicy.from_settings(cls.host_min_interval if cls else None)
+    if cls:
+        policy = pacing.for_source(policy, cls.name, cls.pacing_profile)
+    return SourceClient(cls.name if cls else GENERIC_SOURCE, policy=policy)
 
 
 def _default_capabilities(client: SourceClient):

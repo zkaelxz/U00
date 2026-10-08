@@ -38,8 +38,9 @@ from urllib.parse import urljoin, urlsplit
 
 from translate_engines import safe_url
 
-from . import detect, health, store
+from . import charset_sniff, detect, health, pacing, store
 from .cache import RawCache
+from .limiter import Limiter
 from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REASONS,
                      FailureReason, FetchFailed, SourceUnavailable)
 
@@ -213,78 +214,9 @@ class Response:
 _META_CHARSET = re.compile(rb"""<meta[^>]+charset=["']?([\w-]+)""", re.I)
 
 
-# Encodings tried, in order, for a page that declares no charset and is not
-# valid UTF-8. Order is the tie-break when two score the same.
-_SNIFF_CANDIDATES = ("gb18030", "big5", "cp932", "euc_jp", "euc_kr")
-_SNIFF_SAMPLE = 64 * 1024
 # Declared names that are strict subsets of GB18030: decode with the superset
 # so a character outside the declared table still comes out right.
 _GB_SUBSETS = {"gb2312", "gb_2312", "gb_2312-80", "gbk", "x-gbk", "cp936", "gb-2312", "euc-cn", "euccn"}
-
-
-# Very common ideographs (simplified, traditional and shared kanji forms). A
-# wrong legacy decode yields ideographs too, but rarely these ones.
-_COMMON_HANZI = frozenset(
-    "的一是不了人我在有他这中大来上国个到说们为子和你地出道也时年得就那要下以生会自着去之过家学对可她里后小么心多天而能好都然没日于起还发成事只作当想看文无开手十用主行方又如前所本见经头面公同三已老从动两长知民样现分将外但身些与高意进把法此实回二理美点月明其种声全工话儿者向情部正名定女问力机给等几很业最间新什写活加相"
-    "的一是不了人我在有他這中大來上國個到說們為子和你地出道也時年得就那要下以生會自著去之過家學對可她裡後小麼心多天而能好都然沒日於起還發成事只作當想看文無開手十用主行方又如前所本見經頭面公同三已老從動兩長知民樣現分將外但身些與高意進把法此實回二理美點月明其種聲全工話兒者向情部正名定女問力機給等幾很業最間新什寫活加相"
-    "第章節話卷後彼私俺僕君達的様事時間何者人日本語今見行来出会思言生学校手気分中女男子大小上下前後年月"
-)
-
-
-def _sniff_score(text: str, kana_counts: bool = True, hanja_weight: float = 0.2) -> float:
-    """How much `text` looks like real CJK prose. Kana and hangul are strong
-    evidence, common ideographs are good evidence, other ideographs weak;
-    replacement, control, private-use, rare (extension / compatibility)
-    ideographs (in Korean, any non-common one) and half-width katakana (what EUC-JP looks like when misread
-    as Shift-JIS) count heavily against."""
-    score = 0.0
-    for ch in text:
-        o = ord(ch)
-        if 0x3040 <= o <= 0x30FF:
-            # GB2312 has kana in the same cells as EUC-JP, so they say nothing
-            # when the candidate is GB18030.
-            score += 1.5 if kana_counts else 0
-        elif 0xAC00 <= o <= 0xD7A3:
-            score += 1
-        elif ch in _COMMON_HANZI:
-            score += 2
-        elif 0x4E00 <= o <= 0x9FFF:
-            score += hanja_weight
-        elif o == 0xFFFD or o < 0x20 and ch not in "\t\n\r" or 0x7F <= o < 0xA0 \
-                or 0xE000 <= o <= 0xF8FF or 0x3400 <= o <= 0x4DBF or 0xF900 <= o <= 0xFAFF \
-                or 0xFF61 <= o <= 0xFF9F:
-            score -= 10
-    return score
-
-
-def _sniff_decode(content: bytes) -> str:
-    """Decodes bytes with no declared charset: BOM, then strict UTF-8, then
-    the best-scoring legacy CJK encoding on a bounded sample. Never raises."""
-    for bom, enc in ((b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16")):
-        if content.startswith(bom):
-            return content.decode(enc, errors="replace")
-    try:
-        return content.decode("utf-8")
-    except UnicodeDecodeError:
-        pass
-    sample = content[:_SNIFF_SAMPLE]
-    best, best_score = None, 0.0
-    for enc in _SNIFF_CANDIDATES:
-        text = None
-        # The sample may cut a multi-byte character in half.
-        for trim in range(4):
-            try:
-                text = (sample[:len(sample) - trim] if trim else sample).decode(enc)
-                break
-            except UnicodeDecodeError:
-                continue
-        if text is None:
-            continue
-        score = _sniff_score(text, kana_counts=enc != "gb18030",
-                             hanja_weight=-1.0 if enc == "euc_kr" else 0.2)
-        if score > best_score:
-            best, best_score = enc, score
-    return content.decode(best or "utf-8", errors="replace")
 
 
 def decode_html(content: bytes, headers: dict = None) -> str:
@@ -304,13 +236,13 @@ def decode_html(content: bytes, headers: dict = None) -> str:
         mm = _META_CHARSET.search(content[:4096])
         enc = mm.group(1).decode("ascii", "ignore") if mm else None
     if not enc:
-        return _sniff_decode(content)
+        return charset_sniff.sniff_decode(content)
     if enc.lower() in _GB_SUBSETS:
         enc = "gb18030"
     try:
         return content.decode(enc, errors="replace").lstrip("\ufeff")
     except LookupError:
-        return _sniff_decode(content)
+        return charset_sniff.sniff_decode(content)
 
 
 MAX_REDIRECTS = 5
@@ -764,14 +696,11 @@ def _state(source: str, max_concurrent: int) -> dict:
     with _state_lock:
         st = _source_state.get(source)
         if st is None:
-            st = {"sem": threading.BoundedSemaphore(max_concurrent), "limit": max_concurrent,
+            st = {"sem": Limiter(max_concurrent),
                   "break_lock": threading.Lock(), "good_mirror": None}
             _source_state[source] = st
-        elif st["limit"] != max_concurrent:
-            # Holders of the old semaphore release it as they finish; only
-            # the limit is replaced, never the break counter or mirror.
-            st["sem"] = threading.BoundedSemaphore(max_concurrent)
-            st["limit"] = max_concurrent
+        else:
+            st["sem"].set_limit(max_concurrent)
         return st
 
 
@@ -807,13 +736,16 @@ def _host(host: str, min_interval: float) -> dict:
         return hs
 
 
-def reset_pacing_state():
+def reset_pacing_state(keep_slowdown: bool = False):
     """Test helper / settings-change hook: forget every host's last
     request time and declared minimum interval, rebuild the concurrency
-    limits, and forget which mirror last worked for each source."""
+    limits, and forget which mirror last worked for each source. A settings
+    change keeps the slowdown a source earned; it is not a way to clear it."""
     with _state_lock:
         _source_state.clear()
         _host_state.clear()
+    if not keep_slowdown:
+        pacing.reset_slowdown()
 
 
 class SourceClient:
@@ -906,20 +838,20 @@ class SourceClient:
         only blocks other requests to that host."""
         self._acquire_cancellable(st["break_lock"])
         try:
-            self._maybe_take_a_break(st)
+            self._maybe_take_a_break(st, pacing.slow_key(self.source, host))
         finally:
             st["break_lock"].release()
         declared = {str(k).lower(): v for k, v in self.policy.host_min_interval.items()}
         hs = _host(host, float(declared.get(host, 0.0)))
+        key = pacing.slow_key(self.source, host)
         self._acquire_cancellable(hs["lock"])
         try:
             gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
-            gap = max(gap, hs["min_interval"])
-            if hs["last"] is not None:
-                wait = hs["last"] + gap - self.clock()
-                if wait > 0:
-                    self._status(f"Waiting {wait:.1f}s before next request...", wait)
-                    self._sleep_cancellable(wait)
+            gap = max(gap, hs["min_interval"]) * pacing.multiplier(key)
+            wait = pacing.wait_seconds(key, hs["last"], gap, self.clock())
+            if wait > 0:
+                self._status(f"Waiting {wait:.1f}s before next request...", wait)
+                self._sleep_cancellable(wait)
             hs["last"] = self.clock()
         finally:
             hs["lock"].release()
@@ -929,7 +861,7 @@ class SourceClient:
         hi = self.policy.session_break_max_requests
         return max(1, round(self.rng.uniform(lo, hi)))
 
-    def _maybe_take_a_break(self, st: dict):
+    def _maybe_take_a_break(self, st: dict, key: str):
         """Every `break_at` requests to this source (across every host),
         pauses for longer than the ordinary per-request gap -- a person
         would set the app down and come back rather than keep an evenly
@@ -941,7 +873,8 @@ class SourceClient:
             st["since_break"] = 0
         if st["since_break"] >= st["break_at"]:
             pause = self.rng.uniform(self.policy.session_break_min_delay,
-                                     self.policy.session_break_max_delay)
+                                     self.policy.session_break_max_delay) \
+                * pacing.multiplier(key)
             self._status(f"Taking a break ({pause:.0f}s)...", pause)
             self._sleep_cancellable(pause)
             st["since_break"] = 0
@@ -987,6 +920,7 @@ class SourceClient:
         st = _state(self.source, self.policy.max_concurrent)
 
         attempt_no = 0
+        slowed = False
         while True:
             with st["sem"]:
                 self._wait_turn(host, st)
@@ -1042,6 +976,8 @@ class SourceClient:
                                                        at=time.time(), **ev))
                     if record_health:
                         health.record_success(self.source, latency)
+                    if pacing.note_success(pacing.slow_key(self.source, host)):
+                        self._status("Pace relaxed one step")
                     # Content a redirect fetched from another host, or over a
                     # downgraded scheme, is never stored under the URL that
                     # was asked for.
@@ -1064,6 +1000,7 @@ class SourceClient:
                 # every automated request and goes to the person.
                 if reason in CHALLENGE_REASONS:
                     self.attempts.append(attempt)
+                    self._note_pushback("challenge", resp, False, host)
                     if record_health:
                         health.record_failure(self.source, reason.value,
                                               f"Challenge at {url}")
@@ -1074,14 +1011,16 @@ class SourceClient:
                 retryable = reason == FailureReason.RATE_LIMIT or resp.status_code >= 500
 
             self.attempts.append(attempt)
+            slowed = self._note_pushback(pacing.pushback_kind(attempt.reason), resp, slowed, host)
             if retryable and attempt_no < self.policy.max_retries:
                 backoff = min(self.policy.backoff_base * (2 ** attempt_no), MAX_SINGLE_BACKOFF)
                 retry_hdr = (resp.headers if resp is not None else {})
                 ra = {k.lower(): v for k, v in retry_hdr.items()}.get("retry-after")
                 # Retry-After can only lengthen the wait, never past the cap;
                 # only the delta-seconds form is read (an HTTP-date is ignored).
-                if ra and str(ra).strip().isdigit():
-                    backoff = min(max(backoff, float(ra)), MAX_SINGLE_BACKOFF)
+                ra_seconds = pacing.retry_after_seconds(ra)
+                if ra_seconds is not None:
+                    backoff = min(max(backoff, ra_seconds), MAX_SINGLE_BACKOFF)
                 attempt_no += 1
                 self.stats["retries"] += 1
                 self._status(f"{attempt.reason} -- retry {attempt_no}/{self.policy.max_retries} "
@@ -1094,6 +1033,17 @@ class SourceClient:
                                       attempt.describe())
             self._status("Idle", 0.0)
             raise FetchFailed(attempt.describe(), FailureReason(attempt.reason), attempt)
+
+    def _note_pushback(self, kind, resp, slowed: bool, host: str = "") -> bool:
+        """Feeds a pushback into the source's automatic slowdown; True once
+        this request has slowed it, so retries of it do not slow it again."""
+        notice = pacing.note_pushback(pacing.slow_key(self.source, host), kind,
+                                      resp.headers if resp is not None else {},
+                                      self.clock(), slowed)
+        if notice:
+            self.stats["notice"] = notice
+            self._status(notice)
+        return slowed or bool(notice)
 
     def paced(self, fn, url: str, access_method: str, action: str = None):
         """Runs a non-HTTP fetch (e.g. a headless-browser render) under the

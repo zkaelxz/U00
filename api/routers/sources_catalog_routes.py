@@ -18,7 +18,7 @@ from api.schemas import (ErrorResponse, SourceAttempt, SourceCacheClearRequest,
                          SourceExtensionOnlyRequest, SourceHealth, SourceNotification,
                          SourceProfileDomain, SourceProfileRollbackRequest,
                          SourceProfileVersion, SourcesSettings, SourcesSettingsUpdate,
-                         SourcesJobStarted, SourceSummary, SourceToggle,
+                         SourcePaceRequest, SourcesJobStarted, SourceSummary, SourceToggle,
                          SourceTrackedDramaRequest, SourceTrackedSaveRequest, SourceTrackRequest,
                          TrackedSeries)
 from services import sources_registry_service as svc
@@ -138,6 +138,13 @@ def post_enabled(payload: SourceToggle, name: str = _NAME):
              responses={**_ERR, 400: {"model": ErrorResponse}})
 def post_adult(payload: SourceToggle, name: str = _NAME):
     return svc.set_adult_enabled(name, payload.enabled)
+
+
+@router.post("/{name}/pace", dependencies=[local_only()], response_model=SourceSummary,
+             summary="How careful requests to one source are (fast only where the source allows it)",
+             responses=_ERR)
+def post_pace(payload: SourcePaceRequest, name: str = _NAME):
+    return svc.set_source_pace(name, payload.pace)
 
 
 @router.post("/{name}/extension-only", dependencies=[require_permission("admin.settings")],

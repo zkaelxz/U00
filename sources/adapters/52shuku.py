@@ -34,6 +34,7 @@ import re
 from urllib.parse import urljoin
 
 from ..base import SourceAdapter
+from .. import pacing
 from ..http import PacingPolicy
 from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SeriesInfo, SourceError
 from ..registry import register
@@ -71,7 +72,7 @@ class FiftyTwoShukuSource(SourceAdapter):
 
     def __init__(self, client=None, base_url: str = None, **client_kwargs):
         if client is None and "policy" not in client_kwargs:
-            policy = PacingPolicy.from_settings(self.host_min_interval)
+            policy = pacing.for_source(PacingPolicy.from_settings(self.host_min_interval), self.name, self.pacing_profile)
             # Concurrency-sensitive (Cloudflare) per the module docstring --
             # this overrides even a more permissive global setting.
             policy.max_concurrent = 1

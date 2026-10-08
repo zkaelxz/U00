@@ -28,7 +28,7 @@ def client(isolated_db):
 @pytest.fixture
 def pacing_resets(monkeypatch):
     calls = []
-    monkeypatch.setattr(src_http, "reset_pacing_state", lambda: calls.append(1))
+    monkeypatch.setattr(src_http, "reset_pacing_state", lambda **kw: calls.append(1))
     return calls
 
 
@@ -204,3 +204,41 @@ def test_writes_are_post_only(client):
                  "/api/sources/cache/clear", "/api/sources/tracked"):
         assert client.put(path, json={}).status_code == 405
         assert client.delete(path).status_code == 405
+
+
+def test_pace_default_is_normal_and_fast_is_refused_when_unvetted(client):
+    row = next(s for s in client.get("/api/sources").json() if s["name"] == "manhuagui")
+    assert row["pace"] == "normal" and row["fast_allowed"] is False and row["slowed_down"] is False
+    r = client.post("/api/sources/manhuagui/pace", json={"pace": "careful"})
+    assert r.status_code == 200 and r.json()["pace"] == "careful"
+    assert store.source_pace("manhuagui") == "careful"
+    r = client.post("/api/sources/manhuagui/pace", json={"pace": "fast"})
+    assert r.status_code == 422 and _err(r) == "validation_error"
+    assert store.source_pace("manhuagui") == "careful"      # the refusal changed nothing
+    assert client.post("/api/sources/manhuagui/pace", json={"pace": "turbo"}).status_code == 422
+    assert client.post("/api/sources/nope/pace", json={"pace": "normal"}).status_code == 404
+    assert client.post("/api/sources/manhuagui/pace", json={"pace": "normal", "x": 1}).status_code == 422
+
+
+def test_pace_fast_is_accepted_only_for_a_vetted_adapter(client, monkeypatch):
+    from sources import pacing, registry
+    cls = registry.adapter_classes()["manhuagui"]
+    monkeypatch.setattr(cls, "pacing_profile",
+                        pacing.PacingProfile(evidence="checked 2026-10-08", fast_allowed=True))
+    r = client.post("/api/sources/manhuagui/pace", json={"pace": "fast"})
+    assert r.status_code == 200 and r.json()["pace"] == "fast" and r.json()["fast_allowed"] is True
+    monkeypatch.setattr(cls, "pacing_profile", pacing.DEFAULT_PROFILE)
+    # A saved `fast` for a source that lost its vetting reads back as normal.
+    row = next(s for s in client.get("/api/sources").json() if s["name"] == "manhuagui")
+    assert row["pace"] == "normal"
+
+
+def test_settings_change_keeps_the_slowdown(client):
+    from sources import pacing
+    pacing.note_trouble("manhuagui", "rate_limit", 0.0)
+    client.post("/api/sources/settings", json={"max_retries": 2})
+    client.post("/api/sources/manhuagui/pace", json={"pace": "careful"})
+    assert pacing.multiplier("manhuagui") == 2.0
+    row = next(s for s in client.get("/api/sources").json() if s["name"] == "manhuagui")
+    assert row["slowed_down"] is True
+    src_http.reset_pacing_state()

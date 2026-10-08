@@ -28,7 +28,7 @@ adapter automatically -- an adapter can't forget them.
 import re
 from urllib.parse import urlsplit
 
-from . import store
+from . import pacing, store
 from .http import PacingPolicy, SourceClient
 from .models import (NotSupportedError, Requirement, SourceCapabilities)
 
@@ -72,6 +72,10 @@ class SourceAdapter:
     #: Stricter-than-default minimum gap per host, in seconds -- e.g. a
     #: site's own robots.txt Crawl-delay.
     host_min_interval = {}
+    #: The careful / normal / fast levels the person can pick per source
+    #: (sources/pacing.py). The default changes nothing; `fast` stays off
+    #: until an adapter records evidence for it.
+    pacing_profile = pacing.DEFAULT_PROFILE
     #: Headers every request to this source carries (Referer etc.).
     default_headers = {}
     #: A site that moves between domains: its known https origins, the
@@ -102,7 +106,7 @@ class SourceAdapter:
 
     def __init__(self, client: SourceClient = None, allow_adult: bool = None, **client_kwargs):
         if client is None:
-            client_kwargs.setdefault("policy", PacingPolicy.from_settings(self.host_min_interval))
+            client_kwargs.setdefault("policy", pacing.for_source(PacingPolicy.from_settings(self.host_min_interval), self.name, self.pacing_profile))
             client_kwargs.setdefault("default_headers", dict(self.default_headers))
             client = SourceClient(self.name, **client_kwargs)
         self.client = client

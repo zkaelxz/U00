@@ -26,7 +26,7 @@ from services import ownership_service
 from services.service_errors import (InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.sources_extension_service import require_not_extension_only
-from sources import auth_browser, cache as src_cache, extension_marker, health, ladder, registry, store
+from sources import auth_browser, cache as src_cache, extension_marker, health, ladder, pacing, registry, store
 from sources import http as src_http
 from sources import profiles as src_profiles
 from translate_engines import redact_secrets, safe_url, strip_url_queries
@@ -145,6 +145,9 @@ def _summary(name: str, cls) -> dict:
         "adult_enabled": bool(cls.supports_adult_toggle and store.adult_enabled(name)),
         "health": _LIGHTS.get(health.light(name), "green"),
         "has_saved_signin": bool(auth_browser.has_profile("", name)),
+        "pace": pacing.effective_level(cls.pacing_profile, store.source_pace(name)),
+        "fast_allowed": bool(cls.pacing_profile.fast_allowed),
+        "slowed_down": pacing.is_slowed(name),
         "extension_only": extension_marker.is_marked(name),
     }
 
@@ -307,6 +310,17 @@ def set_adult_enabled(name: str, enabled: bool) -> dict:
     return _summary(name, cls)
 
 
+def set_source_pace(name: str, level) -> dict:
+    cls = require_source(name)
+    if level not in pacing.LEVELS:
+        raise InvalidInputError("pace must be one of: " + ", ".join(pacing.LEVELS))
+    if level == "fast" and not cls.pacing_profile.fast_allowed:
+        raise InvalidInputError("Fast isn't available for this source: its pacing hasn't "
+                                "been checked against the site's rules.")
+    store.set_source_pace(name, level)
+    return _summary(name, cls)
+
+
 def set_extension_only(name: str, extension_only: bool, note=None, principal=None) -> dict:
     """Marks or clears "works only through the browser extension". Records the person's
     claim; it changes no test result. 404 unknown source; 422 a note that is too long
@@ -363,7 +377,7 @@ def update_settings(changes: dict) -> dict:
             clean[hi_key] = max(merged[lo_key], merged[hi_key])
     for k, v in clean.items():
         store.set_setting(k, v)
-    src_http.reset_pacing_state()
+    src_http.reset_pacing_state(keep_slowdown=True)
     if clean.get("cache_max_mb"):
         # A lowered ceiling applies now, not only after the next import
         # (a raised one finds nothing to remove).
