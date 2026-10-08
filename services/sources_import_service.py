@@ -29,7 +29,7 @@ for `review`, or Sources diagnostics mode is on) nothing is written: the
 job opens a Review extraction for the drama instead (parity SO10,
 sources_extraction_service.open_review). From another device the signed-in profile and the browser tier
 are off. With `follow_pages` above 1 the job also follows each page's
-next-chapter link (adaptive.follow_novel: same client, host and checks,
+next-chapter link (novel_follow.follow_novel: same client, host and checks,
 each followed address re-checked as public) and always opens a review of
 the pages it read instead of writing; the person then imports the pages
 they keep, in order. Nothing is recorded per page: like a one-page URL
@@ -82,15 +82,15 @@ from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, enab
                                              start_job)
 from services.sources_url_service import (check_public_url, fail_job, handoff_error,
                                           source_client)
-from sources import adaptive, chapter_order, generic_import, ladder, pipeline, registry, store
+from sources import adaptive, chapter_order, generic_import, ladder, novel_follow, pipeline, registry, store
 from sources.generic_import import DownloadBudget
 from sources.http import Cancelled
 from sources.models import AccessTier, ChallengeDetected, TermsProhibited
 
 MAX_CHAPTERS = 200
 MAX_SKIPPED_LISTED = 100
-MAX_FOLLOW_PAGES = adaptive.MAX_FOLLOW_PAGES
-FOLLOW_STOPS = adaptive.FOLLOW_STOPS
+MAX_FOLLOW_PAGES = novel_follow.MAX_FOLLOW_PAGES
+FOLLOW_STOPS = novel_follow.FOLLOW_STOPS
 COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
 NOVEL_MEDIA_TYPES = ("novel",)
 _BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
@@ -473,7 +473,7 @@ def _follow_import_job(job_id: str, url: str, drama_id: int, local: bool, engine
         background_jobs.update_progress(job_id, 0.05 + 0.9 * done / cap,
                                         f"Reading page {done + 1} of up to {cap}...")
     try:
-        chain = adaptive.follow_novel(
+        chain = novel_follow.follow_novel(
             url, follow_pages, engine=engine, client=source_client(url, job_id),
             allow_signed_in=local, allow_browser=local, hold_profiles=not local,
             url_check=_is_public, progress=progress,
