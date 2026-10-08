@@ -19,7 +19,6 @@ export const ASR_BACKEND_HELP: Record<string, string> = {
   qwen3_asr: 'Qwen3 ASR: Whisper cuts the lines, Qwen3 rewrites the text. Slower; downloads a model.',
   qwen3_asr_vad: 'Qwen3 ASR with speech detection: no Whisper; lines are cut at speech pauses. Downloads a model.',
   qwen3_asr_long: 'Qwen3 ASR on long windows: no Whisper; keeps quiet speech, one line per sentence. Default for Chinese and Japanese when installed.',
-  moss_td: 'MOSS (experimental): one model writes the text and labels speakers. Runs downloaded code.',
 }
 
 export function asrBackendHelp(options: string[]): string {
@@ -28,7 +27,7 @@ export function asrBackendHelp(options: string[]): string {
 
 // What the Use Groq toggle means. Groq replaces only the local Whisper step
 // (services/transcribe_service.py): the Qwen3 ASR backend still re-reads
-// Groq's lines on this PC, while the speech-detection, long-window and MOSS
+// Groq's lines on this PC, while the speech-detection and long-window
 // backends run locally and ignore Groq.
 export const GROQ_HELP = [
   "Your audio is uploaded to Groq's servers, which run Whisper for you. It is a rented cloud service, not your PC.",
