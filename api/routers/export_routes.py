@@ -27,7 +27,7 @@ from services import export_service, media_export_service
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
-_MEDIA_TYPES = {"srt": "application/x-subrip", "vtt": "text/vtt"}
+_MEDIA_TYPES = {"srt": "application/x-subrip", "vtt": "text/vtt", "lrc": "text/plain; charset=utf-8"}
 
 
 @router.get("/dramas/{drama_id}/readiness", dependencies=[require_permission("library.read")], response_model=ExportReadiness,
@@ -38,11 +38,11 @@ def get_export_readiness(drama_id: int = Path(ge=1)):
 
 
 @router.get("/dramas/{drama_id}/subtitle", dependencies=[require_permission("lines.read")],
-            summary="Generate SRT/VTT subtitle text for one drama (plain-text download)",
+            summary="Generate SRT/VTT/LRC subtitle text for one drama (plain-text download)",
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def get_subtitle_text(
         drama_id: int = Path(ge=1),
-        fmt: str = Query("srt", pattern="^(srt|vtt)$"),
+        fmt: str = Query("srt", pattern="^(srt|vtt|lrc)$"),
         field: str = Query("en", pattern="^(en|zh|bilingual)$"),
         include_notes: bool = Query(False),
         wrap_chars_en: int = Query(None, ge=1, le=200),

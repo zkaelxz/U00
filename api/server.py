@@ -102,6 +102,7 @@ from api.routers import (
     sources_local_routes,
     sources_search_routes,
     sources_tools_routes,
+    subtitle_import_routes,
     system_routes,
     transcribe_routes,
     translate_routes,
@@ -246,6 +247,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(diarization_routes.router)
     app.include_router(source_routes.router)
     app.include_router(transcribe_routes.router)
+    app.include_router(subtitle_import_routes.router)
     app.include_router(dub_routes.router)
     app.include_router(drama_routes.router)
     app.include_router(translate_run_routes.router)

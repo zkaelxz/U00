@@ -130,6 +130,7 @@
 	@pc_only_post {
 		method POST
 		path /api/dramas/*/cover
+		path /api/subtitle-import/dramas/*/preview /api/subtitle-import/dramas/*/apply
 		path /api/media/dramas/*/upload /api/media/dramas/*/upload-and-transcribe
 		path /api/media/dramas/*/download-url /api/media/dramas/*/remove
 		path /api/novel/dramas/*/attach-text /api/novel/dramas/*/attach-epub

@@ -47,7 +47,7 @@ export default function ExportStage() {
     ...(loadAssForm(dramaId) ?? emptyAssForm('')),
     field: readChoice(FIELD_KEY, ['en', 'zh', 'bilingual'], 'en'),
   }))
-  const [fmt, setFmtState] = useState<ExportFormat>(() => readChoice(FMT_KEY, ['srt', 'vtt', 'ass'], 'srt'))
+  const [fmt, setFmtState] = useState<ExportFormat>(() => readChoice(FMT_KEY, ['srt', 'vtt', 'lrc', 'ass'], 'srt'))
 
   const setForm = (f: AssForm) => {
     setFormState(f)

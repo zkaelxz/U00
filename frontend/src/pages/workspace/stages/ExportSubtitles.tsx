@@ -13,7 +13,7 @@ import { useStage } from '../StageContext'
 import { ExportTextResult } from './ExportTextResult'
 import { exportBlocked } from './stageBlockers'
 
-export type ExportFormat = 'srt' | 'vtt' | 'ass'
+export type ExportFormat = 'srt' | 'vtt' | 'lrc' | 'ass'
 
 // "no wrap", "wrap 42", or "wrap 42/30" (English/source), for the Advanced summary.
 function wrapSummary(en: string, src: string): string {
@@ -24,7 +24,7 @@ function wrapSummary(en: string, src: string): string {
   return `wrap ${e || 'off'}/${s || 'off'}`
 }
 
-const MIME: Record<ExportFormat, string> = { srt: 'application/x-subrip', vtt: 'text/vtt', ass: 'text/x-ssa' }
+const MIME: Record<ExportFormat, string> = { srt: 'application/x-subrip', vtt: 'text/vtt', lrc: 'text/plain', ass: 'text/x-ssa' }
 
 interface Props {
   fmt: ExportFormat
@@ -95,6 +95,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
           <select value={fmt} onChange={(e) => setFmt(e.target.value as ExportFormat)}>
             <option value="srt">SRT</option>
             <option value="vtt">VTT</option>
+            <option value="lrc">LRC (lyrics)</option>
             <option value="ass">ASS</option>
           </select>
         </Field>
