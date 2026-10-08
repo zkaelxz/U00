@@ -18,6 +18,7 @@ for, applied to JavaScript this test suite can't execute.
 """
 import json
 import os
+import struct
 
 import pytest
 
@@ -62,6 +63,20 @@ class TestTheManifest:
         ]
         for name in named:
             assert os.path.exists(os.path.join(EXTENSION_DIR, name)), name
+
+    def test_its_icons_exist_at_the_declared_sizes(self, manifest):
+        """A missing or wrong-sized file makes Chrome fall back to the
+        generic letter tile (or refuse to load the extension)."""
+        declared = dict(manifest["icons"])
+        declared_action = manifest["action"]["default_icon"]
+        assert set(declared) == {"16", "32", "48", "128"}
+        assert set(declared_action) == {"16", "32"}
+        for size, name in {**declared, **declared_action}.items():
+            with open(os.path.join(EXTENSION_DIR, name), "rb") as fh:
+                header = fh.read(24)
+            assert header[:8] == b"\x89PNG\r\n\x1a\n", name
+            width, height = struct.unpack(">II", header[16:24])
+            assert (width, height) == (int(size), int(size)), name
 
     def test_it_can_only_reach_the_bridge_port(self, manifest):
         """The bridge's port is fixed, and a loopback pattern without it
