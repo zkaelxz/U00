@@ -11,8 +11,10 @@ const PREFS = {
   default_engine: 'claude',
   default_locale: 'en-US',
   default_style_note: '',
+  scene_aware_batches: true,
   episode_summary_engine: 'ollama',
   monthly_cap_usd: null as number | null,
+  max_upload_mb: 20480,
   ollama_num_ctx_override: 0,
   whisper_model_path: '',
   ocr_backend: 'auto',
@@ -29,15 +31,18 @@ const PREFS = {
 
 function overview() {
   return {
-    engine_keys: { claude: false, ollama_url: false, gpt_sovits_url: false },
+    engine_keys: { claude: false, ollama_url: false },
     gpu_limit_enabled: true,
     gpu_max_parallel: 1,
+    unload_ollama_before_transcribe: true,
     notify_on_completion: false,
     use_gpu: false,
     gemini_free_tier: false,
     bulk_auto_resume: false,
     preferences: { ...PREFS },
-    endpoints: { ollama_url: null as string | null, gpt_sovits_url: null },
+    endpoints: { ollama_url: null as string | null },
+    upload_max_mb_from_env: false,
+    effective_upload_max_mb: 20480,
     monthly_cap_env_usd: 0,
     effective_monthly_cap_usd: 0,
     month_spend_usd: 0,
@@ -211,7 +216,7 @@ test('away from the PC the preference blocks say PC only', async ({ page }) => {
   for (const title of ['Translation style', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']) {
     // Server addresses also says how many are set (engine_keys yes/no is sent to every viewer).
     await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText(
-      title === 'Server addresses' ? /^\d of 2 set · PC only$/ : 'PC only')
+      title === 'Server addresses' ? /^\d of 1 set · PC only$/ : 'PC only')
   }
   expect(unmocked).toEqual([])
 })

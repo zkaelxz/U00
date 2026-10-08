@@ -64,6 +64,7 @@ export function ImportSetup({ imp, source, seriesId, display, comic, title, lang
         disabled={running}
         newDrama={{ title, language, comic }}
         onCreated={dramas.add}
+        hiddenCount={imp.hiddenCount}
         help={comic ? 'Comic pages go into a manhua, manga or manhwa drama.' : 'Chapter text is added to a novel drama’s text.'}
       />
       <ErrorBanner error={dramas.error} />

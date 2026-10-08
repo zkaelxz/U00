@@ -3,11 +3,11 @@ api/routers/diagnostics_installs_routes.py -- the two long-running
 Diagnostics actions that run as background jobs (thin; see
 services/diagnostics_installs_service.py):
 
-- Deno, the JavaScript runtime yt-dlp needs (Q02). Status is
+- Deno, the JavaScript runtime yt-dlp needs. Status is
   `admin.diagnostics`; the install is `local_only()` + confirm=true, 409
   while any job, restore, cleanup or install runs. The download URL comes
   only from the service's static table (never the request).
-- "Test first" for an update (Q06): `local_only()` + confirm=true + the
+- "Test first" for an update: `local_only()` + confirm=true + the
   target the last update check offered (409 otherwise); runs this app's
   tests against that version in a throwaway environment. The latest
   state is `admin.diagnostics`.

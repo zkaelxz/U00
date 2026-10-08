@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
+import { formatBytes } from '../../diskUsage/diskUsageModel'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
@@ -15,7 +16,16 @@ import { mediaKind } from '../detailsForm'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
-import { checkUploadFile, sourceJobIds, UPLOAD_EXTENSIONS } from '../sourceForm'
+import {
+  checkUploadFile,
+  isUploadLimitProblem,
+  isVideoFile,
+  sourceJobIds,
+  UPLOAD_EXTENSIONS,
+  UPLOAD_LIMIT_SETTINGS_HREF,
+  SWITCHES_FROM_BURNED_IN,
+  UPLOAD_SETS_VIDEO_ASIDE,
+} from '../sourceForm'
 import { useStage } from '../StageContext'
 import { DetailsPanel } from './DetailsPanel'
 import { FillInPanel } from './MetadataPanel'
@@ -23,7 +33,15 @@ import { JobPanel } from './JobPanel'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
-import { mediaFileInputId } from './stageBlockers'
+import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
+
+// Nothing clears kept_media on its own, so say how much it holds wherever a
+// replace or remove would add to it or might be expected to free it.
+const keptMediaNote = (m: MediaStatus | null) =>
+  m && m.kept_media_files > 0
+    ? `Old copies kept in this title's folder: ${m.kept_media_files} file${m.kept_media_files === 1 ? '' : 's'}, ` +
+      `${formatBytes(m.kept_media_bytes)}. Removing audio/video doesn't delete them; clear them in Library tools → Disk usage.`
+    : null
 
 export default function SourceStage() {
   const { dramaId, drama, onJobDone } = useStage()
@@ -32,6 +50,9 @@ export default function SourceStage() {
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
+  const [replace, setReplace] = useState(false)
+  // The server says the drama has audio/video even if the status we read did not.
+  const [serverHasMedia, setServerHasMedia] = useState(false)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null)
   const [reloads, setReloads] = useState(0)
@@ -102,11 +123,17 @@ export default function SourceStage() {
     setFile(f && !problem ? f : null)
   }
 
+  const hasMedia = !!media && (media.has_audio || media.has_source_video)
+  const mustConfirm = hasMedia || serverHasMedia
+  const confirmReplace = mustConfirm && replace
+
   const upload = () => {
-    if (!file) return
-    uploadMedia(dramaId, file).then(
+    if (!file || (mustConfirm && !replace)) return
+    uploadMedia(dramaId, file, confirmReplace).then(
       (r) => {
         setError(null)
+        setReplace(false)
+        setServerHasMedia(false)
         const mb = (r.size / (1024 * 1024)).toFixed(1)
         setFile(null)
         if (r.job_id) {
@@ -119,11 +146,13 @@ export default function SourceStage() {
         setReloads((n) => n + 1)
         onJobDone()
       },
-      setError,
+      (e: unknown) => {
+        if (needsReplaceConfirm(e)) setServerHasMedia(true)
+        setError(e)
+      },
     )
   }
 
-  const hasMedia = !!media && (media.has_audio || media.has_source_video)
   const remove = () => {
     setUploaded(null)
     setRemoveError(null)
@@ -166,6 +195,8 @@ export default function SourceStage() {
             dramaId={dramaId}
             contentMode={drama.content_mode}
             hasAudio={media.has_audio}
+            hasSourceVideo={media.has_source_video}
+            readsBurnedInSubtitles={media.reads_burned_in_subtitles}
             busy={busy}
             onStarted={(id) => {
               setUploaded(null)
@@ -183,9 +214,26 @@ export default function SourceStage() {
             disabled={!media}
             onChange={(e) => pick(e.target.files?.[0] ?? null)}
           />
-          <button type="button" className={buttonClass('secondary')} disabled={!file || busy} onClick={upload}>
+          <button
+            type="button"
+            className={buttonClass('secondary')}
+            disabled={!file || busy || (mustConfirm && !replace)}
+            onClick={upload}
+          >
             Upload
           </button>
+          {mustConfirm && (
+            <label>
+              <input type="checkbox" id={replaceBoxId(dramaId)} checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+              Replace the current audio/video (the old file is kept in this title's folder)
+            </label>
+          )}
+          {mustConfirm && media?.has_source_video && !(file && isVideoFile(file.name)) && (
+            <p className="muted" data-testid="replace-sets-video-aside">
+              {UPLOAD_SETS_VIDEO_ASIDE}
+              {media.reads_burned_in_subtitles && SWITCHES_FROM_BURNED_IN}
+            </p>
+          )}
         </div>
       )}
       {hasMedia && pc === 'local' && (
@@ -201,8 +249,21 @@ export default function SourceStage() {
         </div>
       )}
       {hasMedia && pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
+      {(mustConfirm || hasMedia) && keptMediaNote(media) && (
+        <p className="muted" data-testid="kept-media">{keptMediaNote(media)}</p>
+      )}
       <ErrorBanner error={removeError} describe={{ pcOnly: true }} onDismiss={() => setRemoveError(null)} />
-      {fileProblem && <p className="error" role="alert">{fileProblem}</p>}
+      {fileProblem && (
+        <p className="error" role="alert">
+          {fileProblem}
+          {isUploadLimitProblem(fileProblem) && (
+            <>
+              {' '}
+              <a href={UPLOAD_LIMIT_SETTINGS_HREF}>Change it in Settings &gt; Advanced &gt; Uploads</a>.
+            </>
+          )}
+        </p>
+      )}
       {uploaded && <p role="status">{uploaded}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </>
@@ -219,8 +280,17 @@ export default function SourceStage() {
       title="Transcribe audio or video"
       summary={hasMedia ? 'audio attached' : 'upload or download a file'}
     >
-      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy}
-        onJobStarted={(id, expected) => {
+      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} confirmReplace={confirmReplace}
+        replaceUnconfirmed={mustConfirm && !replace} onReplaceRefused={() => setServerHasMedia(true)} busy={busy}
+        onJobStarted={(id, expected, sentFile) => {
+          // Otherwise every later run would upload the same file again and keep another full copy.
+          if (sentFile) {
+            setFile(null)
+            setReplace(false)
+            setServerHasMedia(false)
+            // An audio file is in place already, so the badges and notes are stale.
+            setReloads((n) => n + 1)
+          }
           setExpectedSeconds(expected ?? null)
           setJobId(id)
         }}

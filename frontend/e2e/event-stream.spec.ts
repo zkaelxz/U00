@@ -20,10 +20,11 @@ const job = (status: string, progress: number, message: string) => ({
 const dubConfig = {
   drama_id: 1, content_mode: null, is_narration: false, narration_language: 'en',
   narration_language_options: ['en', 'zh'], source_language: 'zh',
-  tts_engines: [{ key: 'edge_tts', label: 'Edge TTS', requires_internet: true }],
+  tts_engines: [{ key: 'omnivoice', label: 'OmniVoice' }],
+  default_engine: 'omnivoice',
   defaults: { max_speedup: 1.3, max_slowdown: 0.85, speedup_range: [1, 2], slowdown_range: [0.5, 1] },
   speakers: [], gpu_required: false, speakable_line_count: 3, track_available: false,
-  gpt_sovits_configured: false, can_keep_background: true,
+  can_keep_background: true,
 }
 
 async function mockDub(page: Page, server: { job: ReturnType<typeof job> }) {
@@ -89,6 +90,7 @@ test('job progress arrives over the stream, with no polling while it is up', asy
     stream.push('job', { ...job('running', 0.9, 'other job'), job_id: 'someone-else' })
 
     // No timer: over three seconds (two poll intervals) no GET of the job.
+    // Proving a non-event: a polling timer would fire within two of its intervals.
     await page.waitForTimeout(3000)
     expect(gets.length).toBe(reads)
     await expect(page.getByTestId('job-percent')).toHaveText('60%')
@@ -187,6 +189,7 @@ test('Live: a pushed status reads the new lines from the page cursor, no timer',
     // Status only (no new lines): shown without a read.
     stream.push('live', { ...status, message: 'Still listening' })
     await expect(live.getByTestId('live-status')).toHaveText('Still listening · 2 lines')
+    // Proving a non-event: a status-only push must not trigger a poll, which would fire within this window.
     await page.waitForTimeout(2500)
     expect(m.polls.slice(reads)).toEqual(['after=0'])
 

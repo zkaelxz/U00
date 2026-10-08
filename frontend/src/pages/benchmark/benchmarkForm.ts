@@ -11,6 +11,9 @@ import type {
 } from '../../api/benchmark'
 import { describeError, safeDetail } from '../../components/errorMessages'
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
+import { readSectionOpen, type StorageLike } from '../../components/sectionStorage'
+import type { JobRecord } from '../../types/jobs'
+import { BENCH_DEFAULT_OPEN, type BenchSectionId } from './benchmarkHelp'
 
 export const STAGE_LABELS: Record<string, string> = {
   translation: 'Translation',
@@ -119,6 +122,7 @@ export function formatWhen(iso: string | null | undefined): string {
 /** One result's metric: never read a CER/WER score as translation quality. */
 export function metricName(metric: string | null | undefined): string {
   if (metric === 'similarity') return 'similarity'
+  if (metric === 'chrf') return 'chrF'
   if (metric === 'cer') return '1 − CER'
   if (metric === 'wer') return '1 − WER'
   return metric ? humanizeValue(metric) : ''
@@ -126,10 +130,20 @@ export function metricName(metric: string | null | undefined): string {
 
 /** What a run's score means, by stage. */
 export function metricNote(stage: string | null | undefined): string {
-  if (stage === 'translation') return 'Score: text similarity to the reference translation (not a quality rating).'
+  if (stage === 'translation') return 'Score: chrF (character n-gram F-score) against the reference translation, or plain text similarity on runs made without sacrebleu (not a quality rating).'
   if (stage === 'transcription') return 'Score: 1 − CER (character error rate), or 1 − WER (word error rate) for space-separated languages.'
   if (stage === 'ocr') return 'Score: 1 − CER (character error rate) of the recognised text.'
   return ''
+}
+
+/** Set when an arena lines up one case's translation scores from both metrics:
+ * chrF and the older similarity ratio sit on different scales. */
+export function mixedMetricNote(rows: { results: ({ metric: string | null } | null)[] }[]): string {
+  const mixed = rows.some((row) => {
+    const seen = new Set(row.results.map((r) => r?.metric).filter((m) => m === 'chrf' || m === 'similarity'))
+    return seen.size > 1
+  })
+  return mixed ? 'Some of these runs were scored with chrF and some with the older similarity ratio. The scales differ, so re-run the older runs to compare like with like.' : ''
 }
 
 /** Set when an arena lines up one case's CER/WER scores from both scorers
@@ -416,4 +430,21 @@ export function plainError(err: unknown, opts: { pcOnly?: boolean } = {}): strin
     if (detail) return detail
   }
   return describeError(err, { pcOnly: opts.pcOnly }).title
+}
+
+// ---- page sections ----
+
+export function benchSectionStorageKey(id: BenchSectionId): string {
+  return `benchmark.card.${id}`
+}
+
+/** The remembered open state of a page section, else its default. */
+export function benchSectionOpen(storage: StorageLike | null, id: BenchSectionId): boolean {
+  return readSectionOpen(storage, benchSectionStorageKey(id), BENCH_DEFAULT_OPEN[id])
+}
+
+/** The one-line status a folded section shows while the benchmark job runs. */
+export function runningStatus(job: JobRecord | null): string {
+  const pct = job?.progress != null ? Math.round(job.progress * 100) : null
+  return `Running${pct != null ? ` · ${pct}%` : '…'}`
 }

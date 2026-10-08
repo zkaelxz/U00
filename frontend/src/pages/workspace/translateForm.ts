@@ -34,7 +34,8 @@ export interface RunForm {
 
 // Engines that only translate (no free-form prompting) cannot run Reflect.
 // Mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
-const TRANSLATION_ONLY = ['nllb']
+// Mutable only so tests can register a stand-in; the app never changes it.
+export const TRANSLATION_ONLY: string[] = []
 
 export function isTranslationOnly(engine: string): boolean {
   return TRANSLATION_ONLY.includes(engine)
@@ -161,8 +162,10 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
     forceConfirmed: false,
     reflect: false,
     bulk: false,
-    female_pronouns: preset.default_female_pronouns ?? false,
-    genre_notes: preset.include_genre_notes ?? true,
+    // The title's saved choice first (what every run, retry and AI action
+    // uses), then a preset's value, then the API defaults.
+    female_pronouns: c.default_female_pronouns ?? preset.default_female_pronouns ?? false,
+    genre_notes: c.include_genre_notes ?? preset.include_genre_notes ?? true,
   }
 }
 

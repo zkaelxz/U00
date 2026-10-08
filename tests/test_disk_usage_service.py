@@ -83,6 +83,15 @@ class TestScan:
         assert _item(lib, "source_cache")["regenerable"]
         assert _item(lib, "dramas")["irreplaceable"] is True
 
+    def test_kept_media_is_listed_as_title_media(self, tree):
+        # A replaced or failed upload is the user's original: never offered
+        # as rebuildable, and Clear needs the title-media confirm.
+        _write(os.path.join(db.LIBRARY_DIR, "dramas", "1", "kept_media", "replaced-20261006-120000.mp4"), 50)
+        kept = _item(dus.scan("library/dramas/1"), "kept_media")
+        assert kept["regenerable"] is None and kept["irreplaceable"] is True
+        item = _item(dus.scan("library/dramas/1/kept_media"), "replaced-20261006-120000.mp4")
+        assert item["regenerable"] is None and item["irreplaceable"] is True
+
     def test_responses_never_hold_the_data_folder_path(self, tree):
         import json
         for rel in ("", "library", "library/dramas/1"):

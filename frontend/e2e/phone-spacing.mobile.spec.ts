@@ -26,6 +26,27 @@ async function load(page: Page, url: string, theme = 'dark') {
   await page.addInitScript((t) => localStorage.setItem('baihe.theme', t), theme)
   await page.goto(url)
   await page.waitForLoadState('networkidle')
+  await settled(page)
+}
+
+// networkidle fires in the gap between a page's first fetch and the sections that fetch after it mount, so measuring right
+// after it sees "Loading…" placeholders that later swap for taller, button-bearing content. Closed folds are skipped: some
+// (Danger zone, known platforms) fetch only once opened, so they stay "Loading…" until openFolds runs.
+async function settled(page: Page) {
+  await page.waitForFunction(() =>
+    !document.querySelector('.skeleton, [aria-busy="true"]') &&
+    ![...document.querySelectorAll('p, span, div')].some((e) =>
+      e.childElementCount === 0 && e.textContent?.trim() === 'Loading…' && !e.closest('details:not([open])')))
+  await page.waitForLoadState('networkidle')
+}
+
+// Opening a fold can mount folds nested inside it, so repeat until none are left closed.
+async function openFolds(page: Page) {
+  while (await page.evaluate(() => {
+    const closed = [...document.querySelectorAll<HTMLDetailsElement>('details.section:not([open])')]
+    closed.forEach((d) => { d.open = true })
+    return closed.length > 0
+  })) await settled(page)
 }
 
 // Verticals: [top, bottom] of an element, or null when it isn't rendered.
@@ -79,8 +100,14 @@ for (const size of sizes) {
     await page.setViewportSize(size)
     for (const url of [...routes, '/#/drama/3/translate']) {
       await load(page, url)
+      // Diagnostics fetches per section; the speaker-detection one carries the dense "Check access online" button.
+      if (url.endsWith('/diagnostics')) await expect(page.getByTestId('pyannote-summary')).toBeAttached()
+      // A hash-only navigation keeps the previous page's scroll, and the sticky back button would then sit over this page's content.
+      await page.evaluate(() => window.scrollTo(0, 0))
+      // The glossary's instruction editors arrive after networkidle; measure with them present, not sometimes without.
+      if (url.endsWith('/translate')) await expect(page.getByLabel('Series instructions')).toBeVisible()
       // Open the folds so their dense buttons are measured too.
-      await page.evaluate(() => document.querySelectorAll('details.section').forEach((d) => ((d as HTMLDetailsElement).open = true)))
+      await openFolds(page)
       const res = await page.evaluate(() => {
         const sm = [...document.querySelectorAll<HTMLElement>('.btn-sm')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().height > 0)
         const all = [...document.querySelectorAll<HTMLElement>('button, a[href], input:not([type=hidden]), select, textarea, summary, label.btn')]
@@ -100,6 +127,8 @@ for (const size of sizes) {
           if (hit.b - hit.t < 43.5) out.push(`${label}: hit height ${hit.b - hit.t}`)
           for (const o of all) {
             if (o === el || el.contains(o) || o.contains(el)) continue
+            // The sticky strip is meant to sit over scrolled content, so a control scrolled under it isn't an overlap.
+            if (!!el.closest('.ws-strip') !== !!o.closest('.ws-strip')) continue
             const q = o.getBoundingClientRect()
             const sameSm = o.classList.contains('btn-sm')
             const area = sameSm ? { l: q.left - 4, r: q.right + 4, t: q.top - 6, b: q.bottom + 6 } : { l: q.left, r: q.right, t: q.top, b: q.bottom }

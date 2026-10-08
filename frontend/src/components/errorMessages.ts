@@ -1,5 +1,5 @@
 import type { ApiError } from '../api/client'
-import { capFirst } from '../labels'
+import { capFirst, engineLabel } from '../labels'
 
 // Plain-language text per stable API error code (api/error_handlers.py).
 // The server's own message is shown as extra detail only for codes where
@@ -25,7 +25,7 @@ export const PC_ONLY_FORBIDDEN = 'This only works on the main PC.'
 
 // The one message for a refused key, token or address save (403).
 export const KEY_WRITES_REFUSED =
-  'This can only be changed on the Baihe PC itself, with key writes turned on. start.bat turns them on; if you started the API another way, set BAIHE_API_ALLOW_KEY_WRITES=1.'
+  'Change this on the Baihe PC with key writes on. start.bat turns them on; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1.'
 
 export interface DescribeOptions {
   // PC-only callers: a 403 reads PC_ONLY_FORBIDDEN instead of the generic text.
@@ -33,6 +33,9 @@ export interface DescribeOptions {
   // Admin/restore callers: validation_error and invalid_input show the
   // server's own text too (fixed sentences, no paths; still safeDetail-filtered).
   serverText?: boolean
+  // Refusals whose server sentence is the whole answer ("There is no dub yet...")
+  // show it as the heading instead of the generic validation text.
+  reasonAsTitle?: boolean
 }
 
 const SERVER_TEXT_CODES = ['not_found', 'conflict', 'unsupported_operation', 'dependency_unavailable']
@@ -60,13 +63,19 @@ export function describeError(
     code === 'dependency_unavailable' && typeof reason === 'string' && reason.startsWith('ollama_')
       ? safeDetail(e?.message ?? '')
       : null
+  // A missing key is not a missing package: it has its own heading.
+  const missingKey = code === 'dependency_unavailable' && reason === 'no_key'
+  const engine = (e?.details as { engine?: unknown } | undefined)?.engine
+  const keyTitle = `No key is set for ${typeof engine === 'string' && /^[\w-]{1,40}$/.test(engine) ? engineLabel(engine) : 'this engine'}. Add it in Settings.`
+  const refusalText =
+    opts.reasonAsTitle && OPT_IN_SERVER_TEXT_CODES.includes(code) && e?.message ? safeDetail(e.message) : null
   const title =
     opts.pcOnly && (code === 'forbidden' || e?.status === 403)
       ? PC_ONLY_FORBIDDEN
-      : (ollamaText ?? GENERIC[code] ?? GENERIC.application_error)
+      : (ollamaText ?? (missingKey ? keyTitle : null) ?? refusalText ?? GENERIC[code] ?? GENERIC.application_error)
   const showServer =
     SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
-  const rawDetail = e?.message && showServer && !ollamaText ? safeDetail(e.message) : null
+  const rawDetail = e?.message && showServer && !ollamaText && !missingKey && !refusalText ? safeDetail(e.message) : null
   const detail = rawDetail ? capFirst(rawDetail) : null
   return { title, detail }
 }
@@ -104,7 +113,7 @@ export function summarizeEngineFailure(
       return {
         kind: 'not_running',
         summary:
-          "Ollama isn't running. Install it from ollama.com (Baihe doesn't install it) and start the Ollama app, pull a model, then test again.",
+          "Ollama isn't running. Install it from ollama.com (Baihe doesn't), start it, pull a model, then test again.",
       }
     }
     return local

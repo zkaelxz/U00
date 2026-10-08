@@ -1,7 +1,7 @@
 import { ApiError } from '../../../../api/client'
 import type { SpeakerTimeSummary } from '../../../../types/workspace'
 import type { JobRecord } from '../../../../types/jobs'
-import type { ResegmentPreview, ResplitResult } from '../../../../types/restructure'
+import type { ResegmentPreview, ResplitResult, ResplitSensitivity } from '../../../../types/restructure'
 import type { TranslateEngine } from '../../../../types/translate'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { humanize } from '../../../../components/labels'
@@ -97,6 +97,31 @@ export function buildPatch(line: ReviewLine, draft: LineDraft): LinePatch | stri
   return patch
 }
 
+export type TimingField = 'start' | 'end'
+type Timed = Pick<ReviewLine, 'idx' | 'start' | 'end'>
+
+// A timing hotkey as a normal line patch. Uses buildPatch's end-after-start
+// rule, and refuses to push a boundary into a neighbouring line (only when the
+// move makes the overlap worse, so a line that already overlaps can be pulled out).
+// Neighbours count only when adjacent in the script: a filtered or searched
+// list can put unrelated lines side by side.
+export function timingPatch(
+  line: ReviewLine,
+  neighbours: { prev?: Timed | null; next?: Timed | null },
+  field: TimingField,
+  seconds: number,
+): LinePatch | string | null {
+  const value = Math.max(0, Math.round(seconds * 1000) / 1000)
+  const { prev, next } = neighbours
+  if (field === 'start' && prev && prev.idx === line.idx - 1 && value < prev.end && value < line.start) {
+    return `Start would overlap line #${lineNumber(prev.idx)}.`
+  }
+  if (field === 'end' && next && next.idx === line.idx + 1 && value > next.start && value > line.end) {
+    return `End would overlap line #${lineNumber(next.idx)}.`
+  }
+  return buildPatch(line, { ...draftFromLine(line), [field]: String(value) })
+}
+
 // A draft that would send something (or is invalid) is dirty: navigation saves it first.
 export function isDirty(line: ReviewLine, draft: LineDraft): boolean {
   return buildPatch(line, draft) !== null
@@ -147,12 +172,12 @@ export function suggestionPatch(line: ReviewLine, suggestion: string): LinePatch
   return { en: suggestion, expected: { en: line.en } }
 }
 
-// The line's panel slot: the AI panel (LineAi) or a study tool (LineTools, R17-R19).
-export type ToolMode = 'alternatives' | 'grammar' | 'pronounce'
+// The line's panel slot: the AI panel (LineAi) or a study tool (LineTools, R17-R18).
+export type ToolMode = 'alternatives' | 'grammar'
 export type PanelMode = 'improve' | 'explain' | ToolMode
 
 export const isToolMode = (m: PanelMode): m is ToolMode =>
-  m === 'alternatives' || m === 'grammar' || m === 'pronounce'
+  m === 'alternatives' || m === 'grammar'
 
 // The suggestion was made for current_en; if the row shows something else now
 // it is stale and must not be applied.
@@ -227,8 +252,63 @@ export function splitPieces(text: string, at: number): [string, string] {
   return [chars.slice(0, at).join(''), chars.slice(at).join('')]
 }
 
+/** The translation pieces the server stores for a cut at `at`: it trims the
+ *  first piece's end and the second piece's both ends (services/restructure_service.split_line). */
+export function splitTranslationPieces(text: string, at: number): [string, string] {
+  const [first, second] = splitPieces(text, at)
+  return [first.trimEnd(), second.trim()]
+}
+
 export function charCount(text: string): number {
   return Array.from(text).length
+}
+
+const BREAK_PUNCT = new Set(Array.from(',.!?;:，。！？；：、…'))
+
+/**
+ * Code-point offsets where a cut reads naturally: right after a space run or
+ * punctuation, before the next word. A cut that would leave either piece empty
+ * is never offered.
+ */
+export function cutBoundaries(text: string): number[] {
+  const chars = Array.from(text)
+  const out: number[] = []
+  for (let k = 1; k < chars.length; k++) {
+    const prev = chars[k - 1]
+    if ((/\s/.test(prev) || BREAK_PUNCT.has(prev)) && !/\s/.test(chars[k])) out.push(k)
+  }
+  return out
+}
+
+/** The boundary nearest `target` (ties go earlier); `target` itself when the text has none. */
+export function snapCut(text: string, target: number): number {
+  const len = charCount(text)
+  const clamped = Math.min(Math.max(1, target), Math.max(1, len - 1))
+  let best = clamped
+  let bestDist = Infinity
+  for (const k of cutBoundaries(text)) {
+    const d = Math.abs(k - clamped)
+    if (d < bestDist) {
+      best = k
+      bestDist = d
+    }
+  }
+  return best
+}
+
+/** Where to cut the translation so it breaks at the same fraction of the text as the source did. */
+export function proportionalCut(zhLen: number, zhAt: number, en: string): number {
+  const enLen = charCount(en)
+  const frac = zhLen > 0 ? zhAt / zhLen : 0.5
+  return snapCut(en, Math.round(enLen * frac))
+}
+
+/** The previous (-1) or next (1) boundary from `at`, or the line's edge when there is none. */
+export function stepToBoundary(text: string, at: number, dir: -1 | 1): number {
+  const bounds = cutBoundaries(text)
+  const hit = dir === 1 ? bounds.find((k) => k > at) : [...bounds].reverse().find((k) => k < at)
+  const len = charCount(text)
+  return hit ?? (dir === 1 ? Math.max(1, len - 1) : 1)
 }
 
 /** A cut time in proportion to the text before the split (the server's default is similar). */
@@ -292,6 +372,54 @@ export const MAX_MERGE_LINES = 50
 export const LINES_CHANGED_MESSAGE = 'Lines changed since this page loaded. Reload and try again.'
 export const JOB_RUNNING_MESSAGE = 'A job is running on this drama. Structure edits wait until it finishes.'
 
+/** What the server gave back to undo one structural change (the snapshot taken before it, and
+ *  a fingerprint of the lines it left, so an undo refuses if they were edited since). */
+export interface UndoHandle {
+  historyId: number
+  fingerprint: string
+}
+
+export function undoHandleOf(r: { history_id?: number | null; lines_fingerprint?: string | null }): UndoHandle | null {
+  return r.history_id && r.lines_fingerprint ? { historyId: r.history_id, fingerprint: r.lines_fingerprint } : null
+}
+
+export const UNDO_CHANGED_MESSAGE = 'The lines changed since. Restore from Records → Line history instead.'
+export const UNDO_GONE_MESSAGE = 'This change can no longer be undone here. Records → Line history has the saved versions.'
+// Not "use Records instead": a Records restore would delete that note or tag without asking.
+export const UNDO_NOTES_MESSAGE =
+  'A note or emotion tag was added to a line this undo would remove, so nothing was changed. Restoring from Records would delete it: move or copy the note first.'
+
+/** The Records restore warning: it removes those lines and deletes their notes and tags. */
+export function restoreLossText(lines: number): string {
+  return lines === 1
+    ? '1 line this would remove has a note or emotion tag. Restoring deletes them. Move or copy the note first to keep it.'
+    : `${lines} lines this would remove have notes or emotion tags. Restoring deletes them. Move or copy the notes first to keep them.`
+}
+
+export type UndoKind = 'split' | 'merge' | 'delete' | 'resplit'
+
+/** What an undo really brings back: notes and emotion tags live outside the snapshot, so a
+ *  deleted line's are gone and a merge's stay on the line they were merged into (except where
+ *  that line had its own tag, or a note on the same term, which won). */
+export function undoDoneMessage(kind: UndoKind): string {
+  if (kind === 'delete')
+    return 'Undone. The line is back with its text, translation, timing, speaker and flag, but not its notes or emotion tag.'
+  if (kind === 'merge')
+    return 'Undone. The merged lines are back. Their notes and emotion tags stay on the line they were merged into, unless that line already had its own tag or a note on the same word.'
+  return 'Undone. The lines are back as they were before.'
+}
+
+/** A refused undo in plain text, and whether the offer is still worth keeping (a running job
+ *  only delays it), or null to show the generic banner. */
+export function undoRefusal(e: unknown): { text: string; keepOffer: boolean } | null {
+  if (!(e instanceof ApiError)) return null
+  if (e.status === 404) return { text: UNDO_GONE_MESSAGE, keepOffer: false }
+  if (e.status !== 409) return null
+  if ((e.details as { reason?: unknown } | undefined)?.reason === 'notes_on_removed_lines')
+    return { text: UNDO_NOTES_MESSAGE, keepOffer: false }
+  return /job/i.test(e.message) ? { text: JOB_RUNNING_MESSAGE, keepOffer: true } : { text: UNDO_CHANGED_MESSAGE, keepOffer: false }
+}
+
 /** Plain text for a structure-edit failure, or null to show the generic banner. */
 export function structureErrorText(e: unknown): string | null {
   if (!(e instanceof ApiError) || e.status !== 409) return null
@@ -343,6 +471,25 @@ export function resplitSummary(r: ResplitResult): string {
   if (r.speakers_reassigned) parts.push('speakers re-assigned')
   if (r.cleared_translations) parts.push(`${r.cleared_translations} translation${r.cleared_translations === 1 ? '' : 's'} cleared`)
   return parts.join('; ') + '.' + (r.note ? ` ${r.note}` : '')
+}
+
+export const RESPLIT_SENSITIVITIES: { value: ResplitSensitivity; label: string }[] = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'more', label: 'More' },
+  { value: 'sentence', label: 'Sentence by sentence' },
+]
+
+/** Seconds offered for "Also split by duration"; null keeps the preset's own limit. */
+export const RESPLIT_DURATION_CAPS = [5, 10, 15, 20]
+
+/** "Preview: 31 lines would be split into 118." from a dry-run result. */
+export function resplitPreviewSummary(r: ResplitResult): string {
+  const n = r.split_lines ?? 0
+  if (n === 0) return r.note || 'Preview: no line would be split.'
+  const cleared = r.cleared_translations
+    ? ` ${r.cleared_translations} translation${r.cleared_translations === 1 ? '' : 's'} would be cleared.`
+    : ''
+  return `Preview: ${n} line${n === 1 ? '' : 's'} would be split into ${r.pieces ?? 0}.${cleared}`
 }
 
 /** One line per speaker, e.g. "Anna  3:40 · 62% · 41 turns", biggest first. */

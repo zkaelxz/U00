@@ -8,6 +8,7 @@ import pytest
 import audio_preprocess
 import background_jobs
 import dub
+import dub_narration
 from core import Line
 from services import dub_service, settings_service
 from services.service_errors import DependencyUnavailableError, InvalidInputError
@@ -44,7 +45,16 @@ def test_keep_background_binds_source_and_backend(isolated_db, started):
     target = started[0]["target"]
     assert target.keywords["background_source"].endswith("a.wav")
     assert target.keywords["separation_backend"] == "demucs"
-    assert len(started[0]["args"]) == 11  # queue is appended by background_jobs
+    assert len(started[0]["args"]) == 5  # queue is appended by background_jobs
+
+
+def test_narration_runs_its_own_worker(isolated_db, started):
+    did = _seed(isolated_db, content_mode="novel_narration", narration_language="original")
+    dub_service.start_dub_run(did)
+    target = started[0]["target"]
+    assert target.func is dub_narration.build_narration_subprocess_worker
+    assert target.keywords["narrate_original"] is True
+    assert len(started[0]["args"]) == 3  # queue is appended by background_jobs
 
 
 def test_default_has_no_background(isolated_db, started):
@@ -82,8 +92,8 @@ def _worker(monkeypatch, tmp_path, mixer):
     monkeypatch.setattr(dub, "mix_original_background", mixer)
     q = queue.Queue()
     dub.build_track_subprocess_worker(
-        [Line(idx=0, start=0, end=1, zh="x", en="h")], str(tmp_path), {}, "v", {}, "edge_tts",
-        False, {}, 1.4, 0.85, None, q, background_source="/src/a.wav")
+        [Line(idx=0, start=0, end=1, zh="x", en="h")], str(tmp_path), {}, 1.4, 0.85, q,
+        background_source="/src/a.wav")
     return q.get_nowait()
 
 

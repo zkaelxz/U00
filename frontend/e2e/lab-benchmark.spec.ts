@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openBenchSections } from './benchSections'
 import { navLink, openMenu } from './settingsNav'
 
 // Benchmark Lab (#/benchmark) against the real API on the seeded e2e
@@ -34,6 +35,7 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await page.getByRole('main').or(page.locator('.app-main')).getByRole('link', { name: 'Benchmark Lab' }).click()
   await expect(page).toHaveURL(/#\/benchmark$/)
   await expect(page.getByRole('heading', { name: 'Benchmark Lab' })).toBeVisible()
+  await openBenchSections(page)
   await openMenu(page)
   await expect(navLink(page, 'Benchmark Lab')).toHaveAttribute('aria-current', 'page')
 
@@ -77,12 +79,12 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
 
   // Two engines make it an Arena run; the estimate lists each one.
   await card.getByRole('button', { name: 'Add engine' }).click()
-  await card.getByLabel('Engine 2', { exact: true }).selectOption('nllb')
+  await card.getByLabel('Engine 2', { exact: true }).selectOption('ollama')
   await card.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(card.getByTestId('bench-estimate').locator('li')).toHaveCount(2)
   await expect(card.getByRole('button', { name: 'Start arena (2 engines)' })).toBeEnabled()
   // Not started: back to one engine (the estimate no longer matches).
-  await card.getByRole('button', { name: /^Remove NLLB/ }).click()
+  await card.getByRole('button', { name: /^Remove Ollama/ }).click()
   await expect(card.getByTestId('bench-estimate')).toHaveCount(0)
 
   await runOnce(page, 'e2e A', 'v1')
@@ -96,7 +98,7 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await runs.getByRole('button', { name: 'Compare in Arena (2)' }).click()
 
   const arena = page.getByRole('region', { name: 'Model Arena' })
-  await expect(arena).toContainText('similarity to the reference translation')
+  await expect(arena).toContainText('against the reference translation')
   await expect(arena).toContainText('Baseline')
   await expect(arena).toContainText('±0 pts vs first')
   await expect(arena.getByRole('list', { name: 'Cases' }).locator(':scope > li')).toHaveCount(3)

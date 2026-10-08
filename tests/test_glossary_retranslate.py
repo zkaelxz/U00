@@ -142,6 +142,25 @@ def _preview_ids(did, **kw):
 
 
 class TestStart:
+    def test_reuses_the_titles_saved_pronoun_and_genre_choice(self, isolated_db, monkeypatch):
+        """The client sends neither toggle here, so the run must use what the
+        owner saved for the title, not the API defaults."""
+        import translation_guide as tg
+        did, _sid, _rows = _seed([("林晚一", "old one")], terms=[LIN])
+        db.update_drama(did, default_female_pronouns=1, include_genre_notes=0)
+        seen = []
+        real = fake_engine.FakeEngine.translate_batch
+
+        def capture(self, zh, context):
+            seen.append(translate_engines.build_stable_system_text(dict(context)))
+            return real(self, zh, context)
+        monkeypatch.setattr(fake_engine.FakeEngine, "translate_batch", capture)
+        p, ids = _preview_ids(did)
+        _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
+                                             engine_name="fake")["job_id"])
+        assert tg.FEMALE_PRONOUN_DEFAULT_GUIDANCE.strip() in seen[0]
+        assert tg.BAIHE_SPECIFIC_GUIDANCE.strip() not in seen[0]
+
     def test_only_machine_lines_rewritten_by_default(self, isolated_db):
         did, _sid, rows = _seed([("林晚一", "old one"), ("林晚二", "my edit"), ("天气", "Weather")],
                                 terms=[LIN], machine={0, 2})
@@ -378,7 +397,7 @@ class TestOwnLinesOnly:
     def test_mid_run_edit_gets_no_flag_from_the_run(self, isolated_db, monkeypatch):
         did, _sid, rows = _seed([("林晚一", "one"), ("林晚二", "two")], terms=[LIN])
 
-        def flag_all(lines, field="en"):
+        def flag_all(lines, field="en", mode="normal"):
             for ln in lines:
                 ln.flag, ln.flag_note = "dense", "too fast"
             return len(lines)
@@ -399,7 +418,7 @@ class TestOwnLinesOnly:
             self, isolated_db, monkeypatch):
         did, _sid, rows = _seed([("林晚一", "one"), ("林晚二", "two")], terms=[LIN])
 
-        def flag_all(lines, field="en"):
+        def flag_all(lines, field="en", mode="normal"):
             for ln in lines:
                 ln.flag, ln.flag_note = "dense", "too fast"
             return len(lines)
@@ -443,7 +462,7 @@ class TestOwnLinesOnly:
             self, isolated_db, monkeypatch, edit, expected):
         did, _sid, rows = _seed([("林晚一", "one"), ("林晚二", "two")], terms=[LIN])
 
-        def flag_all(lines, field="en"):
+        def flag_all(lines, field="en", mode="normal"):
             for ln in lines:
                 ln.flag, ln.flag_note = "dense", "too fast"
             return len(lines)

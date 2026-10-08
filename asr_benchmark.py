@@ -97,6 +97,21 @@ def _similarity(a: str, b: str) -> float:
     return difflib.SequenceMatcher(a=a, b=b, autojunk=False).ratio()
 
 
+def report_payload(results: dict) -> dict:
+    """The JSON-ready report. Whisper's per-word timings are only for the split
+    step and would dominate the file, so they are dropped from stage segments."""
+    stages = []
+    for stage in results["stages"]:
+        d = asdict(stage)
+        data = d.get("data")
+        if isinstance(data, dict) and isinstance(data.get("segments"), list):
+            d["data"] = {**data, "segments": [
+                {k: v for k, v in seg.items() if k != "words"} if isinstance(seg, dict) else seg
+                for seg in data["segments"]]}
+        stages.append(d)
+    return {**results, "stages": stages}
+
+
 def run_benchmark(audio_path: str, language: str, transcript_path: str = None,
                    whisper_size: str = "medium", qwen_model_size: str = "1.7B",
                    use_gpu: bool = False):
@@ -198,8 +213,7 @@ def main():
     print_summary(results)
 
     if args.out:
-        serializable = dict(results)
-        serializable["stages"] = [asdict(s) for s in results["stages"]]
+        serializable = report_payload(results)
         with open(args.out, "w", encoding="utf-8") as f:
             json.dump(serializable, f, indent=2, ensure_ascii=False)
         print(f"\nFull report written to {args.out}")
