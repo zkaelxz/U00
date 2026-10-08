@@ -195,10 +195,12 @@ def tracker(drama_id, lines, engine_info, prompt_version, glossary_terms, settin
     return on_save
 
 
-def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms, **options):
+def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms,
+                          thinking=None, **options):
     """The tracker for one translate run, shared by the Workspace job and
     `cli.py translate`. A FallbackEngine's active engine is read at every
-    save; `options` are the run's plain settings (locale, style...)."""
+    save; `options` are the run's plain settings (locale, style...). thinking:
+    what the run was handed; None = the title's choice, as the run itself reads it."""
     import translate_engines
 
     def engine_info():
@@ -208,9 +210,9 @@ def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms
 
     settings = {k: (v if v is not None else "") for k, v in options.items()}
     # Only a thinking run adds a key, so a default run hashes as it always did.
-    if translate_thinking_service.effective(
-            [engine_choice], translate_thinking_service.get_title_choice(drama_id),
-            options.get("reflect")):
+    if thinking is None:
+        thinking = translate_thinking_service.get_title_choice(drama_id)
+    if translate_thinking_service.effective([engine_choice], thinking, options.get("reflect")):
         settings["thinking"] = True
     return tracker(drama_id, lines, engine_info, translate_engines.TRANSLATE_PROMPT_VERSION,
                    glossary_terms, settings=settings)

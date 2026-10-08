@@ -8,8 +8,9 @@ did and the Translate step says so.
 
 The choice is remembered per title in `translate_prefs.json` in the drama's
 own folder (see engine_backends/thinking.py, which reads it when a run's
-context is built). The API saves it before a run starts, so the job thread
-and the provenance record both see the value the run was started with.
+context is built). A run is handed its own value explicitly, so the request,
+the job and the provenance record agree; the choice is saved only once the
+run is accepted, so a refused request leaves it alone.
 """
 import json
 import os
@@ -36,15 +37,29 @@ def save_title_choice(drama_id: int, thinking) -> None:
     Never raises: a run must not fail because its preference could not be written."""
     if thinking is None or not db.get_drama(drama_id):
         return
-    path = os.path.join(db.drama_dir(drama_id), thinking_switch.TITLE_PREFS_FILENAME)
-    tmp = path + ".tmp"
     with _lock:
+        tmp = None
         try:
+            path = os.path.join(db.drama_dir(drama_id), thinking_switch.TITLE_PREFS_FILENAME)
+            tmp = path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as fh:
                 json.dump({"thinking": bool(thinking)}, fh)
             os.replace(tmp, path)
         except OSError:
-            pass
+            if tmp:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
+
+def may_remember(holds_paid: bool, *engine_names) -> bool:
+    """Whether a run's choice may become the title's. The title's choice also
+    drives later paid calls (fix-flagged, glossary re-translate, bulk, CLI), so
+    a caller without paid engines can only turn it on for a run that is free
+    throughout; a missing engine name (the configured default) may be paid."""
+    from translate_engines import FREE_ENGINES
+    return holds_paid or all(n and n in FREE_ENGINES for n in engine_names)
 
 
 def effective(engine_names, thinking, reflect=False) -> bool:
@@ -67,10 +82,3 @@ def annotate_estimate(estimate: dict, drama_id: int, thinking, reflect=False) ->
     on = effective([estimate.get("engine")], thinking, reflect)
     return {**estimate, "thinking": on,
             "estimate_is_lower_bound": on and not estimate.get("free")}
-
-
-def annotate_started(started: dict, thinking) -> dict:
-    """The run-start result with whether the run thinks. `thinking` is the
-    title's choice after saving this request's."""
-    chain = [started.get("engine")] + list(started.get("fallback_engines") or [])
-    return {**started, "thinking": effective(chain, thinking, started.get("reflect"))}

@@ -264,24 +264,174 @@ def test_provenance_keeps_the_default_hash_and_separates_a_thinking_run(isolated
     assert "thinking" not in settings_for("deepseek", reflect=True)
 
 
-def test_run_route_remembers_the_choice_and_reports_it(isolated_db, monkeypatch):
+def _client():
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
     from api.api_config import ApiSettings
     from api.server import create_app
+    return TestClient(create_app(ApiSettings()), headers={"X-Baihe-Local": "1"})
+
+
+# The Translate form's run body, as buildRunBody sends it.
+UI_RUN_BODY = {
+    "engine": "deepseek", "model": "deepseek-flash", "style_preset": "audio_drama",
+    "style_note": "", "locale": "en-US", "force_retranslate": False,
+    "context_window": 6, "context_window_ahead": 3, "batch_size": 20,
+    "thinking": True, "default_female_pronouns": False, "include_genre_notes": True,
+}
+UI_AFFECTED_BODY = {
+    **{k: v for k, v in UI_RUN_BODY.items() if k != "force_retranslate"},
+    "line_ids": [1], "preview_hash": "abc", "include_hand_edited": False, "term_ids": [1],
+}
+
+
+def test_the_ui_bodies_are_accepted_by_both_run_routes(isolated_db, monkeypatch):
+    from services import glossary_retranslate_service as gls
     did = db.create_drama(title_zh="D")
+    seen = {}
     monkeypatch.setattr(run, "start_translate_run",
-                        lambda drama_id, **kw: {"job_id": "j", "drama_id": drama_id, "engine": "deepseek",
-                                                "target_line_count": 1, "reflect": False})
-    client = TestClient(create_app(ApiSettings()), headers={"X-Baihe-Local": "1"})
-    body = client.post(f"/api/translate-run/dramas/{did}/run", json={"thinking": True}).json()
-    assert body["thinking"] is True and tts.get_title_choice(did) is True
-    body = client.post(f"/api/translate-run/dramas/{did}/run", json={}).json()
-    assert body["thinking"] is True  # not asked: the title's choice
-    body = client.post(f"/api/translate-run/dramas/{did}/run", json={"thinking": False}).json()
-    assert body["thinking"] is False and tts.get_title_choice(did) is False
-    cfg = client.get(f"/api/translate-run/dramas/{did}/config").json()
+                        lambda drama_id, **kw: seen.update(run=kw) or {
+                            "job_id": "j", "drama_id": drama_id, "engine": "deepseek",
+                            "target_line_count": 1, "reflect": False})
+    monkeypatch.setattr(gls, "start_affected_retranslate",
+                        lambda drama_id, *a, **kw: seen.update(glossary=kw) or {
+                            "job_id": "j", "drama_id": drama_id, "engine": "deepseek",
+                            "target_line_count": 1, "reflect": False, "line_ids": [1],
+                            "skipped_hand_edited_count": 0})
+    client = _client()
+    assert client.post(f"/api/translate-run/dramas/{did}/run", json=UI_RUN_BODY).status_code == 200
+    resp = client.post(f"/api/translate-run/dramas/{did}/glossary-affected/run", json=UI_AFFECTED_BODY)
+    assert resp.status_code == 200, resp.text
+    assert seen["run"]["thinking"] is True and seen["glossary"]["thinking"] is True
+
+
+def _fake_run(did, **kw):
+    return run.start_translate_run(did, engine_name="fake", **kw)
+
+
+@pytest.fixture
+def run_contexts(monkeypatch):
+    """The reply_with_thinking value of every batch the fake engine translates."""
+    from tests import fake_engine
+    seen = []
+    real = fake_engine.FakeEngine.translate_batch
+
+    def capture(self, zh_lines, context):
+        seen.append(context.get("reply_with_thinking"))
+        return real(self, zh_lines, context)
+    monkeypatch.setattr(fake_engine.FakeEngine, "translate_batch", capture)
+    return seen
+
+
+def _wait_job(job_id):
+    import time
+    import background_jobs
+    for _ in range(400):
+        job = background_jobs.get_status(job_id)
+        if job and job["status"] not in ("running", "queued"):
+            return job
+        time.sleep(0.05)
+    raise AssertionError("job did not finish")
+
+
+def _drama_with_lines():
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
+    return did
+
+
+def test_a_run_uses_its_own_choice_and_saves_it_once_accepted(isolated_db, run_contexts):
+    did = _drama_with_lines()
+    started = _fake_run(did, thinking=True)
+    _wait_job(started["job_id"])
+    assert run_contexts == [True] and tts.get_title_choice(did) is True
+    assert started["thinking"] is False  # the fake engine has no switch
+
+
+def test_a_refused_request_leaves_the_saved_choice_alone(isolated_db, monkeypatch):
+    import background_jobs
+    from services.service_errors import ConflictError
+    did = _drama_with_lines()
+    tts.save_title_choice(did, False)
+    monkeypatch.setattr(background_jobs, "is_running", lambda job_id: True)
+    with pytest.raises(ConflictError):
+        _fake_run(did, thinking=True)
+    assert tts.get_title_choice(did) is False
+    client = _client()
+    resp = client.post(f"/api/translate-run/dramas/{did}/run",
+                       json={"engine": "fake", "thinking": True})
+    assert resp.status_code == 409
+    assert tts.get_title_choice(did) is False
+
+
+def test_a_caller_without_paid_engines_cannot_make_thinking_stick_for_paid_runs(
+        isolated_db, run_contexts):
+    did = _drama_with_lines()
+    started = _fake_run(did, thinking=True, save_thinking=False)
+    _wait_job(started["job_id"])
+    assert run_contexts == [True]  # this run still thinks
+    assert tts.get_title_choice(did) is False
+
+
+def test_may_remember_needs_paid_engines_or_an_all_free_chain():
+    assert tts.may_remember(True, "claude", None)
+    assert tts.may_remember(False, "ollama", "fake")
+    assert not tts.may_remember(False, "ollama", "deepseek")
+    assert not tts.may_remember(False, None)
+
+
+def test_the_route_does_not_save_for_a_caller_without_paid_engines(isolated_db, monkeypatch):
+    import api.routers.translate_run_routes as routes
+    did = _drama_with_lines()
+    seen = {}
+    monkeypatch.setattr(run, "start_translate_run",
+                        lambda drama_id, **kw: seen.update(kw) or {
+                            "job_id": "j", "drama_id": drama_id, "engine": "ollama",
+                            "target_line_count": 1, "reflect": False})
+    client = _client()
+    body = {"engine": "ollama", "thinking": True}
+    monkeypatch.setattr(routes, "holds_paid_engines", lambda request: False)
+    assert client.post(f"/api/translate-run/dramas/{did}/run", json=body).status_code == 200
+    assert seen["thinking"] is True and seen["save_thinking"] is True  # all-free chain
+    monkeypatch.setattr(routes, "holds_paid_engines", lambda request: False)
+    assert client.post(f"/api/translate-run/dramas/{did}/run",
+                       json={**body, "engine": None}).status_code == 200
+    assert seen["save_thinking"] is False
+
+
+def test_the_config_route_reports_the_remembered_choice(isolated_db):
+    did = db.create_drama(title_zh="D")
+    cfg = _client().get(f"/api/translate-run/dramas/{did}/config").json()
     assert cfg["title_thinking"] is False and cfg["thinking_switch_engines"] == ["deepseek", "ollama"]
+
+
+def test_the_provenance_follows_the_runs_own_choice(isolated_db, monkeypatch):
+    did = db.create_drama(title_zh="D")
+    seen = []
+    monkeypatch.setattr(line_provenance_service, "tracker",
+                        lambda *a, settings=None, **k: seen.append(settings))
+    line_provenance_service.translate_run_tracker(
+        did, [], types.SimpleNamespace(), "deepseek", None, thinking=True, locale="en-US")
+    assert seen[-1]["thinking"] is True and tts.get_title_choice(did) is False
+
+
+def test_saving_never_raises_and_leaves_no_temp_file(isolated_db, monkeypatch):
+    did = db.create_drama(title_zh="D")
+    monkeypatch.setattr(db, "drama_dir", lambda i: (_ for _ in ()).throw(OSError("no disk")))
+    tts.save_title_choice(did, True)
+    monkeypatch.undo()
+    real_replace = os.replace
+    monkeypatch.setattr(os, "replace", lambda *a: (_ for _ in ()).throw(OSError("busy")))
+    tts.save_title_choice(did, True)
+    monkeypatch.setattr(os, "replace", real_replace)
+    folder = db.drama_dir(did)
+    assert not [f for f in os.listdir(folder) if f.endswith(".tmp")]
+
+
+def test_the_deepseek_request_sets_no_output_cap_so_reasoning_cannot_truncate_the_reply():
+    engine, seen = _deepseek('{"1": "Hello"}')
+    engine.translate_batch(["你好"], {**_ctx(thinking=True), "line_ids": [1]})
+    assert "max_tokens" not in seen[0] and "max_completion_tokens" not in seen[0]
 
 
 def test_the_deepseek_off_peak_job_reads_the_title_when_it_runs(isolated_db):

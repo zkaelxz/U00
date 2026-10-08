@@ -264,6 +264,7 @@ class GlossaryAffectedRunStart(BaseModel):
     reflect: bool = False
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
+    thinking: Optional[bool] = None
 
 
 class GlossaryAffectedRunStarted(TranslateRunStarted):
