@@ -48,7 +48,7 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`remote-access-decision.md`** — the remote-access design as built. **`route-permissions.md`** — the route table `tests/test_api_permissions.py` enforces.
 - **`engine-backends.md`** — the translation engine package, transcription and dubbing engines, the rules learned from bugs, and an adding-an-engine checklist.
 - **`background-jobs.md`** — how background jobs run: thread and process jobs, the GPU guard, cancel, holds, the Jobs API and the CLI, with an add-a-job checklist.
-- **`asr-experiments.md`** — the off-by-default Qwen3-ASR batching option and the transcription benchmarks.
+- **`asr-experiments.md`** — the transcription options (backends, batch size, mixed languages, vocal separation), install and failure-mode notes, and a dated snapshot of the benchmarks.
 - **`sources-credential-audit.md`** — how the source adapters handle credentials and cookies.
 - **`design/`** and **`specs/`** — the UI refresh spec (with before/after screenshots) and earlier API/UX/Step 141 proposals; the specs were written against the removed Streamlit tabs.
 - **`STATUS.md`** — current state, in-flight work and what's next.
@@ -56,8 +56,9 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   truth: the migration review, handoff and React/FastAPI phase log, the
   old roadmap master tracker, the Streamlit test triage, the superseded
   remote-access and browser-extension handoffs, the installer research
-  notes and cut installer-design history, the Step 19 click-through audit, and the unbuilt Jellyfin/Plex metadata
-  design.
+  notes and cut installer-design history, the Step 19 click-through audit, the
+  unbuilt Jellyfin/Plex metadata design, and the full ASR experiment write-up
+  (`asr-experiments-history.md`).
 
 ## `docs/secondary-review-notes.md` — not present here
 
