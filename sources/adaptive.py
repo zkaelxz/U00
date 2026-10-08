@@ -148,6 +148,18 @@ def _unreachable_message(report: ExtractionReport, lr) -> str:
     return head + "\n" + "\n".join(lr.summary_lines())
 
 
+def render_diagnostic(lr, n_candidates: int) -> str:
+    """Counts only (never URLs, which can carry tokens): which tier ran,
+    whether it scrolled, and how much image markup the HTML held."""
+    tier = AccessTier(lr.tier) if lr.tier else None
+    scrolled = tier in (AccessTier.RENDERED_BROWSER, AccessTier.AUTHENTICATED_BROWSER)
+    kind = {AccessTier.STATIC_HTTP: "anonymous", AccessTier.RENDERED_BROWSER: "browser",
+            AccessTier.AUTHENTICATED_BROWSER: "signed-in"}.get(tier, "other")
+    imgs = len(re.findall(r"<img\b", lr.html or "", re.I))
+    return (f"Read as: {kind} tier; scroll step {'attempted' if scrolled else 'not run'}; "
+            f"{imgs} <img> tag(s), {n_candidates} candidate image URL(s) in the rendered HTML.")
+
+
 def _no_content(message: str, report: ExtractionReport) -> NoContentFound:
     e = NoContentFound(message)
     e.report = report
@@ -583,6 +595,7 @@ def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_h
     if not candidates:
         report.reason = ("The page has no image tags or listed image URLs this importer "
                          "recognizes -- upload the pages manually instead.")
+        report.access_lines.append(render_diagnostic(lr, 0))
         _log(report)
         raise _no_content("Couldn't find page images here -- " + report.reason, report)
     page = ax.PageModel(lr.html, url)
