@@ -486,6 +486,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/sources/{name}/tier-test` | local_only() |
 | `GET /api/stronger-engine/dramas/{drama_id}` | lines.read |
 | `POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try` | review.use |
+| `POST /api/subtitle-import/dramas/{drama_id}/apply` | local_only() |
+| `POST /api/subtitle-import/dramas/{drama_id}/preview` | local_only() |
+| `POST /api/subtitle-import/dramas/{drama_id}/sidecars` | lines.edit |
 | `POST /api/system/shutdown` | local_only() |
 | `GET /api/system/update` | local_only() |
 | `POST /api/system/update/check` | local_only() |

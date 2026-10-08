@@ -34,6 +34,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `benchmark.py`
 - `check_setup.py`
 - `cli.py`
+- `cli_subtitle.py` (the `import-subtitle` command)
 - `core.py`
 - `db.py`
 - `diagnostics.py`
@@ -83,6 +84,8 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `dub_narration.py` (novel narration and M4B export; imports from `dub`, never the reverse)
 - `media_inspect.py`
 - `subtitle_formats.py`
+- `subtitle_parse.py` (SRT/VTT/ASS/LRC import parsers)
+- `subtitle_sidecar.py` (sidecar file-name ranking, language from characters)
 - `video_download.py`
 - `video_export.py`
 
@@ -220,6 +223,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 - `speech_coverage_service.py`
 - `spend_history_service.py`
 - `stronger_engine_service.py`
+- `subtitle_import_service.py`
 - `transcribe_service.py`
 - `translate_run_service.py`
 - `translate_service.py`
@@ -313,6 +317,7 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - `sources_tools_routes.py`
 - `spend_history_routes.py`
 - `stronger_engine_routes.py`
+- `subtitle_import_routes.py`
 - `system_routes.py`
 - `transcribe_routes.py`
 - `translate_routes.py`

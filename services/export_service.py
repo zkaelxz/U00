@@ -29,7 +29,7 @@ from services.service_errors import (DependencyUnavailableError, InvalidInputErr
 
 _EPUB_FIELDS = ("en", "zh")
 
-_SUBTITLE_FORMATS = ("srt", "vtt")
+_SUBTITLE_FORMATS = ("srt", "vtt", "lrc")
 _SUBTITLE_FIELDS = ("en", "zh", "bilingual")
 
 
@@ -246,12 +246,12 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
                            include_notes: bool = False,
                            wrap_chars_en: Optional[int] = None,
                            wrap_chars_source: Optional[int] = None) -> str:
-    """Generates SRT or VTT subtitle text for one drama -- pure and
+    """Generates SRT, VTT or LRC subtitle text for one drama -- pure and
     read-only: never writes to the database, never flags a line, never
     writes a file to disk. The caller decides what to do with the
     returned text (e.g. serve it as a download).
 
-    fmt: "srt" or "vtt". field: "en", "zh", or "bilingual" (both formats
+    fmt: "srt", "vtt" or "lrc". field: "en", "zh", or "bilingual" (both formats
     support all three -- see subtitle_formats.lines_to_vtt/core.
     lines_to_srt/lines_to_bilingual_srt). Overlapping cues are trimmed
     first (subtitle_formats.clamp_overlaps), as generate_ass_text does,
@@ -286,6 +286,8 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
 
     if fmt == "vtt":
         return subtitle_formats.lines_to_vtt(export_lines, field, notes_by_idx, wrap_chars)
+    if fmt == "lrc":
+        return subtitle_formats.lines_to_lrc(export_lines, field, notes_by_idx, wrap_chars)
 
     wrapped = subtitle_formats.wrap_lines(export_lines, wrap_chars)
     if field == "bilingual":

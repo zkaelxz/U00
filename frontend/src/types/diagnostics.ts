@@ -28,7 +28,6 @@ export interface DiagnosticsOverview {
   dependencies: Record<string, DependencyStatus>
   file_completeness: {
     missing_top_level: string[]
-    missing_tabs: string[]
     all_present: boolean
   }
   library_writable: boolean
@@ -47,7 +46,7 @@ export interface DiagnosticsSetupChecks {
   js_runtime: { found: boolean; name: string | null }
   browser?: { found: boolean; name: string | null; package?: boolean }
   cuda: { torch_installed: boolean; cuda_available: boolean | null }
-  files: { all_present: boolean; missing_top_level: string[]; missing_tabs: string[] }
+  files: { all_present: boolean; missing_top_level: string[] }
   library_writable: boolean
   // Non-blocking heads-ups (old yt-dlp, package conflicts); fixed short text, no paths.
   warnings?: string[]
