@@ -21,7 +21,7 @@ Filenames are unique across folders; `test_*.py` lives in `tests/`. The earlier 
 | `scripts/` | build, probe and migration helpers | per script |
 | `tools/` | developer tools, not shipped: `repo_map.py` prints the symbol map for small-context models (output not committed) | `python tools/repo_map.py --help` |
 | `tests/` | pytest suite; tests enforce most rules in `CLAUDE.md` | `python -m pytest -q` |
-| `docs/` | design notes, status and route table; `docs/archive/` is history | `docs/README.md`, `docs/STATUS.md` |
+| `docs/` | design notes, status and route table; `docs/archive/` is history | `docs/README.md`, `docs/STATUS.md`, `docs/user-guide.md` |
 | `library/` | your data (gitignored, created automatically) | n/a |
 
 ## Top-level modules
@@ -117,3 +117,4 @@ Core: `api_config.py`, `auth.py`, `background.py`, `error_handlers.py`, `llm_slo
 - Nothing writes outside `library/` except exports you explicitly download.
 - Optional dependencies are imported inside functions, never at module top level.
 - Adding a new top-level module, `services/*.py` or `api/routers/*.py` file? Add its name above in the same PR.
+- `sources/novel_follow.py`: following next-chapter links from a pasted novel URL (`follow_novel`); builds on `sources/adaptive.py`, which does not import it.

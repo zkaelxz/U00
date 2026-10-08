@@ -194,7 +194,7 @@ class _Review:
     pc_only: bool = False    # read through the signed-in browser: this PC only
     tmp_dir: str = ""        # comic: the images' bytes, one file per candidate id
     sizes: dict = field(default_factory=dict)        # candidate id -> bytes on disk
-    chain: list = field(default_factory=list)        # novel: adaptive.FollowedPage after the first
+    chain: list = field(default_factory=list)        # novel: novel_follow.FollowedPage after the first
     follow_stop: str = ""    # why following stopped ("" = not a followed import)
     recovery: dict = None    # {source, series_id, chapter_id, title}: an adapter chapter
 
