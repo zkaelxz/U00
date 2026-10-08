@@ -97,7 +97,7 @@ def stand_in_server(name) -> int:
 
 def _running(pid) -> bool:
     out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True,
-                         text=True, timeout=30).stdout
+                         text=True, errors="replace", timeout=30).stdout
     return str(pid) in out.split()
 
 
@@ -110,10 +110,10 @@ def breakaway_check() -> int:
     cmd = [sys.executable, str(Path(__file__).resolve()), "--stand-in-server", name]
     try:
         # Out of the CI step's own job first, as the installed server is.
-        server = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True,
+        server = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, errors="replace",
                                   creationflags=CREATE_BREAKAWAY_FROM_JOB)
     except OSError:
-        server = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+        server = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, errors="replace")
     words = (server.stdout.readline() or "").split()
     if not words or words[0] != "ok":
         process_guard.terminate_group(name)
