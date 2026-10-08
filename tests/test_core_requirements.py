@@ -45,6 +45,26 @@ def _closure(roots):
     return seen
 
 
+def _optional_extras_of(declared):
+    """Distributions that a declared package lists only as an extra, such as
+    defusedxml for Pillow's XMP support. Those packages import them when they
+    happen to be installed, so loading one on a machine that has it is not a
+    missing core requirement."""
+    names = set()
+    for name in declared:
+        try:
+            reqs = requires(name) or []
+        except PackageNotFoundError:
+            continue
+        for req in reqs:
+            if "extra ==" not in req:
+                continue
+            m = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", req)
+            if m:
+                names.add(_norm(m.group(1)))
+    return names
+
+
 def test_api_server_imports_are_declared_in_core_requirements():
     out = subprocess.run(
         [sys.executable, "-c",
@@ -54,11 +74,12 @@ def test_api_server_imports_are_declared_in_core_requirements():
     loaded = json.loads(out.strip().splitlines()[-1])
     dists = packages_distributions()
     declared = _closure(_core_requirement_names())
+    optional = _optional_extras_of(declared)
     missing = {}
     for mod in loaded:
         if mod in sys.stdlib_module_names or mod.startswith("_") or mod not in dists:
             continue
         owners = {_norm(d) for d in dists[mod]}
-        if not owners & declared:
+        if not owners & (declared | optional):
             missing[mod] = sorted(owners)
     assert not missing, f"imported by api.server but not in requirements-core.txt: {missing}"
