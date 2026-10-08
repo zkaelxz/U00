@@ -47,7 +47,7 @@ own: the client runs one of the two extractions, applies what the user
 keeps, then starts the translate run through translate_run_service.
 
 Parity T03/T04/X13: import_glossary_text takes a glossary file's TEXT
-(CSV/TSV/JSON, parsed by tguide.parse_glossary_file) in the request body --
+(CSV/TSV/JSON, parsed by parse_glossary_file) in the request body --
 no file is uploaded or stored, so like any other term write it is a
 household edit (lines.edit); existing terms are skipped unless
 overwrite_existing. glossary_csv exports the series glossary, and
@@ -64,6 +64,7 @@ from typing import Optional
 
 import db
 import translation_guide as tguide
+from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, parse_glossary_file
 from translate_engines import WORKFLOW_TIERS, effective_tier
 from services.service_errors import (
     ConflictError,
@@ -197,10 +198,10 @@ def upsert_glossary_term(drama_id: int, term_fields: dict) -> dict:
     notes = _text(pick("notes"), "notes", MAX_NOTES_LEN)
 
     category = pick("category")
-    if category is not None and category not in tguide.TERM_CATEGORIES:
+    if category is not None and category not in TERM_CATEGORIES:
         raise InvalidInputError("Unknown category.")
     policy = pick("policy")
-    if policy is not None and policy not in tguide.TERM_POLICIES:
+    if policy is not None and policy not in TERM_POLICIES:
         raise InvalidInputError("Unknown policy.")
     enforce = pick("enforce_exact", False)
     if not isinstance(enforce, bool):
@@ -253,7 +254,7 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
                          overwrite_existing: bool = False) -> dict:
     """"Import glossary file": `text` is the file's
     contents (CSV, TSV or JSON; `filename`, the upload's name, only hints
-    the format), parsed by tguide.parse_glossary_file.
+    the format), parsed by parse_glossary_file.
     Nothing is written to disk. A term already in the series glossary is
     left untouched and reported in "skipped_existing" unless
     overwrite_existing is True (then its translation, notes, category,
@@ -272,7 +273,7 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
     if not isinstance(overwrite_existing, bool):
         raise InvalidInputError("overwrite_existing must be true or false.")
     try:
-        entries, warnings = tguide.parse_glossary_file(text, filename)
+        entries, warnings = parse_glossary_file(text, filename)
     except (AttributeError, TypeError, ValueError, csv.Error, RecursionError):
         # A JSON row whose values aren't text (a number, a list), a CSV field
         # over the csv module's size limit or deeply nested JSON trips the parser.
@@ -317,13 +318,13 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
 
 
 def glossary_csv(drama_id: int) -> str:
-    """"Export glossary as CSV" (tguide.glossary_to_csv): the
+    """"Export glossary as CSV": the
     series glossary as CSV text; just the header row when there is none.
     A cell that a spreadsheet would run as a formula is prefixed with '."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=False)
     terms = db.list_glossary_terms(sid) if sid else []
-    return tguide.glossary_to_csv([{k: _csv_safe(v) for k, v in t.items()} for t in terms])
+    return glossary_to_csv([{k: _csv_safe(v) for k, v in t.items()} for t in terms])
 
 
 def bulk_delete_glossary_terms(drama_id: int, term_ids: list, confirm: bool = False) -> dict:
@@ -379,9 +380,9 @@ def get_catalogues() -> dict:
     return {
         "style_presets": [{"key": k, "label": v["label"]}
                           for k, v in tguide.STYLE_PRESETS.items()],
-        "term_categories": [{"key": k, "label": v} for k, v in tguide.TERM_CATEGORIES.items()],
+        "term_categories": [{"key": k, "label": v} for k, v in TERM_CATEGORIES.items()],
         "term_policies": [{"key": k, "label": v["label"], "example": v.get("example", "")}
-                          for k, v in tguide.TERM_POLICIES.items()],
+                          for k, v in TERM_POLICIES.items()],
         "workflow_tiers": [{"key": k, "label": v["label"],
                             "translation_engine": v["translation_engine"],
                             "engine_model": v["engine_model"],

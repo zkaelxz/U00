@@ -32,6 +32,7 @@ import db
 import diagnostics
 import translate_engines
 import dub as dub_module
+import dub_narration
 from core import Line
 import cli
 from services import dub_service
@@ -945,7 +946,7 @@ class TestCmdDubNarration:
             for i, ln in enumerate(lines):
                 ln.start, ln.end, ln.dub_filename = 10.0 + i, 10.5 + i, "dub_clips/line_0000-0001.wav"
             return "narration_track.wav", []
-        monkeypatch.setattr(dub_module, "build_narration_track", fake_build_narration_track)
+        monkeypatch.setattr(dub_narration, "build_narration_track", fake_build_narration_track)
 
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))
@@ -956,10 +957,10 @@ class TestCmdDubNarration:
 
     def test_m4b_flag_exports_the_audiobook(self, isolated_db, monkeypatch):
         did = self._narration_drama(isolated_db)
-        monkeypatch.setattr(dub_module, "build_narration_track",
+        monkeypatch.setattr(dub_narration, "build_narration_track",
                             lambda lines, *a, **k: ("narration_track.wav", []))
         exported = []
-        monkeypatch.setattr(dub_module, "export_narration_m4b",
+        monkeypatch.setattr(dub_narration, "export_narration_m4b",
                             lambda lines, ddir, title=None, **k: exported.append(title) or "x.m4b")
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did, m4b=True))
@@ -979,7 +980,7 @@ class TestCmdDubNarration:
             seen.update(narrate_original=narrate_original, source_language=source_language,
                         clone_map=character_clone_map)
             return "narration_track.wav", []
-        monkeypatch.setattr(dub_module, "build_narration_track", fake_build_narration_track)
+        monkeypatch.setattr(dub_narration, "build_narration_track", fake_build_narration_track)
 
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))
@@ -993,7 +994,7 @@ class TestCmdDubNarration:
             self, isolated_db, monkeypatch, capsys):
         did = self._narration_drama(isolated_db)
         isolated_db.update_drama(did, narration_language="original", source_language="en")
-        monkeypatch.setattr(dub_module, "build_narration_track",
+        monkeypatch.setattr(dub_narration, "build_narration_track",
                             lambda *a, **k: pytest.fail("must not start"))
         cli.cmd_dub(_dub_args(id=did))
         assert "can't speak this title's original language" in capsys.readouterr().err
@@ -1008,7 +1009,7 @@ class TestCmdDubNarration:
                                         narration_language="original")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="一", en="", speaker="Hero")])
         called = []
-        monkeypatch.setattr(dub_module, "build_narration_track",
+        monkeypatch.setattr(dub_narration, "build_narration_track",
                             lambda lines, *a, **k: called.append(True) or ("narration_track.wav", []))
 
         out = io.StringIO()
@@ -1433,7 +1434,7 @@ class TestNarratePrepIdKeyed:
 
     def _run(self, isolated_db, monkeypatch, engine):
         did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
-        with open(os.path.join(isolated_db.drama_dir(did), dub_module.NOVEL_SOURCE_FILENAME),
+        with open(os.path.join(isolated_db.drama_dir(did), dub_narration.NOVEL_SOURCE_FILENAME),
                   "w", encoding="utf-8") as f:
             f.write(self.NOVEL)
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
@@ -2333,6 +2334,21 @@ class TestCmdTranscribe:
             "line_count": 3, "device_notice": "Transcription ran on the CPU because the GPU couldn't be used."}})
         _run_main("transcribe", "--id", str(did))
         assert "NOTICE: Transcription ran on the CPU" in capsys.readouterr().out
+
+    def test_a_title_saved_with_the_removed_moss_backend_gets_a_notice(self, isolated_db, monkeypatch, capsys):
+        did = self._drama(isolated_db)
+        isolated_db.update_drama(did, asr_backend_choice="moss_td", source_language="ko")
+        self._start(monkeypatch)
+        self._fake_job(monkeypatch, {"status": "done", "result": {
+            "line_count": 1, "asr_backend_notice": "The MOSS-Transcribe-Diarize backend was removed."}})
+        _run_main("transcribe", "--id", str(did))
+        assert "MOSS-Transcribe-Diarize backend was removed" in capsys.readouterr().out
+        assert isolated_db.get_drama(did)["asr_backend_choice"] == "moss_td"
+
+    def test_moss_is_no_longer_an_asr_backend_flag_value(self, isolated_db, monkeypatch, capsys):
+        did = self._drama(isolated_db)
+        with pytest.raises(SystemExit):
+            _run_main("transcribe", "--id", str(did), "--asr-backend", "moss_td")
 
     def test_failed_job_exits_non_zero_with_redacted_error(self, isolated_db, monkeypatch, capsys):
         did = self._drama(isolated_db)

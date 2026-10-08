@@ -29,7 +29,7 @@ test.describe('Settings card (real API)', () => {
     await page.goto('/#/settings')
     await openSettingsGroups(page)
     const c = card(page)
-    await expect(c).toContainText('Keeps one copy per day for the last 2 days, plus the first copy of each of the last 2 weeks')
+    await expect(c).toContainText('Keeps one copy a day for the last 2 days, plus the first copy of each of the last 2 weeks')
     const auto = c.getByRole('switch', { name: 'Back up automatically' })
     await expect(auto).not.toBeChecked()
     // Daily is the default.

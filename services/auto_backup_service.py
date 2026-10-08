@@ -1511,7 +1511,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> t
     import_as (a backup from another library, see backup_import_service) =
     {"owner_user_id", "is_private", "series": {}, "media_dir"}: the owner
     and privacy come from it and never from the file, the series is always
-    new, the Notion page link is dropped, per-profile tables (profile ids
+    new, old `notion_page_id` is dropped, per-profile tables (profile ids
     mean something else here) are not copied, and each file
     reference (IMPORT_FILE_COLUMNS) is kept only when it names a file inside
     media_dir (None = no files imported, so all are cleared)."""

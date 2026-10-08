@@ -41,7 +41,7 @@ class DubTtsEngine(BaseModel):
 
 class DubSpeaker(BaseModel):
     """One speaker's resolved engine, as the Generate button would resolve
-    it. D2: no reference-audio path, only a boolean."""
+    it. No reference-audio path, only a boolean."""
     speaker_label: str
     character_name: Optional[str] = None
     engine: str
@@ -62,7 +62,7 @@ class DubDefaults(BaseModel):
 
 class DubConfig(BaseModel):
     """Read-only Dub-stage summary for one drama.
-    D2: no filesystem path or secret."""
+    No filesystem path or secret."""
     drama_id: int
     content_mode: Optional[str] = None
     is_narration: bool
@@ -94,7 +94,7 @@ class DubPacingLine(BaseModel):
 
 class DubPacing(BaseModel):
     """Per-line pacing from the last dub run; `available` is False when
-    there is nothing to show (never dubbed, or narration). D2: no paths."""
+    there is nothing to show (never dubbed, or narration). No paths."""
     available: bool
     counts: Dict[str, int]
     lines: List[DubPacingLine]
@@ -140,7 +140,7 @@ class DubRunStarted(BaseModel):
     job_id: str
 
 
-# Voice-clone setup (parity audit blocker #7; inventory C01, C03, C09, C13):
+# Voice-clone setup:
 # services/voice_clone_service.py. No path, filename or URL anywhere.
 # ---------------------------------------------------------------------------
 class VoiceCloneExtractRequest(BaseModel):

@@ -1,9 +1,14 @@
 """Local engine: Ollama."""
 
+import contextvars
 import re
+import threading
+import weakref
 
 from .prompts import build_batch_user_message, build_stable_system_text
-from .shared import read_json_capped, request_translations_with_retry
+from .shared import (TranslationCancelled, read_json_capped, redact_secrets,
+                     request_translations_with_retry)
+from .thinking import ollama_chat_no_thinking, wants_no_thinking
 
 
 # Ollama's own default context window can be as small as 2-4k tokens,
@@ -85,16 +90,113 @@ def strip_ollama_thinking(content: str) -> str:
     return _THINK_OPEN_RE.sub("", content).strip()
 
 
+_ABORT_POLL_SECONDS = 0.25
+# Set by a caller (the Live loop) that must be able to abandon a blocked
+# Ollama request. Opt-in rather than reusing the translate run's cancel
+# check, so other flows keep their plain requests.post call.
+abort_check_var = contextvars.ContextVar("ollama_abort_check", default=None)
+
+
 def _ollama_chat(base_url: str, payload: dict) -> dict:
     """POST /api/chat with the slow-local-model timeout; returns the JSON
     reply, read with the provider byte cap. A refused/unresolvable/unreachable
     server and a model that isn't pulled become OllamaUnavailableError;
-    requests' own messages embed the URL, so none of that text is kept."""
+    requests' own messages embed the URL, so none of that text is kept.
+
+    When the caller set abort_check_var, the request can be abandoned: see
+    _ollama_chat_abortable."""
+    import requests
+    check = abort_check_var.get()
+    if check is None:
+        return _ollama_chat_request(requests.post, base_url, payload)
+    return _ollama_chat_abortable(base_url, payload, check)
+
+
+def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
+    """Runs the request on a helper thread and polls `check`; on a cancel it
+    shuts the request's sockets down and raises TranslationCancelled. With
+    "stream": False Ollama sends nothing until the reply is done (a model
+    load can take minutes), and a blocked read has no other way to be woken.
+    Closing the connection also tells Ollama to stop generating, which frees
+    the GPU for whatever runs next."""
+    import requests
+    # The tracking adapter is live_fetch's: it keeps every socket (even one
+    # still in its TLS handshake or awaiting headers) reachable for shutdown.
+    from live_fetch import _TrackingAdapter, _shutdown
+
+    lock = threading.Lock()
+    sockets = weakref.WeakSet()
+    state = {"aborted": False}
+
+    def track(sock):
+        with lock:
+            sockets.add(sock)
+            if state["aborted"]:
+                _shutdown(sock)
+
+    def release(sock):
+        with lock:
+            sockets.discard(sock)
+            sock.close()
+
+    session = requests.Session()
+    adapter = _TrackingAdapter(track, release)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    box = {}
+
+    def work():
+        try:
+            box["value"] = _ollama_chat_request(session.post, base_url, payload)
+        except BaseException as exc:
+            box["error"] = exc
+
+    worker = threading.Thread(target=work, daemon=True, name="ollama-chat")
+    worker.start()
+    try:
+        while True:
+            worker.join(_ABORT_POLL_SECONDS)
+            if not worker.is_alive():
+                break
+            if check():
+                with lock:
+                    state["aborted"] = True
+                    for sock in list(sockets):
+                        _shutdown(sock)
+                # Only a courtesy wait: the thread is a daemon. Kept well under
+                # the 3 s a cancel is expected to take.
+                worker.join(1.0)
+                raise TranslationCancelled("cancelled")
+    finally:
+        session.close()
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+# Enough for Ollama's one-line JSON error.
+OLLAMA_ERROR_BODY_MAX_BYTES = 2000
+
+
+def _error_body_text(resp) -> str:
+    """A small, redacted slice of an error response's body; "" if unreadable.
+    read_capped closes the response."""
+    from services import capped_body
+    try:
+        raw = capped_body.read_capped(resp, OLLAMA_ERROR_BODY_MAX_BYTES, 5.0,
+                                      lambda: ValueError("error body too large"))
+        return redact_secrets(raw.decode("utf-8", "replace"))
+    except Exception:
+        resp.close()
+        return ""
+
+
+def _ollama_chat_request(post, base_url: str, payload: dict) -> dict:
     import requests
     timeout = ollama_chat_timeout(str(payload.get("model") or ""))
     try:
-        resp = requests.post(f"{base_url}/api/chat", json=payload, stream=True,
-                             timeout=timeout)
+        resp = post(f"{base_url}/api/chat", json=payload, stream=True,
+                    timeout=timeout)
     except requests.ConnectionError:  # includes ConnectTimeout and DNS failures
         raise OllamaUnavailableError(
             "ollama_unreachable",
@@ -106,9 +208,12 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
-        resp.close()
         if getattr(exc.response, "status_code", None) != 404:
+            # Closing a streamed response discards its body, and the caller
+            # needs the server's wording to tell "can't think" from other 400s.
+            exc.body_text = _error_body_text(resp)
             raise
+        resp.close()
         model = str(payload.get("model") or "")
         raise OllamaUnavailableError(
             "ollama_model_missing",
@@ -165,7 +270,7 @@ class OllamaEngine:
                     f"Ollama num_ctx override ({num_ctx_override}) is smaller than the "
                     f"estimated prompt size ({estimated}) -- using {estimated} instead to "
                     "avoid silently truncating the prompt.")
-            resp = _ollama_chat(self.base_url, {
+            payload = {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_text},
@@ -174,7 +279,11 @@ class OllamaEngine:
                 "stream": False,
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
                 "options": {"num_ctx": num_ctx},
-            })
+            }
+            if wants_no_thinking(context):
+                resp = ollama_chat_no_thinking(_ollama_chat, self.base_url, payload)
+            else:
+                resp = _ollama_chat(self.base_url, payload)
             return strip_ollama_thinking(resp["message"]["content"])
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,

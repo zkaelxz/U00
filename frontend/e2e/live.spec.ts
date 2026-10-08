@@ -30,6 +30,7 @@ test('start, see lines arrive, stop', async ({ page }) => {
   expect(m.posts[0].body).toEqual({
     url: 'https://www.youtube.com/watch?v=abc', source_language: 'ja', whisper_size: 'small', segment_seconds: 30,
     overlap_seconds: 3, engine: 'deepseek', model: null, max_minutes: 15, use_gpu: true,
+    reply_without_thinking: true,
   })
   expect(m.posts[0].headers['x-baihe-local']).toBe('1')
 
@@ -101,28 +102,100 @@ test('Start stays disabled until the engine list has loaded', async ({ page }) =
   await expect(start).toBeEnabled()
 })
 
-test('model picker: shown for an engine with a model list, choice is sent and shown in status', async ({ page }) => {
+test('the status names the stage, flags a long wait on Ollama, and says what a stop is waiting on', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect(live.getByTestId('live-status')).toHaveText('Waiting for the GPU')
+
+  m.state.status = 'running'
+  m.state.message = 'Chunk 1: transcribing with Whisper small (CPU)'
+  await expect(live.getByTestId('live-status')).toHaveText('Chunk 1: transcribing with Whisper small (CPU) · 0 lines')
+  m.state.message = 'Chunk 1: translating with qwen3:8b (Ollama) Still waiting on Ollama after 75 s: it may be loading the model.'
+  await expect(live.getByTestId('live-status')).toContainText('Still waiting on Ollama after 75 s')
+
+  // A stop that can't act at once says why, instead of "finishes the current step first".
+  await page.route(`**/api/live/sessions/${SID}/stop`, (route) => {
+    m.state.message = 'Cancelling... Whisper is still transcribing chunk 1 and cannot be interrupted mid-chunk; it stops when that finishes (there is no time estimate yet).'
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ session_id: SID, stopping: true }) })
+  })
+  await live.getByRole('button', { name: 'Stop', exact: true }).click()
+  await expect(live.getByRole('button', { name: 'Stopping…' })).toBeDisabled()
+  await expect(live.getByTestId('live-status')).toContainText('cannot be interrupted mid-chunk')
+  expect(m.unmocked).toEqual([])
+})
+
+test('model picker: Ollama and gemma4:12b are the labelled default, and every other choice still works', async ({ page }) => {
   const m = await mockLive(page, { ollama: true })
   const live = await openLive(page)
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
-  await live.getByLabel('AI engine', { exact: true }).selectOption('ollama')
+  const engine = live.getByLabel('AI engine', { exact: true })
+  await expect(engine).toHaveValue('ollama')
   const model = live.getByLabel('Model', { exact: true })
-  await expect(model.locator('option')).toHaveText(['Engine default', 'qwen3:8b', 'gemma4:12b'])
-  await expect(model).toHaveValue('')
-  // No model list for this engine: no picker.
-  await live.getByLabel('AI engine', { exact: true }).selectOption('fake')
+  await expect(model.locator('option')).toHaveText(['qwen3:8b', 'gemma4:12b (default)'])
+  await expect(model).toHaveValue('gemma4:12b')
+  await expect.poll(() => m.ollamaChecks).toEqual(['gemma4:12b'])
+  await expect(live.getByTestId('live-ollama-note')).toHaveCount(0)
+  // Another engine without a model list: no picker, and the thinking switch is still offered for DeepSeek.
+  await engine.selectOption('fake')
   await expect(model).toHaveCount(0)
-  await live.getByLabel('AI engine', { exact: true }).selectOption('ollama')
-  await model.selectOption('gemma4:12b')
+  await engine.selectOption('ollama')
+  await model.selectOption('qwen3:8b')
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect.poll(() => m.posts.length).toBe(1)
-  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'gemma4:12b' })
+  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'qwen3:8b' })
   m.state.status = 'running'
   m.state.message = 'Listening'
-  m.state.model = 'gemma4:12b'
-  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines · gemma4:12b')
+  m.state.model = 'qwen3:8b'
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines · qwen3:8b')
   await expect(model).toBeDisabled()
   expect(m.unmocked).toEqual([])
+})
+
+test('default start sends Ollama with gemma4:12b and replies without thinking', async ({ page }) => {
+  const m = await mockLive(page, { ollama: true })
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'gemma4:12b', reply_without_thinking: true })
+})
+
+test('Ollama missing: says so plainly, keeps the engine, and another engine can be picked', async ({ page }) => {
+  const m = await mockLive(page, { ollama: true, ollamaMissing: true })
+  const live = await openLive(page)
+  const note = live.getByTestId('live-ollama-note')
+  await expect(note).toContainText('Ollama doesn\'t have the model gemma4:12b')
+  await expect(note).toContainText('Pick another engine above')
+  await expect(live.getByLabel('AI engine', { exact: true })).toHaveValue('ollama')
+  await live.getByLabel('AI engine', { exact: true }).selectOption('deepseek')
+  await expect(note).toHaveCount(0)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ engine: 'deepseek' })
+})
+
+test('Reply without thinking: on by default, can be turned off, disabled with a note where unsupported', async ({ page }) => {
+  const m = await mockLive(page, { ollama: true })
+  const live = await openLive(page)
+  await live.getByText('Advanced').click()
+  const toggle = live.getByRole('switch', { name: 'Reply without thinking' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await toggle.click()
+  await live.getByLabel('AI engine', { exact: true }).selectOption('fake')
+  await expect(toggle).toBeDisabled()
+  await expect(live.getByTestId('live-thinking-note')).toContainText("can't switch thinking off")
+  await live.getByLabel('AI engine', { exact: true }).selectOption('deepseek')
+  await expect(toggle).toBeEnabled()
+  await toggle.click()
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ engine: 'deepseek', reply_without_thinking: false })
 })
 
 test('model picker: a remembered model the engine no longer offers falls back to the default', async ({ page }) => {
@@ -130,11 +203,11 @@ test('model picker: a remembered model the engine no longer offers falls back to
   const m = await mockLive(page, { ollama: true })
   const live = await openLive(page)
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
-  await expect(live.getByLabel('Model', { exact: true })).toHaveValue('')
+  await expect(live.getByLabel('Model', { exact: true })).toHaveValue('gemma4:12b')
   await expect(live.getByTestId('live-model-note')).toContainText("default model will be used")
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect.poll(() => m.posts.length).toBe(1)
-  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: null })
+  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'gemma4:12b' })
 })
 
 test('model picker: when the engine list fails to load, says the default model is used', async ({ page }) => {

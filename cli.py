@@ -70,12 +70,12 @@ from core import (
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
     DEFAULT_WHISPER_SIZE, ModelDownloadError, line_from_row,
 )
-import subtitle_formats
+import subtitle_formats, glossary_io as gio
 import translate_engines
 import translation_guide as tguide
-import bulk_translate
-import raw_transcript
+import bulk_translate, raw_transcript
 import dub as dub_module
+import dub_narration as dn
 import background_jobs
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
                       glossary_service, jobs_service, lines_service, line_provenance_service,
@@ -981,7 +981,7 @@ def cmd_dub(args):
             chars, ddir, default_engine=tts_engine,
             speaker_labels={ln.speaker or None for ln in lines})
 
-        build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
+        build_fn = dub_service.track_builder(is_narration)
         stretch = {} if is_narration else dict(
             max_speedup=max_speedup, max_slowdown=max_slowdown)
         narration_kwargs = (dict(narrate_original=narrate_original, source_language=source_lang)
@@ -1029,7 +1029,7 @@ def cmd_dub(args):
                       fields=("dub_filename", "start", "end") if is_narration else ("dub_filename",))
         db.update_drama(d["id"], status="dubbed")
         if is_narration and getattr(args, "m4b", False):
-            m4b_path = dub_module.export_narration_m4b(
+            m4b_path = dn.export_narration_m4b(
                 lines, ddir, title=d.get("title_en") or d.get("title_zh"),
                 narrate_original=narrate_original)
             print(f"\n#{d['id']} audiobook: {m4b_path}")
@@ -1143,8 +1143,8 @@ def _wait_for_job(job_id: str, label: str, poll_interval: float = _JOB_POLL_SECO
 
 def cmd_transcribe(args):
     """Transcribes (or aligns --transcript against) one title's stored audio
-    through the same service as the Workspace's Transcribe button. Tuning
-    options are saved on the title, as the app's own form saves them."""
+    through the Workspace's Transcribe service. Tuning options are saved
+    on the title."""
     tuning = dict(
         whisper_size=args.whisper_size, asr_backend_choice=args.asr_backend,
         beam_size=args.beam_size, min_silence_ms=args.min_silence_ms,
@@ -1172,7 +1172,8 @@ def cmd_transcribe(args):
         print(f"{label} device: {result['device']}")
     if result.get("device_notice"):
         print(f"{label} NOTICE: {result['device_notice']}")
-    for key in ("coverage_warning", "ollama_notice", "word_align_error", "forced_align_error"):
+    for key in ("coverage_warning", "ollama_notice", "word_align_error", "forced_align_error",
+                "asr_backend_notice"):
         if result.get(key):
             print(f"{label} WARNING: {translate_engines.redact_secrets(str(result[key]))}")
     if outcome not in ("ok", "partial"):
@@ -1543,8 +1544,8 @@ def main():
     g_add.add_argument("--original", required=True)
     g_add.add_argument("--translation", required=True)
     g_add.add_argument("--notes", default=None)
-    g_add.add_argument("--category", default=None, choices=list(tguide.TERM_CATEGORIES))
-    g_add.add_argument("--policy", default=None, choices=list(tguide.TERM_POLICIES))
+    g_add.add_argument("--category", default=None, choices=gio.TERM_CATEGORIES)
+    g_add.add_argument("--policy", default=None, choices=gio.TERM_POLICIES)
     g_add.add_argument("--alias", action="append", default=None)
     g_add.add_argument("--banned", action="append", default=None, help="A translation never to use.")
     g_add.add_argument("--enforce-exact", action="store_true")

@@ -15,6 +15,7 @@ import background_jobs
 import db
 import translate_engines
 import translation_guide as tguide
+from glossary_io import TERM_CATEGORIES, TERM_POLICIES
 from services import job_checkpoint_service
 # glossary_service re-exports this module from its bottom, so it must be
 # imported first (importing this module directly would hit a half-built one).
@@ -96,8 +97,8 @@ def _normalize_proposals(proposals, known_terms, source_text: str = "") -> list:
             "occurrences": occurrences,
             "alternatives": alternatives,
             "confidence": _confidence(occurrences, alternatives, translation),
-            "category": p.get("category") if p.get("category") in tguide.TERM_CATEGORIES else None,
-            "policy": p.get("policy") if p.get("policy") in tguide.TERM_POLICIES else None,
+            "category": p.get("category") if p.get("category") in TERM_CATEGORIES else None,
+            "policy": p.get("policy") if p.get("policy") in TERM_POLICIES else None,
             "reason": str(p.get("reason") or "")[:MAX_NOTES_LEN],
             "already_in_glossary": term in known,
         }
@@ -357,11 +358,11 @@ def _clean_overrides(overrides) -> dict:
             clean["translation"] = _text(edit["translation"], "translation", MAX_TERM_LEN,
                                          required=True)
         if "category" in edit:
-            if edit["category"] is not None and edit["category"] not in tguide.TERM_CATEGORIES:
+            if edit["category"] is not None and edit["category"] not in TERM_CATEGORIES:
                 raise InvalidInputError("Unknown category.")
             clean["category"] = edit["category"]
         if "policy" in edit:
-            if edit["policy"] is not None and edit["policy"] not in tguide.TERM_POLICIES:
+            if edit["policy"] is not None and edit["policy"] not in TERM_POLICIES:
                 raise InvalidInputError("Unknown policy.")
             clean["policy"] = edit["policy"]
         out[term.strip()] = clean

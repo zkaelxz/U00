@@ -305,7 +305,9 @@ def _install_commands(name: str) -> list:
     on Linux). Everything else is a plain install."""
     if name in diagnostics.TORCH_FAMILY and shutil.which("nvidia-smi"):
         return _torch_setup_commands(diagnostics.TORCH_RECOMMENDED_VARIANT_GPU)
-    return [(_pip("install", diagnostics.pip_install_name(name)), PIP_TIMEOUT_SECONDS)]
+    return [(_pip("install", diagnostics.pip_install_name(name),
+                  *diagnostics.constraints_pip_args(default_project_root())),
+             PIP_TIMEOUT_SECONDS)]
 
 
 def _torch_setup_commands(variant: str) -> list:
@@ -478,7 +480,8 @@ def _run_pip(name: str, confirm, cmds_for, sox_watch=None) -> dict:
 
 
 def _qwen_asr_fallback_commands(_name: str) -> list:
-    return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)
+    constraints = diagnostics.constraints_pip_args(default_project_root())
+    return [(_pip("install", *args, *constraints), PIP_TIMEOUT_SECONDS)
             for args in diagnostics.qwen_asr_fallback_pip_args()]
 
 
@@ -533,9 +536,7 @@ def upgrade_dependency(name: str, confirm: bool = False, target: str = None) -> 
         dist = diagnostics.pip_install_name(n)
         if checked is not None:
             args = [f"{checked['dist']}=={checked['target']}"]
-            constraints = os.path.join(default_project_root(), "constraints.txt")
-            if os.path.exists(constraints):
-                args += ["-c", constraints]
+            args += diagnostics.constraints_pip_args(default_project_root())
         else:
             args = diagnostics.upgrade_pip_args(dist, default_project_root())
         return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)]

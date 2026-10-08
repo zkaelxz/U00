@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import db
 import diagnostics
+import expected_files
 from core import Line, lines_to_srt, lines_to_bilingual_srt
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -155,9 +156,10 @@ class TestDiagnostics:
         real_files = {f for f in os.listdir(PROJECT_ROOT)
                      if f.endswith(".py") and os.path.isfile(os.path.join(PROJECT_ROOT, f))
                      and f not in ("__init__.py", "conftest.py")}
-        missing_from_list = real_files - set(diagnostics.EXPECTED_TOP_LEVEL_FILES)
+        missing_from_list = real_files - set(expected_files.EXPECTED_TOP_LEVEL_FILES)
         assert missing_from_list == set(), \
-            f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES: {missing_from_list}"
+            f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES in expected_files.py: " \
+            f"{missing_from_list}. Add each name to that list."
 
     def test_file_completeness_reports_missing_in_empty_dir(self, tmp_path_str):
         result = diagnostics.check_file_completeness(tmp_path_str)
@@ -539,7 +541,7 @@ class TestStreamDependencyInstall:
         monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
 
         list(diagnostics.stream_dependency_install("torch"))
-        assert captured["pip_args"] == ["torch"]
+        assert captured["pip_args"] == ["torch", *diagnostics.constraints_pip_args()]
 
     def test_other_dependencies_always_use_a_plain_install(self, monkeypatch):
         monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
@@ -551,7 +553,7 @@ class TestStreamDependencyInstall:
         monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
 
         list(diagnostics.stream_dependency_install("audio-separator"))
-        assert captured["pip_args"] == ["audio-separator"]
+        assert captured["pip_args"] == ["audio-separator", *diagnostics.constraints_pip_args()]
 
 
 class TestPyannoteGatedAccessCheck:

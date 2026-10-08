@@ -24,6 +24,7 @@ outside translate_engines.FREE_ENGINES (Gemini counts as paid: whether a key
 is free-tier isn't known server-side) additionally needs the engines.paid
 capability; stop is gated like jobs.cancel.
 """
+import functools
 import re
 import shutil
 import tempfile
@@ -35,8 +36,8 @@ import background_jobs
 import live_translate
 import translate_engines
 from core import SOURCE_LANGUAGES
-from services import (egress_proxy, jobs_service, ownership_service, settings_service,
-                      translate_service, url_guard)
+from services import (egress_proxy, job_stage_service, jobs_service, ownership_service,
+                      settings_service, translate_service, url_guard)
 from services.service_errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -51,6 +52,7 @@ SEGMENT_RANGE = (10, 60)
 OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
+LIVE_DEFAULT_ENGINE = "ollama"
 MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
 
@@ -103,7 +105,10 @@ def _require_offered_model(engine_name: str, model: Optional[str]):
 
 
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
-    engine_name = engine_name or settings_service.get_default_engine()
+    # Never the Settings default: that may be a hosted engine, and a Live
+    # request without an engine (API client, extension, stale bundle) must not
+    # send the stream's text off this PC unasked.
+    engine_name = engine_name or LIVE_DEFAULT_ENGINE
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     _require_offered_model(engine_name, model)
@@ -127,6 +132,23 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
         raise DependencyUnavailableError(
             clean_message(f"Could not start {engine_name}: {exc}")) from None
     return engine_name, engine
+
+
+def check_ollama(model: Optional[str] = None) -> dict:
+    """{ok, model, message}: whether Ollama answers and has the model, so the
+    Live form can say so before Start. The message is the plain text the chat
+    call uses and never carries the Ollama address."""
+    from services import translate_run_service
+    # The model Start would run when none is chosen, so the note describes it.
+    model = model or translate_engines.effective_default_model("ollama")
+    if not translate_run_service._is_safe_ollama_model(model):
+        raise InvalidInputError("That model isn't offered for this engine.")
+    try:
+        translate_engines.check_ollama_model_installed(
+            settings_service.resolve_key("ollama_url") or "http://localhost:11434", model)
+    except translate_engines.OllamaUnavailableError as exc:
+        return {"ok": False, "model": model, "message": translate_engines.redact_secrets(exc.message)}
+    return {"ok": True, "model": model, "message": None}
 
 
 def _remove_dir(session_id: str):
@@ -177,8 +199,12 @@ def _make_target(session_id: str):
             # run_live_job stops the stream fetcher (and ffmpeg) before
             # returning, so the proxy outlives every connection it serves.
             with egress_proxy.GuardedProxy() as proxy:
-                live_translate.run_live_job(*args, proxy=proxy.url, **kwargs)
+                live_translate.run_live_job(
+                    *args, proxy=proxy.url,
+                    report_stage=functools.partial(job_stage_service.set_stage, session_id),
+                    **kwargs)
         finally:
+            job_stage_service.clear_stage(session_id)
             _remove_dir(session_id)
     return _target
 
@@ -201,7 +227,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                   overlap_seconds=live_translate.DEFAULT_OVERLAP_SECONDS,
                   engine: Optional[str] = None, model: Optional[str] = None,
                   max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False,
-                  use_saved_cookies: bool = False) -> dict:
+                  use_saved_cookies: bool = False,
+                  reply_without_thinking: bool = True) -> dict:
     """Starts one live capture session; returns {"session_id": ...}.
     use_saved_cookies: pass yt-dlp the saved Settings cookies (browser or
     cookies.txt). The router sets it only for a request made at the PC, so
@@ -261,6 +288,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             session_id, _make_target(session_id),
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
+            reply_without_thinking=bool(reply_without_thinking),
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
@@ -293,7 +321,7 @@ def _require(session_id, principal=None) -> dict:
         entry = _sessions.get(session_id) if isinstance(session_id, str) else None
     if entry is None or not _visible(principal, session_id, entry):
         raise NotFoundError("No such live session.")
-    return background_jobs.get_status(session_id)
+    return job_stage_service.annotate(background_jobs.get_status(session_id))
 
 
 def stop_session(session_id, principal=None) -> dict:
