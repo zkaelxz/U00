@@ -101,10 +101,9 @@ ADMIN_PORT = 8600              # api_config.DEFAULT_PORT
 # The PC listener's own ports in RESERVED_PORTS: the service may take them,
 # the household listener may not.
 PC_LISTENER_PORTS = (ADMIN_PORT, ADMIN_PORT + 1)
-# Ports that are Baihe's own (settings_service.baihe_own_ports): the PC
-# listener's, the extension bridge's (page_server.DEFAULT_PORT), and
-# 8601, the documented "pick another port" for the PC listener. The
-# household listener may take none of them.
+# Fixed ports the household listener may not take: the PC listener's, the
+# extension bridge's (page_server.DEFAULT_PORT) and 8601, the documented
+# "pick another port". Static: settings_service.baihe_own_ports() differs.
 EXTENSION_BRIDGE_PORT = 8756    # page_server.DEFAULT_PORT
 RESERVED_PORTS = (ADMIN_PORT, ADMIN_PORT + 1, EXTENSION_BRIDGE_PORT)
 DEFAULT_HOUSEHOLD_PORT = 8610
