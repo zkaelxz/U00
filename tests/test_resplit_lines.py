@@ -2,6 +2,7 @@
 POST /api/restructure/dramas/{id}/resplit). Mocked: no GPU, no aligner model, no audio."""
 import os
 import subprocess
+import threading
 import time
 
 import pytest
@@ -204,11 +205,18 @@ def _aligned(texts):
 def test_job_started_during_alignment_blocks_the_commit(monkeypatch):
     did, ids = _seed()
 
+    # Held open by an event, not a sleep: on a loaded runner a short sleep can
+    # finish before the commit check runs and the job is no longer "running".
+    release = threading.Event()
+
     def align(audio, texts, segs, language, use_gpu=False):
-        background_jobs.start_job(f"translate_{did}", lambda: time.sleep(0.5))
+        background_jobs.start_job(f"translate_{did}", lambda: release.wait(30))
         return _aligned(texts)
     _fake_aligner(monkeypatch, align)
-    res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    try:
+        res = _wait(svc.resplit_long_lines(did, ids, align_to_audio=True)["job_id"])["result"]
+    finally:
+        release.set()
     assert res["failed_reason"] == "not_applied" and "nothing was changed" in res["detail"]
     assert len(db.load_lines(did)) == 3
     _wait(f"translate_{did}")
@@ -266,9 +274,14 @@ def test_relabel_failure_after_commit_keeps_the_split(monkeypatch):
 
 def test_refused_while_a_job_runs():
     did, ids = _seed()
-    background_jobs.start_job(f"translate_{did}", lambda: time.sleep(0.5))
-    with pytest.raises(ConflictError):
-        svc.resplit_long_lines(did, ids)
+    release = threading.Event()
+    background_jobs.start_job(f"translate_{did}", lambda: release.wait(30))
+    try:
+        with pytest.raises(ConflictError):
+            svc.resplit_long_lines(did, ids)
+    finally:
+        release.set()
+        _wait(f"translate_{did}")
 
 
 def test_route(isolated_db):

@@ -345,7 +345,7 @@ class TestModelSelection:
         import inspect
         import translate_engines as te
         default = inspect.signature(te.ClaudeEngine.__init__).parameters["model"].default
-        assert default == "claude-sonnet-5"
+        assert default == "claude-sonnet-5-5"
 
     def test_every_selectable_model_has_pricing(self):
         import translate_engines as te
@@ -550,7 +550,7 @@ class TestHallucinationSilenceThreshold:
         core._whisper_model_cache.clear()
         return core.transcribe_for_timing("/fake/audio.mp3", **kwargs)
 
-    def test_passed_by_default_and_overridable(self):
+    def test_off_by_default_and_overridable(self):
         seen = {}
 
         class Model:
@@ -560,7 +560,7 @@ class TestHallucinationSilenceThreshold:
                 return iter([]), None
 
         self._run(Model)
-        assert seen["hallucination_silence_threshold"] == 2.0
+        assert "hallucination_silence_threshold" not in seen
         self._run(Model, hallucination_silence_sec=3.5)
         assert seen["hallucination_silence_threshold"] == 3.5
 

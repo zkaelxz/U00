@@ -324,12 +324,12 @@ def _create_library_tables(conn):
             speaker_label TEXT,      -- raw diarization label OR tagged character name this maps to
             character_name TEXT,
             voice_actor TEXT,
-            tts_voice TEXT,          -- fallback free TTS voice for this character (an edge-tts name)
-            offline_voice TEXT,      -- offline/Piper fallback voice (a Piper voice name); NULL = default
+            tts_voice TEXT,          -- legacy: an Edge TTS voice name; no longer read
+            offline_voice TEXT,      -- legacy: a Piper voice name; no longer read
             ref_audio_filename TEXT, -- reference clip for voice cloning (relative to drama dir)
             ref_text TEXT,           -- transcript of what's said in the reference clip
             elevenlabs_voice_id TEXT,-- hosted clone (engine removed); kept as a record, unused
-            clone_engine TEXT,       -- local voice engine (dub.CLONE_ENGINES key); NULL = F5-TTS
+            clone_engine TEXT,       -- local voice engine (dub.CLONE_ENGINES key); NULL = the engine picked for the run; a removed key (f5tts) is refused
             voice_design TEXT,       -- described voice (OmniVoice voice design) for a character with no clip
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
             UNIQUE(drama_id, speaker_label)
@@ -1120,38 +1120,23 @@ def _migrate_line_columns(conn):
 
 def _migrate_drama_columns(conn):
     drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
-    if "translation_engine" not in drama_cols:
-        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN translation_engine TEXT DEFAULT 'claude'")
-    if "content_mode" not in drama_cols:
-        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN content_mode TEXT DEFAULT 'audio_drama'")
-    if "narration_language" not in drama_cols:
-        # Novel narration only -- 'translation' (default, existing
-        # behavior) speaks ln.en; 'original' speaks ln.zh (the app's generic
-        # source-text field, holding ja/ko source text too when that's the
-        # drama's actual source_language).
-        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN narration_language TEXT DEFAULT 'translation'")
-    if "source_video_filename" not in drama_cols:
-        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_video_filename TEXT")
-    if "source_language" not in drama_cols:
-        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_language TEXT DEFAULT 'zh'")
-    if "chinese_script" not in drama_cols:
-        # Only meaningful when source_language == "zh": Whisper transcription
-        # and LLM translation don't care (they read/produce either script
-        # fine), but OCR (Tesseract's chi_sim vs chi_tra language pack) and
-        # jieba segmentation (built for Simplified, degrades on Traditional)
-        # both need to know which one they're looking at.
-        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN chinese_script TEXT DEFAULT 'simplified'")
-    if "media_type" not in drama_cols:
-        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN media_type TEXT DEFAULT 'audio_drama'")
-    if "series_id" not in drama_cols:
-        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN series_id INTEGER")
-    if "episode_number" not in drama_cols:
-        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_number INTEGER")
-    if "episode_summary" not in drama_cols:
-        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_summary TEXT")
-    if "updated_at" not in drama_cols:
-        _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN updated_at TEXT")
-    for col, coltype in [("last_translate_errors", "TEXT"),
+    for col, coltype in [("translation_engine", "TEXT DEFAULT 'claude'"),
+                          ("content_mode", "TEXT DEFAULT 'audio_drama'"),
+                          # Novel narration only -- 'translation' (default, existing
+                          # behavior) speaks ln.en; 'original' speaks ln.zh (the app's generic
+                          # source-text field, holding ja/ko source text too when that's the
+                          # drama's actual source_language).
+                          ("narration_language", "TEXT DEFAULT 'translation'"),
+                          ("source_video_filename", "TEXT"), ("source_language", "TEXT DEFAULT 'zh'"),
+                          # Only meaningful when source_language == "zh": Whisper transcription
+                          # and LLM translation don't care (they read/produce either script
+                          # fine), but OCR (Tesseract's chi_sim vs chi_tra language pack) and
+                          # jieba segmentation (built for Simplified, degrades on Traditional)
+                          # both need to know which one they're looking at.
+                          ("chinese_script", "TEXT DEFAULT 'simplified'"),
+                          ("media_type", "TEXT DEFAULT 'audio_drama'"), ("series_id", "INTEGER"),
+                          ("episode_number", "INTEGER"), ("episode_summary", "TEXT"),
+                          ("updated_at", "TEXT"), ("last_translate_errors", "TEXT"),
                           ("author_romanized", "TEXT"), ("studio_romanized", "TEXT"),
                           ("voice_actors_romanized", "TEXT"), ("director_romanized", "TEXT"),
                           ("cover_art_filename", "TEXT"), ("genre", "TEXT"),
@@ -1173,8 +1158,9 @@ def _migrate_drama_columns(conn):
                           ("min_silence_ms", "INTEGER DEFAULT 300"),
                           ("vad_threshold", "REAL DEFAULT 0.5"),
                           ("beam_size", "INTEGER DEFAULT 5"),
-                          ("hallucination_silence_sec", "REAL DEFAULT 2.0"),
+                          ("hallucination_silence_sec", "REAL DEFAULT 0"),
                           ("min_pause_sec", "REAL DEFAULT 0.35"),
+                          ("sensitivity_preset", "TEXT"),
                           ("separate_vocals_first", "INTEGER DEFAULT 0"),
                           ("separation_backend", "TEXT DEFAULT 'auto'"),
                           ("realign_long_segments", "INTEGER DEFAULT 0"),
@@ -1190,9 +1176,8 @@ def _migrate_drama_columns(conn):
                           # sent anywhere. The series-level counterpart is
                           # series.instructions, inherited by every drama in the series.
                           ("project_instructions", "TEXT"),
-                          # Roadmap 112: the Notion page this drama was last exported
-                          # to (services/notion_service.py), so a re-export updates
-                          # that page in place. Only the id, never a token or URL.
+                          # Legacy: nothing writes it now. Kept so older databases
+                          # and backups load; dropping it needs a table rebuild.
                           ("notion_page_id", "TEXT"),
                           # Per-title reading-speed flag strictness
                           # (subtitle_formats.READING_SPEED_MODES).
@@ -1202,11 +1187,15 @@ def _migrate_drama_columns(conn):
                           # the API defaults apply (genre on, she/her off).
                           ("default_female_pronouns", "INTEGER"),
                           ("include_genre_notes", "INTEGER"),
+                          ("whisper_repeat_guard", "INTEGER DEFAULT 0"),
+                          ("split_by_sentences", "INTEGER DEFAULT 0"),
                           # NULL = off: translate whole sentences, then split the English
                           # across the short timed lines (sentence_groups.py).
                           ("translate_by_sentence", "INTEGER")]:
         if col not in drama_cols:
             _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
+    if "whisper_repeat_guard" not in drama_cols:  # once: the old 2.0 s guard default is now off
+        conn.execute("UPDATE dramas SET hallucination_silence_sec = 0 WHERE hallucination_silence_sec = 2")
 
 
 def _migrate_series_and_character_columns(conn):
@@ -1225,8 +1214,7 @@ def _migrate_series_and_character_columns(conn):
     if "voice_design" not in char_cols:
         _safe_alter(conn, "ALTER TABLE characters ADD COLUMN voice_design TEXT")
     if "offline_voice" not in char_cols:
-        # Piper can't load an edge-tts voice name, so the offline
-        # engine gets its own per-character voice instead of reading tts_voice.
+        # Kept for databases that already have the column; nothing reads it now.
         _safe_alter(conn, "ALTER TABLE characters ADD COLUMN offline_voice TEXT")
     if "series_character_id" not in char_cols:
         # Links this drama's speaker to a persistent series_characters row,
@@ -2176,6 +2164,7 @@ def create_drama(**fields) -> int:
         fields["is_private"] = 0
     with contextlib.closing(get_conn()) as conn:
         fields.setdefault("status", "not started")
+        fields.setdefault("hallucination_silence_sec", 0)  # older databases' column default is 2
         now = datetime.datetime.utcnow().isoformat()
         fields["created_at"] = now
         fields["updated_at"] = now
@@ -2211,15 +2200,6 @@ def set_status_if(drama_id: int, expected: str, new: str) -> bool:
             (new, datetime.datetime.utcnow().isoformat(), drama_id, expected))
         conn.commit()
         return cur.rowcount > 0
-
-
-def set_drama_notion_page_id(drama_id: int, page_id):
-    """Roadmap 112: records (or clears, with None) the Notion page a drama
-    was exported to. Left out of update_drama on purpose: an export is not
-    an edit, so updated_at stays as it was."""
-    with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE dramas SET notion_page_id = ? WHERE id = ?", (page_id, drama_id))
-        conn.commit()
 
 
 def delete_drama(drama_id: int):

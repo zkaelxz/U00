@@ -1,6 +1,5 @@
 """
-api/routers/export_routes.py -- Export-stage endpoints for one drama
-(Phase 6's first Workspace stage).
+api/routers/export_routes.py -- Export-stage endpoints for one drama.
 
 The read-only readiness summary, subtitle text generation (SRT/VTT) as a
 plain-text download, and the three flagging actions -- each
@@ -10,8 +9,8 @@ EPUB export (novel-narration dramas only) as a binary download.
 ASS subtitle text (POST, per-request style, plain-text
 download) and the style-options listing are also here, along with the audiobook export
 job and the burned-in video job
-(POST, returns {job_id}, output downloads via /api/artifacts). Parity
-E17/E19 add the soft-subtitle and dubbed video jobs (same shape), and E22
+(POST, returns {job_id}, output downloads via /api/artifacts). The
+soft-subtitle and dubbed video jobs (same shape) and
 "Mark as exported" (status only; admin.library like the other drama status
 writes).
 """
@@ -28,7 +27,7 @@ from services import export_service, media_export_service
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
-_MEDIA_TYPES = {"srt": "application/x-subrip", "vtt": "text/vtt"}
+_MEDIA_TYPES = {"srt": "application/x-subrip", "vtt": "text/vtt", "lrc": "text/plain; charset=utf-8"}
 
 
 @router.get("/dramas/{drama_id}/readiness", dependencies=[require_permission("library.read")], response_model=ExportReadiness,
@@ -39,11 +38,11 @@ def get_export_readiness(drama_id: int = Path(ge=1)):
 
 
 @router.get("/dramas/{drama_id}/subtitle", dependencies=[require_permission("lines.read")],
-            summary="Generate SRT/VTT subtitle text for one drama (plain-text download)",
+            summary="Generate SRT/VTT/LRC subtitle text for one drama (plain-text download)",
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def get_subtitle_text(
         drama_id: int = Path(ge=1),
-        fmt: str = Query("srt", pattern="^(srt|vtt)$"),
+        fmt: str = Query("srt", pattern="^(srt|vtt|lrc)$"),
         field: str = Query("en", pattern="^(en|zh|bilingual)$"),
         include_notes: bool = Query(False),
         wrap_chars_en: int = Query(None, ge=1, le=200),

@@ -9,6 +9,7 @@ import time
 from core import LANGUAGE_NAMES
 from sentence_groups import render_grouped
 from services import capped_body
+from memory_headroom import HeadroomError
 
 
 def _empty_usage() -> dict:
@@ -129,7 +130,8 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             return fn()
         except Exception as e:
             last_exception = e
-            if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached)):
+            # A refused local load repeats identically; retrying only delays the message.
+            if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached, HeadroomError)):
                 raise
             if getattr(e, "_fallback_chain_exhausted", False) and _is_rate_limit_error(e):
                 # FallbackEngine already retried and tried every engine.
@@ -191,9 +193,10 @@ _SECRET_PATTERNS = [
     re.compile(r'\bhf_[A-Za-z0-9]{20,}\b'),
     # Groq keys: gsk_ + ~52 letters/digits.
     re.compile(r'\bgsk_[A-Za-z0-9]{20,}\b'),
-    # Notion integration secrets (roadmap 112): ntn_ (current) or secret_
-    # (older) + 40+ letters/digits. Same floor idea as hf_ above, so words like
-    # "secret_key" or "ntn_status" are left alone.
+    # Notion integration secrets: ntn_ (current) or secret_ (older) + 40+
+    # letters/digits. Kept although the integration is gone: a stored or pasted
+    # Notion token must still be scrubbed from error text. Same floor idea as
+    # hf_ above, so words like "secret_key" or "ntn_status" are left alone.
     re.compile(r'\b(?:ntn|secret)_[A-Za-z0-9]{20,}\b'),
     # DeepL keys: a UUID, with ":fx" on Free-plan keys. A bare UUID is
     # only redacted with the ":fx" suffix or after "DeepL-Auth-Key", so

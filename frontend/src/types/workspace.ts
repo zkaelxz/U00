@@ -34,6 +34,8 @@ export interface TranscribeConfig {
   audio_available: boolean
   alignment_method: string
   asr_backend_choice: string
+  // Set when the saved backend was removed and the default is shown instead.
+  asr_backend_notice: string | null
   whisper_size: string
   whisper_model_cached: boolean
   // Audio seconds per second of work on the last finished run of this model and device; null if none yet.
@@ -50,6 +52,9 @@ export interface TranscribeConfig {
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
+  // "normal" or "sensitive"; the threshold a run uses (the preset lowers an untouched one).
+  sensitivity_preset: string
+  effective_vad_threshold: number
   // Shortest silence between words at which a long line may be cut.
   min_pause_sec: number
   // Seconds of silence inside a segment that make Whisper skip it; 0 = off.
@@ -58,6 +63,10 @@ export interface TranscribeConfig {
   separation_backend: string
   realign_long_segments: boolean
   whisper_fast_mode: boolean
+  // Whisper's no-repeat and repetition-penalty decoding; off by default.
+  whisper_repeat_guard: boolean
+  // Cut lines at sentence ends and word pauses instead of speech-detector pauses.
+  split_by_sentences: boolean
   use_groq: boolean
   has_video_source: boolean
   hardsub_ocr_backend: string
@@ -82,6 +91,7 @@ export type TranscribeConfigUpdate = Partial<
     | 'measured_diarize_runs'
     | 'whisper_installed'
     | 'has_video_source'
+    | 'effective_vad_threshold'
   >
 >
 

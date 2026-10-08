@@ -63,19 +63,21 @@ import traceback
 import audio_preprocess
 import core as core_module
 import db
+import ollama_unload
 import diagnostics
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
     DEFAULT_WHISPER_SIZE, ModelDownloadError, line_from_row,
 )
-import subtitle_formats
+import subtitle_formats, glossary_io as gio
 import translate_engines
 import translation_guide as tguide
-import bulk_translate
-import raw_transcript
+import bulk_translate, raw_transcript
 import dub as dub_module
+import dub_narration as dn
 import background_jobs
+import cli_subtitle
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
                       glossary_service, jobs_service, lines_service, line_provenance_service,
                       narration_service, review_extras_service, settings_service, transcribe_service,
@@ -492,6 +494,7 @@ def cmd_align(args):
         # Same saved tuning the service's transcribe job uses
         # (transcribe_service.get_transcribe_config); --fast still wins.
         cfg = transcribe_service.get_transcribe_config(d["id"])
+        fast = getattr(args, "fast", False) or cfg["whisper_fast_mode"]
         use_gpu = settings_service.get_use_gpu()
         language = d.get("source_language") or "zh"
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
@@ -521,11 +524,15 @@ def cmd_align(args):
             segments = transcribe_for_timing(
                 audio_path, whisper_size, language=language, use_gpu=use_gpu,
                 local_model_path=local_model_path,
-                fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
+                fast_mode=fast,
                 initial_prompt=initial_prompt, beam_size=cfg["beam_size"],
-                min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
+                min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["effective_vad_threshold"],
+                sensitivity_preset=cfg["sensitivity_preset"],
                 hallucination_silence_sec=cfg["hallucination_silence_sec"],
+                repeat_guard=cfg["whisper_repeat_guard"],
                 on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)))
+        if "ollama_notice" in (notice := ollama_unload.take_notice_result()):
+            print(f"#{d['id']} WARNING: {notice['ollama_notice']}")
         if not segments:
             release_gpu_models()
             print(f"#{d['id']} skipped: no speech was found in the audio, so nothing was "
@@ -540,8 +547,7 @@ def cmd_align(args):
         if gpu_fallback:
             print(f"#{d['id']} WARNING: "
                   f"{core_module.gpu_fallback_notice('Transcription', gpu_fallback[0])}")
-        elif (segments and not use_groq and not cfg["whisper_fast_mode"]
-              and not getattr(args, "fast", False)):
+        elif segments and not use_groq and not fast:
             # Same history the app's estimate reads; fast mode runs at another speed.
             transcribe_service.record_transcribe_speed(
                 whisper_size, bool(use_gpu), transcribe_service._audio_duration_seconds(audio_path),
@@ -589,14 +595,15 @@ def cmd_align(args):
                 asr_backend="whisper", whisper_size=whisper_size,
                 local_model_path=local_model_path, language=language,
                 transcript_mode="have_transcript", alignment_method=alignment_method,
-                min_silence_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
-                beam_size=cfg["beam_size"],
+                min_silence_ms=cfg["min_silence_ms"], vad_threshold=cfg["effective_vad_threshold"],
+                sensitivity_preset=cfg["sensitivity_preset"], beam_size=cfg["beam_size"],
                 hallucination_silence_sec=cfg["hallucination_silence_sec"],
-                whisper_fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
-                use_groq=use_groq, separate_vocals_first=cfg["separate_vocals_first"],
+                whisper_fast_mode=fast,
+                whisper_repeat_guard=cfg["whisper_repeat_guard"], use_groq=use_groq,
+                separate_vocals_first=cfg["separate_vocals_first"],
                 separation_backend=cfg["separation_backend"],
                 realign_long_segments=cfg["realign_long_segments"],
-                mixed_languages=False, use_gpu=use_gpu, gpu_fallback_msgs=gpu_fallback,
+                use_gpu=use_gpu, gpu_fallback_msgs=gpu_fallback,
                 initial_prompt=initial_prompt, **app_gpu_settings))
         db.update_drama(d["id"], status="aligned")
         print(f"#{d['id']} aligned {len(lines)} lines.")
@@ -631,8 +638,9 @@ def _parse_fallback_arg(value, reflect=False) -> list:
     if reflect:
         raise SystemExit("translate: --fallback only applies to a normal translation run, "
                          "not --reflect.")
-    if any(n not in translate_engines.ENGINES for n in names):
-        raise SystemExit("translate: --fallback names an unknown translate engine.")
+    for n in names:
+        if n not in translate_engines.ENGINES:
+            raise SystemExit(f"translate: --fallback: {translate_engines.unknown_engine_message(n)}")
     return names
 
 
@@ -657,6 +665,8 @@ def _resolve_glossary_terms(drama: dict, refs) -> list:
 
 
 def cmd_translate(args):
+    if args.engine and args.engine not in translate_engines.ENGINES:
+        raise SystemExit(f"translate: {translate_engines.unknown_engine_message(args.engine)}")
     fallback_names = _parse_fallback_arg(getattr(args, "fallback", None),
                                          reflect=getattr(args, "reflect", False))
     glossary_affected = getattr(args, "glossary_affected", False)
@@ -733,8 +743,7 @@ def cmd_translate(args):
         if chain_error:
             print(f"#{d['id']} skipped: {chain_error}")
             return
-        missing = [n for n in fallback_names
-                   if n != "nllb" and not translate_service.resolve_api_key(n)]
+        missing = [n for n in fallback_names if not translate_service.resolve_api_key(n)]
         if missing:
             print(f"#{d['id']} skipped: no {missing[0]} key is configured for --fallback.")
             return
@@ -946,10 +955,11 @@ def cmd_translate(args):
 def cmd_dub(args):
     # Up front, as the API does: a bad pacing limit or missing TTS package
     # would otherwise fail the same way for every drama in the batch.
+    tts_engine = getattr(args, "tts_engine", None) or dub_module.DEFAULT_CLONE_ENGINE
     try:
         max_speedup, max_slowdown = dub_service.resolve_pacing_limits(
             getattr(args, "max_speedup", None), getattr(args, "max_slowdown", None))
-        dub_service.require_engine_dependency(getattr(args, "tts_engine", None) or "edge_tts")
+        dub_service.require_can_generate(tts_engine, [])
     except ServiceError as e:
         raise SystemExit(f"dub: {e.message}")
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="translated")
@@ -968,23 +978,14 @@ def cmd_dub(args):
         ddir = db.drama_dir(d["id"])
 
         source_lang = d.get("source_language") or "zh"
-        default_voice_pool = (dub_module.DEFAULT_VOICE_POOL_BY_LANGUAGE.get(
-            source_lang, dub_module.DEFAULT_VOICE_POOL) if narrate_original
-            else dub_module.DEFAULT_VOICE_POOL)
         chars = db.list_characters(d["id"])
-        voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c.get("tts_voice")}
-        offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
-                             if c.get("offline_voice")}
+        # Raised, not skipped, so _run_batch counts the drama as failed.
+        dub_service.require_can_generate(tts_engine, chars, narrate_original, source_lang)
         clone_map = dub_module.clone_map_from_characters(
-            chars, ddir, gpt_sovits_url=(getattr(args, "gpt_sovits_url", None)
-                                          or settings_service.resolve_key("gpt_sovits_url") or None),
-            ref_language=source_lang)
-        speakers = {ln.speaker for ln in lines if ln.speaker}
-        voice_map = dub_module.fill_missing_voices(voice_map, speakers, default_voice_pool)
-        offline_voice_map = dub_module.fill_missing_voices(
-            offline_voice_map, speakers, dub_module.DEFAULT_OFFLINE_VOICE_POOL)
+            chars, ddir, default_engine=tts_engine,
+            speaker_labels={ln.speaker or None for ln in lines})
 
-        build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
+        build_fn = dub_service.track_builder(is_narration)
         stretch = {} if is_narration else dict(
             max_speedup=max_speedup, max_slowdown=max_slowdown)
         narration_kwargs = (dict(narrate_original=narrate_original, source_language=source_lang)
@@ -1000,9 +1001,8 @@ def cmd_dub(args):
 
         # Same clone_map_uses_local_model check the Workspace tab's
         # own Dub job uses to decide gpu_touching -- only some clone/TTS
-        # backends actually load a local model onto the GPU (GPT-SoVITS,
-        # OmniVoice, ...); edge-tts/cloud backends don't, and don't need to
-        # wait on the cross-process GPU lock at all.
+        # backends actually load a local model onto the GPU; only an empty map
+        # skips the cross-process GPU lock.
         _gpu_holder_box = [None]
 
         def _progress(frac, did=d["id"]):
@@ -1015,10 +1015,7 @@ def cmd_dub(args):
                         else contextlib.nullcontext(None))
         with _dub_gpu_ctx as _gpu_holder_box[0]:
             out_path, dub_errors = build_fn(
-                lines, ddir, voice_map, default_voice=default_voice_pool[0],
-                character_clone_map=clone_map,
-                emotion_map=db.load_emotions(d["id"]), offline_voice_map=offline_voice_map,
-                tts_engine=getattr(args, "tts_engine", None) or "edge_tts",
+                lines, ddir, clone_map,
                 progress_cb=_progress,
                 **stretch, **narration_kwargs,
             )
@@ -1036,7 +1033,7 @@ def cmd_dub(args):
                       fields=("dub_filename", "start", "end") if is_narration else ("dub_filename",))
         db.update_drama(d["id"], status="dubbed")
         if is_narration and getattr(args, "m4b", False):
-            m4b_path = dub_module.export_narration_m4b(
+            m4b_path = dn.export_narration_m4b(
                 lines, ddir, title=d.get("title_en") or d.get("title_zh"),
                 narrate_original=narrate_original)
             print(f"\n#{d['id']} audiobook: {m4b_path}")
@@ -1150,13 +1147,14 @@ def _wait_for_job(job_id: str, label: str, poll_interval: float = _JOB_POLL_SECO
 
 def cmd_transcribe(args):
     """Transcribes (or aligns --transcript against) one title's stored audio
-    through the same service as the Workspace's Transcribe button. Tuning
-    options are saved on the title, as the app's own form saves them."""
+    through the Workspace's Transcribe service. Tuning options are saved
+    on the title."""
     tuning = dict(
         whisper_size=args.whisper_size, asr_backend_choice=args.asr_backend,
         beam_size=args.beam_size, min_silence_ms=args.min_silence_ms,
         min_pause_sec=args.min_pause,
-        vad_threshold=args.vad_threshold, separation_backend=args.separation_backend,
+        vad_threshold=args.vad_threshold, sensitivity_preset=args.sensitivity,
+        separation_backend=args.separation_backend,
         separate_vocals_first=args.separate_vocals)
     transcript_text = _read_transcript_option(args)
     try:
@@ -1178,7 +1176,8 @@ def cmd_transcribe(args):
         print(f"{label} device: {result['device']}")
     if result.get("device_notice"):
         print(f"{label} NOTICE: {result['device_notice']}")
-    for key in ("coverage_warning", "word_align_error", "forced_align_error"):
+    for key in ("coverage_warning", "ollama_notice", "word_align_error", "forced_align_error",
+                "asr_backend_notice"):
         if result.get(key):
             print(f"{label} WARNING: {translate_engines.redact_secrets(str(result[key]))}")
     if outcome not in ("ok", "partial"):
@@ -1380,7 +1379,10 @@ def main():
     p_translate = sub.add_parser("translate")
     p_translate.add_argument("--id", type=int, default=None)
     p_translate.add_argument("--status", default=None)
-    p_translate.add_argument("--engine", default=None, choices=list(translate_engines.ENGINES))
+    # No argparse choices: a removed engine name gets the same plain refusal
+    # as the API instead of a generic "invalid choice" error.
+    p_translate.add_argument("--engine", default=None,
+                             help=f"Translate engine ({', '.join(translate_engines.ENGINES)}).")
     p_translate.add_argument("--api-key", default=None,
                              help="Key for --engine; omit to use the saved key.")
     p_translate.add_argument("--model", default=None)
@@ -1449,8 +1451,7 @@ def main():
     p_translate.add_argument("--cost-cap", type=float, default=None,
                            help="Stop a drama's translation once its estimated spend reaches this "
                                 "many USD (finished lines are kept).")
-    p_translate.add_argument("--monthly-cap", type=float,
-                           default=None,
+    p_translate.add_argument("--monthly-cap", type=float, default=None,
                            help="Refuse to start / stop once this calendar month's logged spend "
                                 "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
     # Matches the Workspace tab's own three sliders. Unset means
@@ -1491,13 +1492,12 @@ def main():
                        help="Dub (not narration): mix the original's background music/ambience "
                             "(the source audio minus its vocals, via the drama's separation "
                             "backend) back under the dub track")
-    p_dub.add_argument("--tts-engine", default="edge_tts", choices=["edge_tts", "offline"],
-                       help="Fallback TTS engine used where a character has no cloned voice "
-                            "reference set (same choice as Workspace's own 8. AI dub / "
-                            "narration section). Defaults to edge-tts.")
-    p_dub.add_argument("--gpt-sovits-url", default=None,
-                       help="GPT-SoVITS server for characters using it "
-                            f"(default {dub_module.GPT_SOVITS_DEFAULT_URL})")
+    # No argparse choices: a removed engine name gets the same plain refusal
+    # as the API instead of a generic "invalid choice" error.
+    p_dub.add_argument("--tts-engine", default=dub_module.DEFAULT_CLONE_ENGINE,
+                       help="Voice engine for speakers whose character has none of its own "
+                            f"({', '.join(dub_module.CLONE_ENGINES)}; same choice as the Dub "
+                            f"stage). Defaults to {dub_module.DEFAULT_CLONE_ENGINE}.")
     p_dub.add_argument("--m4b", action="store_true",
                        help="For novel narration: also export an M4B audiobook with chapter markers")
     p_dub.set_defaults(func=cmd_dub)
@@ -1510,7 +1510,7 @@ def main():
     p_transcribe.add_argument("--whisper-size", default=None,
                               help="Whisper model size, saved on the title.")
     p_transcribe.add_argument("--asr-backend", default=None,
-                              choices=["whisper", "qwen3_asr", "qwen3_asr_vad", "moss_td"],
+                              choices=transcribe_service.ASR_BACKEND_CHOICES,
                               help="Speech recognition backend, saved on the title.")
     p_transcribe.add_argument("--beam-size", type=int, default=None, help="Whisper beam size (1-10).")
     p_transcribe.add_argument("--min-silence-ms", type=int, default=None,
@@ -1521,6 +1521,10 @@ def main():
                                    f"{core_module.MIN_WORD_GAP_SECONDS_MAX:g}; saved on the title.")
     p_transcribe.add_argument("--vad-threshold", type=float, default=None,
                               help="VAD speech threshold (0.1-0.9).")
+    p_transcribe.add_argument("--sensitivity", choices=("normal", "sensitive"), default=None,
+                              help="'sensitive' catches quieter or fast speech (lower VAD threshold, no "
+                                   "repeat penalties) and may add false text on music or breathing; "
+                                   "saved on the title.")
     p_transcribe.add_argument("--separate-vocals", action=argparse.BooleanOptionalAction, default=None,
                               help="Separate vocals from music before recognising.")
     p_transcribe.add_argument("--separation-backend", default=None,
@@ -1540,6 +1544,7 @@ def main():
     p_qc = sub.add_parser("qc", help="Run Auto QC (numbers, names, banned terms) and flag lines")
     p_qc.add_argument("--id", type=int, default=None, help="One title (default: the whole library).")
     p_qc.set_defaults(func=cmd_qc)
+    cli_subtitle.register(sub)
 
     p_gloss = sub.add_parser("glossary", help="List, add, remove, import or export a title's series glossary")
     gsub = p_gloss.add_subparsers(dest="glossary_action", required=True)
@@ -1548,8 +1553,8 @@ def main():
     g_add.add_argument("--original", required=True)
     g_add.add_argument("--translation", required=True)
     g_add.add_argument("--notes", default=None)
-    g_add.add_argument("--category", default=None, choices=list(tguide.TERM_CATEGORIES))
-    g_add.add_argument("--policy", default=None, choices=list(tguide.TERM_POLICIES))
+    g_add.add_argument("--category", default=None, choices=gio.TERM_CATEGORIES)
+    g_add.add_argument("--policy", default=None, choices=gio.TERM_POLICIES)
     g_add.add_argument("--alias", action="append", default=None)
     g_add.add_argument("--banned", action="append", default=None, help="A translation never to use.")
     g_add.add_argument("--enforce-exact", action="store_true")
@@ -1612,12 +1617,11 @@ def main():
     p_run.add_argument("--context-window-ahead", type=int, default=None)
     p_run.add_argument("--batch-size", type=int, default=None)
     p_run.add_argument("--cost-cap", type=float, default=None,
-                           help="Stop a drama's translation once its estimated spend reaches this "
-                                "many USD (finished lines are kept).")
-    p_run.add_argument("--monthly-cap", type=float,
-                           default=None,
-                           help="Refuse to start / stop once this calendar month's logged spend "
-                                "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
+                       help="Stop a drama's translation once its estimated spend reaches this "
+                            "many USD (finished lines are kept).")
+    p_run.add_argument("--monthly-cap", type=float, default=None,
+                       help="Refuse to start / stop once this calendar month's logged spend "
+                            "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
     p_run.set_defaults(func=cmd_run)
 
     p_export_video = sub.add_parser("export-video")

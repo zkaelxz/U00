@@ -47,6 +47,7 @@ import os
 import re
 import tempfile
 
+import memory_headroom
 from core import (
     ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname,
     Line, lines_from_char_times, align_transcript_to_timing,
@@ -92,6 +93,7 @@ def load_qwen3_aligner(use_gpu: bool = False, on_device=None, on_gpu_fallback=No
     back to the CPU.
     """
     cache_key = "gpu" if use_gpu else "cpu"
+    memory_headroom.before_load("aligner", "qwen3", use_gpu, cache_key in _aligner_model_cache)
     if cache_key in _aligner_model_cache:
         if on_device:
             on_device("GPU" if use_gpu else "CPU")

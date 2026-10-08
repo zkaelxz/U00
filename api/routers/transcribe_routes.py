@@ -1,6 +1,6 @@
 """
 api/routers/transcribe_routes.py -- Transcript-stage endpoints for one
-drama (Phase 6's third Workspace stage, Migration Slices 20-21).
+drama.
 
 One config read/write and one job-starting action -- see
 services/transcribe_service.py's own docstring for the job-does-everything
@@ -9,10 +9,10 @@ hardsub_ocr was added later). Job status/cancel for the transcribe
 run is not duplicated here: poll it through the existing
 GET /api/jobs/{job_id}.
 
-Route batch 2C adds auto-tune (start, status with the candidate scores,
+Auto-tune (start, status with the candidate scores,
 apply a measured candidate), whose results are only readable here.
 
-Parity audit B1 (R23) adds re-transcribing one line: a GPU-queued job that
+Re-transcribing one line: a GPU-queued job that
 proposes new source text (poll GET /api/jobs/{job_id} for status), a read of
 the proposal (the line text is only readable here, not in the job record),
 and an apply route that writes it only if the line is unchanged since the
@@ -30,9 +30,11 @@ from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunRe
                          CompareResult, CompareRunRequest, CompareRunResult, ErrorResponse, RetimeApplyRequest, RetimeApplyResult,
                          RetimeResult, RetimeRunRequest, RetranscribeApplyRequest,
                          RetranscribeApplyResult, RetranscribeLineRequest,
-                         RetranscribeLineResult, RetranscribeResult, TranscribeConfig, TranscribeConfigUpdate,
+                         RetranscribeLineResult, RetranscribeResult, SpeechCoverageRunRequest,
+                         SpeechCoverageRunResult, SpeechCoverageStatus, TranscribeConfig, TranscribeConfigUpdate,
                          TranscribeRunRequest, TranscribeRunResult)
-from services import compare_transcription_service, retime_service, transcribe_service
+from services import (compare_transcription_service, retime_service, speech_coverage_service,
+                      transcribe_service)
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
@@ -78,7 +80,27 @@ def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
         extra_names=payload.extra_names)
 
 
-# --- Route batch 2C: auto-tune speech-splitting sensitivity -----------------
+# --- Speech coverage: speech the lines don't cover (read-only, CPU) ----------
+
+@router.post("/dramas/{drama_id}/speech-coverage", dependencies=[require_permission("jobs.start")],
+             response_model=SpeechCoverageRunResult,
+             summary="Start the speech coverage check: speech in the audio that has no subtitle line",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_start_speech_coverage(payload: SpeechCoverageRunRequest, drama_id: int = Path(ge=1)):
+    return speech_coverage_service.start_speech_coverage(
+        drama_id, min_gap_seconds=payload.min_gap_seconds)
+
+
+@router.get("/dramas/{drama_id}/speech-coverage", dependencies=[require_permission("library.read")],
+            response_model=SpeechCoverageStatus,
+            summary="Status and (when done) the gaps of this title's speech coverage check",
+            responses={404: {"model": ErrorResponse}})
+def get_speech_coverage(drama_id: int = Path(ge=1)):
+    return speech_coverage_service.get_speech_coverage(drama_id)
+
+
+# --- Auto-tune speech-splitting sensitivity -----------------
 # Local ASR only (transcribe_service.PAID_ENGINE_FUNCTIONS is empty), so no
 # engine gate. Results live in this process's job memory: the GET reads them
 # back and the apply only accepts a value that run measured.
@@ -112,7 +134,7 @@ def post_apply_autotune(payload: AutotuneApplyRequest, drama_id: int = Path(ge=1
     return transcribe_service.apply_autotune_candidate(drama_id, payload.candidate_ms)
 
 
-# --- Parity audit B1 (R23): re-transcribe one line ----------------------------
+# --- Re-transcribe one line ----------------------------
 # Local Whisper only (no Groq, no LLM), so no engine gate.
 
 @router.post("/dramas/{drama_id}/lines/{line_id}/retranscribe",
@@ -181,7 +203,7 @@ def post_compare_estimate(payload: CompareEstimateRequest, drama_id: int = Path(
              responses=_COMPARE_ERRORS)
 def post_compare_run(payload: CompareRunRequest, request: Request, drama_id: int = Path(ge=1)):
     if payload.translate:
-        require_engines_allowed(request, payload.engine)
+        require_engines_allowed(request, payload.engine, model=payload.model)
     return compare_transcription_service.start_compare(
         drama_id, payload.selection.model_dump(exclude_none=True), payload.whisper_size,
         payload.asr_backend, payload.translate, payload.retranslate_current, payload.engine,

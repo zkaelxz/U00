@@ -14,13 +14,14 @@ import time
 import adaptive_style
 import db
 import background_jobs
+import ollama_unload
 import translate_engines
 import translation_guide as tguide
 import bulk_translate
 import emotion
 import core as core_module
 from core import transcribe_for_timing
-from services import job_timing_service, line_provenance_service, settings_service
+from services import fixflag_transcribe, job_timing_service, language_pack_service, line_provenance_service, settings_service
 
 
 def _id_by_idx(lines):
@@ -50,11 +51,10 @@ def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronou
 
 def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True,
                             include_genre_notes=None, default_female_pronouns=None):
-    """(glossary_terms, style_guidelines, character_names) for one drama --
-    the one builder shared by translate_run_service.start_translate_run,
-    `cli.py translate`, line_ai_service and the review jobs: series
-    glossary, the learned style profile, emotion guidance for `lines` and
-    character gender hints in custom_notes, and named-speaker labels.
+    """(glossary_terms, style_guidelines, character_names) for one drama,
+    shared by the app's runs and `cli.py translate`: series glossary, style
+    profile, emotion guidance, gender hints, speaker labels and
+    the title's language packs.
     include_genre_notes/default_female_pronouns are the Translate toggles;
     None means the title's saved choice (resolve_style_toggles)."""
     include_genre_notes, default_female_pronouns = resolve_style_toggles(
@@ -76,6 +76,7 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
             tguide.build_character_gender_hints(
                 series_chars, drama_chars, default_female_pronouns)) if b))
     character_names = tguide.build_speaker_labels(drama_chars, series_chars)
+    style_guidelines += language_pack_service.block_for(drama, lines, glossary_terms)
     return glossary_terms, style_guidelines, character_names
 
 
@@ -350,6 +351,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
         "segments": segments,
         "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
         "word_align_error": word_align_error,
+        **ollama_unload.take_notice_result(),
     }
     if gpu_fallback_msg:
         result["device_notice"] = core_module.gpu_fallback_notice("Transcription", gpu_fallback_msg[0])
@@ -573,9 +575,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                 slice_path = os.path.join(os.path.dirname(audio_path), f"_fixflag_slice_{ln.idx}.wav")
                 try:
                     core_module.extract_audio_slice(audio_path, ln.start, ln.end, slice_path)
-                    segments = core_module.transcribe_for_timing(
-                        slice_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu)
-                    new_zh = " ".join(s["text"] for s in segments).strip()
+                    new_zh = fixflag_transcribe.text_for_slice(
+                        slice_path, drama_id, drama, whisper_size, source_language, use_gpu)
                     if new_zh:
                         ln.zh = new_zh
                 except Exception as e:
@@ -1144,7 +1145,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         engine_choice = drama.get("translation_engine") or settings_service.get_default_engine()
         # expected_engines: what the caller was checked against; an engine
         # changed since then is skipped rather than used unchecked.
-        if expected_engines is not None and expected_engines.get(did) != engine_choice:
+        if (engine_choice not in translate_engines.ENGINES
+                or expected_engines is not None and expected_engines.get(did) != engine_choice):
             results["skipped_engine_changed"].append(did)
             continue
         needs_key = engine_choice not in translate_engines.KEYLESS_ENGINES

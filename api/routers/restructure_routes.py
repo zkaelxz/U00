@@ -1,7 +1,7 @@
 """
 api/routers/restructure_routes.py -- structural line changes for one drama:
 add, delete, merge, split, re-segmentation
-(read-only preview + a job that re-segments and saves; parity R47 adds an
+(read-only preview + a job that re-segments and saves; an
 LLM preview job, read back with GET .../resegment/preview-llm and applied
 as shown with `use_preview: true`), and Version
 history restore (the list is GET /api/review/dramas/{id}/history). Thin wrapper over services/restructure_service.py.
@@ -67,7 +67,7 @@ def get_resegment_preview(drama_id: int = Path(ge=1)):
              responses={**_R, 400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 def post_resegment_llm_preview(body: ResegmentLlmPreviewStart, request: Request,
                                drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    require_engines_allowed(request, body.engine, model=body.model)
     return svc.start_llm_resegment_preview(drama_id, engine=body.engine, model=body.model)
 
 
@@ -84,7 +84,7 @@ def get_resegment_llm_preview(drama_id: int = Path(ge=1)):
              responses={**_R, 400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 def post_resegment(body: ResegmentStart, request: Request, drama_id: int = Path(ge=1)):
     if body.use_llm:
-        require_engines_allowed(request, body.engine)
+        require_engines_allowed(request, body.engine, model=body.model)
     return svc.start_resegmentation(drama_id, body.expected_line_ids, confirm=body.confirm,
                                     use_llm=body.use_llm, engine=body.engine, model=body.model,
                                     use_preview=body.use_preview)

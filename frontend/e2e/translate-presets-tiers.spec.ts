@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { withTranslateLines } from './stageLineMocks'
+import { engineShortName } from '../src/api/translate'
 
 // Parity X02 (apply a workflow tier) and X22 (save as preset). The two write
 // routes are mocked so the shared seeded library is left as it was; config
@@ -14,7 +15,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
     await route.fulfill({
       json: {
         drama_id: 1, tier: 'release', label: 'Release -- best quality, checked before export',
-        translation_engine: 'claude', engine_model: 'claude-opus-4-8', reflect: true, auto_qc: true,
+        translation_engine: 'claude', engine_model: 'claude-opus-5-5', reflect: true, auto_qc: true,
       },
     })
   })
@@ -123,7 +124,7 @@ test('after a tier, Default runs and saves with the new engine', async ({ page }
   const engine = run.getByLabel('AI engine', { exact: true })
   await engine.selectOption('')
   await expect(engine.locator('option[value=""]')).toHaveText(
-    `Default (${eng.label}${eng.key_configured ? '' : ' (no key)'})`)
+    `Default (${engineShortName(eng)}${eng.key_configured ? '' : ' (no key)'})`)
 
   await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
   await expect.poll(() => runs.length).toBe(1)

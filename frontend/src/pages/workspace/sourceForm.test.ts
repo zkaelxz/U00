@@ -14,9 +14,10 @@ import {
 } from './sourceForm'
 
 const base: AdvancedValues = {
-  beam_size: '5', min_silence_ms: '300', min_pause_sec: '0.35', vad_threshold: '0.5', hallucination_silence_sec: '2', hardsub_interval_sec: '1',
+  beam_size: '5', min_silence_ms: '300', min_pause_sec: '0.35', vad_threshold: '0.5', hallucination_silence_sec: '0', hardsub_interval_sec: '1',
   alignment_method: 'whisper_diff', asr_backend_choice: 'whisper', separation_backend: 'auto',
-  separate_vocals_first: false, realign_long_segments: false, whisper_fast_mode: false, use_groq: false, prompt: '',
+  separate_vocals_first: false, realign_long_segments: false, whisper_fast_mode: false,
+  whisper_repeat_guard: false, split_by_sentences: false, use_groq: false, prompt: '',
 }
 
 describe('advancedSummary', () => {
@@ -29,10 +30,15 @@ describe('advancedSummary', () => {
   it('mentions a changed split pause only when it differs from 0.35', () => {
     expect(advancedSummary({ ...base, min_pause_sec: '0.5' })).toBe('split pause 0.5 s')
     expect(advancedSummary({ ...base, min_pause_sec: '0.350' })).toBe('defaults')
+    expect(advancedSummary({ ...base, sensitivity_preset: 'sensitive' })).toBe('more sensitive')
+    expect(advancedSummary({ ...base, sensitivity_preset: 'normal' })).toBe('defaults')
   })
-  it('mentions a changed hallucination guard', () => {
-    expect(advancedSummary({ ...base, hallucination_silence_sec: '0' })).toBe('no hallucination guard')
+  it('mentions the hallucination guard only when it is on', () => {
     expect(advancedSummary({ ...base, hallucination_silence_sec: '3' })).toBe('hallucination guard 3 s')
+  })
+  it('mentions the repeat guard and sentence lines when on', () => {
+    expect(advancedSummary({ ...base, whisper_repeat_guard: true, split_by_sentences: true }))
+      .toBe('repeat guard · lines by sentence')
   })
 })
 
@@ -60,13 +66,11 @@ describe('chapter OCR helpers', () => {
 
 describe('runOptionProblem', () => {
   it('flags forced alignment on a Whisper-only drama', () => {
-    expect(runOptionProblem('whisper', 'qwen3_forced_align', 'whisper', false)?.field).toBe('alignment_method')
-    expect(runOptionProblem('have_transcript', 'qwen3_forced_align', 'whisper', false)).toBeNull()
+    expect(runOptionProblem('whisper', 'qwen3_forced_align')?.field).toBe('alignment_method')
+    expect(runOptionProblem('have_transcript', 'qwen3_forced_align')).toBeNull()
   })
-  it('flags MOSS while it is off, not while it is on', () => {
-    expect(runOptionProblem('whisper', 'whisper_diff', 'moss_td', false)?.field).toBe('asr_backend_choice')
-    expect(runOptionProblem('whisper', 'whisper_diff', 'moss_td', true)).toBeNull()
-    expect(runOptionProblem('whisper', 'whisper_diff', 'whisper', false)).toBeNull()
+  it('has nothing to flag for Whisper-diff on a Whisper-only drama', () => {
+    expect(runOptionProblem('whisper', 'whisper_diff')).toBeNull()
   })
 })
 
@@ -76,7 +80,6 @@ describe('runProblemFromError', () => {
     const msg = "Qwen3 forced alignment needs a transcript to align, but this drama is in Whisper-text-only mode."
     expect(runProblemFromError(err('validation_error', msg))).toEqual({ field: 'alignment_method', message: msg })
     expect(runProblemFromError(err('validation_error', 'Use either an exact speaker count or a min/max range, not both.'))?.field).toBe('speakers')
-    expect(runProblemFromError(err('invalid_input', 'MOSS-Transcribe-Diarize is experimental and turned off.'))?.field).toBe('asr_backend_choice')
   })
   it('ignores other codes, unknown sentences and path-like text', () => {
     expect(runProblemFromError(err('conflict', 'forced alignment'))).toBeNull()

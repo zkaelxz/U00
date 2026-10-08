@@ -16,10 +16,12 @@ import threading
 
 import asr_backend
 import background_jobs
+import ollama_unload
 import core as core_module
 import db
+import sensitivity_preset as presets
 import translate_engines
-from services import (jobs_service, settings_service, transcribe_service,
+from services import (asr_options_service, jobs_service, settings_service, transcribe_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (
     ConflictError,
@@ -36,10 +38,13 @@ _SLICE_TIMEOUT_S = 120
 _MAX_APPLY_ITEMS = MAX_LINES
 
 SELECTION_KINDS = ("line_ids", "range", "flagged", "speaker", "time")
-BACKEND_CHOICES = ("whisper", "qwen3_asr", "qwen3_asr_vad", "moss_td")
+BACKEND_CHOICES = asr_options_service.ASR_BACKEND_CHOICES
+# The Qwen3 backends that find speech themselves instead of hearing Whisper's segments.
+_VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long")
 _BACKEND_LABELS = {
     "whisper": "Whisper", "qwen3_asr": "Qwen3 ASR",
-    "qwen3_asr_vad": "Qwen3 ASR with speech detection", "moss_td": "MOSS (experimental)",
+    "qwen3_asr_vad": "Qwen3 ASR with speech detection",
+    "qwen3_asr_long": "Qwen3 ASR on long windows",
 }
 
 
@@ -60,18 +65,16 @@ def _backend_problem(choice: str, language: str):
     try:
         if choice == "qwen3_asr":
             transcribe_service.require_qwen3_packages("Qwen3-ASR")
-        elif choice == "qwen3_asr_vad":
+        elif choice in _VAD_BACKENDS:
             transcribe_service.require_qwen3_packages("Qwen3-ASR")
             transcribe_service._require_vad_packages()
-        elif choice == "moss_td":
-            transcribe_service._require_moss_backend()
     except (DependencyUnavailableError, InvalidInputError) as exc:
         return str(exc)
     # Whisper hears the audio first on every other backend too.
     if (choice in ("whisper", "qwen3_asr")
             and not transcribe_service.diagnostics.check_dependency("faster_whisper")):
         return transcribe_service.MISSING_TRANSCRIPTION_MESSAGE
-    if choice in ("qwen3_asr", "qwen3_asr_vad") and language not in asr_backend.LANGUAGE_NAMES:
+    if (choice == "qwen3_asr" or choice in _VAD_BACKENDS) and language not in asr_backend.LANGUAGE_NAMES:
         return "Qwen3-ASR doesn't cover this title's language."
     return None
 
@@ -102,7 +105,7 @@ def get_options(drama_id: int) -> dict:
         "no_audio_reason": None if has_audio else "This title has no stored audio to re-transcribe.",
         "max_lines": MAX_LINES,
         "saved_whisper_size": transcribe_service.stored_whisper_size(drama),
-        "saved_asr_backend": drama.get("asr_backend_choice") or "whisper",
+        "saved_asr_backend": asr_options_service.stored_asr_backend(drama),
         "saved_alignment_method": drama.get("alignment_method") or "whisper_diff",
         "whisper_sizes": sizes,
         "backends": backends,
@@ -159,7 +162,7 @@ def _validate_candidate(drama: dict, whisper_size, backend_choice):
     size = whisper_size or transcribe_service.stored_whisper_size(drama)
     if size not in transcribe_service._allowed_whisper_sizes():
         raise InvalidInputError(f"Unknown Whisper model size {size!r}.")
-    backend = backend_choice or drama.get("asr_backend_choice") or "whisper"
+    backend = backend_choice or asr_options_service.stored_asr_backend(drama)
     if backend not in BACKEND_CHOICES:
         raise InvalidInputError(f"Unknown ASR backend {backend!r}.")
     problem = _backend_problem(backend, drama.get("source_language") or "zh")
@@ -181,7 +184,7 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
             and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     api_key = translate_service.resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
+    if api_key is None:
         raise MissingKeyError(engine_name)
     cap = None
     if translate_run_service.engine_cap_applies(engine_name, gemini_free_tier):
@@ -286,9 +289,11 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
          "language": drama.get("source_language") or "zh",
          "beam_size": drama.get("beam_size") or tuning["beam_size"],
          "min_silence_ms": drama.get("min_silence_ms") or tuning["min_silence_ms"],
-         "vad_threshold": drama.get("vad_threshold") or tuning["vad_threshold"],
+         "vad_threshold": presets.stored_vad_threshold(drama),
+         "sensitivity_preset": presets.normalize(drama.get("sensitivity_preset")),
          "hallucination_silence_sec": transcribe_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
+         "repeat_guard": bool(drama.get("whisper_repeat_guard")),
          "use_gpu": settings_service.get_use_gpu()},
         translation, gpu_touching=True,
         description=f"Comparing transcription of {len(picked)} line(s) (drama #{drama_id})")
@@ -300,14 +305,14 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str = None,
 def _line_language(ln, cfg: dict, line_number: int):
     """(language to hear this line in, reason to skip it or None). A line's own
     language wins over the title's so a mixed-language line isn't re-heard in
-    the wrong one. Whisper takes any language; MOSS detects its own; the
+    the wrong one. Whisper takes any language; the
     VAD+Qwen3 backend hears an out-of-set language (English) by its own
     detection. Plain Qwen3 re-hears Whisper's spans in a fixed language and
     refuses one outside zh/ja/ko, so that line is skipped, not mis-heard."""
     language = ln.lang or cfg["language"]
     if language in asr_backend.LANGUAGE_NAMES:
         return language, None
-    if cfg["backend"] == "qwen3_asr_vad":
+    if cfg["backend"] in _VAD_BACKENDS:
         return None, None
     if cfg["backend"] == "qwen3_asr":
         return language, (f"line {line_number}: Qwen3-ASR doesn't cover this line's "
@@ -318,20 +323,19 @@ def _line_language(ln, cfg: dict, line_number: int):
 def _hear(slice_path: str, cfg: dict, language, on_fallback, cancel_check) -> str:
     """Candidate source text for one cut line from the chosen backend."""
     backend, use_gpu = cfg["backend"], cfg["use_gpu"]
-    if backend == "qwen3_asr_vad":
+    if backend in _VAD_BACKENDS:
         segments = asr_backend.get_backend(backend).transcribe(
             slice_path, language, use_gpu=use_gpu, cancel_check=cancel_check)
-    elif backend == "moss_td":
-        segments = asr_backend.get_backend(backend).transcribe(
-            slice_path, language, use_gpu=use_gpu)
     else:
         segments = core_module.transcribe_for_timing(
             slice_path, cfg["whisper_size"], language=language, use_gpu=use_gpu,
             initial_prompt=cfg["prompt"], beam_size=cfg["beam_size"],
             min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"],
+            sensitivity_preset=cfg.get("sensitivity_preset", "normal"),
             on_gpu_fallback=on_fallback, fast_mode=cfg["fast_mode"],
             hallucination_silence_sec=cfg.get("hallucination_silence_sec",
-                                              core_module.DEFAULT_HALLUCINATION_SILENCE_SEC))
+                                              core_module.DEFAULT_HALLUCINATION_SILENCE_SEC),
+            repeat_guard=cfg.get("repeat_guard", False))
         if backend == "qwen3_asr" and segments:
             segments = asr_backend.get_backend(backend).transcribe(
                 slice_path, language, segments, use_gpu=use_gpu)
@@ -427,7 +431,8 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     result = {"proposals": proposals, "line_count": len(lines), "candidate_count": len(proposals),
               "errors": errors[:20], "cap_reached": cap_reached,
               "asr_backend": cfg["backend"], "whisper_size": cfg["whisper_size"],
-              "translated": bool(translation), "partial": bool(cancelled or cap_reached)}
+              "translated": bool(translation), "partial": bool(cancelled or cap_reached),
+              **ollama_unload.take_notice_result()}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
         result["device_notice"] = core_module.gpu_fallback_notice(

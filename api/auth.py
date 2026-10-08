@@ -27,7 +27,7 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   (`__Host-baihe_session`; plain `baihe_session` only in the plain-http
   loopback dev case, see `session_cookie_secure`), the permission, and, for
   POST/PUT/PATCH/DELETE, a matching `X-CSRF-Token` header. The sign-in
-  callback (step 134, `api/routers/auth_routes.py`) also sets a readable
+  callback (`api/routers/auth_routes.py`) also sets a readable
   `__Host-baihe_csrf` cookie so the React client can send that header
   (double submit); the server still checks the header against the hash
   stored with the session, never against the cookie. 401 = no/invalid
@@ -37,8 +37,8 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   direct loopback connection (peer, Host, no proxy headers, loopback
   Origin): the owner at the PC. That is a safeguard, not authentication
   (see the key-write note in docs/archive/migration-handoff.md); the real admin
-  isolation is the separate admin listener (D5, below).
-- Household listener (D5, `BAIHE_API_HOUSEHOLD_PORT`, see
+  isolation is the separate admin listener (below).
+- Household listener (`BAIHE_API_HOUSEHOLD_PORT`, see
   `api/api_config.py`): the app other devices reach through the reverse
   proxy. Auth on, and nothing on it is ever "the PC": `is_local_request` is
   False and `local_only()` refuses every request, however direct and
@@ -107,7 +107,7 @@ def listener_principal(app, principal):
     permissions (user list, audit log) but no admin write permission, and
     loses the admin override: it still sees every item and job, but changes
     only what a member could (`ownership_service`). Admin changes are
-    PC-only (D5), and a remote admin session has no second factor.
+    PC-only, and a remote admin session has no second factor.
     Default-deny: any `admin.*` permission not listed as view is dropped.
     None stays None."""
     if principal is None or not _never_local(app):
@@ -169,7 +169,7 @@ def require_permission(permission: str):
     return _marked(dependency, "permission", permission)
 
 
-# Path parameters that name an owned item (auth B2). Every route whose path
+# Path parameters that name an owned item. Every route whose path
 # has one is ownership-checked here, so a new route is covered by default;
 # tests/test_api_ownership.py fails if a route names a drama or series some
 # other way without being listed there.
@@ -309,15 +309,34 @@ def is_local_request(request: Request) -> bool:
     return _is_local_scope(request.client.host if request.client else None, request.headers)
 
 
-def require_engines_allowed(request: Request, *engine_names):
+def require_engines_allowed(request: Request, *engine_names, model=None):
     """Raises 403 unless the caller holds `engines.paid` or every named
     engine is in `translate_engines.FREE_ENGINES`. A missing name (None:
-    "use the configured default") counts as possibly paid."""
+    "use the configured default") counts as possibly paid. Pass the request's
+    `model` whenever it has one: an Ollama cloud tag is held to
+    `engines.paid` too (`require_cloud_model_allowed`); an omitted model
+    resolves to the local default, which is never a cloud tag."""
     if holds(request, "engines.paid"):
         return
     from translate_engines import FREE_ENGINES
     if any(not name or name not in FREE_ENGINES for name in engine_names):
         raise ForbiddenError(_GENERIC_403)
+    require_cloud_model_allowed(request, *[(name, model) for name in engine_names])
+
+
+def require_cloud_model_allowed(request: Request, *engine_models):
+    """Raises 403 unless the caller holds `engines.paid` or none of the
+    (engine, model) pairs names an Ollama cloud tag. A hosted tag sends the
+    text off the PC and spends the owner's Ollama quota, so it is held to
+    the same permission as a paid engine even though Ollama is free."""
+    if holds(request, "engines.paid"):
+        return
+    from translate_engines import is_ollama_cloud_model
+    if any(engine in (None, "ollama") and is_ollama_cloud_model(model)
+           for engine, model in engine_models):
+        raise ForbiddenError("Ollama cloud models send your text off this PC and use the "
+                             "owner's Ollama quota, so they need paid-engine permission. "
+                             "Pick a local model instead.")
 
 
 def require_paid_engines(request: Request):
@@ -738,7 +757,7 @@ class HouseholdGate:
 
 
 class ActingPrincipalMiddleware:
-    """Pure-ASGI middleware, installed only with auth on (auth B2). Binds a
+    """Pure-ASGI middleware, installed only with auth on. Binds a
     per-request holder (ownership_service.bind_request) that
     require_permission fills with the principal, so background_jobs can
     record which user started a job without every service passing it

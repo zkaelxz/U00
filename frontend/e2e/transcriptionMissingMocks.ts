@@ -37,7 +37,7 @@ export async function mockTranscription(page: Page, installed: boolean): Promise
         faster_whisper: { installed, powers: 'speech to text', tier: 'feature' },
         pandas: { installed: true, powers: 'tables', tier: 'required' },
       },
-      file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
+      file_completeness: { missing_top_level: [], all_present: true },
       library_writable: true,
       gpu: { available: false, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: 'No GPU.' },
       model_engine_versions: [],
@@ -48,7 +48,7 @@ export async function mockTranscription(page: Page, installed: boolean): Promise
     json: {
       python: { version: '3.12.4', ok: true }, ffmpeg: { found: true, version: '6.1' },
       js_runtime: { found: true, name: 'deno' }, cuda: { torch_installed: false, cuda_available: null },
-      files: { all_present: true, missing_top_level: [], missing_tabs: [] }, library_writable: true,
+      files: { all_present: true, missing_top_level: [] }, library_writable: true,
     },
   }))
   await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({

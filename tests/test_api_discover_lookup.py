@@ -201,7 +201,7 @@ def test_errors(client, monkeypatch):
         r = client.get(f"/api/discover/{path}/result")
         assert r.status_code == 200 and r.json() == idle, path
     for path, body in (
-            ("/api/discover/translate-query", {"q": "x", "engine": "nllb"}),
+            ("/api/discover/translate-query", {"q": "x", "engine": "fake_mt"}),
             ("/api/discover/translate-query", {"q": ""}),
             ("/api/discover/translate-query", {"q": "x", "api_key": KEY}),
             ("/api/discover/import-suggestion", {"url": "file:///etc/passwd"}),

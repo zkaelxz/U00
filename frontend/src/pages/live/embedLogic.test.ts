@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  DVR_WAIT_S, NO_DELAY_NOTE, WAITING_NOTE, canDelay, delayNote, delayReached, embedSrc, measuredDelay, parseStreamUrl, parseYouTubeInfo, planDelay,
+  DVR_WAIT_S, NOT_STARTED_NOTE, NO_DELAY_NOTE, UNREACHABLE_NOTE, WAITING_NOTE, canDelay, delayNote, delayReached, embedSrc, measuredDelay, notStarted, parseStreamUrl, parseYouTubeInfo, planDelay, probeOffset, ytCommand,
 } from './embedLogic'
 
 const ID = 'dQw4w9WgXcQ'
@@ -49,7 +49,7 @@ describe('parseStreamUrl', () => {
 
 describe('embedSrc', () => {
   it('builds the address from the validated parts only', () => {
-    expect(embedSrc({ kind: 'youtube', id: ID }, 'x')).toBe(`https://www.youtube-nocookie.com/embed/${ID}?enablejsapi=1&playsinline=1`)
+    expect(embedSrc({ kind: 'youtube', id: ID }, 'x')).toBe(`https://www.youtube-nocookie.com/embed/${ID}?enablejsapi=1&playsinline=1&autoplay=1`)
     expect(embedSrc({ kind: 'twitch-channel', name: 'abc' }, 'localhost')).toBe('https://player.twitch.tv/?channel=abc&parent=localhost')
     expect(embedSrc({ kind: 'twitch-video', id: '9' }, 'h.test')).toBe('https://player.twitch.tv/?video=v9&parent=h.test')
   })
@@ -153,5 +153,61 @@ describe('delayNote', () => {
   })
   it('says a stream with no rewind buffer cannot be delayed', () => {
     expect(delayNote(report({ duration: 0 }), 15, { unsupported: true, moving: false })).toBe(NO_DELAY_NOTE)
+  })
+})
+
+describe('autoplay and a player that has not started', () => {
+  it('asks for autoplay in the embed address', () => {
+    expect(embedSrc({ kind: 'youtube', id: 'dQw4w9WgXcQ' }, 'localhost')).toContain('&autoplay=1')
+    expect(embedSrc({ kind: 'twitch-channel', name: 'abc' }, 'localhost')).not.toContain('autoplay')
+  })
+  it('reads the player state and keeps it across partial messages', () => {
+    expect(report({ playerState: -1 })).toEqual({ playerState: -1 })
+    expect({ ...report({ playerState: 1 }), ...report({ currentTime: 3 }) }).toEqual({ playerState: 1, currentTime: 3 })
+  })
+  it('treats unstarted and cued as not started, and a silent player as started', () => {
+    expect(notStarted(report({ playerState: -1 }))).toBe(true)
+    expect(notStarted(report({ playerState: 5 }))).toBe(true)
+    expect(notStarted(report({ playerState: 1 }))).toBe(false)
+    expect(notStarted(report({ playerState: 2 }))).toBe(false)
+    expect(notStarted(null)).toBe(false)
+  })
+  it('says to press play rather than that the stream cannot be delayed', () => {
+    expect(delayNote(report({ playerState: -1, duration: 0 }), 15, { unsupported: true, moving: false })).toBe(NOT_STARTED_NOTE)
+  })
+  it('builds player commands', () => {
+    expect(JSON.parse(ytCommand('mute'))).toEqual({ event: 'command', func: 'mute', args: [] })
+  })
+})
+
+// YouTube documents getDuration() on a live event as the time since the
+// stream began, while getCurrentTime() counts from where playback started, so
+// duration - currentTime is not the distance from the live edge.
+describe('a live stream whose duration is the time since it began', () => {
+  const stuck = report({ duration: 43826, currentTime: 20, isLive: true, playerState: 1 })
+  const videoData = { isLive: true }
+  it('reproduces the 12-hour reading the owner saw', () => {
+    expect(measuredDelay(stuck)).toBe(43806)
+  })
+  it('never shows an implausible figure as a delay', () => {
+    const note = delayNote(stuck, 20, { unsupported: false, moving: false })
+    expect(note).not.toContain('43806')
+    expect(note).toBe(UNREACHABLE_NOTE)
+    expect(parseYouTubeInfo({ event: 'infoDelivery', info: { duration: 43826, videoData } })).toEqual({ duration: 43826, isLive: true })
+  })
+  it('measures against the offset found at the live edge', () => {
+    const offset = 43800
+    const info = report({ duration: 43830, currentTime: 10, playerState: 1 })
+    expect(measuredDelay(info, offset)).toBe(20)
+    expect(delayReached(info, 20, offset)).toBe(true)
+    expect(planDelay({ duration: 43830, isLive: true }, 20, 0, offset)).toEqual({ kind: 'seek', to: 10 })
+    expect(delayNote(info, 20, { unsupported: false, moving: false, offset })).toBe('Playing about 20 s behind live.')
+  })
+  it('finds that offset only when the probe seek really moved the playhead', () => {
+    expect(probeOffset(20, report({ duration: 43830, currentTime: 14400 }))).toBe(29430)
+    expect(probeOffset(20, report({ duration: 300, currentTime: 299 }))).toBe(1)
+    expect(probeOffset(20, report({ duration: 43830, currentTime: 22 }))).toBeNull()
+    expect(probeOffset(undefined, report({ duration: 43830, currentTime: 22 }))).toBeNull()
+    expect(probeOffset(20, null)).toBeNull()
   })
 })

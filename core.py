@@ -315,25 +315,23 @@ MIN_SILENCE_MS_MAX = 3000
 DEFAULT_AUTOTUNE_CANDIDATES_MS = [300, 800, 1500]
 
 
-# Decoder settings that stop Whisper's repeated-phrase loops at the source
-# (the same line echoed for minutes after music or silence): don't feed
-# each segment's text into the next one's prompt, forbid repeating any
-# 3-token sequence, and mildly penalise repeats. filter_hallucinated_segments
-# stays as the backstop for whatever still slips through.
-WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False, "no_repeat_ngram_size": 3,
-                            "repetition_penalty": 1.1}
+# Stops Whisper's repeated-phrase loops after music or silence;
+# filter_hallucinated_segments is the backstop.
+WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False}
+# The per-title repeat guard. Off by default: a 3-token CJK sequence is often
+# one common particle (的, の), so the ban rewrites or cuts real speech.
+WHISPER_REPEAT_GUARD_KWARGS = {"no_repeat_ngram_size": 3, "repetition_penalty": 1.1}
 
 
 # Seconds of silence inside a segment's word timings above which faster-whisper
-# drops that segment as a likely hallucination. Conservative on purpose: a
-# lower value starts dropping real lines that follow a long pause.
-DEFAULT_HALLUCINATION_SILENCE_SEC = 2.0
+# drops that segment as a likely hallucination. Off by default: it dropped real
+# fast or quiet CJK lines.
+DEFAULT_HALLUCINATION_SILENCE_SEC = 0.0
 
 
 def release_gpu_models():
     """Call after a GPU stage (transcription, alignment, diarization)
     finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models
-    (and a local NLLB translation pipeline)
     and hands CUDA's cached memory back, so the next stage -- or a local
     translation model in Ollama, or TTS -- isn't fighting leftovers for
     the same VRAM. The next run of a stage reloads its model (seconds, from
@@ -344,8 +342,7 @@ def release_gpu_models():
     _whisper_model_cache.clear()
     _whisper_device_info.clear()
     for module_name, cache_name in (("asr_backend", "_asr_model_cache"),
-                                    ("forced_align", "_aligner_model_cache"),
-                                    ("translate_engines", "_nllb_pipeline_cache")):
+                                    ("forced_align", "_aligner_model_cache")):
         module = sys.modules.get(module_name)
         if module is not None:
             getattr(module, cache_name).clear()
@@ -434,15 +431,14 @@ def is_network_error(exc: Exception) -> bool:
 def is_whisper_model_cached(model_size: str) -> bool:
     """Whether a model is already downloaded, so the UI can warn about a
     large download before starting rather than failing partway."""
-    import os as _os
-    hub = _os.environ.get("HF_HOME") or _os.path.join(
-        _os.path.expanduser("~"), ".cache", "huggingface")
-    hub_dir = _os.path.join(hub, "hub")
-    if not _os.path.isdir(hub_dir):
+    hub = os.environ.get("HF_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache", "huggingface")
+    hub_dir = os.path.join(hub, "hub")
+    if not os.path.isdir(hub_dir):
         return False
     needle = f"faster-whisper-{model_size}".lower()
     try:
-        return any(needle in d.lower() for d in _os.listdir(hub_dir))
+        return any(needle in d.lower() for d in os.listdir(hub_dir))
     except OSError:
         return False
 
@@ -523,17 +519,18 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
     """
     target = local_model_path or model_size
     cache_key = f"{target}_{'gpu' if use_gpu else 'cpu'}"
+    import memory_headroom as mh
+    mh.before_load("whisper", target, use_gpu, cache_key in _whisper_model_cache)
     if cache_key in _whisper_model_cache:
         return _whisper_model_cache[cache_key]
 
-    import os as _os
     from faster_whisper import WhisperModel
 
     # An HF token isn't required for public models, but without one you get
     # anonymous rate limits and slower downloads -- and a warning saying so.
-    _tok = hf_token or _os.environ.get("HF_TOKEN") or _os.environ.get("HUGGINGFACE_TOKEN")
+    _tok = hf_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
     if _tok:
-        _os.environ.setdefault("HF_TOKEN", _tok)
+        os.environ.setdefault("HF_TOKEN", _tok)
 
     def _build(device, compute_type):
         return WhisperModel(target, device=device, compute_type=compute_type)
@@ -1293,7 +1290,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            beam_size: int = 5, min_silence_duration_ms: int = 2000,
                            vad_threshold: float = 0.5, filter_hallucination_repeats: int = 4,
                            on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False,
-                           hallucination_silence_sec: float = DEFAULT_HALLUCINATION_SILENCE_SEC):
+                           hallucination_silence_sec: float = DEFAULT_HALLUCINATION_SILENCE_SEC,
+                           repeat_guard: bool = False, sensitivity_preset: str = "normal"):
     """
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
@@ -1362,6 +1360,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     which decodes several VAD chunks at once (roughly 4x faster on a GPU).
     Same settings, same output shape; uses more VRAM while it runs.
     """
+    # Imported here: db.py's import check copies core.py alone into a temp folder.
+    from sensitivity_preset import decode_kwargs
     model = load_whisper_model(model_size, use_gpu=use_gpu, local_model_path=local_model_path,
                                 hf_token=hf_token)
     kwargs = {
@@ -1369,7 +1369,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
                             "threshold": vad_threshold},
         "word_timestamps": True,
-        **WHISPER_ANTI_LOOP_KWARGS,
+        **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard),
     }
     if initial_prompt.strip():
         kwargs["initial_prompt"] = initial_prompt.strip()

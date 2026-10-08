@@ -86,22 +86,22 @@ class TestUpdate:
     def test_partial_update_leaves_other_fields(self, client, isolated_db):
         did = _drama(isolated_db)
         _post(client, did, "A", character_name="Mei", pronouns="she/her")
-        r = _post(client, did, "A", tts_voice="v1")
+        r = _post(client, did, "A", voice_design="v1")
         assert r.status_code == 200
         body = r.json()
-        assert body["tts_voice"] == "v1"
+        assert body["voice_design"] == "v1"
         assert body["character_name"] == "Mei" and body["pronouns"] == "she/her"
 
     def test_empty_string_clears(self, client, isolated_db):
         did = _drama(isolated_db)
-        _post(client, did, "A", pronouns="she/her", tts_voice="v1")
+        _post(client, did, "A", pronouns="she/her", voice_design="v1")
         body = _post(client, did, "A", pronouns="").json()
-        assert body["pronouns"] == "" and body["tts_voice"] == "v1"
+        assert body["pronouns"] == "" and body["voice_design"] == "v1"
 
     def test_explicit_null_is_not_passed(self, client, isolated_db):
         did = _drama(isolated_db)
         _post(client, did, "A", pronouns="she/her")
-        r = _post(client, did, "A", pronouns=None, tts_voice="v1")
+        r = _post(client, did, "A", pronouns=None, voice_design="v1")
         assert r.status_code == 200 and r.json()["pronouns"] == "she/her"
 
     def test_extra_field_rejected(self, client, isolated_db):
@@ -135,9 +135,9 @@ class TestUpdate:
 
     def test_cross_drama_isolation(self, client, isolated_db):
         d1, d2 = _drama(isolated_db), _drama(isolated_db)
-        _post(client, d1, "A", character_name="One", tts_voice="v1")
+        _post(client, d1, "A", character_name="One", voice_design="v1")
         b = _by_label(client.get(f"/api/characters/dramas/{d2}").json(), "A")
-        assert b["character_name"] == "" and b["tts_voice"] == ""
+        assert b["character_name"] == "" and b["voice_design"] == ""
 
 
 @pytest.mark.parametrize("lang", ["zh", "ja", "ko"])
@@ -247,10 +247,10 @@ def test_h1_hostile_text_never_echoed(client, isolated_db):
     hostile = "evil\n" + "x" * 5000 + "\u202e\u2603"
     for payload in ({"speaker_label": hostile, "pronouns": "x"},
                     {"speaker_label": "A", "clone_engine": hostile},
-                    {"speaker_label": "A", "clone_engine": "chatterbox"}):
+                    {"speaker_label": "A", "clone_engine": "nope_engine"}):
         r = client.post(f"/api/characters/dramas/{did}/character", json=payload)
         assert r.status_code in (404, 422)
-        assert "evil" not in r.text and "xxxx" not in r.text and "chatterbox" not in r.text
+        assert "evil" not in r.text and "xxxx" not in r.text and "nope_engine" not in r.text
     r = client.post(f"/api/characters/dramas/{did}/voice-bank/apply",
                     json={"speaker_label": hostile, "voice_bank_id": 1})
     assert r.status_code in (404, 422) and "evil" not in r.text
@@ -275,7 +275,7 @@ class TestRenameSpeaker:
 
     def test_renames_every_line_and_moves_the_character_row(self, client, isolated_db):
         did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 2", "Speaker 1"))
-        isolated_db.upsert_character(did, "Speaker 1", pronouns="she/her", tts_voice="v1")
+        isolated_db.upsert_character(did, "Speaker 1", pronouns="she/her", voice_design="v1")
         lines = isolated_db.load_line_objects(did)
         lines[0].en = "Hello"
         isolated_db.save_lines(did, lines, fields=("en",))
@@ -284,7 +284,7 @@ class TestRenameSpeaker:
         body = r.json()
         assert body["renamed"] == 2
         mei = _by_label(body["characters"], "Mei")
-        assert (mei["character_name"], mei["pronouns"], mei["tts_voice"], mei["line_count"]) == \
+        assert (mei["character_name"], mei["pronouns"], mei["voice_design"], mei["line_count"]) == \
             ("Mei", "she/her", "v1", 2)
         assert all(c["speaker_label"] != "Speaker 1" for c in body["characters"])
         saved = isolated_db.load_line_objects(did)
@@ -297,7 +297,7 @@ class TestRenameSpeaker:
         lines = isolated_db.load_line_objects(did)
         lines[2].speaker_manual = True
         isolated_db.save_lines(did, lines, fields=("speaker_manual",))
-        isolated_db.upsert_character(did, "Speaker 1", tts_voice="v1")
+        isolated_db.upsert_character(did, "Speaker 1", voice_design="v1")
         undo = self._rename(client, did, "Speaker 1", "Mei").json()["undo"]
         r = client.post(f"/api/characters/dramas/{did}/rename-speaker/undo", json={"undo": undo})
         assert r.status_code == 200, r.text
@@ -306,7 +306,7 @@ class TestRenameSpeaker:
         assert [(ln.speaker, ln.speaker_manual) for ln in saved] == \
             [("Speaker 1", False), ("Speaker 2", False), ("Speaker 1", True)]
         row = _by_label(isolated_db.list_characters(did), "Speaker 1")
-        assert row["tts_voice"] == "v1" and row["character_name"] is None
+        assert row["voice_design"] == "v1" and row["character_name"] is None
         assert not [c for c in isolated_db.list_characters(did) if c["speaker_label"] == "Mei"]
 
     def test_undo_refused_when_a_line_was_edited_since(self, client, isolated_db):
@@ -389,7 +389,7 @@ class TestRenameSpeaker:
     @pytest.mark.parametrize("fragment", ["UPDATE characters SET", "UPDATE lines SET speaker"])
     def test_a_failure_anywhere_changes_nothing(self, client, isolated_db, monkeypatch, fragment):
         did = _drama(isolated_db, speakers=("Speaker 1", "Speaker 2"))
-        isolated_db.upsert_character(did, "Speaker 1", tts_voice="v")
+        isolated_db.upsert_character(did, "Speaker 1", voice_design="v")
         before = self._state(isolated_db, did)
         self._fail_on(monkeypatch, isolated_db, fragment)
         assert self._rename(client, did, "Speaker 1", "Mei").status_code >= 400
@@ -458,7 +458,7 @@ class TestRenameSpeaker:
 
     def test_a_speaker_with_no_lines_can_be_renamed_and_undone(self, client, isolated_db):
         did = _drama(isolated_db, speakers=("Speaker 1",))
-        isolated_db.upsert_character(did, "Ghost", tts_voice="v")
+        isolated_db.upsert_character(did, "Ghost", voice_design="v")
         r = self._rename(client, did, "Ghost", "Mei")
         assert r.status_code == 200 and r.json()["renamed"] == 0
         assert [c["speaker_label"] for c in r.json()["characters"]] == ["Mei", "Speaker 1"]
@@ -592,8 +592,8 @@ class TestMergeSpeakers:
 
     def test_moves_lines_and_folds_the_row_without_touching_other_fields(self, client, isolated_db):
         did = self._setup(isolated_db)
-        isolated_db.upsert_character(did, "S1", character_name="Mei", tts_voice="v1")
-        isolated_db.upsert_character(did, "S3", pronouns="she/her", tts_voice="v3")
+        isolated_db.upsert_character(did, "S1", character_name="Mei", voice_design="v1")
+        isolated_db.upsert_character(did, "S3", pronouns="she/her", voice_design="v3")
         r = self._merge(client, did, "S3", "S1")
         assert r.status_code == 200, r.text
         body = r.json()
@@ -601,7 +601,7 @@ class TestMergeSpeakers:
         labels = [c["speaker_label"] for c in body["characters"]]
         assert labels == ["S1", "S2"]
         mei = _by_label(body["characters"], "S1")
-        assert (mei["character_name"], mei["tts_voice"], mei["pronouns"], mei["line_count"]) == \
+        assert (mei["character_name"], mei["voice_design"], mei["pronouns"], mei["line_count"]) == \
             ("Mei", "v1", "she/her", 3)
         assert [r["speaker_label"] for r in isolated_db.list_characters(did)].count("S3") == 0
         saved = isolated_db.load_line_objects(did)
@@ -635,7 +635,7 @@ class TestMergeSpeakers:
     def test_undo_restores_lines_flags_and_both_rows(self, client, isolated_db):
         did = self._setup(isolated_db)
         isolated_db.upsert_character(did, "S1", character_name="Mei")
-        isolated_db.upsert_character(did, "S3", pronouns="she/her", tts_voice="v3")
+        isolated_db.upsert_character(did, "S3", pronouns="she/her", voice_design="v3")
         before_rows = self._rows(isolated_db, did)
         before_lines = [(ln.speaker, ln.speaker_manual) for ln in isolated_db.load_line_objects(did)]
         undo = self._merge(client, did, "S3", "S1").json()["undo"]
@@ -647,7 +647,7 @@ class TestMergeSpeakers:
 
     def test_undo_removes_a_target_row_the_merge_created(self, client, isolated_db):
         did = self._setup(isolated_db)
-        isolated_db.upsert_character(did, "S3", tts_voice="v3")
+        isolated_db.upsert_character(did, "S3", voice_design="v3")
         undo = self._merge(client, did, "S3", "S1").json()["undo"]
         assert self._undo(client, did, undo).status_code == 200
         assert [r["speaker_label"] for r in isolated_db.list_characters(did)] == ["S3"]
@@ -661,7 +661,7 @@ class TestMergeSpeakers:
     def test_forged_unknown_or_other_drama_undo_writes_nothing(self, client, isolated_db):
         did = self._setup(isolated_db)
         other = self._setup(isolated_db)
-        isolated_db.upsert_character(did, "S3", tts_voice="v3")
+        isolated_db.upsert_character(did, "S3", voice_design="v3")
         undo = self._merge(client, did, "S3", "S1").json()["undo"]
         after = self._rows(isolated_db, did)
         assert self._undo(client, did, "x" * 32).status_code == 404
@@ -745,7 +745,7 @@ class TestMergeSpeakers:
 
     def test_undo_after_the_target_was_renamed_is_refused_and_writes_nothing(self, client, isolated_db):
         did = self._setup(isolated_db)
-        isolated_db.upsert_character(did, "S1", tts_voice="v1")
+        isolated_db.upsert_character(did, "S1", voice_design="v1")
         undo = self._merge(client, did, "S3", "S1").json()["undo"]
         r = client.post(f"/api/characters/dramas/{did}/rename-speaker",
                         json={"speaker_label": "S1", "new_name": "Mei"})

@@ -6,6 +6,7 @@ faked; nothing touches the network or starts a process.
 
 import hashlib
 import json
+import threading
 import os
 
 import pytest
@@ -277,6 +278,22 @@ def test_start_download_thread_reports_verified(http):
     us._download_thread.join(10)
     s = us.status()
     assert s["download"] == "verified" and s["verified"] and s["downloaded_bytes"] == len(PAYLOAD)
+
+
+def test_start_download_reports_downloading_even_if_the_thread_wins_the_race(http, monkeypatch):
+    _serve_release(http)
+    us.check()
+    main = threading.main_thread()
+    reads = []
+
+    def slow_for_the_caller():
+        # Only the caller's status() read stalls; the first read is start_download's own.
+        reads.append(1)
+        if len(reads) > 1 and threading.current_thread() is main:
+            us._download_thread.join(10)
+        return "0.1.0"
+    monkeypatch.setattr(us, "current_version", slow_for_the_caller)
+    assert us.start_download()["download"] == "downloading"
 
 
 def _no_installer_left():

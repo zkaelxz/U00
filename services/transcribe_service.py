@@ -60,13 +60,18 @@ import tempfile
 import time
 from typing import Optional
 
+import asr_backend
 import background_jobs
+import ollama_unload
 import core as core_module
 import db
 import diagnostics
 import raw_transcript
+import sensitivity_preset as presets
 import storage
+from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
+from ocr import HARDSUB_OCR_BACKEND_OPTIONS, default_hardsub_backend
 from services import asr_options_service, diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
@@ -89,43 +94,8 @@ _DEFAULT_TUNING = {
     "whisper_fast_mode": False,
     "use_groq": False,
 }
-
-
-# Below this much audio a low figure says little (a short clip can be one line).
-COVERAGE_MIN_AUDIO_SECONDS = 30.0
-COVERAGE_WARN_FRACTION = 0.15
-
-
-def audio_coverage_fraction(segments, audio_seconds) -> Optional[float]:
-    """Share (0-1) of the audio covered by segments that have text, overlaps
-    counted once; None when the audio length is unknown."""
-    if not audio_seconds or audio_seconds <= 0:
-        return None
-    spans = sorted((max(0.0, float(s["start"])), min(float(s["end"]), audio_seconds))
-                   for s in segments if (s.get("text") or "").strip())
-    covered, cur_end = 0.0, 0.0
-    for start, end in spans:
-        start = max(start, cur_end)
-        if end > start:
-            covered += end - start
-            cur_end = end
-    return min(covered / audio_seconds, 1.0)
-
-
-def coverage_warning(segments, audio_seconds, qwen3_asr: bool = False) -> Optional[str]:
-    """A sentence when transcribed lines cover very little of a long enough
-    audio file (speech missed, e.g. singing or music the speech detector
-    skipped), else None."""
-    fraction = audio_coverage_fraction(segments, audio_seconds)
-    if fraction is None or audio_seconds < COVERAGE_MIN_AUDIO_SECONDS \
-            or fraction >= COVERAGE_WARN_FRACTION:
-        return None
-    msg = (f"Only {fraction * 100:.0f}% of the audio has text: try another engine, "
-           "turn vocal separation on, or check the language.")
-    if qwen3_asr:
-        msg += (" Qwen3-ASR only re-transcribes the speech Whisper found, "
-                "so it cannot add lines Whisper missed.")
-    return msg
+VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long")
+ASR_BACKEND_CHOICES = asr_options_service.ASR_BACKEND_CHOICES
 
 
 def _audio_duration_seconds(path) -> Optional[float]:
@@ -296,12 +266,6 @@ def _drama_video_path(drama_id: int, drama: dict) -> Optional[str]:
     return os.path.join(db.drama_dir(drama_id), video_filename)
 
 
-def _default_hardsub_backend(source_language: str) -> str:
-    """PaddleOCR for Chinese (confirmed more accurate on
-    stylized/small captions), Tesseract otherwise."""
-    return "paddle" if source_language == "zh" else "tesseract"
-
-
 def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     """Whisper's automatic initial_prompt for one drama: the series
     glossary's names
@@ -357,7 +321,8 @@ def get_transcribe_config(drama_id: int) -> dict:
         "has_audio_pipeline": source["has_audio_pipeline"],
         "audio_available": source["audio_available"],
         "alignment_method": drama.get("alignment_method") or "whisper_diff",
-        "asr_backend_choice": drama.get("asr_backend_choice") or "whisper",
+        "asr_backend_choice": asr_options_service.stored_asr_backend(drama),
+        "asr_backend_notice": asr_options_service.removed_asr_backend_notice(drama),
         "whisper_size": whisper_size,
         "whisper_model_cached": core_module.is_whisper_model_cached(whisper_size),
         "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get_use_gpu()),
@@ -369,16 +334,20 @@ def get_transcribe_config(drama_id: int) -> dict:
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
+        "sensitivity_preset": presets.normalize(drama.get("sensitivity_preset")),
+        "effective_vad_threshold": presets.stored_vad_threshold(drama),
         "hallucination_silence_sec": stored_hallucination_silence_sec(drama),
         "min_pause_sec": stored_min_pause_sec(drama),
         "separate_vocals_first": bool(drama.get("separate_vocals_first")),
         "separation_backend": drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"],
         "realign_long_segments": bool(drama.get("realign_long_segments")),
         "whisper_fast_mode": bool(drama.get("whisper_fast_mode")),
+        "whisper_repeat_guard": bool(drama.get("whisper_repeat_guard")),
+        "split_by_sentences": bool(drama.get("split_by_sentences")),
         "use_groq": bool(drama.get("use_groq")),
         "has_video_source": source["has_video_source"],
         "hardsub_ocr_backend": drama.get("hardsub_ocr_backend")
-                               or _default_hardsub_backend(source["source_language"]),
+                               or default_hardsub_backend(source["source_language"]),
         "hardsub_interval_sec": drama.get("hardsub_interval_sec") or 1.0,
         "auto_initial_prompt": build_auto_initial_prompt(drama_id),
     }
@@ -397,7 +366,8 @@ def stored_min_pause_sec(drama) -> float:
     return _DEFAULT_TUNING["min_pause_sec"] if value is None else float(value)
 
 
-_BOOL_FIELDS = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode", "use_groq")
+_BOOL_FIELDS = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode",
+                "whisper_repeat_guard", "split_by_sentences", "use_groq")
 _SEPARATION_BACKENDS = ("auto", "audio_separator", "demucs")
 
 
@@ -424,14 +394,8 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
             raise InvalidInputError(f"Unknown alignment_method {fields['alignment_method']!r}.")
         updates["alignment_method"] = fields["alignment_method"]
     if "asr_backend_choice" in fields and fields["asr_backend_choice"] is not None:
-        if fields["asr_backend_choice"] not in ("whisper", "qwen3_asr", "qwen3_asr_vad", "moss_td"):
+        if fields["asr_backend_choice"] not in ASR_BACKEND_CHOICES:
             raise InvalidInputError(f"Unknown asr_backend_choice {fields['asr_backend_choice']!r}.")
-        # Only a change TO moss_td needs the toggle: the form re-sends the
-        # stored value with every save, and a run start checks it again.
-        if (fields["asr_backend_choice"] == "moss_td"
-                and drama.get("asr_backend_choice") != "moss_td"
-                and not asr_options_service.get_moss_experimental()):
-            raise InvalidInputError(_MOSS_OFF_MESSAGE)
         updates["asr_backend_choice"] = fields["asr_backend_choice"]
     if "beam_size" in fields and fields["beam_size"] is not None:
         if not 1 <= fields["beam_size"] <= 10:
@@ -447,6 +411,10 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
         if not 0.1 <= fields["vad_threshold"] <= 0.9:
             raise InvalidInputError("vad_threshold must be between 0.1 and 0.9.")
         updates["vad_threshold"] = fields["vad_threshold"]
+    if "sensitivity_preset" in fields and fields["sensitivity_preset"] is not None:
+        if fields["sensitivity_preset"] not in presets.PRESETS:
+            raise InvalidInputError(f"Unknown sensitivity_preset {fields['sensitivity_preset']!r}.")
+        updates["sensitivity_preset"] = fields["sensitivity_preset"]
     if "hallucination_silence_sec" in fields and fields["hallucination_silence_sec"] is not None:
         value = fields["hallucination_silence_sec"]
         if value != 0 and not 0.5 <= value <= 10:
@@ -466,7 +434,7 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
             raise InvalidInputError(f"Unknown separation_backend {fields['separation_backend']!r}.")
         updates["separation_backend"] = fields["separation_backend"]
     if "hardsub_ocr_backend" in fields and fields["hardsub_ocr_backend"] is not None:
-        if fields["hardsub_ocr_backend"] not in ("tesseract", "paddle"):
+        if fields["hardsub_ocr_backend"] not in HARDSUB_OCR_BACKEND_OPTIONS:
             raise InvalidInputError(f"Unknown hardsub_ocr_backend {fields['hardsub_ocr_backend']!r}.")
         updates["hardsub_ocr_backend"] = fields["hardsub_ocr_backend"]
     if "hardsub_interval_sec" in fields and fields["hardsub_interval_sec"] is not None:
@@ -496,19 +464,21 @@ def _speaker_range(expected_speakers=None, min_speakers=None, max_speakers=None)
     return lo, hi
 
 
-_MOSS_OFF_MESSAGE = ("MOSS-Transcribe-Diarize is experimental and turned off. Turn it on in "
-                     "Settings > Transcription experiments first.")
-
-
-def _require_moss_backend() -> None:
-    """The experimental MOSS backend needs its Settings toggle on
-    and its package installed; never falls back to Whisper silently."""
-    if not asr_options_service.get_moss_experimental():
-        raise InvalidInputError(_MOSS_OFF_MESSAGE)
-    if not asr_options_service.moss_installed():
-        raise DependencyUnavailableError(
-            "MOSS-Transcribe-Diarize isn't installed. It installs from its GitHub repository "
-            "(OpenMOSS/MOSS-Transcribe-Diarize), not from pip's index, and needs Transformers 5.")
+def _check_run_choices(transcript_mode, asr_backend_choice, alignment_method) -> None:
+    """Refusals shared by start_transcribe_run and validate_transcribe_options."""
+    if transcript_mode == "whisper":
+        if alignment_method == "qwen3_forced_align":
+            raise InvalidInputError(
+                "Qwen3 forced alignment needs a transcript to align, but this drama is in "
+                "Whisper-text-only mode. Supply a transcript, or set alignment_method back "
+                "to 'whisper_diff'.")
+        if asr_backend_choice == "qwen3_asr":
+            require_qwen3_packages("Qwen3-ASR")
+        elif asr_backend_choice in VAD_BACKENDS:
+            require_qwen3_packages("Qwen3-ASR")
+            _require_vad_packages()
+    elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
+        require_qwen3_packages("Qwen3 forced alignment")
 
 
 def _require_vad_packages() -> None:
@@ -632,23 +602,9 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             raise UnsupportedOperationError(
                 "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
 
-    asr_backend_choice = drama.get("asr_backend_choice") or "whisper"
+    asr_backend_choice = asr_options_service.stored_asr_backend(drama)
     alignment_method = drama.get("alignment_method") or "whisper_diff"
-    if transcript_mode == "whisper":
-        if alignment_method == "qwen3_forced_align":
-            raise InvalidInputError(
-                "Qwen3 forced alignment needs a transcript to align, but this drama is in "
-                "Whisper-text-only mode. Supply a transcript, or set alignment_method back "
-                "to 'whisper_diff'.")
-        if asr_backend_choice == "qwen3_asr":
-            require_qwen3_packages("Qwen3-ASR")
-        elif asr_backend_choice == "qwen3_asr_vad":
-            require_qwen3_packages("Qwen3-ASR")
-            _require_vad_packages()
-        elif asr_backend_choice == "moss_td":
-            _require_moss_backend()
-    elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
-        require_qwen3_packages("Qwen3 forced alignment")
+    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method)
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
     groq_api_key = settings_service.resolve_key("groq") if drama.get("use_groq") else None
@@ -661,7 +617,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     whisper_size = stored_whisper_size(drama)
     beam_size = drama.get("beam_size") or _DEFAULT_TUNING["beam_size"]
     min_silence_ms = drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"]
-    vad_threshold = drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"]
+    vad_threshold = presets.stored_vad_threshold(drama)
+    preset = presets.normalize(drama.get("sensitivity_preset"))
     hallucination_silence_sec = stored_hallucination_silence_sec(drama)
     min_pause_sec = stored_min_pause_sec(drama)
     separation_backend = drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"]
@@ -678,7 +635,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             bool(drama.get("realign_long_segments")), bool(drama.get("whisper_fast_mode")),
             bool(drama.get("use_groq")), groq_api_key, hf_token, expected_speakers,
             prompt, video_path,
-            drama.get("hardsub_ocr_backend") or _default_hardsub_backend(source_language),
+            drama.get("hardsub_ocr_backend") or default_hardsub_backend(source_language),
             drama.get("hardsub_interval_sec") or 1.0,
             tesseract_cmd or settings_service.get_tesseract_cmd(), diarize_audio_path,
             use_gpu, asr_backend_choice, alignment_method,
@@ -703,7 +660,9 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                       asr_options_service.get_qwen_asr_batch_size(),
                       asr_options_service.get_vad_refine_timing(),
                       asr_options_service.get_mixed_languages(),
-                      hallucination_silence_sec, min_pause_sec, scratch_dir),
+                      hallucination_silence_sec, min_pause_sec,
+                      bool(drama.get("whisper_repeat_guard")),
+                      bool(drama.get("split_by_sentences")), preset, scratch_dir),
                 gpu_touching=True, description=description, kill_whole_tree=True,
                 # Spawn, not Linux's default fork: a forked child of a process
                 # that has already initialised CUDA cannot use the GPU.
@@ -754,23 +713,9 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
     if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
         raise UnsupportedOperationError(
             "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
-    asr_backend_choice = drama.get("asr_backend_choice") or "whisper"
+    asr_backend_choice = asr_options_service.stored_asr_backend(drama)
     alignment_method = drama.get("alignment_method") or "whisper_diff"
-    if transcript_mode == "whisper":
-        if alignment_method == "qwen3_forced_align":
-            raise InvalidInputError(
-                "Qwen3 forced alignment needs a transcript to align, but this drama is in "
-                "Whisper-text-only mode. Supply a transcript, or set alignment_method back "
-                "to 'whisper_diff'.")
-        if asr_backend_choice == "qwen3_asr":
-            require_qwen3_packages("Qwen3-ASR")
-        elif asr_backend_choice == "qwen3_asr_vad":
-            require_qwen3_packages("Qwen3-ASR")
-            _require_vad_packages()
-        elif asr_backend_choice == "moss_td":
-            _require_moss_backend()
-    elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
-        require_qwen3_packages("Qwen3 forced alignment")
+    _check_run_choices(transcript_mode, asr_backend_choice, alignment_method)
     if drama.get("use_groq") and not settings_service.resolve_key("groq"):
         raise DependencyUnavailableError(
             "use_groq is on but no Groq API key is configured. Set one in Settings first.")
@@ -961,8 +906,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
                        separate_vocals_first, separation_backend, realign_long_segments,
                        whisper_fast_mode, use_groq, initial_prompt, use_gpu, asr_backend_choice,
                        alignment_method, local_model_path, qwen_batch_size, vad_refine_timing,
-                       mixed_languages, hallucination_silence_sec, min_pause_sec, scratch_dir,
-                       result_queue):
+                       mixed_languages, hallucination_silence_sec, min_pause_sec, repeat_guard,
+                       split_by_sentences, sensitivity_preset, scratch_dir, result_queue):
     """Process-job target, started with spawn on every platform (top level
     and plain arguments only, so it pickles; nothing here may depend on
     state set up in the parent process after import): runs the pipeline for
@@ -991,7 +936,9 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             asr_backend_choice, alignment_method, local_model_path=local_model_path,
             qwen_batch_size=qwen_batch_size, vad_refine_timing=vad_refine_timing,
             mixed_languages=mixed_languages, vocals_work_dir=scratch_dir,
-            hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
+            hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
+            repeat_guard=repeat_guard, split_by_sentences=split_by_sentences,
+            sensitivity_preset=sensitivity_preset)
         result_queue.put(("ok", outcome))
     except ImportError:
         result_queue.put(("ok", missing_package_outcome()))
@@ -1049,7 +996,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                          hardsub_interval=1.0, tesseract_cmd=None, vocals_work_dir=None,
                          vad_refine_timing=False, mixed_languages=False,
                          hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
-                         min_pause_sec=core_module.MIN_WORD_GAP_SECONDS) -> dict:
+                         min_pause_sec=core_module.MIN_WORD_GAP_SECONDS, repeat_guard=False,
+                         split_by_sentences=False, sensitivity_preset="normal") -> dict:
     """Runs ASR (or hardsub OCR, thread jobs only) and returns a plain dict:
     {"failed_reason", ...} when nothing should be applied, else the lines
     and everything _apply_transcription needs. Touches no database row.
@@ -1066,11 +1014,10 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     "qwen3_asr_vad" backends only: other backends and Groq ignore it); vad_refine_timing is the saved forced-aligner timing option of the
     "qwen3_asr_vad" backend. vocals_work_dir: where vocal separation writes before its result
     is moved next to the audio, so a killed worker leaves no partial file.
+    split_by_sentences: see docs/engine-backends.md.
 
     asr_backend_choice / alignment_method are the drama's stored
-    choices: "qwen3_asr" and the experimental "moss_td" (replaces
-    Whisper, keeps MOSS's own speaker labels and skips the pyannote chain
-    when it produced any) only apply in whisper transcript_mode, and
+    choices: "qwen3_asr" only applies in whisper transcript_mode, and
     "qwen3_forced_align" only in have_transcript mode. Import/download/other Qwen3 failures end the job
     with a failed_reason ("dependency_missing", "model_download",
     "qwen3_asr"); a forced-align ValueError (e.g. an oversized line) falls
@@ -1083,9 +1030,10 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     coverage_msg = None
     device_msg = ""
     device_suffix = ""
-    moss_run = transcript_mode == "whisper" and asr_backend_choice == "moss_td"
-    moss_info = {}
-    vad_run = transcript_mode == "whisper" and asr_backend_choice == "qwen3_asr_vad"
+    # The other backends, and a supplied transcript, bring their own lines.
+    sentence_lines = (split_by_sentences and transcript_mode == "whisper"
+                      and asr_backend_choice in ("whisper", "qwen3_asr"))
+    vad_run = transcript_mode == "whisper" and asr_backend_choice in VAD_BACKENDS
     # Where each Qwen3 model actually loaded ("Qwen3-ASR" -> "GPU"|"CPU"), so
     # a busy CPU is told apart from a silent GPU fallback.
     qwen_device = {}
@@ -1114,10 +1062,11 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
 
     if transcript_mode == "hardsub_ocr":
         import hardsub_ocr
+        hardsub_info = {}
         segments = hardsub_ocr.extract_hardsub_subtitles(
             video_path, language=source_language, sample_interval=hardsub_interval,
             ocr_backend=hardsub_ocr_backend, chinese_script=chinese_script,
-            tesseract_cmd=tesseract_cmd, job_id=rep.job_id,
+            tesseract_cmd=tesseract_cmd, job_id=rep.job_id, info=hardsub_info,
             cancel_check=rep.raise_if_cancelled,
             progress_cb=lambda frac: rep.progress(
                 frac, f"Reading captions from video... {frac * 100:.0f}%"))
@@ -1128,7 +1077,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         # text-override branch below, just sourced from captions.
         lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
                  for i, seg in enumerate(segments) if seg["text"].strip()]
-        raw_backend, raw_model, raw_mode = "hardsub_ocr", hardsub_ocr_backend, "hardsub_ocr"
+        raw_backend, raw_model, raw_mode = "hardsub_ocr", hardsub_info.get("backend", hardsub_ocr_backend), "hardsub_ocr"
+        coverage_msg = hardsub_info.get("note")
     else:
         if separate_vocals_first:
             import audio_preprocess
@@ -1176,7 +1126,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         if rep.cancelled():
             return {"failed_reason": "cancelled"}
 
-        qwen_run = transcript_mode == "whisper" and asr_backend_choice == "qwen3_asr" and not moss_run
+        qwen_run = transcript_mode == "whisper" and asr_backend_choice == "qwen3_asr"
         # Groq and the Qwen3-on-Whisper-segments backend transcribe a whole
         # file in one language, so only the local Whisper path switches.
         mixed_whisper_run = (mixed_languages and transcript_mode == "whisper"
@@ -1195,7 +1145,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                 vad_stage["percent"] = True
                 vad_stage["ticker"].stop()
                 frac = min(max(frac, 0.0), 1.0)
-                if vad_refine_timing and not mixed_languages and frac > 0.9:
+                if ((vad_refine_timing or asr_backend_choice == "qwen3_asr_long")
+                        and not mixed_languages and frac > 0.9):
                     # The backend gives the last tenth to the forced aligner.
                     where = qwen_device.get("Qwen3 forced alignment")
                     message = ("Aligning timing with the Qwen3 forced aligner"
@@ -1206,10 +1157,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                                f"... {frac * 100:.0f}%")
                 rep.progress(frac * RUNNING_MAX, message)
 
-            import asr_backend
             import vad_segments
             try:
-                segments = asr_backend.get_backend("qwen3_asr_vad").transcribe(
+                segments = asr_backend.get_backend(asr_backend_choice).transcribe(
                     audio_path, source_language, use_gpu=use_gpu, batch_size=qwen_batch_size,
                     progress_cb=_vad_progress, cancel_check=rep.raise_if_cancelled,
                     refine_timing=vad_refine_timing, mixed_languages=mixed_languages,
@@ -1231,27 +1181,6 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             finally:
                 if vad_stage["ticker"]:
                     vad_stage["ticker"].stop()
-        elif moss_run:
-            # Experimental: one pass that also labels speakers;
-            # replaces Whisper for this run, only when chosen explicitly.
-            rep.progress(0.0, "Transcribing and detecting speakers with "
-                              "MOSS-Transcribe-Diarize (experimental)...")
-            try:
-                import asr_backend
-                segments = asr_backend.get_backend("moss_td").transcribe(
-                    audio_path, source_language, use_gpu=use_gpu, run_info=moss_info)
-            except ImportError:
-                return missing_package_outcome(
-                    "MOSS-Transcribe-Diarize isn't installed yet. Open Diagnostics to install it.")
-            except core_module.ModelDownloadError as exc:
-                return {"failed_reason": "model_download", "detail": redact_secrets(str(exc))}
-            except Exception as exc:
-                return {"failed_reason": "moss_td", "detail": redact_secrets(str(exc))}
-            device_msg = "GPU" if moss_info.get("device") == "cuda" else "CPU"
-            # One blocking call with no cancel hook: honour a cancel that
-            # arrived meanwhile before replacing any lines.
-            if rep.cancelled():
-                return {"failed_reason": "cancelled"}
         elif use_groq:
             rep.progress(0.0, "Transcribing via Groq's cloud API...")
             try:
@@ -1310,19 +1239,23 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         beam_size=beam_size,
                         on_gpu_fallback=lambda exc: gpu_fallback_msg.append(
                             core_module.short_reason(exc)),
-                        progress_cb=_whisper_progress, cancel_check=rep.raise_if_cancelled)
+                        progress_cb=_whisper_progress, cancel_check=rep.raise_if_cancelled,
+                        repeat_guard=repeat_guard, sensitivity_preset=sensitivity_preset)
                 else:
                     segments = transcribe_for_timing(
                         audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
                         local_model_path=local_model_path, hf_token=None,
                         initial_prompt=initial_prompt,
                         beam_size=beam_size,
-                        min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
+                        min_silence_duration_ms=(asr_backend.SENTENCE_SPLIT_MIN_SILENCE_MS
+                                                 if sentence_lines else min_silence_ms),
+                        vad_threshold=vad_threshold,
                         on_gpu_fallback=lambda exc: gpu_fallback_msg.append(
                             core_module.short_reason(exc)),
                         progress_cb=_whisper_progress,
                         fast_mode=whisper_fast_mode,
-                        hallucination_silence_sec=hallucination_silence_sec)
+                        hallucination_silence_sec=hallucination_silence_sec,
+                        repeat_guard=repeat_guard, sensitivity_preset=sensitivity_preset)
                 # Not recorded for the speed estimate: a per-span detection run is slower.
                 if "t" in whisper_clock and not mixed_whisper_run:
                     whisper_clock["work"] = time.monotonic() - whisper_clock["t"]
@@ -1336,7 +1269,7 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
         if not segments:
             return {"failed_reason": "empty"}
 
-        if (realign_long_segments and not moss_run and not vad_run and not mixed_whisper_run
+        if (realign_long_segments and not vad_run and not mixed_whisper_run
                 and not rep.cancelled()):
             import word_align
             align_started = time.monotonic()
@@ -1369,10 +1302,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
 
         if transcript_mode == "whisper":
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
-            if moss_run:
-                raw_backend, raw_model = "moss_td", "MOSS-Transcribe-Diarize"
-            elif vad_run:
-                raw_backend, raw_model = "qwen3_asr_vad", "Qwen3-ASR"
+            if vad_run:
+                raw_backend, raw_model = asr_backend_choice, "Qwen3-ASR"
             elif asr_backend_choice == "qwen3_asr":
                 if rep.cancelled():
                     return {"failed_reason": "cancelled"}
@@ -1394,7 +1325,6 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                         f"{f' (on {where})' if where else ''}")
 
                 try:
-                    import asr_backend
                     segments = asr_backend.Qwen3ASRBackend().transcribe(
                         audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu,
                         batch_size=qwen_batch_size, progress_cb=_qwen_progress,
@@ -1416,7 +1346,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                                                                      seg.get("words")))
                      for i, seg in enumerate(
                          s for s in core_module.split_long_segments(
-                             segments, min_pause=min_pause_sec)
+                             segments, min_pause=min_pause_sec,
+                             rules=asr_backend.SENTENCE_SPLIT_RULES if sentence_lines else None)
                          if s["text"].strip())]
             coverage_msg = coverage_warning(
                 segments, _audio_duration_seconds(audio_path),
@@ -1468,18 +1399,21 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
             "whisper_clock": whisper_clock, "stage_seconds": stage_seconds,
             "word_align_error": word_align_error,
             "forced_align_error": forced_align_error, "coverage_warning": coverage_msg,
-            "moss_run": moss_run, "moss_truncated": bool(moss_info.get("truncated")),
+            **ollama_unload.take_notice_result(),
             "run_config": {
                 "asr_backend": asr_backend_choice, "whisper_size": whisper_size,
                 "local_model_path": local_model_path, "language": source_language,
                 "transcript_mode": transcript_mode, "alignment_method": alignment_method,
                 "min_silence_ms": min_silence_ms, "vad_threshold": vad_threshold,
                 "beam_size": beam_size, "hallucination_silence_sec": hallucination_silence_sec,
-                "min_pause_sec": min_pause_sec, "whisper_fast_mode": whisper_fast_mode, "use_groq": use_groq,
+                "min_pause_sec": min_pause_sec, "sensitivity_preset": sensitivity_preset,
+                "whisper_fast_mode": whisper_fast_mode, "use_groq": use_groq and not vad_run,
+                "whisper_repeat_guard": repeat_guard, "split_by_sentences": split_by_sentences,
                 "separate_vocals_first": separate_vocals_first,
                 "separation_backend": separation_backend,
                 "realign_long_segments": realign_long_segments,
-                "mixed_languages": mixed_languages, "vad_refine_timing": vad_refine_timing,
+                "mixed_languages": mixed_languages, "vad_refine_timing": (vad_refine_timing
+                                      or asr_backend_choice == "qwen3_asr_long"),
                 "use_gpu": use_gpu, "initial_prompt": initial_prompt}}
 
 
@@ -1489,7 +1423,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                          gpu_app_settings=None) -> dict:
     """Applies a _transcribe_pipeline outcome to the drama and returns the
     job's result: replaces its lines (history snapshot first), writes the
-    raw transcript, marks it "aligned", records MOSS speakers, chain-starts
+    raw transcript, marks it "aligned", chain-starts
     diarization when hf_token and diarize_audio_path are set, and records
     the run's speed. A failed outcome is returned unchanged and writes
     nothing; so does a run whose cancel arrived before the write."""
@@ -1529,14 +1463,8 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
         if outcome.get("run_config") else None)
     db.update_drama(drama_id, status="aligned")
 
-    # MOSS already labelled speakers: record them as characters and don't
-    # chain pyannote over them (it would relabel every line).
-    moss_speakers = sorted({ln.speaker for ln in lines if ln.speaker}) if outcome["moss_run"] else []
-    for label in moss_speakers:
-        db.upsert_character(drama_id, label)
-
     diarize_started = False
-    if hf_token and diarize_audio_path and not moss_speakers:
+    if hf_token and diarize_audio_path:
         import diarize as diarize_module
         diarize_started = background_jobs.start_process_job(
             f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
@@ -1568,15 +1496,15 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                    if gpu_fallback_msg else outcome["device_msg"]) or None,
         "word_align_error": outcome["word_align_error"],
         "asr_backend": outcome["raw_backend"],
+        "asr_backend_notice": asr_options_service.removed_asr_backend_notice(
+            db.get_drama(drama_id) or {}),
         "alignment_method": ("qwen3_forced_align" if transcript_mode == "have_transcript"
                              and alignment_method == "qwen3_forced_align"
                              and not forced_align_error else "whisper_diff"),
         "forced_align_error": forced_align_error,
         "coverage_warning": outcome["coverage_warning"],
+        "ollama_notice": outcome.get("ollama_notice"),
         "diarize_started": diarize_started,
-        **({"partial": True, "errors": [
-            "MOSS stopped at its output limit; the end of the audio may be missing."]}
-           if outcome["moss_truncated"] else {}),
     }
 
 
@@ -1599,7 +1527,7 @@ def score_autotune_segments(candidate_ms, segments) -> dict:
 
 
 def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, initial_prompt,
-                         beam_size, candidates, vad_threshold, fast_mode, result_queue):
+                         beam_size, candidates, vad_threshold, fast_mode, preset, repeat_guard, result_queue):
     """Process-job target (top-level, picklable): transcribes once per
     candidate, holding every other setting constant, and returns only the
     scores (no segments, no token)."""
@@ -1613,7 +1541,8 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
                 audio_path, model_size, language=language, use_gpu=use_gpu,
                 hf_token=hf_token, initial_prompt=initial_prompt, beam_size=beam_size,
                 min_silence_duration_ms=candidate_ms, vad_threshold=vad_threshold,
-                fast_mode=fast_mode)
+                fast_mode=fast_mode, repeat_guard=repeat_guard,
+                sensitivity_preset=preset)
             results.append(score_autotune_segments(candidate_ms, segments))
         best = min(results, key=lambda r: r["long_lines"])["candidate_ms"] if results else None
         result_queue.put(("ok", {"results": results, "best_candidate_ms": best}))
@@ -1652,6 +1581,12 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
         raise InvalidInputError(
             f"candidates must be 1-6 distinct whole numbers between {core_module.MIN_SILENCE_MS_MIN} "
             f"and {core_module.MIN_SILENCE_MS_MAX} (ms).")
+    if (drama.get("split_by_sentences")
+            and asr_options_service.stored_asr_backend(drama) in ("whisper", "qwen3_asr")):
+        # The run then splits on a fixed silence, so a tuned min_silence would not apply.
+        raise UnsupportedOperationError(
+            "Auto-tune is unavailable while 'Split lines by sentences' is on: that mode "
+            "ignores the minimum silence setting.")
     initial_prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
     job_id = autotune_job_id(drama_id)
     started = background_jobs.start_process_job(
@@ -1660,8 +1595,10 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
               drama.get("source_language") or "zh", settings_service.get_use_gpu(),
               settings_service.resolve_key("hf_token") or None, initial_prompt,
               drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
-              drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
-              bool(drama.get("whisper_fast_mode"))),
+              presets.stored_vad_threshold(drama),
+              bool(drama.get("whisper_fast_mode")),
+              presets.normalize(drama.get("sensitivity_preset")),
+              bool(drama.get("whisper_repeat_guard"))),
         gpu_touching=True, description=f"Auto-tuning (drama #{drama_id})")
     if not started:
         raise ConflictError(f"Auto-tune is already running for drama {drama_id}.")
@@ -1792,9 +1729,10 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
         stored_whisper_size(drama),
         drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
-        drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
+        presets.stored_vad_threshold(drama),
         bool(drama.get("whisper_fast_mode")), settings_service.get_use_gpu(), prompt,
-        stored_hallucination_silence_sec(drama),
+        stored_hallucination_silence_sec(drama), bool(drama.get("whisper_repeat_guard")),
+        presets.normalize(drama.get("sensitivity_preset")),
         gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})")
     if not started:
         raise ConflictError("A line is already being re-transcribed for this drama.")
@@ -1804,7 +1742,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
 def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end, zh_before,
                                source_language, whisper_size, beam_size, min_silence_ms,
                                vad_threshold, fast_mode, use_gpu, initial_prompt,
-                               hallucination_silence_sec):
+                               hallucination_silence_sec, repeat_guard=False, preset="normal"):
     """Job body: cut [start, end) from the drama's audio and transcribe it.
     Writes nothing to the line. Result on success: {"line_id", "proposed_zh",
     "base_zh", "base_start", "base_end"} (proposed_zh capped at
@@ -1843,7 +1781,8 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
                 initial_prompt=initial_prompt, beam_size=beam_size,
                 min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
                 on_gpu_fallback=lambda exc: gpu_fallback.append(core_module.short_reason(exc)),
-                fast_mode=fast_mode, hallucination_silence_sec=hallucination_silence_sec)
+                fast_mode=fast_mode, hallucination_silence_sec=hallucination_silence_sec,
+                repeat_guard=repeat_guard, sensitivity_preset=preset)
         except core_module.ModelDownloadError as exc:
             background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "model_download",
                                                 "detail": redact_secrets(str(exc))})
@@ -1866,7 +1805,8 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
             "detail": "The line was merged, split or deleted meanwhile; nothing was changed."})
         return
     result = {"line_id": line_id, "proposed_zh": new_zh[:_RETRANSCRIBE_MAX_CHARS],
-              "base_zh": zh_before or "", "base_start": start, "base_end": end}
+              "base_zh": zh_before or "", "base_start": start, "base_end": end,
+              **ollama_unload.take_notice_result()}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
         result["device_notice"] = core_module.gpu_fallback_notice(

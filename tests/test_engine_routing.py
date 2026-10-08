@@ -64,7 +64,7 @@ class TestResolve:
 
     def test_refuses_an_engine_without_the_capability(self, isolated_db):
         with pytest.raises(InvalidInputError):
-            routing.set_capability_engine("llm.instructions", "nllb")
+            routing.set_capability_engine("llm.instructions", "fake_mt")
         with pytest.raises(InvalidInputError):
             routing.set_capability_engine("research.grounded_search", "claude")
         with pytest.raises(InvalidInputError):
@@ -90,7 +90,7 @@ class TestResolve:
         assert routing._capability_entry("llm.instructions")["unset_label"] is None
 
     def test_a_stale_stored_value_reads_back_as_the_default(self, isolated_db):
-        db.set_app_setting("capability.llm.instructions", "nllb")  # not an LLM
+        db.set_app_setting("capability.llm.instructions", "fake_mt")  # not an LLM
         assert routing.resolve_capability("llm.instructions") == settings_service.get_default_engine()
 
     def test_never_switches_on_a_missing_key(self, isolated_db, no_keys):
@@ -126,7 +126,7 @@ class TestMigratedCallSites:
 
     def test_line_helpers_use_the_capability_for_a_translation_only_drama(
             self, isolated_db, monkeypatch):
-        did = db.create_drama(title_zh="t", translation_engine="nllb")
+        did = db.create_drama(title_zh="t", translation_engine="fake_mt")
         monkeypatch.setattr(routing, "resolve_capability",
                             lambda cap: {"llm.instructions": "gemini"}[cap])
         assert line_ai_service.tool_engine_name(did) == "gemini"
@@ -217,13 +217,14 @@ class TestEngineTest:
         routing.test_engine("claude")
         assert routing._last_test("claude") is None
 
-    def test_nllb_is_not_tested(self, isolated_db, monkeypatch):
+    def test_an_engine_with_a_test_block_is_not_tested(self, isolated_db, monkeypatch):
         from services.service_errors import UnsupportedOperationError
+        monkeypatch.setitem(routing._NO_TEST, "fake_mt", "Downloads a large model on first use.")
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
                             lambda *a, **k: pytest.fail("would download a model"))
         with pytest.raises(UnsupportedOperationError):
-            routing.test_engine("nllb")
-        assert routing.engine_status("nllb")["test_blocked"]
+            routing.test_engine("fake_mt")
+        assert routing.engine_status("fake_mt")["test_blocked"]
 
     def test_saving_a_key_forgets_the_last_test(self, isolated_db, tmp_path, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
@@ -258,7 +259,7 @@ class TestRoutes:
         ids = [c["id"] for c in body["capabilities"]]
         assert "translation.cheap" in ids and "translation.high_quality" in ids
         instr = next(c for c in body["capabilities"] if c["id"] == "llm.instructions")
-        assert "nllb" not in instr["choices"] and "claude" in instr["choices"]
+        assert "fake_mt" not in instr["choices"] and "claude" in instr["choices"]
         claude = next(e for e in body["engines"] if e["engine"] == "claude")
         assert claude["status"] == "not_configured"
 
@@ -271,7 +272,7 @@ class TestRoutes:
                         json={"engine": None})
         assert r.json()["is_default"] is True
         assert client.post("/api/settings/engine-routing/capabilities/llm.instructions",
-                           json={"engine": "nllb"}).status_code == 422
+                           json={"engine": "fake_mt"}).status_code == 422
         assert client.post("/api/settings/engine-routing/capabilities/nope",
                            json={"engine": "claude"}).status_code == 404
 

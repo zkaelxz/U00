@@ -19,6 +19,7 @@ from .shared import (
     tagged_line_languages,
     redact_secrets,
 )
+from memory_headroom import HeadroomError
 
 
 def build_reflect_faithful_prompt(instructions: str, batch_ctx: str, ids: list, zh_by_id: dict,
@@ -575,7 +576,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                 redacted = redact_secrets(str(e))
                 errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
                                "error": redacted})
-                if isinstance(e, FreeTierDailyLimitReached):
+                if isinstance(e, (FreeTierDailyLimitReached, HeadroomError)):
                     stop_run.append(True)
                 import applog
                 applog.get_logger().error(f"translate batch {bi} failed: {redacted}")

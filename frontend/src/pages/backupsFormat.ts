@@ -23,7 +23,7 @@ export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
 ]
 
 export const ROTATION_NOTE =
-  'Keeps one copy per day for the last 2 days, plus the first copy of each of the last 2 weeks; older copies this library made are deleted after each new backup.'
+  'Keeps one copy a day for the last 2 days, plus the first copy of each of the last 2 weeks. Older copies this library made are deleted after each backup.'
 export const DEFAULT_FOLDER_TEXT = 'Library backups folder (default)'
 
 type DateOpts = { locale?: string; timeZone?: string }
@@ -81,7 +81,7 @@ export function describeCopy(c: SnapshotCopy, opts: DateOpts = {}): string {
 // "delete all", restorable or deletable only when chosen by name.
 export const UNMANAGED_LABEL = 'Other or older copies (not managed)'
 export const UNMANAGED_NOTE =
-  "Made by another library sharing this folder, before this update, or can't be read. Automatic rotation and \"delete all\" never remove them."
+  "Made by another library sharing this folder, before this update, or unreadable. Automatic rotation and \"delete all\" never remove them."
 export const UNMANAGED_RESTORE_WARNING =
   "This copy wasn't made by this library (it may be another PC's library, or from before this update). Check its date and dramas before restoring."
 export const UNMANAGED_DELETE_WARNING =
@@ -155,7 +155,7 @@ export function changedSettings(saved: AutoBackupSettings, next: AutoBackupSetti
 
 // Said instead of a refused-folder message that names a path (safeDetail drops those).
 export const FOLDER_RULES =
-  'Use a full folder path that already exists and is outside the library (for example D:\\Backups), or leave it empty.'
+  'Use the full path of an existing folder outside the library (for example D:\\Backups), or leave it empty.'
 
 /**
  * The server's own sentence for a refused setting, unless it names a path or

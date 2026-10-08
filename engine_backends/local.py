@@ -1,100 +1,20 @@
-"""Local engines: NLLB-200 and Ollama."""
+"""Local engine: Ollama."""
+
+import contextvars
+import re
+import threading
+import weakref
+
+from services import capped_body
 
 from .prompts import build_batch_user_message, build_stable_system_text
-from .shared import read_json_capped, request_translations_with_retry
-
-
-# ---------------------------------------------------------------------------
-# Local NLLB-200 -- genuinely free, fully offline neural MT, no API key
-# ---------------------------------------------------------------------------
-
-# NLLB-200's own language codes for the three source languages this app
-# supports, plus English (needed as a target for zh/ja/ko ->
-# English, the app's existing default, and as a source for the standalone
-# tool's new English -> zh/ja/ko direction). zh always maps to Simplified
-# here (NLLB has a separate zho_Hant code for Traditional) -- see
-# NLLBEngine's docstring for why that's a real, currently-unaddressed
-# limitation rather than an oversight.
-_NLLB_LANG_CODES = {"zh": "zho_Hans", "ja": "jpn_Jpan", "ko": "kor_Hang", "en": "eng_Latn"}
-
-NLLB_MODELS = {
-    "facebook/nllb-200-distilled-600M": "600M -- fastest, lightest download (~2.4GB), practical on CPU",
-    "facebook/nllb-200-distilled-1.3B": "1.3B -- better quality, slower, heavier download (~5.2GB)",
-}
-
-# Keyed by (model_name, source_language, target_language) -- NLLB bakes
-# both src_lang and tgt_lang into the pipeline object itself, so a drama
-# that mixes source languages across runs (or the standalone tool,
-# which can ask for either direction) needs a separate pipeline per
-# language pair, same shape as Whisper's own _whisper_model_cache in
-# core.py.
-_nllb_pipeline_cache = {}
-
-
-class NLLBEngine:
-    """Fully local, offline neural machine translation via Meta's NLLB-200
-    -- no API key, no network once the model's downloaded once, no
-    per-token cost. This is a REAL translation engine, not a placeholder
-    like a stub: it actually produces usable (if rougher) English,
-    just with meaningfully lower quality than Claude/DeepSeek/Gemini on
-    tone, idiom, and character-voice consistency, since it's pure
-    sequence-to-sequence MT with no instruction-following ability at all
-    -- not an LLM. Good for a genuinely
-    free bulk draft, or for fully offline/no-budget use; expect to
-    hand-polish idiom-heavy or emotionally nuanced lines afterward.
-
-    Known limitation: chinese_script isn't threaded through here yet --
-    zh always uses NLLB's Simplified code (zho_Hans). NLLB does have a
-    separate zho_Hant code for Traditional, so a Traditional-script drama
-    translated through this engine is feeding NLLB text in a script it
-    isn't being told to expect, which will cost some accuracy. Worth
-    fixing if this engine sees real use on Traditional-script content;
-    not done here since it needs the same context-threading this file's
-    source_language fix just added, for a script that isn't the default.
-
-    Requires: `pip install transformers sentencepiece torch` (already a
-    dependency of several other optional features in this app). The
-    model downloads from Hugging Face on first use and is cached on disk
-    afterward, the same as a Whisper model -- no API key involved at any
-    point, this only ever runs locally.
-    """
-    name = "nllb"
-    supports_reference = False
-
-    def __init__(self, api_key: str = None, model: str = "facebook/nllb-200-distilled-600M"):
-        # api_key is unused (kept for get_engine's consistent constructor
-        # signature across engines -- NLLB needs no key at all).
-        self.model_name = model
-
-    def _get_pipeline(self, source_language: str, target_language: str = "en"):
-        cache_key = (self.model_name, source_language, target_language)
-        # One .get(): release_gpu_models() may clear the cache at any moment.
-        pipe = _nllb_pipeline_cache.get(cache_key)
-        if pipe is None:
-            from transformers import pipeline
-            src_lang = _NLLB_LANG_CODES.get(source_language, "zho_Hans")
-            tgt_lang = _NLLB_LANG_CODES.get(target_language, "eng_Latn")
-            pipe = pipeline(
-                "translation", model=self.model_name, src_lang=src_lang, tgt_lang=tgt_lang)
-            _nllb_pipeline_cache[cache_key] = pipe
-        return pipe
-
-    def translate_batch(self, zh_lines, context: dict):
-        title_language = context.get("source_language", "zh")
-        target_language = context.get("target_language", "en")
-        # NLLB bakes the source language into the pipeline, so lines spoken
-        # in another language are translated in their own group.
-        line_languages = context.get("line_languages")
-        if not line_languages or len(line_languages) != len(zh_lines):
-            line_languages = [None] * len(zh_lines)
-        out = [""] * len(zh_lines)
-        for lang in dict.fromkeys(line_languages):
-            positions = [i for i, ln_lang in enumerate(line_languages) if ln_lang == lang]
-            pipe = self._get_pipeline(lang or title_language, target_language)
-            results = pipe([zh_lines[i] for i in positions])
-            for i, r in zip(positions, results):
-                out[i] = r["translation_text"]
-        return out
+from .shared import (
+    TranslationCancelled,
+    read_json_capped,
+    redact_secrets,
+    request_translations_with_retry,
+)
+from .thinking import ollama_chat_no_thinking, wants_no_thinking
 
 
 # Ollama's own default context window can be as small as 2-4k tokens,
@@ -123,18 +43,44 @@ def estimate_ollama_num_ctx(system_text: str, numbered: str, floor: int = OLLAMA
 _OLLAMA_ID_KEYED_JSON_SCHEMA = {"type": "object", "additionalProperties": {"type": "string"}}
 
 
-# Local Ollama models offered in the picker. qwen3:8b is the default: it
-# beat qwen2.5:7b on translation benchmarks at the same size (see the
-# model registry). 14B is opt-in -- its quantized weights
-# don't fit cleanly alongside everything else in 8 GB of VRAM, so Ollama
-# offloads part of it to the CPU and it runs much slower there.
-OLLAMA_DEFAULT_MODEL = "qwen3:8b"
+# Local Ollama models offered in the picker. gemma4:12b is the default: it fits
+# a 12 GB GPU fully, while the 26b/31b tags offload to the CPU and run slower.
+# A title or preset that saved another tag (an old Qwen one, say) keeps it and
+# still runs if Ollama has it; it is just no longer offered here.
+OLLAMA_DEFAULT_MODEL = "gemma4:12b"
 
 
 OLLAMA_MODELS = {
-    "qwen3:8b": "Qwen3 8B -- recommended default, fits a typical 8 GB GPU",
-    "qwen2.5:14b": "Qwen2.5 14B -- may not fit in 8 GB; expect CPU offload (much slower)",
+    "gemma4:12b": "Gemma 4 12B -- recommended default, about 8 GB, fits fully on a 12 GB GPU; too big for 8 GB",
+    "gemma4:26b": "Gemma 4 26B (MoE) -- about 16-19 GB, won't fit a 12 GB GPU; offloads to the CPU and runs slower",
+    "gemma4:31b": "Gemma 4 31B -- about 19-20 GB, won't fit a 12 GB GPU; offloads to the CPU and runs much slower",
 }
+
+
+# Ollama's hosted models, reached through the local app once the owner has
+# run `ollama signin`: same /api/chat on the local URL, but the tag ends in
+# "cloud" and the subtitle text is processed on Ollama's servers. Kept out
+# of the default and out of every fallback so a local-only setup never
+# starts sending text off the PC without the owner picking one.
+OLLAMA_CLOUD_MODELS = {
+    "gemma4:31b-cloud": "Gemma 4 31B -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; free use is capped",
+    "gemma4:cloud": "Gemma 4 -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; free use is capped",
+}
+
+
+def is_ollama_cloud_model(model) -> bool:
+    return isinstance(model, str) and model.lower().endswith(("-cloud", ":cloud"))
+
+
+def ollama_touches_local_gpu(engine_name: str, model) -> bool:
+    """Whether a run on this engine uses this PC's GPU/memory: a local
+    Ollama model does, a cloud tag does not."""
+    return engine_name == "ollama" and not is_ollama_cloud_model(model)
+
+
+def chain_touches_local_gpu(chain) -> bool:
+    """`ollama_touches_local_gpu` for any step of an engine chain."""
+    return any(ollama_touches_local_gpu(c["engine"], c["model"]) for c in chain)
 
 
 class OllamaUnavailableError(Exception):
@@ -151,16 +97,138 @@ class OllamaUnavailableError(Exception):
 # Local models can be slow, especially CPU-only or larger ones.
 OLLAMA_CHAT_TIMEOUT = 300
 
+# With "stream": False Ollama sends nothing until the whole reply is done,
+# so this is also the wait for the first byte. Models too big for a 12 GB
+# card split across GPU and CPU and can need far longer than 300 s for a
+# long batch; the cap stays finite so a hung server still fails.
+OLLAMA_SLOW_MODEL_CHAT_TIMEOUT = 900
+_OLLAMA_SLOW_MODELS = frozenset({"gemma4:26b", "gemma4:31b"})
+
+
+def ollama_chat_timeout(model: str) -> int:
+    return OLLAMA_SLOW_MODEL_CHAT_TIMEOUT if model in _OLLAMA_SLOW_MODELS else OLLAMA_CHAT_TIMEOUT
+
+
+# Thinking-capable models (Qwen3, Gemma 4) may put reasoning inline in
+# `content` as <think>...</think> instead of the separate `thinking` field.
+# Braces inside it would otherwise be picked up by the first-JSON-value scan.
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_THINK_OPEN_RE = re.compile(r"<think>.*\Z", re.DOTALL | re.IGNORECASE)
+
+
+def strip_ollama_thinking(content: str) -> str:
+    content = _THINK_BLOCK_RE.sub("", content)
+    # An unterminated block means the reply was cut off mid-reasoning: no answer.
+    return _THINK_OPEN_RE.sub("", content).strip()
+
+
+_ABORT_POLL_SECONDS = 0.25
+# Set by a caller (the Live loop) that must be able to abandon a blocked
+# Ollama request. Opt-in rather than reusing the translate run's cancel
+# check, so other flows keep their plain requests.post call.
+abort_check_var = contextvars.ContextVar("ollama_abort_check", default=None)
+
 
 def _ollama_chat(base_url: str, payload: dict) -> dict:
     """POST /api/chat with the slow-local-model timeout; returns the JSON
     reply, read with the provider byte cap. A refused/unresolvable/unreachable
     server and a model that isn't pulled become OllamaUnavailableError;
-    requests' own messages embed the URL, so none of that text is kept."""
+    requests' own messages embed the URL, so none of that text is kept.
+
+    When the caller set abort_check_var, the request can be abandoned: see
+    _ollama_chat_abortable."""
     import requests
+    check = abort_check_var.get()
+    if check is None:
+        return _ollama_chat_request(requests.post, base_url, payload)
+    return _ollama_chat_abortable(base_url, payload, check)
+
+
+def _ollama_chat_abortable(base_url: str, payload: dict, check) -> dict:
+    """Runs the request on a helper thread and polls `check`; on a cancel it
+    shuts the request's sockets down and raises TranslationCancelled. With
+    "stream": False Ollama sends nothing until the reply is done (a model
+    load can take minutes), and a blocked read has no other way to be woken.
+    Closing the connection also tells Ollama to stop generating, which frees
+    the GPU for whatever runs next."""
+    import requests
+    # The tracking adapter is live_fetch's: it keeps every socket (even one
+    # still in its TLS handshake or awaiting headers) reachable for shutdown.
+    from live_fetch import _TrackingAdapter, _shutdown
+
+    lock = threading.Lock()
+    sockets = weakref.WeakSet()
+    state = {"aborted": False}
+
+    def track(sock):
+        with lock:
+            sockets.add(sock)
+            if state["aborted"]:
+                _shutdown(sock)
+
+    def release(sock):
+        with lock:
+            sockets.discard(sock)
+            sock.close()
+
+    session = requests.Session()
+    adapter = _TrackingAdapter(track, release)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    box = {}
+
+    def work():
+        try:
+            box["value"] = _ollama_chat_request(session.post, base_url, payload)
+        except BaseException as exc:
+            box["error"] = exc
+
+    worker = threading.Thread(target=work, daemon=True, name="ollama-chat")
+    worker.start()
     try:
-        resp = requests.post(f"{base_url}/api/chat", json=payload, stream=True,
-                             timeout=OLLAMA_CHAT_TIMEOUT)
+        while True:
+            worker.join(_ABORT_POLL_SECONDS)
+            if not worker.is_alive():
+                break
+            if check():
+                with lock:
+                    state["aborted"] = True
+                    for sock in list(sockets):
+                        _shutdown(sock)
+                # Only a courtesy wait: the thread is a daemon. Kept well under
+                # the 3 s a cancel is expected to take.
+                worker.join(1.0)
+                raise TranslationCancelled("cancelled")
+    finally:
+        session.close()
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+# Enough for Ollama's one-line JSON error.
+OLLAMA_ERROR_BODY_MAX_BYTES = 2000
+
+
+def _error_body_text(resp) -> str:
+    """A small, redacted slice of an error response's body; "" if unreadable.
+    read_capped closes the response."""
+    from services import capped_body
+    try:
+        raw = capped_body.read_capped(resp, OLLAMA_ERROR_BODY_MAX_BYTES, 5.0,
+                                      lambda: ValueError("error body too large"))
+        return redact_secrets(raw.decode("utf-8", "replace"))
+    except Exception:
+        resp.close()
+        return ""
+
+
+def _ollama_chat_request(post, base_url: str, payload: dict) -> dict:
+    import requests
+    timeout = ollama_chat_timeout(str(payload.get("model") or ""))
+    try:
+        resp = post(f"{base_url}/api/chat", json=payload, stream=True,
+                    timeout=timeout)
     except requests.ConnectionError:  # includes ConnectTimeout and DNS failures
         raise OllamaUnavailableError(
             "ollama_unreachable",
@@ -172,16 +240,30 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
-        resp.close()
-        if getattr(exc.response, "status_code", None) != 404:
-            raise
+        status = getattr(exc.response, "status_code", None)
         model = str(payload.get("model") or "")
+        if is_ollama_cloud_model(model) and status in (429, 401, 403):
+            # The body of a streamed response is unreadable once it is closed.
+            detail = _error_detail(resp) if status == 429 else ""
+            resp.close()
+            if status == 429:
+                raise OllamaCloudLimitError(detail) from None
+            raise OllamaUnavailableError(
+                "ollama_cloud_signin",
+                "Ollama cloud models need you to be signed in. Run \"ollama signin\", "
+                "or pick a local model in Settings.") from None
+        if status != 404:
+            # Closing a streamed response discards its body, and the caller
+            # needs the server's wording to tell "can't think" from other 400s.
+            exc.body_text = _error_body_text(resp)
+            raise
+        resp.close()
         raise OllamaUnavailableError(
             "ollama_model_missing",
             f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
             "or pick another model in Settings.") from None
     try:
-        return read_json_capped(resp, OLLAMA_CHAT_TIMEOUT)
+        return read_json_capped(resp, timeout)
     except (requests.ConnectionError, requests.exceptions.ChunkedEncodingError) as exc:
         # The body is read after the headers now, so a stall or reset there
         # raises from the read, not from post(), and its text names the host.
@@ -195,6 +277,35 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
         raise OllamaUnavailableError(
             "ollama_unreachable",
             "Ollama isn't running. Start it, or pick another translator in Settings.") from None
+
+
+_ERROR_BODY_MAX_BYTES = 2048
+_ERROR_BODY_DEADLINE_SECONDS = 5
+
+
+class OllamaCloudLimitError(Exception):
+    """Ollama's hosted service answered 429. `status_code` lets
+    shared._is_rate_limit_error back off and retry; the message is what
+    the owner reads if the retries run out."""
+
+    status_code = 429
+
+    def __init__(self, detail: str):
+        super().__init__(
+            "Ollama's cloud models are rate-limited or over the free usage cap right now. "
+            "Wait and resume the run later, use a local model, or check your Ollama plan."
+            + (f" Ollama said: {detail}" if detail else ""))
+
+
+def _error_detail(resp) -> str:
+    # The body can echo request headers on some proxies, so it is redacted
+    # and cut before it can be shown or stored.
+    try:
+        body = capped_body.read_capped(resp, _ERROR_BODY_MAX_BYTES, _ERROR_BODY_DEADLINE_SECONDS,
+                                       lambda: ValueError("error body too large"))
+        return redact_secrets(body.decode("utf-8", errors="replace").strip())[:200]
+    except Exception:
+        return ""
 
 
 class OllamaEngine:
@@ -212,8 +323,14 @@ class OllamaEngine:
         # api_key is unused (kept for a consistent engine constructor signature)
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self._headroom_checked = False
 
     def translate_batch(self, zh_lines, context: dict):
+        if not self._headroom_checked:
+            # Once per engine: later batches reuse the model Ollama has loaded by then.
+            import memory_headroom
+            memory_headroom.check_ollama(self.base_url, self.model)
+            self._headroom_checked = True
         system_text = build_stable_system_text(context)
         num_ctx_override = context.get("ollama_num_ctx_override")
 
@@ -231,7 +348,7 @@ class OllamaEngine:
                     f"Ollama num_ctx override ({num_ctx_override}) is smaller than the "
                     f"estimated prompt size ({estimated}) -- using {estimated} instead to "
                     "avoid silently truncating the prompt.")
-            resp = _ollama_chat(self.base_url, {
+            payload = {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_text},
@@ -240,8 +357,12 @@ class OllamaEngine:
                 "stream": False,
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
                 "options": {"num_ctx": num_ctx},
-            })
-            return resp["message"]["content"].strip()
+            }
+            if wants_no_thinking(context):
+                resp = ollama_chat_no_thinking(_ollama_chat, self.base_url, payload)
+            else:
+                resp = _ollama_chat(self.base_url, payload)
+            return strip_ollama_thinking(resp["message"]["content"])
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="ollama",
@@ -279,3 +400,35 @@ def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
         reachable = False
     _ollama_reachability_cache[base_url] = (now, reachable)
     return reachable
+
+
+def check_ollama_model_installed(base_url: str, model: str) -> None:
+    """Raises OllamaUnavailableError (the same plain texts the chat call uses)
+    when the server is down or `model` isn't pulled, so a live session fails
+    at Start rather than on its first chunk."""
+    import requests
+    base_url = base_url.rstrip("/")
+    try:
+        resp = requests.get(f"{base_url}/api/tags", timeout=5, stream=True)
+        tags = read_json_capped(resp, 5)
+    except Exception:
+        raise OllamaUnavailableError(
+            "ollama_unreachable",
+            "Ollama isn't running. Start it, or pick another translator in Settings.") from None
+    if is_ollama_cloud_model(model):
+        # The local list only shows a hosted model after its first use, so
+        # absence from it says nothing about whether the tag works.
+        return
+    installed = set()
+    for entry in tags.get("models") or []:
+        for key in ("name", "model"):
+            name = entry.get(key) if isinstance(entry, dict) else None
+            if isinstance(name, str):
+                installed.add(name)
+    # Ollama resolves a bare "name" to "name:latest".
+    wanted = model if ":" in model else f"{model}:latest"
+    if wanted not in installed:
+        raise OllamaUnavailableError(
+            "ollama_model_missing",
+            f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
+            "or pick another model in Settings.")

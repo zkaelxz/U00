@@ -70,7 +70,7 @@ const RANGES = {
   hardsub_interval_sec: { label: 'Hardsub interval (s)', min: 0.5, max: 3.0, integer: false },
 } as const
 
-const DEFAULT_HALLUCINATION_SILENCE_SEC = 2
+const DEFAULT_HALLUCINATION_SILENCE_SEC = 0
 
 // Returns the first out-of-range knob as a sentence, or null when valid.
 export function validateConfig(update: TranscribeConfigUpdate): string | null {
@@ -134,19 +134,11 @@ export interface RunFieldProblem {
 export function runOptionProblem(
   mode: string | undefined,
   alignment: string,
-  asr: string,
-  mossEnabled: boolean,
 ): RunFieldProblem | null {
   if (mode === 'whisper' && alignment === 'qwen3_forced_align') {
     return {
       field: 'alignment_method',
       message: 'Qwen3 forced alignment needs a transcript to align, but this drama transcribes with Whisper alone. Pick Whisper (diff) or supply a transcript.',
-    }
-  }
-  if (mode === 'whisper' && asr === 'moss_td' && !mossEnabled) {
-    return {
-      field: 'asr_backend_choice',
-      message: 'MOSS-Transcribe-Diarize is experimental and turned off. Turn it on in Settings, or pick another ASR backend.',
     }
   }
   return null
@@ -160,7 +152,6 @@ export function runProblemFromError(err: unknown): RunFieldProblem | null {
   const message = safeDetail(e.message)
   if (!message) return null
   if (/forced alignment/i.test(message)) return { field: 'alignment_method', message }
-  if (/\bMOSS\b/.test(message)) return { field: 'asr_backend_choice', message }
   if (/speakers?\b/i.test(message)) return { field: 'speakers', message }
   return null
 }
@@ -227,6 +218,8 @@ export interface AdvancedValues {
   min_silence_ms: string
   min_pause_sec: string
   vad_threshold: string
+  // Absent from older callers: reads as normal.
+  sensitivity_preset?: string
   hallucination_silence_sec: string
   hardsub_interval_sec: string
   alignment_method: string
@@ -235,6 +228,8 @@ export interface AdvancedValues {
   separate_vocals_first: boolean
   realign_long_segments: boolean
   whisper_fast_mode: boolean
+  whisper_repeat_guard: boolean
+  split_by_sentences: boolean
   use_groq: boolean
   prompt: string
 }
@@ -245,8 +240,9 @@ export function advancedSummary(v: AdvancedValues): string {
   if (Number(v.min_silence_ms) !== 300) parts.push(`min silence ${v.min_silence_ms} ms`)
   if (Number(v.min_pause_sec) !== MIN_PAUSE_SEC_DEFAULT) parts.push(`split pause ${v.min_pause_sec} s`)
   if (Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
+  if (v.sensitivity_preset === 'sensitive') parts.push('more sensitive')
   if (Number(v.hallucination_silence_sec) !== DEFAULT_HALLUCINATION_SILENCE_SEC) {
-    parts.push(Number(v.hallucination_silence_sec) === 0 ? 'no hallucination guard' : `hallucination guard ${v.hallucination_silence_sec} s`)
+    parts.push(`hallucination guard ${v.hallucination_silence_sec} s`)
   }
   if (Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
   if (v.alignment_method !== 'whisper_diff') parts.push(v.alignment_method)
@@ -255,6 +251,8 @@ export function advancedSummary(v: AdvancedValues): string {
   if (v.separate_vocals_first) parts.push('separate vocals')
   if (v.realign_long_segments) parts.push('realign')
   if (v.whisper_fast_mode) parts.push('fast mode')
+  if (v.whisper_repeat_guard) parts.push('repeat guard')
+  if (v.split_by_sentences) parts.push('lines by sentence')
   if (v.use_groq) parts.push('Groq')
   if (v.prompt.trim()) parts.push('replacement prompt')
   return parts.length ? parts.join(' · ') : 'defaults'

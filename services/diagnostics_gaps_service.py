@@ -93,8 +93,7 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
         "cuda": {"torch_installed": bool(cuda.get("torch_installed")),
                  "cuda_available": cuda.get("cuda_available")},
         "files": {"all_present": bool(files["all_present"]),
-                  "missing_top_level": list(files["missing_top_level"]),
-                  "missing_tabs": list(files["missing_tabs"])},
+                  "missing_top_level": list(files["missing_top_level"])},
         "library_writable": bool(diagnostics.check_library_writable(library_dir)),
         "warnings": diagnostics.startup_warnings(),
     }
@@ -108,24 +107,20 @@ def get_model_versions(ollama_model: str = None) -> list:
             for m in diagnostics.get_model_engine_versions(ollama_model)]
 
 
-def get_model_cache(hf_cache_dir: str = None, piper_voices_dir: str = None) -> dict:
-    """Hugging Face cache revisions, Piper voices and the files in the other
+def get_model_cache(hf_cache_dir: str = None) -> dict:
+    """Hugging Face cache revisions and the files in the other
     model folders (torch.hub checkpoints under TORCH_HOME, the
     audio-separator models) by name and size -- no directory is ever
     included."""
     hf = [{"repo_id": e["repo_id"], "repo_type": e["repo_type"],
            "revision": e["revision"], "size_bytes": int(e["size_bytes"])}
           for e in diagnostics.scan_hf_cache(hf_cache_dir)]
-    piper = [{"voice": e["voice"], "size_bytes": int(e["size_bytes"])}
-             for e in diagnostics.scan_piper_voices(piper_voices_dir)]
     files = [{"folder": kind, "name": e["name"], "size_bytes": int(e["size_bytes"])}
              for kind in diagnostics.MODEL_FOLDERS
              for e in diagnostics.scan_model_folder(kind)]
     return {
         "hf_cache": hf,
         "hf_total_bytes": sum(e["size_bytes"] for e in hf),
-        "piper_voices": piper,
-        "piper_total_bytes": sum(e["size_bytes"] for e in piper),
         "model_files": files,
         "model_files_total_bytes": sum(e["size_bytes"] for e in files),
     }
@@ -309,7 +304,9 @@ def _install_commands(name: str) -> list:
     on Linux). Everything else is a plain install."""
     if name in diagnostics.TORCH_FAMILY and shutil.which("nvidia-smi"):
         return _torch_setup_commands(diagnostics.TORCH_RECOMMENDED_VARIANT_GPU)
-    return [(_pip("install", diagnostics.pip_install_name(name)), PIP_TIMEOUT_SECONDS)]
+    return [(_pip("install", diagnostics.pip_install_name(name),
+                  *diagnostics.constraints_pip_args(default_project_root())),
+             PIP_TIMEOUT_SECONDS)]
 
 
 def _torch_setup_commands(variant: str) -> list:
@@ -482,7 +479,8 @@ def _run_pip(name: str, confirm, cmds_for, sox_watch=None) -> dict:
 
 
 def _qwen_asr_fallback_commands(_name: str) -> list:
-    return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)
+    constraints = diagnostics.constraints_pip_args(default_project_root())
+    return [(_pip("install", *args, *constraints), PIP_TIMEOUT_SECONDS)
             for args in diagnostics.qwen_asr_fallback_pip_args()]
 
 
@@ -537,9 +535,7 @@ def upgrade_dependency(name: str, confirm: bool = False, target: str = None) -> 
         dist = diagnostics.pip_install_name(n)
         if checked is not None:
             args = [f"{checked['dist']}=={checked['target']}"]
-            constraints = os.path.join(default_project_root(), "constraints.txt")
-            if os.path.exists(constraints):
-                args += ["-c", constraints]
+            args += diagnostics.constraints_pip_args(default_project_root())
         else:
             args = diagnostics.upgrade_pip_args(dist, default_project_root())
         return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)]
@@ -943,18 +939,6 @@ def delete_hf_revision(revision: str, confirm: bool = False) -> dict:
     _exclusive_delete(lambda: diagnostics.delete_hf_cache_revision(revision),
                       "Couldn't delete that model; see the log for details.")
     return {"deleted": True, "name": revision}
-
-
-def delete_piper_voice(voice: str, confirm: bool = False) -> dict:
-    """Deletes one downloaded Piper voice (its .onnx and .onnx.json). Only a
-    name the scan lists is accepted, so no path can be built from input."""
-    if not isinstance(voice, str) or not any(
-            e["voice"] == voice for e in diagnostics.scan_piper_voices()):
-        raise NotFoundError("No downloaded voice with that name.")
-    guard(confirm)
-    _exclusive_delete(lambda: diagnostics.delete_piper_voice(voice),
-                      "Couldn't delete that voice; see the log for details.")
-    return {"deleted": True, "name": voice}
 
 
 def delete_model_file(folder: str, name: str, confirm: bool = False) -> dict:

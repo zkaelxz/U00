@@ -4,12 +4,12 @@ drama: the read-only stage config and the advisory
 pre-run cost estimate. Distinct from the standalone translator
 under /api/translate. It also adds the start-translate job;
 see services/translate_run_service.py for the scope decision.
-Parity X02/X22 add "Apply tier" (lines.edit: per-drama stage config) and
+It also adds "Apply tier" (lines.edit: per-drama stage config) and
 "Save as preset" (admin.library, like preset rename: a library catalogue
 write; a new name deletes nothing. Replacing a preset of the same name
 needs overwrite=true, else 409, and overwrite is PC-only like other
 deletes: refused with 403 from a non-loopback client when auth is on).
-Parity X03 adds "Apply a preset" to an existing drama (lines.edit, like
+"Apply a preset" works on an existing drama (lines.edit, like
 "Apply tier": it saves only the engine on the drama and starts nothing).
 The glossary-affected preview (`lines.read`: it carries line text) and its
 run (`jobs.start`, engine-checked like the run above) re-translate only
@@ -20,7 +20,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import (is_auth_enabled, holds_paid_engines, is_local_request,
-                      require_engines_allowed, require_permission)
+                      require_cloud_model_allowed, require_engines_allowed, require_permission)
 from api.schemas import (ErrorResponse, GlossaryAffectedPreview, GlossaryAffectedRunStart,
                          GlossaryAffectedRunStarted, TranslateBulkCancelResult, TranslateBulkList,
                          TranslateBulkResumeResult, TranslateErrorsDismissed,
@@ -67,6 +67,8 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
 def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
                             *[f.engine for f in (body.fallback_chain or ())])
+    require_cloud_model_allowed(request, (body.engine, body.model),
+                                *[(f.engine, f.model) for f in (body.fallback_chain or ())])
     return translate_run_service.start_translate_run(
         drama_id, engine_name=body.engine, model=body.model,
         style_preset=body.style_preset, style_note=body.style_note,
@@ -112,6 +114,8 @@ def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request
                                 drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine,
                             *[f.engine for f in (body.fallback_chain or ())])
+    require_cloud_model_allowed(request, (body.engine, body.model),
+                                *[(f.engine, f.model) for f in (body.fallback_chain or ())])
     return glossary_retranslate_service.start_affected_retranslate(
         drama_id, body.line_ids, body.preview_hash,
         include_hand_edited=body.include_hand_edited, term_ids=body.term_ids,
@@ -184,6 +188,7 @@ def apply_translate_preset(body: TranslatePresetApply, drama_id: int = Path(ge=1
 def save_translate_preset(body: TranslatePresetSave, request: Request):
     if body.overwrite and is_auth_enabled(request.app) and not is_local_request(request):
         raise ForbiddenError("Replacing a preset is only allowed at the PC.")
+    require_cloud_model_allowed(request, (body.translation_engine, body.engine_model))
     return translate_run_service.save_translate_preset(
         body.name, body.translation_engine, engine_model=body.engine_model,
         style_preset=body.style_preset, locale=body.locale,

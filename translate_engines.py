@@ -111,21 +111,23 @@ from engine_backends.gemini import (  # noqa: F401
     progress_message_with_rate_status,
 )
 from engine_backends.local import (  # noqa: F401
-    NLLBEngine,
-    NLLB_MODELS,
+    OLLAMA_CLOUD_MODELS,
     OLLAMA_DEFAULT_MODEL,
     OLLAMA_MIN_NUM_CTX,
     OLLAMA_MODELS,
     OLLAMA_REACHABILITY_CACHE_SECONDS,
+    OllamaCloudLimitError,
     OllamaEngine,
     OllamaUnavailableError,
-    _NLLB_LANG_CODES,
     _OLLAMA_ID_KEYED_JSON_SCHEMA,
-    _nllb_pipeline_cache,
     _ollama_chat,
     _ollama_reachability_cache,
+    check_ollama_model_installed,
     check_ollama_reachable,
     estimate_ollama_num_ctx,
+    is_ollama_cloud_model,
+    chain_touches_local_gpu,
+    ollama_touches_local_gpu,
 )
 from engine_backends.llm_tasks import (  # noqa: F401
     FLAG_REASONS,

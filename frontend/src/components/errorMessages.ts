@@ -18,6 +18,8 @@ const GENERIC: Record<string, string> = {
   forbidden: 'Not allowed from this device or account.',
   unauthenticated: 'Your session has ended. Sign in again.',
   rate_limited: 'Too many requests. Wait a moment and try again.',
+  extension_only:
+    'This site only works through the browser extension. Open the chapter in Chrome and use the extension.',
 }
 
 // A PC-only call refused with 403 (the viewer is not at the main PC).
@@ -25,7 +27,7 @@ export const PC_ONLY_FORBIDDEN = 'This only works on the main PC.'
 
 // The one message for a refused key, token or address save (403).
 export const KEY_WRITES_REFUSED =
-  'This can only be changed on the Baihe PC itself, with key writes turned on. start.bat turns them on; if you started the API another way, set BAIHE_API_ALLOW_KEY_WRITES=1.'
+  'Change this on the Baihe PC with key writes on. start.bat turns them on; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1.'
 
 export interface DescribeOptions {
   // PC-only callers: a 403 reads PC_ONLY_FORBIDDEN instead of the generic text.
@@ -113,7 +115,7 @@ export function summarizeEngineFailure(
       return {
         kind: 'not_running',
         summary:
-          "Ollama isn't running. Install it from ollama.com (Baihe doesn't install it) and start the Ollama app, pull a model, then test again.",
+          "Ollama isn't running. Install it from ollama.com (Baihe doesn't), start it, pull a model, then test again.",
       }
     }
     return local

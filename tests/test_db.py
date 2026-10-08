@@ -1285,7 +1285,7 @@ class TestVoiceBank:
     def test_apply_copies_clip_into_the_new_drama_and_sets_clone_fields(self, isolated_db, tmp_path_str):
         clip = self._make_clip(tmp_path_str)
         eid = isolated_db.save_voice_bank_entry(
-            "Su Shan", clip, ref_text="a line", clone_engine="gpt_sovits", voice_design="")
+            "Su Shan", clip, ref_text="a line", clone_engine="omnivoice", voice_design="")
 
         did = isolated_db.create_drama(title_en="A New Drama")
         drama_dir = os.path.join(tmp_path_str, "new_drama")
@@ -1301,7 +1301,7 @@ class TestVoiceBank:
         c = chars["SPEAKER_01"]
         assert c["ref_audio_filename"] == dest_filename
         assert c["ref_text"] == "a line"
-        assert c["clone_engine"] == "gpt_sovits"
+        assert c["clone_engine"] == "omnivoice"
 
     def test_apply_writes_a_separate_copy_not_shared_with_the_bank_or_other_dramas(
             self, isolated_db, tmp_path_str):
@@ -1965,11 +1965,11 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "cover_art_filename", "genre", "publication_status", "chapter_count", "custom_tags",
         "personal_notes", "source_url", "transcript_mode", "whisper_size",
         "alignment_method", "asr_backend_choice", "min_silence_ms", "vad_threshold",
-        "beam_size", "hallucination_silence_sec", "min_pause_sec", "separate_vocals_first", "separation_backend", "realign_long_segments",
+        "beam_size", "hallucination_silence_sec", "min_pause_sec", "sensitivity_preset", "separate_vocals_first", "separation_backend", "realign_long_segments",
         "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
         "project_instructions", "notion_page_id", "reading_speed_mode", "owner_user_id",
-        "is_private", "default_female_pronouns", "include_genre_notes",
-        "translate_by_sentence"),
+        "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
+        "split_by_sentences", "translate_by_sentence"),
     "series": ("instructions", "owner_user_id", "is_private"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
@@ -2070,8 +2070,17 @@ def _alter_columns_in_db_py():
     "TYPE ...") tuples anywhere in db.py, as (None, column)."""
     import ast
     import re
-    src = open(os.path.join(os.path.dirname(db.__file__), "db.py"), encoding="utf-8").read()
+    # db may be split into a db/ package; read every module so the scan
+    # can't pass on an empty file list.
+    root = os.path.dirname(db.__file__)
+    if os.path.isdir(os.path.join(root, "db")):
+        paths = [os.path.join(d, f) for d, _, fs in os.walk(os.path.join(root, "db"))
+                 for f in fs if f.endswith(".py")]
+    else:
+        paths = [os.path.join(root, "db.py")]
+    src = "\n".join(open(p, encoding="utf-8").read() for p in sorted(paths))
     found = {(t, c) for t, c in re.findall(r"ALTER TABLE (\w+) ADD COLUMN (\w+)\b", src)}
+    assert len(found) >= 50, f"found only {len(found)} ALTER TABLE ... ADD COLUMN literals"
     sql_type = re.compile(r"^(TEXT|INTEGER|REAL|BLOB|NUMERIC)\b")
     for node in ast.walk(ast.parse(src)):
         if not (isinstance(node, ast.Tuple) and node.elts
@@ -2106,7 +2115,8 @@ class TestInitDbSchema:
         assert not missing, (
             f"db.py adds these columns to existing tables but _INIT_DB_MIGRATED_COLUMNS in "
             f"tests/test_db.py doesn't list them, so no test upgrades an old database "
-            f"through them: {missing}")
+            f"through them: {missing}. Add each (table, column) to _INIT_DB_MIGRATED_COLUMNS: "
+            f"{{table: [columns]}}.")
 
     def test_old_database_upgrades_to_the_fresh_schema(self, isolated_db):
         fresh = _schema_shape(isolated_db.DB_PATH)
@@ -2128,6 +2138,31 @@ class TestInitDbSchema:
         _make_old_shape(isolated_db.DB_PATH)
         isolated_db.init_db()
         assert isolated_db.get_drama(1)["min_pause_sec"] == 0.35
+
+    def test_titles_on_the_old_hallucination_guard_default_are_switched_off(self, isolated_db):
+        on_default = isolated_db.create_drama(title_en="A")
+        chosen = isolated_db.create_drama(title_en="B")
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:
+            conn.execute("UPDATE dramas SET hallucination_silence_sec = 2.0 WHERE id = ?",
+                         (on_default,))
+            conn.execute("UPDATE dramas SET hallucination_silence_sec = 3.5 WHERE id = ?",
+                         (chosen,))
+            conn.execute("ALTER TABLE dramas DROP COLUMN whisper_repeat_guard")
+            conn.commit()
+        finally:
+            conn.close()
+        isolated_db.init_db()
+        assert isolated_db.get_drama(on_default)["hallucination_silence_sec"] == 0
+        assert isolated_db.get_drama(chosen)["hallucination_silence_sec"] == 3.5
+        # Once only: a title the user later sets to 2.0 keeps it.
+        isolated_db.update_drama(on_default, hallucination_silence_sec=2.0)
+        isolated_db.init_db()
+        assert isolated_db.get_drama(on_default)["hallucination_silence_sec"] == 2.0
+
+    def test_a_new_title_starts_with_the_hallucination_guard_off(self, isolated_db):
+        assert isolated_db.get_drama(isolated_db.create_drama(title_en="A"))[
+            "hallucination_silence_sec"] == 0
 
     def test_old_database_data_migrations_run(self, isolated_db):
         _make_old_shape(isolated_db.DB_PATH, share_by_default_was_on=True)

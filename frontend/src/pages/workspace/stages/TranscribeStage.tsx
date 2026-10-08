@@ -18,7 +18,6 @@ import { humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
-import { useMossExperimental } from '../../../hooks/useMossExperimental'
 import type {
   DiarizationConfig,
   MediaStatus,
@@ -47,8 +46,10 @@ import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
+import { SpeechCoverage } from './SpeechCoverage'
 import { TranscriptModePicker } from './SourceModes'
 import { mediaFileInputId, needsReplaceConfirm } from './stageBlockers'
+import { asrBackendHelp, GROQ_HELP, withoutUntouchedBackend } from './transcribeBackendField'
 import { diarizeEstimate, measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import './source.css'
@@ -66,8 +67,10 @@ const OPTION_LABELS: Record<string, string> = {
   whisper: 'Whisper',
   qwen3_asr: 'Qwen3 ASR',
   qwen3_asr_vad: 'Qwen3 ASR with speech detection (no Whisper)',
-  moss_td: 'MOSS-Transcribe-Diarize (experimental)',
+  qwen3_asr_long: 'Qwen3 ASR on long windows (no Whisper)',
   auto: 'Automatic',
+  normal: 'Normal (default)',
+  sensitive: 'More sensitive',
   audio_separator: 'Audio separator',
   demucs: 'Demucs',
   tesseract: 'Tesseract',
@@ -117,11 +120,14 @@ type ConfigForm = {
   min_silence_ms: string
   min_pause_sec: string
   vad_threshold: string
+  sensitivity_preset: string
   hallucination_silence_sec: string
   hardsub_interval_sec: string
   separate_vocals_first: boolean
   realign_long_segments: boolean
   whisper_fast_mode: boolean
+  whisper_repeat_guard: boolean
+  split_by_sentences: boolean
   use_groq: boolean
 }
 
@@ -135,11 +141,14 @@ const formFromConfig = (c: TranscribeConfig): ConfigForm => ({
   min_silence_ms: String(c.min_silence_ms),
   min_pause_sec: String(c.min_pause_sec),
   vad_threshold: String(c.vad_threshold),
+  sensitivity_preset: c.sensitivity_preset,
   hallucination_silence_sec: String(c.hallucination_silence_sec),
   hardsub_interval_sec: String(c.hardsub_interval_sec),
   separate_vocals_first: c.separate_vocals_first,
   realign_long_segments: c.realign_long_segments,
   whisper_fast_mode: c.whisper_fast_mode,
+  whisper_repeat_guard: c.whisper_repeat_guard ?? false,
+  split_by_sentences: c.split_by_sentences ?? false,
   use_groq: c.use_groq,
 })
 
@@ -157,7 +166,6 @@ export default function TranscribeStage({
   mediaSlot, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, onJobStarted,
 }: Props) {
   const { dramaId, drama } = useStage()
-  const mossEnabled = useMossExperimental()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
   const [saved, setSaved] = useState(false)
@@ -189,6 +197,8 @@ export default function TranscribeStage({
   const seedSpeakers = useRef(restored.speakers === undefined)
   // D04: the stored media's length, for the time estimates (null = unknown).
   const [duration, setDuration] = useState<number | null>(null)
+  // Set by a transcription started here: the coverage panel checks its result once the job ends.
+  const [checkAfterRun, setCheckAfterRun] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -314,7 +324,7 @@ export default function TranscribeStage({
   // Validates the options; null means "ok" (problem is set otherwise).
   const checkConfig = (): TranscribeConfigUpdate | null => {
     if (!cf) return null
-    const update = toUpdate(cf)
+    const update = config ? withoutUntouchedBackend(toUpdate(cf), config.asr_backend_choice) : toUpdate(cf)
     const bad = validateConfig(update)
     setProblem(bad)
     return bad ? null : update
@@ -369,7 +379,7 @@ export default function TranscribeStage({
     if (!req || !config || !cf) return
     const update = checkConfig()
     if (!update) return
-    const refused = runOptionProblem(config.transcript_mode, cf.alignment_method, cf.asr_backend_choice, mossEnabled)
+    const refused = runOptionProblem(config.transcript_mode, cf.alignment_method)
     if (refused) {
       flag(refused)
       return
@@ -395,6 +405,7 @@ export default function TranscribeStage({
       : Promise.resolve()
     saveFirst.then(start).then((r) => {
       setError(null)
+      setCheckAfterRun(true)
       onJobStarted(r.job_id, expectedRunSeconds, !!uploadFile)
     }, fail)
   }
@@ -425,7 +436,7 @@ export default function TranscribeStage({
 
   const select = (
     label: string,
-    key: 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend',
+    key: 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend' | 'sensitivity_preset',
     options: string[],
     help?: string,
     disabled: string[] = [],
@@ -445,7 +456,7 @@ export default function TranscribeStage({
         <input type="number" step={step} value={cf[key]} onChange={(e) => setC(key, e.target.value)} />
       </Field>
     )
-  const toggle = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'use_groq', help?: string) =>
+  const toggle = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'whisper_repeat_guard' | 'split_by_sentences' | 'use_groq', help?: string) =>
     cf && (
       <Field label={label} help={help}>
         <Toggle checked={cf[key]} onChange={(v) => setC(key, v)} />
@@ -658,20 +669,22 @@ export default function TranscribeStage({
         >
           {cf && <>
           <div className="source-grid">
+            {select('Sensitivity', 'sensitivity_preset', ['normal', 'sensitive'],
+              'Catches quieter or faster speech, but may add false text on music or breathing.')}
             {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
             {num('Min silence', 'min_silence_ms', 50, `${MIN_SILENCE_MS_MIN}-${MIN_SILENCE_MS_MAX}. Silence that splits lines; longer gives fewer, longer lines. Lower values split at shorter pauses and can cut mid-sentence. Auto-tune below can pick it.`, 'ms')}
             {num('Pause that can split a long line', 'min_pause_sec', 0.05, `${MIN_PAUSE_SEC_MIN}-${MIN_PAUSE_SEC_MAX}. Longer lines are only cut where the speaker pauses at least this long. Higher gives fewer, longer lines. Lower cuts more.`, 's')}
             {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
-            {num('Hallucination guard', 'hallucination_silence_sec', 0.5, 'Experimental. 0 (off) or 0.5-10. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Whisper only: ignored by Qwen3-ASR, and by Fast mode.', 's')}
+            {num('Hallucination guard', 'hallucination_silence_sec', 0.5, 'Experimental. Off (0) by default; 0 or 0.5-10. Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Whisper only: ignored by Qwen3-ASR, and by Fast mode.', 's')}
             {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
             {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'],
               haveTranscript
                 ? 'Qwen3 forced alignment lines up the transcript you supply against the audio for more exact timing.'
                 : 'Forced alignment lines up a transcript you provide; for raw audio, pick Whisper or Qwen3-ASR.',
               haveTranscript ? [] : ['qwen3_forced_align'])}
-            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(mossEnabled), mossEnabled ? 'MOSS is experimental: it transcribes and labels speakers in one pass, replacing Whisper and speaker detection for this drama.' : undefined)}
+            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(), [asrBackendHelp(asrBackendOptions()), config?.asr_backend_notice].filter(Boolean).join('\n'))}
             {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
-            {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
+            {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'auto'], 'PaddleOCR reads Chinese, Korean and Japanese captions with the matching language model. Automatic uses it when installed and falls back to Tesseract, with a note.')}
           </div>
           <p className="muted" data-testid="auto-prompt">
             {config?.auto_initial_prompt
@@ -705,7 +718,17 @@ export default function TranscribeStage({
             )}
             {toggle('Realign long segments', 'realign_long_segments')}
             {toggle('Whisper fast mode', 'whisper_fast_mode')}
-            {toggle('Use Groq', 'use_groq')}
+            {toggle(
+              'Split lines by sentences',
+              'split_by_sentences',
+              'Whisper hears longer stretches of speech, then lines are cut at sentence ends and, for long ones, at pauses between words. Min silence is not used. Whisper and Qwen3 ASR only; the speech-detection backends already cut their own lines.',
+            )}
+            {toggle(
+              'Whisper repeat guard',
+              'whisper_repeat_guard',
+              'Stops Whisper repeating the same few words. Can drop or change real Chinese and Japanese speech, where short words repeat naturally. Turn on only if a title shows repeated-phrase loops.',
+            )}
+            {toggle('Use Groq', 'use_groq', GROQ_HELP)}
           </div>
           <div className="actions">
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={saveOptions}>Save options</button>
@@ -724,6 +747,7 @@ export default function TranscribeStage({
           />
           </>}
         </Section>
+      <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} autoCheck={checkAfterRun} onAutoChecked={() => setCheckAfterRun(false)} />
       <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />
     </section>
   )

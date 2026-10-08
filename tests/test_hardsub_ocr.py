@@ -402,3 +402,116 @@ class TestHardsubCancel:
                             lambda cmd, **k: got.update(k))
         hardsub_ocr.extract_frames("v.mp4", str(tmp_path / "o"), 1.0)
         assert got["timeout"] == hardsub_ocr.EXTRACT_FRAMES_TIMEOUT_SECONDS
+
+
+class TestHardsubBackendRouting:
+    """No OCR engine runs here: whether PaddleOCR is installed is faked, and
+    the engines are replaced at the ocr module boundary."""
+
+    @pytest.fixture
+    def run(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(hardsub_ocr, "extract_frames",
+                            lambda video_path, out_dir, interval_sec, job_id=None: [(0.0, "f0.png")])
+        monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
+        calls = []
+
+        def fake_region(path, region, lang, backend, tesseract_cmd=None):
+            calls.append((lang, backend))
+            return "text"
+        monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region", fake_region)
+
+        def go(**kwargs):
+            info = {}
+            hardsub_ocr.extract_hardsub_subtitles(
+                "/fake.mp4", tmp_dir=str(tmp_path), min_consecutive_samples=1, info=info, **kwargs)
+            return calls, info
+        return go
+
+    @pytest.mark.parametrize("language,paddle_lang", [("zh", "ch"), ("ko", "korean"), ("ja", "japan")])
+    def test_paddle_uses_the_language_model(self, run, language, paddle_lang):
+        calls, info = run(language=language, ocr_backend="paddle")
+        assert calls == [(paddle_lang, "paddle")]
+        assert info == {"backend": "paddle", "note": None}
+
+    def test_traditional_chinese_stays_on_the_ch_model_for_paddle_and_chi_tra_for_tesseract(self, run):
+        assert run(language="zh", ocr_backend="paddle", chinese_script="traditional")[0] == [("ch", "paddle")]
+        calls, _ = run(language="zh", ocr_backend="tesseract", chinese_script="traditional")
+        assert calls[-1] == ("chi_tra", "tesseract")
+
+    @pytest.mark.parametrize("language,tesseract_lang", [("zh", "chi_sim"), ("ja", "jpn"), ("ko", "kor")])
+    def test_tesseract_keeps_its_language_pack(self, run, language, tesseract_lang):
+        calls, info = run(language=language, ocr_backend="tesseract")
+        assert calls == [(tesseract_lang, "tesseract")]
+        assert info == {"backend": "tesseract", "note": None}
+
+    @pytest.mark.parametrize("language", ["zh", "ko", "ja"])
+    def test_auto_picks_paddle_when_installed(self, run, monkeypatch, language):
+        monkeypatch.setattr(hardsub_ocr, "paddle_installed", lambda: True)
+        calls, info = run(language=language, ocr_backend="auto")
+        assert calls[0][1] == "paddle"
+        assert info == {"backend": "paddle", "note": None}
+
+    def test_auto_falls_back_to_tesseract_with_a_note_when_paddle_is_missing(self, run, monkeypatch):
+        monkeypatch.setattr(hardsub_ocr, "paddle_installed", lambda: False)
+        calls, info = run(language="ko", ocr_backend="auto")
+        assert calls == [("kor", "tesseract")]
+        assert info == {"backend": "tesseract",
+                        "note": "PaddleOCR isn't installed, so Tesseract was used."}
+
+    def test_auto_for_a_language_paddle_is_not_mapped_for_uses_tesseract_without_a_note(
+            self, run, monkeypatch):
+        monkeypatch.setattr(hardsub_ocr, "paddle_installed", lambda: True)
+        _, info = run(language="en", ocr_backend="auto")
+        assert info == {"backend": "tesseract", "note": None}
+
+    @pytest.mark.parametrize("requested", ["paddle", "tesseract"])
+    def test_an_explicit_choice_is_never_overridden(self, monkeypatch, requested):
+        monkeypatch.setattr(hardsub_ocr, "paddle_installed", lambda: requested != "paddle")
+        assert hardsub_ocr.resolve_backend(requested, "zh") == (requested, None)
+
+    def test_paddle_installed_needs_both_packages(self, monkeypatch):
+        import importlib.util
+        present = {"paddleocr"}
+        monkeypatch.setattr(importlib.util, "find_spec",
+                            lambda name: object() if name in present else None)
+        assert hardsub_ocr.paddle_installed() is False
+        present.add("paddle")
+        assert hardsub_ocr.paddle_installed() is True
+
+    def test_the_frame_region_passes_lang_to_paddle_and_leaves_tesseract_untouched(
+            self, monkeypatch, tmp_path):
+        import cv2
+        frame_path = str(tmp_path / "frame.png")
+        cv2.imwrite(frame_path, np.zeros((300, 500, 3), dtype=np.uint8))
+        seen = []
+        monkeypatch.setattr(ocr_module, "extract_text_paddle",
+                            lambda p, lang="ch": seen.append(("paddle", lang)) or " a ")
+        monkeypatch.setattr(ocr_module, "extract_text_tesseract",
+                            lambda p, lang="chi_sim", tesseract_cmd=None:
+                            seen.append(("tesseract", lang, tesseract_cmd)) or " b ")
+        assert hardsub_ocr._ocr_frame_region(frame_path, (0.8, 1.0), "korean", "paddle") == "a"
+        assert hardsub_ocr._ocr_frame_region(
+            frame_path, (0.8, 1.0), "kor", "tesseract", tesseract_cmd="/t") == "b"
+        assert seen == [("paddle", "korean"), ("tesseract", "kor", "/t")]
+
+    def test_one_paddle_instance_is_cached_per_language(self, monkeypatch):
+        try:
+            paddleocr = pytest.importorskip("paddleocr")
+        except RuntimeError as exc:
+            pytest.skip(str(exc))
+        made = []
+
+        class FakePaddleOCR:
+            def __init__(self, **kwargs):
+                made.append(kwargs["lang"])
+
+            def predict(self, path):
+                return [{"rec_texts": ["x"]}]
+        monkeypatch.setattr(paddleocr, "PaddleOCR", FakePaddleOCR)
+        ocr_module.__dict__.pop("_paddle_instances", None)
+        try:
+            for lang in ("korean", "japan", "korean", "japan", "ch"):
+                ocr_module.extract_text_paddle("/f.png", lang=lang)
+        finally:
+            ocr_module.__dict__.pop("_paddle_instances", None)
+        assert made == ["korean", "japan", "ch"]
