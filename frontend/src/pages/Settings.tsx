@@ -29,6 +29,7 @@ import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
 import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
+import { SaveFolderCard } from './manga/SaveFolder'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 import './settings/settings.css'
@@ -257,9 +258,10 @@ export default function SettingsPage() {
             <SpendingCard {...prefProps} />
             <PastCostsCard />
           </Fold>
-          <Fold id="alerts" signals={signals} summary="Notifications, automatic backups, app updates">
+          <Fold id="alerts" signals={signals} summary="Notifications, backups, updates, comic save folder">
             <NotificationsSection />
             <AutoBackupCard />
+            <SaveFolderCard />
             <AppUpdatesCard />
           </Fold>
         </>
