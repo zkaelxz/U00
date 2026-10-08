@@ -309,13 +309,16 @@ def set_adult_enabled(name: str, enabled: bool) -> dict:
 
 def set_extension_only(name: str, extension_only: bool, note=None, principal=None) -> dict:
     """Marks or clears "works only through the browser extension". Records the person's
-    claim; it changes no test result. 404 unknown source; 422 a note that is too long."""
+    claim; it changes no test result. 404 unknown source; 422 a note that is too long
+    as typed (a note that scrubbing lengthens is cut to the limit)."""
     require_source(name)
     if not extension_only:
         extension_marker.clear(name)
         return extension_marker.view(name)
     try:
-        text = scrub(extension_marker.clean_note(note))
+        # Scrubbing can lengthen the text ("C:/ " becomes "[path] "), so the stored note is cut
+        # after it; a 422 would reject a note the person was allowed to type and can't see grow.
+        text = scrub(extension_marker.clean_note(note))[:extension_marker.MAX_NOTE_LEN].strip()
     except ValueError as e:
         raise InvalidInputError(str(e)) from None
     uid = None if principal is None else principal.get("user_id")

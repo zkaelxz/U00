@@ -135,6 +135,23 @@ def test_route_validation(client):
     assert client.post("/api/sources/nope/extension-only", json={"extension_only": True}).status_code == 404
 
 
+def test_a_note_that_scrubbing_lengthens_is_cut_not_rejected(client):
+    note = "C:/ " * 50
+    assert len(note) == 200
+    r = _mark(client, True, note)
+    assert r.status_code == 200, r.text
+    stored = r.json()["extension_note"]
+    assert stored.startswith("[path]") and 0 < len(stored) <= extension_marker.MAX_NOTE_LEN
+    assert "C:/" not in stored
+    assert extension_marker.get(SOURCE)["note"] == stored
+
+
+def test_service_cuts_a_lengthened_note(isolated_db):
+    from services import sources_registry_service as reg
+    out = reg.set_extension_only(SOURCE, True, "C:/ " * 50)
+    assert len(out["extension_note"]) <= extension_marker.MAX_NOTE_LEN
+
+
 def test_response_carries_no_paths_or_urls(client):
     _mark(client, True, f"see {db.LIBRARY_DIR}/x and https://h.example/p?token=abc123")
     text = client.get(f"/api/sources/{SOURCE}").text
