@@ -1,6 +1,7 @@
 """Tests for services/glossary_service.py (fully mocked/isolated)."""
 import pytest
 
+import glossary_io
 import translation_guide as tguide
 from translate_engines import WORKFLOW_TIERS
 from services import glossary_service as gs
@@ -180,9 +181,9 @@ class TestCatalogues:
         assert [p["key"] for p in c["style_presets"]] == list(tguide.STYLE_PRESETS)
         assert {p["key"]: p["label"] for p in c["style_presets"]} == {
             k: v["label"] for k, v in tguide.STYLE_PRESETS.items()}
-        assert {x["key"]: x["label"] for x in c["term_categories"]} == tguide.TERM_CATEGORIES
+        assert {x["key"]: x["label"] for x in c["term_categories"]} == glossary_io.TERM_CATEGORIES
         assert {x["key"]: x["label"] for x in c["term_policies"]} == {
-            k: v["label"] for k, v in tguide.TERM_POLICIES.items()}
+            k: v["label"] for k, v in glossary_io.TERM_POLICIES.items()}
         assert [t["key"] for t in c["workflow_tiers"]] == list(WORKFLOW_TIERS)
 
     def test_no_secrets_or_paths(self, isolated_db):

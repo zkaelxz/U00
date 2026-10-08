@@ -70,11 +70,10 @@ from core import (
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
     DEFAULT_WHISPER_SIZE, ModelDownloadError, line_from_row,
 )
-import subtitle_formats
+import subtitle_formats, glossary_io as gio
 import translate_engines
 import translation_guide as tguide
-import bulk_translate
-import raw_transcript
+import bulk_translate, raw_transcript
 import dub as dub_module
 import background_jobs
 from services import (dub_service, engine_routing_service, export_service, glossary_retranslate_service,
@@ -1544,8 +1543,8 @@ def main():
     g_add.add_argument("--original", required=True)
     g_add.add_argument("--translation", required=True)
     g_add.add_argument("--notes", default=None)
-    g_add.add_argument("--category", default=None, choices=list(tguide.TERM_CATEGORIES))
-    g_add.add_argument("--policy", default=None, choices=list(tguide.TERM_POLICIES))
+    g_add.add_argument("--category", default=None, choices=gio.TERM_CATEGORIES)
+    g_add.add_argument("--policy", default=None, choices=gio.TERM_POLICIES)
     g_add.add_argument("--alias", action="append", default=None)
     g_add.add_argument("--banned", action="append", default=None, help="A translation never to use.")
     g_add.add_argument("--enforce-exact", action="store_true")
