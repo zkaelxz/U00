@@ -20,7 +20,7 @@ export const dubConfig = (engineReason: string | null, blocker: string | null = 
   default_engine: 'omnivoice', blocker,
   defaults: { max_speedup: 1.3, max_slowdown: 0.85, speedup_range: [1, 2], slowdown_range: [0.5, 1] },
   speakers: [], gpu_required: false, speakable_line_count: 5, track_available: false,
-  gpt_sovits_configured: false, can_keep_background: false,
+  can_keep_background: false,
 })
 
 export async function mockDub(page: Page, engineReason: string | null, blocker: string | null = null) {

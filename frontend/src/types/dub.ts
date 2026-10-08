@@ -43,7 +43,6 @@ export interface DubConfig {
   gpu_required: boolean
   speakable_line_count: number
   track_available: boolean
-  gpt_sovits_configured: boolean
   can_keep_background: boolean
 }
 
