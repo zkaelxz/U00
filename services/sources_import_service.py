@@ -75,6 +75,7 @@ from services import sources_extraction_service as extraction
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
+from services.sources_extension_service import require_url_not_extension_only
 from services.sources_registry_service import (import_supported, require_source, scrub,
                                               safe_url)
 from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, enabled_source,
@@ -553,6 +554,7 @@ def start_url_import(url, drama_id, local: bool = True, principal=None,
             or not 1 <= follow_pages <= MAX_FOLLOW_PAGES):
         raise InvalidInputError(f"Follow between 1 and {MAX_FOLLOW_PAGES} pages.")
     url = check_public_url(url)
+    require_url_not_extension_only(url)
     drama = require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
         raise InvalidInputError("Novel text imports into a novel drama. Pick one, "
@@ -575,15 +577,46 @@ _BILIBILI_MANGA_HINT = (
     "page, or save the chapter page from your own browser and import that file.")
 
 
+_BILIBILI_NEEDS_BROWSER = (
+    " Bilibili Manga builds its pages with scripts, so the images only appear in a real browser.")
+_PLAYWRIGHT_MISSING = (
+    " The browser step could not run because the Playwright package is not installed. "
+    "Install it in Diagnostics > Packages (group 'Novels & reader', 'Novel sources from "
+    "websites'), then try again. No browser download is needed when Chrome or Edge is installed.")
+_BROWSER_MISSING = (
+    " The browser step could not run because no Chrome or Edge was found on this computer. "
+    "Install one of them, then try again.")
+_NO_BROWSER_TRIED = (
+    " No browser was used for this request; import it from the PC the app runs on, or save "
+    "the chapter page from your own browser and import that file.")
+
+
+def _bilibili_manga_cause(browser_tier: str) -> str:
+    """Names why Bilibili Manga's client-rendered page showed no images: a
+    browser that couldn't start comes first, since sign-in only matters once
+    the page actually rendered."""
+    if browser_tier == ladder.MISSING_PLAYWRIGHT:
+        return _BILIBILI_NEEDS_BROWSER + _PLAYWRIGHT_MISSING
+    if browser_tier == ladder.MISSING_BROWSER:
+        return _BILIBILI_NEEDS_BROWSER + _BROWSER_MISSING
+    if browser_tier == "ran":
+        return _BILIBILI_MANGA_HINT
+    return _BILIBILI_NEEDS_BROWSER + _NO_BROWSER_TRIED
+
+
 def _no_pages_error(exc, url) -> dict:
     """The 422 for a page with no usable images, saying why (the report's
     reason and each tier's line, scrubbed) instead of only the generic text."""
     report = getattr(exc, "report", None)
     reason = scrub((getattr(report, "reason", "") or "").strip())[:300]
     lines = [scrub(x)[:300] for x in (getattr(report, "access_lines", None) or [])][:10]
-    message = _NO_PAGES + (f" Why: {reason}" if reason else "")
+    why = f" Why: {reason}" if reason else ""
+    message = _NO_PAGES + why
     if (urlsplit(url or "").hostname or "").lower().endswith("manga.bilibili.com"):
-        message += _BILIBILI_MANGA_HINT
+        cause = _bilibili_manga_cause(getattr(report, "browser_tier", ""))
+        # A browser that couldn't start is the cause, so it leads; the generic
+        # "no image tags" reason is only a symptom of it.
+        message = _NO_PAGES + cause + why if cause != _BILIBILI_MANGA_HINT else message + cause
     return {"status": 422, "code": InvalidInputError.code, "message": message,
             "details": {"reason": "NO_CONTENT", "diagnostic": lines}}
 
@@ -650,6 +683,7 @@ def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
     chapter URL, added to a manhua/manga/manhwa drama's pages (Scanlate).
     Same checks and errors as start_url_import."""
     url = check_public_url(url)
+    require_url_not_extension_only(url)
     drama = require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in COMIC_MEDIA_TYPES:
         raise InvalidInputError("Comic pages import into a manhua, manga or manhwa drama. "

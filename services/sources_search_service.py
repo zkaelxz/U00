@@ -28,8 +28,9 @@ from services import ownership_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
                                      UnsupportedOperationError)
+from services.sources_extension_service import require_not_extension_only
 from services.sources_registry_service import require_source, scrub, scrub_any, safe_url
-from sources import chapter_order, generic_import, health, ladder, registry
+from sources import chapter_order, extension_marker, generic_import, health, ladder, registry
 from sources.http import Cancelled, ResponseRefused
 from sources.models import (ChallengeDetected, ContentHidden, FailureReason, NotSupportedError,
                             SourceError, SourceUnavailable, TermsProhibited)
@@ -161,6 +162,7 @@ def enabled_source(name: str):
     cls = require_source(name)
     if not registry.is_enabled(name):
         raise UnsupportedOperationError("That source is switched off.")
+    require_not_extension_only(name)
     return cls
 
 
@@ -206,7 +208,9 @@ class _Recording:
 
 def _search_job(job_id: str, query: str, names):
     cancelled = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
-    adapters = registry.enabled_adapters(cancel_check=cancelled)
+    marked = extension_marker.marked_sources()
+    adapters = [a for a in registry.enabled_adapters(cancel_check=cancelled)
+                if a.name not in marked]   # skipped quietly: a search can't read them
     if names is not None:
         adapters = [a for a in adapters if a.name in names]
     raised = {}
