@@ -1,5 +1,6 @@
 export type SettingsToggleKey =
   | 'gpu_limit_enabled'
+  | 'unload_ollama_before_transcribe'
   | 'notify_on_completion'
   | 'use_gpu'
   | 'gemini_free_tier'

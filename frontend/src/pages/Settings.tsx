@@ -38,6 +38,8 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
     'Queues GPU-heavy jobs beyond "GPU jobs at once" so they do not run out of memory.',
   notify_on_completion: 'Shows a notification when a background job finishes.',
   use_gpu: 'Transcribe on the graphics card when one is available (faster).',
+  unload_ollama_before_transcribe:
+    'Ollama keeps a model loaded for a few minutes after translating, which can make transcription run out of GPU memory.',
   bulk_auto_resume:
     'Resume interrupted translation batches when the app starts. Off by default: resumed batches can spend on your engine account.',
 }
@@ -214,6 +216,7 @@ export default function SettingsPage() {
               <div className="setting-list">
                 {toggleField('gpu_limit_enabled')}
                 {toggleField('use_gpu')}
+                {toggleField('unload_ollama_before_transcribe')}
                 <Field label="GPU jobs at once" help={gpuMaxParallelHelp(settings.gpu_max_parallel)}>
                   <input
                     type="number"

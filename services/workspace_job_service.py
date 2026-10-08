@@ -14,6 +14,7 @@ import time
 import adaptive_style
 import db
 import background_jobs
+import ollama_unload
 import translate_engines
 import translation_guide as tguide
 import bulk_translate
@@ -350,6 +351,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
         "segments": segments,
         "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
         "word_align_error": word_align_error,
+        **ollama_unload.take_notice_result(),
     }
     if gpu_fallback_msg:
         result["device_notice"] = core_module.gpu_fallback_notice("Transcription", gpu_fallback_msg[0])

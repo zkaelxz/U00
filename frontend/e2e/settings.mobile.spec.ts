@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
 test('settings switches have 44px touch targets on a phone', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page)
-  await expect(page.locator('#settings-jobs').getByRole('switch')).toHaveCount(4)
+  await expect(page.locator('#settings-jobs').getByRole('switch')).toHaveCount(5)
   await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible() // the seeded API leaves the bridge off or on; either way it is a switch
   const switches = page.getByRole('switch')
   for (const sw of await switches.all()) {
