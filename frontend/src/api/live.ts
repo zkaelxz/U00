@@ -145,12 +145,24 @@ export function buildStartBody(form: LiveForm): LiveSessionStart {
 
 export const isActive = (status: string | null | undefined) => status === 'queued' || status === 'running'
 
-/** Append newly polled cues, keeping only the newest `cap`. */
-export function appendCues(prev: LiveCue[], incoming: LiveCue[], cap = CUES_KEPT): LiveCue[] {
+/** Merge polled cues into the list by id, keeping only the newest `cap`. A cue
+ *  that already finished is never put back to pending by a slower, older reply. */
+export function mergeCues(prev: LiveCue[], incoming: LiveCue[], cap = CUES_KEPT): LiveCue[] {
   if (!incoming.length) return prev
-  const all = prev.concat(incoming)
+  const byId = new Map(prev.map((c) => [c.id, c]))
+  for (const c of incoming) {
+    const have = byId.get(c.id)
+    if (!have || have.translation === 'pending' || c.translation !== 'pending') byId.set(c.id, c)
+  }
+  const all = [...byId.values()].sort((a, b) => a.id - b.id)
   return all.length > cap ? all.slice(all.length - cap) : all
 }
+
+/** Where to read from next: the oldest cue still waiting for its translation, else the end. */
+export const readFrom = (cues: LiveCue[], next: number) =>
+  Math.min(next, cues.find((c) => c.translation === 'pending')?.id ?? next)
+
+export const hasPending = (cues: LiveCue[]) => cues.some((c) => c.translation === 'pending')
 
 /** The newest `n` cues, newest first (the feed order). */
 export const feedCues = (cues: LiveCue[], n = FEED_SHOWN) => cues.slice(-n).reverse()

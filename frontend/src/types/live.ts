@@ -25,11 +25,17 @@ export interface LiveSessionStarted {
   session_id: string
 }
 
+/** pending until the engine answers; failed and cancelled keep the transcript. */
+export type LiveTranslation = 'pending' | 'done' | 'failed' | 'cancelled'
+
 export interface LiveCue {
+  /** Stable for the session: the cue's place in the list, which only grows. */
+  id: number
   start: number
   end: number
   text: string
   translated: string
+  translation: LiveTranslation
 }
 
 export interface LiveSessionStatus {

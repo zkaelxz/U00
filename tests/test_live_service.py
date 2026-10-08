@@ -347,6 +347,18 @@ def test_cue_slicing(live, monkeypatch):
         live_service.get_session(sid, after="x")
 
 
+def test_cues_carry_id_and_translation_state(live, monkeypatch):
+    cues = [{"id": 0, "start": 0, "end": 1, "text": "a", "translated": "A", "translation": "done"},
+            {"id": 1, "start": 1, "end": 2, "text": "b", "translated": "", "translation": "pending"},
+            {"start": 2, "end": 3, "text": "c", "translated": "[translation failed: x]"}]
+    monkeypatch.setattr(live_translate, "run_live_job",
+                        lambda job_id, *a, **k: background_jobs.set_result(job_id, cues))
+    sid = _start()
+    assert _terminal(sid)
+    got = live_service.get_session(sid, after=1)["cues"]
+    assert [(c["id"], c["translation"]) for c in got] == [(1, "pending"), (2, "failed")]
+
+
 def test_translation_failure_cue_is_cleaned(live, monkeypatch):
     cues = [{"start": 0, "end": 1, "text": "and/or 你好",
              "translated": "[translation failed: /home/k/.env sk-ant-abcdefghijklmnopqrstu]"}]

@@ -74,8 +74,8 @@ class TestProcessChunk:
                                  source_language="zh", whisper_size="medium",
                                  engine=FakeEngine())
 
-        assert cues == [{"start": 61.0, "end": 62.0, "text": "你好",
-                          "translated": "[translated] 你好"}]
+        assert cues == [{"id": 0, "start": 61.0, "end": 62.0, "text": "你好",
+                          "translated": "[translated] 你好", "translation": "done"}]
 
     def test_blank_transcribed_lines_are_dropped(self, monkeypatch, tmp_path):
         import core

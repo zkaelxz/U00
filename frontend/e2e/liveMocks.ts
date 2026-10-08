@@ -21,9 +21,12 @@ const OLLAMA = {
 }
 
 export const cue = (n: number) => ({
-  start: n * 20, end: n * 20 + 4, text: `第${n}句台词，内容比较长一些以便测试换行效果。`,
+  id: n, translation: 'done' as 'done' | 'pending' | 'failed' | 'cancelled', start: n * 20, end: n * 20 + 4, text: `第${n}句台词，内容比较长一些以便测试换行效果。`,
   translated: `Line ${n}: a longer English translation so the phone layout has to wrap it.`,
 })
+
+/** A line whose transcript is shown and whose translation has not arrived. */
+export const pendingCue = (n: number) => ({ ...cue(n), translated: '', translation: 'pending' as const })
 
 interface LiveMocks {
   ollamaChecks: string[]
