@@ -1,0 +1,163 @@
+{
+ "id": "ko-address",
+ "version": 1,
+ "language": "ko",
+ "title": "Korean honorifics and address terms",
+ "description": "Starter pack, review it. Kinship and rank words used as address. Default keeps them romanised (oppa, unnie, noona, hyung).",
+ "styles": {
+  "default": "romanised",
+  "options": {
+   "romanised": "Keep honorifics romanised (for example senpai, -san, oppa, unnie)",
+   "natural": "Translate them into natural English"
+  }
+ },
+ "entries": [
+  {
+   "source": "오빠",
+   "en": {
+    "romanised": "oppa",
+    "natural": "big brother"
+   },
+   "category": "honorific",
+   "note": "Also used by a woman for an older man she is close to.",
+   "context": "woman to an older brother or older man"
+  },
+  {
+   "source": "언니",
+   "en": {
+    "romanised": "unnie",
+    "natural": "big sis"
+   },
+   "category": "honorific",
+   "note": "Also used for an older woman who is not a relative.",
+   "context": "woman to an older sister or older woman"
+  },
+  {
+   "source": "누나",
+   "en": {
+    "romanised": "noona",
+    "natural": "big sis"
+   },
+   "category": "honorific",
+   "note": "Also used for an older woman who is not a relative.",
+   "context": "man to an older sister or older woman"
+  },
+  {
+   "source": "형",
+   "en": {
+    "romanised": "hyung",
+    "natural": "big brother"
+   },
+   "category": "honorific",
+   "note": "Also used for an older man who is not a relative.",
+   "context": "man to an older brother or older man"
+  },
+  {
+   "source": "선배",
+   "en": {
+    "romanised": "sunbae",
+    "natural": "senior"
+   },
+   "category": "honorific",
+   "context": "junior to a senior at school or work"
+  },
+  {
+   "source": "후배",
+   "en": {
+    "romanised": "hoobae",
+    "natural": "junior"
+   },
+   "category": "honorific",
+   "context": "senior referring to a junior"
+  },
+  {
+   "source": "님",
+   "en": {
+    "romanised": "-nim",
+    "natural": "(respectful title)"
+   },
+   "category": "honorific",
+   "note": "Attach to the title or name. In natural style often dropped or turned into 'Mr.' or 'Ms.'.",
+   "context": "respectful suffix"
+  },
+  {
+   "source": "씨",
+   "en": {
+    "romanised": "-ssi",
+    "natural": "Mr. or Ms."
+   },
+   "category": "honorific",
+   "note": "Attach to the name. Polite but not warm.",
+   "context": "polite, to a peer or someone lower in rank"
+  },
+  {
+   "source": "사장님",
+   "en": {
+    "romanised": "sajangnim",
+    "natural": "boss"
+   },
+   "category": "honorific",
+   "note": "'President' in a formal company setting.",
+   "context": "to the head of a company or a shop owner"
+  },
+  {
+   "source": "선생님",
+   "en": {
+    "romanised": "seonsaengnim",
+    "natural": "teacher"
+   },
+   "category": "honorific",
+   "note": "Also used for doctors and other experts.",
+   "context": "to a teacher or expert"
+  },
+  {
+   "source": "아저씨",
+   "en": {
+    "romanised": "ajusshi",
+    "natural": "mister"
+   },
+   "category": "honorific",
+   "note": "Can sound rude or distant, or fond, depending on the scene.",
+   "context": "to a middle-aged man"
+  },
+  {
+   "source": "아줌마",
+   "en": {
+    "romanised": "ajumma",
+    "natural": "ma'am"
+   },
+   "category": "honorific",
+   "note": "Can sound rude or friendly, depending on the scene.",
+   "context": "to a middle-aged woman"
+  },
+  {
+   "source": "아가씨",
+   "en": {
+    "romanised": "agassi",
+    "natural": "miss"
+   },
+   "category": "honorific",
+   "note": "Also 'young miss' for a rich family's daughter.",
+   "context": "to a young woman"
+  },
+  {
+   "source": "자기야",
+   "en": {
+    "romanised": "jagiya",
+    "natural": "honey"
+   },
+   "category": "honorific",
+   "context": "between lovers"
+  },
+  {
+   "source": "막내",
+   "en": {
+    "romanised": "maknae",
+    "natural": "youngest"
+   },
+   "category": "honorific",
+   "note": "The youngest member of a group.",
+   "context": "a group's youngest"
+  }
+ ]
+}

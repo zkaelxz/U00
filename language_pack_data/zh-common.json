@@ -1,0 +1,107 @@
+{
+ "id": "zh-common",
+ "version": 1,
+ "language": "zh",
+ "title": "Chinese kinship, roles, set phrases and streamer terms",
+ "description": "Starter pack, review it. Family and workplace words, daily set phrases, interjections and a few streaming terms.",
+ "entries": [
+  {
+   "source": "爸爸",
+   "en": "Dad",
+   "category": "kinship"
+  },
+  {
+   "source": "妈妈",
+   "en": "Mom",
+   "category": "kinship"
+  },
+  {
+   "source": "奶奶",
+   "en": "Grandma",
+   "category": "kinship",
+   "note": "Father's mother."
+  },
+  {
+   "source": "外婆",
+   "en": "Grandma",
+   "category": "kinship",
+   "note": "Mother's mother."
+  },
+  {
+   "source": "阿姨",
+   "en": "Auntie",
+   "category": "kinship",
+   "note": "Also how a child addresses an older woman."
+  },
+  {
+   "source": "叔叔",
+   "en": "Uncle",
+   "category": "kinship",
+   "note": "Also how a child addresses an older man."
+  },
+  {
+   "source": "青梅竹马",
+   "en": "childhood friend",
+   "category": "kinship"
+  },
+  {
+   "source": "闺蜜",
+   "en": "best friend",
+   "category": "kinship",
+   "note": "A close female friend."
+  },
+  {
+   "source": "总裁",
+   "en": "CEO",
+   "category": "role"
+  },
+  {
+   "source": "校花",
+   "en": "school belle",
+   "category": "role",
+   "note": "The prettiest girl in school."
+  },
+  {
+   "source": "加油",
+   "en": "You can do it",
+   "category": "phrase",
+   "note": "Cheering someone on; 'Go!' in a match."
+  },
+  {
+   "source": "辛苦了",
+   "en": "Thanks for your hard work",
+   "category": "phrase"
+  },
+  {
+   "source": "天哪",
+   "en": "Oh my god",
+   "category": "interjection"
+  },
+  {
+   "source": "哎呀",
+   "en": "Oh dear",
+   "category": "interjection"
+  },
+  {
+   "source": "直播",
+   "en": "livestream",
+   "category": "streamer"
+  },
+  {
+   "source": "主播",
+   "en": "streamer",
+   "category": "streamer"
+  },
+  {
+   "source": "弹幕",
+   "en": "scrolling comments",
+   "category": "streamer",
+   "note": "Keep 'danmaku' if the scrolling comments are on screen."
+  },
+  {
+   "source": "打赏",
+   "en": "tip",
+   "category": "streamer"
+  }
+ ]
+}
