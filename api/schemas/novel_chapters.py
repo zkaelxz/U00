@@ -6,6 +6,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
+__all__ = ["NovelChapterRow", "NovelChapterList", "NovelChapterText"]
+
 
 class NovelChapterRow(BaseModel):
     number: int
