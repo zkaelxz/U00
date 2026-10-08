@@ -47,7 +47,7 @@ from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REA
 DEFAULT_TIMEOUT = 20
 # Cap on any one retry wait, a server's Retry-After included, so a single
 # wait can't stall a job for minutes.
-MAX_SINGLE_BACKOFF = 60.0
+MAX_SINGLE_BACKOFF = pacing.MAX_HOLD
 
 # Body limits for the real transport (security review MED-1): the body is
 # streamed and never read past its cap, and one request (every redirect
@@ -692,15 +692,13 @@ _source_state = {}
 _host_state = {}
 
 
-def _state(source: str, max_concurrent: int) -> dict:
+def _state(source: str) -> dict:
     with _state_lock:
         st = _source_state.get(source)
         if st is None:
-            st = {"sem": Limiter(max_concurrent),
+            st = {"sem": Limiter(),
                   "break_lock": threading.Lock(), "good_mirror": None}
             _source_state[source] = st
-        else:
-            st["sem"].set_limit(max_concurrent)
         return st
 
 
@@ -917,12 +915,12 @@ class SourceClient:
         conditional = {k: v for k, v in conditional.items() if k.lower() not in given}
         hdrs.update(conditional)
         host = _host_key(url)
-        st = _state(self.source, self.policy.max_concurrent)
+        st = _state(self.source)
 
         attempt_no = 0
         slowed = False
         while True:
-            with st["sem"]:
+            with st["sem"].at(self.policy.max_concurrent):
                 self._wait_turn(host, st)
                 self._status(action or f"Fetching {safe_url(url) or 'page'}", 0.0)
                 self.stats["requests"] += 1
@@ -1054,8 +1052,8 @@ class SourceClient:
         poll = _active_poll()
         if poll is not None:
             poll.other_requests += 1
-        st = _state(self.source, self.policy.max_concurrent)
-        with st["sem"]:
+        st = _state(self.source)
+        with st["sem"].at(self.policy.max_concurrent):
             self._wait_turn(_host_key(url), st)
             self.stats["access_method"] = access_method
             self.stats["requests"] += 1
@@ -1091,7 +1089,7 @@ class SourceClient:
             raise SourceUnavailable(
                 f"{self.source} is marked unavailable after repeated failures; "
                 f"next try allowed in {wait:.0f}s.", retry_after=wait)
-        st = _state(self.source, self.policy.max_concurrent)
+        st = _state(self.source)
         preferred = st.get("good_mirror")
         order = mirrors if preferred not in mirrors else \
             [preferred] + [m for m in mirrors if m != preferred]
