@@ -28,8 +28,6 @@ export interface ComicChapter {
   title: string
   // False for the one group of pages with no chapter data (older imports).
   known: boolean
-  // Source site host only.
-  host: string
   // 1-based ordinal of the chapter's first page.
   first_page: number
   page_count: number
