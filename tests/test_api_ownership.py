@@ -63,6 +63,9 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "user_id": "a user account, not an owned item (admin.users only)",
     "auth_session_id": "the caller's own sign-in session; auth_service scopes it to the "
                        "caller's user id from their session (404 otherwise)",
+    "device_token_id": "an extension device token: the own route scopes it to the caller's "
+                       "user id from their session (404 otherwise); the route for "
+                       "everyone's tokens is local_only()",
 }
 # Routes naming a job or Live session. The path guard can't see these, so
 # each one is listed with the owner check its service runs (review L-4): a
@@ -82,7 +85,7 @@ JOB_ROUTES = {
 JOB_PARAMS = {"job_id", "session_id"}
 # Children that only appear under a guarded `{drama_id}`/`{series_id}`.
 NESTED_PARAMS = {"line_id", "term_id", "note_id", "history_id", "version_id", "page_id",
-                 "character_id", "candidate_id", "bulk_job_id", "track", "kind"}
+                 "character_id", "candidate_id", "bulk_job_id", "track", "kind", "number"}
 
 
 def _app(auth="on"):

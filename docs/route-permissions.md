@@ -32,6 +32,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/assistant/settings` | local_only() |
 | `GET /api/assistant/tools` | local_only() |
 | `GET /api/auth/callback` | public() |
+| `GET /api/auth/device-tokens` | authenticated() |
+| `POST /api/auth/device-tokens` | extension.send |
+| `POST /api/auth/device-tokens/{device_token_id}/revoke` | authenticated() |
 | `GET /api/auth/login` | public() |
 | `POST /api/auth/logout` | authenticated() |
 | `GET /api/auth/me` | public() |
@@ -168,6 +171,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/export/dramas/{drama_id}/reading-speed` | lines.edit |
 | `POST /api/export/dramas/{drama_id}/softsub-video` | jobs.start |
 | `GET /api/export/dramas/{drama_id}/subtitle` | lines.read |
+| `GET /api/extension/devices` | local_only() |
+| `POST /api/extension/devices/{device_token_id}/revoke` | local_only() |
 | `POST /api/extension/enabled` | local_only() |
 | `GET /api/extension/engine` | admin.settings |
 | `POST /api/extension/engine` | local_only() |
@@ -304,6 +309,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/novel/dramas/{drama_id}/ocr-chapter` | local_only() |
 | `GET /api/novel/dramas/{drama_id}/raw-novel` | library.read |
 | `POST /api/novel/dramas/{drama_id}/raw-novel` | local_only() |
+| `GET /api/novel/dramas/{drama_id}/raw-novel/chapters` | library.read |
+| `GET /api/novel/dramas/{drama_id}/raw-novel/chapters/{number}` | lines.read |
 | `POST /api/novel/dramas/{drama_id}/raw-novel/remove` | local_only() |
 | `POST /api/novel/dramas/{drama_id}/raw-novel/text` | local_only() |
 | `GET /api/novel/dramas/{drama_id}/reference` | library.read |

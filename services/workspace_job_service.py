@@ -21,7 +21,8 @@ import bulk_translate
 import emotion
 import core as core_module
 from core import transcribe_for_timing
-from services import fixflag_transcribe, job_timing_service, language_pack_service, line_provenance_service, settings_service
+from services import (auth_service, fixflag_transcribe, job_timing_service, language_pack_service,
+                      line_provenance_service, settings_service)
 
 
 def _id_by_idx(lines):
@@ -646,10 +647,8 @@ def restore_kept_names():
             page_server.TOKEN_FILENAME, storage.TEMP_DIRNAME)
 
 
-# library.db tables that hold who may sign in and what they may do; a
-# restore keeps the current rows (auth_sessions is then emptied: every
-# session is revoked). See _build_staged_databases.
-_RESTORE_KEPT_AUTH_TABLES = ("users", "user_permissions", "auth_sessions", "audit_log")
+# Who may sign in and what they may do: never from the upload (auth_service).
+_RESTORE_KEPT_AUTH_TABLES = auth_service.RESTORE_KEPT_TABLES
 
 # app_settings keys a restore takes from the current library, never from the
 # upload: the automatic-backup identity (auto_backup_service.IDENTITY_KEY).
@@ -895,7 +894,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
             raise ValueError(BAD_LIBRARY_DB) from None
         _rebuild_from_upload(staged, scratch, skip_tables=_RESTORE_KEPT_AUTH_TABLES,
                              live_path=os.path.join(library_dir, "library.db"),
-                             live_tables=("users", "user_permissions", "audit_log"),
+                             live_tables=auth_service.RESTORE_LIVE_TABLES,
                              message=BAD_LIBRARY_DB)
         try:
             conn = _open_carry_conn(staged)
