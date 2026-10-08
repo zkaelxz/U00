@@ -158,7 +158,8 @@ class TestDiagnostics:
                      and f not in ("__init__.py", "conftest.py")}
         missing_from_list = real_files - set(expected_files.EXPECTED_TOP_LEVEL_FILES)
         assert missing_from_list == set(), \
-            f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES: {missing_from_list}"
+            f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES in expected_files.py: " \
+            f"{missing_from_list}. Add each name to that list."
 
     def test_file_completeness_reports_missing_in_empty_dir(self, tmp_path_str):
         result = diagnostics.check_file_completeness(tmp_path_str)

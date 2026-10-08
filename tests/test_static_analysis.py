@@ -742,13 +742,17 @@ class TestModuleSize:
                    if s > MAX_MODULE_BYTES and p not in OVERSIZED_MODULE_BYTES}
         assert too_big == {}, (
             f"Python modules over {MAX_MODULE_BYTES} bytes: {too_big}. Split the module; "
-            "do not add it to OVERSIZED_MODULE_BYTES.")
+            "do not add it to OVERSIZED_MODULE_BYTES. New code that would push a file over the limit "
+            "goes in a new module that owns one domain; see 'Splitting files' in AGENTS.md.")
 
     def test_allowlisted_modules_never_grow(self):
         sizes = self._module_sizes()
         grown = {p: (limit, sizes[p]) for p, limit in OVERSIZED_MODULE_BYTES.items()
                  if sizes.get(p, 0) > limit}
-        assert grown == {}, f"allowlisted modules grew past their recorded size (limit, now): {grown}"
+        assert grown == {}, (
+            f"allowlisted modules grew past their recorded size (limit, now): {grown}. "
+            "Undo the growth: put the new code in a new module instead of enlarging these files, "
+            "and do not raise the number in OVERSIZED_MODULE_BYTES.")
 
     def test_stale_allowlist_entries_are_reported_not_failed(self):
         # A split PR must not need to edit the allowlist, so stale entries
