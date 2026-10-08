@@ -8,6 +8,8 @@ import {
   allSelected,
   canTakeMedia,
   chapterImportDramas,
+  hiddenDramaCount,
+  hiddenDramasNote,
   chapterMarks,
   checkUrl,
   comicNote,
@@ -97,6 +99,16 @@ describe('drama pickers', () => {
   it('keeps only dramas the chapter import accepts', () => {
     expect(chapterImportDramas(list, true).map((d) => d.id)).toEqual([3])
     expect(chapterImportDramas(list, false).map((d) => d.id)).toEqual([2, 4])
+  })
+  it('counts the dramas left out and says why', () => {
+    expect(hiddenDramaCount(list, true)).toBe(4)
+    expect(hiddenDramaCount(list, false)).toBe(3)
+    expect(hiddenDramasNote(12, true)).toBe(
+      'Showing comic titles only. 12 other titles aren’t listed because manga pages can’t go into a novel or audio title. Choose “New drama…” to make a comic title.',
+    )
+    expect(hiddenDramasNote(1, false)).toBe(
+      'Showing novel titles only. 1 other title isn’t listed because chapter text can only go into a novel title. Choose “New drama…” to make a novel title.',
+    )
   })
   it('video goes only into audio drama or streamer VOD modes', () => {
     expect(videoDramas(list).map((d) => d.id)).toEqual([1, 2, 3, 5])

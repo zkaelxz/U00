@@ -87,6 +87,17 @@ export function chapterImportDramas(dramas: DramaSummary[], comic: boolean): Dra
   return dramas.filter((d) => (comic ? COMIC_MEDIA_TYPES.includes(d.media_type ?? '') : d.media_type === 'novel'))
 }
 
+/** How many titles chapterImportDramas leaves out. */
+export const hiddenDramaCount = (dramas: DramaSummary[], comic: boolean) => dramas.length - chapterImportDramas(dramas, comic).length
+
+/** Why the import list is short, so a missing title is not a mystery. */
+export function hiddenDramasNote(count: number, comic: boolean): string {
+  const others = count === 1 ? '1 other title isn’t' : `${plural(count, 'other title')} aren’t`
+  return comic
+    ? `Showing comic titles only. ${others} listed because manga pages can’t go into a novel or audio title. Choose “New drama…” to make a comic title.`
+    : `Showing novel titles only. ${others} listed because chapter text can only go into a novel title. Choose “New drama…” to make a novel title.`
+}
+
 // Mirrors services/media_upload_service._UPLOAD_CONTENT_MODES (null = audio_drama).
 const URL_MEDIA_CONTENT_MODES = ['audio_drama', 'streamer_vod']
 

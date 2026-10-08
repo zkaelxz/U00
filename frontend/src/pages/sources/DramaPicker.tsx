@@ -5,7 +5,8 @@
  *
  *   const dramas = useDramaList()   // useDramaList.ts
  *   <DramaPicker dramas={chapterImportDramas(dramas.items, comic)} value={id} onChange={setId}
- *                newDrama={{ title, language, comic }} onCreated={dramas.add} />
+ *                newDrama={{ title, language, comic }} onCreated={dramas.add}
+ *                hiddenCount={hiddenDramaCount(dramas.items, comic)} />
  */
 import { useState } from 'react'
 
@@ -16,7 +17,7 @@ import { Field } from '../../components/Field'
 import { humanize } from '../../components/labels'
 import { buttonClass } from '../../components/uiClasses'
 import { SOURCE_LANGUAGES } from '../libraryForm'
-import { dramaLabel, newDramaRequest } from './urlImportFormat'
+import { dramaLabel, hiddenDramasNote, newDramaRequest } from './urlImportFormat'
 
 const NEW = 'new'
 
@@ -27,11 +28,13 @@ type Props = {
   // Offer "New drama…": the prefilled title and language, and whether it is a comic.
   newDrama?: { title: string; language: string | null; comic: boolean }
   onCreated?: (d: DramaSummary) => void
+  // Titles the caller filtered out of `dramas`; explains why they are not listed.
+  hiddenCount?: number
   disabled?: boolean
   help?: string
 }
 
-export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, disabled, help }: Props) {
+export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, hiddenCount = 0, disabled, help }: Props) {
   const [creating, setCreating] = useState(false)
   const [title, setTitle] = useState(newDrama?.title ?? '')
   const [language, setLanguage] = useState(() => newDramaRequest('', newDrama?.language, false).source_language)
@@ -86,6 +89,7 @@ export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, disa
       {dramas && dramas.length === 0 && !creating && (
         <p className="muted">{newDrama ? `No ${kind} dramas yet. Choose “New drama…” to make one.` : 'No dramas can take this yet.'}</p>
       )}
+      {newDrama && hiddenCount > 0 && !creating && <p className="muted">{hiddenDramasNote(hiddenCount, newDrama.comic)}</p>}
       {creating && newDrama && (
         <div className="drama-new" role="group" aria-label="New drama">
           <Field label="Title">
