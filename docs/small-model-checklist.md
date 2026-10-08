@@ -1,9 +1,10 @@
 # Task checklist for small-context models
 
-Context target: 64K tokens, set for the owner's 32+32 GB setup. The Qwen3.6-35B-A3B on the current 12 GB card is
-run at 32K, so plan for that smaller window until the new setup lands. Either way, search first, read little,
-change little. Module files stay under 40 KB (`MAX_MODULE_BYTES` in `tests/test_static_analysis.py`) so one file
-fits a single read; the files over it are listed there and shrink only.
+Context target: 64K tokens. The Qwen3.6-35B-A3B runs at 64K on the current 12 GB card (`opencode.json` context
+65536 and `tools/start-local-coder.ps1` `-c 65536`), and the owner's target for the future 32 GB card is also 64K.
+Search first, read little, change little. Module files stay under 40 KB (`MAX_MODULE_BYTES` in
+`tests/test_static_analysis.py`; about 10K tokens), so one file fits a single read; the files over it are listed
+there and shrink only.
 
 1. Restate the task in one line. Name the symptom, UI text or setting.
 2. Search before opening anything:
@@ -41,3 +42,11 @@ repo, run `.\tools\start-local-coder.ps1` (or double-click `start-local-coder.ba
 waits for `/health`, and opens OpenCode's web UI in the browser (add `-Terminal` for
 the terminal UI; the web UI needs the repo added once via Add project). It reads `opencode.json` and
 `AGENTS.md`. The first start downloads the model.
+
+## Task brief (paste into a local-model session)
+Objective: <one line: symptom, or what moves where>
+Allowed files: <paths; anything else means stop and ask>
+Must not change: <behaviour, public names, API shapes, schema>
+Callers: <from `git grep -nw <name>`>
+Tests: `python -m pytest -q <files>`, then <wave suite or full suite>
+Done when: <tests pass with counts; for a split, AGENTS.md "Splitting files">
