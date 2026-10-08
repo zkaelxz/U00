@@ -8,6 +8,7 @@ import {
   rollbackProfile,
   setAdultEnabled,
   setSourceEnabled,
+  setSourcePace,
 } from '../../api/sources'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -18,8 +19,9 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY } from '../../hooks/usePcOnly'
 import type { PcMode } from '../../hooks/usePcOnly'
-import type { SourceHealth, SourceProfileDomain, SourcesSettings, SourceSummary } from '../../types/sources'
+import type { SourceHealth, SourcePace, SourceProfileDomain, SourcesSettings, SourceSummary } from '../../types/sources'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
+import { PaceSelect } from './PaceSelect'
 import { PacingForm } from './PacingForm'
 import { ProxyForm } from './ProxyForm'
 import { RecentExtractions } from './RecentExtractions'
@@ -105,6 +107,17 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
     }
   }
 
+  async function changePace(s: SourceSummary, pace: SourcePace) {
+    setError(null)
+    onSource({ ...s, pace }) // optimistic
+    try {
+      onSource(await setSourcePace(s.name, pace))
+    } catch (e) {
+      onSource(s) // roll back
+      setError(e)
+    }
+  }
+
   async function clearCache() {
     setError(null)
     setClearing(true)
@@ -143,6 +156,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
     </button>
   )
   const onBox = (s: SourceSummary) => <OnToggle s={s} labelled={phone} onChange={(on) => toggle(s, 'enabled', on)} />
+  const paceBox = (s: SourceSummary) => <PaceSelect s={s} onChange={(p) => changePace(s, p)} />
   const adultBox = (s: SourceSummary) =>
     s.supports_adult_toggle ? (
       <div className="toggle-list source-adult">
@@ -184,6 +198,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
                 {onBox(s)}
                 {adultBox(s)}
               </div>
+              <div className="source-card-line">{paceBox(s)}</div>
               <div className="source-card-line">
                 <span className="muted">{signin(s)}</span>
                 {detailsButton(s)}
@@ -203,6 +218,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
                 <th scope="col">Health</th>
                 <th scope="col">On</th>
                 <th scope="col">Adult</th>
+                <th scope="col">Pace</th>
                 <th scope="col">Sign-in</th>
                 <th scope="col">
                   <span className="visually-hidden">Details</span>
@@ -219,12 +235,13 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
                     </td>
                     <td>{onBox(s)}</td>
                     <td>{adultBox(s)}</td>
+                    <td>{paceBox(s)}</td>
                     <td className="muted">{signin(s)}</td>
                     <td>{detailsButton(s)}</td>
                   </tr>
                   {open === s.name && (
                     <tr className="source-detail-row">
-                      <td colSpan={6}>
+                      <td colSpan={7}>
                         <SourceDetail
                           name={s.name}
                           onHealth={onHealth}

@@ -131,6 +131,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         // Interim status from the content script; the popup, if open,
         // receives it too. Nothing to do here.
         case "progress":
+        case "captureDone":
           respond({ ok: true });
           break;
         case "sendText":
