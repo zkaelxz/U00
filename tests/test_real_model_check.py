@@ -220,13 +220,26 @@ def _paddle_home(monkeypatch, tmp_path, folders):
 
 def test_paddle_owners_real_folders_are_present(monkeypatch, tmp_path):
     _paddle_home(monkeypatch, tmp_path, [
-        "PP-LCNet_x1_0_textline_ori", "PP-OCRv6_medium_det", "PP-OCRv6_medium_rec"])
+        "PP-LCNet_x1_0_textline_ori", "PP-OCRv5_server_det", "PP-OCRv5_server_rec"])
     assert svc._paddle_models_state() == "present"
 
 
 def test_paddle_other_models_only_is_missing(monkeypatch, tmp_path):
     _paddle_home(monkeypatch, tmp_path, ["PP-LCNet_x1_0_textline_ori", "PP-OCRv6_medium_det",
                                          "PP-DocLayout-L"])
+    assert svc._paddle_models_state() == "missing"
+
+
+@pytest.mark.parametrize("folders", [
+    # A Korean-only user: the call loads the Chinese rec model, so this
+    # would be downloaded silently.
+    ["PP-LCNet_x1_0_textline_ori", "PP-OCRv5_server_det", "korean_PP-OCRv5_mobile_rec"],
+    # Leftovers from an older PP-OCR version.
+    ["PP-LCNet_x1_0_textline_ori", "PP-OCRv4_server_det", "PP-OCRv4_server_rec"],
+    ["PP-LCNet_x1_0_textline_ori", "PP-OCRv5_server_det", "latin_PP-OCRv5_mobile_rec",
+     "japan_PP-OCRv5_mobile_rec"]])
+def test_paddle_language_prefixed_or_older_models_are_missing(monkeypatch, tmp_path, folders):
+    _paddle_home(monkeypatch, tmp_path, folders)
     assert svc._paddle_models_state() == "missing"
 
 
@@ -240,7 +253,8 @@ def test_paddle_no_folder_or_empty_folder_is_unknown(monkeypatch, tmp_path):
 def test_paddle_cache_override_is_honoured(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "empty-home"))
-    for n in ("a_det", "a_rec", "a_textline_ori"):
+    import ocr
+    for n in ocr._PADDLE_CH_MODELS.values():
         (tmp_path / "elsewhere" / "official_models" / n).mkdir(parents=True)
     monkeypatch.setenv("PADDLE_PDX_CACHE_HOME", str(tmp_path / "elsewhere"))
     assert svc._paddle_models_state() == "present"
@@ -518,3 +532,96 @@ def test_api_result_carries_no_url(env, monkeypatch, ollama):
     state = svc.get_state()
     assert state["checks"][0]["status"] == svc.FAIL
     _no_url(str(state))
+
+
+# --- offline OCR, VL repos, refusals, import errors, clip limits -----------
+
+def test_ocr_load_runs_with_hugging_face_offline(ocr_env, monkeypatch):
+    import ocr
+    seen = {}
+
+    def read(paths, **kw):
+        seen.update(hf=os.environ.get("HF_HUB_OFFLINE"), tf=os.environ.get("TRANSFORMERS_OFFLINE"))
+        return "你好"
+    monkeypatch.setattr(ocr, "extract_text_from_images", read)
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    assert _run("ocr")["status"] == svc.PASS
+    assert seen == {"hf": "1", "tf": "1"}
+    assert "HF_HUB_OFFLINE" not in os.environ
+
+
+@pytest.mark.parametrize("cached", [
+    ["jzhang533/PaddleOCR-VL-For-Manga"],
+    ["PaddlePaddle/PaddleOCR-VL"],
+    []])
+def test_vl_manga_needs_both_repos_cached(monkeypatch, cached):
+    import ocr
+    monkeypatch.setattr(svc, "_installed", lambda m: True)
+    monkeypatch.setattr(ocr, "paddle_vl_manga_problem", lambda: None)
+    monkeypatch.setattr(svc.diagnostics, "scan_hf_cache", lambda: [{"repo_id": r} for r in cached])
+    with pytest.raises(svc._Skip):
+        svc._ocr_requirement("paddle_vl_manga")
+
+
+def test_vl_manga_with_both_repos_cached_passes_the_requirement(monkeypatch):
+    import ocr
+    monkeypatch.setattr(svc, "_installed", lambda m: True)
+    monkeypatch.setattr(ocr, "paddle_vl_manga_problem", lambda: None)
+    monkeypatch.setattr(svc.diagnostics, "scan_hf_cache", lambda: [
+        {"repo_id": ocr._PADDLE_VL_MANGA_REPO}, {"repo_id": ocr._PADDLE_VL_PROCESSOR_REPO}])
+    svc._ocr_requirement("paddle_vl_manga")
+
+
+def _refusal(kind):
+    import memory_headroom
+    from services import vram_service
+    return {"vram": vram_service.InsufficientVramError,
+            "headroom": memory_headroom.HeadroomError}[kind](
+        "Not enough free memory: C:\\Users\\me\\x would eat into your Keep free setting.")
+
+
+@pytest.mark.parametrize("kind", ["vram", "headroom"])
+def test_memory_refusal_keeps_its_message_and_stops_the_run(monkeypatch, kind):
+    ran = []
+    monkeypatch.setattr("core.release_gpu_models", lambda: None)
+
+    def refuse(**kw):
+        raise _refusal(kind)
+    monkeypatch.setattr(svc, "_CHECKS", (
+        ("asr", "Transcription", lambda **kw: "ok"),
+        ("ocr", "OCR", refuse),
+        ("translate", "Translation (Ollama)", lambda **kw: ran.append(1) or "ok")))
+    results = svc.run_checks()
+    assert [r["id"] for r in results] == ["asr", "ocr"]
+    assert results[1]["status"] == svc.FAIL
+    assert "Keep free" in results[1]["reason"] or "free memory" in results[1]["reason"]
+    assert "Unexpected error" not in results[1]["reason"] and "C:\\Users" not in results[1]["reason"]
+    assert not ran
+
+
+def test_broken_installed_package_is_a_failure_not_a_skip(asr):
+    asr["backend"] = _Backend(error=ImportError("DLL load failed: C:\\x\\ctranslate2.dll"))
+    r = _run("asr")
+    assert r["status"] == svc.FAIL and "ctranslate2" not in r["reason"] and "C:" not in r["reason"]
+
+
+def test_speech_clip_over_the_size_limit_is_refused(asr, tmp_path, monkeypatch):
+    clip = tmp_path / "big-private.wav"
+    clip.write_bytes(b"x" * 2048)
+    monkeypatch.setattr(svc, "_MAX_CLIP_BYTES", 1024)
+    r = svc._run_check("asr", "Transcription", svc._check_asr, speech_clip=str(clip))
+    assert r["status"] == svc.FAIL and "larger than" in r["reason"] and "big-private" not in r["reason"]
+    assert not asr["backend"].seen
+
+
+def test_speech_clip_over_the_duration_limit_is_refused(asr, tmp_path):
+    import wave
+    clip = tmp_path / "long.wav"
+    with wave.open(str(clip), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(8000)
+        w.writeframes(b"\x00\x00" * 8000 * (svc._MAX_CLIP_SECONDS + 1))
+    r = svc._run_check("asr", "Transcription", svc._check_asr, speech_clip=str(clip))
+    assert r["status"] == svc.FAIL and "longer than" in r["reason"]
+    assert not asr["backend"].seen

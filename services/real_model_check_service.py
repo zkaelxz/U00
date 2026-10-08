@@ -25,13 +25,16 @@ import os
 import re
 import shutil
 import threading
+import wave
 
 import requests
 
 import background_jobs
 import diagnostics
+import memory_headroom
 from engine_backends.local import strip_ollama_thinking
 from services import diagnostics_gaps_service as gaps
+from services import vram_service
 from services.service_errors import ServiceError
 
 JOB_ID = "real_model_check"
@@ -45,6 +48,9 @@ _SAMPLE_DIR = os.path.join(gaps.default_project_root(), "assets", "smoke")
 _CLIP = os.path.join(_SAMPLE_DIR, "clip.wav")
 _IMAGE = os.path.join(_SAMPLE_DIR, "bubble.png")
 _TRANSLATE_TEXT = "你好"
+# A check is a quick sanity run, not a transcription job.
+_MAX_CLIP_BYTES = 50 * 1024 * 1024
+_MAX_CLIP_SECONDS = 60
 _DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
 _LOCK = threading.Lock()
@@ -124,6 +130,21 @@ def _comparable(text: str) -> str:
     return re.sub(r"[\W_]+", "", text.casefold())
 
 
+def _check_speech_clip_size(path: str) -> None:
+    if not os.path.isfile(path):
+        raise _Failed("The speech clip was not found.")
+    if os.path.getsize(path) > _MAX_CLIP_BYTES:
+        raise _Failed(f"The speech clip is larger than {_MAX_CLIP_BYTES // (1024 * 1024)} MB; use a shorter one.")
+    try:
+        with wave.open(path, "rb") as w:
+            seconds = w.getnframes() / float(w.getframerate() or 1)
+    except (wave.Error, EOFError):
+        # Not a WAV: the size cap above is the only bound we can apply.
+        return
+    if seconds > _MAX_CLIP_SECONDS:
+        raise _Failed(f"The speech clip is longer than {_MAX_CLIP_SECONDS} seconds; use a shorter one.")
+
+
 def _check_asr(speech_clip=None, expected_text=None) -> str:
     from services import asr_options_service, settings_service, transcribe_service
     # No global ASR setting exists (the choice is per title), so this is
@@ -142,8 +163,8 @@ def _check_asr(speech_clip=None, expected_text=None) -> str:
             raise _Skip("qwen-asr is not installed.")
     if not os.path.isfile(_CLIP):
         raise _Failed("The bundled audio sample is missing; reinstall the app.")
-    if speech_clip and not os.path.isfile(speech_clip):
-        raise _Failed("The speech clip was not found.")
+    if speech_clip:
+        _check_speech_clip_size(speech_clip)
 
     import asr_backend
     runner = asr_backend.get_backend(backend)
@@ -194,18 +215,12 @@ def _check_asr(speech_clip=None, expected_text=None) -> str:
     return finish(detail)
 
 
-# ocr.py builds PaddleOCR with text-line orientation on and lets PaddleX pick
-# the models, so no model names are fixed in Baihe; these are the folder-name
-# endings of the three models that call needs (detection, recognition,
-# text-line orientation), whatever PP-OCR version PaddleX chooses.
-_PADDLE_ROLES = ("_det", "_rec", "textline_ori")
-
-
 def _paddle_models_state() -> str:
     """PaddleX keeps its models outside the Hugging Face cache, in
     <cache>/official_models, where <cache> is PADDLE_PDX_CACHE_HOME or
-    ~/.paddlex. "present" when all three roles have a folder, "missing"
-    when the folder holds models but none for a role, and "unknown" when it
+    ~/.paddlex. "present" when the exact folders ocr.py asks for are all
+    there, "missing" when the folder holds models but not all of those, and
+    "unknown" when it
     cannot be read or is empty: the layout differs between versions, so
     absence there is not proof."""
     root = os.environ.get("PADDLE_PDX_CACHE_HOME", "").strip()
@@ -221,8 +236,12 @@ def _paddle_models_state() -> str:
         return "unknown"
     if not names:
         return "unknown"
-    found = [any(n.endswith(role) for n in names) for role in _PADDLE_ROLES]
-    return "present" if all(found) else "missing"
+    # Exact names: a korean_/japan_/latin_ rec folder or another PP-OCR
+    # version would pass a suffix match, and PaddleOCR would then download
+    # the Chinese model the call really loads.
+    import ocr
+    needed = {n.lower() for n in ocr._PADDLE_CH_MODELS.values()}
+    return "present" if needed <= set(names) else "missing"
 
 
 def _ocr_requirement(backend: str) -> None:
@@ -241,7 +260,8 @@ def _ocr_requirement(backend: str) -> None:
         problem = ocr.paddle_vl_manga_problem()
         if problem:
             raise _Skip(problem)
-        if not _hf_repo_cached("PaddleOCR-VL-For-Manga"):
+        if not (_hf_repo_exact(ocr._PADDLE_VL_MANGA_REPO)
+                and _hf_repo_exact(ocr._PADDLE_VL_PROCESSOR_REPO)):
             raise _Skip("The PaddleOCR-VL manga model is not downloaded.")
     else:
         if not _installed("paddleocr"):
@@ -263,7 +283,10 @@ def _check_ocr() -> str:
     if not os.path.isfile(_IMAGE):
         raise _Failed("The bundled image sample is missing; reinstall the app.")
     import ocr
-    text = ocr.extract_text_from_images([_IMAGE], backend=backend, source_language=_LANGUAGE)
+    # Offline for the same reason as the ASR check: from_pretrained and
+    # MangaOcr() would otherwise refetch a cached main revision.
+    with _offline_models():
+        text = ocr.extract_text_from_images([_IMAGE], backend=backend, source_language=_LANGUAGE)
     if not text.strip():
         raise _Failed(f"{backend} found no text in a sample that has text.")
     return f"{backend} read {len(text.strip())} character(s)."
@@ -308,6 +331,15 @@ _CHECKS = (("asr", "Transcription", _check_asr),
            ("translate", "Translation (Ollama)", _check_translate))
 
 
+class _Halt(Exception):
+    """A memory refusal: the GPU cannot take the next model either, so the
+    remaining checks must not run."""
+
+    def __init__(self, result):
+        super().__init__()
+        self.result = result
+
+
 def _run_check(check_id: str, label: str, fn, **options) -> dict:
     try:
         status, reason = PASS, fn(**options)
@@ -317,9 +349,15 @@ def _run_check(check_id: str, label: str, fn, **options) -> dict:
         status, reason = COULD_NOT_CHECK, str(exc)
     except background_jobs.JobCancelled:
         raise
-    except ImportError as exc:
-        # An optional package that turned out to be missing or broken.
-        status, reason = SKIPPED, f"A required package could not be loaded ({exc.name or 'import error'})."
+    except (vram_service.InsufficientVramError, memory_headroom.HeadroomError) as exc:
+        raise _Halt({"id": check_id, "label": label, "status": FAIL,
+                     "reason": _redact(exc)}) from None
+    except ModuleNotFoundError as exc:
+        status, reason = SKIPPED, f"A required package is not installed ({exc.name or 'unknown'})."
+    except ImportError:
+        # find_spec succeeded, so the package is there but broken (a DLL that
+        # will not load); calling that "skipped" would hide it behind exit 0.
+        status, reason = FAIL, "A required package is installed but could not be loaded; reinstall it in Diagnostics."
     except Exception as exc:
         # Raw exception text can carry URLs, hosts or paths; only our own
         # _Failed messages are shown.
@@ -339,10 +377,16 @@ def run_checks(speech_clip=None, expected_text=None, before_check=None, on_resul
         for i, (check_id, label, fn) in enumerate(_CHECKS):
             if before_check:
                 before_check(i, label)
-            result = _run_check(check_id, label, fn, **options.get(check_id, {}))
+            halted = False
+            try:
+                result = _run_check(check_id, label, fn, **options.get(check_id, {}))
+            except _Halt as halt:
+                result, halted = halt.result, True
             results.append(result)
             if on_result:
                 on_result(result)
+            if halted:
+                break
     finally:
         # The models stay resident otherwise, holding VRAM the user was
         # told to free for this check.
