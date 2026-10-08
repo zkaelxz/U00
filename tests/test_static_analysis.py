@@ -698,7 +698,7 @@ class TestSubprocessTextDecoding:
 MAX_MODULE_BYTES = 40 * 1024
 OVERSIZED_MODULE_BYTES = {
     "db.py": 298957,
-    "diagnostics.py": 110893,
+    "diagnostics.py": 110977,
     "services/transcribe_service.py": 102565,
     "cli.py": 90791,
     "scanlate.py": 89904,
@@ -715,8 +715,8 @@ OVERSIZED_MODULE_BYTES = {
     "sources/http.py": 52622,
     "services/restructure_service.py": 52468,
     "sources/ai_extract.py": 50796,
-    "services/translate_run_service.py": 45747,
-    "services/diagnostics_gaps_service.py": 44592,
+    "services/translate_run_service.py": 45837,
+    "services/diagnostics_gaps_service.py": 44678,
     "services/glossary_service.py": 44595,
     "page_fetch.py": 44114,
     "sources/adaptive.py": 42520,

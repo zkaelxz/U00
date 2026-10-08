@@ -294,7 +294,7 @@ def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
         _assert_clean(out)
     assert all(t == svc.PIP_TIMEOUT_SECONDS for _c, t in seen)
     assert seen[0][0][3:] == ["install", "--no-cache-dir", "--disable-pip-version-check",
-                              "pydub"]
+                              "pydub", *CONSTRAINTS]
 
 
 def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_file(monkeypatch):
@@ -304,7 +304,7 @@ def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_fi
     contents = {}
 
     def fake(cmd, timeout, cwd=None, env=None):
-        path = cmd[cmd.index("-c") + 1]
+        path = cmd[-1]     # the pins file is appended after constraints.txt
         with open(path, encoding="utf-8") as f:
             contents["pins"] = f.read().split()
         contents["path"] = path
@@ -364,7 +364,8 @@ def test_torchaudio_is_a_plain_install_without_a_gpu(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)
     ((cmd, timeout),) = svc._install_commands("torchaudio")
-    assert cmd[3:] == ["install", "--no-cache-dir", "--disable-pip-version-check", "torchaudio"]
+    assert cmd[3:] == ["install", "--no-cache-dir", "--disable-pip-version-check",
+                       "torchaudio", *CONSTRAINTS]
     assert "--index-url" not in cmd
     assert timeout == svc.PIP_TIMEOUT_SECONDS
 
@@ -667,13 +668,16 @@ def test_qwen_asr_fallback_deps_match_the_published_pins_minus_sox():
     assert diagnostics.qwen_asr_fallback_pip_args()[-1] == ["--no-deps", "qwen-asr"]
 
 
+CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")]
+
+
 def test_qwen_asr_install_is_plain_pip_when_it_works(monkeypatch):
     _no_jobs(monkeypatch)
     seen = _scripted_pip(monkeypatch, [(SOX_BUILT, 0)])
     out = svc.install_dependency("qwen-asr", confirm=True)
     assert out["ok"] is True and out["hint"] is None
     assert [c[3:] for c in seen] == [["install", "--no-cache-dir", "--disable-pip-version-check",
-                                      "qwen-asr"]]
+                                      "qwen-asr", *CONSTRAINTS]]
 
 
 def test_qwen_asr_sox_build_failure_falls_back_to_installing_without_sox(monkeypatch):
@@ -684,9 +688,9 @@ def test_qwen_asr_sox_build_failure_falls_back_to_installing_without_sox(monkeyp
     assert out["ok"] is True and out["package"] == "qwen-asr"
     assert "without its `sox` dependency" in out["output_tail"][0]
     assert len(seen) == 3
-    assert seen[1][-len(diagnostics.QWEN_ASR_FALLBACK_DEPS):] == list(
-        diagnostics.QWEN_ASR_FALLBACK_DEPS)
-    assert seen[2][-2:] == ["--no-deps", "qwen-asr"]
+    deps = list(diagnostics.QWEN_ASR_FALLBACK_DEPS)
+    assert seen[1][-len(deps) - 2:-2] == deps and seen[1][-2:] == CONSTRAINTS
+    assert seen[2][-4:] == ["--no-deps", "qwen-asr", *CONSTRAINTS]
     assert all("sox" not in " ".join(c[3:]) for c in seen[1:])
 
 
