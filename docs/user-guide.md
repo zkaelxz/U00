@@ -230,7 +230,7 @@ Credits keep the original script and gain a romanized companion: 一半山川 di
 
 ### Fetching from JS-heavy sites
 
-Some sites (baihehub, Fanjiao) build pages with JavaScript, so a plain fetch returns an empty shell. `page_fetch.py` handles it in three layers: it detects an unrendered shell and says so; with `playwright` installed (`pip install playwright`, then `playwright install chromium`) it re-fetches with a real browser (falling back to an installed Chrome or Edge, or the program named by the `BAIHE_BROWSER_PATH` system environment variable; Diagnostics > Setup shows whether one was found); and manual paste (copy the page text into the app) always works.
+Some sites (baihehub, Fanjiao) build pages with JavaScript, so a plain fetch returns an empty shell. `page_fetch.py` handles it in three layers: it detects an unrendered shell and says so; with the `playwright` package installed (Diagnostics > Packages, or `pip install playwright`) it re-fetches with a real browser: an installed Chrome or Edge, Playwright's own Chromium, or the program named by the `BAIHE_BROWSER_PATH` system environment variable. No browser download is needed when Chrome or Edge is installed; Diagnostics > Setup shows the package and the browser separately; and manual paste (copy the page text into the app) always works.
 
 ## Reliability
 
