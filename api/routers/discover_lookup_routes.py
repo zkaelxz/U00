@@ -1,6 +1,6 @@
 """
-api/routers/discover_lookup_routes.py -- Discover's network helpers (spec
-D-2; API batch 1). Thin: see services/discover_lookup_service.py. Same
+api/routers/discover_lookup_routes.py -- Discover's network helpers.
+Thin: see services/discover_lookup_service.py. Same
 /api/discover prefix as the catalog routes (discover_routes.py), no path
 overlap.
 

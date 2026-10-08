@@ -19,7 +19,7 @@ class SourcesUrlImportAiRequest(SourcesUrlImportRequest):
     (off by default; it is only asked when deterministic extraction comes
     back empty or ambiguous). `engine` omitted = the saved default engine.
     `review`: open a Review extraction instead of writing, even when the
-    result looks sure (parity SO10)."""
+    result looks sure."""
     use_ai: StrictBool = False
     engine: Optional[StrictStr] = Field(default=None, min_length=1, max_length=40)
     review: StrictBool = False
@@ -59,7 +59,7 @@ class SourcesComicUrlImportRequest(SourcesUrlImportAiRequest):
 
 
 # ---------------------------------------------------------------------------
-# SO10: Review extraction (GET/POST /api/sources/dramas/{drama_id}/extraction...)
+# Review extraction (GET/POST /api/sources/dramas/{drama_id}/extraction...)
 # ---------------------------------------------------------------------------
 
 class ExtractionFieldConfidence(BaseModel):
