@@ -388,7 +388,7 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
     errors = []
     # Before the loop: a refusal must not be mistaken for a backend failure
     # and retried on the other backend.
-    memory_headroom.check("separation", "separator", use_gpu is not False)
+    memory_headroom.check_separation(use_gpu)
     for name in order:
         try:
             return _BACKENDS[name](audio_path, out_path, progress_cb=progress_cb,

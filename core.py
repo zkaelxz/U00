@@ -520,7 +520,7 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
     target = local_model_path or model_size
     cache_key = f"{target}_{'gpu' if use_gpu else 'cpu'}"
     import memory_headroom as mh
-    mh.before_load("whisper", model_size, use_gpu, cache_key in _whisper_model_cache)
+    mh.before_load("whisper", target, use_gpu, cache_key in _whisper_model_cache)
     if cache_key in _whisper_model_cache:
         return _whisper_model_cache[cache_key]
 

@@ -18,14 +18,14 @@ def reserve(monkeypatch):
         monkeypatch.setattr(mh, "reserved_mb", lambda memory: (vram if memory == "vram" else ram) * GB)
         readings = {"vram": None if vram_free is None else (32 * GB, vram_free),
                     "ram": None if ram_free is None else (32 * GB, ram_free)}
-        monkeypatch.setattr(mh, "read_memory_mb", lambda memory: readings[memory])
+        monkeypatch.setattr(mh, "read_memory_mb", lambda memory, at_load=False: readings[memory])
     return _set
 
 
 def test_off_reads_nothing(monkeypatch):
     monkeypatch.setattr(mh, "reserved_mb", lambda memory: 0.0)
 
-    def boom(memory):
+    def boom(memory, at_load=False):
         raise AssertionError("memory must not be read while the reserve is 0")
     monkeypatch.setattr(mh, "read_memory_mb", boom)
     mh.check("whisper", "large-v3", True)
@@ -206,3 +206,91 @@ def test_loaded_models_reports_memory_and_reserve(monkeypatch, reserve):
     assert row["vram"]["state"] == "ok" and row["vram"]["reserved_bytes"] == 4 * 1024 ** 3
     assert row["ram"]["state"] == "unknown" and row["ram"]["free_bytes"] is None
     assert not any("/" in str(v) for v in row["vram"].values() if isinstance(v, str) and v != "ok")
+
+
+class _TrippedTorch:
+    """A torch stand-in whose every CUDA call fails the test."""
+    class cuda:
+        @staticmethod
+        def is_available():
+            raise AssertionError("torch.cuda touched")
+        is_initialized = mem_get_info = is_available
+
+
+def test_status_and_settings_save_never_touch_torch(monkeypatch, isolated_db):
+    import sys
+    import diagnostics
+    monkeypatch.setitem(sys.modules, "torch", _TrippedTorch)
+    monkeypatch.setattr(diagnostics, "external_gpu_load",
+                        lambda: {"memory_total_mb": 8 * GB, "memory_free_mb": 6 * GB})
+    assert loaded_models_service._memory_row()["vram"]["free_bytes"] == 6 * GB * mh.MB
+    settings_service.set_settings({"keep_free_vram_gb": 1})
+
+
+def test_load_time_check_uses_torch_only_once_cuda_is_initialized(monkeypatch):
+    import sys
+
+    class Torch:
+        class cuda:
+            initialized = False
+            is_available = staticmethod(lambda: True)
+            is_initialized = staticmethod(lambda: Torch.cuda.initialized)
+            mem_get_info = staticmethod(lambda: (3 * GB * mh.MB, 8 * GB * mh.MB))
+    monkeypatch.setitem(sys.modules, "torch", Torch)
+    monkeypatch.setattr(mh, "reserved_mb", lambda memory: 4 * GB)
+    import diagnostics
+    monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: None)
+    assert mh.read_memory_mb("vram", at_load=True) is None
+    Torch.cuda.initialized = True
+    assert mh.read_memory_mb("vram", at_load=True) == (8 * GB, 3 * GB)
+
+
+def test_whisper_offline_folder_uses_its_model_name_never_the_path(reserve):
+    reserve(vram=4, vram_free=8 * GB)
+    with pytest.raises(mh.HeadroomError) as ei:
+        mh.check("whisper", "D:\\models\\faster-whisper-large-v3", True)
+    assert "Whisper large-v3" in str(ei.value) and "models" not in str(ei.value)
+    mh.check("whisper", "/srv/my-finetune", True)  # unknown folder: skipped, not guessed
+
+
+@pytest.mark.parametrize("torch_cuda, refused", [(True, True), (False, False)])
+def test_separation_none_follows_what_the_library_would_pick(monkeypatch, reserve, torch_cuda, refused):
+    import sys, types
+    reserve(vram=4, vram_free=1 * GB, ram=0)
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(
+        cuda=types.SimpleNamespace(is_available=lambda: torch_cuda)))
+    if refused:
+        with pytest.raises(mh.HeadroomError):
+            mh.check_separation(None)
+    else:
+        mh.check_separation(None)
+    monkeypatch.delitem(sys.modules, "torch")
+    mh.check_separation(None)  # device unknown: skipped
+    with pytest.raises(mh.HeadroomError):
+        mh.check_separation(True)
+
+
+class TestRefusalStopsTheRun:
+    def test_headroom_error_is_not_a_fallback_error(self):
+        from engine_backends.fallback import is_fallback_error
+        assert not is_fallback_error(mh.HeadroomError("no room"))
+
+    def test_multi_batch_run_stops_after_one_attempt(self, monkeypatch):
+        import translate_engines as te
+        from core import Line
+        monkeypatch.setattr("engine_backends.shared._cancellable_sleep",
+                            lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not retry")))
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(8)]
+
+        class Engine:
+            supports_reference = False
+            calls = 0
+
+            def translate_batch(self, zh_lines, context):
+                Engine.calls += 1
+                raise mh.HeadroomError("Not loading the Ollama model x: no room.")
+
+        _, errors = te.translate_lines_with_engine(lines, Engine(), {}, batch_size=2)
+        assert Engine.calls == 1
+        assert len(errors) == 1 and "no room" in errors[0]["error"]
+        assert not any(l.en for l in lines)

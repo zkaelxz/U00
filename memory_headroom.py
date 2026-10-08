@@ -63,11 +63,16 @@ def reserved_mb(memory: str) -> float:
         return 0.0
 
 
-def _read_vram_mb():
-    torch = sys.modules.get("torch")
+def _read_vram_mb(at_load: bool = False):
+    # torch's mem_get_info creates a CUDA context if none exists, and that
+    # context holds VRAM until the process exits: exactly what this setting
+    # reserves. So only the load-time check, and only once CUDA is already
+    # initialized by a job, may use it; the settings panel and Settings save
+    # read nvidia-smi.
+    torch = sys.modules.get("torch") if at_load else None
     if torch is not None:
         try:
-            if torch.cuda.is_available():
+            if torch.cuda.is_initialized():
                 free, total = torch.cuda.mem_get_info()
                 return total / MB, free / MB
         except Exception:
@@ -111,9 +116,10 @@ def _read_ram_mb():
     return None
 
 
-def read_memory_mb(memory: str):
-    """(total_mb, free_mb) for "vram" or "ram", or None when it can't be read."""
-    return _read_vram_mb() if memory == "vram" else _read_ram_mb()
+def read_memory_mb(memory: str, at_load: bool = False):
+    """(total_mb, free_mb) for "vram" or "ram", or None when it can't be read.
+    at_load: the caller is about to load a model (see _read_vram_mb)."""
+    return _read_vram_mb(at_load) if memory == "vram" else _read_ram_mb()
 
 
 def total_mb(memory: str):
@@ -141,12 +147,16 @@ def _warn_unreadable_once(memory: str) -> None:
 def check_need(label: str, need_mb, memory: str, free_mb=None) -> None:
     """Raises HeadroomError if loading `label` (about `need_mb` MB of
     `memory`: "vram" or "ram") would leave less than the reserve free.
-    `free_mb` skips the read when the caller already has it."""
+    `free_mb` skips the read when the caller already has it.
+
+    Check and load are not atomic: two GPU jobs running in parallel
+    (gpu_max_parallel) can both pass on the same free memory. The reserve is
+    a best-effort guard against one job's footprint, not a lock."""
     reserved = reserved_mb(memory)
     if reserved <= 0 or not need_mb:
         return
     if free_mb is None:
-        reading = read_memory_mb(memory)
+        reading = read_memory_mb(memory, at_load=True)
         if reading is None:
             _warn_unreadable_once(memory)
             return
@@ -161,12 +171,21 @@ def check_need(label: str, need_mb, memory: str, free_mb=None) -> None:
         "once no job is running), use a smaller model or int8 where offered, or lower the setting.")
 
 
+def whisper_key(name: str):
+    """The known model size for a Whisper size name or an offline model
+    folder (by its last path part, e.g. faster-whisper-large-v3), else None.
+    Only this key ever reaches user text, never the folder path."""
+    name = str(name or "").replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].lower()
+    name = name.removeprefix("faster-whisper-").removeprefix("whisper-").removesuffix(".en")
+    return name if name in _WHISPER_MB else None
+
+
 def estimate_mb(kind: str, name: str):
     """(vram_mb, ram_mb) for a model, or None when it isn't known (a custom
     model folder, a new size): an unknown model is never blocked."""
     name = str(name or "")
     if kind == "whisper":
-        return _WHISPER_MB.get(name.removesuffix(".en"))
+        return _WHISPER_MB.get(whisper_key(name))
     if kind == "qwen_asr":
         return _QWEN_ASR_MB.get(name)
     return _ESTIMATES_MB.get(kind, {}).get(name)
@@ -177,8 +196,26 @@ def check(kind: str, name: str, use_gpu: bool) -> None:
     need = estimate_mb(kind, name)
     if need is None:
         return
+    if kind == "whisper":
+        name = whisper_key(name)
     label = f"{_LABELS.get(kind, kind)} {name}" if kind in ("whisper", "qwen_asr") else _LABELS[kind]
     check_need(label, need[0] if use_gpu else need[1], "vram" if use_gpu else "ram")
+
+
+def check_separation(use_gpu) -> None:
+    """use_gpu=None leaves the device to the separator library, which takes
+    CUDA whenever torch reports it. Mirror that without creating a CUDA
+    context: only an already-imported torch is asked, and when the device
+    can't be told the check is skipped rather than guessed."""
+    if use_gpu is None:
+        torch = sys.modules.get("torch")
+        try:
+            use_gpu = bool(torch is not None and torch.cuda.is_available())
+        except Exception:
+            return
+        if not use_gpu:
+            return
+    check("separation", "separator", bool(use_gpu))
 
 
 def before_load(kind: str, name: str, use_gpu: bool, cached: bool) -> None:

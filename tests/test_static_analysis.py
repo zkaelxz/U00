@@ -114,6 +114,11 @@ class TestHttpCallsHaveTimeouts:
         assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
 
 
+    def test_memory_headroom(self):
+        problems = _find_requests_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "memory_headroom.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
     def test_sources_http_and_dictionary(self):
         # sources/http.py (session.request) and dictionary.py (urlopen).
         for name in ("sources/http.py", "dictionary.py"):
