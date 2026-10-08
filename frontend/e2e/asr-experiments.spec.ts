@@ -2,11 +2,10 @@ import { expect, test } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 import { openTranscribeOptions } from './sourceHelpers'
 
-// Steps 101/103/104: Settings > Transcription experiments, the MOSS choice in
-// Transcribe > Advanced, and the "where did speaker detection run" note.
+// Steps 101/103: Settings > Transcription experiments and the "where did speaker detection run" note.
 // Settings hit the real (seeded) API; every change is restored at the end.
 
-test('transcription experiments save, and MOSS appears as a backend only while on', async ({ page }) => {
+test('transcription experiments save, and MOSS is not offered', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Transcription experiments' })
@@ -23,29 +22,20 @@ test('transcription experiments save, and MOSS appears as a backend only while o
   await openSettingsGroups(page)
   await expect(page.getByRole('region', { name: 'Transcription experiments' }).getByLabel('Qwen3-ASR batch size', { exact: true })).toHaveValue('4')
 
-  const moss = page.getByRole('switch', { name: 'MOSS-Transcribe-Diarize (experimental)' })
-  await expect(moss).toBeChecked({ checked: false })
-  await Promise.all([saved(), moss.click()])
-  await expect(moss).toBeChecked()
+  await expect(page.getByRole('switch', { name: /MOSS/ })).toHaveCount(0)
 
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
   await page.locator('.section-title', { hasText: /^Advanced$/ }).click()
   const backend = page.getByLabel('ASR backend', { exact: true })
-  await expect(backend.locator('option', { hasText: 'MOSS-Transcribe-Diarize (experimental)' })).toHaveCount(1)
+  await expect(backend.locator('option', { hasText: 'MOSS' })).toHaveCount(0)
 
-  // Restore both settings.
+  // Restore the batch size.
   await page.goto('/#/settings')
   await openSettingsGroups(page)
   const card2 = page.getByRole('region', { name: 'Transcription experiments' })
   await card2.getByLabel('Qwen3-ASR batch size', { exact: true }).fill('1')
   await Promise.all([saved(), card2.getByRole('button', { name: 'Save batch size' }).click()])
-  await Promise.all([saved(), page.getByRole('switch', { name: 'MOSS-Transcribe-Diarize (experimental)' }).click()])
-
-  await page.goto('/#/drama/1/source')
-  await openTranscribeOptions(page)
-  await page.locator('.section-title', { hasText: /^Advanced$/ }).click()
-  await expect(page.getByLabel('ASR backend', { exact: true }).locator('option', { hasText: 'MOSS' })).toHaveCount(0)
 })
 
 test('Speakers says where the last speaker detection ran', async ({ page }) => {
