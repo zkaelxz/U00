@@ -231,8 +231,11 @@ def authenticate(authorization_headers, ip: str = "", now: float = None) -> dict
     Bearer scheme and a well-formed token, else 401. A token that verifies
     succeeds even from an address over the failure limit (a revoked laptop
     retrying must not lock out valid tokens behind the same address); an
-    unverified one gets 429 while the client is over the limit, which still
-    caps guessing and database lookups per address. 403 when the user lacks `extension.send`.
+    unverified one gets 429 while the client is over the limit. The throttle
+    counts failures per address and answers 429 only for failures; the
+    token's security rests on its 256 bits of randomness, and the strict
+    format check keeps malformed tokens away from the database. 403 when the
+    user lacks `extension.send`.
     Records the use at most once a minute per token."""
     keys = _failure_keys(ip)
     now = time.time() if now is None else now

@@ -469,8 +469,8 @@ def start_export_zip(drama_ids=None) -> dict:
 
 
 def _sanitized_snapshot(dest: str):
-    """A consistent database snapshot with every auth session removed
-    (secure_delete, so the session hashes aren't left in free pages) and
+    """A consistent database snapshot with every session and device token
+    removed (secure_delete, so the hashes aren't left in free pages) and
     folded out of WAL mode, so dest is one self-contained file."""
     import sqlite3
     db.snapshot_database(dest)
@@ -478,9 +478,10 @@ def _sanitized_snapshot(dest: str):
         conn = sqlite3.connect(dest, isolation_level=None)
         try:
             conn.execute("PRAGMA secure_delete = ON")
-            if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
-                            "AND name = 'auth_sessions'").fetchone():
-                conn.execute("DELETE FROM auth_sessions")
+            have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+            for table in ("auth_sessions", "extension_device_tokens"):
+                if table in have:
+                    conn.execute(f"DELETE FROM {table}")
             conn.execute("PRAGMA journal_mode = DELETE")
         finally:
             conn.close()
