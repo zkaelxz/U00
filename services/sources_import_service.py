@@ -75,6 +75,7 @@ from services import sources_extraction_service as extraction
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
+from services.sources_extension_service import require_url_not_extension_only
 from services.sources_registry_service import (import_supported, require_source, scrub,
                                               safe_url)
 from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, enabled_source,
@@ -553,6 +554,7 @@ def start_url_import(url, drama_id, local: bool = True, principal=None,
             or not 1 <= follow_pages <= MAX_FOLLOW_PAGES):
         raise InvalidInputError(f"Follow between 1 and {MAX_FOLLOW_PAGES} pages.")
     url = check_public_url(url)
+    require_url_not_extension_only(url)
     drama = require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
         raise InvalidInputError("Novel text imports into a novel drama. Pick one, "
@@ -681,6 +683,7 @@ def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
     chapter URL, added to a manhua/manga/manhwa drama's pages (Scanlate).
     Same checks and errors as start_url_import."""
     url = check_public_url(url)
+    require_url_not_extension_only(url)
     drama = require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in COMIC_MEDIA_TYPES:
         raise InvalidInputError("Comic pages import into a manhua, manga or manhwa drama. "
