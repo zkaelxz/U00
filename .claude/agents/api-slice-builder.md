@@ -29,7 +29,7 @@ The pattern:
 
 Every `requests` call has `timeout=`. LLM results are matched by id, never by position. Errors go through `translate_engines.redact_secrets`.
 
-Work on the branch the lead names, off the latest `origin/baihe-subtitler`, and confirm the base before starting. Don't touch `tabs/`, `ui/` or `app.py` (Streamlit freeze).
+Work on the branch the lead names, off the latest `origin/baihe-subtitler`, and confirm the base before starting.
 
 Before handing back, run:
 - `python -c "import api.server"`

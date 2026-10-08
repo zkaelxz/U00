@@ -7,6 +7,8 @@ Nothing here is required reading to use Baihe Studio; it exists for
 whoever is extending or debugging the codebase (including a future
 session picking this project back up).
 
+React + FastAPI replaced Streamlit; the Streamlit-era entries below are history, and the removed code is in `docs/archive/`.
+
 ## Why translation used to stop when switching tabs
 
 Every tab's content renders in the same script execution regardless of

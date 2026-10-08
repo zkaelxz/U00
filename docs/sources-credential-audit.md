@@ -39,7 +39,7 @@ Audited 2026-09-30 against `baihe-subtitler` @ f09a592. Scope: the content-sourc
 
 ## Tests (`tests/test_sources_credential_audit.py`)
 
-- **Static:** these checks cover the sources layer, `page_fetch.py` and the API/service consumers of the yt-dlp cookie setting (`video_download`, `live_translate`, the URL-media, Live and settings services and routes). The Streamlit consumers under `tabs/` are not scanned, because Streamlit is frozen and being deleted:
+- **Static:** these checks cover the sources layer, `page_fetch.py` and the API/service consumers of the yt-dlp cookie setting (`video_download`, `live_translate`, the URL-media, Live and settings services and routes):
   - no `.storage_state()`, `.add_cookies()`, `.cookies()` or `storage_state=`, no `document.cookie`/`localStorage`/`sessionStorage` script, and no `open`/`connect`/`copytree` of a profile folder;
   - `.cookies` is read only through the two exact expressions above (a new read fails until it is listed, with a reason, in the test and this note);
   - no store, health, job-result, drama, JSON, file-write or log call is passed headers, cookies, a cookie-derived `ticket`, a yt-dlp info dict (`raw_metadata`, `result_info`), or `asdict()`/`vars()` of an object.
