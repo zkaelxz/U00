@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 import background_jobs
 import core
+import memory_headroom
 from services import settings_service
 from services.service_errors import ConflictError
 
@@ -24,6 +25,9 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 LLAMA_CPP_PORT = 8080
 PROBE_TIMEOUT_SECONDS = 2
 NVIDIA_SMI_TIMEOUT_SECONDS = 5
+
+_UNKNOWN_MEMORY = {"state": "unknown", "total_bytes": None, "free_bytes": None,
+                   "reserved_bytes": 0}
 
 BUSY_MESSAGE = ("A transcription or other GPU job is running. Free the models "
                 "when it has finished.")
@@ -160,6 +164,12 @@ def _gpu_job_running() -> bool:
                for job in background_jobs.list_all_jobs().values())
 
 
+def _memory_row() -> dict:
+    # Reads the same source the loaders' keep-free check uses, so the panel
+    # shows what that check will see.
+    return memory_headroom.status()
+
+
 def _guarded(source, fallback):
     try:
         return source()
@@ -173,6 +183,7 @@ def get_loaded_models() -> dict:
         "ollama": _guarded(_ollama_rows, {"state": "unavailable", "models": []}),
         "app": _guarded(_app_rows, {"state": "unavailable", "models": []}),
         "gpu": _guarded(_gpu_row, {"state": "unknown"}),
+        "memory": _guarded(_memory_row, {"vram": _UNKNOWN_MEMORY, "ram": _UNKNOWN_MEMORY}),
         "llama_cpp_running": _guarded(_llama_cpp_running, False),
         # Unknown job state must not read as "idle" for the free action.
         "gpu_job_running": _guarded(_gpu_job_running, True),
