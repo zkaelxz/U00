@@ -19,6 +19,11 @@ export type DiskUsageItem = {
   modified_at: string | null
   is_link: boolean
   contains_link: boolean
+  // Linked folders stored elsewhere that this item is or holds, kept out of size_bytes.
+  // null: none was measured. Never names where they are.
+  linked_bytes: number | null
+  linked_files: number | null
+  linked_complete: boolean | null
   complete: boolean
   protected: boolean
   protected_reason: string | null
@@ -35,6 +40,10 @@ export type DiskUsageScan = {
   parent: string | null
   total_bytes: number
   file_count: number
+  // Plus this much in linked folders stored elsewhere: not part of total_bytes.
+  linked_bytes: number
+  linked_files: number
+  linked_complete: boolean
   items: DiskUsageItem[]
   partial: boolean
   partial_reason: 'entries' | 'time' | 'items' | null
