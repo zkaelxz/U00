@@ -128,7 +128,7 @@ EXCLUDED_FILE_NAMES = frozenset({
     "start.bat", "start.ps1", "uninstall.bat", "uninstall_path_cleanup.ps1",
     "make_shortcut.bat", "make_lock.bat",
     # Developer-only files. (run_tests.py ships: Diagnostics' file check
-    # expects it, diagnostics.EXPECTED_TOP_LEVEL_FILES.)
+    # expects it, expected_files.EXPECTED_TOP_LEVEL_FILES.)
     "pytest.ini", "conftest.py", "CLAUDE.md", "FILE_ORGANIZATION.md",
     ".gitignore", ".gitattributes", "Thumbs.db", ".DS_Store",
 })
