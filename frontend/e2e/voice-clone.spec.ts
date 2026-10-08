@@ -12,7 +12,7 @@ test('clone warning, extract candidates, preview and pick one', async ({ page })
 
   await expect(page.getByTestId('dub-clone-warning')).toContainText('1 speaker is not set up for cloning')
   const wei = panel.getByRole('listitem', { name: 'Voice for SPEAKER_00' })
-  await expect(wei.getByTestId('clone-warning')).toContainText('voice of the engine picked in Dub')
+  await expect(wei.getByTestId('clone-warning')).toContainText('The GPT-SoVITS engine was removed')
   await expect(wei.getByTestId('clip-status')).toContainText('No reference clip')
 
   await wei.getByRole('button', { name: 'Find clips in the audio' }).click()

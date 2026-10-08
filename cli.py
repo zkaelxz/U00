@@ -975,11 +975,8 @@ def cmd_dub(args):
         # Raised, not skipped, so _run_batch counts the drama as failed.
         dub_service.require_can_generate(tts_engine, chars, narrate_original, source_lang)
         clone_map = dub_module.clone_map_from_characters(
-            chars, ddir, gpt_sovits_url=(getattr(args, "gpt_sovits_url", None)
-                                          or settings_service.resolve_key("gpt_sovits_url") or None),
-            ref_language=source_lang, default_engine=tts_engine,
+            chars, ddir, default_engine=tts_engine,
             speaker_labels={ln.speaker or None for ln in lines})
-        dub_service.require_every_speaker_voiced(clone_map, lines)
 
         build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
         stretch = {} if is_narration else dict(
@@ -997,8 +994,8 @@ def cmd_dub(args):
 
         # Same clone_map_uses_local_model check the Workspace tab's
         # own Dub job uses to decide gpu_touching -- only some clone/TTS
-        # backends actually load a local model onto the GPU (GPT-SoVITS,
-        # OmniVoice, ...); only an empty map skips the cross-process GPU lock.
+        # backends actually load a local model onto the GPU; only an empty map
+        # skips the cross-process GPU lock.
         _gpu_holder_box = [None]
 
         def _progress(frac, did=d["id"]):
@@ -1012,7 +1009,6 @@ def cmd_dub(args):
         with _dub_gpu_ctx as _gpu_holder_box[0]:
             out_path, dub_errors = build_fn(
                 lines, ddir, clone_map,
-                emotion_map=db.load_emotions(d["id"]),
                 progress_cb=_progress,
                 **stretch, **narration_kwargs,
             )
@@ -1491,9 +1487,6 @@ def main():
                        help="Voice engine for speakers whose character has none of its own "
                             f"({', '.join(dub_module.CLONE_ENGINES)}; same choice as the Dub "
                             f"stage). Defaults to {dub_module.DEFAULT_CLONE_ENGINE}.")
-    p_dub.add_argument("--gpt-sovits-url", default=None,
-                       help="GPT-SoVITS server for characters using it "
-                            f"(default {dub_module.GPT_SOVITS_DEFAULT_URL})")
     p_dub.add_argument("--m4b", action="store_true",
                        help="For novel narration: also export an M4B audiobook with chapter markers")
     p_dub.set_defaults(func=cmd_dub)

@@ -187,8 +187,6 @@ const ENGINE_REPO_HINTS: Record<string, RegExp> = {
   'Qwen3-ASR': /qwen/i,
   'SenseVoice (FunASR)': /sensevoice|funasr|funaudio/i,
   OmniVoice: /omnivoice/i,
-  Chatterbox: /chatterbox/i,
-  TADA: /tada/i,
   'manga-ocr': /manga-?ocr/i,
 }
 
