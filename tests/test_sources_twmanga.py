@@ -186,6 +186,60 @@ class TestDownload:
         assert t.calls == []
 
 
+class TestDownloadRedirect:
+    URL = f"https://s1.bzcdn.net/fcomic/{SLUG}/0/0-xxxx/1.jpg"
+
+    def test_an_image_that_ends_on_another_host_is_not_saved(self):
+        from sources.models import PageRef
+        r = image(10, 10)
+        r.url = "https://cdn.evil.example/1.jpg"
+        a, _ = _adapter({self.URL: r})
+        with pytest.raises(SourceError) as e:
+            a.download_page(PageRef("twmanga", "0_0", 0, self.URL))
+        assert e.value.reason == FailureReason.ACCESS_DENIED and "evil" not in str(e.value)
+
+    def test_an_image_that_ends_on_another_cdn_shard_is_saved(self):
+        from sources.models import PageRef
+        r = image(10, 10)
+        r.url = "https://s2.bzcdn.net/1.jpg"
+        a, _ = _adapter({self.URL: r})
+        assert a.download_page(PageRef("twmanga", "0_0", 0, self.URL))[1] == ".jpg"
+
+    @pytest.mark.parametrize("url", ["https://s0.bzcdn.net/1.jpg", "https://s10.bzcdn.net/1.jpg",
+                                     "https://x.bzcdn.net/1.jpg"])
+    def test_unlisted_subdomains_are_refused(self, url):
+        assert not twmanga.is_image_url(url)
+
+
+class TestStrictIds:
+    @pytest.mark.parametrize("bad", ["\u00b2", "1%0A", "\u0661"])
+    def test_non_ascii_digits_and_trailing_newline_are_not_slots(self, bad):
+        href = f"/user/page_direct?comic_id={SLUG}&section_slot={bad}&chapter_slot=1"
+        assert twmanga._slots(href) is None
+
+    def test_a_trailing_newline_in_the_slug_is_not_a_slug(self):
+        assert twmanga._slots("/user/page_direct?comic_id=abc%0A&section_slot=0&chapter_slot=1") is None
+        a, t = _adapter({})
+        for bad in ("abc\n",):
+            with pytest.raises(SourceError):
+                a.get_chapters(bad)
+            with pytest.raises(SourceError):
+                a.get_pages(ChapterInfo("twmanga", bad, "0_0", "x"))
+            with pytest.raises(SourceError):
+                a.get_pages(ChapterInfo("twmanga", SLUG, "0_1\n", "x"))
+        assert t.calls == []
+
+    def test_an_absurdly_long_digit_run_is_a_layout_error_not_a_bare_valueerror(self):
+        href = f"/user/page_direct?comic_id={SLUG}&section_slot={'9' * 5000}&chapter_slot=1"
+        with pytest.raises(SourceError) as e:
+            twmanga._slots(href)
+        assert e.value.reason == FailureReason.LAYOUT_CHANGED
+
+    def test_normal_slots_still_parse(self):
+        assert twmanga._slots(f"/user/page_direct?comic_id={SLUG}&section_slot=00&chapter_slot=12") \
+            == (SLUG, "0_12")
+
+
 class TestHostAllowList:
     def test_the_other_mirror_is_accepted_after_a_redirect(self):
         a, _ = _adapter({f"{TW}/comic/{SLUG}": _redirected(_fx("series_short.html"),
@@ -206,7 +260,7 @@ class TestHostAllowList:
         assert twmanga.is_page_host("https://www.twmanga.com/x")
         assert not twmanga.is_page_host("https://twmanga.com@evil.example/")
         assert not twmanga.is_page_host("ftp://www.twmanga.com/")
-        assert twmanga.is_image_url("https://s1-2.bzcdn.net/a.jpg")
+        assert twmanga.is_image_url("https://s2.bzcdn.net/a.jpg")
         assert not twmanga.is_image_url("https://static-tw.baozimh.com/a.jpg")
 
 
@@ -260,7 +314,8 @@ class TestParseUrl:
 class TestPacing:
     def test_every_host_has_a_floor_of_at_least_five_seconds(self):
         floors = twmanga.TwmangaSource.host_min_interval
-        assert set(floors) == {"www.twmanga.com", "www.twbzmg.com", "s1.bzcdn.net"}
+        assert set(floors) == {"www.twmanga.com", "www.twbzmg.com",
+                               *(f"s{n}.bzcdn.net" for n in range(1, 10))}
         assert min(floors.values()) >= 5.0
 
     def test_one_request_at_a_time_whatever_the_global_setting(self, isolated_db):

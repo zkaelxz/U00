@@ -7,7 +7,7 @@ challenge and is never fetched), but a different site from the
 godamh/baozimh.org family in baozimh.py: it is a Nuxt SSR app with its own
 URL scheme. Checked against the live site on 2026-10-08, a handful of
 requests at least 5 s apart (docs/research/twmanga-vetting.md has the
-earlier check):
+earlier check; its redirect chain and image delivery notes apply here):
 
   search     GET /search?q=<query>              .comics-card (a.comics-card__poster
                                                 href=/comic/<slug>, h3 title)
@@ -32,11 +32,16 @@ Things that are easy to get wrong:
   302 to the other mirror. The slots in the link are the chapter's own
   address, so the chapter URL is built from them and the redirect is never
   requested.
-* Image URLs are plain, unsigned and need no Referer or cookie. They are
-  only fetched from the site's own CDN (bzcdn.net), because the URL comes
-  out of fetched HTML.
-* Page and series URLs may be served by either mirror. A response that
-  ends up on any other host, or off https, is refused.
+* Image URLs are plain, unsigned and need no Referer or cookie. The URL
+  comes out of fetched HTML, so the adapter only requests numbered shards
+  of the site's CDN (s1-s9.bzcdn.net) and refuses a download whose final
+  URL is anywhere else.
+* Page and series URLs may be served by either mirror. SourceClient has no
+  per-request redirect control, so a redirect to another host is followed
+  by the transport (each hop still passes url_guard.resolve_public) before
+  the adapter sees the final URL; the adapter then refuses the response if
+  it ended on any other host, or off https. The adapter never requests
+  such a host itself; it cannot stop a mirror from sending it there.
 
 Not verified: series with more than one section_slot, chapters whose
 images are split over several pages, search pagination (the first page
@@ -54,18 +59,24 @@ from ..registry import register
 
 PAGE_HOSTS = ("www.twmanga.com", "www.twbzmg.com")
 MIRRORS = [f"https://{h}" for h in PAGE_HOSTS]
-IMAGE_HOST_SUFFIX = "bzcdn.net"
+# Only s1 was seen live; the numbered pattern is an assumption about how the
+# CDN shards, kept to single digits so the pacing floors below can name
+# every accepted host (the client's floors are per exact host).
+IMAGE_HOSTS = tuple(f"s{n}.bzcdn.net" for n in range(1, 10))
 
 # Floors on top of the global pace, which is already 3-8 s per request.
 # The CDN gets the same floor: nothing was measured that justifies faster.
 PAGE_INTERVAL = 5.0
-HOST_INTERVALS = {**{h: PAGE_INTERVAL for h in PAGE_HOSTS}, "s1.bzcdn.net": PAGE_INTERVAL}
+HOST_INTERVALS = {h: PAGE_INTERVAL for h in (*PAGE_HOSTS, *IMAGE_HOSTS)}
 
 _SLUG = r"[A-Za-z0-9_-]+"
-_SLUG_RE = re.compile(rf"^{_SLUG}$")
-_CHAPTER_ID_RE = re.compile(r"^(\d+)_(\d+)$")
-_SERIES_URL = re.compile(rf"/comic/({_SLUG})/?$")
-_CHAPTER_URL = re.compile(rf"/comic/chapter/({_SLUG})/(\d+_\d+)\.html$")
+# fullmatch with explicit ASCII classes: `$` also matches before a trailing
+# newline, and `\d` / str.isdigit() accept non-ASCII digits like "²".
+_SLUG_RE = re.compile(_SLUG)
+_CHAPTER_ID_RE = re.compile(r"([0-9]+)_([0-9]+)")
+_DIGITS_RE = re.compile(r"[0-9]+")
+_SERIES_URL = re.compile(rf"/comic/({_SLUG})/?\Z")
+_CHAPTER_URL = re.compile(rf"/comic/chapter/({_SLUG})/(\d+_\d+)\.html\Z")
 _STATUS = {"連載中": "ongoing", "连载中": "ongoing", "已完結": "completed", "已完结": "completed",
            "完結": "completed", "完结": "completed"}
 
@@ -104,8 +115,7 @@ def is_image_url(url: str) -> bool:
         host = (parts.hostname or "").lower()
     except ValueError:
         return False
-    return parts.scheme == "https" and (host == IMAGE_HOST_SUFFIX
-                                        or host.endswith("." + IMAGE_HOST_SUFFIX))
+    return parts.scheme == "https" and host in IMAGE_HOSTS
 
 
 def _chapter_path(slug: str, chapter_id: str) -> str:
@@ -121,9 +131,13 @@ def _slots(href: str):
     slug = (q.get("comic_id") or [""])[0]
     section = (q.get("section_slot") or [""])[0]
     chapter = (q.get("chapter_slot") or [""])[0]
-    if not (_SLUG_RE.match(slug) and section.isdigit() and chapter.isdigit()):
+    if not (_SLUG_RE.fullmatch(slug) and _DIGITS_RE.fullmatch(section)
+            and _DIGITS_RE.fullmatch(chapter)):
         return None
-    return slug, f"{int(section)}_{int(chapter)}"
+    try:
+        return slug, f"{int(section)}_{int(chapter)}"
+    except ValueError:          # int() refuses absurdly long digit runs
+        raise LayoutChanged("a valid chapter link") from None
 
 
 @register
@@ -149,6 +163,8 @@ class TwmangaSource(SourceAdapter):
 
     def _get(self, path: str, action: str):
         resp = self.client.get_with_mirrors(path, self.mirrors, action=action)
+        # Checked after the fact: the transport has already followed any
+        # redirect, so this refuses the response, it does not prevent the GET.
         if not is_page_host(resp.url or getattr(resp, "mirror", "")):
             raise WrongHost("a page")
         return resp.text, getattr(resp, "mirror", self.mirrors[0])
@@ -177,7 +193,7 @@ class TwmangaSource(SourceAdapter):
         return out
 
     def _series_page(self, series_id: str):
-        if not _SLUG_RE.match(series_id or ""):
+        if not _SLUG_RE.fullmatch(series_id or ""):
             raise LayoutChanged("a valid series id")
         if series_id not in self._series_pages:
             self._series_pages[series_id] = self._get(f"/comic/{series_id}",
@@ -215,12 +231,15 @@ class TwmangaSource(SourceAdapter):
             found.setdefault(slots[1], a.get_text(strip=True) or slots[1])
         if not found:
             raise LayoutChanged("the chapter list")
-        ordered = sorted(found, key=lambda cid: tuple(int(n) for n in cid.split("_")))
+        try:
+            ordered = sorted(found, key=lambda cid: tuple(int(n) for n in cid.split("_")))
+        except ValueError:      # int() refuses absurdly long digit runs
+            raise LayoutChanged("a valid chapter list") from None
         return [ChapterInfo(self.name, series_id, cid, found[cid],
                             base + _chapter_path(series_id, cid)) for cid in ordered]
 
     def get_pages(self, chapter):
-        if not (_SLUG_RE.match(chapter.series_id or "") and _CHAPTER_ID_RE.match(chapter.chapter_id or "")):
+        if not (_SLUG_RE.fullmatch(chapter.series_id or "") and _CHAPTER_ID_RE.fullmatch(chapter.chapter_id or "")):
             raise LayoutChanged("a valid chapter address")
         html, _ = self._get(_chapter_path(chapter.series_id, chapter.chapter_id),
                             f"Loading chapter {chapter.title}")
@@ -240,6 +259,8 @@ class TwmangaSource(SourceAdapter):
             raise WrongHost("a page image")
         resp = self.client.get(page.url, classify_body=False, headers=page.headers,
                                action=f"Downloading page {page.index + 1}")
+        if resp.url and not is_image_url(resp.url):
+            raise WrongHost("a page image")
         name = page.url.split("?", 1)[0].rsplit("/", 1)[-1]
         ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ".jpg"
         return resp.content, ext
