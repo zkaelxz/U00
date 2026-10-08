@@ -199,7 +199,7 @@ Stars from the owner's lists. Stage-2 repos are in section 4; their licences and
 
 | repo | stars | licence | last commit | what |
 |---|---|---|---|---|
-| stronghamjji/PersoDub | 39 | AGPL-3.0 | 2026-09-29 | Desktop (mac/win) video dubbing, "ElevenLabs/HeyGen alternative", local |
+| stronghamjji/PersoDub | 39 | AGPL-3.0 | 2026-09-29 | Desktop (mac/win) video dubbing positioned as a hosted-dubbing alternative, local |
 | johunsang/kekedubing | 20 | MIT | 2026-05-21 | Korean-authored local video translate+dub web app (FastAPI, single-file HTML) |
 | deijing/shiyibao | 15 | none | 2026-08-15 | 视译宝: Chinese AI video translate+dub workbench (FastAPI + React) |
 | akshinmrv/Voxa | 15 | MIT | 2026-08-20 | Single-file Python dubber (pipx voxa-dub) whose selling point is zero drift |
